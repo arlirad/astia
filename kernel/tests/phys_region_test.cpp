@@ -3,6 +3,7 @@
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
 #include <astia/mm/phys_region.hpp>
+#include <astia/mm/pinned_buffer.hpp>
 
 namespace {
 
@@ -135,5 +136,78 @@ ASTIA_TEST(phys_region_parent_death_detaches_children) {
     ASTIA_CHECK(grandchild != nullptr);
     grandchild->release();
     child->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(pinned_buffer_holds_frames_across_vma_release) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(4, true);
+    ASTIA_CHECK(region != nullptr);
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 4);
+
+    astia::mm::pinned_buffer pin;
+    ASTIA_CHECK(pin.acquire(region, 1, 2));
+    ASTIA_CHECK(pin.valid());
+    ASTIA_CHECK(pin.pages() == 2);
+    ASTIA_CHECK(region->references() == 2); // coverage + allocation reference
+
+    // The mapping goes away while the operation is in flight.  The two frames
+    // it referenced must survive — and so must the region object that holds
+    // the counters the pin will later decrement.  (Holding only the coverage
+    // would free the object here and leave release() writing into freed
+    // memory.)
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 2);
+
+    pin.release();
+    ASTIA_CHECK(!pin.valid());
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+
+    pin.release(); // idempotent, and safe on an empty buffer
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(pinned_buffer_exposes_one_contiguous_window) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(4, true);
+    ASTIA_CHECK(region != nullptr);
+
+    astia::mm::pinned_buffer pin;
+    ASTIA_CHECK(pin.acquire(region, 1, 3));
+
+    // A region is a contiguous frame run and the direct map is linear, so the
+    // pinned range is a single kernel window.  That is the property the ring
+    // leans on to hand a device one base address instead of a scatter list.
+    auto* base = static_cast<astia::u8*>(pin.direct(0));
+    ASTIA_CHECK(base == region->page_direct(1));
+    for (astia::usize page = 0; page < pin.pages(); ++page) {
+        ASTIA_CHECK(pin.direct(page) == base + page * phys_region::frame_size);
+        ASTIA_CHECK(pin.phys(page) ==
+                    region->base() + (1 + page) * phys_region::frame_size);
+    }
+
+    pin.release();
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(pinned_buffer_rejects_ranges_outside_the_region) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(2, true);
+    ASTIA_CHECK(region != nullptr);
+
+    astia::mm::pinned_buffer pin;
+    ASTIA_CHECK(!pin.acquire(nullptr, 0, 1));
+    ASTIA_CHECK(!pin.acquire(region, 0, 0));
+    ASTIA_CHECK(!pin.acquire(region, 2, 1)); // first page past the end
+    ASTIA_CHECK(!pin.acquire(region, 1, 2)); // runs off the end
+    ASTIA_CHECK(!pin.valid());
+
+    // A rejected acquire references nothing and takes nothing.
+    ASTIA_CHECK(region->references() == 1);
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 2);
+
+    pin.release(); // empty: a no-op
+    region->release();
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
