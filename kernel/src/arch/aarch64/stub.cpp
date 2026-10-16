@@ -1,8 +1,8 @@
 // Placeholder for aarch64 architecture implementation
-#include <astia/arch/context.hpp>
-#include <astia/arch/cpu.hpp>
-#include <astia/arch/interrupts.hpp>
-#include <astia/arch/layout.hpp>
+#include "context.hpp"
+#include "cpu.hpp"
+#include "interrupts.hpp"
+#include "layout.hpp"
 
 namespace astia::arch {
 
@@ -39,7 +39,7 @@ namespace astia::arch {
     // aarch64 (48-bit translation, TTBR1): the high half covers
     // 0xFFFF000000000000..0xFFFFFFFFFFFFFFFF; the image would link near the
     // top of it. Conventional values until a real port exists — each arch
-    // must provide its kernel start address (see astia/arch/layout.hpp).
+    // must provide its kernel start address (see "layout.hpp").
     const u64 kernel_base = 0xFFFF000000000000ull;
     const u64 image_base  = 0xFFFFFF8000000000ull;
     // No recursive window yet (no page_map port); 0 = disabled.

@@ -1,6 +1,6 @@
 #include <astia/init.hpp>
-#include <astia/proc/proc.hpp>
-#include <astia/proc/scheduler.hpp>
+#include "proc.hpp"
+#include "scheduler.hpp"
 
 namespace astia::proc {
 

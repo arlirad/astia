@@ -1,4 +1,4 @@
-#include <astia/dev/uart16550.hpp>
+#include "uart16550.hpp"
 #include <astia/init.hpp>
 
 namespace astia::dev {

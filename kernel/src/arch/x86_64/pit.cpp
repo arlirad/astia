@@ -1,6 +1,6 @@
-#include <astia/arch/x86_64/pit.hpp>
+#include "pit.hpp"
 
-#include <astia/arch/x86_64/io.hpp>
+#include "io.hpp"
 
 // PIT channel 0 only (IRQ0). Mode 3 runs a free-running square wave —
 // the tick interrupt; mode 0 counts one span down to 0 and stops — the

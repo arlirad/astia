@@ -4,10 +4,10 @@
 // against the export table (exports.cpp). Both are wired in here as plain
 // callbacks — no dependency injection, the loader just takes function pointers.
 
-#include <astia/elf/elf.hpp>
-#include <astia/mm/frame_allocator.hpp>
-#include <astia/mod/exports.hpp>
-#include <astia/mod/module.hpp>
+#include "elf.hpp"
+#include "frame_allocator.hpp"
+#include "exports.hpp"
+#include "module.hpp"
 
 namespace astia::mod {
 

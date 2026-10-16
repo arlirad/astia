@@ -1,4 +1,4 @@
-#include <astia/initrd/initrd.hpp>
+#include "initrd.hpp"
 
 #include "test.hpp"
 

@@ -4,7 +4,7 @@
 //   xen/include/public/arch-x86/hvm/start_info.h
 // The magic is "xEn3" with bit 7 of the third byte set.
 
-#include <astia/boot/virt/pvh.hpp>
+#include "pvh.hpp"
 
 namespace astia::boot::virt {
 

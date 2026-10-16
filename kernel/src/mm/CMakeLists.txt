@@ -7,9 +7,8 @@ add_library(mm STATIC
 )
 
 target_include_directories(mm PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/include
 )
 
 # mm is designed to be replaceable; keep minimal deps

@@ -1,10 +1,10 @@
-#include <astia/proc/scheduler.hpp>
+#include "scheduler.hpp"
 
-#include <astia/arch/context.hpp>
-#include <astia/arch/cpu.hpp>
-#include <astia/arch/interrupts.hpp>
-#include <astia/mm/share.hpp>
-#include <astia/proc/proc.hpp>
+#include "context.hpp"
+#include "cpu.hpp"
+#include "interrupts.hpp"
+#include "share.hpp"
+#include "proc.hpp"
 
 namespace astia::proc::scheduler {
 

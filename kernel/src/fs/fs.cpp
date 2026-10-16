@@ -1,9 +1,9 @@
 #include <astia/api/errno.h>
-#include <astia/fs/devfs.hpp>
-#include <astia/fs/fs.hpp>
-#include <astia/fs/initrd_fs.hpp>
-#include <astia/fs/tmpfs.hpp>
-#include <astia/mm/share.hpp>
+#include "devfs.hpp"
+#include "fs.hpp"
+#include "initrd_fs.hpp"
+#include "tmpfs.hpp"
+#include "share.hpp"
 
 void* operator new(astia::usize size, void* where) noexcept;
 

@@ -1,10 +1,10 @@
-#include <astia/proc/process.hpp>
+#include "process.hpp"
 
 #include <astia/api/syscalls.h>
-#include <astia/arch/page_map.hpp>
-#include <astia/elf/elf.hpp>
-#include <astia/mm/frame_allocator.hpp>
-#include <astia/proc/proc.hpp>
+#include "page_map.hpp"
+#include "elf.hpp"
+#include "frame_allocator.hpp"
+#include "proc.hpp"
 
 namespace astia::proc {
 

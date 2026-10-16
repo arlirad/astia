@@ -2,7 +2,7 @@
 //
 // Pure bookkeeping — no mm dependency — so the host tests exercise it directly.
 
-#include <astia/mod/exports.hpp>
+#include "exports.hpp"
 
 namespace astia::mod {
 

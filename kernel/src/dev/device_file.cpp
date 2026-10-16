@@ -1,4 +1,4 @@
-#include <astia/dev/device_file.hpp>
+#include "device_file.hpp"
 
 #include <astia/api/errno.h>
 

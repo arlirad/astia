@@ -1,9 +1,9 @@
-#include <astia/arch/x86_64/lapic.hpp>
+#include "lapic.hpp"
 
-#include <astia/arch/layout.hpp>
-#include <astia/arch/page_map.hpp>
-#include <astia/arch/x86_64/io.hpp>
-#include <astia/arch/x86_64/pit.hpp>
+#include "layout.hpp"
+#include "page_map.hpp"
+#include "io.hpp"
+#include "pit.hpp"
 
 // xAPIC MMIO bring-up. The frequency of the LAPIC timer is a platform
 // constant we don't assume (QEMU, KVM and real hardware all differ), so

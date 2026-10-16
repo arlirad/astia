@@ -1,8 +1,8 @@
-#include <astia/sys/syscall.hpp>
+#include "syscall.hpp"
 
 #include <astia/api/errno.h>
-#include <astia/arch/context.hpp>
-#include <astia/arch/x86_64/syscall.hpp>
+#include "context.hpp"
+#include "syscall_frame.hpp"
 #include <astia/api/syscalls.h>
 
 namespace astia::sys {

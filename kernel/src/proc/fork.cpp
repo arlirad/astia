@@ -1,7 +1,7 @@
-#include <astia/proc/proc.hpp>
+#include "proc.hpp"
 
 #include <astia/api/errno.h>
-#include <astia/mm/share.hpp>
+#include "share.hpp"
 
 namespace astia::proc {
 

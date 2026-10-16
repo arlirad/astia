@@ -1,6 +1,6 @@
-#include <astia/mm/phys_region.hpp>
+#include "phys_region.hpp"
 
-#include <astia/mm/heap.hpp>
+#include "heap.hpp"
 
 namespace astia::mm {
 

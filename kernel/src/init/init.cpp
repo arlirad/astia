@@ -1,7 +1,7 @@
 #include <astia/init.hpp>
 
 #ifndef ASTIA_HOST_TEST
-#include <astia/log/log.hpp>
+#include "log.hpp"
 #endif
 
 namespace astia::init {

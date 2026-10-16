@@ -1,10 +1,10 @@
-#include <astia/proc/thread.hpp>
+#include "thread.hpp"
 
-#include <astia/arch/cpu.hpp>
+#include "cpu.hpp"
 #include <astia/api/errno.h>
-#include <astia/mm/heap.hpp>
-#include <astia/proc/proc.hpp>
-#include <astia/proc/scheduler.hpp>
+#include "heap.hpp"
+#include "proc.hpp"
+#include "scheduler.hpp"
 
 namespace astia::proc {
 

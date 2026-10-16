@@ -1,17 +1,17 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
-#include <astia/arch/cpu.hpp>
-#include <astia/arch/interrupts.hpp>
+#include "cpu.hpp"
+#include "interrupts.hpp"
 #include <astia/common.hpp>
-#include <astia/dev/uart16550.hpp>
-#include <astia/fs/fs.hpp>
-#include <astia/log/log.hpp>
-#include <astia/proc/proc.hpp>
-#include <astia/proc/scheduler.hpp>
-#include <astia/sys/io.hpp>
-#include <astia/sys/syscall.hpp>
-#include <astia/test/selftest.hpp>
+#include "uart16550.hpp"
+#include "fs.hpp"
+#include "log.hpp"
+#include "proc.hpp"
+#include "scheduler.hpp"
+#include "aio.hpp"
+#include "syscall.hpp"
+#include "selftest.hpp"
 
 namespace astia::test {
 

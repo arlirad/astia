@@ -3,9 +3,8 @@ add_library(elf STATIC
 )
 
 target_include_directories(elf PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/include
 )
 
 target_link_libraries(elf PUBLIC libcore)

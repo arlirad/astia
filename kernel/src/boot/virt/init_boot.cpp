@@ -1,5 +1,5 @@
 #include <astia/boot.hpp>
-#include <astia/boot/virt/pvh.hpp>
+#include "pvh.hpp"
 #include <astia/init.hpp>
 
 namespace astia::boot::virt {

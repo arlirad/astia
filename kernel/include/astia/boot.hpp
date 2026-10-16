@@ -2,7 +2,7 @@
 
 #include <astia/boot/types.hpp>
 #include <astia/common.hpp>
-#include <astia/mm/memory_map.hpp>
+#include "memory_map.hpp"
 
 namespace astia::boot {
 

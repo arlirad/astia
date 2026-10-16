@@ -17,15 +17,14 @@ target_include_directories(astia_test_support PUBLIC
 # tests exercise shipping code rather than copies.
 set(_astia_test_includes
         ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/include
-        ${CMAKE_SOURCE_DIR}/src/lib/include
-        ${CMAKE_SOURCE_DIR}/src/mm/include
-        ${CMAKE_SOURCE_DIR}/src/elf/include
-        ${CMAKE_SOURCE_DIR}/src/initrd/include
-        ${CMAKE_SOURCE_DIR}/src/mod/include
-        ${CMAKE_SOURCE_DIR}/src/boot/virt/include
-        ${CMAKE_SOURCE_DIR}/src/arch/include
-        ${CMAKE_SOURCE_DIR}/src/arch/x86_64/include
+        ${CMAKE_SOURCE_DIR}/src/lib
+        ${CMAKE_SOURCE_DIR}/src/mm
+        ${CMAKE_SOURCE_DIR}/src/elf
+        ${CMAKE_SOURCE_DIR}/src/initrd
+        ${CMAKE_SOURCE_DIR}/src/mod
+        ${CMAKE_SOURCE_DIR}/src/boot/virt
+        ${CMAKE_SOURCE_DIR}/src/arch
+        ${CMAKE_SOURCE_DIR}/src/arch/x86_64
 )
 
 function(astia_add_host_test name)

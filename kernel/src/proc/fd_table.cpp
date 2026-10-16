@@ -1,4 +1,4 @@
-#include <astia/proc/fd_table.hpp>
+#include "fd_table.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>

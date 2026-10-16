@@ -1,5 +1,5 @@
-#include <astia/mm/frame_allocator.hpp>
-#include <astia/mm/heap.hpp>
+#include "frame_allocator.hpp"
+#include "heap.hpp"
 
 #include "arena.hpp"
 #include "test.hpp"

@@ -1,7 +1,7 @@
-#include <astia/fs/initrd_fs.hpp>
+#include "initrd_fs.hpp"
 
 #include <astia/api/errno.h>
-#include <astia/mm/share.hpp>
+#include "share.hpp"
 
 namespace astia::fs {
 

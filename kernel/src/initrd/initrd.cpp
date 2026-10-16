@@ -5,7 +5,7 @@
 // base-256 numeric fields, which we reject — a simple initrd does not need
 // them).
 
-#include <astia/initrd/initrd.hpp>
+#include "initrd.hpp"
 
 namespace astia::initrd {
 

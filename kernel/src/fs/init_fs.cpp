@@ -1,6 +1,6 @@
-#include <astia/fs/fs.hpp>
+#include "fs.hpp"
 #include <astia/init.hpp>
-#include <astia/sys/syscall.hpp>
+#include "syscall.hpp"
 
 namespace astia::fs {
 

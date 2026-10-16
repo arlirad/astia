@@ -1,6 +1,6 @@
 #include <astia/api/syscalls.h>
-#include <astia/log/log.hpp>
-#include <astia/proc/proc.hpp>
+#include "log.hpp"
+#include "proc.hpp"
 
 namespace astia::log::detail {
 

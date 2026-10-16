@@ -1,4 +1,4 @@
-#include <astia/mod/exports.hpp>
+#include "exports.hpp"
 
 #include "test.hpp"
 

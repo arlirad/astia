@@ -1,8 +1,8 @@
 #include <astia/boot.hpp>
-#include <astia/fs/filesystem.hpp>
-#include <astia/fs/initrd_fs.hpp>
+#include "filesystem.hpp"
+#include "initrd_fs.hpp"
 #include <astia/init.hpp>
-#include <astia/mm/frame_allocator.hpp>
+#include "frame_allocator.hpp"
 
 namespace astia::fs {
 

@@ -1,15 +1,15 @@
-#include <astia/dev/uart16550.hpp>
-#include <astia/dev/device_file.hpp>
+#include "uart16550.hpp"
+#include "device_file.hpp"
 
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
-#include <astia/arch/cpu.hpp>
-#include <astia/arch/interrupts.hpp>
-#include <astia/arch/x86_64/pic.hpp>
+#include "cpu.hpp"
+#include "interrupts.hpp"
+#include "pic.hpp"
 #include <astia/memory.hpp>
-#include <astia/proc/proc.hpp>
-#include <astia/sys/io.hpp>
+#include "proc.hpp"
+#include "aio.hpp"
 
 /*
  * COM1 (the classic 0x3F8 port pair), driven two ways — as a device

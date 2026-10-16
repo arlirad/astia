@@ -1,4 +1,4 @@
-#include <astia/dev/chr/tty.hpp>
+#include "chr/tty.hpp"
 
 #include <astia/api/errno.h>
 

@@ -40,8 +40,7 @@ set(_astia_kernel_libs
 function(astia_configure_kernel target)
     target_include_directories(${target} PRIVATE
             ${CMAKE_SOURCE_DIR}/include
-            ${CMAKE_SOURCE_DIR}/src/include
-            ${CMAKE_SOURCE_DIR}/src/test/include
+            ${CMAKE_SOURCE_DIR}/src/test
     )
     target_link_libraries(${target} PRIVATE ${_astia_kernel_libs})
     target_link_options(${target} PRIVATE

@@ -1,7 +1,7 @@
-#include <astia/arch/layout.hpp>
-#include <astia/arch/page_map.hpp>
+#include "layout.hpp"
+#include "page_map.hpp"
 
-#include <astia/mm/frame_allocator.hpp>
+#include "frame_allocator.hpp"
 
 // x86_64 4-level paging (Intel SDM Vol. 3A, "IA-32e Paging"):
 //   virtual address = PML4[47:39] PDPT[38:30] PD[29:21] PT[20:12] offset[11:0]
@@ -9,7 +9,7 @@
 // base lives in bits 51:12 (or 51:21 / 51:30 for 2 MiB / 1 GiB pages).
 //
 // This file is the x86_64 implementation of the shared
-// astia::arch::page_map declaration (astia/arch/page_map.hpp): the layout
+// astia::arch::page_map declaration ("page_map.hpp"): the layout
 // and semantics are arch-neutral, the entry encoding is not.
 //
 // Table access does not lean on a 1:1 (identity) mapping:

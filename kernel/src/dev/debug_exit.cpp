@@ -1,4 +1,4 @@
-#include <astia/dev/debug_exit.hpp>
+#include "debug_exit.hpp"
 
 namespace astia::dev {
 

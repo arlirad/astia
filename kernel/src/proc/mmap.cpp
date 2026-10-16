@@ -1,9 +1,9 @@
-#include <astia/proc/process.hpp>
+#include "process.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
-#include <astia/core/spinlock.hpp>
-#include <astia/mm/heap.hpp>
+#include "core/spinlock.hpp"
+#include "heap.hpp"
 
 void* operator new(astia::usize size, void* where) noexcept;
 

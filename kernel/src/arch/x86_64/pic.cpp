@@ -1,6 +1,6 @@
-#include <astia/arch/x86_64/pic.hpp>
+#include "pic.hpp"
 
-#include <astia/arch/x86_64/io.hpp>
+#include "io.hpp"
 
 // The 8259 pair at its classic ports; the init sequence (ICW1..4) moves
 // the IRQ vectors out of the CPU-exception range. QEMU starts with the

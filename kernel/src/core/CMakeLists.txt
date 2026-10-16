@@ -6,9 +6,8 @@ add_library(core STATIC
 )
 
 target_include_directories(core PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/include
 )
 
 target_link_libraries(core PUBLIC libcore mm util)

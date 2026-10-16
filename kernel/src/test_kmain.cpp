@@ -1,14 +1,14 @@
-#include <astia/arch/cpu.hpp>
+#include "cpu.hpp"
 #include <astia/boot.hpp>
 #include <astia/common.hpp>
-#include <astia/core/panic.hpp>
-#include <astia/dev/debug_exit.hpp>
-#include <astia/dev/uart16550.hpp>
+#include "panic.hpp"
+#include "debug_exit.hpp"
+#include "uart16550.hpp"
 #include <astia/init.hpp>
-#include <astia/log/log.hpp>
-#include <astia/test/selftest.hpp>
-#include <astia/proc/proc.hpp>
-#include <astia/proc/scheduler.hpp>
+#include "log.hpp"
+#include "selftest.hpp"
+#include "proc.hpp"
+#include "scheduler.hpp"
 
 namespace {
 
