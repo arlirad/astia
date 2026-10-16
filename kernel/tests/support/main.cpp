@@ -1,5 +1,5 @@
 #include "test.hpp"
 
-auto main() -> int {
+int main() {
     return astia_test::run_all();
 }

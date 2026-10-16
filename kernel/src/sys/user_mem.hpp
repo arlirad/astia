@@ -43,7 +43,7 @@ namespace astia::sys {
     /// and every page must translate in the caller's address space.
     /// A zero length is vacuously valid; a null base with nonzero
     /// length is not.
-    inline auto user_range_ok(const void* address, usize length) -> bool {
+    inline bool user_range_ok(const void* address, usize length) {
         if (length == 0) {
             return true;
         }
@@ -73,7 +73,7 @@ namespace astia::sys {
 
     /// Copy out of the kernel into a validated user range.  Returns
     /// false (writing nothing) if the range fails validation.
-    inline auto copy_out(void* user, const void* source, usize length) -> bool {
+    inline bool copy_out(void* user, const void* source, usize length) {
         if (!user_range_ok(user, length)) {
             return false;
         }
@@ -86,7 +86,7 @@ namespace astia::sys {
     }
 
     /// Copy in from a validated user range into the kernel.
-    inline auto copy_in(void* destination, const void* user, usize length) -> bool {
+    inline bool copy_in(void* destination, const void* user, usize length) {
         if (!user_range_ok(user, length)) {
             return false;
         }
@@ -105,8 +105,7 @@ namespace astia::sys {
     /// for the unmapped page above it; a kernel client gets a plain
     /// bounded copy.  Fails if any page is unmapped or the terminator
     /// is not found within the capacity bound.
-    inline auto copy_in_string(char* destination, usize capacity, const void* user)
-        -> bool {
+    inline bool copy_in_string(char* destination, usize capacity, const void* user) {
         if (capacity == 0) {
             return false;
         }

@@ -34,17 +34,17 @@ namespace astia::arch::x86_64 {
 
         volatile u32* lapic_regs = nullptr; // null until start() maps it
 
-        auto reg_write(u64 reg, u32 value) -> void {
+        void reg_write(u64 reg, u32 value) {
             lapic_regs[reg] = value;
         }
 
-        auto reg_read(u64 reg) -> u32 {
+        u32 reg_read(u64 reg) {
             return lapic_regs[reg];
         }
 
         /// The LAPIC timer's Hz, measured against a PIT one-shot; 0 if the
         /// counter did not move (broken bring-up).
-        auto calibrate() -> u64 {
+        u64 calibrate() {
             constexpr u32 pit_span = pit::input_hz / 20; // ~50 ms
             pit::start_one_shot(pit_span);
 
@@ -66,7 +66,7 @@ namespace astia::arch::x86_64 {
 
     } // namespace
 
-    auto lapic::start(u32 hz) -> bool {
+    bool lapic::start(u32 hz) {
         const u64 base_msr = rdmsr(msr_apic_base);
         if ((base_msr & apic_base_enabled) == 0 || (base_msr & apic_base_x2apic) != 0) {
             return false;
@@ -101,7 +101,7 @@ namespace astia::arch::x86_64 {
         return true;
     }
 
-    auto lapic::eoi() -> void {
+    void lapic::eoi() {
         if (lapic_regs != nullptr) {
             reg_write(reg_eoi, 0); // LAPIC-sourced: EOI goes to the LAPIC
         }

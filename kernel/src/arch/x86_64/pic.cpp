@@ -18,7 +18,7 @@ namespace astia::arch::x86_64 {
 
     } // namespace
 
-    auto pic::remap() -> void {
+    void pic::remap() {
         outb(master_cmd, 0x11); // ICW1: init + ICW4 needed
         outb(slave_cmd, 0x11);
         outb(master_data, irq_base);    // ICW2: master vector base
@@ -31,13 +31,13 @@ namespace astia::arch::x86_64 {
         outb(slave_data, 0xFF);  // OCW1: all slave IRQs masked
     }
 
-    auto pic::unmask(u8 irq) -> void {
+    void pic::unmask(u8 irq) {
         const u16 port = irq < 8 ? master_data : slave_data;
         const u8  bit  = static_cast<u8>(1u << (irq & 7));
         outb(port, static_cast<u8>(inb(port) & static_cast<u8>(~bit)));
     }
 
-    auto pic::eoi(u64 vector) -> void {
+    void pic::eoi(u64 vector) {
         if (vector >= irq_base + 8) {
             outb(slave_cmd, 0x20);
         }

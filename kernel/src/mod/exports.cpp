@@ -16,7 +16,7 @@ namespace astia::mod {
         export_entry table[max_exports] = {};
         usize        used               = 0;
 
-        auto str_eq(const char* a, const char* b) -> bool {
+        bool str_eq(const char* a, const char* b) {
             while (*a != '\0' && *a == *b) {
                 ++a;
                 ++b;
@@ -26,7 +26,7 @@ namespace astia::mod {
 
     } // namespace
 
-    auto expose(const char* name, u64 addr) -> bool {
+    bool expose(const char* name, u64 addr) {
         if (name == nullptr || addr == 0 || used >= max_exports) {
             return false;
         }
@@ -39,7 +39,7 @@ namespace astia::mod {
         return true;
     }
 
-    auto resolve(const char* name) -> u64 {
+    u64 resolve(const char* name) {
         if (name == nullptr) {
             return 0;
         }

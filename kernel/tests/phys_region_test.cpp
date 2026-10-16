@@ -10,7 +10,7 @@ namespace {
 
     // The heap's arch hook is a no-op on the host: the window is
     // already reachable memory.
-    auto fake_map(astia::u64, astia::u64) -> bool {
+    bool fake_map(astia::u64, astia::u64) {
         return true;
     }
 
@@ -18,7 +18,7 @@ namespace {
     // its objects from the heap; point both at the arena like the
     // other substrate-bound tests do, and report the free-frame count
     // so callers can assert full reclamation.
-    auto init_world() -> astia::usize {
+    astia::usize init_world() {
         astia_test::map_arena();
 
         static bool ready = false;

@@ -4,7 +4,7 @@
 
 namespace astia::dev {
 
-    auto device::ioctl(u64 request, void* argp) -> long {
+    long device::ioctl(u64 request, void* argp) {
         (void) request;
         (void) argp;
         return -ENOTTY;

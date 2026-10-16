@@ -14,36 +14,36 @@ namespace astia::arch {
     /// Interrupts stay *masked* on return — arming and opening the gate are
     /// deliberately separate (see cpu::interrupts()), so the caller decides
     /// when dispatch may begin.
-    auto init_interrupts() -> bool;
+    bool init_interrupts();
 
     /// Ticks counted from the timer interrupt since init_interrupts();
     /// 0 until the first tick. Grows monotonically for the life of the
     /// kernel — the time source for idle loops and timeouts.
-    auto timer_ticks() -> u64;
+    u64 timer_ticks();
 
     /// Frequency of timer_ticks() in hertz — the period one tick covers,
     /// and therefore the resolution any clock read can offer. 0 means "no
     /// timer source yet" (the aarch64 port before its timer lands): a
     /// caller converting ticks to seconds must refuse rather than divide.
-    auto timer_hz() -> u32;
+    u32 timer_hz();
 
     /// Which timer source drives timer_ticks(): the per-CPU LAPIC timer
     /// (SMP-scalable — one LAPIC per core) when bring-up calibrated it,
     /// the boot PIT otherwise. Diagnostics today; per-CPU once SMP lands.
     enum class timer_source : u8 { pit, lapic };
-    auto current_timer_source() -> timer_source;
+    timer_source current_timer_source();
 
     /// Number of int3 breakpoints dispatched since init_interrupts() — a
     /// debugger bumps it, and so does the boot selftest, which uses a
     /// software int3 to prove the IDT dispatch path works before opening
     /// the hardware IRQ gate.
-    auto breakpoint_hits() -> u64;
+    u64 breakpoint_hits();
 
     /// Callback invoked from the timer interrupt with interrupts masked.
     /// The scheduler owns the policy; the architecture only delivers the
     /// periodic event.
     using timer_hook = void (*)();
-    auto register_timer_hook(timer_hook hook) -> bool;
+    bool register_timer_hook(timer_hook hook);
 
     /// User page-fault resolver, registered by the process layer: the
     /// #PF path offers it every ring-3 fault before declaring it fatal.
@@ -51,7 +51,7 @@ namespace astia::arch {
     /// out or regained its write bit) and the faulting instruction
     /// re-executes; false = genuine violation, stays fatal.
     using user_fault_handler = bool (*)(u64 addr, bool write);
-    auto register_user_fault_handler(user_fault_handler handler) -> bool;
+    bool register_user_fault_handler(user_fault_handler handler);
 
     /// Handler for one maskable device IRQ line, provided by the driver
     /// that owns the device.  Runs with the interrupt gate closed (an
@@ -68,6 +68,6 @@ namespace astia::arch {
     /// shared-line schemes must be built on top, not underneath.
     /// Registration does not unmask anything: the driver unmasks its
     /// own PIC line when it is ready to service (pic::unmask).
-    auto register_irq_handler(u8 irq, irq_handler handler) -> bool;
+    bool register_irq_handler(u8 irq, irq_handler handler);
 
 } // namespace astia::arch

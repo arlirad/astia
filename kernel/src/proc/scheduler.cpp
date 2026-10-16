@@ -15,13 +15,13 @@ namespace astia::proc::scheduler {
         bool                 initialized = false;
         thread*              idle_thread = nullptr;
 
-        auto idle_entry(void*) -> void {
+        void idle_entry(void*) {
             for (;;) {
                 arch::cpu::halt();
             }
         }
 
-        auto enqueue(thread* value) -> bool {
+        bool enqueue(thread* value) {
             if (value == nullptr || queue_count == queue_capacity) {
                 return false;
             }
@@ -29,7 +29,7 @@ namespace astia::proc::scheduler {
             return true;
         }
 
-        auto remove_at(u32 index) -> thread* {
+        thread* remove_at(u32 index) {
             thread* value = queue[index];
             for (u32 i = index + 1; i < queue_count; ++i) {
                 queue[i - 1] = queue[i];
@@ -38,7 +38,7 @@ namespace astia::proc::scheduler {
             return value;
         }
 
-        auto select_next() -> thread* {
+        thread* select_next() {
             if (queue_count == 0) {
                 return nullptr;
             }
@@ -79,7 +79,7 @@ namespace astia::proc::scheduler {
             return normal_index < 0 ? nullptr : remove_at(static_cast<u32>(normal_index));
         }
 
-        auto nice_charge(i32 nice) -> u64 {
+        u64 nice_charge(i32 nice) {
             // Integer approximation of a weighted fair scheduler: nice
             // -20 advances slowly, nice 19 advances quickly.
             return nice < 0 ? 1024u / static_cast<u32>(1 - nice)
@@ -87,7 +87,7 @@ namespace astia::proc::scheduler {
         }
     } // namespace
 
-    auto init() -> bool {
+    bool init() {
         initialized = proc::current_thread() != nullptr;
         if (!initialized || !arch::register_timer_hook(tick)) {
             return false;
@@ -103,8 +103,9 @@ namespace astia::proc::scheduler {
         return true;
     }
 
-    auto create_kernel(kernel_entry entry, void* argument, scheduling_class sched_class,
-                       i32 nice, u8 rt_priority) -> mm::shptr<thread> {
+    mm::shptr<thread> create_kernel(kernel_entry entry, void* argument,
+                                    scheduling_class sched_class, i32 nice,
+                                    u8 rt_priority) {
         if (!initialized || entry == nullptr || proc::kernel_process() == nullptr) {
             return {};
         }
@@ -123,13 +124,13 @@ namespace astia::proc::scheduler {
         return value;
     }
 
-    auto spawn_kernel(kernel_entry entry, void* argument, scheduling_class sched_class,
-                      i32 nice, u8 rt_priority) -> bool {
+    bool spawn_kernel(kernel_entry entry, void* argument, scheduling_class sched_class,
+                      i32 nice, u8 rt_priority) {
         return static_cast<bool>(
             create_kernel(entry, argument, sched_class, nice, rt_priority));
     }
 
-    auto wake(thread* value) -> bool {
+    bool wake(thread* value) {
         if (value == nullptr || value->state() == thread_state::dead) {
             return false;
         }
@@ -137,7 +138,7 @@ namespace astia::proc::scheduler {
         return enqueue(value);
     }
 
-    auto tick() -> void {
+    void tick() {
         thread* current = proc::current_thread();
         if (current != nullptr && current->sched_class() == scheduling_class::normal) {
             current->charge_runtime(nice_charge(current->nice()));
@@ -151,7 +152,7 @@ namespace astia::proc::scheduler {
         yield();
     }
 
-    auto yield() -> void {
+    void yield() {
         if (!initialized) {
             return;
         }
@@ -202,7 +203,7 @@ namespace astia::proc::scheduler {
         proc::reap_dead_threads();
     }
 
-    auto ready() -> bool {
+    bool ready() {
         return initialized;
     }
 

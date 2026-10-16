@@ -34,7 +34,7 @@ namespace astia {
         }
 
         /// The value, or `fallback` when disengaged.
-        auto value_or(T fallback) const -> T {
+        T value_or(T fallback) const {
             return has_value ? value : fallback;
         }
     };

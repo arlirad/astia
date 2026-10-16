@@ -20,31 +20,31 @@ namespace astia::mm::heap {
     /// Register the region. The arch paging step calls this before init();
     /// init() then backs `base` page by page through `map`, taking the
     /// frames from the kernel frame allocator.
-    auto configure(void* base, usize bytes, map_fn map) -> void;
+    void configure(void* base, usize bytes, map_fn map);
 
     /// Back the region with frames and build the free list. Registered as a
     /// DAG step (needs "paging"); also callable directly in tests.
-    auto init() -> bool;
+    bool init();
 
-    auto ready() -> bool;
+    bool ready();
 
     /// Allocate `bytes` (16-byte aligned) or say why not: enomem when the
     /// heap cannot satisfy the request (including before init() ran),
     /// einval for a zero size. The optional-returning shape is the point —
     /// an allocation failure is the caller's to handle, not a kernel panic.
-    auto alloc(usize bytes) -> optional<u8*>;
+    optional<u8*> alloc(usize bytes);
 
     /// Like alloc(), but zeroes the payload.
-    auto alloc_zeroed(usize bytes) -> optional<u8*>;
+    optional<u8*> alloc_zeroed(usize bytes);
 
     /// Release a payload from alloc()/alloc_zeroed(). Pointers outside the
     /// region and double frees are ignored rather than corrupting the heap.
-    auto free(void* ptr) -> void;
+    void free(void* ptr);
 
     /// Payload bytes currently handed out to callers (excludes headers).
-    auto used() -> usize;
+    usize used();
 
     /// Payload bytes the region can ever hand out (excludes one header).
-    auto capacity() -> usize;
+    usize capacity();
 
 } // namespace astia::mm::heap

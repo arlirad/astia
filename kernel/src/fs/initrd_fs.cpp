@@ -10,7 +10,7 @@ namespace astia::fs {
             public:
             initrd_file(const void* data, usize size) : data_(data), size_(size) {}
 
-            auto read(void* buffer, u32 length, u64 offset) -> long override {
+            long read(void* buffer, u32 length, u64 offset) override {
                 if (offset >= size_)
                     return 0;
                 const usize available = size_ - static_cast<usize>(offset);
@@ -22,10 +22,10 @@ namespace astia::fs {
                 return static_cast<long>(count);
             }
 
-            auto write(const void*, u32, u64) -> long override {
+            long write(const void*, u32, u64) override {
                 return -EROFS;
             }
-            auto size() const -> long override {
+            long size() const override {
                 return static_cast<long>(size_);
             }
 
@@ -34,7 +34,7 @@ namespace astia::fs {
             usize       size_;
         };
 
-        auto equal(const char* lhs, const char* rhs) -> bool {
+        bool equal(const char* lhs, const char* rhs) {
             while (*lhs != '\0' && *lhs == *rhs) {
                 ++lhs;
                 ++rhs;
@@ -42,7 +42,7 @@ namespace astia::fs {
             return *lhs == *rhs;
         }
 
-        auto copy_path(char* dst, const char* src) -> bool {
+        bool copy_path(char* dst, const char* src) {
             if (src == nullptr)
                 return false;
             u32 i = 0;
@@ -54,13 +54,13 @@ namespace astia::fs {
             return true;
         }
 
-        auto add_file(void* opaque, const initrd::file& source) -> bool {
+        bool add_file(void* opaque, const initrd::file& source) {
             auto& mount = *static_cast<initrd_mount*>(opaque);
             return mount.add(source.name, source.data, source.size);
         }
     }
 
-    auto initrd_mount::add(const char* path, const void* data, usize size) -> bool {
+    bool initrd_mount::add(const char* path, const void* data, usize size) {
         if (path == nullptr || data == nullptr || size == 0)
             return false;
         char normalized[path_max]{};
@@ -83,12 +83,12 @@ namespace astia::fs {
         return false;
     }
 
-    auto initrd_mount::attach(const initrd::archive& archive) -> bool {
+    bool initrd_mount::attach(const initrd::archive& archive) {
         *this = initrd_mount{};
         return initrd::each(archive, add_file, this);
     }
 
-    auto initrd_mount::open(const char* path, u32 flags) -> mm::shptr<open_file> {
+    mm::shptr<open_file> initrd_mount::open(const char* path, u32 flags) {
         (void) flags;
         for (u32 i = 0; i < initrd_max_entries; ++i) {
             if (entries_[i].used && equal(entries_[i].path, path)) {
@@ -101,18 +101,18 @@ namespace astia::fs {
         return {};
     }
 
-    auto initrd_filesystem::attach(const initrd::archive& archive) -> bool {
+    bool initrd_filesystem::attach(const initrd::archive& archive) {
         if (instance_ == nullptr) {
             instance_ = new initrd_mount{};
         }
         return instance_ != nullptr && instance_->attach(archive);
     }
 
-    auto initrd_filesystem::mount(const char*) const -> fs::mount* {
+    fs::mount* initrd_filesystem::mount(const char*) const {
         return instance_;
     }
 
-    auto initrd_type() -> initrd_filesystem& {
+    initrd_filesystem& initrd_type() {
         static initrd_filesystem type;
         return type;
     }

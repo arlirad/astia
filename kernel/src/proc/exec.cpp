@@ -24,8 +24,7 @@ namespace astia::proc {
             u32             count = 0;
         };
 
-        auto map_user(void* opaque, u64 hint, usize size, usize align, bool fixed)
-            -> void* {
+        void* map_user(void* opaque, u64 hint, usize size, usize align, bool fixed) {
             auto&     state = *static_cast<image_map*>(opaque);
             const u64 base  = fixed ? hint : (state.next_base + align - 1) & ~(align - 1);
             if (base < 0x40000000ull || base + size >= 0x0000800000000000ull ||
@@ -62,7 +61,7 @@ namespace astia::proc {
         // this preserves the loader's established mapping contract and
         // lets fork/CoW account for it as one physical region.  The
         // page-granular permission split is a later mprotect/exec slice.
-        auto segment_prot(const elf::image& image, u64 base) -> u32 {
+        u32 segment_prot(const elf::image& image, u64 base) {
             (void) image;
             (void) base;
             return PROT_READ | PROT_WRITE | PROT_EXEC;
@@ -82,9 +81,9 @@ namespace astia::proc {
         // frames come as one contiguous run so the block can be filed
         // as a single VMA (fork shares it copy-on-write); frames_out
         // hands the run back for that adoption.
-        auto map_tls_template(arch::page_map& map, const void* bytes,
+        bool map_tls_template(arch::page_map& map, const void* bytes,
                               const elf::image& image, u64& tp_out, u64& frames_out,
-                              u64& pages_out) -> bool {
+                              u64& pages_out) {
             const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
             const u64 span  = (image.tls_memsz + align - 1) & ~(align - 1);
             const u64 pages =
@@ -115,8 +114,7 @@ namespace astia::proc {
         }
     } // namespace
 
-    auto process::load_user_image(const void* bytes, usize length, u64* entry_out)
-        -> bool {
+    bool process::load_user_image(const void* bytes, usize length, u64* entry_out) {
         if (bytes == nullptr || length == 0 || entry_out == nullptr ||
             address_space_ != nullptr || arch::kernel_page_map() == nullptr) {
             return false;

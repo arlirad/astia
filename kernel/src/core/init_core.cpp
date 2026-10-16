@@ -2,7 +2,7 @@
 
 namespace astia::core {
 
-    static auto step_core(init::context&) -> bool {
+    static bool step_core(init::context&) {
         return true;
     }
 

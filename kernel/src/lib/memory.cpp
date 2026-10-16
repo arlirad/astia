@@ -4,7 +4,7 @@
 // and always safe for overlapping/unaligned buffers.
 extern "C" {
 
-auto memset(void* dst, int value, astia::usize count) -> void* {
+void* memset(void* dst, int value, astia::usize count) {
     auto*      out  = static_cast<astia::u8*>(dst);
     const auto byte = static_cast<astia::u8>(value);
     for (astia::usize i = 0; i < count; ++i) {
@@ -13,7 +13,7 @@ auto memset(void* dst, int value, astia::usize count) -> void* {
     return dst;
 }
 
-auto memcpy(void* dst, const void* src, astia::usize count) -> void* {
+void* memcpy(void* dst, const void* src, astia::usize count) {
     auto*       out = static_cast<astia::u8*>(dst);
     const auto* in  = static_cast<const astia::u8*>(src);
     for (astia::usize i = 0; i < count; ++i) {
@@ -22,7 +22,7 @@ auto memcpy(void* dst, const void* src, astia::usize count) -> void* {
     return dst;
 }
 
-auto memmove(void* dst, const void* src, astia::usize count) -> void* {
+void* memmove(void* dst, const void* src, astia::usize count) {
     auto*       out = static_cast<astia::u8*>(dst);
     const auto* in  = static_cast<const astia::u8*>(src);
     if (out == in || count == 0) {
@@ -41,7 +41,7 @@ auto memmove(void* dst, const void* src, astia::usize count) -> void* {
     return dst;
 }
 
-auto memcmp(const void* lhs, const void* rhs, astia::usize count) -> int {
+int memcmp(const void* lhs, const void* rhs, astia::usize count) {
     const auto* a = static_cast<const astia::u8*>(lhs);
     const auto* b = static_cast<const astia::u8*>(rhs);
     for (astia::usize i = 0; i < count; ++i) {

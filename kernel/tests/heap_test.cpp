@@ -12,13 +12,13 @@ namespace {
 
     // The heap backs its window through map_fn; on the host the "window" is
     // plain memory that is already reachable, so the arch hook is a no-op.
-    auto fake_map(astia::u64, astia::u64) -> bool {
+    bool fake_map(astia::u64, astia::u64) {
         return true;
     }
 
     // heap::init() takes its backing frames from the kernel frame allocator;
     // point that at the arena, like the other substrate-bound tests do.
-    auto init_frames() -> void {
+    void init_frames() {
         astia_test::map_arena();
 
         static bool ready = false;

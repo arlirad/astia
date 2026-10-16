@@ -23,7 +23,7 @@ namespace astia::initrd {
         constexpr char type_regular     = '0';
         constexpr char type_regular_old = '\0'; // pre-POSIX regular file
 
-        auto str_eq(const char* a, const char* b) -> bool {
+        bool str_eq(const char* a, const char* b) {
             while (*a != '\0' && *a == *b) {
                 ++a;
                 ++b;
@@ -34,13 +34,13 @@ namespace astia::initrd {
         // True if `p` begins with the five-byte ustar magic. Both POSIX and GNU
         // spell it "ustar"; the bytes that follow differ (" \0" vs "\0 "), so we
         // compare exactly five rather than treating it as a C string.
-        auto has_ustar_magic(const u8* p) -> bool {
+        bool has_ustar_magic(const u8* p) {
             return p[0] == 'u' && p[1] == 's' && p[2] == 't' && p[3] == 'a' &&
                    p[4] == 'r';
         }
 
         // True if [p, p+n) contains a NUL, i.e. a fixed field is terminated.
-        auto has_nul(const u8* p, usize n) -> bool {
+        bool has_nul(const u8* p, usize n) {
             for (usize i = 0; i < n; ++i) {
                 if (p[i] == '\0') {
                     return true;
@@ -52,7 +52,7 @@ namespace astia::initrd {
         // Parse an octal ASCII field (tar stores sizes as octal text). Stops at
         // the first NUL or space terminator; rejects anything else, including
         // base-256 encoded fields.
-        auto parse_octal(const char* s, usize n, u64& out) -> bool {
+        bool parse_octal(const char* s, usize n, u64& out) {
             u64 v = 0;
             for (usize i = 0; i < n; ++i) {
                 char c = s[i];
@@ -69,7 +69,7 @@ namespace astia::initrd {
         }
 
         // True if the 512-byte block is all zeros (the end-of-archive marker).
-        auto is_zero_block(const u8* p) -> bool {
+        bool is_zero_block(const u8* p) {
             for (usize i = 0; i < block_size; ++i) {
                 if (p[i] != 0) {
                     return false;
@@ -80,7 +80,7 @@ namespace astia::initrd {
 
         // Read the header at `off`, requiring it to be a ustar header (not the
         // end marker) that lies wholly inside the archive.
-        auto read_header(const archive& a, usize off, const u8*& hdr) -> bool {
+        bool read_header(const archive& a, usize off, const u8*& hdr) {
             if (off > a.len || block_size > a.len - off) {
                 return false;
             }
@@ -102,7 +102,7 @@ namespace astia::initrd {
 
     } // namespace
 
-    auto open(const void* image, usize len, archive& out) -> bool {
+    bool open(const void* image, usize len, archive& out) {
         if (image == nullptr || len < block_size) {
             return false;
         }
@@ -122,7 +122,7 @@ namespace astia::initrd {
         return true;
     }
 
-    auto each(const archive& a, visit_fn visit, void* ctx) -> bool {
+    bool each(const archive& a, visit_fn visit, void* ctx) {
         usize off = 0;
         while (off < a.len) {
             // A zero block here is the clean end-of-archive marker; anything
@@ -178,7 +178,7 @@ namespace astia::initrd {
             bool        found;
         };
 
-        auto find_visit(void* ctx, const file& f) -> bool {
+        bool find_visit(void* ctx, const file& f) {
             auto* c = static_cast<find_ctx*>(ctx);
             if (str_eq(f.name, c->name)) {
                 *c->out  = f;
@@ -192,20 +192,20 @@ namespace astia::initrd {
             usize n = 0;
         };
 
-        auto count_visit(void* ctx, const file&) -> bool {
+        bool count_visit(void* ctx, const file&) {
             ++static_cast<count_ctx*>(ctx)->n;
             return true;
         }
 
     } // namespace
 
-    auto find(const archive& a, const char* name, file& out) -> bool {
+    bool find(const archive& a, const char* name, file& out) {
         find_ctx c{name, &out, false};
         each(a, find_visit, &c);
         return c.found;
     }
 
-    auto count(const archive& a) -> usize {
+    usize count(const archive& a) {
         count_ctx c;
         each(a, count_visit, &c);
         return c.n;

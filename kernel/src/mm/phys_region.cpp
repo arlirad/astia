@@ -8,7 +8,7 @@ namespace astia::mm {
         constexpr u16 max_page_mappings = ~u16{0};
     } // namespace
 
-    auto phys_region::initialize(u64 base, usize pages) -> bool {
+    bool phys_region::initialize(u64 base, usize pages) {
         if (pages > (~usize{0}) / sizeof(u16)) {
             return false;
         }
@@ -28,7 +28,7 @@ namespace astia::mm {
         return true;
     }
 
-    auto phys_region::create(usize page_count, bool zero) -> phys_region* {
+    phys_region* phys_region::create(usize page_count, bool zero) {
         if (page_count == 0) {
             return nullptr;
         }
@@ -48,7 +48,7 @@ namespace astia::mm {
         return region;
     }
 
-    auto phys_region::adopt(u64 base, usize page_count) -> phys_region* {
+    phys_region* phys_region::adopt(u64 base, usize page_count) {
         if (base == 0 || (base % frame_size) != 0 || page_count == 0) {
             return nullptr;
         }
@@ -60,7 +60,7 @@ namespace astia::mm {
         return region;
     }
 
-    auto phys_region::retain_mapping(usize first, usize count) -> bool {
+    bool phys_region::retain_mapping(usize first, usize count) {
         if (count == 0) {
             return true;
         }
@@ -89,7 +89,7 @@ namespace astia::mm {
         return true;
     }
 
-    auto phys_region::unmap_range(usize first, usize count) -> bool {
+    bool phys_region::unmap_range(usize first, usize count) {
         if (count == 0) {
             return true;
         }
@@ -119,7 +119,7 @@ namespace astia::mm {
         return true;
     }
 
-    auto phys_region::share_range(usize first, usize count) -> bool {
+    bool phys_region::share_range(usize first, usize count) {
         if (count == 0 || first >= pages_ || count > pages_ - first) {
             return false;
         }
@@ -138,22 +138,22 @@ namespace astia::mm {
         return true;
     }
 
-    auto phys_region::addref() -> bool {
+    bool phys_region::addref() {
         // Legacy full-range sharing API.  New VMA code uses share_range()
         // so partial file mappings do not charge unrelated pages.
         return share_range(0, pages_);
     }
 
-    auto phys_region::references() -> u32 {
+    u32 phys_region::references() {
         core::spinlock_guard guard(lock_);
         return refs_;
     }
 
-    auto phys_region::page_direct(usize index) -> void* {
+    void* phys_region::page_direct(usize index) {
         return kernel_frames().to_virt(base_ + index * frame_size);
     }
 
-    auto phys_region::release_ref() -> void {
+    void phys_region::release_ref() {
         child* orphans = nullptr;
         {
             core::spinlock_guard guard(lock_);
@@ -193,7 +193,7 @@ namespace astia::mm {
         heap::free(this);
     }
 
-    auto phys_region::release_range(usize first, usize count) -> bool {
+    bool phys_region::release_range(usize first, usize count) {
         if (!unmap_range(first, count)) {
             return false;
         }
@@ -201,14 +201,14 @@ namespace astia::mm {
         return true;
     }
 
-    auto phys_region::release() -> void {
+    void phys_region::release() {
         // Legacy full-range release.  VMA teardown uses unmap_range for
         // every surviving sibling and then release_ref() once.
         (void) unmap_range(0, pages_);
         release_ref();
     }
 
-    auto phys_region::unlink_child(phys_region* target) -> void {
+    void phys_region::unlink_child(phys_region* target) {
         core::spinlock_guard guard(lock_);
         child**              link = &children_;
         while (*link != nullptr) {
@@ -222,14 +222,14 @@ namespace astia::mm {
         }
     }
 
-    auto phys_region::detach_parent(const phys_region* expected) -> void {
+    void phys_region::detach_parent(const phys_region* expected) {
         core::spinlock_guard guard(lock_);
         if (parent_ == expected) {
             parent_ = nullptr;
         }
     }
 
-    auto phys_region::split_page(usize index) -> phys_region* {
+    phys_region* phys_region::split_page(usize index) {
         if (index >= pages_ || page_refs_ == nullptr ||
             __atomic_load_n(&page_refs_[index], __ATOMIC_ACQUIRE) == 0) {
             return nullptr;
@@ -273,7 +273,7 @@ namespace astia::mm {
         return copy;
     }
 
-    auto phys_region::uniquely_held(usize index) -> bool {
+    bool phys_region::uniquely_held(usize index) {
         if (index >= pages_ || page_refs_ == nullptr) {
             return false;
         }

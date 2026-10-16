@@ -13,13 +13,13 @@ namespace astia::fs {
         explicit tmpfs_file(usize pages = tmpfs_max_pages);
         ~tmpfs_file();
 
-        auto read(void* buffer, u32 length, u64 offset) -> long override;
-        auto write(const void* buffer, u32 length, u64 offset) -> long override;
-        auto size() const -> long override;
-        auto memory_region() -> mm::phys_region* override {
+        long             read(void* buffer, u32 length, u64 offset) override;
+        long             write(const void* buffer, u32 length, u64 offset) override;
+        long             size() const override;
+        mm::phys_region* memory_region() override {
             return storage_;
         }
-        auto truncate() -> void {
+        void truncate() {
             size_ = 0;
         }
 
@@ -30,7 +30,7 @@ namespace astia::fs {
 
     class tmpfs_mount final : public mount {
         public:
-        auto open(const char* path, u32 flags) -> mm::shptr<open_file> override;
+        mm::shptr<open_file> open(const char* path, u32 flags) override;
 
         private:
         struct entry {
@@ -43,10 +43,10 @@ namespace astia::fs {
 
     class tmpfs final : public filesystem {
         public:
-        auto name() const -> const char* override {
+        const char* name() const override {
             return "tmpfs";
         }
-        auto mount(const char* source) const -> fs::mount* override;
+        fs::mount* mount(const char* source) const override;
 
         private:
         mutable tmpfs_mount* instance_ = nullptr;

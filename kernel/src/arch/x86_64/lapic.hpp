@@ -18,11 +18,11 @@ namespace astia::arch::x86_64 {
         /// PIT one-shot, and program it periodic. False when the LAPIC is
         /// absent/disabled or in x2APIC mode (not driven yet) — the caller
         /// falls back to the PIT.
-        static auto start(u32 hz) -> bool;
+        static bool start(u32 hz);
 
         /// LAPIC end-of-interrupt, for vectors the LAPIC delivered. No-op
         /// when the LAPIC never came up.
-        static auto eoi() -> void;
+        static void eoi();
     };
 
 } // namespace astia::arch::x86_64

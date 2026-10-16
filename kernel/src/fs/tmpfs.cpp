@@ -13,7 +13,7 @@ namespace astia::fs {
         inline constexpr u32 oflag_excl  = 0x08;
         inline constexpr u32 oflag_trunc = 0x10;
 
-        auto equal(const char* lhs, const char* rhs) -> bool {
+        bool equal(const char* lhs, const char* rhs) {
             if (lhs == nullptr || rhs == nullptr) {
                 return false;
             }
@@ -24,7 +24,7 @@ namespace astia::fs {
             return *lhs == *rhs;
         }
 
-        auto copy_path(char* dst, const char* src) -> bool {
+        bool copy_path(char* dst, const char* src) {
             if (src == nullptr || src[0] != '/') {
                 return false;
             }
@@ -49,7 +49,7 @@ namespace astia::fs {
         }
     }
 
-    auto tmpfs_file::read(void* buffer, u32 length, u64 offset) -> long {
+    long tmpfs_file::read(void* buffer, u32 length, u64 offset) {
         if (buffer == nullptr && length != 0) {
             return -EFAULT;
         }
@@ -65,7 +65,7 @@ namespace astia::fs {
         return static_cast<long>(count);
     }
 
-    auto tmpfs_file::write(const void* buffer, u32 length, u64 offset) -> long {
+    long tmpfs_file::write(const void* buffer, u32 length, u64 offset) {
         if (buffer == nullptr && length != 0) {
             return -EFAULT;
         }
@@ -84,11 +84,11 @@ namespace astia::fs {
         return static_cast<long>(length);
     }
 
-    auto tmpfs_file::size() const -> long {
+    long tmpfs_file::size() const {
         return static_cast<long>(size_);
     }
 
-    auto tmpfs_mount::open(const char* path, u32 flags) -> mm::shptr<open_file> {
+    mm::shptr<open_file> tmpfs_mount::open(const char* path, u32 flags) {
         if (path == nullptr || path[0] != '/') {
             return {};
         }
@@ -122,7 +122,7 @@ namespace astia::fs {
         return {};
     }
 
-    auto tmpfs::mount(const char* source) const -> fs::mount* {
+    fs::mount* tmpfs::mount(const char* source) const {
         (void) source;
         if (instance_ == nullptr) {
             instance_ = new tmpfs_mount{};

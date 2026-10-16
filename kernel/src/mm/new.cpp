@@ -11,7 +11,7 @@
 
 namespace {
 
-    auto allocate(astia::usize size) -> void* {
+    void* allocate(astia::usize size) {
         if (size == 0) {
             size = 1; // `new` must return a unique pointer even for T() arrays
         }

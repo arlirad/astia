@@ -22,11 +22,11 @@ namespace astia::mm {
         zeroed = 1u << 1,
     };
 
-    constexpr auto operator|(frame_flags a, frame_flags b) -> frame_flags {
+    constexpr frame_flags operator|(frame_flags a, frame_flags b) {
         return static_cast<frame_flags>(static_cast<u32>(a) | static_cast<u32>(b));
     }
 
-    constexpr auto has_flag(frame_flags value, frame_flags bit) -> bool {
+    constexpr bool has_flag(frame_flags value, frame_flags bit) {
         return (static_cast<u32>(value) & static_cast<u32>(bit)) != 0;
     }
 
@@ -45,44 +45,44 @@ namespace astia::mm {
         /// Build the allocator from a memory map. Frames for the kernel
         /// image, the first MiB (firmware/BDA/EBDA/PVH option ROM) and the
         /// bitmap itself are reserved.
-        auto init(const memory_map& map) -> void;
+        void init(const memory_map& map);
 
         /// Allocate `count` contiguous frames. Returns the physical address
         /// of the first frame, or invalid_frame on failure.
-        auto alloc(usize count = 1, frame_flags flags = frame_flags::none) -> u64;
+        u64 alloc(usize count = 1, frame_flags flags = frame_flags::none);
 
-        auto configure_access(frame_access_fn access) -> void;
+        void configure_access(frame_access_fn access);
 
         /// Kernel virtual address for direct access to a physical frame.
         /// Identity before paging; the direct map afterwards.  Used to
         /// touch frames that are allocated but not yet mapped into any
         /// active address space (e.g. building a child's startup stack
         /// before its page map is ever activated).
-        auto to_virt(u64 physical) const -> void* {
+        void* to_virt(u64 physical) const {
             return access_ == nullptr
                        ? reinterpret_cast<void*>(static_cast<usize>(physical))
                        : access_(physical);
         }
 
         /// Release `count` frames starting at physical address `frame`.
-        auto release(u64 frame, usize count = 1) -> void;
+        void release(u64 frame, usize count = 1);
 
-        auto initialized() const -> bool {
+        bool initialized() const {
             return ready_;
         }
 
-        auto total_frames() const -> usize {
+        usize total_frames() const {
             return frame_count_;
         }
 
-        auto available_frames() const -> usize {
+        usize available_frames() const {
             return free_count_;
         }
 
         private:
-        auto is_used(usize index) const -> bool;
-        auto set_used(usize index, bool used) -> void;
-        auto mark_range(u64 base, u64 size, bool used) -> void;
+        bool is_used(usize index) const;
+        void set_used(usize index, bool used);
+        void mark_range(u64 base, u64 size, bool used);
 
         core::spinlock  lock_{};
         u64*            bitmap_          = nullptr;
@@ -95,6 +95,6 @@ namespace astia::mm {
     };
 
     /// The kernel's single physical frame allocator.
-    auto kernel_frames() -> frame_allocator&;
+    frame_allocator& kernel_frames();
 
 } // namespace astia::mm

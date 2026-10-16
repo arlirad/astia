@@ -63,20 +63,20 @@ namespace astia::arch {
             pt,
         };
 
-        constexpr auto pml4_index(u64 virt) -> usize {
+        constexpr usize pml4_index(u64 virt) {
             return (virt >> 39) & 0x1ff;
         }
-        constexpr auto pdpt_index(u64 virt) -> usize {
+        constexpr usize pdpt_index(u64 virt) {
             return (virt >> 30) & 0x1ff;
         }
-        constexpr auto pd_index(u64 virt) -> usize {
+        constexpr usize pd_index(u64 virt) {
             return (virt >> 21) & 0x1ff;
         }
-        constexpr auto pt_index(u64 virt) -> usize {
+        constexpr usize pt_index(u64 virt) {
             return (virt >> 12) & 0x1ff;
         }
 
-        auto is_canonical(u64 virt) -> bool {
+        bool is_canonical(u64 virt) {
             const u64 top = virt >> 47;
             return top == 0 || top == 0x1ffff;
         }
@@ -84,7 +84,7 @@ namespace astia::arch {
         /// Translate the arch-neutral flags into an x86_64 leaf entry. A
         /// mapping is always present; page_flags::present is a call-site
         /// convention, not a way to make an absent mapping.
-        auto to_leaf(page_flags flags) -> u64 {
+        u64 to_leaf(page_flags flags) {
             u64 bits = entry_present;
             if (has_flag(flags, page_flags::writable)) {
                 bits |= entry_writable;
@@ -115,7 +115,7 @@ namespace astia::arch {
         /// window — so the remaining three form a fixed pattern per level:
         ///   root: rec rec rec rec      pdpt: rec rec rec pml4(v)
         ///   pd:   rec rec pml4 pdpt    pt:   rec pml4 pdpt pd
-        auto alias(table_level level, u64 virt) -> u64 {
+        u64 alias(table_level level, u64 virt) {
             const u64 rec = recursive_slot;
             u64       a2  = rec;
             u64       a3  = rec;
@@ -143,7 +143,7 @@ namespace astia::arch {
         /// are not active: through the kernel direct map once it runs (it is
         /// shared into every active map), through the identity window before
         /// that and in host tests.
-        auto phys_ptr(u64 phys) -> u64* {
+        u64* phys_ptr(u64 phys) {
             if (active_map != nullptr) {
                 return reinterpret_cast<u64*>(kernel_base + phys);
             }
@@ -151,7 +151,7 @@ namespace astia::arch {
         }
 
         /// `owner`'s root-table page.
-        auto root_table(const page_map& owner) -> u64* {
+        u64* root_table(const page_map& owner) {
             if (active_map == &owner) {
                 return reinterpret_cast<u64*>(alias(table_level::root, 0));
             }
@@ -160,8 +160,7 @@ namespace astia::arch {
 
         /// The next-level table on `virt`'s walk, given the entry pointing
         /// at it (which the caller has verified present or just created).
-        auto next_table(const page_map& owner, u64 virt, table_level level, u64 entry)
-            -> u64* {
+        u64* next_table(const page_map& owner, u64 virt, table_level level, u64 entry) {
             if (active_map == &owner) {
                 return reinterpret_cast<u64*>(alias(level, virt));
             }
@@ -171,8 +170,8 @@ namespace astia::arch {
         /// Return the next-level table for `entry`, allocating and zeroing it
         /// (and setting PRESENT|RW, plus USER when requested) when absent.
         /// Returns nullptr if a huge page is in the way or allocation fails.
-        auto ensure_table(const page_map& owner, u64 virt, table_level level, u64& entry,
-                          page_flags flags) -> u64* {
+        u64* ensure_table(const page_map& owner, u64 virt, table_level level, u64& entry,
+                          page_flags flags) {
             if ((entry & entry_present) != 0) {
                 if ((entry & entry_huge) != 0) {
                     return nullptr;
@@ -193,7 +192,7 @@ namespace astia::arch {
         }
 
         /// Turn a 2 MiB leaf entry into a page table full of 4 KiB entries.
-        auto split_2m(const page_map& owner, u64 virt, u64& pde) -> bool {
+        bool split_2m(const page_map& owner, u64 virt, u64& pde) {
             const u64 base = pde & (~0ull << 21);
             const u64 inherited =
                 pde & (entry_writable | entry_user | entry_write_through |
@@ -223,7 +222,7 @@ namespace astia::arch {
         other.parent_ = nullptr;
     }
 
-    auto page_map::operator=(page_map&& other) noexcept -> page_map& {
+    page_map& page_map::operator=(page_map&& other) noexcept {
         if (this != &other) {
             root_         = other.root_;
             parent_       = other.parent_;
@@ -233,7 +232,7 @@ namespace astia::arch {
         return *this;
     }
 
-    auto page_map::create(const page_map* parent) -> page_map {
+    page_map page_map::create(const page_map* parent) {
         const u64 frame = mm::kernel_frames().alloc(1, mm::frame_flags::zeroed);
         if (frame == mm::frame_allocator::invalid_frame) {
             return page_map{};
@@ -259,7 +258,7 @@ namespace astia::arch {
         return map;
     }
 
-    auto page_map::map_4k(u64 virt, u64 phys, page_flags flags) -> bool {
+    bool page_map::map_4k(u64 virt, u64 phys, page_flags flags) {
         if (!valid() || !is_canonical(virt)) {
             return false;
         }
@@ -298,7 +297,7 @@ namespace astia::arch {
         return true;
     }
 
-    auto page_map::map_2m(u64 virt, u64 phys, page_flags flags) -> bool {
+    bool page_map::map_2m(u64 virt, u64 phys, page_flags flags) {
         if (!valid() || !is_canonical(virt)) {
             return false;
         }
@@ -334,7 +333,7 @@ namespace astia::arch {
         return true;
     }
 
-    auto page_map::unmap(u64 virt) -> bool {
+    bool page_map::unmap(u64 virt) {
         if (!valid() || !is_canonical(virt)) {
             return false;
         }
@@ -365,7 +364,7 @@ namespace astia::arch {
         return true;
     }
 
-    auto page_map::translate(u64 virt) const -> u64 {
+    u64 page_map::translate(u64 virt) const {
         if (!valid() || !is_canonical(virt)) {
             return invalid;
         }
@@ -403,14 +402,14 @@ namespace astia::arch {
     // in user mode where `mov cr3` and `invlpg` are privileged — and there is
     // no real paging to recurse through, so active_map must stay null there
     // (its absence is what routes table access to physical pointers).
-    auto page_map::activate() const -> void {
+    void page_map::activate() const {
 #ifndef ASTIA_HOST_TEST
         active_map = this;
         asm volatile("mov %0, %%cr3" : : "r"(root_) : "memory");
 #endif
     }
 
-    auto page_map::invalidate(u64 virt) -> void {
+    void page_map::invalidate(u64 virt) {
 #ifndef ASTIA_HOST_TEST
         asm volatile("invlpg (%0)" : : "r"(virt) : "memory");
 #else

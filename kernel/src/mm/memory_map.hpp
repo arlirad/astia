@@ -29,23 +29,23 @@ namespace astia::mm {
         public:
         static constexpr usize max_regions = 128;
 
-        auto add(u64 base, u64 size, memory_type type) -> void {
+        void add(u64 base, u64 size, memory_type type) {
             if (count_ >= max_regions) {
                 return;
             }
             regions_[count_++] = {base, size, type};
         }
 
-        auto count() const -> usize {
+        usize count() const {
             return count_;
         }
-        auto begin() const -> const memory_region* {
+        const memory_region* begin() const {
             return regions_;
         }
-        auto end() const -> const memory_region* {
+        const memory_region* end() const {
             return regions_ + count_;
         }
-        auto operator[](usize index) const -> const memory_region& {
+        const memory_region& operator[](usize index) const {
             return regions_[index];
         }
 

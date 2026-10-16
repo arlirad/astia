@@ -46,7 +46,7 @@ namespace astia::boot::virt {
 
     } // namespace
 
-    auto parse_start_info(const void* start_info, boot_info& out) -> bool {
+    bool parse_start_info(const void* start_info, boot_info& out) {
         if (start_info == nullptr) {
             return false;
         }

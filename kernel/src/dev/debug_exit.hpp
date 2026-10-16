@@ -10,6 +10,6 @@ namespace astia::dev {
     /// 0 means "success" and anything nonzero means "failure" to the harness.
     /// Writing the port is a no-op when the device is not attached, which keeps
     /// ordinary boots working.
-    auto debug_exit(u32 status) -> void;
+    void debug_exit(u32 status);
 
 } // namespace astia::dev

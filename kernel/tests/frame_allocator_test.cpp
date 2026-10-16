@@ -10,7 +10,7 @@ namespace {
     using astia::mm::memory_type;
 
     // A fresh allocator per test, built from the shared arena window.
-    auto init_with_arena(frame_allocator& alloc) -> void {
+    void init_with_arena(frame_allocator& alloc) {
         astia_test::map_arena();
         memory_map map;
         map.add(astia_test::arena_base, astia_test::arena_size, memory_type::usable);

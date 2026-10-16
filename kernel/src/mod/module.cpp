@@ -25,8 +25,7 @@ namespace astia::mod {
         /// leaves the kernel on an identity map of physical memory, so the
         /// returned physical address is directly usable — readable, writable
         /// (for relocation), and executable.
-        auto image_map(void*, u64 /*hint*/, usize size, usize align, bool fixed)
-            -> void* {
+        void* image_map(void*, u64 /*hint*/, usize size, usize align, bool fixed) {
             using fa = mm::frame_allocator;
             if (fixed || size == 0 || align > fa::frame_size) {
                 return nullptr; // the frame allocator cannot honor a fixed address
@@ -41,13 +40,13 @@ namespace astia::mod {
 
         /// Backs the loader's undefined-symbol resolution with the export
         /// table. Signature must match elf::resolve_fn.
-        auto image_resolve(void*, const char* name) -> u64 {
+        u64 image_resolve(void*, const char* name) {
             return resolve(name);
         }
 
     } // namespace
 
-    auto load_module(const void* image, usize size) -> const module* {
+    const module* load_module(const void* image, usize size) {
         if (image == nullptr || size == 0 || used >= max_modules) {
             return nullptr;
         }
@@ -72,7 +71,7 @@ namespace astia::mod {
         return &slot;
     }
 
-    auto unload_module(const module* mod) -> bool {
+    bool unload_module(const module* mod) {
         if (mod == nullptr) {
             return false;
         }
@@ -95,7 +94,7 @@ namespace astia::mod {
         return false;
     }
 
-    auto run_module(const module* mod) -> int {
+    int run_module(const module* mod) {
         if (mod == nullptr || mod->running || mod->entry == nullptr) {
             return -1;
         }
@@ -103,11 +102,11 @@ namespace astia::mod {
         return mod->entry();
     }
 
-    auto count() -> usize {
+    usize count() {
         return used;
     }
 
-    auto at(usize i) -> const module* {
+    const module* at(usize i) {
         return i < used ? &modules[i] : nullptr;
     }
 

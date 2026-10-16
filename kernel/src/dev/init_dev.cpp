@@ -6,11 +6,11 @@ namespace astia::dev {
     // UART bring-up first: the console must be solid before paging,
     // heap or interrupts exist.  The ring/IRQ half is a separate step
     // because it needs the PIC remap and IDT that `interrupts` arms.
-    static auto step_uart16550(init::context&) -> bool {
+    static bool step_uart16550(init::context&) {
         return uart16550_init();
     }
 
-    static auto step_uart16550_irq(init::context&) -> bool {
+    static bool step_uart16550_irq(init::context&) {
         return uart16550_init_irq();
     }
 

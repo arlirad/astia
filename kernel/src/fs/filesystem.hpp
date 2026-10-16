@@ -9,12 +9,11 @@ namespace astia::fs {
     /// mounted instance, not a second filesystem type.
     class filesystem {
         public:
-        virtual auto name() const -> const char*               = 0;
-        virtual auto mount(const char* source) const -> mount* = 0;
+        virtual const char*       name() const                    = 0;
+        virtual astia::fs::mount* mount(const char* source) const = 0;
     };
 
-    auto register_type(const filesystem* type) -> long;
-    auto mount_type(const char* type, const char* target, const char* source = nullptr)
-        -> long;
+    long register_type(const filesystem* type);
+    long mount_type(const char* type, const char* target, const char* source = nullptr);
 
 } // namespace astia::fs

@@ -28,7 +28,7 @@ namespace astia::fs {
         mount_entry mounts[max_mounts];
         bool        ready;
 
-        auto equal(const char* lhs, const char* rhs) -> bool {
+        bool equal(const char* lhs, const char* rhs) {
             if (lhs == nullptr || rhs == nullptr)
                 return false;
             while (*lhs != '\0' && *lhs == *rhs) {
@@ -38,7 +38,7 @@ namespace astia::fs {
             return *lhs == *rhs;
         }
 
-        auto copy_path(char* dst, const char* src) -> bool {
+        bool copy_path(char* dst, const char* src) {
             if (src == nullptr || src[0] != '/')
                 return false;
             u32 i = 0;
@@ -50,7 +50,7 @@ namespace astia::fs {
             return true;
         }
 
-        auto find_type(const char* name) -> const filesystem* {
+        const filesystem* find_type(const char* name) {
             for (u32 i = 0; i < max_types; ++i) {
                 if (types[i].type != nullptr && equal(types[i].type->name(), name)) {
                     return types[i].type;
@@ -59,7 +59,7 @@ namespace astia::fs {
             return nullptr;
         }
 
-        auto path_matches(const char* target, const char* path) -> bool {
+        bool path_matches(const char* target, const char* path) {
             if (equal(target, "/")) {
                 return path != nullptr && path[0] == '/';
             }
@@ -69,7 +69,7 @@ namespace astia::fs {
             return target[i] == '\0' && (path[i] == '\0' || path[i] == '/');
         }
 
-        auto find_mount(const char* path) -> mount_entry* {
+        mount_entry* find_mount(const char* path) {
             mount_entry* best     = nullptr;
             u32          best_len = 0;
             for (u32 i = 0; i < max_mounts; ++i) {
@@ -86,7 +86,7 @@ namespace astia::fs {
             return best;
         }
 
-        auto relative_path(const mount_entry& entry, const char* path) -> const char* {
+        const char* relative_path(const mount_entry& entry, const char* path) {
             if (equal(entry.target, "/")) {
                 return path;
             }
@@ -103,19 +103,19 @@ namespace astia::fs {
         devfs_mount* devfs_instance;
     } // namespace
 
-    auto mount::open(const char* path, u32 flags) -> mm::shptr<open_file> {
+    mm::shptr<open_file> mount::open(const char* path, u32 flags) {
         (void) path;
         (void) flags;
         return {};
     }
 
-    auto mount::register_file(const char* path, const mm::shptr<file>& object) -> long {
+    long mount::register_file(const char* path, const mm::shptr<file>& object) {
         (void) path;
         (void) object;
         return -ENOSYS;
     }
 
-    auto init() -> bool {
+    bool init() {
         for (u32 i = 0; i < max_types; ++i)
             types[i] = type_entry{};
         for (u32 i = 0; i < max_mounts; ++i)
@@ -129,7 +129,7 @@ namespace astia::fs {
                mount_type("devfs", "/dev") == 0 && mount_type("tmpfs", "/tmp") == 0;
     }
 
-    auto register_type(const filesystem* type) -> long {
+    long register_type(const filesystem* type) {
         if (!ready || type == nullptr || type->name() == nullptr)
             return -EINVAL;
         if (find_type(type->name()) != nullptr)
@@ -143,8 +143,7 @@ namespace astia::fs {
         return -ENFILE;
     }
 
-    auto mount_type(const char* type_name, const char* target, const char* source)
-        -> long {
+    long mount_type(const char* type_name, const char* target, const char* source) {
         if (!ready || target == nullptr || target[0] != '/')
             return -EINVAL;
         const filesystem* type = find_type(type_name);
@@ -169,51 +168,51 @@ namespace astia::fs {
         return -ENFILE;
     }
 
-    auto register_device(const char* path, const mm::shptr<file>& object) -> long {
+    long register_device(const char* path, const mm::shptr<file>& object) {
         mount_entry* entry = find_mount(path);
         if (entry == nullptr)
             return -ENOENT;
         return entry->instance->register_file(relative_path(*entry, path), object);
     }
 
-    auto open_path(const char* path, u32 flags) -> mm::shptr<open_file> {
+    mm::shptr<open_file> open_path(const char* path, u32 flags) {
         mount_entry* entry = find_mount(path);
         if (entry == nullptr)
             return {};
         return entry->instance->open(relative_path(*entry, path), flags);
     }
 
-    auto open(const char* path, u32 flags) -> mm::shptr<open_file> {
+    mm::shptr<open_file> open(const char* path, u32 flags) {
         return open_path(path, flags);
     }
 
     // The remaining file/open-file implementation stays in this TU.
-    auto file::read(void* buf, u32 len, u64 offset) -> long {
+    long file::read(void* buf, u32 len, u64 offset) {
         (void) buf;
         (void) len;
         (void) offset;
         return -ENOSYS;
     }
-    auto file::write(const void* buf, u32 len, u64 offset) -> long {
+    long file::write(const void* buf, u32 len, u64 offset) {
         (void) buf;
         (void) len;
         (void) offset;
         return -ENOSYS;
     }
-    auto file::ioctl(u64 request, void* argp) -> long {
+    long file::ioctl(u64 request, void* argp) {
         (void) request;
         (void) argp;
         return -ENOTTY;
     }
 
-    auto file::size() const -> long {
+    long file::size() const {
         return -ESPIPE;
     }
 
-    auto file::memory_region() -> mm::phys_region* {
+    mm::phys_region* file::memory_region() {
         return nullptr;
     }
-    auto open_file::read(void* buf, u32 len, u64 offset) -> long {
+    long open_file::read(void* buf, u32 len, u64 offset) {
         if (!_object)
             return -EBADF;
         const u64  actual = offset == offset_current ? _position : offset;
@@ -222,7 +221,7 @@ namespace astia::fs {
             _position = actual + static_cast<u64>(result);
         return result;
     }
-    auto open_file::write(const void* buf, u32 len, u64 offset) -> long {
+    long open_file::write(const void* buf, u32 len, u64 offset) {
         if (!_object)
             return -EBADF;
         const u64  actual = offset == offset_current ? _position : offset;
@@ -231,11 +230,11 @@ namespace astia::fs {
             _position = actual + static_cast<u64>(result);
         return result;
     }
-    auto open_file::ioctl(u64 request, void* argp) -> long {
+    long open_file::ioctl(u64 request, void* argp) {
         return !_object ? -EBADF : _object->ioctl(request, argp);
     }
 
-    auto open_file::size() const -> long {
+    long open_file::size() const {
         return !_object ? -EBADF : _object->size();
     }
 

@@ -14,12 +14,12 @@ namespace astia::log {
     };
 
     namespace detail {
-        auto put(level severity, char c) -> void;
-        auto prefix(level severity) -> void;
-        auto number(level severity, u64 value, unsigned base, bool upper) -> void;
-        auto signed_number(level severity, i64 value) -> void;
+        void put(level severity, char c);
+        void prefix(level severity);
+        void number(level severity, u64 value, unsigned base, bool upper);
+        void signed_number(level severity, i64 value);
 
-        inline auto write_arg(level severity, char spec, const char* value) -> void {
+        inline void write_arg(level severity, char spec, const char* value) {
             if (spec == 's') {
                 if (value == nullptr) {
                     value = "(null)";
@@ -34,7 +34,7 @@ namespace astia::log {
             number(severity, reinterpret_cast<u64>(value), 16, false);
         }
 
-        inline auto write_arg(level severity, char spec, char value) -> void {
+        inline void write_arg(level severity, char spec, char value) {
             if (spec == 'c') {
                 put(severity, value);
             }
@@ -48,7 +48,7 @@ namespace astia::log {
         }
 
         template <typename value_type>
-        auto write_arg(level severity, char spec, value_type value) -> void {
+        void write_arg(level severity, char spec, value_type value) {
             static_assert(std::is_integral_v<value_type> || std::is_pointer_v<value_type>,
                           "unsupported astia::log format argument");
             if constexpr (std::is_pointer_v<value_type>) {
@@ -71,7 +71,7 @@ namespace astia::log {
             }
         }
 
-        inline auto write_format(level severity, const char* format) -> void {
+        inline void write_format(level severity, const char* format) {
             while (*format != '\0') {
                 if (*format == '%' && format[1] == '%') {
                     put(severity, '%');
@@ -84,8 +84,8 @@ namespace astia::log {
         }
 
         template <typename value_type, typename... rest_types>
-        auto write_format(level severity, const char* format, value_type&& value,
-                          rest_types&&... rest) -> void {
+        void write_format(level severity, const char* format, value_type&& value,
+                          rest_types&&... rest) {
             while (*format != '\0') {
                 if (*format != '%') {
                     put(severity, *format++);
@@ -113,7 +113,7 @@ namespace astia::log {
         }
 
         template <typename... arg_types>
-        auto print(level severity, const char* format, arg_types&&... args) -> void {
+        void print(level severity, const char* format, arg_types&&... args) {
             prefix(severity);
             write_format(severity, format, static_cast<arg_types&&>(args)...);
             put(severity, '\n');
@@ -121,27 +121,27 @@ namespace astia::log {
     } // namespace detail
 
     template <typename... arg_types>
-    auto print(level severity, const char* format, arg_types&&... args) -> void {
+    void print(level severity, const char* format, arg_types&&... args) {
         detail::print(severity, format, static_cast<arg_types&&>(args)...);
     }
 
     template <typename... arg_types>
-    auto debug(const char* format, arg_types&&... args) -> void {
+    void debug(const char* format, arg_types&&... args) {
         detail::print(level::debug, format, static_cast<arg_types&&>(args)...);
     }
 
     template <typename... arg_types>
-    auto info(const char* format, arg_types&&... args) -> void {
+    void info(const char* format, arg_types&&... args) {
         detail::print(level::info, format, static_cast<arg_types&&>(args)...);
     }
 
     template <typename... arg_types>
-    auto warning(const char* format, arg_types&&... args) -> void {
+    void warning(const char* format, arg_types&&... args) {
         detail::print(level::warning, format, static_cast<arg_types&&>(args)...);
     }
 
     template <typename... arg_types>
-    auto error(const char* format, arg_types&&... args) -> void {
+    void error(const char* format, arg_types&&... args) {
         detail::print(level::error, format, static_cast<arg_types&&>(args)...);
     }
 

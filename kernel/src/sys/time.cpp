@@ -27,7 +27,7 @@ namespace astia::sys {
         /// Assumed wall clock at boot: 2026-01-01T00:00:00Z. See above.
         constexpr i64 realtime_epoch_sec = 1767225600;
 
-        auto sys_clock_gettime(i64 clock_id, i64 out, i64, i64, i64, i64) -> i64 {
+        i64 sys_clock_gettime(i64 clock_id, i64 out, i64, i64, i64, i64) {
             auto* ts_out = reinterpret_cast<void*>(static_cast<usize>(out));
             if (!sys::user_range_ok(ts_out, sizeof(astia_timespec))) {
                 return -EFAULT;
@@ -61,7 +61,7 @@ namespace astia::sys {
 
     } // namespace
 
-    auto register_time_syscalls() -> bool {
+    bool register_time_syscalls() {
         return register_syscall(syscall_id::clock_gettime, sys_clock_gettime);
     }
 

@@ -50,11 +50,11 @@ namespace astia::sys {
     /// -EINVAL (bad flags/entries), -ENFILE (pool exhausted), and — for a
     /// caller with an address space — -ESRCH/-ENOMEM when the user-half
     /// alias of the ring could not be mapped.
-    auto io_setup(u32 entries, u32 flags, astia_rings** out) -> long;
+    long io_setup(u32 entries, u32 flags, astia_rings** out);
 
     /// Release a ring back to the pool.  Ops still parked on it refuse
     /// the teardown (-EBUSY) so no completion can be orphaned.
-    auto io_destroy(astia_rings* ring) -> long;
+    long io_destroy(astia_rings* ring);
 
     /// Submit up to to_submit SQEs from the shared tail and, when
     /// min_complete > 0, wait until that many completions are visible
@@ -71,8 +71,8 @@ namespace astia::sys {
     ///              will manage this on behalf of userspace)
     ///   -ETIMEDOUT the deadline passed; submissions that happened are
     ///              not undone
-    auto io_enter(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
-                  u64 timeout_ticks) -> long;
+    long io_enter(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
+                  u64 timeout_ticks);
 
     /// SYS_IO_ENTER shape of the same call: the ABI hands a userspace
     /// astia_timespec* (NULL = wait unbounded), the engine speaks tick
@@ -82,17 +82,17 @@ namespace astia::sys {
     /// and CLOCK_MONOTONIC share the boot origin).  Returns what
     /// io_enter returns, or -EIO/-EINVAL for a clockless arch or a
     /// malformed timespec.
-    auto io_enter_abi(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
-                      const astia_timespec* timeout) -> long;
+    long io_enter_abi(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
+                      const astia_timespec* timeout);
 
     /// Device-side nudge: "this fd may have data now."  The engine
     /// retries every op parked on the fd and posts the completions that
     /// result.  Safe from IRQ context — that is the intended caller.
-    auto io_device_ready(i32 fd) -> void;
+    void io_device_ready(i32 fd);
 
     /// Wake parked reads on every open descriptor backed by this device
     /// file instance.  Device IRQ handlers should use this so
     /// dynamically opened `/dev/*` descriptors wake just like stdio.
-    auto io_device_ready_context(const io_device* dev) -> void;
+    void io_device_ready_context(const io_device* dev);
 
 } // namespace astia::sys

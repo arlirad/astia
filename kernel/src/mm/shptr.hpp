@@ -27,7 +27,7 @@ namespace astia::mm {
             acquire(value, &destroy_owned);
         }
 
-        static auto borrowed(T* value) -> shptr {
+        static shptr borrowed(T* value) {
             shptr result;
             result.acquire(value, nullptr);
             return result;
@@ -43,7 +43,7 @@ namespace astia::mm {
             retain();
         }
 
-        auto operator=(const shptr& other) -> shptr& {
+        shptr& operator=(const shptr& other) {
             if (this != &other) {
                 release();
                 _control = other._control;
@@ -54,7 +54,7 @@ namespace astia::mm {
 
         template <typename U>
             requires requires(U* value) { static_cast<T*>(value); }
-        auto operator=(const shptr<U>& other) -> shptr& {
+        shptr& operator=(const shptr<U>& other) {
             release();
             _control = other._control;
             retain();
@@ -65,7 +65,7 @@ namespace astia::mm {
             other._control = nullptr;
         }
 
-        auto operator=(shptr&& other) noexcept -> shptr& {
+        shptr& operator=(shptr&& other) noexcept {
             if (this != &other) {
                 release();
                 _control       = other._control;
@@ -78,14 +78,14 @@ namespace astia::mm {
             release();
         }
 
-        auto get() const -> T* {
+        T* get() const {
             return _control == nullptr ? nullptr : static_cast<T*>(_control->value);
         }
 
-        auto operator->() const -> T* {
+        T* operator->() const {
             return get();
         }
-        auto operator*() const -> T& {
+        T& operator*() const {
             return *get();
         }
         explicit operator bool() const {
@@ -95,23 +95,23 @@ namespace astia::mm {
         private:
         shcontrol* _control = nullptr;
 
-        static auto destroy_owned(void* value) -> void {
+        static void destroy_owned(void* value) {
             delete static_cast<T*>(value);
         }
 
-        auto acquire(T* value, void (*destroy)(void*)) -> void {
+        void acquire(T* value, void (*destroy)(void*)) {
             if (value != nullptr) {
                 _control = new shcontrol{1, value, destroy};
             }
         }
 
-        auto retain() -> void {
+        void retain() {
             if (_control != nullptr) {
                 __atomic_add_fetch(&_control->refs, 1, __ATOMIC_RELAXED);
             }
         }
 
-        auto release() -> void {
+        void release() {
             if (_control == nullptr) {
                 return;
             }

@@ -42,44 +42,44 @@ namespace astia::dev {
               rx_tail(0) {}
 
         // sys::io_device contract: bytes in/out, no blocking, IRQ-safe.
-        auto read(void* buf, u32 len, u64 off) -> long override;
-        auto write(const void* buf, u32 len, u64 off) -> long override;
+        long read(void* buf, u32 len, u64 off) override;
+        long write(const void* buf, u32 len, u64 off) override;
 
         /// Polled console face: bounded THRE wait, then THR write;
         /// drops the byte on a dead port rather than hanging.
-        auto polled_putc(char c) -> void;
+        void polled_putc(char c);
 
         /// Discard pending input (selftests, line resets).
-        auto drain_rx() -> void;
+        void drain_rx();
 
         /// Bring the UART up: FIFOs on (1-byte receive trigger), 8N1,
         /// divisor 1 (115200 at the standard 1.8432 MHz clock), OUT2 so
         /// the PIC can see the line.  Interrupts stay off — the early
         /// phase runs before the PIC exists.
-        auto init_uart() -> void;
+        void init_uart();
 
         /// Arm the receive path: register the IRQ handler, bind the
         /// port to the ring's console fds, enable the data-ready
         /// interrupt and unmask the PIC line.
-        auto init_irq() -> bool;
+        bool init_irq();
 
         /// IRQ body: drain the receive FIFO into the queue, then nudge
         /// the ring engine on all three console fds.
-        auto irq() -> void;
+        void irq();
 
         /// Character loopback (MCR bit 4): the port talks to itself.
-        auto loopback(bool on) -> void;
+        void loopback(bool on);
 
         protected:
         /// The line runs at the divisor table's rates only; a TCSETS
         /// naming anything else is refused (-EINVAL).
-        auto tty_speed(speed_t speed) -> long override;
+        long tty_speed(speed_t speed) override;
 
         private:
-        auto tx_byte(u8 c) -> bool;
-        auto rx_push(u8 c) -> void;
-        auto rx_pop(void* dst, u32 len) -> long;
-        auto rx_drain() -> void;
+        bool tx_byte(u8 c);
+        void rx_push(u8 c);
+        long rx_pop(void* dst, u32 len);
+        void rx_drain();
 
         static constexpr u32 rx_size = 1024; // power of two
 
@@ -99,19 +99,19 @@ namespace astia::dev {
 
     /// Bring COM1 up: FIFOs on, 8N1, divisor 1, OUT2, interrupts off.
     /// Called by the `uart16550` init step.
-    auto uart16550_init() -> bool;
+    bool uart16550_init();
 
     /// Arm the receive path on COM1: IRQ4 handler, ring fds, IER,
     /// PIC unmask.  Needs both `uart16550` (UART up) and `interrupts`
     /// (PIC remapped, IDT loaded).  Called by the `uart16550_irq` init
     /// step.
-    auto uart16550_init_irq() -> bool;
+    bool uart16550_init_irq();
 
     /// Boot selftest: drive the ring end to end in UART loopback mode —
     /// a parked OP_READ completed from IRQ4 context, an OP_WRITE
     /// through the dispatch path, and every written byte read back.
     /// The caller owns the interrupt gate (kmain opens it, waits, then
     /// parks again); returns false on any mismatch.
-    auto uart16550_ring_selftest() -> bool;
+    bool uart16550_ring_selftest();
 
 } // namespace astia::dev

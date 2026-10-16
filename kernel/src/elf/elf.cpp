@@ -138,14 +138,14 @@ namespace astia::elf {
 
         // --- Field accessors (System V ABI accessor macros) ---
 
-        constexpr auto st_bind(u8 info) -> u8 {
+        constexpr u8 st_bind(u8 info) {
             return info >> 4;
         }
 
-        constexpr auto r_sym(u64 info) -> u32 {
+        constexpr u32 r_sym(u64 info) {
             return static_cast<u32>(info >> 32);
         }
-        constexpr auto r_type(u64 info) -> u32 {
+        constexpr u32 r_type(u64 info) {
             return static_cast<u32>(info & 0xffffffffu);
         }
 
@@ -157,7 +157,7 @@ namespace astia::elf {
         // and mirrors memory_map / init's fixed-capacity style).
         constexpr usize max_sections = 64;
 
-        auto str_eq(const char* a, const char* b) -> bool {
+        bool str_eq(const char* a, const char* b) {
             while (*a != '\0' && *a == *b) {
                 ++a;
                 ++b;
@@ -166,20 +166,20 @@ namespace astia::elf {
         }
 
         // True if [off, off+size) lies inside a len-byte buffer.
-        auto in_bounds(u64 off, u64 size, usize len) -> bool {
+        bool in_bounds(u64 off, u64 size, usize len) {
             return off <= len && size <= len - off;
         }
 
-        constexpr auto align_down(u64 v) -> u64 {
+        constexpr u64 align_down(u64 v) {
             return v & ~(page_size - 1);
         }
-        constexpr auto align_up(u64 v) -> u64 {
+        constexpr u64 align_up(u64 v) {
             return (v + page_size - 1) & ~(page_size - 1);
         }
 
         // Validate the ELF64/x86-64 identity and return e_type, or 0 on any
         // mismatch. Shared by kind_of() and both loaders.
-        auto ident_type(const void* bytes, usize len, u16& type_out) -> bool {
+        bool ident_type(const void* bytes, usize len, u16& type_out) {
             if (bytes == nullptr || len < sizeof(elf64_ehdr)) {
                 return false;
             }
@@ -219,7 +219,7 @@ namespace astia::elf {
         // Validate the section table, then locate the symbol table and its
         // linked string table. Returns false on anything malformed or
         // truncated.
-        auto parse_relocatable(const void* bytes, usize len, view& v) -> bool {
+        bool parse_relocatable(const void* bytes, usize len, view& v) {
             u16 type = 0;
             if (!ident_type(bytes, len, type) || type != et_rel) {
                 return false;
@@ -277,8 +277,8 @@ namespace astia::elf {
         // address of each allocated section (null for non-allocated ones).
         // Defined symbols fold in their section base; undefined globals go
         // through the caller's resolver.
-        auto sym_addr(const view& v, const env& e, const void* const* sec_base, u32 index,
-                      u64& out) -> bool {
+        bool sym_addr(const view& v, const env& e, const void* const* sec_base, u32 index,
+                      u64& out) {
             if (index >= v.symcount) {
                 return false;
             }
@@ -322,8 +322,7 @@ namespace astia::elf {
     //  Relocatable (ET_REL) loader
     // ========================================================================
 
-    auto load_relocatable(const void* bytes, usize len, const env& e, image& out)
-        -> bool {
+    bool load_relocatable(const void* bytes, usize len, const env& e, image& out) {
         if (e.map == nullptr) {
             return false;
         }
@@ -522,8 +521,8 @@ namespace astia::elf {
 
         // Translate a virtual address to a file offset using the PT_LOAD
         // segments (the only segments whose bytes live in the file).
-        auto vaddr_to_off(const elf64_phdr* ph, u16 phnum, u64 vaddr, usize len, u64& off)
-            -> bool {
+        bool vaddr_to_off(const elf64_phdr* ph, u16 phnum, u64 vaddr, usize len,
+                          u64& off) {
             for (u16 i = 0; i < phnum; ++i) {
                 if (ph[i].p_type != pt_load) {
                     continue;
@@ -545,9 +544,9 @@ namespace astia::elf {
         // each needs `*loc = bias + addend` to be usable at its run address.
         // Any other dynamic relocation type means real dynamic linking, which
         // this loader deliberately does not do, so we reject it.
-        auto apply_relative_relocs(const u8* bytes, usize len, const elf64_phdr* ph,
-                                   u16 phnum, u64 load_bias, u64 span_start, u64 span_end)
-            -> bool {
+        bool apply_relative_relocs(const u8* bytes, usize len, const elf64_phdr* ph,
+                                   u16 phnum, u64 load_bias, u64 span_start,
+                                   u64 span_end) {
             // Find PT_DYNAMIC; a fully static ET_EXEC has none, which is fine.
             const elf64_dyn* dyn       = nullptr;
             u64              dyn_count = 0;
@@ -620,7 +619,7 @@ namespace astia::elf {
 
     } // namespace
 
-    auto load_executable(const void* bytes, usize len, const env& e, image& out) -> bool {
+    bool load_executable(const void* bytes, usize len, const env& e, image& out) {
         if (e.map == nullptr) {
             return false;
         }
@@ -757,7 +756,7 @@ namespace astia::elf {
     //  Shared entry points
     // ========================================================================
 
-    auto kind_of(const void* bytes, usize len) -> kind {
+    kind kind_of(const void* bytes, usize len) {
         u16 type = 0;
         if (!ident_type(bytes, len, type)) {
             return kind::none;
@@ -774,7 +773,7 @@ namespace astia::elf {
         }
     }
 
-    auto load(const void* bytes, usize len, const env& e, image& out) -> bool {
+    bool load(const void* bytes, usize len, const env& e, image& out) {
         switch (kind_of(bytes, len)) {
         case kind::relocatable:
             return load_relocatable(bytes, len, e, out);

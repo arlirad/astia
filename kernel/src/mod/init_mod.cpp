@@ -49,7 +49,7 @@ namespace astia::mod {
 
         // Per-file visitor for an initrd: load the file if it is an ELF image,
         // skip anything else (configs, data, ...).
-        auto visit_initrd_file(void*, const initrd::file& f) -> bool {
+        bool visit_initrd_file(void*, const initrd::file& f) {
             // ET_REL belongs to the kernel-module loader.  Executables
             // remain files in initrdfs and are launched by proc::spawnve.
             if (elf::kind_of(f.data, f.size) != elf::kind::relocatable) {
@@ -61,7 +61,7 @@ namespace astia::mod {
 
     } // namespace
 
-    static auto step_mod(init::context& ctx) -> bool {
+    static bool step_mod(init::context& ctx) {
         if (ctx.info == nullptr) {
             return false;
         }

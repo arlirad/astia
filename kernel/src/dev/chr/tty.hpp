@@ -36,7 +36,7 @@ namespace astia::dev {
             _termios.c_ospeed = B115200;
         }
 
-        auto ioctl(u64 request, void* argp) -> long override;
+        long ioctl(u64 request, void* argp) override;
 
         protected:
         /// Called per flag TCSETS changes, with the flag bit and its
@@ -51,7 +51,7 @@ namespace astia::dev {
         /// directions).  Default: speeds are unsupported (-ENOSYS,
         /// which fails the TCSETS).  A driver that can only run at one
         /// rate accepts exactly that one.
-        virtual auto tty_speed(speed_t speed) -> long;
+        virtual long tty_speed(speed_t speed);
 
         struct termios _termios;
         u32            _column = 0; // cursor column, for OPOST work later

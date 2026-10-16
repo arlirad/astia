@@ -17,27 +17,27 @@ namespace astia::arch {
         /// Wait for the next interrupt (`hlt` / `wfi`). With the gate closed
         /// this halts until an NMI — the "park forever" building block for
         /// idle loops and unrecoverable-error paths.
-        static auto halt() -> void;
+        static void halt();
 
         /// Open the maskable-interrupt gate (`sti` / DAIF.I clear): from
         /// here on, armed interrupt sources may dispatch at all.
-        static auto interrupts() -> void;
+        static void interrupts();
 
         /// Close the maskable-interrupt gate (`cli` / DAIF.I set). Closing it
         /// is what makes a lock's critical section safe against an interrupt
         /// handler that may take the same lock (see core::spinlock, which
         /// deliberately leaves gating to callers).
-        static auto nointerrupts() -> void;
+        static void nointerrupts();
 
         /// Whether the maskable-interrupt gate is currently open
         /// (RFLAGS.IF / DAIF.I): the state to save before nointerrupts() and
         /// restore with interrupts().
-        static auto check_interrupts() -> bool;
+        static bool check_interrupts();
 
         /// Set the ring-0 stack used when entering from usermode.  Stub
         /// architectures may leave this as a no-op until their exception
         /// level transition is implemented.
-        static auto set_kernel_stack(u64 stack_top) -> void;
+        static void set_kernel_stack(u64 stack_top);
     };
 
     /// Scoped mask of the maskable-interrupt gate: nointerrupts() on
@@ -62,8 +62,8 @@ namespace astia::arch {
                 cpu::interrupts();
             }
         }
-        interrupt_guard(const interrupt_guard&)                    = delete;
-        auto operator=(const interrupt_guard&) -> interrupt_guard& = delete;
+        interrupt_guard(const interrupt_guard&)            = delete;
+        interrupt_guard& operator=(const interrupt_guard&) = delete;
 
         private:
         bool open_; // was the gate open when we masked it?

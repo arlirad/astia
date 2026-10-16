@@ -5,20 +5,20 @@
 
 namespace astia::proc {
 
-    auto fd_table::install_standard_streams() -> bool {
+    bool fd_table::install_standard_streams() {
         entries_[STDIN]  = fs::open("/dev/uart16550");
         entries_[STDOUT] = fs::open("/dev/uart16550");
         entries_[STDERR] = fs::open("/dev/uart16550");
         return entries_[STDIN] && entries_[STDOUT] && entries_[STDERR];
     }
 
-    auto fd_table::get(i32 fd) const -> mm::shptr<fs::open_file> {
+    mm::shptr<fs::open_file> fd_table::get(i32 fd) const {
         return fd >= 0 && static_cast<u32>(fd) < max_process_fds
                    ? entries_[fd]
                    : mm::shptr<fs::open_file>{};
     }
 
-    auto fd_table::set(i32 fd, const mm::shptr<fs::open_file>& file) -> bool {
+    bool fd_table::set(i32 fd, const mm::shptr<fs::open_file>& file) {
         if (fd < 0 || static_cast<u32>(fd) >= max_process_fds) {
             return false;
         }
@@ -26,7 +26,7 @@ namespace astia::proc {
         return true;
     }
 
-    auto fd_table::clear(i32 fd) -> bool {
+    bool fd_table::clear(i32 fd) {
         if (fd < 0 || static_cast<u32>(fd) >= max_process_fds) {
             return false;
         }
@@ -34,7 +34,7 @@ namespace astia::proc {
         return true;
     }
 
-    auto fd_table::duplicate(i32 old_fd) -> i32 {
+    i32 fd_table::duplicate(i32 old_fd) {
         auto source = get(old_fd);
         if (!source) {
             return -EBADF;
@@ -48,7 +48,7 @@ namespace astia::proc {
         return -EMFILE;
     }
 
-    auto fd_table::duplicate_to(i32 old_fd, i32 new_fd) -> i32 {
+    i32 fd_table::duplicate_to(i32 old_fd, i32 new_fd) {
         auto source = get(old_fd);
         if (!source || new_fd < 0 || static_cast<u32>(new_fd) >= max_process_fds) {
             return -EBADF;

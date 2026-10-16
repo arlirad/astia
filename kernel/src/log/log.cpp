@@ -10,11 +10,11 @@ namespace astia::log::detail {
         char                 pending[2][pending_capacity];
         u32                  pending_count[2]{};
 
-        auto pending_slot(level severity) -> u32 {
+        u32 pending_slot(level severity) {
             return severity == level::info ? 0 : 1;
         }
 
-        auto buffer(level severity, char c) -> void {
+        void buffer(level severity, char c) {
             const u32 slot = pending_slot(severity);
             if (pending_count[slot] < pending_capacity) {
                 pending[slot][pending_count[slot]++] = c;
@@ -22,7 +22,7 @@ namespace astia::log::detail {
         }
     } // namespace
 
-    auto put(level severity, char c) -> void {
+    void put(level severity, char c) {
         proc::process* current = proc::current_process();
         auto           stream =
             current == nullptr
@@ -55,7 +55,7 @@ namespace astia::log::detail {
         }
     }
 
-    auto prefix(level severity) -> void {
+    void prefix(level severity) {
         switch (severity) {
         case level::debug: {
             const char* value = "astia: debug: ";
@@ -90,7 +90,7 @@ namespace astia::log::detail {
         }
     }
 
-    auto number(level severity, u64 value, unsigned base, bool upper) -> void {
+    void number(level severity, u64 value, unsigned base, bool upper) {
         char        buffer[32];
         u32         count  = 0;
         const char* digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
@@ -103,7 +103,7 @@ namespace astia::log::detail {
         }
     }
 
-    auto signed_number(level severity, i64 value) -> void {
+    void signed_number(level severity, i64 value) {
         if (value < 0) {
             put(severity, '-');
             number(severity, static_cast<u64>(-(value + 1)) + 1, 10, false);

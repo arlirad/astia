@@ -4,7 +4,7 @@
 
 namespace astia::mm {
 
-    static auto step_frames(init::context& ctx) -> bool {
+    static bool step_frames(init::context& ctx) {
         if (ctx.info == nullptr) {
             return false;
         }

@@ -12,13 +12,13 @@ namespace astia::proc {
     /// while separate opens create separate open_file instances.
     class fd_table {
         public:
-        auto install_standard_streams() -> bool;
+        bool install_standard_streams();
 
-        auto get(i32 fd) const -> mm::shptr<fs::open_file>;
-        auto set(i32 fd, const mm::shptr<fs::open_file>& file) -> bool;
-        auto clear(i32 fd) -> bool;
-        auto duplicate(i32 old_fd) -> i32;
-        auto duplicate_to(i32 old_fd, i32 new_fd) -> i32;
+        mm::shptr<fs::open_file> get(i32 fd) const;
+        bool                     set(i32 fd, const mm::shptr<fs::open_file>& file);
+        bool                     clear(i32 fd);
+        i32                      duplicate(i32 old_fd);
+        i32                      duplicate_to(i32 old_fd, i32 new_fd);
 
         private:
         mm::shptr<fs::open_file> entries_[max_process_fds];

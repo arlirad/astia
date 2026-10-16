@@ -12,7 +12,7 @@ namespace astia::sys {
         syscall_handler      handlers[syscall_capacity]{};
     }
 
-    auto register_syscall(syscall_id id, syscall_handler handler) -> bool {
+    bool register_syscall(syscall_id id, syscall_handler handler) {
         const u32 number = static_cast<u32>(id);
         if (number >= syscall_capacity || handler == nullptr ||
             handlers[number] != nullptr) {
@@ -22,7 +22,7 @@ namespace astia::sys {
         return true;
     }
 
-    auto dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5) -> i64 {
+    i64 dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5) {
         const u32 number = static_cast<u32>(id);
         if (number >= syscall_capacity || handlers[number] == nullptr) {
             return -ENOSYS;
@@ -32,8 +32,7 @@ namespace astia::sys {
 
 } // namespace astia::sys
 
-extern "C" auto astia_syscall_dispatch(astia::arch::x86_64::syscall_frame* frame)
-    -> long {
+extern "C" long astia_syscall_dispatch(astia::arch::x86_64::syscall_frame* frame) {
     if (frame == nullptr)
         return -EFAULT;
     // fork is the one call that needs the caller's whole register

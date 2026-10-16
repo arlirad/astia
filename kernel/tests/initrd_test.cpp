@@ -18,7 +18,7 @@ namespace {
         astia::usize n = 0;
     };
 
-    auto collect_visit(void* ctx, const astia::initrd::file& f) -> bool {
+    bool collect_visit(void* ctx, const astia::initrd::file& f) {
         auto* c = static_cast<collect*>(ctx);
         if (c->n < 4) {
             c->names[c->n] = f.name;
@@ -27,7 +27,7 @@ namespace {
         return true;
     }
 
-    auto stop_visit(void* ctx, const astia::initrd::file&) -> bool {
+    bool stop_visit(void* ctx, const astia::initrd::file&) {
         ++*static_cast<int*>(ctx);
         return false; // ask the walk to stop after the first file
     }

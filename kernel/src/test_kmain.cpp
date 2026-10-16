@@ -14,8 +14,8 @@ namespace {
 
     /// Spawn one userspace image and wait for it out.  `spawned` tells
     /// spawn failure apart from a bad exit status.
-    auto run_image(const char* path, char* const argv[], char* const envp[],
-                   bool& spawned) -> bool {
+    bool run_image(const char* path, char* const argv[], char* const envp[],
+                   bool& spawned) {
         spawned      = false;
         auto process = astia::proc::spawnve(path, argv, envp);
         if (!process) {
@@ -31,7 +31,7 @@ namespace {
         return reaped == child_pid && status == 0;
     }
 
-    auto spawn_init_worker(void* opaque) -> void {
+    void spawn_init_worker(void* opaque) {
         auto* ok = static_cast<volatile astia::u32*>(opaque);
         {
             // Two userspace images, each judged by its exit status: the
@@ -62,7 +62,7 @@ namespace {
 }
 
 namespace {
-    [[noreturn]] auto halt() -> void {
+    [[noreturn]] void halt() {
         for (;;) {
             astia::arch::cpu::halt();
         }

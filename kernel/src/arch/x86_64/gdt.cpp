@@ -42,9 +42,9 @@ namespace astia::arch::x86_64 {
         gdtr  descriptor;
         void* kernel_stack;
 
-        extern "C" auto astia_load_gdt_tss(const gdtr*, u16 selector) -> void;
+        extern "C" void astia_load_gdt_tss(const gdtr*, u16 selector);
 
-        auto tss_descriptor(u64 base, u32 limit) -> void {
+        void tss_descriptor(u64 base, u32 limit) {
             const u64 access = 0x89ull << 40; // present, ring 0, available TSS
             const u64 low    = (limit & 0xFFFFu) | ((base & 0xFFFFFFu) << 16) | access |
                                (static_cast<u64>((limit >> 16) & 0xFu) << 48) |
@@ -59,7 +59,7 @@ namespace astia::arch::x86_64 {
         // and CR4.OSXMMEXCPT set, then a clean fninit.  The kernel
         // itself stays -mgeneral-regs-only and never touches xmm, so
         // there is no kernel SSE state to manage here.
-        auto enable_sse() -> void {
+        void enable_sse() {
             u64 cr0 = 0;
             u64 cr4 = 0;
             asm volatile("mov %%cr0, %0" : "=r"(cr0));
@@ -74,7 +74,7 @@ namespace astia::arch::x86_64 {
         }
     } // namespace
 
-    auto init_gdt_tss() -> bool {
+    bool init_gdt_tss() {
         auto stack = mm::heap::alloc(16 * 1024);
         if (!stack) {
             return false;
@@ -110,7 +110,7 @@ namespace astia::arch::x86_64 {
         return true;
     }
 
-    auto set_kernel_stack(u64 stack_top) -> void {
+    void set_kernel_stack(u64 stack_top) {
         task_state.rsp0         = stack_top;
         astia_syscall_stack_top = stack_top;
     }

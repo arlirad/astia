@@ -37,21 +37,21 @@ namespace astia::mod {
     ///
     /// `image` need not stay valid after the call: section contents are copied
     /// into frame-allocator memory.
-    auto load_module(const void* image, usize size) -> const module*;
+    const module* load_module(const void* image, usize size);
 
     /// Unload a module previously returned by load_module(). Frees the image
     /// allocation and drops the registry slot. Returns false if `mod` is not a
     /// registered module.
-    auto unload_module(const module* mod) -> bool;
+    bool unload_module(const module* mod);
 
     /// Call a loaded module's entry point. Returns the module's return code, or
     /// -1 if `mod` is null or already running.
-    auto run_module(const module* mod) -> int;
+    int run_module(const module* mod);
 
     /// Number of currently loaded modules.
-    auto count() -> usize;
+    usize count();
 
     /// The i-th loaded module, or null if `i` is out of range.
-    auto at(usize i) -> const module*;
+    const module* at(usize i);
 
 } // namespace astia::mod

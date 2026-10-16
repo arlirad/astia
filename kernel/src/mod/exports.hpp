@@ -25,10 +25,10 @@ namespace astia::mod {
     /// `addr` is a u64 (not a pointer) so callers can publish function
     /// addresses without casting a function pointer through an object pointer,
     /// which `-pedantic` rejects.
-    auto expose(const char* name, u64 addr) -> bool;
+    bool expose(const char* name, u64 addr);
 
     /// Resolve a symbol previously exposed with expose(). Returns 0 if unknown.
     /// This backs the ELF loader's undefined-symbol resolution.
-    auto resolve(const char* name) -> u64;
+    u64 resolve(const char* name);
 
 } // namespace astia::mod

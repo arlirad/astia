@@ -9,9 +9,9 @@ namespace astia::fs {
 
     class initrd_mount final : public mount {
         public:
-        auto attach(const initrd::archive& archive) -> bool;
-        auto add(const char* path, const void* data, usize size) -> bool;
-        auto open(const char* path, u32 flags) -> mm::shptr<open_file> override;
+        bool                 attach(const initrd::archive& archive);
+        bool                 add(const char* path, const void* data, usize size);
+        mm::shptr<open_file> open(const char* path, u32 flags) override;
 
         private:
         struct entry {
@@ -26,16 +26,16 @@ namespace astia::fs {
 
     class initrd_filesystem final : public filesystem {
         public:
-        auto name() const -> const char* override {
+        const char* name() const override {
             return "initrd";
         }
-        auto mount(const char* source) const -> fs::mount* override;
-        auto attach(const initrd::archive& archive) -> bool;
+        fs::mount* mount(const char* source) const override;
+        bool       attach(const initrd::archive& archive);
 
         private:
         initrd_mount* instance_ = nullptr;
     };
 
-    auto initrd_type() -> initrd_filesystem&;
+    initrd_filesystem& initrd_type();
 
 } // namespace astia::fs

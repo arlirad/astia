@@ -4,19 +4,19 @@
 
 namespace astia::dev {
 
-    auto device_file::read(void* buf, u32 len, u64 offset) -> long {
+    long device_file::read(void* buf, u32 len, u64 offset) {
         return _device == nullptr ? -EINVAL : _device->read(buf, len, offset);
     }
 
-    auto device_file::write(const void* buf, u32 len, u64 offset) -> long {
+    long device_file::write(const void* buf, u32 len, u64 offset) {
         return _device == nullptr ? -EINVAL : _device->write(buf, len, offset);
     }
 
-    auto device_file::ioctl(u64 request, void* argp) -> long {
+    long device_file::ioctl(u64 request, void* argp) {
         return _device == nullptr ? -EINVAL : _device->ioctl(request, argp);
     }
 
-    auto device_file::size() const -> long {
+    long device_file::size() const {
         return -ESPIPE;
     }
 

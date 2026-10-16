@@ -28,7 +28,7 @@ namespace astia::proc {
         core::spinlock      registry_lock;
 
         /// registry_lock must be held.
-        auto find_slot_locked(pid_t id) -> i32 {
+        i32 find_slot_locked(pid_t id) {
             for (u32 i = 0; i < registry_capacity; ++i) {
                 if (registry[i] && registry[i]->pid() == id) {
                     return static_cast<i32>(i);
@@ -38,7 +38,7 @@ namespace astia::proc {
         }
     }
 
-    auto register_process(const mm::shptr<process>& value) -> bool {
+    bool register_process(const mm::shptr<process>& value) {
         core::spinlock_guard guard(registry_lock);
         for (u32 i = 1; i < registry_capacity; ++i) {
             if (!registry[i]) {
@@ -49,11 +49,11 @@ namespace astia::proc {
         return false;
     }
 
-    auto allocate_pid() -> pid_t {
+    pid_t allocate_pid() {
         return next_pid++;
     }
 
-    auto init() -> bool {
+    bool init() {
         if (kernel != nullptr) {
             return false;
         }
@@ -79,28 +79,28 @@ namespace astia::proc {
         return true;
     }
 
-    auto kernel_process() -> process* {
+    process* kernel_process() {
         return kernel;
     }
 
-    auto current_process() -> process* {
+    process* current_process() {
         return current == nullptr ? nullptr : current->owner();
     }
 
-    auto current_thread() -> thread* {
+    thread* current_thread() {
         return current;
     }
 
-    auto allocate_tid() -> tid_t {
+    tid_t allocate_tid() {
         return next_tid++;
     }
 
-    auto set_current_thread(thread* value) -> void {
+    void set_current_thread(thread* value) {
         current = value;
     }
 
-    auto spawnve(const char* path, char* const argv[], char* const envp[], int* error)
-        -> mm::shptr<process> {
+    mm::shptr<process> spawnve(const char* path, char* const argv[], char* const envp[],
+                               int* error) {
         // Every failure path hands the syscall boundary its negated errno.
         const auto fail = [error](int code) -> mm::shptr<process> {
             if (error != nullptr) {
@@ -157,13 +157,13 @@ namespace astia::proc {
         return child;
     }
 
-    auto find_process(pid_t id) -> process* {
+    process* find_process(pid_t id) {
         core::spinlock_guard guard(registry_lock);
         const i32            slot = find_slot_locked(id);
         return slot < 0 ? nullptr : registry[slot].get();
     }
 
-    auto waitpid(i32 pid, i32* status) -> i64 {
+    i64 waitpid(i32 pid, i32* status) {
         process* parent = current_process();
         thread*  self   = current_thread();
         if (parent == nullptr || self == nullptr) {

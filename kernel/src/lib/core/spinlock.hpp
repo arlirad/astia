@@ -19,17 +19,17 @@ namespace astia::core {
     /// does that scoped (mask before locking, restore after unlocking).
     class spinlock {
         public:
-        spinlock()                                   = default;
-        spinlock(const spinlock&)                    = delete;
-        auto operator=(const spinlock&) -> spinlock& = delete;
+        spinlock()                           = default;
+        spinlock(const spinlock&)            = delete;
+        spinlock& operator=(const spinlock&) = delete;
 
-        auto lock() -> void {
+        void lock() {
             while (__atomic_test_and_set(&flag_, __ATOMIC_ACQUIRE)) {
                 ASTIA_CPU_RELAX();
             }
         }
 
-        auto unlock() -> void {
+        void unlock() {
             __atomic_clear(&flag_, __ATOMIC_RELEASE);
         }
 
@@ -47,8 +47,8 @@ namespace astia::core {
             lock_->unlock();
         }
 
-        spinlock_guard(const spinlock_guard&)                    = delete;
-        auto operator=(const spinlock_guard&) -> spinlock_guard& = delete;
+        spinlock_guard(const spinlock_guard&)            = delete;
+        spinlock_guard& operator=(const spinlock_guard&) = delete;
 
         private:
         spinlock* lock_;

@@ -24,7 +24,7 @@ namespace astia::mm {
         /// Allocate `page_count` frames (zeroed when `zero`) and adopt
         /// them.  Returns nullptr — frames released again — on
         /// failure; the caller owns the single initial reference.
-        static auto create(usize page_count, bool zero) -> phys_region*;
+        static phys_region* create(usize page_count, bool zero);
 
         /// Adopt an already-allocated, contiguous frame run: `base` is
         /// its physical base and ownership transfers — the last
@@ -33,67 +33,67 @@ namespace astia::mm {
         /// stack, the TLS block) file them this way so fork and CoW
         /// account for them like any other mapping.  nullptr — frames
         /// stay the caller's — on failure.
-        static auto adopt(u64 base, usize page_count) -> phys_region*;
+        static phys_region* adopt(u64 base, usize page_count);
 
-        phys_region(const phys_region&)                    = delete;
-        auto operator=(const phys_region&) -> phys_region& = delete;
+        phys_region(const phys_region&)            = delete;
+        phys_region& operator=(const phys_region&) = delete;
 
-        auto addref() -> bool;
+        bool addref();
 
         /// Add one mapping reference covering [first, first + count).
         /// Unlike addref(), this supports a shared subrange of a larger
         /// allocation.  The object reference and page counters change
         /// together; false means a checked counter would overflow.
-        auto share_range(usize first, usize count) -> bool;
+        bool share_range(usize first, usize count);
 
         /// Change only page coverage, without changing the allocation's
         /// object reference.  Used while one held VMA reference is
         /// divided into VMA siblings.
-        auto retain_mapping(usize first, usize count) -> bool;
-        auto unmap_range(usize first, usize count) -> bool;
+        bool retain_mapping(usize first, usize count);
+        bool unmap_range(usize first, usize count);
 
         /// Drop one mapping reference covering a range.
-        auto release_range(usize first, usize count) -> bool;
+        bool release_range(usize first, usize count);
 
         /// Drop only the allocation reference.  All page coverage must
         /// already have been removed by unmap_range().
-        auto release_ref() -> void;
+        void release_ref();
 
         /// Drop one reference.  The last one unlinks the region from
         /// its parent, detaches its children (they own their own
         /// frames — the parent link is accounting, not ownership),
         /// returns the frames to the allocator and frees the object.
-        auto release() -> void;
+        void release();
 
-        auto base() const -> u64 {
+        u64 base() const {
             return base_;
         }
-        auto pages() const -> usize {
+        usize pages() const {
             return pages_;
         }
 
         /// Current reference count — introspection for tests.
-        auto references() -> u32;
+        u32 references();
 
         /// Coarse allocation-level sharing count used as a fast path;
         /// page coverage remains authoritative.
-        auto mapping_references() -> u32 {
+        u32 mapping_references() {
             return references();
         }
 
         /// Direct-map address of page `index`: the window through
         /// which CoW copies read and write page bytes.
-        auto page_direct(usize index) -> void*;
+        void* page_direct(usize index);
 
         /// Copy page `index` into a fresh single-page child region and
         /// record the child against this parent.  The caller maps the
         /// child from here on.  nullptr on allocation failure.
-        auto split_page(usize index) -> phys_region*;
+        phys_region* split_page(usize index);
 
         /// True when page `index` has exactly one mapping left among
         /// this region's sharers — the caller's own — so writing it in
         /// place is safe.
-        auto uniquely_held(usize index) -> bool;
+        bool uniquely_held(usize index);
 
         private:
         phys_region() = default;
@@ -107,9 +107,9 @@ namespace astia::mm {
             u64          parent_page = 0;
         };
 
-        auto unlink_child(phys_region* target) -> void;
-        auto detach_parent(const phys_region* expected) -> void;
-        auto initialize(u64 base, usize pages) -> bool;
+        void unlink_child(phys_region* target);
+        void detach_parent(const phys_region* expected);
+        bool initialize(u64 base, usize pages);
 
         core::spinlock lock_{};
         u64            base_        = 0;

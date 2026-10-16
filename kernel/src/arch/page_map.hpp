@@ -17,11 +17,11 @@ namespace astia::arch {
         no_execute    = 1ull << 6,
     };
 
-    constexpr auto operator|(page_flags a, page_flags b) -> page_flags {
+    constexpr page_flags operator|(page_flags a, page_flags b) {
         return static_cast<page_flags>(static_cast<u64>(a) | static_cast<u64>(b));
     }
 
-    constexpr auto has_flag(page_flags value, page_flags bit) -> bool {
+    constexpr bool has_flag(page_flags value, page_flags bit) {
         return (static_cast<u64>(value) & static_cast<u64>(bit)) != 0;
     }
 
@@ -64,46 +64,46 @@ namespace astia::arch {
         /// Allocate a fresh, zeroed root table. Check valid() before use.
         /// With `parent`, the child also starts out seeing the parent's
         /// kernel half.
-        static auto create(const page_map* parent = nullptr) -> page_map;
+        static page_map create(const page_map* parent = nullptr);
 
-        page_map(const page_map&)                    = delete;
-        auto operator=(const page_map&) -> page_map& = delete;
+        page_map(const page_map&)            = delete;
+        page_map& operator=(const page_map&) = delete;
         page_map(page_map&& other) noexcept;
-        auto operator=(page_map&& other) noexcept -> page_map&;
+        page_map& operator=(page_map&& other) noexcept;
 
-        auto valid() const -> bool {
+        bool valid() const {
             return root_ != 0;
         }
 
         /// Physical address of the root table (what the arch loads).
-        auto root() const -> u64 {
+        u64 root() const {
             return root_;
         }
 
         /// The parent this map was created with, or nullptr.
-        auto parent() const -> const page_map* {
+        const page_map* parent() const {
             return parent_;
         }
 
         /// Map one 4 KiB page. Splits a 2 MiB page if one is in the way.
-        auto map_4k(u64 virt, u64 phys, page_flags flags) -> bool;
+        bool map_4k(u64 virt, u64 phys, page_flags flags);
 
         /// Map one 2 MiB page. Fails if a 4 KiB table already covers `virt`.
-        auto map_2m(u64 virt, u64 phys, page_flags flags) -> bool;
+        bool map_2m(u64 virt, u64 phys, page_flags flags);
 
         /// Remove a 4 KiB mapping of *this* map. 2 MiB mappings are not
         /// touched (false); the parent's mappings are never touched.
-        auto unmap(u64 virt) -> bool;
+        bool unmap(u64 virt);
 
         /// Virtual to physical, or invalid. Consults the parent when this
         /// map has no entry of its own.
-        auto translate(u64 virt) const -> u64;
+        u64 translate(u64 virt) const;
 
         /// Install this page map (arch equivalent: load the root register).
-        auto activate() const -> void;
+        void activate() const;
 
         /// Invalidate any TLB entry for `virt`.
-        static auto invalidate(u64 virt) -> void;
+        static void invalidate(u64 virt);
 
         private:
         explicit page_map(u64 root, const page_map* parent)
@@ -115,6 +115,6 @@ namespace astia::arch {
 
     /// The kernel's own address space, installed by the arch paging init
     /// step; nullptr until then. Provided per arch.
-    auto kernel_page_map() -> page_map*;
+    page_map* kernel_page_map();
 
 } // namespace astia::arch

@@ -14,12 +14,12 @@ namespace astia_test {
         void (*body)();
     };
 
-    inline auto cases() -> std::vector<test_case>& {
+    inline std::vector<test_case>& cases() {
         static std::vector<test_case> list;
         return list;
     }
 
-    inline auto failure_count() -> int& {
+    inline int& failure_count() {
         static int count = 0;
         return count;
     }
@@ -30,14 +30,14 @@ namespace astia_test {
         }
     };
 
-    inline auto check(bool ok, const char* expr, const char* file, int line) -> void {
+    inline void check(bool ok, const char* expr, const char* file, int line) {
         if (!ok) {
             ++failure_count();
             std::printf("    FAIL %s:%d: %s\n", file, line, expr);
         }
     }
 
-    inline auto run_all() -> int {
+    inline int run_all() {
         for (const auto& test : cases()) {
             const int before = failure_count();
             std::printf("[ RUN  ] %s\n", test.name);

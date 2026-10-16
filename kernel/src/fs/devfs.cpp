@@ -6,7 +6,7 @@
 namespace astia::fs {
 
     namespace {
-        auto equal(const char* lhs, const char* rhs) -> bool {
+        bool equal(const char* lhs, const char* rhs) {
             while (*lhs != '\0' && *lhs == *rhs) {
                 ++lhs;
                 ++rhs;
@@ -14,7 +14,7 @@ namespace astia::fs {
             return *lhs == *rhs;
         }
 
-        auto copy_path(char* dst, const char* src) -> bool {
+        bool copy_path(char* dst, const char* src) {
             if (src == nullptr || src[0] != '/')
                 return false;
             u32 i = 0;
@@ -27,8 +27,7 @@ namespace astia::fs {
         }
     }
 
-    auto devfs_mount::register_file(const char* path, const mm::shptr<file>& object)
-        -> long {
+    long devfs_mount::register_file(const char* path, const mm::shptr<file>& object) {
         if (!object || path == nullptr || path[0] != '/')
             return -EINVAL;
         for (u32 i = 0; i < devfs_max_entries; ++i) {
@@ -47,7 +46,7 @@ namespace astia::fs {
         return -ENFILE;
     }
 
-    auto devfs_mount::open(const char* path, u32 flags) -> mm::shptr<open_file> {
+    mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags) {
         for (u32 i = 0; i < devfs_max_entries; ++i) {
             if (entries_[i].used && equal(entries_[i].path, path)) {
                 return mm::share<open_file>(entries_[i].object, flags);
@@ -56,7 +55,7 @@ namespace astia::fs {
         return {};
     }
 
-    auto devfs::mount(const char* source) const -> fs::mount* {
+    fs::mount* devfs::mount(const char* source) const {
         (void) source;
         return instance_;
     }

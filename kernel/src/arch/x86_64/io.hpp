@@ -7,44 +7,44 @@
 
 namespace astia::arch::x86_64 {
 
-    inline auto outb(u16 port, u8 value) -> void {
+    inline void outb(u16 port, u8 value) {
         asm volatile("outb %0, %1" : : "a"(value), "Nd"(port));
     }
 
-    inline auto inb(u16 port) -> u8 {
+    inline u8 inb(u16 port) {
         u8 value = 0;
         asm volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
         return value;
     }
 
-    inline auto outw(u16 port, u16 value) -> void {
+    inline void outw(u16 port, u16 value) {
         asm volatile("outw %0, %1" : : "a"(value), "Nd"(port));
     }
 
-    inline auto inw(u16 port) -> u16 {
+    inline u16 inw(u16 port) {
         u16 value = 0;
         asm volatile("inw %1, %0" : "=a"(value) : "Nd"(port));
         return value;
     }
 
-    inline auto outl(u16 port, u32 value) -> void {
+    inline void outl(u16 port, u32 value) {
         asm volatile("outl %0, %1" : : "a"(value), "Nd"(port));
     }
 
-    inline auto inl(u16 port) -> u32 {
+    inline u32 inl(u16 port) {
         u32 value = 0;
         asm volatile("inl %1, %0" : "=a"(value) : "Nd"(port));
         return value;
     }
 
-    inline auto rdmsr(u64 msr) -> u64 {
+    inline u64 rdmsr(u64 msr) {
         u32 lo = 0;
         u32 hi = 0;
         asm volatile("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
         return (static_cast<u64>(hi) << 32) | lo;
     }
 
-    inline auto wrmsr(u64 msr, u64 value) -> void {
+    inline void wrmsr(u64 msr, u64 value) {
         const u32 lo = static_cast<u32>(value);
         const u32 hi = static_cast<u32>(value >> 32);
         asm volatile("wrmsr" : : "a"(lo), "d"(hi), "c"(msr));

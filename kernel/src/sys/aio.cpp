@@ -90,11 +90,11 @@ namespace astia::sys {
         static_assert(map_bytes <= sizeof(ring_slot::map),
                       "ring geometry exceeds the ring_slot backing array");
 
-        auto rings_of(const ring_slot& slot) -> astia_rings* {
+        astia_rings* rings_of(const ring_slot& slot) {
             return reinterpret_cast<astia_rings*>(const_cast<u8*>(slot.map));
         }
 
-        auto slot_of(const astia_rings* ring) -> ring_slot* {
+        ring_slot* slot_of(const astia_rings* ring) {
             const u64 address = reinterpret_cast<u64>(ring);
             for (u32 i = 0; i < ring_count; ++i) {
                 // The user alias carries the ring's intra-page offset, so
@@ -110,7 +110,7 @@ namespace astia::sys {
             return nullptr;
         }
 
-        auto clear_slot(ring_slot& slot) -> void {
+        void clear_slot(ring_slot& slot) {
             for (u32 i = 0; i < park_capacity; ++i) {
                 slot.park[i] = parked_op{};
             }
@@ -122,8 +122,8 @@ namespace astia::sys {
         /// Alias a slot's ring frames into the process' user half and return
         /// the address userspace must use through `*out`. Nothing is mapped
         /// if any page fails: the partial mapping is removed first.
-        auto map_ring_for_user(ring_slot& slot, u32 index, proc::process* owner, u64* out)
-            -> long {
+        long map_ring_for_user(ring_slot& slot, u32 index, proc::process* owner,
+                               u64* out) {
             arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
             const arch::page_map* kernel = arch::kernel_page_map();
             if (space == nullptr || kernel == nullptr) {
@@ -156,7 +156,7 @@ namespace astia::sys {
 
         /// Drop the user-half alias of a slot, if it has one. The frames
         /// themselves are kernel .bss and stay; only the process' view goes.
-        auto unmap_ring_user(ring_slot& slot, proc::process* owner) -> void {
+        void unmap_ring_user(ring_slot& slot, proc::process* owner) {
             if (slot.user_base == 0) {
                 return;
             }
@@ -169,7 +169,7 @@ namespace astia::sys {
             slot.user_base = 0;
         }
 
-        auto cq_post(astia_rings* ring, u64 user_data, i32 result) -> bool {
+        bool cq_post(astia_rings* ring, u64 user_data, i32 result) {
             astia_cq_ring* cq   = astia_rings_cq(ring);
             const u32      head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
             const u32      tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
@@ -184,18 +184,18 @@ namespace astia::sys {
             return true;
         }
 
-        auto cq_post_guarded(astia_rings* ring, u64 user_data, i32 result) -> bool {
+        bool cq_post_guarded(astia_rings* ring, u64 user_data, i32 result) {
             arch::interrupt_guard gate;
             return cq_post(ring, user_data, result);
         }
 
-        auto file_for(i32 fd) -> mm::shptr<fs::open_file> {
+        mm::shptr<fs::open_file> file_for(i32 fd) {
             proc::process* current = proc::current_process();
             return current == nullptr ? mm::shptr<fs::open_file>{}
                                       : current->descriptor(fd);
         }
 
-        auto retry_parked(astia_rings* ring, parked_op& op) -> void {
+        void retry_parked(astia_rings* ring, parked_op& op) {
             const long n = op.object->read(op.buf, op.len, op.off);
             if (n == 0) {
                 return;
@@ -208,8 +208,7 @@ namespace astia::sys {
             }
         }
 
-        auto dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s)
-            -> bool {
+        bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             switch (s.op) {
             case OP_NOP:
                 return cq_post_guarded(ring, s.user_data, 0);
@@ -377,7 +376,7 @@ namespace astia::sys {
 
     } // namespace
 
-    auto io_setup(u32 entries, u32 flags, astia_rings** out) -> long {
+    long io_setup(u32 entries, u32 flags, astia_rings** out) {
         if (out == nullptr || flags != 0 || entries == 0 ||
             entries > io_ring_max_entries) {
             return -EINVAL;
@@ -440,7 +439,7 @@ namespace astia::sys {
         return -ENFILE;
     }
 
-    auto io_destroy(astia_rings* ring) -> long {
+    long io_destroy(astia_rings* ring) {
         ring_slot* slot = slot_of(ring);
         if (slot == nullptr) {
             return -EINVAL;
@@ -465,8 +464,8 @@ namespace astia::sys {
         return 0;
     }
 
-    auto io_enter(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
-                  u64 timeout_ticks) -> long {
+    long io_enter(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
+                  u64 timeout_ticks) {
         ring_slot* slot = slot_of(ring);
         if (slot == nullptr) {
             return -EINVAL;
@@ -511,8 +510,8 @@ namespace astia::sys {
         return static_cast<long>(consumed);
     }
 
-    auto io_enter_abi(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
-                      const astia_timespec* timeout) -> long {
+    long io_enter_abi(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
+                      const astia_timespec* timeout) {
         u64 ticks = 0;
         if (timeout != nullptr) {
             const u64 hz = arch::timer_hz();
@@ -540,7 +539,7 @@ namespace astia::sys {
         return io_enter(ring, to_submit, min_complete, flags, ticks);
     }
 
-    auto io_device_ready(i32 fd) -> void {
+    void io_device_ready(i32 fd) {
         proc::process* current = proc::current_process();
         if (current == nullptr || !current->descriptor(fd)) {
             return;
@@ -562,7 +561,7 @@ namespace astia::sys {
         }
     }
 
-    auto io_device_ready_context(const io_device* dev) -> void {
+    void io_device_ready_context(const io_device* dev) {
         if (dev == nullptr) {
             return;
         }

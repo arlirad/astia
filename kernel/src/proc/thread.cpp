@@ -11,7 +11,7 @@ namespace astia::proc {
     namespace {
         constexpr usize kernel_stack_size = 16 * 1024;
 
-        extern "C" [[noreturn]] auto thread_trampoline() -> void {
+        extern "C" [[noreturn]] void thread_trampoline() {
             thread* current = proc::current_thread();
             // A thread starts outside an interrupt-return frame. Ensure
             // it inherits the normal kernel execution state even when
@@ -34,7 +34,7 @@ namespace astia::proc {
         arch::context_destroy(context_);
     }
 
-    auto thread::prepare_kernel(kernel_entry entry, void* argument) -> bool {
+    bool thread::prepare_kernel(kernel_entry entry, void* argument) {
         auto stack = mm::heap::alloc(kernel_stack_size);
         if (!stack) {
             return false;
@@ -51,7 +51,7 @@ namespace astia::proc {
                                             reinterpret_cast<u64>(&thread_trampoline));
     }
 
-    auto thread::prepare_user(u64 entry, u64 user_stack_top, u64 fs_base) -> bool {
+    bool thread::prepare_user(u64 entry, u64 user_stack_top, u64 fs_base) {
         auto stack = mm::heap::alloc(kernel_stack_size);
         if (!stack || context_ == nullptr) {
             return false;
@@ -65,8 +65,8 @@ namespace astia::proc {
                                           entry, fs_base);
     }
 
-    auto thread::prepare_user_start(u64 entry, u64 user_stack_top, u64 fs_base,
-                                    u64 argument) -> bool {
+    bool thread::prepare_user_start(u64 entry, u64 user_stack_top, u64 fs_base,
+                                    u64 argument) {
         auto stack = mm::heap::alloc(kernel_stack_size);
         if (!stack || context_ == nullptr) {
             return false;
@@ -80,7 +80,7 @@ namespace astia::proc {
             context_, kernel_stack_top_, user_stack_top_, entry, fs_base, argument);
     }
 
-    auto thread::prepare_fork_user(const arch::user_context& uctx) -> bool {
+    bool thread::prepare_fork_user(const arch::user_context& uctx) {
         auto stack = mm::heap::alloc(kernel_stack_size);
         if (!stack || context_ == nullptr) {
             return false;
@@ -93,13 +93,13 @@ namespace astia::proc {
         return arch::context_prepare_fork(context_, kernel_stack_top_, &uctx);
     }
 
-    auto thread::run_entry() -> void {
+    void thread::run_entry() {
         if (entry_function_ != nullptr) {
             entry_function_(entry_argument_);
         }
     }
 
-    auto thread::finish() -> void {
+    void thread::finish() {
         state(thread_state::dead);
         if (owner_ != nullptr) {
             owner_->thread_exited(this,
@@ -122,7 +122,7 @@ namespace astia::proc {
         }
     }
 
-    auto thread::join(void** result) -> long {
+    long thread::join(void** result) {
         thread* current = proc::current_thread();
         if (current == this) {
             return -EDEADLK;
@@ -151,7 +151,7 @@ namespace astia::proc {
         return 0;
     }
 
-    auto thread::detach() -> long {
+    long thread::detach() {
         if (joiner_ != nullptr) {
             return -EINVAL;
         }
@@ -159,7 +159,7 @@ namespace astia::proc {
         return 0;
     }
 
-    auto thread::exit(void* result) -> void {
+    void thread::exit(void* result) {
         result_ = result;
         finish();
         for (;;) {

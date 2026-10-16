@@ -58,8 +58,8 @@ namespace {
         size_t         cache_n;
     };
 
-    auto reloc_map(void* ctx, astia::u64, astia::usize size, astia::usize align,
-                   bool fixed) -> void* {
+    void* reloc_map(void* ctx, astia::u64, astia::usize size, astia::usize align,
+                    bool fixed) {
         if (fixed) {
             return nullptr; // relocatable images are never fixed-address
         }
@@ -76,7 +76,7 @@ namespace {
         return p;
     }
 
-    auto reloc_resolve(void* ctx, const char* name) -> astia::u64 {
+    astia::u64 reloc_resolve(void* ctx, const char* name) {
         auto* a = static_cast<reloc_arena*>(ctx);
         for (size_t i = 0; i < a->cache_n; ++i) {
             if (std::strcmp(a->cache[i].name, name) == 0) {
@@ -118,8 +118,8 @@ namespace {
         size_t span = 0;
     };
 
-    auto exec_map(void* ctx, astia::u64 hint, astia::usize size, astia::usize, bool fixed)
-        -> void* {
+    void* exec_map(void* ctx, astia::u64 hint, astia::usize size, astia::usize,
+                   bool fixed) {
         auto* a     = static_cast<exec_arena*>(ctx);
         int   flags = MAP_PRIVATE | MAP_ANONYMOUS | (fixed ? MAP_FIXED_NOREPLACE : 0);
         void* want  = fixed ? reinterpret_cast<void*>(hint) : nullptr;

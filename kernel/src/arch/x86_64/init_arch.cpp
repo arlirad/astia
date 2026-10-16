@@ -24,17 +24,17 @@ namespace astia::arch {
 
         /// Page-mapper handed to mm::heap, so heap growth can create
         /// virtual->physical mappings without mm ever seeing a page_map.
-        auto map_heap_page(u64 virt, u64 phys) -> bool {
+        bool map_heap_page(u64 virt, u64 phys) {
             return kernel_map.map_4k(virt, phys,
                                      page_flags::present | page_flags::writable);
         }
 
-        auto direct_access(u64 physical) -> void* {
+        void* direct_access(u64 physical) {
             return reinterpret_cast<void*>(kernel_base + physical);
         }
 
         /// Top of usable RAM as reported by the loader.
-        auto usable_top(const mm::memory_map& map) -> u64 {
+        u64 usable_top(const mm::memory_map& map) {
             u64 top = 0;
             for (const auto& region : map) {
                 if (region.type == mm::memory_type::usable &&
@@ -47,7 +47,7 @@ namespace astia::arch {
 
     } // namespace
 
-    auto kernel_page_map() -> page_map* {
+    page_map* kernel_page_map() {
         return kernel_map_live ? &kernel_map : nullptr;
     }
 
@@ -55,7 +55,7 @@ namespace astia::arch {
 
 namespace astia::arch::x86_64 {
 
-    static auto step_paging(init::context& ctx) -> bool {
+    static bool step_paging(init::context& ctx) {
         if (ctx.info == nullptr) {
             return false;
         }
@@ -117,11 +117,11 @@ namespace astia::arch::x86_64 {
     /// paging (the IDT and handler stubs live in the kernel image, which
     /// the paging step maps) and leaves interrupts masked — kmain opens
     /// the gate once its selftest has proven the dispatch path works.
-    static auto step_interrupts(init::context&) -> bool {
+    static bool step_interrupts(init::context&) {
         return init_interrupts();
     }
 
-    static auto step_gdt_tss(init::context&) -> bool {
+    static bool step_gdt_tss(init::context&) {
         return init_gdt_tss();
     }
 

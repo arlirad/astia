@@ -12,7 +12,7 @@ void* operator new(astia::usize size, void* where) noexcept;
 namespace astia::mm {
 
     template <typename T, typename... Args>
-    auto share(Args&&... args) -> shptr<T> {
+    shptr<T> share(Args&&... args) {
         auto memory = heap::alloc(sizeof(T));
         if (!memory) {
             return {};

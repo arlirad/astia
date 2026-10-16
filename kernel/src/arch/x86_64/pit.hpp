@@ -13,15 +13,15 @@ namespace astia::arch::x86_64 {
         static constexpr u32 input_hz = 1193182; // PIT input frequency
 
         /// Channel 0, mode 3 (square wave): IRQ0 fires every 1/hz seconds.
-        static auto start(u32 hz) -> void;
+        static void start(u32 hz);
 
         /// Channel 0, mode 0 (one-shot): counts `counts` input ticks down
         /// to 0 and stops; the countdown is observable with read_count().
-        static auto start_one_shot(u32 counts) -> void;
+        static void start_one_shot(u32 counts);
 
         /// Latched read of the channel-0 counter (freeze, then read back):
         /// counts down towards 0 in one-shot mode.
-        static auto read_count() -> u32;
+        static u32 read_count();
     };
 
 } // namespace astia::arch::x86_64

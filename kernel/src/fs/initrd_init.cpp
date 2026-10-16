@@ -6,7 +6,7 @@
 
 namespace astia::fs {
 
-    static auto step_initrd(init::context& context) -> bool {
+    static bool step_initrd(init::context& context) {
         if (context.info == nullptr)
             return false;
         for (usize i = 0; i < context.info->module_count; ++i) {

@@ -9,12 +9,12 @@ extern "C" char __kernel_end[];
 namespace astia::mm {
 
     namespace {
-        auto identity_access(u64 physical) -> void* {
+        void* identity_access(u64 physical) {
             return reinterpret_cast<void*>(static_cast<usize>(physical));
         }
     }
 
-    auto frame_allocator::init(const memory_map& map) -> void {
+    void frame_allocator::init(const memory_map& map) {
         core::spinlock_guard guard(lock_);
 
         // Track everything up to the highest usable byte.
@@ -64,7 +64,7 @@ namespace astia::mm {
         ready_ = true;
     }
 
-    auto frame_allocator::configure_access(frame_access_fn access) -> void {
+    void frame_allocator::configure_access(frame_access_fn access) {
         core::spinlock_guard guard(lock_);
         access_ = access == nullptr ? identity_access : access;
         if (bitmap_physical_ != 0) {
@@ -72,11 +72,11 @@ namespace astia::mm {
         }
     }
 
-    auto frame_allocator::is_used(usize index) const -> bool {
+    bool frame_allocator::is_used(usize index) const {
         return (bitmap_[index / 64] >> (index % 64)) & u64{1};
     }
 
-    auto frame_allocator::set_used(usize index, bool used) -> void {
+    void frame_allocator::set_used(usize index, bool used) {
         u64&       word     = bitmap_[index / 64];
         const u64  mask     = u64{1} << (index % 64);
         const bool was_used = (word & mask) != 0;
@@ -93,7 +93,7 @@ namespace astia::mm {
         }
     }
 
-    auto frame_allocator::mark_range(u64 base, u64 size, bool used) -> void {
+    void frame_allocator::mark_range(u64 base, u64 size, bool used) {
         if (size == 0) {
             return;
         }
@@ -105,7 +105,7 @@ namespace astia::mm {
         }
     }
 
-    auto frame_allocator::alloc(usize count, frame_flags flags) -> u64 {
+    u64 frame_allocator::alloc(usize count, frame_flags flags) {
         if (count == 0) {
             return invalid_frame;
         }
@@ -146,7 +146,7 @@ namespace astia::mm {
         return frame;
     }
 
-    auto frame_allocator::release(u64 frame, usize count) -> void {
+    void frame_allocator::release(u64 frame, usize count) {
         core::spinlock_guard guard(lock_);
         if (!ready_) {
             return;
@@ -158,7 +158,7 @@ namespace astia::mm {
         }
     }
 
-    auto kernel_frames() -> frame_allocator& {
+    frame_allocator& kernel_frames() {
         static frame_allocator instance;
         return instance;
     }

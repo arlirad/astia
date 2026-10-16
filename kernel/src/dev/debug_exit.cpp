@@ -2,7 +2,7 @@
 
 namespace astia::dev {
 
-    auto debug_exit(u32 status) -> void {
+    void debug_exit(u32 status) {
         // QEMU isa-debug-exit sits at I/O port 0x501 by default. The port has
         // to be in a 16-bit register (DX), hence the u16 cast.
         asm volatile("outb %0, %1"

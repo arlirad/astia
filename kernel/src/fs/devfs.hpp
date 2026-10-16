@@ -8,9 +8,8 @@ namespace astia::fs {
 
     class devfs_mount final : public mount {
         public:
-        auto open(const char* path, u32 flags) -> mm::shptr<open_file> override;
-        auto register_file(const char* path, const mm::shptr<file>& object)
-            -> long override;
+        mm::shptr<open_file> open(const char* path, u32 flags) override;
+        long register_file(const char* path, const mm::shptr<file>& object) override;
 
         private:
         struct entry {
@@ -26,12 +25,12 @@ namespace astia::fs {
         public:
         constexpr devfs() = default;
 
-        auto name() const -> const char* override {
+        const char* name() const override {
             return "devfs";
         }
-        auto mount(const char* source) const -> fs::mount* override;
+        fs::mount* mount(const char* source) const override;
 
-        auto attach(devfs_mount* instance) -> void {
+        void attach(devfs_mount* instance) {
             instance_ = instance;
         }
 

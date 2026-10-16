@@ -27,11 +27,11 @@ namespace astia::dev {
         constexpr regs() = default;
         explicit regs(volatile void* base) : _base(static_cast<volatile u8*>(base)) {}
 
-        auto operator[](u32 offset) const -> volatile T& {
+        volatile T& operator[](u32 offset) const {
             return *reinterpret_cast<volatile T*>(_base + offset);
         }
 
-        auto base() const -> volatile void* {
+        volatile void* base() const {
             return _base;
         }
 
@@ -67,7 +67,7 @@ namespace astia::dev {
                 }
             }
 
-            auto operator=(T value) const -> void {
+            void operator=(T value) const {
                 if constexpr (sizeof(T) == 1) {
                     arch::x86_64::outb(_port, value);
                 }
@@ -83,11 +83,11 @@ namespace astia::dev {
             u16 _port;
         };
 
-        constexpr auto operator[](u32 offset) const -> ref {
+        constexpr ref operator[](u32 offset) const {
             return ref{static_cast<u16>(_base + offset)};
         }
 
-        constexpr auto base() const -> u16 {
+        constexpr u16 base() const {
             return _base;
         }
 

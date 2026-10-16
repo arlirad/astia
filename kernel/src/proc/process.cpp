@@ -26,7 +26,7 @@ namespace astia::proc {
         u32                dead_count = 0;
     }
 
-    auto defer_dead_thread(const mm::shptr<thread>& value) -> void {
+    void defer_dead_thread(const mm::shptr<thread>& value) {
         if (!value) {
             return;
         }
@@ -43,7 +43,7 @@ namespace astia::proc {
     // Reap queued dead threads.  Called from the scheduler only
     // after switching away from a context, where no queued thread
     // can still be running on its own stack.
-    auto reap_dead_threads() -> void {
+    void reap_dead_threads() {
         if (dead_queue == nullptr) {
             return;
         }
@@ -67,7 +67,7 @@ namespace astia::proc {
     }
 
     namespace {
-        auto cstr_length(const char* value, usize limit) -> usize {
+        usize cstr_length(const char* value, usize limit) {
             usize length = 0;
             while (value != nullptr && value[length] != '\0' && length < limit) {
                 ++length;
@@ -79,8 +79,8 @@ namespace astia::proc {
         // child but not active here.  The caller owns the physical
         // frames backing the region, so they are reachable through the
         // kernel's direct-map translation (mm::frame_allocator).
-        auto write_user(u64 base, const u64* frames, u32 frame_count, u64 vaddr,
-                        const void* src, usize length) -> bool {
+        bool write_user(u64 base, const u64* frames, u32 frame_count, u64 vaddr,
+                        const void* src, usize length) {
             const auto* bytes = static_cast<const u8*>(src);
             while (length != 0) {
                 if (vaddr < base) {
@@ -110,8 +110,8 @@ namespace astia::proc {
             return true;
         }
 
-        auto write_user_u64(u64 base, const u64* frames, u32 frame_count, u64 vaddr,
-                            u64 value) -> bool {
+        bool write_user_u64(u64 base, const u64* frames, u32 frame_count, u64 vaddr,
+                            u64 value) {
             return write_user(base, frames, frame_count, vaddr, &value, sizeof(value));
         }
 
@@ -126,10 +126,9 @@ namespace astia::proc {
         //
         // Pure data layout in plain C++; the architecture only consumes
         // the resulting stack pointer via context_prepare_user.
-        auto build_initial_stack(u64 base, u64 top, const u64* frames, u32 frame_count,
+        bool build_initial_stack(u64 base, u64 top, const u64* frames, u32 frame_count,
                                  const char* const* argv, u32 argc,
-                                 const char* const* envp, u32 envc, u64* rsp_out)
-            -> bool {
+                                 const char* const* envp, u32 envc, u64* rsp_out) {
             u64 cursor = top;
             u64 argv_address[max_spawn_args]{};
             u64 envp_address[max_spawn_env]{};
@@ -233,7 +232,7 @@ namespace astia::proc {
         delete address_space_;
     }
 
-    auto process::add_thread(const mm::shptr<thread>& value) -> bool {
+    bool process::add_thread(const mm::shptr<thread>& value) {
         if (!value) {
             return false;
         }
@@ -248,11 +247,11 @@ namespace astia::proc {
         return false;
     }
 
-    auto process::thread_at(u32 index) const -> mm::shptr<thread> {
+    mm::shptr<thread> process::thread_at(u32 index) const {
         return index < max_process_threads ? threads_[index] : mm::shptr<thread>{};
     }
 
-    auto process::thread_exited(thread* value, i32 status) -> void {
+    void process::thread_exited(thread* value, i32 status) {
         {
             core::spinlock_guard guard(process_lock);
             if (state_ == process_state::zombie || state_ == process_state::dead) {
@@ -290,7 +289,7 @@ namespace astia::proc {
         }
     }
 
-    auto process::take_thread(thread* value) -> mm::shptr<thread> {
+    mm::shptr<thread> process::take_thread(thread* value) {
         core::spinlock_guard guard(process_lock);
         for (u32 i = 0; i < max_process_threads; ++i) {
             if (threads_[i] && threads_[i].get() == value) {
@@ -305,7 +304,7 @@ namespace astia::proc {
         return {};
     }
 
-    auto process::release_thread(thread* value) -> void {
+    void process::release_thread(thread* value) {
         core::spinlock_guard guard(process_lock);
         for (u32 i = 0; i < max_process_threads; ++i) {
             if (threads_[i] && threads_[i].get() == value) {
@@ -318,7 +317,7 @@ namespace astia::proc {
         }
     }
 
-    auto process::add_waiter(thread* value) -> bool {
+    bool process::add_waiter(thread* value) {
         if (value == nullptr) {
             return false;
         }
@@ -332,7 +331,7 @@ namespace astia::proc {
         return false;
     }
 
-    auto process::remove_waiter(thread* value) -> void {
+    void process::remove_waiter(thread* value) {
         core::spinlock_guard guard(process_lock);
         for (u32 i = 0; i < max_process_waiters; ++i) {
             if (waiters_[i] == value) {
@@ -341,7 +340,7 @@ namespace astia::proc {
         }
     }
 
-    auto process::wake_waiters() -> void {
+    void process::wake_waiters() {
         thread* wake_list[max_process_waiters];
         u32     count = 0;
         {
@@ -358,32 +357,32 @@ namespace astia::proc {
         }
     }
 
-    auto process::install_standard_streams() -> bool {
+    bool process::install_standard_streams() {
         return descriptors_.install_standard_streams();
     }
 
-    auto process::descriptor(i32 fd) const -> mm::shptr<fs::open_file> {
+    mm::shptr<fs::open_file> process::descriptor(i32 fd) const {
         return descriptors_.get(fd);
     }
 
-    auto process::set_descriptor(i32 fd, const mm::shptr<fs::open_file>& value) -> bool {
+    bool process::set_descriptor(i32 fd, const mm::shptr<fs::open_file>& value) {
         return descriptors_.set(fd, value);
     }
 
-    auto process::clear_descriptor(i32 fd) -> bool {
+    bool process::clear_descriptor(i32 fd) {
         return descriptors_.clear(fd);
     }
 
-    auto process::duplicate_descriptor(i32 old_fd) -> i32 {
+    i32 process::duplicate_descriptor(i32 old_fd) {
         return descriptors_.duplicate(old_fd);
     }
 
-    auto process::duplicate_descriptor_to(i32 old_fd, i32 new_fd) -> i32 {
+    i32 process::duplicate_descriptor_to(i32 old_fd, i32 new_fd) {
         return descriptors_.duplicate_to(old_fd, new_fd);
     }
 
-    auto process::create_user_thread(u64 entry, char* const argv[], char* const envp[])
-        -> mm::shptr<thread> {
+    mm::shptr<thread> process::create_user_thread(u64 entry, char* const argv[],
+                                                  char* const envp[]) {
         if (address_space_ == nullptr) {
             return {};
         }
@@ -451,8 +450,8 @@ namespace astia::proc {
         return value;
     }
 
-    auto process::create_thread(u64 entry, u64 user_stack_top, u64 argument)
-        -> mm::shptr<thread> {
+    mm::shptr<thread> process::create_thread(u64 entry, u64 user_stack_top,
+                                             u64 argument) {
         if (address_space_ == nullptr || entry == 0 || user_stack_top == 0) {
             return {};
         }
@@ -473,8 +472,8 @@ namespace astia::proc {
         return value;
     }
 
-    auto process::clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
-                                       usize& mapping_pages) -> bool {
+    bool process::clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
+                                       usize& mapping_pages) {
         if (tls_tp_ == 0) {
             mapping_base  = 0;
             mapping_pages = 0;
@@ -542,7 +541,7 @@ namespace astia::proc {
         return true;
     }
 
-    auto process::thread_by_tid(tid_t id) -> mm::shptr<thread> {
+    mm::shptr<thread> process::thread_by_tid(tid_t id) {
         core::spinlock_guard guard(process_lock);
         for (u32 i = 0; i < max_process_threads; ++i) {
             if (threads_[i] && threads_[i]->tid() == id) {
@@ -552,7 +551,7 @@ namespace astia::proc {
         return {};
     }
 
-    auto process::copy_descriptors_from(const process& other) -> bool {
+    bool process::copy_descriptors_from(const process& other) {
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
             auto entry = other.descriptors_.get(static_cast<i32>(fd));
             if (entry && !descriptors_.set(static_cast<i32>(fd), entry)) {
@@ -562,8 +561,7 @@ namespace astia::proc {
         return true;
     }
 
-    auto process::create_fork_thread(const arch::user_context& uctx)
-        -> mm::shptr<thread> {
+    mm::shptr<thread> process::create_fork_thread(const arch::user_context& uctx) {
         auto value = mm::share<thread>(this, proc::allocate_tid());
         if (!value || !value->prepare_fork_user(uctx)) {
             return {};

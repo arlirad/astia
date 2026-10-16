@@ -39,17 +39,17 @@ namespace astia::initrd {
     /// Open a tar image. Fails on anything too short to be an archive, or
     /// whose first block is neither a ustar header nor the end-of-archive
     /// marker.
-    auto open(const void* image, usize len, archive& out) -> bool;
+    bool open(const void* image, usize len, archive& out);
 
     /// Visit each regular file (non-empty) in the archive, in order. Stops
     /// early — returning false — if `visit` returns false. Returns true only
     /// if it walked the whole archive without hitting a malformed header.
-    auto each(const archive& a, visit_fn visit, void* ctx) -> bool;
+    bool each(const archive& a, visit_fn visit, void* ctx);
 
     /// Find the first regular file named `name`. Returns false if absent.
-    auto find(const archive& a, const char* name, file& out) -> bool;
+    bool find(const archive& a, const char* name, file& out);
 
     /// Number of regular (non-empty) files in the archive.
-    auto count(const archive& a) -> usize;
+    usize count(const archive& a);
 
 } // namespace astia::initrd

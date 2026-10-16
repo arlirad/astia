@@ -13,7 +13,7 @@ namespace astia::arch::x86_64 {
     /// Build/load the kernel GDT and TSS.  The TSS RSP0 is the stack used
     /// when a future user thread enters ring 0; the current kernel remains
     /// on its bootstrap stack until usermode is enabled.
-    auto init_gdt_tss() -> bool;
-    auto set_kernel_stack(u64 stack_top) -> void;
+    bool init_gdt_tss();
+    void set_kernel_stack(u64 stack_top);
 
 } // namespace astia::arch::x86_64

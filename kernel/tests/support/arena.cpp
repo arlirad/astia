@@ -7,7 +7,7 @@
 
 namespace astia_test {
 
-    auto map_arena() -> void* {
+    void* map_arena() {
         static void* mapped = nullptr;
         if (mapped != nullptr) {
             return mapped;

@@ -9,12 +9,12 @@ namespace astia::init {
     namespace {
 
 #ifndef ASTIA_HOST_TEST
-        auto log_line(const char* prefix, const char* name) -> void {
+        void log_line(const char* prefix, const char* name) {
             astia::log::info("%s%s", prefix, name);
         }
 #else
         // Host tests exercise the ordering rules only; diagnostics are silent.
-        auto log_line(const char*, const char*) -> void {}
+        void log_line(const char*, const char*) {}
 #endif
 
         // The step table is bounded by a fixed size so the ordering pass needs
@@ -24,7 +24,7 @@ namespace astia::init {
 
         enum class state : u8 { pending, ok, failed, skipped };
 
-        auto names_equal(const char* a, const char* b) -> bool {
+        bool names_equal(const char* a, const char* b) {
             while (*a != '\0' && *a == *b) {
                 ++a;
                 ++b;
@@ -32,7 +32,7 @@ namespace astia::init {
             return *a == *b;
         }
 
-        auto find(const step* steps, usize count, const char* name) -> isize {
+        isize find(const step* steps, usize count, const char* name) {
             for (usize i = 0; i < count; ++i) {
                 if (names_equal(steps[i].name, name)) {
                     return static_cast<isize>(i);
@@ -52,7 +52,7 @@ namespace astia::init {
 
         // Depth-first post-order: emit every dependency before its dependent.
         // Grey nodes catch cycles.
-        auto visit(plan& p, usize index) -> bool {
+        bool visit(plan& p, usize index) {
             if (p.color[index] == 2) {
                 return true;
             }
@@ -93,7 +93,7 @@ namespace astia::init {
 
         // Seed the DFS by phase so unordered steps keep a stable, coarse
         // order; explicit edges override it.
-        auto topological(plan& p) -> bool {
+        bool topological(plan& p) {
             constexpr phase phases[] = {
                 phase::early,      phase::memory, phase::devices,
                 phase::subsystems, phase::late,
@@ -110,7 +110,7 @@ namespace astia::init {
             return true;
         }
 
-        auto execute(plan& p, context& ctx) -> bool {
+        bool execute(plan& p, context& ctx) {
             bool failed = false;
             for (usize k = 0; k < p.emitted; ++k) {
                 const usize index = p.order[k];
@@ -150,7 +150,7 @@ namespace astia::init {
 
     } // namespace
 
-    auto run_steps(const step* first, const step* last, context& ctx) -> bool {
+    bool run_steps(const step* first, const step* last, context& ctx) {
         const usize count = static_cast<usize>(last - first);
         if (count == 0) {
             return true;
@@ -175,7 +175,7 @@ namespace astia::init {
     extern "C" const step __init_steps_start[];
     extern "C" const step __init_steps_end[];
 
-    auto run(context& ctx) -> bool {
+    bool run(context& ctx) {
         const usize count = static_cast<usize>(__init_steps_end - __init_steps_start);
         if (count == 0) {
             astia::log::error("init no steps registered");

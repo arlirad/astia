@@ -4,9 +4,9 @@
 
 namespace astia::proc {
 
-    auto register_syscalls() -> bool;
+    bool register_syscalls();
 
-    static auto step_proc(init::context&) -> bool {
+    static bool step_proc(init::context&) {
         return proc::init() && scheduler::init() && register_syscalls();
     }
 

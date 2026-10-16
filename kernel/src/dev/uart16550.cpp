@@ -77,15 +77,15 @@ namespace astia::dev {
         constinit uart16550   com1{"ttyS0", 0x3F8, 4};
         constinit device_file com1_file{&com1};
 
-        auto uart16550_irq() -> void {
+        void uart16550_irq() {
             com1.irq();
         }
 
-        auto console_putc(char c) -> void {
+        void console_putc(char c) {
             com1.polled_putc(c);
         }
 
-        auto console_puts(const char* s) -> void {
+        void console_puts(const char* s) {
             while (*s != '\0') {
                 console_putc(*s++);
             }
@@ -95,7 +95,7 @@ namespace astia::dev {
         // the caller reports it only after loopback is off, because
         // while the loop is closed every console byte goes back into
         // the receive FIFO instead of out the port.
-        auto ring_selftest_body(astia_rings* ring, char* got) -> const char* {
+        const char* ring_selftest_body(astia_rings* ring, char* got) {
             constexpr char payload[]   = "ping";
             constexpr u32  payload_len = sizeof(payload) - 1;
 
@@ -307,7 +307,7 @@ namespace astia::dev {
 
     } // namespace
 
-    auto uart16550::tx_byte(u8 c) -> bool {
+    bool uart16550::tx_byte(u8 c) {
         for (u32 i = 0; i < thre_spins; ++i) {
             if ((_ports[reg_lsr] & lsr_thre) != 0) {
                 _ports[reg_data] = c;
@@ -317,11 +317,11 @@ namespace astia::dev {
         return false;
     }
 
-    auto uart16550::polled_putc(char c) -> void {
+    void uart16550::polled_putc(char c) {
         (void) tx_byte(static_cast<u8>(c));
     }
 
-    auto uart16550::rx_push(u8 c) -> void {
+    void uart16550::rx_push(u8 c) {
         const u32 head = rx_head;
         const u32 next = (head + 1) & (rx_size - 1);
         if (next == rx_tail) {
@@ -331,7 +331,7 @@ namespace astia::dev {
         __atomic_store_n(&rx_head, next, __ATOMIC_RELEASE);
     }
 
-    auto uart16550::rx_pop(void* dst, u32 len) -> long {
+    long uart16550::rx_pop(void* dst, u32 len) {
         // Gate, not a lock: consumers are this CPU's dispatch loop
         // and the IRQ's retry, and the IRQ preempts the dispatch.
         arch::interrupt_guard gate;
@@ -349,7 +349,7 @@ namespace astia::dev {
         return static_cast<long>(n);
     }
 
-    auto uart16550::rx_drain() -> void {
+    void uart16550::rx_drain() {
         // IRQ side: take everything the FIFO has, then the caller
         // lets the engine retry whatever is parked on this port's fds.
         while ((_ports[reg_lsr] & lsr_data_ready) != 0) {
@@ -357,18 +357,18 @@ namespace astia::dev {
         }
     }
 
-    auto uart16550::drain_rx() -> void {
+    void uart16550::drain_rx() {
         u8 sink[16];
         while (rx_pop(sink, sizeof(sink)) > 0) {
         }
     }
 
-    auto uart16550::read(void* buf, u32 len, u64 off) -> long {
+    long uart16550::read(void* buf, u32 len, u64 off) {
         (void) off; // a terminal is a stream; the SQE offset is void
         return rx_pop(buf, len);
     }
 
-    auto uart16550::write(const void* buf, u32 len, u64 off) -> long {
+    long uart16550::write(const void* buf, u32 len, u64 off) {
         (void) off;
         const auto* s    = static_cast<const u8*>(buf);
         u32         sent = 0;
@@ -381,7 +381,7 @@ namespace astia::dev {
         return static_cast<long>(sent);
     }
 
-    auto uart16550::irq() -> void {
+    void uart16550::irq() {
         rx_drain();
         // Wake every open descriptor backed by this UART, including
         // descriptors obtained by opening /dev/uart16550 after the
@@ -389,12 +389,12 @@ namespace astia::dev {
         sys::io_device_ready_context(&com1_file);
     }
 
-    auto uart16550::loopback(bool on) -> void {
+    void uart16550::loopback(bool on) {
         const u8 mcr    = mcr_dtr | mcr_rts | mcr_out2;
         _ports[reg_mcr] = on ? static_cast<u8>(mcr | mcr_loopback) : mcr;
     }
 
-    auto uart16550::tty_speed(speed_t speed) -> long {
+    long uart16550::tty_speed(speed_t speed) {
         // POSIX speed index -> 16550 divisor at the 1.8432 MHz clock
         // (baud = 115200 / divisor).  The line runs at exactly the
         // rates the table names; anything else is refused rather than
@@ -442,7 +442,7 @@ namespace astia::dev {
         return 0;
     }
 
-    auto uart16550::init_uart() -> void {
+    void uart16550::init_uart() {
         _ports[reg_ier]  = 0x00;     // interrupts off during bring-up
         _ports[reg_lcr]  = lcr_dlab; // divisor latch on
         _ports[reg_data] = 0x01;     // divisor low byte: 1 -> 115200
@@ -452,7 +452,7 @@ namespace astia::dev {
         _ports[reg_mcr]  = mcr_dtr | mcr_rts | mcr_out2;
     }
 
-    auto uart16550::init_irq() -> bool {
+    bool uart16550::init_irq() {
         if (!arch::register_irq_handler(_irq, uart16550_irq)) {
             return false; // PIC line already taken
         }
@@ -465,16 +465,16 @@ namespace astia::dev {
         return true;
     }
 
-    auto uart16550_init() -> bool {
+    bool uart16550_init() {
         com1.init_uart();
         return true;
     }
 
-    auto uart16550_init_irq() -> bool {
+    bool uart16550_init_irq() {
         return com1.init_irq();
     }
 
-    auto uart16550_ring_selftest() -> bool {
+    bool uart16550_ring_selftest() {
         constexpr char payload[]   = "ping";
         constexpr u32  payload_len = sizeof(payload) - 1;
 

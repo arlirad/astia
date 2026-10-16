@@ -13,7 +13,7 @@ namespace {
 
     // page_map pulls its tables from the global kernel allocator, so point
     // that at the arena once and then hand out fresh address spaces.
-    auto make_map(const page_map* parent = nullptr) -> page_map {
+    page_map make_map(const page_map* parent = nullptr) {
         astia_test::map_arena();
 
         static bool ready = false;
@@ -29,7 +29,7 @@ namespace {
     }
 
     // An address inside the kernel half (kernel_base's PML4 slot).
-    auto kvirt(astia::u64 offset) -> astia::u64 {
+    astia::u64 kvirt(astia::u64 offset) {
         return astia::arch::kernel_base + offset;
     }
 

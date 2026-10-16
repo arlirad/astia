@@ -95,23 +95,23 @@ namespace astia::elf {
 
     /// Identify an ELF image's kind from its header, validating the ELF64
     /// little-endian x86-64 identity. Returns kind::none for anything else.
-    auto kind_of(const void* bytes, usize len) -> kind;
+    kind kind_of(const void* bytes, usize len);
 
     /// Load a relocatable (ET_REL) object: lay out its SHF_ALLOC sections in
     /// one contiguous block, resolve undefined symbols through `env::resolve`,
     /// apply the section relocations, and set `entry` to the defined
     /// `module_main` symbol. Requires `env::map`.
-    auto load_relocatable(const void* bytes, usize len, const env& e, image& out) -> bool;
+    bool load_relocatable(const void* bytes, usize len, const env& e, image& out);
 
     /// Load a linked executable (ET_EXEC or ET_DYN): map the PT_LOAD segments
     /// (one contiguous span, at a fixed address for ET_EXEC or an
     /// allocator-chosen one for ET_DYN), zero the bss, apply the
     /// R_X86_64_RELATIVE dynamic relocations, and set `entry` to e_entry +
     /// load_bias. Requires `env::map`.
-    auto load_executable(const void* bytes, usize len, const env& e, image& out) -> bool;
+    bool load_executable(const void* bytes, usize len, const env& e, image& out);
 
     /// Dispatch to the right loader based on kind_of(). Returns false for
     /// anything that is not a supported ELF image.
-    auto load(const void* bytes, usize len, const env& e, image& out) -> bool;
+    bool load(const void* bytes, usize len, const env& e, image& out);
 
 } // namespace astia::elf

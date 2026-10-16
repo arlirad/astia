@@ -85,7 +85,7 @@ namespace astia::arch {
         // registers one (no user processes can fault before then).
         user_fault_handler page_fault_resolver = nullptr;
 
-        [[noreturn]] auto fatal_exception(const registers& regs) -> void {
+        [[noreturn]] void fatal_exception(const registers& regs) {
             static const char* const names[32] = {
                 "#DE", "#DB", "NMI", "#BP", "#OF", "#BR", "#UD", "#NM",
                 "#DF", "res", "#TS", "#NP", "#SS", "#GP", "#PF", "res",
@@ -113,7 +113,7 @@ namespace astia::arch {
 
     } // namespace
 
-    auto register_user_fault_handler(user_fault_handler handler) -> bool {
+    bool register_user_fault_handler(user_fault_handler handler) {
         if (handler == nullptr || page_fault_resolver != nullptr) {
             return false;
         }
@@ -175,7 +175,7 @@ namespace astia::arch {
         // (a spurious interrupt must not be acknowledged).
     }
 
-    auto init_interrupts() -> bool {
+    bool init_interrupts() {
         for (usize i = 0; i < 256; ++i) {
             const u64 handler  = isr_stub_table[i];
             idt[i].offset_low  = static_cast<u16>(handler & 0xffff);
@@ -206,15 +206,15 @@ namespace astia::arch {
         return true; // interrupts stay masked: see cpu::interrupts()
     }
 
-    auto timer_ticks() -> u64 {
+    u64 timer_ticks() {
         return __atomic_load_n(&tick_count, __ATOMIC_RELAXED);
     }
 
-    auto timer_hz() -> u32 {
+    u32 timer_hz() {
         return tick_hz;
     }
 
-    auto register_irq_handler(u8 irq, irq_handler handler) -> bool {
+    bool register_irq_handler(u8 irq, irq_handler handler) {
         if (irq >= 16 || handler == nullptr || irq_handlers[irq] != nullptr) {
             return false;
         }
@@ -222,15 +222,15 @@ namespace astia::arch {
         return true;
     }
 
-    auto current_timer_source() -> timer_source {
+    timer_source current_timer_source() {
         return current_source;
     }
 
-    auto breakpoint_hits() -> u64 {
+    u64 breakpoint_hits() {
         return __atomic_load_n(&breakpoint_count, __ATOMIC_RELAXED);
     }
 
-    auto register_timer_hook(timer_hook hook) -> bool {
+    bool register_timer_hook(timer_hook hook) {
         if (tick_hook != nullptr && tick_hook != hook) {
             return false;
         }

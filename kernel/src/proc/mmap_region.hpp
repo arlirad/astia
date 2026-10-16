@@ -38,13 +38,13 @@ namespace astia::proc {
         mm::shptr<fs::open_file> file;
         u64                      file_offset = 0;
 
-        auto size() const -> u64 {
+        u64 size() const {
             return pages * mm::phys_region::frame_size;
         }
-        auto end() const -> u64 {
+        u64 end() const {
             return base + size();
         }
-        auto covers(u64 addr) const -> bool {
+        bool covers(u64 addr) const {
             return addr >= base && addr < end();
         }
     };

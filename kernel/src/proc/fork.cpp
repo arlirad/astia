@@ -4,7 +4,7 @@
 
 namespace astia::proc {
 
-    auto fork(const arch::user_context* uctx) -> i64 {
+    i64 fork(const arch::user_context* uctx) {
         process* parent = current_process();
         if (parent == nullptr || uctx == nullptr) {
             return -ESRCH; // kernel threads have nothing to duplicate

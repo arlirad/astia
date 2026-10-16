@@ -37,11 +37,11 @@ namespace astia::dev {
             _name[i] = '\0';
         }
 
-        auto name() const -> const char* {
+        const char* name() const {
             return _name;
         }
 
-        auto flags() const -> unsigned {
+        unsigned flags() const {
             return _flags;
         }
 
@@ -51,12 +51,12 @@ namespace astia::dev {
         // SQE's offset — meaningless for a stream, the position for a
         // disk.  The engine may call these from IRQ context; neither
         // may block.
-        virtual auto read(void* buf, u32 len, u64 off) -> long        = 0;
-        virtual auto write(const void* buf, u32 len, u64 off) -> long = 0;
+        virtual long read(void* buf, u32 len, u64 off)        = 0;
+        virtual long write(const void* buf, u32 len, u64 off) = 0;
 
         // Device-specific control: TCGETS/TCSETS on a tty, geometry on
         // a disk.  -ENOTTY when the request is unknown.
-        virtual auto ioctl(u64 request, void* argp) -> long;
+        virtual long ioctl(u64 request, void* argp);
 
         protected:
         char _name[16]{}; // {} matters: an uninitialized array member

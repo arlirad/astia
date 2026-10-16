@@ -33,7 +33,7 @@ namespace astia::arch {
 
     extern "C" void astia_context_switch_raw(context*, const context*);
 
-    auto context_switch(context* old_context, const context* next_context) -> void {
+    void context_switch(context* old_context, const context* next_context) {
         // FXSAVE out / FXRSTOR in around the asm register switch.  The
         // next thread's FP state is loaded before the switch itself —
         // safe because kernel code carries no xmm/x87 use into that
@@ -56,11 +56,11 @@ namespace astia::arch {
         astia_context_switch_raw(old_context, next_context);
     }
 
-    auto context_create() -> context* {
+    context* context_create() {
         return new context{};
     }
 
-    auto context_prepare_kernel(context* value, u64 stack_top, u64 entry) -> bool {
+    bool context_prepare_kernel(context* value, u64 stack_top, u64 entry) {
         if (value == nullptr) {
             return false;
         }
@@ -69,8 +69,8 @@ namespace astia::arch {
         return true;
     }
 
-    auto context_prepare_user(context* value, u64 kernel_stack_top, u64 user_stack_top,
-                              u64 entry, u64 fs_base) -> bool {
+    bool context_prepare_user(context* value, u64 kernel_stack_top, u64 user_stack_top,
+                              u64 entry, u64 fs_base) {
         if (value == nullptr || kernel_stack_top < 5 * sizeof(u64)) {
             return false;
         }
@@ -99,9 +99,9 @@ namespace astia::arch {
         return true;
     }
 
-    auto context_prepare_user_start(context* value, u64 kernel_stack_top,
+    bool context_prepare_user_start(context* value, u64 kernel_stack_top,
                                     u64 user_stack_top, u64 entry, u64 fs_base,
-                                    u64 argument) -> bool {
+                                    u64 argument) {
         if (!context_prepare_user(value, kernel_stack_top, user_stack_top, entry,
                                   fs_base)) {
             return false;
@@ -114,8 +114,8 @@ namespace astia::arch {
         return true;
     }
 
-    auto context_prepare_fork(context* value, u64 kernel_stack_top,
-                              const user_context* image) -> bool {
+    bool context_prepare_fork(context* value, u64 kernel_stack_top,
+                              const user_context* image) {
         if (value == nullptr || image == nullptr || kernel_stack_top < 5 * sizeof(u64)) {
             return false;
         }
@@ -151,7 +151,7 @@ namespace astia::arch {
         return true;
     }
 
-    auto context_destroy(context* value) -> void {
+    void context_destroy(context* value) {
         delete value;
     }
 

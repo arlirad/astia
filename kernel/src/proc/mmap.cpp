@@ -13,7 +13,7 @@ namespace astia::proc {
         /// optional-returning API explicitly rather than relying on the
         /// global non-throwing kernel `operator new` convention; this
         /// makes every failure path below visibly ownership-safe.
-        auto alloc_region() -> mmap_region* {
+        mmap_region* alloc_region() {
             auto storage = mm::heap::alloc(sizeof(mmap_region));
             if (!storage) {
                 return nullptr;
@@ -25,7 +25,7 @@ namespace astia::proc {
         /// when PROT_WRITE; executable only when PROT_EXEC (x86
         /// defaults to NX).  The arch translates these into its native
         /// bits.
-        auto pte_flags(u32 prot) -> arch::page_flags {
+        arch::page_flags pte_flags(u32 prot) {
             auto flags = arch::page_flags::present | arch::page_flags::user;
             if ((prot & PROT_WRITE) != 0) {
                 flags = flags | arch::page_flags::writable;
@@ -40,7 +40,7 @@ namespace astia::proc {
         /// backing: a surviving neighbour of the same region (split
         /// siblings are adjacent) inherits it, otherwise the last
         /// mapping of that region is going away.
-        auto drop_backing(mmap_region* prev, mmap_region* victim) -> void {
+        void drop_backing(mmap_region* prev, mmap_region* victim) {
             if (!victim->holds_ref) {
                 return;
             }
@@ -72,7 +72,7 @@ namespace astia::proc {
         /// highest hole that fits below the ceiling — first-fit from
         /// the top keeps MORECORE-style growth monotonic.  0 = no
         /// room.
-        auto place(mmap_region* list, u64 hint, u64 want) -> u64 {
+        u64 place(mmap_region* list, u64 hint, u64 want) {
             const u64 page_bytes = mm::phys_region::frame_size;
             auto      overlaps   = [&](u64 at) -> bool {
                 for (mmap_region* it = list; it != nullptr; it = it->next) {
@@ -110,7 +110,7 @@ namespace astia::proc {
         }
     } // namespace
 
-    auto process::find_region(u64 addr) -> mmap_region* {
+    mmap_region* process::find_region(u64 addr) {
         core::spinlock_guard guard(mmap_lock_);
         for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
             if (it->covers(addr)) {
@@ -120,10 +120,10 @@ namespace astia::proc {
         return nullptr;
     }
 
-    auto process::install_mapping(u64 base, usize pages, u32 prot,
+    bool process::install_mapping(u64 base, usize pages, u32 prot,
                                   mm::phys_region*                region,
                                   const mm::shptr<fs::open_file>& file, u64 file_offset,
-                                  usize region_page, bool shared) -> bool {
+                                  usize region_page, bool shared) {
         const u64  page_bytes = mm::phys_region::frame_size;
         const auto flags4     = pte_flags(prot);
         for (u64 page = 0; page < pages; ++page) {
@@ -161,7 +161,7 @@ namespace astia::proc {
         return true;
     }
 
-    auto process::map_anonymous(u64 addr, usize len, u32 prot, u32 flags) -> u64 {
+    u64 process::map_anonymous(u64 addr, usize len, u32 prot, u32 flags) {
         // v1: private anonymous memory; shared mappings come with the
         // page cache and IPC.
         if ((flags & MAP_PRIVATE) == 0) {
@@ -202,8 +202,7 @@ namespace astia::proc {
         return base;
     }
 
-    auto process::map_file(i32 fd, u64 addr, usize len, u32 prot, u32 flags, u64 off)
-        -> u64 {
+    u64 process::map_file(i32 fd, u64 addr, usize len, u32 prot, u32 flags, u64 off) {
         // File mappings: private mappings capture bytes into
         // fresh frames at map time — snapshot semantics, the same
         // kernel-side read the ELF loader trusts.  Writes land on the
@@ -303,7 +302,7 @@ namespace astia::proc {
         return base;
     }
 
-    auto process::unmap(u64 addr, usize len) -> i32 {
+    i32 process::unmap(u64 addr, usize len) {
         if (address_space_ == nullptr || len == 0 ||
             (addr % mm::phys_region::frame_size) != 0) {
             return -EINVAL;
@@ -390,8 +389,8 @@ namespace astia::proc {
         return 0;
     }
 
-    auto process::register_mapping(u64 base, usize pages, u32 prot,
-                                   mm::phys_region* region) -> bool {
+    bool process::register_mapping(u64 base, usize pages, u32 prot,
+                                   mm::phys_region* region) {
         // PTEs are the caller's job — exec segments, the user stack,
         // and the TLS block map their own — and so is adopting the
         // frames; this only files the VMA so fork and CoW see the
@@ -418,7 +417,7 @@ namespace astia::proc {
         return true;
     }
 
-    auto process::clone_address_space_cow(process* child) -> bool {
+    bool process::clone_address_space_cow(process* child) {
         if (address_space_ == nullptr || child == nullptr ||
             child->address_space_ != nullptr) {
             return false;
@@ -481,7 +480,7 @@ namespace astia::proc {
         return child->address_space_ != nullptr;
     }
 
-    auto process::cow_fault(u64 addr, bool write) -> bool {
+    bool process::cow_fault(u64 addr, bool write) {
         // v1 repairs write faults on private writable mappings only:
         // reads land on present pages, and demand-paging/exec faults
         // stay fatal for now.  The user half runs to 0x800000000000 —

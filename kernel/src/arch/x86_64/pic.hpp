@@ -15,14 +15,14 @@ namespace astia::arch::x86_64 {
 
         /// Remap master/slave to [irq_base, irq_base+16), 8086 mode, and
         /// mask all 16 lines.
-        static auto remap() -> void;
+        static void remap();
 
         /// Unmask a single IRQ line (0..15); everything else stays masked.
-        static auto unmask(u8 irq) -> void;
+        static void unmask(u8 irq);
 
         /// Non-specific EOI for a vector in [irq_base, irq_base+16); slave
         /// vectors (IRQ8..15) need both EOIs because of the IRQ2 cascade.
-        static auto eoi(u64 vector) -> void;
+        static void eoi(u64 vector);
     };
 
 } // namespace astia::arch::x86_64

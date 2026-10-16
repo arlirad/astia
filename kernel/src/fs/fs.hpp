@@ -22,11 +22,11 @@ namespace astia::fs {
     /// into them.
     class file {
         public:
-        virtual auto read(void* buf, u32 len, u64 offset) -> long;
-        virtual auto write(const void* buf, u32 len, u64 offset) -> long;
-        virtual auto ioctl(u64 request, void* argp) -> long;
-        virtual auto size() const -> long;
-        virtual auto memory_region() -> mm::phys_region*;
+        virtual long             read(void* buf, u32 len, u64 offset);
+        virtual long             write(const void* buf, u32 len, u64 offset);
+        virtual long             ioctl(u64 request, void* argp);
+        virtual long             size() const;
+        virtual mm::phys_region* memory_region();
     };
 
     /// One open file description.  Separate opens create separate
@@ -37,12 +37,12 @@ namespace astia::fs {
         open_file(const mm::shptr<file>& object, u32 flags)
             : _object(object), _flags(flags) {}
 
-        auto read(void* buf, u32 len, u64 offset = offset_current) -> long;
-        auto write(const void* buf, u32 len, u64 offset = offset_current) -> long;
-        auto ioctl(u64 request, void* argp) -> long;
-        auto size() const -> long;
+        long read(void* buf, u32 len, u64 offset = offset_current);
+        long write(const void* buf, u32 len, u64 offset = offset_current);
+        long ioctl(u64 request, void* argp);
+        long size() const;
 
-        auto backing() const -> file* {
+        file* backing() const {
             return _object.get();
         }
 
@@ -54,18 +54,18 @@ namespace astia::fs {
 
     /// Reset the fixed VFS tables.  Called by the `fs` init step before
     /// any device node is registered.
-    auto init() -> bool;
+    bool init();
 
     /// Register one exact path as a device node.  Path traversal and
     /// directories are intentionally deferred; the first useful VFS
     /// shape is enough for /dev/uart16550 and future block nodes.
-    auto register_device(const char* path, const mm::shptr<file>& object) -> long;
+    long register_device(const char* path, const mm::shptr<file>& object);
 
     /// Resolve a path through the mounted filesystem namespace.
-    auto open_path(const char* path, u32 flags = 0) -> mm::shptr<open_file>;
+    mm::shptr<open_file> open_path(const char* path, u32 flags = 0);
 
     /// Open a registered path.  Descriptor allocation belongs to the
     /// syscall/ring layer; the VFS returns an open file description.
-    auto open(const char* path, u32 flags = 0) -> mm::shptr<open_file>;
+    mm::shptr<open_file> open(const char* path, u32 flags = 0);
 
 } // namespace astia::fs

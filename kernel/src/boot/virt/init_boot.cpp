@@ -4,7 +4,7 @@
 
 namespace astia::boot::virt {
 
-    static auto step_boot(init::context& ctx) -> bool {
+    static bool step_boot(init::context& ctx) {
         static astia::boot::boot_info info{};
         if (!parse_start_info(ctx.start_info, info)) {
             return false;

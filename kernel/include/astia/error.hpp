@@ -32,7 +32,7 @@ namespace astia {
     };
 
     /// Short, human-readable name for an error code (for logs). Never null.
-    inline auto error_string(error_t error) -> const char* {
+    inline const char* error_string(error_t error) {
         switch (error) {
         case error_t::enone:
             return "success";

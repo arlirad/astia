@@ -36,6 +36,6 @@ namespace astia::sys {
     bool register_syscall(syscall_id id, syscall_handler handler);
 
     /// Dispatch a system call
-    auto dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5) -> i64;
+    i64 dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5);
 
 } // namespace astia::sys

@@ -8,7 +8,7 @@ namespace astia::init {
 
     struct context;
 
-    typedef auto (*step_fn)(context&) -> bool;
+    typedef bool (*step_fn)(context&);
 
     struct step {
         const char*        name;
@@ -29,8 +29,8 @@ namespace astia::init {
         const boot::boot_info* info = nullptr;
     };
 
-    auto run_steps(const step* first, const step* last, context& ctx) -> bool;
-    auto run(context& ctx) -> bool;
+    bool run_steps(const step* first, const step* last, context& ctx);
+    bool run(context& ctx);
 
 } // namespace astia::init
 

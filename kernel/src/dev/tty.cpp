@@ -14,7 +14,7 @@ namespace astia::dev {
         constexpr tcflag_t lflags[] = {ISIG, ICANON, ECHO, ECHOE, ECHOK, ECHONL};
     } // namespace
 
-    auto tty::ioctl(u64 request, void* argp) -> long {
+    long tty::ioctl(u64 request, void* argp) {
         if (request == TCGETS) {
             if (argp == nullptr) {
                 return -EINVAL;
@@ -81,7 +81,7 @@ namespace astia::dev {
         (void) set;
     }
 
-    auto tty::tty_speed(speed_t speed) -> long {
+    long tty::tty_speed(speed_t speed) {
         (void) speed;
         return -ENOSYS;
     }

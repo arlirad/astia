@@ -23,7 +23,7 @@ namespace astia::test {
         volatile u32 preempt_main_seen = 0;
         volatile u32 preempt_done      = 0;
 
-        auto scheduler_worker(void* argument) -> void {
+        void scheduler_worker(void* argument) {
             auto* count = static_cast<volatile u32*>(argument);
             for (u32 i = 0; i < 3; ++i) {
                 __atomic_add_fetch(count, 1, __ATOMIC_RELAXED);
@@ -31,7 +31,7 @@ namespace astia::test {
             }
         }
 
-        auto scheduler_checks() -> bool {
+        bool scheduler_checks() {
             scheduler_counts[0] = 0;
             scheduler_counts[1] = 0;
             if (!proc::scheduler::spawn_kernel(scheduler_worker,
@@ -55,7 +55,7 @@ namespace astia::test {
             return true;
         }
 
-        auto preempt_worker(void*) -> void {
+        void preempt_worker(void*) {
             __atomic_store_n(&preempt_started, 1, __ATOMIC_RELEASE);
             while (__atomic_load_n(&preempt_main_seen, __ATOMIC_ACQUIRE) == 0) {
                 // Deliberately no yield: only timer preemption can return
@@ -64,11 +64,11 @@ namespace astia::test {
             __atomic_store_n(&preempt_done, 1, __ATOMIC_RELEASE);
         }
 
-        auto join_worker(void*) -> void {
+        void join_worker(void*) {
             proc::current_thread()->exit(reinterpret_cast<void*>(0x42));
         }
 
-        auto join_checks() -> bool {
+        bool join_checks() {
             if (proc::current_thread()->join() != -EDEADLK) {
                 log::error("join selftest self-join was not rejected");
                 return false;
@@ -99,7 +99,7 @@ namespace astia::test {
             return true;
         }
 
-        auto preemption_checks() -> bool {
+        bool preemption_checks() {
             preempt_started   = 0;
             preempt_main_seen = 0;
             preempt_done      = 0;
@@ -133,7 +133,7 @@ namespace astia::test {
             return true;
         }
 
-        auto interrupt_checks() -> bool {
+        bool interrupt_checks() {
             // Gate observability.
             arch::cpu::nointerrupts();
             if (arch::cpu::check_interrupts()) {
@@ -184,7 +184,7 @@ namespace astia::test {
         // sys_time init step is what put the handler there). The tick is
         // the resolution, so samples only have to be in range and must not
         // run backwards.
-        auto clock_checks() -> bool {
+        bool clock_checks() {
             auto read = [](i64 id, astia_timespec* out) -> long {
                 return static_cast<long>(sys::dispatch(sys::syscall_id::clock_gettime, id,
                                                        reinterpret_cast<i64>(out), 0, 0,
@@ -223,7 +223,7 @@ namespace astia::test {
         // A VFS node with a real size, so STATX has a success path whether
         // or not an initrd is mounted on this boot.
         struct sized_probe : fs::file {
-            auto size() const -> long override {
+            long size() const override {
                 return 4096;
             }
         };
@@ -231,7 +231,7 @@ namespace astia::test {
 
         // OP_STATX on a ring: the success path (both address forms) and the
         // errors the VFS can actually produce for them.
-        auto statx_checks() -> bool {
+        bool statx_checks() {
             static const char probe_path[]   = "/dev/statx_probe";
             static const char missing_path[] = "/dev/astia_no_such_node";
 
@@ -293,7 +293,7 @@ namespace astia::test {
 
     } // namespace
 
-    auto run() -> bool {
+    bool run() {
         if (!scheduler_checks()) {
             return false;
         }

@@ -33,95 +33,94 @@ namespace astia::proc {
         thread(process* owner, tid_t id);
         ~thread();
 
-        auto owner() const -> process* {
+        process* owner() const {
             return owner_;
         }
-        auto tid() const -> tid_t {
+        tid_t tid() const {
             return tid_;
         }
-        auto state() const -> thread_state {
+        thread_state state() const {
             return state_;
         }
-        auto state(thread_state value) -> void {
+        void state(thread_state value) {
             state_ = value;
         }
 
-        auto sched_class() const -> scheduling_class {
+        scheduling_class sched_class() const {
             return sched_class_;
         }
-        auto sched_class(scheduling_class value) -> void {
+        void sched_class(scheduling_class value) {
             sched_class_ = value;
         }
-        auto nice() const -> i32 {
+        i32 nice() const {
             return nice_;
         }
-        auto nice(i32 value) -> void {
+        void nice(i32 value) {
             nice_ = value < -20 ? -20 : value > 19 ? 19 : value;
         }
-        auto rt_priority() const -> u8 {
+        u8 rt_priority() const {
             return rt_priority_;
         }
-        auto rt_priority(u8 value) -> void {
+        void rt_priority(u8 value) {
             rt_priority_ = value;
         }
-        auto vruntime() const -> u64 {
+        u64 vruntime() const {
             return vruntime_;
         }
-        auto charge_runtime(u64 amount) -> void {
+        void charge_runtime(u64 amount) {
             vruntime_ += amount;
         }
 
-        auto entry() const -> u64 {
+        u64 entry() const {
             return entry_;
         }
-        auto kernel_stack_top() const -> u64 {
+        u64 kernel_stack_top() const {
             return kernel_stack_top_;
         }
-        auto user_stack_top() const -> u64 {
+        u64 user_stack_top() const {
             return user_stack_top_;
         }
-        auto tls_mapping_base() const -> u64 {
+        u64 tls_mapping_base() const {
             return tls_mapping_base_;
         }
-        auto tls_mapping_pages() const -> usize {
+        usize tls_mapping_pages() const {
             return tls_mapping_pages_;
         }
 
-        auto context() -> arch::context* {
+        arch::context* context() {
             return context_;
         }
-        auto prepare_kernel(kernel_entry entry, void* argument) -> bool;
-        auto prepare_user(u64 entry, u64 user_stack_top, u64 fs_base) -> bool;
-        auto prepare_user_start(u64 entry, u64 user_stack_top, u64 fs_base, u64 argument)
-            -> bool;
+        bool prepare_kernel(kernel_entry entry, void* argument);
+        bool prepare_user(u64 entry, u64 user_stack_top, u64 fs_base);
+        bool prepare_user_start(u64 entry, u64 user_stack_top, u64 fs_base, u64 argument);
         /// Fork: the same kernel-stack/context frame a user thread
         /// gets, but the context is prepared from the parent's saved
         /// syscall register image (arch::context_prepare_fork) — the
         /// thread starts *inside* the parent's ring-3 call site with
         /// rax = 0.
-        auto prepare_fork_user(const arch::user_context& uctx) -> bool;
-        auto run_entry() -> void;
-        auto finish() -> void;
-        auto join(void** result = nullptr) -> long;
-        auto detach() -> long;
-        auto exit(void* result = nullptr) -> void;
-        auto idle() const -> bool {
+        bool prepare_fork_user(const arch::user_context& uctx);
+        void run_entry();
+        void finish();
+        long join(void** result = nullptr);
+        long detach();
+        void exit(void* result = nullptr);
+        bool idle() const {
             return idle_;
         }
-        auto idle(bool value) -> void {
+        void idle(bool value) {
             idle_ = value;
         }
 
-        auto entry(u64 value) -> void {
+        void entry(u64 value) {
             entry_ = value;
         }
-        auto kernel_stack_top(u64 value) -> void {
+        void kernel_stack_top(u64 value) {
             kernel_stack_top_ = value;
         }
-        auto user_stack_top(u64 value) -> void {
+        void user_stack_top(u64 value) {
             user_stack_top_ = value;
         }
-        auto tls_mapping(u64 base, usize pages) -> void {
+        void tls_mapping(u64 base, usize pages) {
             tls_mapping_base_  = base;
             tls_mapping_pages_ = pages;
         }

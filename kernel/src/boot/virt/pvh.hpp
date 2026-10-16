@@ -14,6 +14,6 @@ namespace astia::boot::virt {
     ///
     /// Returns false if the pointer is null, the magic is wrong, or the
     /// structure carries no memory map. `out` is left untouched on failure.
-    auto parse_start_info(const void* start_info, boot_info& out) -> bool;
+    bool parse_start_info(const void* start_info, boot_info& out);
 
 } // namespace astia::boot::virt

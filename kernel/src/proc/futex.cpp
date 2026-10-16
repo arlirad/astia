@@ -20,7 +20,7 @@ namespace astia::proc {
 
     } // namespace
 
-    auto futex_wait(u64 address, u32 expected) -> i64 {
+    i64 futex_wait(u64 address, u32 expected) {
         auto* owner = current_process();
         auto* self  = current_thread();
         auto* word  = reinterpret_cast<u32*>(static_cast<usize>(address));
@@ -59,7 +59,7 @@ namespace astia::proc {
         return 0;
     }
 
-    auto futex_wake(u64 address, u32 count) -> i64 {
+    i64 futex_wake(u64 address, u32 count) {
         auto* owner = current_process();
         auto* word  = reinterpret_cast<u32*>(static_cast<usize>(address));
         if (owner == nullptr || !sys::user_range_ok(word, sizeof(*word))) {

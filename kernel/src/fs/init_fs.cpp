@@ -4,9 +4,9 @@
 
 namespace astia::fs {
 
-    auto register_syscalls() -> bool;
+    bool register_syscalls();
 
-    static auto step_fs(init::context&) -> bool {
+    static bool step_fs(init::context&) {
         return init() && register_syscalls();
     }
 

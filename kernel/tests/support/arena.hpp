@@ -23,6 +23,6 @@ namespace astia_test {
 
     /// Map the arena once and return its base. Aborts if the fixed mapping
     /// cannot be placed.
-    auto map_arena() -> void*;
+    void* map_arena();
 
 } // namespace astia_test

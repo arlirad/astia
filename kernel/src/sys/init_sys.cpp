@@ -3,12 +3,12 @@
 
 namespace astia::sys {
 
-    auto register_time_syscalls() -> bool;
+    bool register_time_syscalls();
 
     // Clock reads need only the tick counter the arch timer init step
     // starts; nothing here touches hardware, so there is no dependency
     // beyond running before userspace does (every phase does).
-    static auto step_sys_time(init::context&) -> bool {
+    static bool step_sys_time(init::context&) {
         return register_time_syscalls();
     }
 

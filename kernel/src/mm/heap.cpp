@@ -40,7 +40,7 @@ namespace astia::mm::heap {
         /// Wire the whole region into the page map, one frame at a time. A
         /// failure here means the machine is out of memory; the caller fails
         /// the boot (the already-mapped frames are not worth unwinding).
-        auto map_backing() -> bool {
+        bool map_backing() {
             for (usize off = 0; off < bytes_; off += page_bytes) {
                 const u64 frame = kernel_frames().alloc(1, frame_flags::zeroed);
                 if (frame == frame_allocator::invalid_frame) {
@@ -55,7 +55,7 @@ namespace astia::mm::heap {
 
         /// Carve `need` bytes off `b` when the leftover could stand on its
         /// own (header + at least 16 payload bytes).
-        auto split(block* b, usize need) -> void {
+        void split(block* b, usize need) {
             if (b->size < need + sizeof(block) + 16) {
                 return;
             }
@@ -74,7 +74,7 @@ namespace astia::mm::heap {
 
         /// Merge `b` with its free neighbours (forward first, then let the
         /// predecessor absorb the result).
-        auto coalesce(block* b) -> void {
+        void coalesce(block* b) {
             if (b->next != nullptr && b->next->free) {
                 b->size += sizeof(block) + b->next->size;
                 b->next = b->next->next;
@@ -93,7 +93,7 @@ namespace astia::mm::heap {
 
     } // namespace
 
-    auto configure(void* base, usize bytes, map_fn map) -> void {
+    void configure(void* base, usize bytes, map_fn map) {
         core::spinlock_guard guard(lock_);
         base_   = static_cast<u8*>(base);
         bytes_  = bytes;
@@ -103,7 +103,7 @@ namespace astia::mm::heap {
         ready_  = false;
     }
 
-    auto init() -> bool {
+    bool init() {
         core::spinlock_guard guard(lock_);
         if (base_ == nullptr || mapper_ == nullptr || bytes_ < sizeof(block) + 16) {
             return false;
@@ -121,12 +121,12 @@ namespace astia::mm::heap {
         return true;
     }
 
-    auto ready() -> bool {
+    bool ready() {
         core::spinlock_guard guard(lock_);
         return ready_;
     }
 
-    auto alloc(usize bytes) -> optional<u8*> {
+    optional<u8*> alloc(usize bytes) {
         if (bytes == 0) {
             return error_t::einval;
         }
@@ -148,7 +148,7 @@ namespace astia::mm::heap {
         return error_t::enomem;
     }
 
-    auto alloc_zeroed(usize bytes) -> optional<u8*> {
+    optional<u8*> alloc_zeroed(usize bytes) {
         auto result = alloc(bytes);
         if (result) {
             fill_zero(result.value, bytes);
@@ -156,7 +156,7 @@ namespace astia::mm::heap {
         return result;
     }
 
-    auto free(void* ptr) -> void {
+    void free(void* ptr) {
         if (ptr == nullptr) {
             return;
         }
@@ -175,17 +175,17 @@ namespace astia::mm::heap {
         coalesce(b);
     }
 
-    auto used() -> usize {
+    usize used() {
         core::spinlock_guard guard(lock_);
         return used_;
     }
 
-    auto capacity() -> usize {
+    usize capacity() {
         core::spinlock_guard guard(lock_);
         return bytes_ >= sizeof(block) + 16 ? bytes_ - sizeof(block) : 0;
     }
 
-    static auto step_heap(init::context&) -> bool {
+    static bool step_heap(init::context&) {
         return init();
     }
 
