@@ -511,6 +511,17 @@ namespace astia::proc {
         auto*       back         = vma->backing;
         const auto  flags        = pte_flags(vma->prot);
 
+        if (back->destination_pinned(backing_page)) {
+            // A device is filling this frame for a read the caller is
+            // waiting on.  Splitting now would hand this faulting
+            // instruction a fresh copy while the device keeps writing the
+            // frame the operation pinned, so the read's bytes would land
+            // where the caller can never see them.  Decline: writing into
+            // a buffer an in-flight read is filling is a userspace race,
+            // and a loud fault beats a silently lost read.
+            return false;
+        }
+
         if (back->uniquely_held(backing_page)) {
             // Sole mapper left among the sharers: the write bit comes
             // straight back, no copy.

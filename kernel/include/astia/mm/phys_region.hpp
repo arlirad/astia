@@ -95,6 +95,27 @@ namespace astia::mm {
         /// place is safe.
         bool uniquely_held(usize index);
 
+        /// Mark [first, first + count) as the *destination* of an
+        /// in-flight operation: a device is about to write these frames
+        /// and the caller will read the bytes back through this very
+        /// mapping, so the frame must not be replaced underneath it.
+        /// cow_fault() refuses to split a marked page because the
+        /// operation's copy would land in a frame nobody reads.
+        ///
+        /// Counted, so overlapping pins each hold their own mark, and
+        /// false — marking nothing — when the range escapes the region
+        /// or a counter would overflow.
+        bool retain_destination(usize first, usize count);
+
+        /// Drop the marks retain_destination() took for the range.
+        void release_destination(usize first, usize count);
+
+        /// True while page `index` is the destination of an in-flight
+        /// operation.  An operation that only *reads* the buffer (a
+        /// write to the object) does not mark: a later split copies the
+        /// same bytes, so it reads the caller's data either way.
+        bool destination_pinned(usize index) const;
+
         private:
         phys_region() = default;
 
@@ -116,6 +137,7 @@ namespace astia::mm {
         usize          pages_       = 0;
         u32            refs_        = 1;
         u16*           page_refs_   = nullptr;
+        u16*           dest_refs_   = nullptr; ///< in-flight destination pins
         child*         children_    = nullptr;
         phys_region*   parent_      = nullptr;
         usize          parent_page_ = 0;

@@ -146,7 +146,7 @@ ASTIA_TEST(pinned_buffer_holds_frames_across_vma_release) {
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 4);
 
     astia::mm::pinned_buffer pin;
-    ASTIA_CHECK(pin.acquire(region, 1, 2));
+    ASTIA_CHECK(pin.acquire(region, 1, 2, false));
     ASTIA_CHECK(pin.valid());
     ASTIA_CHECK(pin.pages() == 2);
     ASTIA_CHECK(region->references() == 2); // coverage + allocation reference
@@ -173,7 +173,7 @@ ASTIA_TEST(pinned_buffer_exposes_one_contiguous_window) {
     ASTIA_CHECK(region != nullptr);
 
     astia::mm::pinned_buffer pin;
-    ASTIA_CHECK(pin.acquire(region, 1, 3));
+    ASTIA_CHECK(pin.acquire(region, 1, 3, false));
 
     // A region is a contiguous frame run and the direct map is linear, so the
     // pinned range is a single kernel window.  That is the property the ring
@@ -197,17 +197,101 @@ ASTIA_TEST(pinned_buffer_rejects_ranges_outside_the_region) {
     ASTIA_CHECK(region != nullptr);
 
     astia::mm::pinned_buffer pin;
-    ASTIA_CHECK(!pin.acquire(nullptr, 0, 1));
-    ASTIA_CHECK(!pin.acquire(region, 0, 0));
-    ASTIA_CHECK(!pin.acquire(region, 2, 1)); // first page past the end
-    ASTIA_CHECK(!pin.acquire(region, 1, 2)); // runs off the end
+    ASTIA_CHECK(!pin.acquire(nullptr, 0, 1, true));
+    ASTIA_CHECK(!pin.acquire(region, 0, 0, true));
+    ASTIA_CHECK(!pin.acquire(region, 2, 1, true)); // first page past the end
+    ASTIA_CHECK(!pin.acquire(region, 1, 2, true)); // runs off the end
     ASTIA_CHECK(!pin.valid());
+    ASTIA_CHECK(!region->destination_pinned(0)); // a rejected pin marks nothing
+    ASTIA_CHECK(!region->destination_pinned(1));
 
     // A rejected acquire references nothing and takes nothing.
     ASTIA_CHECK(region->references() == 1);
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 2);
 
     pin.release(); // empty: a no-op
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(pinned_buffer_destination_marks_are_counted) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(3, true);
+    ASTIA_CHECK(region != nullptr);
+
+    // Two operations are filling the same two pages; a third is draining
+    // them.  Only the filling ones need the frames held still: the drain
+    // reads whatever is in the frame, and a CoW copy would hold the same
+    // bytes.
+    astia::mm::pinned_buffer first;
+    astia::mm::pinned_buffer second;
+    astia::mm::pinned_buffer drain;
+    ASTIA_CHECK(first.acquire(region, 0, 2, true));
+    ASTIA_CHECK(second.acquire(region, 0, 2, true));
+    ASTIA_CHECK(drain.acquire(region, 1, 2, false));
+
+    ASTIA_CHECK(region->destination_pinned(0));
+    ASTIA_CHECK(region->destination_pinned(1));
+    ASTIA_CHECK(!region->destination_pinned(2)); // drained, not filled
+
+    // Counted: one release does not clear a mark another pin still holds.
+    first.release();
+    ASTIA_CHECK(region->destination_pinned(0));
+    ASTIA_CHECK(region->destination_pinned(1));
+    second.release();
+    ASTIA_CHECK(!region->destination_pinned(0));
+    ASTIA_CHECK(!region->destination_pinned(1));
+
+    drain.release();
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(phys_region_destination_release_is_idempotent) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(2, true);
+    ASTIA_CHECK(region != nullptr);
+
+    ASTIA_CHECK(!region->retain_destination(2, 1)); // first page past the end
+    ASTIA_CHECK(!region->retain_destination(1, 2)); // runs off the end
+    ASTIA_CHECK(!region->destination_pinned(0));
+    ASTIA_CHECK(!region->destination_pinned(1));
+
+    ASTIA_CHECK(region->retain_destination(0, 2));
+    ASTIA_CHECK(region->destination_pinned(0));
+    ASTIA_CHECK(region->destination_pinned(1));
+    region->release_destination(0, 2);
+    ASTIA_CHECK(!region->destination_pinned(0));
+    ASTIA_CHECK(!region->destination_pinned(1));
+    // A second release must not wrap the counter to "pinned" again.
+    region->release_destination(0, 2);
+    ASTIA_CHECK(!region->destination_pinned(0));
+    ASTIA_CHECK(!region->destination_pinned(1));
+
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(phys_region_split_does_not_carry_destination_marks) {
+    // The mark is what makes cow_fault() refuse a split, so a split that
+    // did happen must at least not pretend the copy is pinned: the copy is
+    // a different frame, and the operation's frame is still the parent's.
+    const auto before = init_world();
+    auto*      region = phys_region::create(2, true);
+    ASTIA_CHECK(region != nullptr);
+
+    astia::mm::pinned_buffer pin;
+    ASTIA_CHECK(pin.acquire(region, 1, 1, true));
+    ASTIA_CHECK(region->destination_pinned(1));
+
+    auto* copy = region->split_page(1);
+    ASTIA_CHECK(copy != nullptr);
+    ASTIA_CHECK(!copy->destination_pinned(0));  // the copy is a fresh frame
+    ASTIA_CHECK(region->destination_pinned(1)); // the pinned frame keeps its mark
+
+    pin.release();
+    ASTIA_CHECK(!region->destination_pinned(1));
+    copy->release();
     region->release();
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }

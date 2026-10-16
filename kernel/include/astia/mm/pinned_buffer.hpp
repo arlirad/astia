@@ -37,10 +37,22 @@ namespace astia::mm {
         pinned_buffer(const pinned_buffer&)            = delete;
         pinned_buffer& operator=(const pinned_buffer&) = delete;
 
+        /// A pin changes owner (a park slot hands it to the reaper) rather
+        /// than being duplicated: reference-counted state must never have
+        /// two owners.  Move-assignment releases whatever the target
+        /// already held, which also makes it the "drop any stale pin" step
+        /// when a slot is recycled.
+        pinned_buffer(pinned_buffer&& other) noexcept;
+        pinned_buffer& operator=(pinned_buffer&& other) noexcept;
+
         /// Reference [first, first + count) of `region` for the caller.
-        /// False when the range escapes the region or a page counter would
-        /// overflow; nothing is referenced in that case.
-        bool acquire(phys_region* region, usize first, usize count);
+        /// `destination` is true when the operation will *write* into the
+        /// buffer and the caller will read the bytes back through this
+        /// mapping (a read from the object): the frames are then marked so
+        /// a CoW split cannot move the mapping out from under the
+        /// operation.  False — referencing nothing — when the range escapes
+        /// the region or a counter would overflow.
+        bool acquire(phys_region* region, usize first, usize count, bool destination);
 
         /// Drop the references taken by acquire().  Safe and idempotent on
         /// an empty buffer.  Task context only: it may take a lock and may
@@ -62,9 +74,10 @@ namespace astia::mm {
         u64 phys(usize index = 0) const;
 
         private:
-        phys_region* region_ = nullptr;
-        usize        first_  = 0;
-        usize        count_  = 0;
+        phys_region* region_      = nullptr;
+        usize        first_       = 0;
+        usize        count_       = 0;
+        bool         destination_ = false;
     };
 
 } // namespace astia::mm

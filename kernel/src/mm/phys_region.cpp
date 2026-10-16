@@ -15,14 +15,21 @@ namespace astia::mm {
         if (!storage) {
             return false;
         }
+        auto destinations = heap::alloc(pages * sizeof(u16));
+        if (!destinations) {
+            heap::free(storage.value);
+            return false;
+        }
         base_      = base;
         pages_     = pages;
         page_refs_ = static_cast<u16*>(static_cast<void*>(storage.value));
+        dest_refs_ = static_cast<u16*>(static_cast<void*>(destinations.value));
         // A freshly-created/adopted region carries its initial
         // mapping reference.  This preserves the existing ownership
         // contract: the creator transfers that reference to its VMA.
         for (usize i = 0; i < pages; ++i) {
             page_refs_[i] = 1;
+            dest_refs_[i] = 0;
         }
         return true;
     }
@@ -188,6 +195,8 @@ namespace astia::mm {
                 kernel_frames().release(base_ + i * frame_size);
             }
         }
+        heap::free(dest_refs_);
+        dest_refs_ = nullptr;
         heap::free(page_refs_);
         heap::free(this);
     }
@@ -277,6 +286,60 @@ namespace astia::mm {
             return false;
         }
         return __atomic_load_n(&page_refs_[index], __ATOMIC_ACQUIRE) == 1;
+    }
+
+    bool phys_region::retain_destination(usize first, usize count) {
+        if (count == 0) {
+            return true;
+        }
+        if (first >= pages_ || count > pages_ - first || dest_refs_ == nullptr) {
+            return false;
+        }
+        usize marked = 0;
+        for (; marked < count; ++marked) {
+            u16* slot = &dest_refs_[first + marked];
+            u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+            for (;;) {
+                if (old == max_page_mappings) {
+                    release_destination(first, marked);
+                    return false;
+                }
+                const u16 next = static_cast<u16>(old + 1);
+                if (__atomic_compare_exchange_n(slot, &old, next, false, __ATOMIC_ACQ_REL,
+                                                __ATOMIC_ACQUIRE)) {
+                    break;
+                }
+            }
+        }
+        return true;
+    }
+
+    void phys_region::release_destination(usize first, usize count) {
+        if (count == 0 || first >= pages_ || count > pages_ - first ||
+            dest_refs_ == nullptr) {
+            return;
+        }
+        for (usize i = 0; i < count; ++i) {
+            u16* slot = &dest_refs_[first + i];
+            u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+            for (;;) {
+                if (old == 0) {
+                    break; // an idempotent release, as unmap_range() allows
+                }
+                const u16 next = static_cast<u16>(old - 1);
+                if (__atomic_compare_exchange_n(slot, &old, next, false, __ATOMIC_ACQ_REL,
+                                                __ATOMIC_ACQUIRE)) {
+                    break;
+                }
+            }
+        }
+    }
+
+    bool phys_region::destination_pinned(usize index) const {
+        if (index >= pages_ || dest_refs_ == nullptr) {
+            return false;
+        }
+        return __atomic_load_n(&dest_refs_[index], __ATOMIC_ACQUIRE) != 0;
     }
 
 } // namespace astia::mm
