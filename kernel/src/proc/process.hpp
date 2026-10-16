@@ -1,12 +1,12 @@
 #pragma once
 
-#include "core/spinlock.hpp"
 #include "fd_table.hpp"
 #include "mmap_region.hpp"
-#include "page_map.hpp"
-#include "shptr.hpp"
 #include "thread.hpp"
+#include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
+#include <astia/core/spinlock.hpp>
+#include <astia/mm/shptr.hpp>
 
 namespace astia::proc {
 

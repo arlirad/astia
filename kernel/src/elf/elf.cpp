@@ -5,7 +5,7 @@
 // locally so the kernel build stays freestanding and the host test does not
 // depend on a system header.
 
-#include "elf.hpp"
+#include <astia/elf.hpp>
 
 namespace astia::elf {
 

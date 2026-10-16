@@ -1,9 +1,8 @@
-#include "heap.hpp"
-
-#include "core/spinlock.hpp"
-#include "frame_allocator.hpp"
+#include <astia/core/spinlock.hpp>
 #include <astia/init.hpp>
 #include <astia/memory.hpp>
+#include <astia/mm/frame_allocator.hpp>
+#include <astia/mm/heap.hpp>
 
 // A first-fit free-list allocator over one contiguous virtual window.
 //

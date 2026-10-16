@@ -1,6 +1,5 @@
-#include "frame_allocator.hpp"
-
 #include <astia/memory.hpp>
+#include <astia/mm/frame_allocator.hpp>
 
 // Provided by the linker script (cmake/linker/virt-x86_64.ld).
 extern "C" char __kernel_start[];

@@ -1,7 +1,7 @@
 #include "tmpfs.hpp"
 
-#include "share.hpp"
 #include <astia/api/errno.h>
+#include <astia/mm/share.hpp>
 
 namespace astia::fs {
 

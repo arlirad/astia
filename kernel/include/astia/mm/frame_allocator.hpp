@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/spinlock.hpp"
-#include "memory_map.hpp"
 #include <astia/common.hpp>
+#include <astia/core/spinlock.hpp>
+#include <astia/mm/memory_map.hpp>
 
 namespace astia::mm {
 

@@ -1,9 +1,9 @@
-#include "elf.hpp"
-#include "frame_allocator.hpp"
-#include "page_map.hpp"
 #include "proc.hpp"
 #include "process.hpp"
 #include <astia/api/syscalls.h>
+#include <astia/arch/page_map.hpp>
+#include <astia/elf.hpp>
+#include <astia/mm/frame_allocator.hpp>
 
 namespace astia::proc {
 

@@ -1,10 +1,9 @@
-#include "fs.hpp"
-
 #include "devfs.hpp"
 #include "initrd_fs.hpp"
-#include "share.hpp"
 #include "tmpfs.hpp"
 #include <astia/api/errno.h>
+#include <astia/fs.hpp>
+#include <astia/mm/share.hpp>
 
 void* operator new(astia::usize size, void* where) noexcept;
 

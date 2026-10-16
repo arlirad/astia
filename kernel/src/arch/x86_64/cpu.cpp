@@ -1,6 +1,5 @@
-#include "cpu.hpp"
-
 #include "gdt.hpp"
+#include <astia/arch/cpu.hpp>
 
 namespace astia::arch {
 

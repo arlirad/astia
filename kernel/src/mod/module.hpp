@@ -12,7 +12,7 @@
 // applies relocations, and calls `module_main`.
 //
 // This layer owns the policy (where memory comes from, what a symbol means);
-// the ELF mechanics live in "elf.hpp".
+// the ELF mechanics live in <astia/elf.hpp>.
 
 namespace astia::mod {
 

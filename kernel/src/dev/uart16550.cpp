@@ -1,14 +1,14 @@
 #include "uart16550.hpp"
 
 #include "aio.hpp"
-#include "cpu.hpp"
 #include "device_file.hpp"
-#include "interrupts.hpp"
 #include "pic.hpp"
 #include "proc.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/arch/cpu.hpp>
+#include <astia/arch/interrupts.hpp>
 #include <astia/memory.hpp>
 
 /*

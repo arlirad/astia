@@ -1,13 +1,12 @@
-#include "interrupts.hpp"
-
-#include "cpu.hpp"
 #include "debug_exit.hpp"
 #include "lapic.hpp"
-#include "log.hpp"
 #include "pic.hpp"
 #include "pit.hpp"
 #include "uart16550.hpp"
+#include <astia/arch/cpu.hpp>
+#include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
+#include <astia/log.hpp>
 
 // x86_64 interrupt delivery: the IDT and the dispatch loop; the device
 // drivers (pic.hpp, pit.hpp, lapic.hpp) live beside this file.

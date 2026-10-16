@@ -1,8 +1,8 @@
 #pragma once
 
-#include "cpu.hpp"
 #include "debug_exit.hpp"
-#include "log.hpp"
+#include <astia/arch/cpu.hpp>
+#include <astia/log.hpp>
 
 namespace astia::core {
 

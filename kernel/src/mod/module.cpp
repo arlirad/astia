@@ -6,9 +6,9 @@
 
 #include "module.hpp"
 
-#include "elf.hpp"
 #include "exports.hpp"
-#include "frame_allocator.hpp"
+#include <astia/elf.hpp>
+#include <astia/mm/frame_allocator.hpp>
 
 namespace astia::mod {
 

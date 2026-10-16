@@ -1,5 +1,5 @@
-#include "heap.hpp"
 #include <astia/common.hpp>
+#include <astia/mm/heap.hpp>
 
 // Global allocation, backed by mm::heap.
 //

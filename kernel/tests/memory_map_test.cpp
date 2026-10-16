@@ -1,5 +1,5 @@
-#include "memory_map.hpp"
 #include "test.hpp"
+#include <astia/mm/memory_map.hpp>
 
 ASTIA_TEST(memory_map_add_and_index) {
     astia::mm::memory_map map;

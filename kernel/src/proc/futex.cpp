@@ -1,9 +1,9 @@
-#include "cpu.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/arch/cpu.hpp>
 
 namespace astia::proc {
 

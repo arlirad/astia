@@ -1,12 +1,12 @@
-#include "heap.hpp"
-#include "interrupts.hpp"
-#include "log.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/arch/interrupts.hpp>
+#include <astia/log.hpp>
+#include <astia/mm/heap.hpp>
 
 namespace astia::proc {
 

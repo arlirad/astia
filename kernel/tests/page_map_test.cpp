@@ -1,8 +1,8 @@
 #include "arena.hpp"
-#include "frame_allocator.hpp"
-#include "layout.hpp"
-#include "page_map.hpp"
 #include "test.hpp"
+#include <astia/arch/layout.hpp>
+#include <astia/arch/page_map.hpp>
+#include <astia/mm/frame_allocator.hpp>
 
 namespace {
 

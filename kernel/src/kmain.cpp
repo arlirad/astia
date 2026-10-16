@@ -1,9 +1,9 @@
-#include "cpu.hpp"
-#include "log.hpp"
 #include "panic.hpp"
 #include "uart16550.hpp"
+#include <astia/arch/cpu.hpp>
 #include <astia/common.hpp>
 #include <astia/init.hpp>
+#include <astia/log.hpp>
 
 namespace {
     [[noreturn]] void halt() {

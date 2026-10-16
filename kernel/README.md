@@ -20,7 +20,7 @@ repository root.
 
 ## Memory layout (x86_64)
 
-Provided per arch by `astia::arch` (`src/arch/layout.hpp`,
+Provided per arch by `astia::arch` (`include/astia/arch/layout.hpp`,
 values in `src/arch/<arch>/layout.cpp`):
 
 - `kernel_base = 0xFFFF800000000000` - start of the canonical higher half (PML4 slot 256, PDPT index 0); also the base
@@ -47,7 +47,7 @@ callback.
 
 ## Interrupts (x86_64)
 
-Provided by `astia::arch` (`src/arch/interrupts.hpp`,
+Provided by `astia::arch` (`include/astia/arch/interrupts.hpp`,
 implementation in `src/arch/x86_64/interrupts.cpp`); the `interrupts`
 init step arms delivery but leaves interrupts masked — opening the gate (`cpu::interrupts()`) is the caller's decision.
 

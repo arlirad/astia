@@ -1,8 +1,8 @@
 #pragma once
 
-#include "core/spinlock.hpp"
-#include "frame_allocator.hpp"
 #include <astia/common.hpp>
+#include <astia/core/spinlock.hpp>
+#include <astia/mm/frame_allocator.hpp>
 
 namespace astia::mm {
 

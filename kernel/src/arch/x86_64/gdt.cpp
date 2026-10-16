@@ -1,7 +1,7 @@
 #include "gdt.hpp"
 
-#include "heap.hpp"
 #include "io.hpp"
+#include <astia/mm/heap.hpp>
 
 namespace astia::arch::x86_64 {
 

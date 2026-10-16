@@ -1,6 +1,6 @@
 #include "arena.hpp"
-#include "frame_allocator.hpp"
 #include "test.hpp"
+#include <astia/mm/frame_allocator.hpp>
 
 namespace {
 

@@ -1,8 +1,8 @@
-#include "interrupts.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/arch/interrupts.hpp>
 
 /*
  * SYS_CLOCK_GETTIME — the one clock read outside the rings.

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "heap.hpp"
-#include "shptr.hpp"
+#include <astia/mm/heap.hpp>
+#include <astia/mm/shptr.hpp>
 
 // Construct a heap-backed object and return it in an mm::shptr.  This
 // is the astia equivalent of aretev's mm::share(): allocation failure

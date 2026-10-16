@@ -1,11 +1,11 @@
 #include "process.hpp"
 
-#include "core/spinlock.hpp"
-#include "frame_allocator.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
-#include "share.hpp"
 #include <astia/api/syscalls.h>
+#include <astia/core/spinlock.hpp>
+#include <astia/mm/frame_allocator.hpp>
+#include <astia/mm/share.hpp>
 
 void* operator new[](astia::usize size, void* where) noexcept;
 

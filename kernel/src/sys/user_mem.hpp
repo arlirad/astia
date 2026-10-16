@@ -1,8 +1,8 @@
 #pragma once
 
-#include "layout.hpp"
-#include "page_map.hpp"
 #include "proc.hpp"
+#include <astia/arch/layout.hpp>
+#include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
 
 /*

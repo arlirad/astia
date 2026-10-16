@@ -1,12 +1,12 @@
 #include "proc.hpp"
 
-#include "core/spinlock.hpp"
-#include "cpu.hpp"
-#include "heap.hpp"
-#include "log.hpp"
 #include "scheduler.hpp"
-#include "share.hpp"
 #include <astia/api/errno.h>
+#include <astia/arch/cpu.hpp>
+#include <astia/core/spinlock.hpp>
+#include <astia/log.hpp>
+#include <astia/mm/heap.hpp>
+#include <astia/mm/share.hpp>
 
 void* operator new[](astia::usize size, void* where) noexcept;
 

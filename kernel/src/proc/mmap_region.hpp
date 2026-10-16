@@ -1,9 +1,9 @@
 #pragma once
 
-#include "fs.hpp"
-#include "phys_region.hpp"
-#include "shptr.hpp"
 #include <astia/common.hpp>
+#include <astia/fs.hpp>
+#include <astia/mm/phys_region.hpp>
+#include <astia/mm/shptr.hpp>
 
 namespace astia::proc {
 

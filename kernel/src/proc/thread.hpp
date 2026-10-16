@@ -1,8 +1,8 @@
 #pragma once
 
-#include "context.hpp"
-#include "shptr.hpp"
+#include <astia/arch/context.hpp>
 #include <astia/common.hpp>
+#include <astia/mm/shptr.hpp>
 
 namespace astia::proc {
 

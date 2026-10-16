@@ -1,10 +1,6 @@
 #include "selftest.hpp"
 
 #include "aio.hpp"
-#include "cpu.hpp"
-#include "fs.hpp"
-#include "interrupts.hpp"
-#include "log.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
 #include "syscall.hpp"
@@ -12,7 +8,11 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/arch/cpu.hpp>
+#include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
+#include <astia/fs.hpp>
+#include <astia/log.hpp>
 
 namespace astia::test {
 

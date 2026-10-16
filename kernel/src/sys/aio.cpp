@@ -1,10 +1,10 @@
 #include "aio.hpp"
 
-#include "cpu.hpp"
-#include "interrupts.hpp"
 #include "proc.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
+#include <astia/arch/cpu.hpp>
+#include <astia/arch/interrupts.hpp>
 #include <astia/memory.hpp>
 
 void* operator new(astia::usize size, void* where) noexcept;

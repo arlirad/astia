@@ -1,8 +1,8 @@
 #include "arena.hpp"
-#include "frame_allocator.hpp"
-#include "heap.hpp"
-#include "phys_region.hpp"
 #include "test.hpp"
+#include <astia/mm/frame_allocator.hpp>
+#include <astia/mm/heap.hpp>
+#include <astia/mm/phys_region.hpp>
 
 namespace {
 

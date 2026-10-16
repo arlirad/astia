@@ -1,7 +1,7 @@
 #pragma once
 
 #include "device.hpp"
-#include "fs.hpp"
+#include <astia/fs.hpp>
 
 // Filesystem-facing adapter for a hardware device.  The device remains
 // a device; this object is the file users and the async ring operate on.
