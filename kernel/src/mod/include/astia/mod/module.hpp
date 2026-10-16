@@ -1,0 +1,57 @@
+#pragma once
+
+#include <astia/common.hpp>
+#include <astia/mod/exports.hpp>
+#include <astia/mod/types.hpp>
+
+// Kernel module registry.
+//
+// A module is a relocatable x86-64 ELF object that exports a `module_main`
+// entry point. The kernel loads it into frame-allocator memory, resolves its
+// undefined symbols against the export table (see <astia/mod/exports.hpp>),
+// applies relocations, and calls `module_main`.
+//
+// This layer owns the policy (where memory comes from, what a symbol means);
+// the ELF mechanics live in <astia/elf/elf.hpp>.
+
+namespace astia::mod {
+
+    /// A loaded kernel module.
+    struct module {
+        const char* name; ///< Module name (for diagnostics).
+        void*       base; ///< Load address of the image allocation.
+        usize       size; ///< Bytes allocated for the image.
+        int (*entry)();   ///< Resolved module_main().
+        bool running;     ///< True once entry() has been called.
+    };
+
+    /// Upper bound on simultaneously loaded modules. Fixed capacity keeps the
+    /// registry off the heap.
+    inline constexpr usize max_modules = 16;
+
+    /// Load a module from a relocatable ELF image at `image`/`size`, resolve
+    /// and relocate it, and register it.
+    ///
+    /// On success returns the registered module (whose entry point has NOT yet
+    /// been called — call run_module() for that). Returns null on any failure.
+    ///
+    /// `image` need not stay valid after the call: section contents are copied
+    /// into frame-allocator memory.
+    auto load_module(const void* image, usize size) -> const module*;
+
+    /// Unload a module previously returned by load_module(). Frees the image
+    /// allocation and drops the registry slot. Returns false if `mod` is not a
+    /// registered module.
+    auto unload_module(const module* mod) -> bool;
+
+    /// Call a loaded module's entry point. Returns the module's return code, or
+    /// -1 if `mod` is null or already running.
+    auto run_module(const module* mod) -> int;
+
+    /// Number of currently loaded modules.
+    auto count() -> usize;
+
+    /// The i-th loaded module, or null if `i` is out of range.
+    auto at(usize i) -> const module*;
+
+} // namespace astia::mod

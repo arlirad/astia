@@ -1,0 +1,305 @@
+# Host-side unit tests. Unlike everything else in the tree these build with the
+# *system* toolchain and link against the host C library, so undo the
+# freestanding compile/link settings inherited from the parent directory.
+set(CMAKE_CXX_FLAGS "-Wall -Wextra")
+set_property(DIRECTORY PROPERTY LINK_OPTIONS "")
+
+add_library(astia_test_support STATIC
+        support/main.cpp
+        support/arena.cpp
+)
+target_include_directories(astia_test_support PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/support
+        ${CMAKE_SOURCE_DIR}/include
+)
+
+# The real kernel sources are compiled straight into the test binaries, so the
+# tests exercise shipping code rather than copies.
+set(_astia_test_includes
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src/include
+        ${CMAKE_SOURCE_DIR}/src/lib/include
+        ${CMAKE_SOURCE_DIR}/src/mm/include
+        ${CMAKE_SOURCE_DIR}/src/elf/include
+        ${CMAKE_SOURCE_DIR}/src/initrd/include
+        ${CMAKE_SOURCE_DIR}/src/mod/include
+        ${CMAKE_SOURCE_DIR}/src/boot/virt/include
+        ${CMAKE_SOURCE_DIR}/src/arch/include
+        ${CMAKE_SOURCE_DIR}/src/arch/x86_64/include
+)
+
+function(astia_add_host_test name)
+    add_executable(${name} ${ARGN})
+    set_target_properties(${name} PROPERTIES LINK_OPTIONS "")
+    target_link_libraries(${name} PRIVATE astia_test_support)
+    target_include_directories(${name} PRIVATE ${_astia_test_includes})
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+# --- Pure logic: no hardware, no fake memory needed. ------------------------
+astia_add_host_test(astia_memory_map_test memory_map_test.cpp)
+astia_add_host_test(astia_pvh_test pvh_test.cpp ${CMAKE_SOURCE_DIR}/src/boot/virt/pvh.cpp)
+
+# error_t / optional<T>: header-only carriers for fallible kernel operations.
+astia_add_host_test(astia_optional_test optional_test.cpp)
+
+# --- ELF fixtures: compile real images with the host toolchain and byte-embed
+# them, so the loader sees genuine gcc output rather than hand-written ELF.
+set(_fix_dir ${CMAKE_CURRENT_BINARY_DIR}/fixtures)
+
+# Embed an object as a C++ TU exposing `unsigned char <blob_name>[]` + `_len`.
+function(astia_embed_blob out_cpp obj_path blob_name)
+    set(_cpp ${obj_path}.cpp)
+    add_custom_command(
+            OUTPUT ${_cpp}
+            COMMAND sh -c "xxd -i -n ${blob_name} ${obj_path} > ${_cpp}"
+            DEPENDS ${obj_path}
+            COMMENT "Embedding ${blob_name}"
+            VERBATIM
+    )
+    set(${out_cpp} ${_cpp} PARENT_SCOPE)
+endfunction()
+
+# ET_REL module object (relocatable): imports kernel_add, has module_main.
+add_custom_command(
+        OUTPUT ${_fix_dir}/hello_mod.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+        -fno-stack-protector -fno-asynchronous-unwind-tables
+        -o ${_fix_dir}/hello_mod.o ${CMAKE_CURRENT_SOURCE_DIR}/hello_mod.c
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hello_mod.c
+        COMMENT "Compiling ET_REL fixture hello_mod.o"
+)
+astia_embed_blob(_hello_mod_cpp ${_fix_dir}/hello_mod.o hello_mod_blob)
+
+# ET_DYN (PIE) executable: self-contained, entry at fixture_entry, with a data
+# pointer that forces an R_X86_64_RELATIVE dynamic relocation.
+add_custom_command(
+        OUTPUT ${_fix_dir}/fixture_dyn.so
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_C_COMPILER} -shared -fPIC -nostdlib -O0
+        -Wl,-e,fixture_entry
+        -o ${_fix_dir}/fixture_dyn.so ${CMAKE_CURRENT_SOURCE_DIR}/fixture_exec.c
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fixture_exec.c
+        COMMENT "Compiling ET_DYN fixture fixture_dyn.so"
+)
+astia_embed_blob(_fixture_dyn_cpp ${_fix_dir}/fixture_dyn.so fixture_dyn_blob)
+
+# ET_EXEC (fixed-address) executable, linked at 0x10000000.
+add_custom_command(
+        OUTPUT ${_fix_dir}/fixture_exec.elf
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_C_COMPILER} -no-pie -nostdlib -O0
+        -Wl,-Ttext-segment=0x10000000 -Wl,-e,fixture_entry
+        -o ${_fix_dir}/fixture_exec.elf ${CMAKE_CURRENT_SOURCE_DIR}/fixture_exec.c
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fixture_exec.c
+        COMMENT "Compiling ET_EXEC fixture fixture_exec.elf"
+)
+astia_embed_blob(_fixture_exec_cpp ${_fix_dir}/fixture_exec.elf fixture_exec_blob)
+
+# elf: the generic loader, exercised end-to-end against all three fixtures.
+astia_add_host_test(astia_elf_test
+        elf_test.cpp
+        ${_hello_mod_cpp}
+        ${_fixture_dyn_cpp}
+        ${_fixture_exec_cpp}
+        ${CMAKE_SOURCE_DIR}/src/elf/elf.cpp
+)
+
+# initrd: the ustar reader, against a tarball built by make_initrd.sh (three
+# regular files, one binary, plus a `sub/` directory entry to be skipped).
+add_custom_command(
+        OUTPUT ${_fix_dir}/initrd.tar
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/make_initrd.sh ${_fix_dir}/initrd.tar
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/make_initrd.sh
+        COMMENT "Building initrd fixture initrd.tar"
+)
+astia_embed_blob(_initrd_cpp ${_fix_dir}/initrd.tar initrd_blob)
+
+astia_add_host_test(astia_initrd_test
+        initrd_test.cpp
+        ${_initrd_cpp}
+        ${CMAKE_SOURCE_DIR}/src/initrd/initrd.cpp
+)
+
+# mod: the export table (the ELF loader itself is covered by astia_elf_test).
+astia_add_host_test(astia_mod_test
+        mod_test.cpp
+        ${CMAKE_SOURCE_DIR}/src/mod/exports.cpp
+)
+
+# memory.cpp is the code under test here, so it overrides the host libc's
+# symbols; -fno-builtin stops the compiler rewriting our loops back into calls.
+astia_add_host_test(astia_memory_test memory_test.cpp ${CMAKE_SOURCE_DIR}/src/lib/memory.cpp)
+set_source_files_properties(${CMAKE_SOURCE_DIR}/src/lib/memory.cpp
+        PROPERTIES COMPILE_OPTIONS "-fno-builtin")
+
+# Substrate-bound logic: frame_allocator and page_map treat physical addresses
+# as pointers. Back a fixed mmap'd window with real memory (support/arena.cpp)
+# and inject symbols the allocator reserves. The addresses must match
+# astia_test::arena_base / kernel_image_size in support/arena.hpp.
+function(astia_add_arena_test name)
+    astia_add_host_test(${name} ${ARGN})
+    # The __kernel_* values are absolute; build non-PIE so the dynamic loader
+    # does not add the load bias to them (which would move the bitmap far away).
+    target_compile_options(${name} PRIVATE -fno-pie)
+    target_link_options(${name} PRIVATE
+            "-no-pie"
+            "-Wl,--defsym=__kernel_start=0x08000000"
+            "-Wl,--defsym=__kernel_end=0x08002000"
+    )
+    # Compiles out the privileged invlpg / mov cr3 in page_map.cpp.
+    target_compile_definitions(${name} PRIVATE ASTIA_HOST_TEST=1)
+endfunction()
+
+astia_add_arena_test(astia_frame_allocator_test
+        frame_allocator_test.cpp
+        ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
+)
+astia_add_arena_test(astia_page_map_test
+        page_map_test.cpp
+        ${CMAKE_SOURCE_DIR}/src/arch/x86_64/page_map.cpp
+        ${CMAKE_SOURCE_DIR}/src/arch/x86_64/layout.cpp
+        ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
+)
+
+# mm::heap: the free-list allocator over a window backed by arena frames.
+astia_add_arena_test(astia_heap_test
+        heap_test.cpp
+        ${CMAKE_SOURCE_DIR}/src/mm/heap.cpp
+        ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
+)
+
+# mm::phys_region: region-local reference counting and the CoW
+# parent/child links — no kernel-wide per-frame table anywhere.
+astia_add_arena_test(astia_phys_region_test
+        phys_region_test.cpp
+        ${CMAKE_SOURCE_DIR}/src/mm/phys_region.cpp
+        ${CMAKE_SOURCE_DIR}/src/mm/heap.cpp
+        ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
+)
+
+# On-target integration test: boot the real kernel under QEMU and let its
+# isa-debug-exit status decide pass/fail. Covers what host tests cannot (CR3,
+# TLB, real physical memory, the boot path itself).
+if (ARCH STREQUAL "x86_64")
+    find_program(ASTIA_QEMU qemu-system-x86_64)
+    if (ASTIA_QEMU)
+        add_test(NAME astia_kernel_boot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ""
+                "astia: interrupts ok (lapic)"
+                "astia: clock ok"
+                "astia: statx ok"
+        )
+        set_tests_properties(astia_kernel_boot PROPERTIES TIMEOUT 60)
+
+        # End-to-end initrd: the same kernel, but the boot module is a tarball
+        # carrying a self-contained ET_REL module. QEMU's PVH path puts -initrd in
+        # the modlist, so this covers modlist -> tar walk -> ELF load -> run.
+        add_custom_command(
+                OUTPUT ${_fix_dir}/hello_initrd.o
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                -fno-stack-protector -fno-asynchronous-unwind-tables
+                -o ${_fix_dir}/hello_initrd.o ${CMAKE_CURRENT_SOURCE_DIR}/hello_initrd.c
+                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hello_initrd.c
+                COMMENT "Compiling ET_REL fixture hello_initrd.o"
+        )
+        # The libc in ring 3: the same sources the host tests link, but
+        # freestanding and non-PIE, with the aio ports as the astia side
+        # of the seams.  Userspace images link this against tests/crt0.S.
+        add_library(astia_userspace_libc STATIC
+                ${CMAKE_SOURCE_DIR}/../libc/src/assert.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/backend_aio.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/ctype.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/errno.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/file.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/locale.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/malloc.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/mman.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/process.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/process_aio.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/pthread.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/printf.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/scanf.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/snprintf.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/stdlib.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/string.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/time.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/time_aio.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/wchar.c
+        )
+        target_include_directories(astia_userspace_libc PRIVATE
+                ${CMAKE_SOURCE_DIR}/../libc/include
+                ${CMAKE_SOURCE_DIR}/include
+        )
+        target_compile_options(astia_userspace_libc PRIVATE
+                -ffreestanding -fno-pic -fno-pie -fno-stack-protector
+                -fno-asynchronous-unwind-tables -mno-red-zone -fno-builtin
+        )
+
+        # A real userspace program: CRT0 unpacks the kernel's startup
+        # frame into main(argc, argv, envp) and leaves via libc exit().
+        add_custom_command(
+                OUTPUT ${_fix_dir}/init_libc
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                -fno-builtin -I${CMAKE_SOURCE_DIR}/include
+                -I${CMAKE_SOURCE_DIR}/../libc/include
+                -o ${_fix_dir}/init_libc_main.o
+                ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -lgcc
+                -o ${_fix_dir}/init_libc ${_fix_dir}/crt0.o
+                ${_fix_dir}/init_libc_main.o $<TARGET_FILE:astia_userspace_libc>
+                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c astia_userspace_libc
+                COMMENT "Linking libc-backed userspace image init_libc"
+        )
+
+    add_custom_command(
+            OUTPUT ${_fix_dir}/boot_initrd.tar
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/hello_initrd.o ${_fix_dir}/boot_stage/
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                -I${CMAKE_SOURCE_DIR}/include
+                -o ${_fix_dir}/init_user.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                -o ${_fix_dir}/init_user ${_fix_dir}/init_user.o
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/sbin
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/init_user ${_fix_dir}/boot_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/bin
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/init_libc ${_fix_dir}/boot_stage/bin/init_libc
+                COMMAND sh -c "tar cf ${_fix_dir}/boot_initrd.tar -C ${_fix_dir}/boot_stage hello_initrd.o sbin/init bin/init_libc"
+                DEPENDS ${_fix_dir}/hello_initrd.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_fix_dir}/init_libc
+                COMMENT "Packing boot initrd boot_initrd.tar"
+        )
+        # Tarballs are test inputs, not sources of any target, so build them as
+        # part of the default build to guarantee they exist before ctest runs.
+        add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.tar)
+
+        add_test(NAME astia_initrd_boot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/boot_initrd.tar
+                "astia: mod: hello_initrd.o rc=42"
+                "astia: statx ok"
+                "user thread exit status=0"
+                "astia: libc ok"
+        )
+        set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
+    else ()
+        message(STATUS "astia: qemu-system-x86_64 not found; skipping astia_kernel_boot")
+    endif ()
+endif ()

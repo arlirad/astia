@@ -1,0 +1,5 @@
+#pragma once
+
+#include <stdint.h>
+
+long __astia_time_clock_gettime(int clock_id, int64_t* sec, int64_t* nsec);

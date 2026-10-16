@@ -1,0 +1,18 @@
+#include <astia/boot.hpp>
+#include <astia/boot/virt/pvh.hpp>
+#include <astia/init.hpp>
+
+namespace astia::boot::virt {
+
+    static auto step_boot(init::context& ctx) -> bool {
+        static astia::boot::boot_info info{};
+        if (!parse_start_info(ctx.start_info, info)) {
+            return false;
+        }
+        ctx.info = &info;
+        return true;
+    }
+
+} // namespace astia::boot::virt
+
+ASTIA_INIT_STEP(early, boot_info, astia::boot::virt::step_boot)

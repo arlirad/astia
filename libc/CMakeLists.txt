@@ -1,0 +1,96 @@
+cmake_minimum_required(VERSION 3.20)
+
+project(astia_libc
+  VERSION 0.1.0
+  DESCRIPTION "astia C standard library"
+  LANGUAGES C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+
+option(ASTIA_BUILD_TESTS "Build and register host-side unit tests" OFF)
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+add_compile_options(-Wall -Wextra -pedantic)
+
+add_library(astia_libc STATIC
+  src/assert.c
+  src/backend_aio.c
+  src/ctype.c
+  src/errno.c
+  src/file.c
+  src/locale.c
+  src/malloc.c
+  src/mman.c
+  src/process.c
+  src/process_aio.c
+  src/printf.c
+  src/scanf.c
+  src/snprintf.c
+  src/stdlib.c
+  src/string.c
+  src/time.c
+  src/time_aio.c
+  src/wchar.c
+)
+
+# Host tests intentionally use the host pthread implementation as a
+# thread source for errno/TLS checks.  The astia pthread object belongs
+# to the freestanding userspace image (kernel/tests adds it directly),
+# not to those host executables.
+if(NOT ASTIA_BUILD_TESTS)
+  target_sources(astia_libc PRIVATE src/pthread.c)
+endif()
+
+# backend_aio.c is the astia side of the file port: real syscall traps,
+# it only ever *executes* on astia.  It is compiled here anyway (and in
+# every test build) so the ring ABI cannot rot silently — the host test
+# binaries link tests/backend_host.c in front of the archive instead, so
+# this member is never pulled into them.
+
+# <errno.h> hands out the userspace ABI's error codes; they live with the
+# kernel, this is a header-only dependency.
+target_include_directories(astia_libc PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
+)
+
+# This archive always links *into* an executable (host tests, future
+# CRT) — never into a DSO — so nothing needs it exported, and exporting
+# hurts: a PIE executable's global symbols do land in .dynsym, so the
+# host libc's printf would bind our opaque FILE as its own stdout, and
+# its internals could reach our malloc/fwrite with glibc objects.
+# Hidden visibility keeps the two libcs in one process strictly
+# disjoint; static links inside the executable are unaffected.
+target_compile_options(astia_libc PRIVATE -fvisibility=hidden)
+
+# string.c *defines* the functions the optimizer likes to replace byte
+# loops with; -fno-builtin keeps a loop from ever becoming a call to the
+# very function being defined.
+set_source_files_properties(src/string.c PROPERTIES
+  COMPILE_OPTIONS "-fno-builtin"
+)
+
+# file.c defines the stdio builtins; GCC's builtin declarations carry
+# nonnull attributes, which it merges into our definitions — turning the
+# defensive NULL guards (a closed stream's fd == -1 story, setvbuf's
+# contract) into -Wnonnull-compare warnings and potentially dead code.
+# Not being builtins is exactly the truth of this translation unit.
+set_source_files_properties(src/file.c PROPERTIES
+  COMPILE_OPTIONS "-fno-builtin"
+)
+set_source_files_properties(src/printf.c PROPERTIES
+  COMPILE_OPTIONS "-fno-builtin"
+)
+set_source_files_properties(src/time.c PROPERTIES
+  COMPILE_OPTIONS "-fno-builtin"
+)
+
+if(ASTIA_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()

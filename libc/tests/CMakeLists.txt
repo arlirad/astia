@@ -1,0 +1,41 @@
+# Host-side tests.  Each binary links the astia libc objects in *front
+# of the host libc*: our symbols live in the executable, so every call
+# from the test (and from the host's own interposable calls) reaches
+# shipping astia code, while the host CRT supplies process startup, TLS
+# setup, and printf for diagnostics — the few things a libc cannot give
+# itself.
+find_package(Threads REQUIRED)
+
+foreach(_t string ctype stdlib malloc snprintf)
+  add_executable(libc_${_t}_test ${_t}_test.c)
+  target_link_libraries(libc_${_t}_test PRIVATE astia_libc)
+  add_test(NAME libc_${_t}_test COMMAND libc_${_t}_test)
+endforeach()
+
+add_executable(libc_conformance_test conformance_test.c backend_host.c process_host.c time_host.c)
+target_link_libraries(libc_conformance_test PRIVATE astia_libc)
+add_test(NAME libc_conformance_test COMMAND libc_conformance_test)
+
+# The process API drives real host processes: identity, yield and a
+# forked child reaped through our waitpid wrapper.  Same object trick
+# as the FILE tests — process_host.c raw-syscalls the host in front of
+# the archive.  backend_host.c comes along so the CHECK messages have
+# a real write() behind them.
+add_executable(libc_process_test process_test.c process_host.c backend_host.c)
+target_link_libraries(libc_process_test PRIVATE astia_libc)
+add_test(NAME libc_process_test COMMAND libc_process_test)
+
+# The FILE tests drive the whole stream layer against real files: the
+# POSIX port (backend_host.c) is an *object* of the test binary, which
+# puts its __astia_fio_* definitions in front of the archive — the ring
+# backend then has nothing left to resolve and stays unlinked.
+add_executable(libc_file_test file_test.c backend_host.c)
+target_link_libraries(libc_file_test PRIVATE astia_libc)
+add_test(NAME libc_file_test COMMAND libc_file_test)
+
+# errno's thread-locality is a design contract, so it gets a real second
+# thread: host pthreads as a thread source only, the object under test
+# is ours.
+add_executable(libc_errno_test errno_test.c)
+target_link_libraries(libc_errno_test PRIVATE astia_libc Threads::Threads)
+add_test(NAME libc_errno_test COMMAND libc_errno_test)
