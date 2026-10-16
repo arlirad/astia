@@ -5,6 +5,7 @@
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
+#include <astia/io.hpp>
 #include <astia/memory.hpp>
 
 void* operator new(astia::usize size, void* where) noexcept;
@@ -17,8 +18,9 @@ void* operator new(astia::usize size, void* where) noexcept;
  *
  * What executes an SQE:
  *   NOP            -> completes with 0
- *   WRITE          -> file::write
- *   READ           -> file::read; zero parks until an IRQ-side nudge
+ *   READ/WRITE     -> file::submit; a 0 moves the request into a park slot,
+ *                     and the device resumes that same request (from its own
+ *                     stage) when its interrupt fires
  *   OPENAT         -> fs::open, installs the returned open description
  *   CLOSE          -> releases the ring's reference to the file
  *   DUP/DUP2       -> aliases the same open description
@@ -57,14 +59,15 @@ namespace astia::sys {
         constexpr u64 user_ring_span  = 0x000000010000ull;
         constexpr u32 user_ring_pages = static_cast<u32>((map_bytes + 4095u) / 4096u);
 
+        // One in-flight operation.  The request lives here, in its final
+        // address, rather than on the submitting stack: a device that parks
+        // keeps this reference (and whatever it put in device_state) across
+        // the park, and the engine hands the same object back on resume.
         struct parked_op {
             bool                     used;
             i32                      fd;
             mm::shptr<fs::open_file> object;
-            void*                    buf;
-            u32                      len;
-            u64                      off;
-            u64                      user_data;
+            io_request               request;
         };
 
         struct ring_slot {
@@ -195,14 +198,57 @@ namespace astia::sys {
                                       : current->descriptor(fd);
         }
 
-        void retry_parked(astia_rings* ring, parked_op& op) {
-            const long n = op.object->read(op.buf, op.len, op.off);
+        /// Start one READ/WRITE through the device's submit() seam.  The
+        /// park slot is taken up front so the request sits at its final
+        /// address before the device ever sees it: handing a device a
+        /// stack-local request would leave it holding a dangling pointer the
+        /// instant it parked.  Returns whether the SQE was consumed.
+        bool submit_request(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
+                            const mm::shptr<fs::open_file>& object, void* buf,
+                            io_direction direction) {
+            arch::interrupt_guard gate;
+            parked_op*            p = nullptr;
+            for (u32 i = 0; i < park_capacity; ++i) {
+                if (!slot.park[i].used) {
+                    p = &slot.park[i];
+                    break;
+                }
+            }
+            if (p == nullptr) {
+                // Every slot is in flight.  Fail this op rather than stall
+                // the ring — same answer the pre-seam overflow gave.
+                (void) cq_post(ring, s.user_data, -EBUSY);
+                return true;
+            }
+            p->used    = true;
+            p->fd      = s.fd;
+            p->object  = object;
+            p->request = io_request(buf, s.length, s.offset, s.user_data, direction);
+
+            const long n = object->submit(p->request);
+            if (n == 0) {
+                return true; // parked: a device resume completes it
+            }
+            // Satisfied inline.  The operation has already happened, so a
+            // full CQ loses the completion rather than replaying it — the
+            // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
+            (void) cq_post(ring, s.user_data, static_cast<i32>(n));
+            p->object = mm::shptr<fs::open_file>{};
+            p->used   = false;
+            return true;
+        }
+
+        /// Re-submit a parked operation: the device picks its continuation
+        /// up from request.stage().  A device that is still not ready
+        /// returns 0 and stays parked.
+        void resume_parked(astia_rings* ring, parked_op& op) {
+            const long n = op.object->submit(op.request);
             if (n == 0) {
                 return;
             }
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.
-            if (cq_post(ring, op.user_data, static_cast<i32>(n))) {
+            if (cq_post(ring, op.request.user_data(), static_cast<i32>(n))) {
                 op.object = mm::shptr<fs::open_file>{};
                 op.used   = false;
             }
@@ -213,21 +259,8 @@ namespace astia::sys {
             case OP_NOP:
                 return cq_post_guarded(ring, s.user_data, 0);
 
+            case OP_READ:
             case OP_WRITE: {
-                mm::shptr<fs::open_file> object = file_for(s.fd);
-                if (!object) {
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                }
-                const auto* buf =
-                    reinterpret_cast<const void*>(static_cast<usize>(s.address));
-                if (!sys::user_range_ok(buf, s.length)) {
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                }
-                const long n = object->write(buf, s.length, s.offset);
-                return cq_post_guarded(ring, s.user_data, static_cast<i32>(n));
-            }
-
-            case OP_READ: {
                 mm::shptr<fs::open_file> object = file_for(s.fd);
                 if (!object) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
@@ -239,25 +272,16 @@ namespace astia::sys {
                 if (!sys::user_range_ok(buf, s.length)) {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 }
-                const long n = object->read(buf, s.length, s.offset);
-                if (n != 0) {
-                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(n));
+                // Zero bytes is satisfied, not parked: 0 is submit()'s "in
+                // flight", so a zero-length op must never reach it — a
+                // parked zero-length read would wait for a wake that can
+                // never come.
+                if (s.length == 0) {
+                    return cq_post_guarded(ring, s.user_data, 0);
                 }
-                arch::interrupt_guard gate;
-                for (u32 i = 0; i < park_capacity; ++i) {
-                    parked_op& p = slot.park[i];
-                    if (!p.used) {
-                        p.used      = true;
-                        p.fd        = s.fd;
-                        p.object    = object;
-                        p.buf       = buf;
-                        p.len       = s.length;
-                        p.off       = s.offset;
-                        p.user_data = s.user_data;
-                        return true;
-                    }
-                }
-                return cq_post(ring, s.user_data, -EBUSY);
+                const io_direction direction =
+                    s.op == OP_READ ? io_direction::input : io_direction::output;
+                return submit_request(slot, ring, s, object, buf, direction);
             }
 
             case OP_OPENAT: {
@@ -555,7 +579,7 @@ namespace astia::sys {
             for (u32 p = 0; p < park_capacity; ++p) {
                 parked_op& op = slot.park[p];
                 if (op.used && op.fd == fd) {
-                    retry_parked(ring, op);
+                    resume_parked(ring, op);
                 }
             }
         }
@@ -576,7 +600,7 @@ namespace astia::sys {
             for (u32 p = 0; p < park_capacity; ++p) {
                 parked_op& op = slot.park[p];
                 if (op.used && op.object->backing() == dev) {
-                    retry_parked(ring, op);
+                    resume_parked(ring, op);
                 }
             }
         }

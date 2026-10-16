@@ -198,6 +198,15 @@ namespace astia::fs {
         (void) offset;
         return -ENOSYS;
     }
+    long file::submit(io_request& request) {
+        // Synchronous default: a node that finishes inline answers with
+        // whatever its read()/write() returns.  Note the trap — returning 0
+        // here parks forever, so a node that can genuinely be "not ready"
+        // must override submit() and set a stage.
+        return request.direction() == io_direction::input
+                   ? read(request.buffer(), request.length(), request.offset())
+                   : write(request.buffer(), request.length(), request.offset());
+    }
     long file::ioctl(u64 request, void* argp) {
         (void) request;
         (void) argp;
@@ -225,6 +234,20 @@ namespace astia::fs {
             return -EBADF;
         const u64  actual = offset == offset_current ? _position : offset;
         const long result = _object->write(buf, len, actual);
+        if (result > 0)
+            _position = actual + static_cast<u64>(result);
+        return result;
+    }
+    long open_file::submit(io_request& request) {
+        if (!_object)
+            return -EBADF;
+        // Resolve the offset once, at submission, and write it back into
+        // the request: every resume of a parked operation must land on the
+        // same position the caller asked for, not on a moved _position.
+        const u64 actual =
+            request.offset() == offset_current ? _position : request.offset();
+        request.offset(actual);
+        const long result = _object->submit(request);
         if (result > 0)
             _position = actual + static_cast<u64>(result);
         return result;

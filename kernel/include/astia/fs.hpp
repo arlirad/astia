@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/io.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/shptr.hpp>
 
@@ -20,10 +21,17 @@ namespace astia::fs {
     /// derive from this interface; the kernel passes these objects
     /// directly, while only the userspace ABI layer translates handles
     /// into them.
+    ///
+    /// The ring speaks `submit()`: one entry point for both directions,
+    /// with the response code carrying the park protocol (<astia/io.hpp>).
+    /// The base implementation just forwards to read()/write(), so a
+    /// synchronous node — every file in the tree today — needs nothing;
+    /// a node that must wait for hardware overrides submit() and parks.
     class file {
         public:
         virtual long             read(void* buf, u32 len, u64 offset);
         virtual long             write(const void* buf, u32 len, u64 offset);
+        virtual long             submit(io_request& request);
         virtual long             ioctl(u64 request, void* argp);
         virtual long             size() const;
         virtual mm::phys_region* memory_region();
@@ -39,6 +47,7 @@ namespace astia::fs {
 
         long read(void* buf, u32 len, u64 offset = offset_current);
         long write(const void* buf, u32 len, u64 offset = offset_current);
+        long submit(io_request& request);
         long ioctl(u64 request, void* argp);
         long size() const;
 

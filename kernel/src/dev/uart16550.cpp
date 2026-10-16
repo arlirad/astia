@@ -381,6 +381,22 @@ namespace astia::dev {
         return static_cast<long>(sent);
     }
 
+    long uart16550::submit(io_request& request) {
+        if (request.direction() == io_direction::output) {
+            return write(request.buffer(), request.length(), request.offset());
+        }
+        const long n = rx_pop(request.buffer(), request.length());
+        if (n > 0) {
+            return n;
+        }
+        // Empty queue: park at "waiting for the receive IRQ".  The engine
+        // holds this exact request and calls back here from the handler,
+        // stage intact — the same continuation a disk controller needs,
+        // just with fewer steps.
+        request.stage(1);
+        return 0;
+    }
+
     void uart16550::irq() {
         rx_drain();
         // Wake every open descriptor backed by this UART, including

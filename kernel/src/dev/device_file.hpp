@@ -14,6 +14,7 @@ namespace astia::dev {
 
         long read(void* buf, u32 len, u64 offset) override;
         long write(const void* buf, u32 len, u64 offset) override;
+        long submit(io_request& request) override;
         long ioctl(u64 request, void* argp) override;
         long size() const override;
 

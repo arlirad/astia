@@ -4,6 +4,7 @@
 #include "regs.hpp"
 #include <astia/api/termios.h>
 #include <astia/common.hpp>
+#include <astia/io.hpp>
 
 // COM1 as a 16550 UART, shaped by the dev layer's blk/char/net split:
 // a uart16550 is a tty (line discipline: termios, TCGETS/TCSETS, a
@@ -44,6 +45,11 @@ namespace astia::dev {
         // sys::io_device contract: bytes in/out, no blocking, IRQ-safe.
         long read(void* buf, u32 len, u64 off) override;
         long write(const void* buf, u32 len, u64 off) override;
+
+        /// The async seam: an input request that finds the receive queue
+        /// empty parks at stage 1 instead of returning a bare 0, so the
+        /// engine can hand the very same request back when IRQ4 fires.
+        long submit(io_request& request) override;
 
         /// Polled console face: bounded THRE wait, then THR write;
         /// drops the byte on a dead port rather than hanging.

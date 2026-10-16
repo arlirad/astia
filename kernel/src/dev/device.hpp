@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/io.hpp>
 
 // A logical device: the root of the blk/char/net split and the seam
 // the async ring engine binds to.  aretev-shaped — a name, a kind, and
@@ -53,6 +54,13 @@ namespace astia::dev {
         // may block.
         virtual long read(void* buf, u32 len, u64 off)        = 0;
         virtual long write(const void* buf, u32 len, u64 off) = 0;
+
+        // The ring's actual entry point.  The default routes to
+        // read()/write() above, which is all a device that finishes
+        // inline ever needs; a device that has to wait for hardware
+        // overrides this, parks the request (returns 0), and resumes it
+        // by stage from its interrupt handler.  See <astia/io.hpp>.
+        virtual long submit(io_request& request);
 
         // Device-specific control: TCGETS/TCSETS on a tty, geometry on
         // a disk.  -ENOTTY when the request is unknown.

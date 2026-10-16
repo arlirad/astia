@@ -12,6 +12,10 @@ namespace astia::dev {
         return _device == nullptr ? -EINVAL : _device->write(buf, len, offset);
     }
 
+    long device_file::submit(io_request& request) {
+        return _device == nullptr ? -EINVAL : _device->submit(request);
+    }
+
     long device_file::ioctl(u64 request, void* argp) {
         return _device == nullptr ? -EINVAL : _device->ioctl(request, argp);
     }

@@ -11,9 +11,10 @@
 // rings, same SQE/CQE structs, same cursor ordering, minus the trap.
 //
 // v1 scope: rings carved from a static pool, VFS-backed file descriptors,
-// and NOP/READ/WRITE/OPENAT/CLOSE/DUP/DUP2/STATX.  A READ with no data
-// parks; the device later calls io_device_ready() (from its IRQ handler,
-// say) and the engine completes it.  That is the whole point of the shape:
+// and NOP/READ/WRITE/OPENAT/CLOSE/DUP/DUP2/STATX.  A READ/WRITE the device
+// cannot satisfy at once parks at the device's own submit() stage; the
+// device later calls io_device_ready() (from its IRQ handler, say) and the
+// engine resumes that request.  That is the whole point of the shape:
 // io_enter never spins inside a device — the only waiting it does is on
 // completions, and that wait sleeps on hlt until an interrupt wakes it.
 //
