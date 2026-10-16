@@ -20,7 +20,7 @@ typedef long clock_t;
 #define _STRUCT_TIMESPEC 1
 struct timespec {
     time_t tv_sec;
-    long tv_nsec;
+    long   tv_nsec;
 };
 #endif
 
@@ -45,18 +45,17 @@ struct tm {
 #define CLOCK_REALTIME 1
 #define CLOCK_BOOTTIME 2
 
-int clock_gettime(int clock_id, struct timespec* result);
-time_t time(time_t* result);
-int timespec_get(struct timespec* result, int base);
+int        clock_gettime(int clock_id, struct timespec* result);
+time_t     time(time_t* result);
+int        timespec_get(struct timespec* result, int base);
 struct tm* gmtime(const time_t* timer);
 struct tm* gmtime_r(const time_t* timer, struct tm* result);
 struct tm* localtime(const time_t* timer);
 struct tm* localtime_r(const time_t* timer, struct tm* result);
-time_t mktime(struct tm* value);
-char* asctime(const struct tm* value);
-char* ctime(const time_t* timer);
-size_t strftime(char* dst, size_t cap, const char* format,
-                const struct tm* value);
+time_t     mktime(struct tm* value);
+char*      asctime(const struct tm* value);
+char*      ctime(const time_t* timer);
+size_t     strftime(char* dst, size_t cap, const char* format, const struct tm* value);
 
 #ifdef __cplusplus
 } /* extern "C" */

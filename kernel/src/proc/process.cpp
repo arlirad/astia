@@ -1,10 +1,11 @@
-#include <astia/api/syscalls.h>
+#include "process.hpp"
+
 #include "core/spinlock.hpp"
 #include "frame_allocator.hpp"
-#include "share.hpp"
 #include "proc.hpp"
-#include "process.hpp"
 #include "scheduler.hpp"
+#include "share.hpp"
+#include <astia/api/syscalls.h>
 
 void* operator new[](astia::usize size, void* where) noexcept;
 
@@ -13,16 +14,16 @@ namespace astia::proc {
     namespace {
         core::spinlock process_lock;
 
-        inline constexpr u64 thread_tls_first = 0x00007fffef000000ull;
+        inline constexpr u64 thread_tls_first  = 0x00007fffef000000ull;
         inline constexpr u64 thread_tls_stride = 0x00100000ull;
 
         inline constexpr u32 dead_capacity = 16;
         // Placement-constructed like the process registry: keeps the
         // global trivially destructible in freestanding code.
-        alignas(mm::shptr<thread>)
-            u8                dead_storage[sizeof(mm::shptr<thread>) * dead_capacity];
+        alignas(mm::shptr<thread>) u8
+            dead_storage[sizeof(mm::shptr<thread>) * dead_capacity];
         mm::shptr<thread>* dead_queue = nullptr;
-        u32                 dead_count = 0;
+        u32                dead_count = 0;
     }
 
     auto defer_dead_thread(const mm::shptr<thread>& value) -> void {
@@ -51,7 +52,7 @@ namespace astia::proc {
         {
             core::spinlock_guard guard(process_lock);
             for (u32 i = 0; i < dead_count; ++i) {
-                pending[i] = dead_queue[i];
+                pending[i]    = dead_queue[i];
                 dead_queue[i] = {};
             }
             count      = dead_count;
@@ -89,9 +90,8 @@ namespace astia::proc {
                 if (offset / mm::frame_allocator::frame_size >= frame_count) {
                     return false;
                 }
-                auto* page = static_cast<u8*>(
-                    mm::kernel_frames().to_virt(frames[offset /
-                                                       mm::frame_allocator::frame_size]));
+                auto* page = static_cast<u8*>(mm::kernel_frames().to_virt(
+                    frames[offset / mm::frame_allocator::frame_size]));
                 if (page == nullptr) {
                     return false;
                 }
@@ -128,14 +128,15 @@ namespace astia::proc {
         // the resulting stack pointer via context_prepare_user.
         auto build_initial_stack(u64 base, u64 top, const u64* frames, u32 frame_count,
                                  const char* const* argv, u32 argc,
-                                 const char* const* envp, u32 envc, u64* rsp_out) -> bool {
+                                 const char* const* envp, u32 envc, u64* rsp_out)
+            -> bool {
             u64 cursor = top;
             u64 argv_address[max_spawn_args]{};
             u64 envp_address[max_spawn_env]{};
 
             // Strings first, packed from the top down.
             for (u32 i = envc; i > 0; --i) {
-                const char* text = envp[i - 1];
+                const char* text   = envp[i - 1];
                 const usize length = cstr_length(text, spawn_string_bytes);
                 if (cursor < base + length + 1) {
                     return false;
@@ -148,7 +149,7 @@ namespace astia::proc {
                 envp_address[i - 1] = cursor;
             }
             for (u32 i = argc; i > 0; --i) {
-                const char* text = argv[i - 1];
+                const char* text   = argv[i - 1];
                 const usize length = cstr_length(text, spawn_string_bytes);
                 if (cursor < base + length + 1) {
                     return false;
@@ -163,8 +164,7 @@ namespace astia::proc {
 
             // The startup block: argc + argv[] + NULL + envp[] + NULL
             // + auxv AT_NULL pair, 16-byte aligned at entry.
-            const u64 block =
-                sizeof(u64) * (1 + argc + 1 + envc + 1 + 2);
+            const u64 block = sizeof(u64) * (1 + argc + 1 + envc + 1 + 2);
             if (cursor < base + block) {
                 return false;
             }
@@ -387,16 +387,15 @@ namespace astia::proc {
         if (address_space_ == nullptr) {
             return {};
         }
-        constexpr u64  stack_top   = 0x00007ffffff000ull;
-        constexpr u64  stack_size  = 16 * 1024;
-        constexpr u32  stack_pages = static_cast<u32>(stack_size / 4096);
-        u64            frames[stack_pages]{};
-        const u64      stack_base = stack_top - stack_size;
+        constexpr u64 stack_top   = 0x00007ffffff000ull;
+        constexpr u64 stack_size  = 16 * 1024;
+        constexpr u32 stack_pages = static_cast<u32>(stack_size / 4096);
+        u64           frames[stack_pages]{};
+        const u64     stack_base = stack_top - stack_size;
         // One contiguous run, so the stack's VMA can adopt it as a
         // single phys_region — the unit fork's copy-on-write
         // accounting works in.
-        const u64 run =
-            mm::kernel_frames().alloc(stack_pages, mm::frame_flags::zeroed);
+        const u64 run = mm::kernel_frames().alloc(stack_pages, mm::frame_flags::zeroed);
         if (run == mm::frame_allocator::invalid_frame) {
             return {};
         }
@@ -446,8 +445,7 @@ namespace astia::proc {
 
         auto value = mm::share<thread>(this, proc::allocate_tid());
         if (!value || !value->prepare_user(entry, user_entry_stack, tls_tp_) ||
-            !add_thread(value) ||
-            !scheduler::wake(value.get())) {
+            !add_thread(value) || !scheduler::wake(value.get())) {
             return {};
         }
         return value;
@@ -458,10 +456,10 @@ namespace astia::proc {
         if (address_space_ == nullptr || entry == 0 || user_stack_top == 0) {
             return {};
         }
-        const tid_t id = proc::allocate_tid();
-        u64          fs_base = tls_tp_;
-        u64          tls_base = 0;
-        usize        tls_pages = 0;
+        const tid_t id        = proc::allocate_tid();
+        u64         fs_base   = tls_tp_;
+        u64         tls_base  = 0;
+        usize       tls_pages = 0;
         if (tls_tp_ != 0 && !clone_tls_for_thread(id, fs_base, tls_base, tls_pages)) {
             return {};
         }
@@ -475,16 +473,15 @@ namespace astia::proc {
         return value;
     }
 
-    auto process::clone_tls_for_thread(tid_t id, u64& fs_base,
-                                       u64& mapping_base,
+    auto process::clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
                                        usize& mapping_pages) -> bool {
         if (tls_tp_ == 0) {
-            mapping_base = 0;
+            mapping_base  = 0;
             mapping_pages = 0;
             return true;
         }
-        const u64 page_bytes = mm::phys_region::frame_size;
-        mmap_region* source = nullptr;
+        const u64    page_bytes = mm::phys_region::frame_size;
+        mmap_region* source     = nullptr;
         for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
             if (it->covers(tls_tp_ - 1) && it->backing != nullptr) {
                 source = it;
@@ -495,8 +492,8 @@ namespace astia::proc {
             return false;
         }
 
-        u64 base = thread_tls_first -
-                   (static_cast<u64>(id % max_process_threads) * thread_tls_stride);
+        u64  base = thread_tls_first -
+                    (static_cast<u64>(id % max_process_threads) * thread_tls_stride);
         bool free = false;
         for (u32 attempt = 0; attempt < max_process_threads; ++attempt) {
             free = true;
@@ -519,13 +516,12 @@ namespace astia::proc {
             return false;
         }
         for (usize page = 0; page < source->pages; ++page) {
-            __builtin_memcpy(copy->page_direct(page),
-                             source->backing->page_direct(page), page_bytes);
-            if (!address_space_->map_4k(base + page * page_bytes,
-                                        copy->base() + page * page_bytes,
-                                        arch::page_flags::present |
-                                            arch::page_flags::writable |
-                                            arch::page_flags::user)) {
+            __builtin_memcpy(copy->page_direct(page), source->backing->page_direct(page),
+                             page_bytes);
+            if (!address_space_->map_4k(
+                    base + page * page_bytes, copy->base() + page * page_bytes,
+                    arch::page_flags::present | arch::page_flags::writable |
+                        arch::page_flags::user)) {
                 for (usize done = 0; done < page; ++done) {
                     address_space_->unmap(base + done * page_bytes);
                 }

@@ -8,13 +8,10 @@ namespace astia::dev {
         // Flags the tty layer knows about, per mode word: TCSETS walks
         // these to tell the driver only about bits that actually
         // moved.
-        constexpr tcflag_t iflags[] = { IGNBRK, BRKINT, IGNPAR, INPCK,
-                                        ICRNL, IXON, IXOFF };
-        constexpr tcflag_t oflags[] = { OPOST, ONLCR };
-        constexpr tcflag_t cflags[] = { CSIZE, CSTOPB, PARENB, CREAD,
-                                        CLOCAL };
-        constexpr tcflag_t lflags[] = { ISIG, ICANON, ECHO, ECHOE,
-                                        ECHOK, ECHONL };
+        constexpr tcflag_t iflags[] = {IGNBRK, BRKINT, IGNPAR, INPCK, ICRNL, IXON, IXOFF};
+        constexpr tcflag_t oflags[] = {OPOST, ONLCR};
+        constexpr tcflag_t cflags[] = {CSIZE, CSTOPB, PARENB, CREAD, CLOCAL};
+        constexpr tcflag_t lflags[] = {ISIG, ICANON, ECHO, ECHOE, ECHOK, ECHONL};
     } // namespace
 
     auto tty::ioctl(u64 request, void* argp) -> long {
@@ -29,8 +26,7 @@ namespace astia::dev {
             if (argp == nullptr) {
                 return -EINVAL;
             }
-            const struct termios& next =
-                *static_cast<const struct termios*>(argp);
+            const struct termios& next = *static_cast<const struct termios*>(argp);
 
             // Tell the driver about every flag that moved; the rate
             // last, so a refusal leaves the line state untouched.

@@ -1,8 +1,7 @@
+#include "arena.hpp"
 #include "frame_allocator.hpp"
 #include "heap.hpp"
 #include "phys_region.hpp"
-
-#include "arena.hpp"
 #include "test.hpp"
 
 namespace {
@@ -11,7 +10,9 @@ namespace {
 
     // The heap's arch hook is a no-op on the host: the window is
     // already reachable memory.
-    auto fake_map(astia::u64, astia::u64) -> bool { return true; }
+    auto fake_map(astia::u64, astia::u64) -> bool {
+        return true;
+    }
 
     // phys_region takes its frames from the kernel frame allocator and
     // its objects from the heap; point both at the arena like the
@@ -125,9 +126,10 @@ ASTIA_TEST(phys_region_parent_death_detaches_children) {
     ASTIA_CHECK(child != nullptr);
 
     region->release(); // last reference: the parent dies first
-    // The child owns its own frames and needs no parent: it must stay // fully usable, and able to CoW again.
+    // The child owns its own frames and needs no parent: it must stay // fully usable,
+    // and able to CoW again.
     auto* byte = static_cast<astia::u8*>(child->page_direct(0));
-    byte[0] = 0x77;
+    byte[0]    = 0x77;
     ASTIA_CHECK(byte[0] == 0x77);
     auto* grandchild = child->split_page(0);
     ASTIA_CHECK(grandchild != nullptr);

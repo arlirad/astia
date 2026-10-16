@@ -1,12 +1,12 @@
+#include "frame_allocator.hpp"
+#include "gdt.hpp"
+#include "heap.hpp"
 #include "interrupts.hpp"
 #include "layout.hpp"
 #include "page_map.hpp"
-#include "gdt.hpp"
 #include <astia/boot.hpp>
 #include <astia/init.hpp>
 #include <astia/memory.hpp>
-#include "heap.hpp"
-#include "frame_allocator.hpp"
 
 // Kernel image bounds from the linker script; both are *physical* addresses
 // (see cmake/linker/virt-x86_64.ld): the frame allocator reserves

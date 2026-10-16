@@ -1,8 +1,8 @@
 #pragma once
 
-#include <astia/common.hpp>
 #include "core/spinlock.hpp"
 #include "frame_allocator.hpp"
+#include <astia/common.hpp>
 
 namespace astia::mm {
 
@@ -112,13 +112,13 @@ namespace astia::mm {
         auto initialize(u64 base, usize pages) -> bool;
 
         core::spinlock lock_{};
-        u64             base_        = 0;
-        usize           pages_       = 0;
-        u32             refs_        = 1;
-        u16*            page_refs_   = nullptr;
-        child*          children_    = nullptr;
-        phys_region*    parent_      = nullptr;
-        usize           parent_page_ = 0;
+        u64            base_        = 0;
+        usize          pages_       = 0;
+        u32            refs_        = 1;
+        u16*           page_refs_   = nullptr;
+        child*         children_    = nullptr;
+        phys_region*   parent_      = nullptr;
+        usize          parent_page_ = 0;
     };
 
 } // namespace astia::mm

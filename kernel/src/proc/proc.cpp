@@ -1,31 +1,31 @@
-#include <astia/api/errno.h>
-#include "cpu.hpp"
+#include "proc.hpp"
+
 #include "core/spinlock.hpp"
+#include "cpu.hpp"
 #include "heap.hpp"
 #include "log.hpp"
-#include "share.hpp"
-#include "proc.hpp"
 #include "scheduler.hpp"
+#include "share.hpp"
+#include <astia/api/errno.h>
 
 void* operator new[](astia::usize size, void* where) noexcept;
 
 namespace astia::proc {
 
     namespace {
-        process*            kernel   = nullptr;
-        thread*             current  = nullptr;
-        tid_t               next_tid = 1;
-        pid_t               next_pid = 1;
+        process* kernel   = nullptr;
+        thread*  current  = nullptr;
+        tid_t    next_tid = 1;
+        pid_t    next_pid = 1;
 
         inline constexpr u32 registry_capacity = 64;
         // Non-trivial element type in freestanding code: static storage
         // plus placement construction, so the global itself stays
         // trivially destructible (same pattern as fs::devfs_instance).
-        alignas(mm::shptr<process>)
-            u8                  registry_storage[sizeof(mm::shptr<process>) *
-                                             registry_capacity];
+        alignas(mm::shptr<process>) u8
+            registry_storage[sizeof(mm::shptr<process>) * registry_capacity];
         mm::shptr<process>* registry = nullptr;
-        core::spinlock       registry_lock;
+        core::spinlock      registry_lock;
 
         /// registry_lock must be held.
         auto find_slot_locked(pid_t id) -> i32 {
@@ -58,11 +58,11 @@ namespace astia::proc {
             return false;
         }
 
-        registry = ::new (registry_storage) mm::shptr<process>[registry_capacity];
+        registry    = ::new (registry_storage) mm::shptr<process>[registry_capacity];
         registry[0] = mm::share<process>(0, 0, "kernel");
         kernel      = registry[0].get();
         if (kernel == nullptr || !kernel->install_standard_streams()) {
-            kernel     = nullptr;
+            kernel      = nullptr;
             registry[0] = {};
             return false;
         }
@@ -99,8 +99,8 @@ namespace astia::proc {
         current = value;
     }
 
-    auto spawnve(const char* path, char* const argv[], char* const envp[],
-                 int* error) -> mm::shptr<process> {
+    auto spawnve(const char* path, char* const argv[], char* const envp[], int* error)
+        -> mm::shptr<process> {
         // Every failure path hands the syscall boundary its negated errno.
         const auto fail = [error](int code) -> mm::shptr<process> {
             if (error != nullptr) {
@@ -145,8 +145,7 @@ namespace astia::proc {
         const bool loaded_image =
             child->load_user_image(image.value, static_cast<usize>(image_size), &entry);
         mm::heap::free(image.value);
-        if (!loaded_image ||
-            !child->create_user_thread(entry, argv, envp)) {
+        if (!loaded_image || !child->create_user_thread(entry, argv, envp)) {
             log::error("spawnve: ELF load or user thread setup failed");
             return fail(ENOEXEC);
         }
@@ -160,7 +159,7 @@ namespace astia::proc {
 
     auto find_process(pid_t id) -> process* {
         core::spinlock_guard guard(registry_lock);
-        const i32           slot = find_slot_locked(id);
+        const i32            slot = find_slot_locked(id);
         return slot < 0 ? nullptr : registry[slot].get();
     }
 
@@ -182,8 +181,8 @@ namespace astia::proc {
         for (;;) {
             parent->add_waiter(self);
 
-            process* zombie_child = nullptr;
-            bool     has_children = false;
+            process*           zombie_child = nullptr;
+            bool               has_children = false;
             mm::shptr<process> taken;
             {
                 core::spinlock_guard guard(registry_lock);
@@ -214,8 +213,7 @@ namespace astia::proc {
                 if (status != nullptr) {
                     *status = zombie_child->exit_status();
                 }
-                log::info("proc: reaped pid=%u status=%d",
-                          static_cast<u32>(child_pid),
+                log::info("proc: reaped pid=%u status=%d", static_cast<u32>(child_pid),
                           status == nullptr ? zombie_child->exit_status() : *status);
                 result = static_cast<i64>(child_pid);
                 parent->remove_waiter(self);

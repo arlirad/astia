@@ -11,13 +11,11 @@ long __astia_process_getpid(void);
 long __astia_process_gettid(void);
 long __astia_process_yield(void);
 long __astia_process_waitpid(int pid, int* status);
-long __astia_process_spawnve(const char* path, char* const argv[],
-                             char* const envp[]);
+long __astia_process_spawnve(const char* path, char* const argv[], char* const envp[]);
 long __astia_process_fork(void);
 long __astia_process_futex(unsigned int* address, unsigned int operation,
                            unsigned int value);
-long __astia_process_thread_create(void (*entry)(void*), void* stack_top,
-                                   void* argument);
+long __astia_process_thread_create(void (*entry)(void*), void* stack_top, void* argument);
 void __astia_process_thread_exit(void* result);
 long __astia_process_thread_join(unsigned long tid, void** result);
 long __astia_process_thread_detach(unsigned long tid);

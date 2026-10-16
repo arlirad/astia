@@ -1,8 +1,8 @@
 #pragma once
 
-#include <astia/common.hpp>
 #include "exports.hpp"
 #include "types.hpp"
+#include <astia/common.hpp>
 
 // Kernel module registry.
 //

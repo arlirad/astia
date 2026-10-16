@@ -1,5 +1,5 @@
-#include <astia/init.hpp>
 #include "syscall.hpp"
+#include <astia/init.hpp>
 
 namespace astia::sys {
 

@@ -1,8 +1,8 @@
-#include <errno.h>
-#include <stddef.h>
+#include "../src/process_port.h"
 #include <sys/syscall.h>
 
-#include "../src/process_port.h"
+#include <errno.h>
+#include <stddef.h>
 
 /* Raw host syscalls, not libc calls: this object lives in test
  * binaries that also contain this libc's getpid/waitpid/_Exit, so a
@@ -16,36 +16,30 @@ extern long syscall(long number, ...);
 extern int* __errno_location(void); /* glibc's errno, without its header */
 #define HOST_ERRNO (*__errno_location())
 
-static long host_trap(long number, long a1, long a2, long a3, long a4)
-{
+static long host_trap(long number, long a1, long a2, long a3, long a4) {
     long rc = syscall(number, a1, a2, a3, a4);
     if (rc == -1) /* none of these calls may legitimately return -1 */
         return -HOST_ERRNO;
     return rc;
 }
 
-void __astia_process_exit(int status)
-{
+void __astia_process_exit(int status) {
     (void) host_trap(SYS_exit, status, 0, 0, 0);
 }
 
-long __astia_process_getpid(void)
-{
+long __astia_process_getpid(void) {
     return host_trap(SYS_getpid, 0, 0, 0, 0);
 }
 
-long __astia_process_gettid(void)
-{
+long __astia_process_gettid(void) {
     return host_trap(SYS_gettid, 0, 0, 0, 0);
 }
 
-long __astia_process_yield(void)
-{
+long __astia_process_yield(void) {
     return host_trap(SYS_sched_yield, 0, 0, 0, 0);
 }
 
-long __astia_process_waitpid(int pid, int* status)
-{
+long __astia_process_waitpid(int pid, int* status) {
     return host_trap(SYS_wait4, pid, (long) status, 0, 0);
 }
 
@@ -59,23 +53,18 @@ long __astia_process_waitpid(int pid, int* status)
  * (empty); posix_spawn demands real ones.  errno-style in, ABI's
  * negated code out. */
 extern int posix_spawn(int* pid, const char* path, const void* file_actions,
-                       const void* attr, char* const argv[],
-                       char* const envp[]);
+                       const void* attr, char* const argv[], char* const envp[]);
 
-long __astia_process_spawnve(const char* path, char* const argv[],
-                             char* const envp[])
-{
+long __astia_process_spawnve(const char* path, char* const argv[], char* const envp[]) {
     char* fallback_argv[] = {(char*) path, NULL};
     char* empty_env[]     = {NULL};
     int   child           = 0;
-    int   rc              = posix_spawn(&child, path, NULL, NULL,
-                                        argv == NULL ? fallback_argv : argv,
-                                        envp == NULL ? empty_env : envp);
+    int   rc = posix_spawn(&child, path, NULL, NULL, argv == NULL ? fallback_argv : argv,
+                           envp == NULL ? empty_env : envp);
     return rc == 0 ? (long) child : -(long) rc;
 }
 
-long __astia_process_fork(void)
-{
+long __astia_process_fork(void) {
     /* Raw host fork, not our fork(): by libc name it would bind to the
      * process.c wrapper above and recurse through this seam. */
     return host_trap(SYS_fork, 0, 0, 0, 0);

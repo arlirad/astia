@@ -1,6 +1,6 @@
+#include "frame_allocator.hpp"
 #include <astia/boot.hpp>
 #include <astia/init.hpp>
-#include "frame_allocator.hpp"
 
 namespace astia::mm {
 

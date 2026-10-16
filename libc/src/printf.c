@@ -3,13 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static int emit_formatted(FILE* stream, const char* format, va_list ap)
-{
+static int emit_formatted(FILE* stream, const char* format, va_list ap) {
     va_list measure;
     va_list render;
-    char* buf;
-    int len;
-    size_t wrote;
+    char*   buf;
+    int     len;
+    size_t  wrote;
 
     if (stream == NULL || format == NULL)
         return EOF;
@@ -35,15 +34,13 @@ static int emit_formatted(FILE* stream, const char* format, va_list ap)
     return wrote == (size_t) len ? len : EOF;
 }
 
-int vfprintf(FILE* stream, const char* format, va_list ap)
-{
+int vfprintf(FILE* stream, const char* format, va_list ap) {
     return emit_formatted(stream, format, ap);
 }
 
-int fprintf(FILE* stream, const char* format, ...)
-{
+int fprintf(FILE* stream, const char* format, ...) {
     va_list ap;
-    int rc;
+    int     rc;
 
     va_start(ap, format);
     rc = vfprintf(stream, format, ap);
@@ -51,15 +48,13 @@ int fprintf(FILE* stream, const char* format, ...)
     return rc;
 }
 
-int vprintf(const char* format, va_list ap)
-{
+int vprintf(const char* format, va_list ap) {
     return vfprintf(stdout, format, ap);
 }
 
-int printf(const char* format, ...)
-{
+int printf(const char* format, ...) {
     va_list ap;
-    int rc;
+    int     rc;
 
     va_start(ap, format);
     rc = vprintf(format, ap);
@@ -67,14 +62,12 @@ int printf(const char* format, ...)
     return rc;
 }
 
-int puts(const char* s)
-{
+int puts(const char* s) {
     if (s == NULL || fputs(s, stdout) == EOF || fputc('\n', stdout) == EOF)
         return EOF;
     return 0;
 }
 
-int putchar(int c)
-{
+int putchar(int c) {
     return fputc(c, stdout);
 }

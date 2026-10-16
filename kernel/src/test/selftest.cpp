@@ -1,17 +1,18 @@
-#include <astia/api/aio.h>
-#include <astia/api/errno.h>
-#include <astia/api/syscalls.h>
+#include "selftest.hpp"
+
+#include "aio.hpp"
 #include "cpu.hpp"
-#include "interrupts.hpp"
-#include <astia/common.hpp>
-#include "uart16550.hpp"
 #include "fs.hpp"
+#include "interrupts.hpp"
 #include "log.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
-#include "aio.hpp"
 #include "syscall.hpp"
-#include "selftest.hpp"
+#include "uart16550.hpp"
+#include <astia/api/aio.h>
+#include <astia/api/errno.h>
+#include <astia/api/syscalls.h>
+#include <astia/common.hpp>
 
 namespace astia::test {
 
@@ -185,14 +186,14 @@ namespace astia::test {
         // run backwards.
         auto clock_checks() -> bool {
             auto read = [](i64 id, astia_timespec* out) -> long {
-                return static_cast<long>(
-                    sys::dispatch(sys::syscall_id::clock_gettime, id,
-                                  reinterpret_cast<i64>(out), 0, 0, 0, 0));
+                return static_cast<long>(sys::dispatch(sys::syscall_id::clock_gettime, id,
+                                                       reinterpret_cast<i64>(out), 0, 0,
+                                                       0, 0));
             };
 
-            astia_timespec first {};
-            astia_timespec second {};
-            astia_timespec wall {};
+            astia_timespec first{};
+            astia_timespec second{};
+            astia_timespec wall{};
 
             if (read(CLOCK_MONOTONIC, &first) != 0 || first.tv_nsec < 0 ||
                 first.tv_nsec >= 1000000000) {
@@ -226,13 +227,13 @@ namespace astia::test {
                 return 4096;
             }
         };
-        sized_probe probe_node {};
+        sized_probe probe_node{};
 
         // OP_STATX on a ring: the success path (both address forms) and the
         // errors the VFS can actually produce for them.
         auto statx_checks() -> bool {
-            static const char probe_path[]    = "/dev/statx_probe";
-            static const char missing_path[]  = "/dev/astia_no_such_node";
+            static const char probe_path[]   = "/dev/statx_probe";
+            static const char missing_path[] = "/dev/astia_no_such_node";
 
             if (fs::register_device(probe_path,
                                     mm::shptr<fs::file>::borrowed(&probe_node)) < 0) {
@@ -251,14 +252,13 @@ namespace astia::test {
                 if (s == nullptr) {
                     return -EBUSY;
                 }
-                *s                     = astia_sqe {};
-                s->op                  = OP_STATX;
-                s->fd                  = fd;
-                s->address             = path == nullptr ? 0
-                                                         : reinterpret_cast<u64>(path);
-                s->offset              = reinterpret_cast<u64>(out);
-                s->length              = static_cast<u32>(sizeof(astia_stat));
-                s->user_data           = 0xC0DE57;
+                *s           = astia_sqe{};
+                s->op        = OP_STATX;
+                s->fd        = fd;
+                s->address   = path == nullptr ? 0 : reinterpret_cast<u64>(path);
+                s->offset    = reinterpret_cast<u64>(out);
+                s->length    = static_cast<u32>(sizeof(astia_stat));
+                s->user_data = 0xC0DE57;
                 astia_sq_publish(ring, 1);
                 if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
                     return -EIO;
@@ -272,7 +272,7 @@ namespace astia::test {
                 return result;
             };
 
-            astia_stat st {};
+            astia_stat st{};
             if (statx(probe_path, -1, &st) != 0 || st.size != 4096 || st.blocks != 8) {
                 log::error("statx selftest fail (path form)");
                 return false;

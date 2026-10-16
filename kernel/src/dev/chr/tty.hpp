@@ -1,7 +1,7 @@
 #pragma once
 
-#include <astia/api/termios.h>
 #include "chrdev.hpp"
+#include <astia/api/termios.h>
 
 // An asynchronous terminal: a character device that carries line
 // discipline state.  aretev's tty minus the iopkt/packet machinery —

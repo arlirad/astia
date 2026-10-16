@@ -1,12 +1,12 @@
 #pragma once
 
-#include <astia/common.hpp>
 #include "core/spinlock.hpp"
 #include "memory_map.hpp"
+#include <astia/common.hpp>
 
 namespace astia::mm {
 
-    using frame_access_fn = void* (*)(u64 physical);
+    using frame_access_fn = void* (*) (u64 physical);
 
     /// Modifiers for frame_allocator::alloc().
     enum class frame_flags : u32 {
@@ -84,14 +84,14 @@ namespace astia::mm {
         auto set_used(usize index, bool used) -> void;
         auto mark_range(u64 base, u64 size, bool used) -> void;
 
-        core::spinlock lock_{};
-        u64*           bitmap_      = nullptr;
+        core::spinlock  lock_{};
+        u64*            bitmap_          = nullptr;
         u64             bitmap_physical_ = 0;
-        frame_access_fn access_ = nullptr;
-        usize          words_       = 0;
-        usize          frame_count_ = 0;
-        usize          free_count_  = 0;
-        bool           ready_       = false;
+        frame_access_fn access_          = nullptr;
+        usize           words_           = 0;
+        usize           frame_count_     = 0;
+        usize           free_count_      = 0;
+        bool            ready_           = false;
     };
 
     /// The kernel's single physical frame allocator.

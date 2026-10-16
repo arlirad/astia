@@ -1,6 +1,5 @@
-#include <astia/optional.hpp>
-
 #include "test.hpp"
+#include <astia/optional.hpp>
 
 namespace {
 

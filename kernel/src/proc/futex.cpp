@@ -1,10 +1,9 @@
-#include "proc.hpp"
-
-#include <astia/api/errno.h>
-#include <astia/api/syscalls.h>
 #include "cpu.hpp"
+#include "proc.hpp"
 #include "scheduler.hpp"
 #include "user_mem.hpp"
+#include <astia/api/errno.h>
+#include <astia/api/syscalls.h>
 
 namespace astia::proc {
 
@@ -12,12 +11,12 @@ namespace astia::proc {
         inline constexpr u32 futex_capacity = 64;
 
         struct futex_waiter {
-            process* owner = nullptr;
+            process* owner   = nullptr;
             u64      address = 0;
-            thread*  value = nullptr;
+            thread*  value   = nullptr;
         };
 
-        futex_waiter waiters[futex_capacity] {};
+        futex_waiter waiters[futex_capacity]{};
 
     } // namespace
 
@@ -50,7 +49,7 @@ namespace astia::proc {
             arch::cpu::interrupts();
             return -EAGAIN;
         }
-        waiters[slot] = futex_waiter { owner, address, self };
+        waiters[slot] = futex_waiter{owner, address, self};
         self->state(thread_state::blocked);
         scheduler::yield();
         // The wake path clears the slot before making us runnable.  On

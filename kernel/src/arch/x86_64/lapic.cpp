@@ -1,8 +1,8 @@
 #include "lapic.hpp"
 
+#include "io.hpp"
 #include "layout.hpp"
 #include "page_map.hpp"
-#include "io.hpp"
 #include "pit.hpp"
 
 // xAPIC MMIO bring-up. The frequency of the LAPIC timer is a platform
@@ -15,22 +15,22 @@ namespace astia::arch::x86_64 {
 
     namespace {
 
-        constexpr u64 msr_apic_base = 0x1B;
+        constexpr u64 msr_apic_base     = 0x1B;
         constexpr u64 apic_base_enabled = 1ull << 11; // global enable
-        constexpr u64 apic_base_x2apic = 1ull << 10;  // MSR mode, not driven yet
+        constexpr u64 apic_base_x2apic  = 1ull << 10; // MSR mode, not driven yet
 
         // Register offsets are byte offsets; the window is u32 dwords.
-        constexpr u64 reg_eoi = 0x0B0 / 4;
-        constexpr u64 reg_svr = 0x0F0 / 4;
-        constexpr u64 reg_lvt_timer = 0x320 / 4;
+        constexpr u64 reg_eoi           = 0x0B0 / 4;
+        constexpr u64 reg_svr           = 0x0F0 / 4;
+        constexpr u64 reg_lvt_timer     = 0x320 / 4;
         constexpr u64 reg_timer_initial = 0x380 / 4;
         constexpr u64 reg_timer_current = 0x390 / 4;
-        constexpr u64 reg_timer_divide = 0x3E0 / 4;
+        constexpr u64 reg_timer_divide  = 0x3E0 / 4;
 
         // LVT timer: bits 17..18 = mode (01 periodic, 00 one-shot), bit 16 = mask.
         constexpr u32 lvt_one_shot_masked = 1u << 16;
-        constexpr u32 lvt_periodic = 1u << 17;
-        constexpr u32 timer_divide_by_16 = 0x3;
+        constexpr u32 lvt_periodic        = 1u << 17;
+        constexpr u32 timer_divide_by_16  = 0x3;
 
         volatile u32* lapic_regs = nullptr; // null until start() maps it
 
@@ -77,12 +77,11 @@ namespace astia::arch::x86_64 {
         // (kernel_base + p), not at the raw physical address: the low
         // identity half is process-private in child address spaces, and
         // a timer EOI from ring-3 context would fault there.
-        auto* map      = kernel_page_map();
+        auto*     map  = kernel_page_map();
         const u64 virt = kernel_base + base;
-        if (map == nullptr ||
-            !map->map_4k(virt, base,
-                         page_flags::present | page_flags::writable |
-                             page_flags::cache_disable)) {
+        if (map == nullptr || !map->map_4k(virt, base,
+                                           page_flags::present | page_flags::writable |
+                                               page_flags::cache_disable)) {
             return false;
         }
         lapic_regs = reinterpret_cast<volatile u32*>(virt);

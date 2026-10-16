@@ -1,9 +1,8 @@
-#include "process.hpp"
-
-#include <astia/api/errno.h>
-#include <astia/api/syscalls.h>
 #include "core/spinlock.hpp"
 #include "heap.hpp"
+#include "process.hpp"
+#include <astia/api/errno.h>
+#include <astia/api/syscalls.h>
 
 void* operator new(astia::usize size, void* where) noexcept;
 
@@ -48,8 +47,9 @@ namespace astia::proc {
             mmap_region* heir = nullptr;
             if (prev != nullptr && prev->backing == victim->backing) {
                 heir = prev;
-            } else if (victim->next != nullptr &&
-                       victim->next->backing == victim->backing) {
+            }
+            else if (victim->next != nullptr &&
+                     victim->next->backing == victim->backing) {
                 heir = victim->next;
             }
             // An heir that already carries a reference means each
@@ -60,7 +60,8 @@ namespace astia::proc {
             // reference between them).
             if (heir != nullptr && !heir->holds_ref) {
                 heir->holds_ref = true;
-            } else {
+            }
+            else {
                 victim->backing->release_ref();
             }
             victim->holds_ref = false;
@@ -120,17 +121,15 @@ namespace astia::proc {
     }
 
     auto process::install_mapping(u64 base, usize pages, u32 prot,
-                                  mm::phys_region* region,
-                                  const mm::shptr<fs::open_file>& file,
-                                  u64 file_offset, usize region_page,
-                                  bool shared) -> bool {
+                                  mm::phys_region*                region,
+                                  const mm::shptr<fs::open_file>& file, u64 file_offset,
+                                  usize region_page, bool shared) -> bool {
         const u64  page_bytes = mm::phys_region::frame_size;
         const auto flags4     = pte_flags(prot);
         for (u64 page = 0; page < pages; ++page) {
-            if (!address_space_->map_4k(base + page * page_bytes,
-                                        region->base() +
-                                            (region_page + page) * page_bytes,
-                                        flags4)) {
+            if (!address_space_->map_4k(
+                    base + page * page_bytes,
+                    region->base() + (region_page + page) * page_bytes, flags4)) {
                 for (u64 done = 0; done < page; ++done) {
                     address_space_->unmap(base + done * page_bytes);
                 }
@@ -158,7 +157,7 @@ namespace astia::proc {
             link = &(*link)->next;
         }
         entry->next = *link;
-        *link      = entry;
+        *link       = entry;
         return true;
     }
 
@@ -181,7 +180,7 @@ namespace astia::proc {
             return -EINVAL;
         }
         const u64 page_bytes = mm::phys_region::frame_size;
-        const u64 pages = (static_cast<u64>(len) + page_bytes - 1) / page_bytes;
+        const u64 pages      = (static_cast<u64>(len) + page_bytes - 1) / page_bytes;
         if (pages > (u64{1} << 20)) { // 4 GiB ceiling per call
             return -ENOMEM;
         }
@@ -203,8 +202,8 @@ namespace astia::proc {
         return base;
     }
 
-    auto process::map_file(i32 fd, u64 addr, usize len, u32 prot, u32 flags,
-                           u64 off) -> u64 {
+    auto process::map_file(i32 fd, u64 addr, usize len, u32 prot, u32 flags, u64 off)
+        -> u64 {
         // File mappings: private mappings capture bytes into
         // fresh frames at map time — snapshot semantics, the same
         // kernel-side read the ELF loader trusts.  Writes land on the
@@ -255,10 +254,9 @@ namespace astia::proc {
             return -ENOMEM;
         }
         if ((flags & MAP_SHARED) != 0) {
-            auto* object = file->backing();
+            auto* object        = file->backing();
             auto* shared_region = object == nullptr ? nullptr : object->memory_region();
-            if (shared_region == nullptr ||
-                off + want < off ||
+            if (shared_region == nullptr || off + want < off ||
                 off >= static_cast<u64>(file_size) ||
                 off / page_bytes + pages > shared_region->pages()) {
                 return -ENOSYS;
@@ -290,8 +288,8 @@ namespace astia::proc {
             if (static_cast<u64>(file_size) - at < chunk) {
                 chunk = static_cast<u64>(file_size) - at;
             }
-            const long got = file->read(region->page_direct(page),
-                                        static_cast<u32>(chunk), at);
+            const long got =
+                file->read(region->page_direct(page), static_cast<u32>(chunk), at);
             io_ok = got >= 0 && static_cast<u64>(got) == chunk;
         }
         if (!io_ok) {
@@ -311,7 +309,7 @@ namespace astia::proc {
             return -EINVAL;
         }
         const u64 page_bytes = mm::phys_region::frame_size;
-        const u64 pages = (static_cast<u64>(len) + page_bytes - 1) / page_bytes;
+        const u64 pages      = (static_cast<u64>(len) + page_bytes - 1) / page_bytes;
         if (pages > (u64{1} << 20) || addr + pages * page_bytes < addr) {
             return -EINVAL;
         }
@@ -359,19 +357,17 @@ namespace astia::proc {
                 static_cast<usize>((drop_to - drop_from) / page_bytes));
 
             if (old_end > last) { // right remainder becomes its own entry
-                tail->next      = it->next;
-                tail->base      = last;
-                tail->pages     = (old_end - last) / page_bytes;
+                tail->next        = it->next;
+                tail->base        = last;
+                tail->pages       = (old_end - last) / page_bytes;
                 tail->prot        = it->prot;
                 tail->shared      = it->shared;
-                tail->holds_ref = false;
-                tail->backing   = it->backing;
-                tail->region_page =
-                    it->region_page + (last - it->base) / page_bytes;
-                tail->file      = it->file; // identity travels with the range
-                tail->file_offset = it->file_offset +
-                                    (last - it->base);
-                it->next = tail;
+                tail->holds_ref   = false;
+                tail->backing     = it->backing;
+                tail->region_page = it->region_page + (last - it->base) / page_bytes;
+                tail->file        = it->file; // identity travels with the range
+                tail->file_offset = it->file_offset + (last - it->base);
+                it->next          = tail;
             }
             if (old_base < first) { // left remainder keeps this entry
                 it->pages = (first - old_base) / page_bytes;
@@ -384,7 +380,8 @@ namespace astia::proc {
             drop_backing(prev, it);
             if (prev == nullptr) {
                 mmap_regions_ = it->next;
-            } else {
+            }
+            else {
                 prev->next = it->next;
             }
             delete it; // the shptr releases the open file description
@@ -407,17 +404,17 @@ namespace astia::proc {
         if (entry == nullptr) {
             return false;
         }
-        entry->base      = base;
-        entry->pages     = pages;
-        entry->prot      = prot;
-        entry->holds_ref = true;
-        entry->backing   = region;
+        entry->base        = base;
+        entry->pages       = pages;
+        entry->prot        = prot;
+        entry->holds_ref   = true;
+        entry->backing     = region;
         mmap_region** link = &mmap_regions_;
         while (*link != nullptr && (*link)->base < base) {
             link = &(*link)->next;
         }
         entry->next = *link;
-        *link      = entry;
+        *link       = entry;
         return true;
     }
 
@@ -442,8 +439,8 @@ namespace astia::proc {
                 it->backing->release_range(it->region_page, it->pages);
                 return false;
             }
-            *entry             = *it; // shares the open file description
-            entry->holds_ref   = true; // the child's own reference
+            *entry             = *it;     // shares the open file description
+            entry->holds_ref   = true;    // the child's own reference
             entry->next        = nullptr; // never link into the parent's VMA list
             mmap_region** link = &child->mmap_regions_;
             while (*link != nullptr) {
@@ -457,7 +454,7 @@ namespace astia::proc {
             // faults into a private copy.  Read-only ranges (text,
             // the TLS template) keep their flags and are shared as
             // they are.
-            const bool cow  = !it->shared && (it->prot & PROT_WRITE) != 0;
+            const bool cow   = !it->shared && (it->prot & PROT_WRITE) != 0;
             const auto flags = pte_flags(cow ? (it->prot & ~PROT_WRITE) : it->prot);
             for (u64 page = 0; page < it->pages; ++page) {
                 const u64 virt = it->base + page * page_bytes;
@@ -479,9 +476,8 @@ namespace astia::proc {
                 }
             }
         }
-        child->address_space_ =
-            new arch::page_map(static_cast<arch::page_map&&>(map));
-        child->tls_tp_ = tls_tp_;
+        child->address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
+        child->tls_tp_        = tls_tp_;
         return child->address_space_ != nullptr;
     }
 
@@ -491,8 +487,7 @@ namespace astia::proc {
         // stay fatal for now.  The user half runs to 0x800000000000 —
         // mmap_region_top is only the *placement* ceiling; the stack
         // and TLS blocks sit above it and still CoW.
-        if (!write || address_space_ == nullptr ||
-            addr >= 0x0000800000000000ull) {
+        if (!write || address_space_ == nullptr || addr >= 0x0000800000000000ull) {
             return false;
         }
         const u64 page_bytes = mm::phys_region::frame_size;
@@ -510,18 +505,17 @@ namespace astia::proc {
         if (vma == nullptr || vma->shared || (vma->prot & PROT_WRITE) == 0) {
             return false; // not ours, or a genuine violation
         }
-        const bool held  = vma->holds_ref; // captured before the split
-        const u64  virt  = addr & ~(page_bytes - 1);
-        const u64  page  = (virt - vma->base) / page_bytes;
+        const bool  held         = vma->holds_ref; // captured before the split
+        const u64   virt         = addr & ~(page_bytes - 1);
+        const u64   page         = (virt - vma->base) / page_bytes;
         const usize backing_page = vma->region_page + page;
-        auto*      back  = vma->backing;
-        const auto flags = pte_flags(vma->prot);
+        auto*       back         = vma->backing;
+        const auto  flags        = pte_flags(vma->prot);
 
         if (back->uniquely_held(backing_page)) {
             // Sole mapper left among the sharers: the write bit comes
             // straight back, no copy.
-            return address_space_->map_4k(
-                virt, back->base() + backing_page * page_bytes,
+            return address_space_->map_4k(virt, back->base() + backing_page * page_bytes,
                                           flags);
         }
 
@@ -563,11 +557,11 @@ namespace astia::proc {
         // itself becomes the copy's sole mapping, the flanks keep the
         // shared backing.  Both new nodes are allocated before the
         // list is touched.
-        const u64    old_base   = vma->base;
-        const usize  old_pages  = vma->pages;
+        const u64    old_base        = vma->base;
+        const usize  old_pages       = vma->pages;
         const usize  old_region_page = vma->region_page;
-        const u64    old_offset = vma->file_offset;
-        mmap_region* old_next   = vma->next;
+        const u64    old_offset      = vma->file_offset;
+        mmap_region* old_next        = vma->next;
 
         middle->base        = virt;
         middle->pages       = 1;
@@ -589,7 +583,8 @@ namespace astia::proc {
             right->file_offset = old_offset + (right->base - old_base);
             right->next        = old_next;
             middle->next       = right;
-        } else {
+        }
+        else {
             middle->next = old_next;
         }
 
@@ -598,7 +593,8 @@ namespace astia::proc {
             // backing reference.
             vma->pages = page;
             vma->next  = middle;
-        } else {
+        }
+        else {
             // The fault hit the first page: the entry becomes the
             // middle owning the copy and stops covering `back`, so its
             // reference (if this node carries one) needs a new owner.
@@ -621,14 +617,17 @@ namespace astia::proc {
                 mmap_region* heir = nullptr;
                 if (right != nullptr && right->backing == back) {
                     heir = right;
-                } else if (prev != nullptr && prev->backing == back) {
+                }
+                else if (prev != nullptr && prev->backing == back) {
                     heir = prev;
-                } else if (old_next != nullptr && old_next->backing == back) {
+                }
+                else if (old_next != nullptr && old_next->backing == back) {
                     heir = old_next;
                 }
                 if (heir != nullptr && !heir->holds_ref) {
                     heir->holds_ref = true;
-                } else {
+                }
+                else {
                     back->release_ref();
                 }
             }

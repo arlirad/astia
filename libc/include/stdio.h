@@ -37,7 +37,8 @@
 #include <stddef.h>
 
 #if defined(__GNUC__)
-#define ASTIA_PRINTF_FMT(fmt_idx, first_arg) __attribute__((format(printf, fmt_idx, first_arg)))
+#define ASTIA_PRINTF_FMT(fmt_idx, first_arg) \
+    __attribute__((format(printf, fmt_idx, first_arg)))
 #else
 #define ASTIA_PRINTF_FMT(fmt_idx, first_arg)
 #endif
@@ -47,7 +48,7 @@ extern "C" {
 #endif
 
 typedef struct astia_file FILE;
-typedef long fpos_t;
+typedef long              fpos_t;
 
 extern FILE* stdin;
 extern FILE* stdout;
@@ -65,44 +66,40 @@ extern FILE* stderr;
 #define _IONBF 2
 
 /* formatting to a string — implemented by astia libc */
-int snprintf(char* str, size_t size, const char* format, ...)
-    ASTIA_PRINTF_FMT(3, 4);
+int snprintf(char* str, size_t size, const char* format, ...) ASTIA_PRINTF_FMT(3, 4);
 int vsnprintf(char* str, size_t size, const char* format, va_list ap)
     ASTIA_PRINTF_FMT(3, 0);
-int sprintf(char* str, const char* format, ...)
-    ASTIA_PRINTF_FMT(2, 3);
-int vsprintf(char* str, const char* format, va_list ap)
-    ASTIA_PRINTF_FMT(2, 0);
+int sprintf(char* str, const char* format, ...) ASTIA_PRINTF_FMT(2, 3);
+int vsprintf(char* str, const char* format, va_list ap) ASTIA_PRINTF_FMT(2, 0);
 
 /* file streams — synchronous semantics over the async-ring port */
-FILE* fopen(const char* path, const char* mode);
-int fclose(FILE* stream);
-int fileno(FILE* stream);
+FILE*  fopen(const char* path, const char* mode);
+int    fclose(FILE* stream);
+int    fileno(FILE* stream);
 size_t fread(void* ptr, size_t size, size_t nmemb, FILE* stream);
 size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* stream);
-int fseek(FILE* stream, long offset, int whence);
-long ftell(FILE* stream);
-void rewind(FILE* stream);
-int fflush(FILE* stream);
-int feof(FILE* stream);
-int ferror(FILE* stream);
-void clearerr(FILE* stream);
-int fgetc(FILE* stream);
-int fputc(int c, FILE* stream);
-int getc(FILE* stream);
-int putc(int c, FILE* stream);
-int getchar(void);
-int ungetc(int c, FILE* stream);
-int fgetpos(FILE* stream, fpos_t* pos);
-int fsetpos(FILE* stream, const fpos_t* pos);
-char* fgets(char* s, int n, FILE* stream);
-int fputs(const char* s, FILE* stream);
-int setvbuf(FILE* stream, char* buf, int mode, size_t size);
+int    fseek(FILE* stream, long offset, int whence);
+long   ftell(FILE* stream);
+void   rewind(FILE* stream);
+int    fflush(FILE* stream);
+int    feof(FILE* stream);
+int    ferror(FILE* stream);
+void   clearerr(FILE* stream);
+int    fgetc(FILE* stream);
+int    fputc(int c, FILE* stream);
+int    getc(FILE* stream);
+int    putc(int c, FILE* stream);
+int    getchar(void);
+int    ungetc(int c, FILE* stream);
+int    fgetpos(FILE* stream, fpos_t* pos);
+int    fsetpos(FILE* stream, const fpos_t* pos);
+char*  fgets(char* s, int n, FILE* stream);
+int    fputs(const char* s, FILE* stream);
+int    setvbuf(FILE* stream, char* buf, int mode, size_t size);
 
 /* formatted output, implemented on top of vsnprintf and FILE streams */
 int vprintf(const char* format, va_list ap) ASTIA_PRINTF_FMT(1, 0);
-int vfprintf(FILE* stream, const char* format, va_list ap)
-    ASTIA_PRINTF_FMT(2, 0);
+int vfprintf(FILE* stream, const char* format, va_list ap) ASTIA_PRINTF_FMT(2, 0);
 int printf(const char* format, ...) ASTIA_PRINTF_FMT(1, 2);
 int fprintf(FILE* stream, const char* format, ...) ASTIA_PRINTF_FMT(2, 3);
 int puts(const char* s);

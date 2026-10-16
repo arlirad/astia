@@ -1,6 +1,7 @@
-#include <astia/api/syscalls.h>
 #include "log.hpp"
+
 #include "proc.hpp"
+#include <astia/api/syscalls.h>
 
 namespace astia::log::detail {
 
@@ -25,8 +26,8 @@ namespace astia::log::detail {
         proc::process* current = proc::current_process();
         auto           stream =
             current == nullptr
-                          ? mm::shptr<fs::open_file>{}
-                          : current->descriptor(severity == level::info ? STDOUT : STDERR);
+                ? mm::shptr<fs::open_file>{}
+                : current->descriptor(severity == level::info ? STDOUT : STDERR);
         if (!stream) {
             buffer(severity, c);
             return;

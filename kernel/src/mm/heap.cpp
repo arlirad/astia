@@ -1,9 +1,9 @@
 #include "heap.hpp"
 
 #include "core/spinlock.hpp"
+#include "frame_allocator.hpp"
 #include <astia/init.hpp>
 #include <astia/memory.hpp>
-#include "frame_allocator.hpp"
 
 // A first-fit free-list allocator over one contiguous virtual window.
 //
@@ -19,22 +19,23 @@ namespace astia::mm::heap {
         /// multiple of 16, so a 16-aligned region start keeps every payload
         /// 16-byte aligned.
         struct block {
-            usize size; // payload bytes
+            usize  size; // payload bytes
             block* prev;
             block* next;
-            bool free;
+            bool   free;
         };
 
-        static_assert(sizeof(block) % 16 == 0, "block header must keep 16-byte alignment");
+        static_assert(sizeof(block) % 16 == 0,
+                      "block header must keep 16-byte alignment");
 
-        core::spinlock lock_ {};
+        core::spinlock lock_{};
 
-        u8* base_ = nullptr;
-        usize bytes_ = 0;
+        u8*    base_   = nullptr;
+        usize  bytes_  = 0;
         map_fn mapper_ = nullptr;
-        block* head_ = nullptr;
-        usize used_ = 0;
-        bool ready_ = false;
+        block* head_   = nullptr;
+        usize  used_   = 0;
+        bool   ready_  = false;
 
         /// Wire the whole region into the page map, one frame at a time. A
         /// failure here means the machine is out of memory; the caller fails
@@ -58,7 +59,8 @@ namespace astia::mm::heap {
             if (b->size < need + sizeof(block) + 16) {
                 return;
             }
-            auto* next = reinterpret_cast<block*>(reinterpret_cast<u8*>(b) + sizeof(block) + need);
+            auto* next =
+                reinterpret_cast<block*>(reinterpret_cast<u8*>(b) + sizeof(block) + need);
             next->size = b->size - need - sizeof(block);
             next->free = true;
             next->prev = b;
@@ -93,12 +95,12 @@ namespace astia::mm::heap {
 
     auto configure(void* base, usize bytes, map_fn map) -> void {
         core::spinlock_guard guard(lock_);
-        base_ = static_cast<u8*>(base);
-        bytes_ = bytes;
+        base_   = static_cast<u8*>(base);
+        bytes_  = bytes;
         mapper_ = map;
-        head_ = nullptr;
-        used_ = 0;
-        ready_ = false;
+        head_   = nullptr;
+        used_   = 0;
+        ready_  = false;
     }
 
     auto init() -> bool {
@@ -109,13 +111,13 @@ namespace astia::mm::heap {
         if (!map_backing()) {
             return false;
         }
-        head_ = reinterpret_cast<block*>(base_);
+        head_       = reinterpret_cast<block*>(base_);
         head_->size = bytes_ - sizeof(block);
         head_->prev = nullptr;
         head_->next = nullptr;
         head_->free = true;
-        used_ = 0;
-        ready_ = true;
+        used_       = 0;
+        ready_      = true;
         return true;
     }
 
@@ -183,7 +185,9 @@ namespace astia::mm::heap {
         return bytes_ >= sizeof(block) + 16 ? bytes_ - sizeof(block) : 0;
     }
 
-    static auto step_heap(init::context&) -> bool { return init(); }
+    static auto step_heap(init::context&) -> bool {
+        return init();
+    }
 
 } // namespace astia::mm::heap
 

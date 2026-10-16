@@ -1,10 +1,10 @@
+#include "file_port.h"
+
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "file_port.h"
 
 /*
  * astia libc — FILE streams.
@@ -35,20 +35,20 @@
 enum { ST_EOF = 1, ST_ERR = 2 };
 
 struct astia_file {
-    int fd;
-    int io_flags;   /* FIO_READ | FIO_WRITE | FIO_APPEND */
-    unsigned state; /* ST_EOF | ST_ERR */
-    int buf_mode;   /* _IOFBF | _IOLBF | _IONBF */
-    int heap;       /* the struct itself came from fopen */
-    int buf_owned;  /* the buffer came from malloc (not static/user) */
-    int reading;    /* buffer currently holds read-ahead, not writes */
-    long pos;       /* logical position: what ftell reports */
-    unsigned char* buf;
-    size_t cap;     /* buffer capacity; 0 == unbuffered */
-    size_t len;     /* read: valid bytes; write: pending bytes */
-    size_t cur;     /* read cursor inside buf */
-    int has_pushback;
-    unsigned char pushback;
+    int                fd;
+    int                io_flags;  /* FIO_READ | FIO_WRITE | FIO_APPEND */
+    unsigned           state;     /* ST_EOF | ST_ERR */
+    int                buf_mode;  /* _IOFBF | _IOLBF | _IONBF */
+    int                heap;      /* the struct itself came from fopen */
+    int                buf_owned; /* the buffer came from malloc (not static/user) */
+    int                reading;   /* buffer currently holds read-ahead, not writes */
+    long               pos;       /* logical position: what ftell reports */
+    unsigned char*     buf;
+    size_t             cap; /* buffer capacity; 0 == unbuffered */
+    size_t             len; /* read: valid bytes; write: pending bytes */
+    size_t             cur; /* read cursor inside buf */
+    int                has_pushback;
+    unsigned char      pushback;
     struct astia_file* next; /* open-file list, for fflush(NULL) */
 };
 
@@ -58,34 +58,41 @@ static unsigned char stdout_buf[BUFSIZ];
 /* stderr has no buffer: unbuffered from the first byte. */
 
 static FILE file_stdin = {
-    .fd = 0, .io_flags = FIO_READ, .buf_mode = _IOFBF,
-    .buf = stdin_buf, .cap = BUFSIZ,
+    .fd       = 0,
+    .io_flags = FIO_READ,
+    .buf_mode = _IOFBF,
+    .buf      = stdin_buf,
+    .cap      = BUFSIZ,
 };
 static FILE file_stdout = {
-    .fd = 1, .io_flags = FIO_WRITE, .buf_mode = _IOLBF,
-    .buf = stdout_buf, .cap = BUFSIZ,
+    .fd       = 1,
+    .io_flags = FIO_WRITE,
+    .buf_mode = _IOLBF,
+    .buf      = stdout_buf,
+    .cap      = BUFSIZ,
 };
 static FILE file_stderr = {
-    .fd = 2, .io_flags = FIO_WRITE, .buf_mode = _IONBF,
-    .buf = NULL, .cap = 0,
+    .fd       = 2,
+    .io_flags = FIO_WRITE,
+    .buf_mode = _IONBF,
+    .buf      = NULL,
+    .cap      = 0,
 };
 
-FILE* stdin = &file_stdin;
+FILE* stdin  = &file_stdin;
 FILE* stdout = &file_stdout;
 FILE* stderr = &file_stderr;
 
 static FILE* g_open; /* fopen'd streams, for fflush(NULL) */
 
-static size_t io_cap(size_t n)
-{
+static size_t io_cap(size_t n) {
     return n > FIO_MAXIO ? FIO_MAXIO : n;
 }
 
 /* Forward the pending write buffer; on error keep the unwritten tail at
  * the front of the buffer — pos - len still resolves to the right
  * offset, so a clearerr + retry continues where it stopped. */
-static int flush_pending(FILE* f)
-{
+static int flush_pending(FILE* f) {
     size_t done = 0;
 
     if (f->reading || f->len == 0)
@@ -93,15 +100,14 @@ static int flush_pending(FILE* f)
 
     while (done < f->len) {
         uint64_t off;
-        long r;
+        long     r;
 
         if (f->io_flags & FIO_APPEND)
             off = FIO_OFF_APPEND;
         else
             off = (uint64_t) (f->pos - (long) f->len + (long) done);
 
-        r = __astia_fio_write(f->fd, off, f->buf + done,
-                              io_cap(f->len - done));
+        r = __astia_fio_write(f->fd, off, f->buf + done, io_cap(f->len - done));
         if (r <= 0) {
             int err = (r < 0) ? (int) -r : EIO;
             if (done > 0) {
@@ -120,18 +126,16 @@ static int flush_pending(FILE* f)
 
 /* Throw away read-ahead.  `pos` counts only consumed bytes, so it is
  * already the right resume point — nothing is lost. */
-static void drop_read(FILE* f)
-{
-    f->len = 0;
-    f->cur = 0;
-    f->reading = 0;
+static void drop_read(FILE* f) {
+    f->len          = 0;
+    f->cur          = 0;
+    f->reading      = 0;
     f->has_pushback = 0;
 }
 
-static size_t stream_read(FILE* f, void* dst, size_t n)
-{
-    unsigned char* d = dst;
-    size_t got = 0;
+static size_t stream_read(FILE* f, void* dst, size_t n) {
+    unsigned char* d   = dst;
+    size_t         got = 0;
 
     if (f->fd < 0 || !(f->io_flags & FIO_READ)) {
         errno = EBADF;
@@ -148,7 +152,7 @@ static size_t stream_read(FILE* f, void* dst, size_t n)
 
     while (got < n) {
         if (f->has_pushback) {
-            d[got++] = f->pushback;
+            d[got++]        = f->pushback;
             f->has_pushback = 0;
             f->pos++;
             continue;
@@ -161,8 +165,7 @@ static size_t stream_read(FILE* f, void* dst, size_t n)
             if (f->cap == 0 || n - got >= f->cap) {
                 /* big request (or unbuffered): read straight past the
                    buffer into the caller's memory */
-                r = __astia_fio_read(f->fd, (uint64_t) f->pos, d + got,
-                                     io_cap(n - got));
+                r = __astia_fio_read(f->fd, (uint64_t) f->pos, d + got, io_cap(n - got));
                 if (r < 0) {
                     errno = (int) -r;
                     f->state |= ST_ERR;
@@ -176,8 +179,7 @@ static size_t stream_read(FILE* f, void* dst, size_t n)
                 f->pos += (long) r;
                 continue;
             }
-            r = __astia_fio_read(f->fd, (uint64_t) f->pos, f->buf,
-                                 io_cap(f->cap));
+            r = __astia_fio_read(f->fd, (uint64_t) f->pos, f->buf, io_cap(f->cap));
             if (r < 0) {
                 errno = (int) -r;
                 f->state |= ST_ERR;
@@ -192,7 +194,7 @@ static size_t stream_read(FILE* f, void* dst, size_t n)
         }
         {
             size_t avail = f->len - f->cur;
-            size_t take = n - got < avail ? n - got : avail;
+            size_t take  = n - got < avail ? n - got : avail;
             memcpy(d + got, f->buf + f->cur, take);
             f->cur += take;
             f->pos += (long) take;
@@ -202,10 +204,9 @@ static size_t stream_read(FILE* f, void* dst, size_t n)
     return got;
 }
 
-static size_t stream_write(FILE* f, const void* src, size_t n)
-{
-    const unsigned char* s = src;
-    size_t put = 0;
+static size_t stream_write(FILE* f, const void* src, size_t n) {
+    const unsigned char* s   = src;
+    size_t               put = 0;
 
     if (f->fd < 0 || !(f->io_flags & FIO_WRITE)) {
         errno = EBADF;
@@ -219,11 +220,9 @@ static size_t stream_write(FILE* f, const void* src, size_t n)
 
     if (f->cap == 0) { /* unbuffered: straight through, offset explicit */
         while (put < n) {
-            uint64_t off = (f->io_flags & FIO_APPEND)
-                               ? FIO_OFF_APPEND
-                               : (uint64_t) (f->pos + (long) put);
-            long r = __astia_fio_write(f->fd, off, s + put,
-                                       io_cap(n - put));
+            uint64_t off = (f->io_flags & FIO_APPEND) ? FIO_OFF_APPEND
+                                                      : (uint64_t) (f->pos + (long) put);
+            long     r   = __astia_fio_write(f->fd, off, s + put, io_cap(n - put));
             if (r <= 0) {
                 errno = (r < 0) ? (int) -r : EIO;
                 f->state |= ST_ERR;
@@ -247,8 +246,7 @@ static size_t stream_write(FILE* f, const void* src, size_t n)
         f->len += take;
         f->pos += (long) take;
         put += take;
-        if (f->buf_mode == _IOLBF &&
-            memchr(f->buf + f->len - take, '\n', take) != NULL &&
+        if (f->buf_mode == _IOLBF && memchr(f->buf + f->len - take, '\n', take) != NULL &&
             flush_pending(f) < 0)
             break;
     }
@@ -257,31 +255,32 @@ static size_t stream_write(FILE* f, const void* src, size_t n)
 
 /* "r" | "w" | "a", then any order of optional 'b' (no-op), '+' and —
    for the creating modes — 'x' (C11 exclusive: fail on existing file). */
-static int parse_mode(const char* mode, int* out)
-{
-    int plus = 0;
-    int bin = 0;
-    int excl = 0;
-    int flags;
+static int parse_mode(const char* mode, int* out) {
+    int         plus = 0;
+    int         bin  = 0;
+    int         excl = 0;
+    int         flags;
     const char* p;
 
-    if (mode == NULL ||
-        (mode[0] != 'r' && mode[0] != 'w' && mode[0] != 'a'))
+    if (mode == NULL || (mode[0] != 'r' && mode[0] != 'w' && mode[0] != 'a'))
         return -1;
     for (p = mode + 1; *p != '\0'; p++) {
         if (*p == 'b') {
             if (bin)
                 return -1;
             bin = 1;
-        } else if (*p == '+') {
+        }
+        else if (*p == '+') {
             if (plus)
                 return -1;
             plus = 1;
-        } else if (*p == 'x') {
+        }
+        else if (*p == 'x') {
             if (excl)
                 return -1;
             excl = 1;
-        } else {
+        }
+        else {
             return -1;
         }
     }
@@ -290,7 +289,8 @@ static int parse_mode(const char* mode, int* out)
         if (excl) /* exclusive creation needs a creating mode */
             return -1;
         flags = plus ? (FIO_READ | FIO_WRITE) : FIO_READ;
-    } else {
+    }
+    else {
         flags = plus ? (FIO_READ | FIO_WRITE) : FIO_WRITE;
         flags |= FIO_CREAT;
         flags |= (mode[0] == 'a') ? FIO_APPEND : FIO_TRUNC;
@@ -301,8 +301,7 @@ static int parse_mode(const char* mode, int* out)
     return 0;
 }
 
-static void list_remove(FILE* f)
-{
+static void list_remove(FILE* f) {
     FILE** pp = &g_open;
     while (*pp != NULL) {
         if (*pp == f) {
@@ -313,12 +312,11 @@ static void list_remove(FILE* f)
     }
 }
 
-FILE* fopen(const char* path, const char* mode)
-{
+FILE* fopen(const char* path, const char* mode) {
     FILE* f;
-    int flags;
-    long fd;
-    long init_pos = 0;
+    int   flags;
+    long  fd;
+    long  init_pos = 0;
 
     if (path == NULL || parse_mode(mode, &flags) < 0) {
         errno = EINVAL;
@@ -336,7 +334,7 @@ FILE* fopen(const char* path, const char* mode)
        because its reads start at the beginning. */
     if ((flags & FIO_APPEND) && !(flags & FIO_READ)) {
         uint64_t sz;
-        long rc = __astia_fio_size((int) fd, &sz);
+        long     rc = __astia_fio_size((int) fd, &sz);
         if (rc < 0 || sz > (uint64_t) LONG_MAX) {
             int err = rc < 0 ? (int) -rc : EOVERFLOW;
             (void) __astia_fio_close((int) fd);
@@ -356,25 +354,24 @@ FILE* fopen(const char* path, const char* mode)
         return NULL;
     }
 
-    f->fd = (int) fd;
-    f->io_flags = flags;
-    f->state = 0;
-    f->buf_mode = _IOFBF;
-    f->heap = 1;
-    f->buf_owned = 1;
-    f->reading = 0;
-    f->pos = init_pos;
-    f->cap = BUFSIZ;
-    f->len = 0;
-    f->cur = 0;
+    f->fd           = (int) fd;
+    f->io_flags     = flags;
+    f->state        = 0;
+    f->buf_mode     = _IOFBF;
+    f->heap         = 1;
+    f->buf_owned    = 1;
+    f->reading      = 0;
+    f->pos          = init_pos;
+    f->cap          = BUFSIZ;
+    f->len          = 0;
+    f->cur          = 0;
     f->has_pushback = 0;
-    f->next = g_open;
-    g_open = f;
+    f->next         = g_open;
+    g_open          = f;
     return f;
 }
 
-int fclose(FILE* f)
-{
+int fclose(FILE* f) {
     int rc;
     int crc;
 
@@ -383,7 +380,7 @@ int fclose(FILE* f)
 
     /* flush first (a failed flush still gets the fd closed: the caller
        learns about it through EOF, the descriptor must not leak) */
-    rc = fflush(f);
+    rc  = fflush(f);
     crc = (int) __astia_fio_close(f->fd);
     if (crc < 0 && rc == 0)
         errno = (int) -crc; /* the close failed while the flush
@@ -395,7 +392,7 @@ int fclose(FILE* f)
         list_remove(f);
     if (f->buf_owned)
         free(f->buf);
-    f->fd = -1;
+    f->fd  = -1;
     f->len = 0;
     f->cur = 0;
     if (f->heap)
@@ -403,8 +400,7 @@ int fclose(FILE* f)
     return (rc != 0 || crc < 0) ? EOF : 0;
 }
 
-size_t fread(void* ptr, size_t size, size_t nmemb, FILE* f)
-{
+size_t fread(void* ptr, size_t size, size_t nmemb, FILE* f) {
     size_t got;
 
     if (f == NULL || size == 0 || nmemb == 0)
@@ -415,8 +411,7 @@ size_t fread(void* ptr, size_t size, size_t nmemb, FILE* f)
     return got / size; /* a torn trailing element is consumed, not counted */
 }
 
-size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* f)
-{
+size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* f) {
     size_t put;
 
     if (f == NULL || size == 0 || nmemb == 0)
@@ -427,9 +422,8 @@ size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* f)
     return put / size;
 }
 
-int fseek(FILE* f, long offset, int whence)
-{
-    long base;
+int fseek(FILE* f, long offset, int whence) {
+    long     base;
     uint64_t target;
 
     if (f == NULL)
@@ -461,7 +455,7 @@ int fseek(FILE* f, long offset, int whence)
         break;
     default: { /* SEEK_END */
         uint64_t sz;
-        long rc = __astia_fio_size(f->fd, &sz);
+        long     rc = __astia_fio_size(f->fd, &sz);
         if (rc < 0) {
             errno = (int) -rc;
             return EOF;
@@ -489,8 +483,7 @@ int fseek(FILE* f, long offset, int whence)
     return 0;
 }
 
-long ftell(FILE* f)
-{
+long ftell(FILE* f) {
     if (f == NULL || f->fd < 0) {
         errno = EBADF;
         return -1;
@@ -498,26 +491,23 @@ long ftell(FILE* f)
     return f->pos; /* includes pending writes: they are logically placed */
 }
 
-void rewind(FILE* f)
-{
+void rewind(FILE* f) {
     if (f == NULL)
         return;
     (void) fseek(f, 0, SEEK_SET);
     clearerr(f);
 }
 
-int fileno(FILE* f)
-{
+int fileno(FILE* f) {
     return f == NULL ? -1 : f->fd;
 }
 
-int fflush(FILE* f)
-{
+int fflush(FILE* f) {
     if (f == NULL) {
         /* ISO C: flush every open *output* stream; input buffers of
            other streams are none of this call's business (POSIX). */
         FILE* it;
-        int rc = 0;
+        int   rc = 0;
         for (it = g_open; it != NULL; it = it->next)
             if ((it->io_flags & FIO_WRITE) && fflush(it) != 0)
                 rc = EOF;
@@ -538,24 +528,20 @@ int fflush(FILE* f)
     return flush_pending(f) < 0 ? EOF : 0;
 }
 
-int feof(FILE* f)
-{
+int feof(FILE* f) {
     return (f == NULL || (f->state & ST_EOF) == 0) ? 0 : 1;
 }
 
-int ferror(FILE* f)
-{
+int ferror(FILE* f) {
     return (f == NULL || (f->state & ST_ERR) == 0) ? 0 : 1;
 }
 
-void clearerr(FILE* f)
-{
+void clearerr(FILE* f) {
     if (f != NULL)
         f->state &= ~(ST_EOF | ST_ERR);
 }
 
-int fgetc(FILE* f)
-{
+int fgetc(FILE* f) {
     unsigned char c;
 
     if (f == NULL || stream_read(f, &c, 1) != 1)
@@ -563,8 +549,7 @@ int fgetc(FILE* f)
     return (int) c;
 }
 
-int fputc(int c, FILE* f)
-{
+int fputc(int c, FILE* f) {
     unsigned char b = (unsigned char) c;
 
     if (f == NULL || stream_write(f, &b, 1) != 1)
@@ -572,25 +557,20 @@ int fputc(int c, FILE* f)
     return (int) b;
 }
 
-int getc(FILE* f)
-{
+int getc(FILE* f) {
     return fgetc(f);
 }
 
-int putc(int c, FILE* f)
-{
+int putc(int c, FILE* f) {
     return fputc(c, f);
 }
 
-int getchar(void)
-{
+int getchar(void) {
     return fgetc(stdin);
 }
 
-int ungetc(int c, FILE* f)
-{
-    if (c == EOF || f == NULL || f->fd < 0 ||
-        !(f->io_flags & FIO_READ)) {
+int ungetc(int c, FILE* f) {
+    if (c == EOF || f == NULL || f->fd < 0 || !(f->io_flags & FIO_READ)) {
         if (f != NULL && f->fd >= 0 && !(f->io_flags & FIO_READ))
             errno = EBADF;
         return EOF;
@@ -599,16 +579,15 @@ int ungetc(int c, FILE* f)
         return EOF;
     if (!f->reading && f->len > 0 && flush_pending(f) < 0)
         return EOF;
-    f->reading = 1;
-    f->pushback = (unsigned char) c;
+    f->reading      = 1;
+    f->pushback     = (unsigned char) c;
     f->has_pushback = 1;
     f->pos--;
     f->state &= ~ST_EOF;
     return (unsigned char) c;
 }
 
-int fgetpos(FILE* f, fpos_t* pos)
-{
+int fgetpos(FILE* f, fpos_t* pos) {
     if (f == NULL || pos == NULL) {
         errno = EINVAL;
         return EOF;
@@ -621,8 +600,7 @@ int fgetpos(FILE* f, fpos_t* pos)
     return 0;
 }
 
-int fsetpos(FILE* f, const fpos_t* pos)
-{
+int fsetpos(FILE* f, const fpos_t* pos) {
     if (pos == NULL) {
         errno = EINVAL;
         return EOF;
@@ -630,8 +608,7 @@ int fsetpos(FILE* f, const fpos_t* pos)
     return fseek(f, *pos, SEEK_SET);
 }
 
-char* fgets(char* s, int n, FILE* f)
-{
+char* fgets(char* s, int n, FILE* f) {
     int i = 0;
 
     if (s == NULL || f == NULL || n <= 0)
@@ -657,8 +634,7 @@ char* fgets(char* s, int n, FILE* f)
     return s;
 }
 
-int fputs(const char* s, FILE* f)
-{
+int fputs(const char* s, FILE* f) {
     size_t n;
 
     if (s == NULL || f == NULL)
@@ -671,12 +647,10 @@ int fputs(const char* s, FILE* f)
     return 0;
 }
 
-int setvbuf(FILE* f, char* buf, int mode, size_t size)
-{
+int setvbuf(FILE* f, char* buf, int mode, size_t size) {
     unsigned char* nb = NULL;
 
-    if (f == NULL ||
-        (mode != _IOFBF && mode != _IOLBF && mode != _IONBF)) {
+    if (f == NULL || (mode != _IOFBF && mode != _IOLBF && mode != _IONBF)) {
         errno = EINVAL;
         return EOF;
     }
@@ -690,7 +664,7 @@ int setvbuf(FILE* f, char* buf, int mode, size_t size)
 
     if (mode == _IONBF) {
         f->buf_mode = mode;
-        f->cap = 0; /* the allocation stays; fclose still owns it */
+        f->cap      = 0; /* the allocation stays; fclose still owns it */
         return 0;
     }
     if (buf == NULL) {
@@ -702,11 +676,11 @@ int setvbuf(FILE* f, char* buf, int mode, size_t size)
     }
     if (f->buf_owned)
         free(f->buf);
-    f->buf = buf != NULL ? (unsigned char*) buf : nb;
+    f->buf       = buf != NULL ? (unsigned char*) buf : nb;
     f->buf_owned = (buf == NULL);
-    f->cap = size;
-    f->buf_mode = mode;
-    f->len = 0;
-    f->cur = 0;
+    f->cap       = size;
+    f->buf_mode  = mode;
+    f->len       = 0;
+    f->cur       = 0;
     return 0;
 }

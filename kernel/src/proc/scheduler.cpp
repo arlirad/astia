@@ -3,17 +3,17 @@
 #include "context.hpp"
 #include "cpu.hpp"
 #include "interrupts.hpp"
-#include "share.hpp"
 #include "proc.hpp"
+#include "share.hpp"
 
 namespace astia::proc::scheduler {
 
     namespace {
         inline constexpr u32 queue_capacity = 32;
-        thread* queue[queue_capacity];
-        u32 queue_count = 0;
-        bool initialized = false;
-        thread* idle_thread = nullptr;
+        thread*              queue[queue_capacity];
+        u32                  queue_count = 0;
+        bool                 initialized = false;
+        thread*              idle_thread = nullptr;
 
         auto idle_entry(void*) -> void {
             for (;;) {
@@ -44,8 +44,8 @@ namespace astia::proc::scheduler {
             }
 
             // Realtime policy: strict priority, FIFO among equal priority.
-            i32 realtime_index = -1;
-            u8 realtime_priority = 0;
+            i32 realtime_index    = -1;
+            u8  realtime_priority = 0;
             for (u32 i = 0; i < queue_count; ++i) {
                 thread* value = queue[i];
                 if (value->state() != thread_state::runnable ||
@@ -53,7 +53,7 @@ namespace astia::proc::scheduler {
                     continue;
                 }
                 if (realtime_index < 0 || value->rt_priority() > realtime_priority) {
-                    realtime_index = static_cast<i32>(i);
+                    realtime_index    = static_cast<i32>(i);
                     realtime_priority = value->rt_priority();
                 }
             }
@@ -65,7 +65,7 @@ namespace astia::proc::scheduler {
             // the charge applied on each timer tick, so a lower nice value
             // advances more slowly and receives more CPU time.
             i32 normal_index = -1;
-            u64 lowest = ~u64{0};
+            u64 lowest       = ~u64{0};
             for (u32 i = 0; i < queue_count; ++i) {
                 thread* value = queue[i];
                 if (value->state() != thread_state::runnable) {
@@ -73,7 +73,7 @@ namespace astia::proc::scheduler {
                 }
                 if (normal_index < 0 || value->vruntime() < lowest) {
                     normal_index = static_cast<i32>(i);
-                    lowest = value->vruntime();
+                    lowest       = value->vruntime();
                 }
             }
             return normal_index < 0 ? nullptr : remove_at(static_cast<u32>(normal_index));
@@ -103,9 +103,8 @@ namespace astia::proc::scheduler {
         return true;
     }
 
-    auto create_kernel(kernel_entry entry, void* argument,
-                       scheduling_class sched_class, i32 nice,
-                       u8 rt_priority) -> mm::shptr<thread> {
+    auto create_kernel(kernel_entry entry, void* argument, scheduling_class sched_class,
+                       i32 nice, u8 rt_priority) -> mm::shptr<thread> {
         if (!initialized || entry == nullptr || proc::kernel_process() == nullptr) {
             return {};
         }
@@ -124,11 +123,10 @@ namespace astia::proc::scheduler {
         return value;
     }
 
-    auto spawn_kernel(kernel_entry entry, void* argument,
-                      scheduling_class sched_class, i32 nice,
-                      u8 rt_priority) -> bool {
-        return static_cast<bool>(create_kernel(entry, argument, sched_class,
-                                               nice, rt_priority));
+    auto spawn_kernel(kernel_entry entry, void* argument, scheduling_class sched_class,
+                      i32 nice, u8 rt_priority) -> bool {
+        return static_cast<bool>(
+            create_kernel(entry, argument, sched_class, nice, rt_priority));
     }
 
     auto wake(thread* value) -> bool {
@@ -162,9 +160,8 @@ namespace astia::proc::scheduler {
             return;
         }
 
-        if (!previous->idle() &&
-            (previous->state() == thread_state::running ||
-            previous->state() == thread_state::runnable)) {
+        if (!previous->idle() && (previous->state() == thread_state::running ||
+                                  previous->state() == thread_state::runnable)) {
             previous->state(thread_state::runnable);
             if (!enqueue(previous)) {
                 previous->state(thread_state::running);
@@ -190,7 +187,8 @@ namespace astia::proc::scheduler {
         proc::set_current_thread(next);
         if (next->owner()->address_space() != nullptr) {
             next->owner()->address_space()->activate();
-        } else if (arch::kernel_page_map() != nullptr) {
+        }
+        else if (arch::kernel_page_map() != nullptr) {
             arch::kernel_page_map()->activate();
         }
         if (next->kernel_stack_top() != 0) {
@@ -204,6 +202,8 @@ namespace astia::proc::scheduler {
         proc::reap_dead_threads();
     }
 
-    auto ready() -> bool { return initialized; }
+    auto ready() -> bool {
+        return initialized;
+    }
 
 } // namespace astia::proc::scheduler

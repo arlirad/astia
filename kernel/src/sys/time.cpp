@@ -1,8 +1,8 @@
-#include <astia/api/errno.h>
-#include <astia/api/syscalls.h>
 #include "interrupts.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
+#include <astia/api/errno.h>
+#include <astia/api/syscalls.h>
 
 /*
  * SYS_CLOCK_GETTIME — the one clock read outside the rings.
@@ -39,8 +39,7 @@ namespace astia::sys {
 
             const u64 ticks = arch::timer_ticks();
             i64       sec   = static_cast<i64>(ticks / hz);
-            const i64 nsec =
-                static_cast<i64>((ticks % hz) * 1000000000ull / hz); // < 1e9
+            const i64 nsec = static_cast<i64>((ticks % hz) * 1000000000ull / hz); // < 1e9
 
             switch (clock_id) {
             case CLOCK_MONOTONIC:
@@ -53,7 +52,7 @@ namespace astia::sys {
                 return -EINVAL;
             }
 
-            astia_timespec ts { sec, nsec };
+            astia_timespec ts{sec, nsec};
             if (!sys::copy_out(ts_out, &ts, sizeof(ts))) {
                 return -EFAULT;
             }

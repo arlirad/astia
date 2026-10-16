@@ -5,8 +5,8 @@
 
 namespace astia::fs {
 
-    inline constexpr u32 tmpfs_max_entries = 32;
-    inline constexpr usize tmpfs_max_pages = 16;
+    inline constexpr u32   tmpfs_max_entries = 32;
+    inline constexpr usize tmpfs_max_pages   = 16;
 
     class tmpfs_file final : public file {
         public:
@@ -25,7 +25,7 @@ namespace astia::fs {
 
         private:
         mm::phys_region* storage_ = nullptr;
-        u64               size_ = 0;
+        u64              size_    = 0;
     };
 
     class tmpfs_mount final : public mount {
@@ -34,11 +34,11 @@ namespace astia::fs {
 
         private:
         struct entry {
-            bool used = false;
-            char path[path_max] {};
+            bool                  used = false;
+            char                  path[path_max]{};
             mm::shptr<tmpfs_file> object;
         };
-        entry entries_[tmpfs_max_entries] {};
+        entry entries_[tmpfs_max_entries]{};
     };
 
     class tmpfs final : public filesystem {

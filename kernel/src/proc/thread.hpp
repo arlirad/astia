@@ -1,8 +1,8 @@
 #pragma once
 
 #include "context.hpp"
-#include <astia/common.hpp>
 #include "shptr.hpp"
+#include <astia/common.hpp>
 
 namespace astia::proc {
 
@@ -92,8 +92,8 @@ namespace astia::proc {
         }
         auto prepare_kernel(kernel_entry entry, void* argument) -> bool;
         auto prepare_user(u64 entry, u64 user_stack_top, u64 fs_base) -> bool;
-        auto prepare_user_start(u64 entry, u64 user_stack_top, u64 fs_base,
-                                u64 argument) -> bool;
+        auto prepare_user_start(u64 entry, u64 user_stack_top, u64 fs_base, u64 argument)
+            -> bool;
         /// Fork: the same kernel-stack/context frame a user thread
         /// gets, but the context is prepared from the parent's saved
         /// syscall register image (arch::context_prepare_fork) — the
@@ -137,7 +137,7 @@ namespace astia::proc {
         u64              entry_             = 0;
         u64              kernel_stack_top_  = 0;
         u64              user_stack_top_    = 0;
-        u64              tls_mapping_base_ = 0;
+        u64              tls_mapping_base_  = 0;
         usize            tls_mapping_pages_ = 0;
         arch::context*   context_           = nullptr;
         kernel_entry     entry_function_    = nullptr;

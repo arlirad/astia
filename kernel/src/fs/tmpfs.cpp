@@ -1,17 +1,17 @@
 #include "tmpfs.hpp"
 
-#include <astia/api/errno.h>
 #include "share.hpp"
+#include <astia/api/errno.h>
 
 namespace astia::fs {
 
     namespace {
         // The async open ABI forwards the platform's O_* word.
-        inline constexpr u32 oflag_write  = 1;
-        inline constexpr u32 oflag_rdwr   = 2;
-        inline constexpr u32 oflag_creat  = 0x04;
-        inline constexpr u32 oflag_excl   = 0x08;
-        inline constexpr u32 oflag_trunc  = 0x10;
+        inline constexpr u32 oflag_write = 1;
+        inline constexpr u32 oflag_rdwr  = 2;
+        inline constexpr u32 oflag_creat = 0x04;
+        inline constexpr u32 oflag_excl  = 0x08;
+        inline constexpr u32 oflag_trunc = 0x10;
 
         auto equal(const char* lhs, const char* rhs) -> bool {
             if (lhs == nullptr || rhs == nullptr) {
@@ -56,7 +56,7 @@ namespace astia::fs {
         if (offset >= size_) {
             return 0;
         }
-        const u64 count = (size_ - offset) < length ? size_ - offset : length;
+        const u64   count  = (size_ - offset) < length ? size_ - offset : length;
         const auto* source = static_cast<const u8*>(storage_->page_direct(0));
         auto*       target = static_cast<u8*>(buffer);
         for (u64 i = 0; i < count; ++i) {
@@ -99,8 +99,7 @@ namespace astia::fs {
             if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0) {
                 return {};
             }
-            if ((flags & oflag_trunc) != 0 &&
-                (flags & (oflag_write | oflag_rdwr)) != 0) {
+            if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0) {
                 entries_[i].object->truncate();
             }
             return mm::share<open_file>(entries_[i].object, flags);

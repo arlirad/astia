@@ -11,10 +11,10 @@ namespace astia::arch::x86_64 {
 
     namespace {
 
-        constexpr u16 master_cmd = 0x20;
+        constexpr u16 master_cmd  = 0x20;
         constexpr u16 master_data = 0x21;
-        constexpr u16 slave_cmd = 0xA0;
-        constexpr u16 slave_data = 0xA1;
+        constexpr u16 slave_cmd   = 0xA0;
+        constexpr u16 slave_data  = 0xA1;
 
     } // namespace
 
@@ -33,7 +33,7 @@ namespace astia::arch::x86_64 {
 
     auto pic::unmask(u8 irq) -> void {
         const u16 port = irq < 8 ? master_data : slave_data;
-        const u8 bit = static_cast<u8>(1u << (irq & 7));
+        const u8  bit  = static_cast<u8>(1u << (irq & 7));
         outb(port, static_cast<u8>(inb(port) & static_cast<u8>(~bit)));
     }
 

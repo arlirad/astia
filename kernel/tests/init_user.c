@@ -34,8 +34,7 @@
 #include <astia/api/syscalls.h>
 
 static astia_sqe* fill(astia_rings* ring, uint32_t op, int32_t fd, uint64_t address,
-                       uint64_t offset, uint32_t length, uint64_t tag)
-{
+                       uint64_t offset, uint32_t length, uint64_t tag) {
     astia_sqe* s = astia_sqe_slot(ring);
     if (s == NULL)
         return NULL;
@@ -52,8 +51,7 @@ static astia_sqe* fill(astia_rings* ring, uint32_t op, int32_t fd, uint64_t addr
 /* Publish the filled slot, kick it, and return the completion's result.
    The budget only bounds a completion that is not already there: every
    operation below completes inline in the dispatch. */
-static long kick(astia_rings* ring, uint64_t tag, long* rc_out)
-{
+static long kick(astia_rings* ring, uint64_t tag, long* rc_out) {
     astia_timespec budget;
     astia_cqe*     c;
 
@@ -73,8 +71,7 @@ static long kick(astia_rings* ring, uint64_t tag, long* rc_out)
     return c->result;
 }
 
-static int streq(const char* a, const char* b)
-{
+static int streq(const char* a, const char* b) {
     while (*a != '\0' && *a == *b) {
         ++a;
         ++b;
@@ -82,8 +79,7 @@ static int streq(const char* a, const char* b)
     return *a == *b;
 }
 
-static int prefix(const char* text, const char* stem)
-{
+static int prefix(const char* text, const char* stem) {
     while (*stem != '\0' && *text == *stem) {
         ++text;
         ++stem;
@@ -91,8 +87,7 @@ static int prefix(const char* text, const char* stem)
     return *stem == '\0';
 }
 
-void c_main(const long* frame)
-{
+void c_main(const long* frame) {
     const long   argc = frame[0];
     const char** argv = (const char**) &frame[1];
     const char** envp = &argv[argc + 1];
@@ -105,16 +100,16 @@ void c_main(const long* frame)
     if (envp[0] == NULL || envp[1] != NULL || !prefix(envp[0], "HOME="))
         astia_exit(19);
 
-    astia_rings* ring = NULL;
-    astia_stat   st;
-    astia_stat   st_path;
+    astia_rings*   ring = NULL;
+    astia_stat     st;
+    astia_stat     st_path;
     astia_timespec first;
     astia_timespec second;
     astia_timespec wall;
     astia_timespec budget;
-    long rc;
-    long fd;
-    uint64_t tag = 1;
+    long           rc;
+    long           fd;
+    uint64_t       tag = 1;
 
     if (astia_getpid() < 0)
         astia_exit(1);
@@ -226,8 +221,7 @@ void c_main(const long* frame)
         int32_t child_status = -1;
         if (child <= 0)
             astia_exit(21);
-        if (astia_waitpid((int32_t) child, &child_status) != child ||
-            child_status != 0)
+        if (astia_waitpid((int32_t) child, &child_status) != child || child_status != 0)
             astia_exit(21);
     }
 
@@ -239,9 +233,8 @@ void c_main(const long* frame)
 
 /* The only arch-specific part: at entry %rsp points at argc, so hand
    the unmodified frame to C before any prologue moves the stack. */
-__asm__(
-    ".globl _start\n"
-    "_start:\n"
-    "    movq %rsp, %rdi\n"
-    "    call c_main\n"
-    "    ud2\n");
+__asm__(".globl _start\n"
+        "_start:\n"
+        "    movq %rsp, %rdi\n"
+        "    call c_main\n"
+        "    ud2\n");

@@ -9,31 +9,31 @@ namespace astia::mm {
     } // namespace
 
     auto phys_region::initialize(u64 base, usize pages) -> bool {
-            if (pages > (~usize{0}) / sizeof(u16)) {
-                return false;
-            }
-            auto storage = heap::alloc(pages * sizeof(u16));
-            if (!storage) {
-                return false;
-            }
-            base_      = base;
-            pages_     = pages;
-            page_refs_ = static_cast<u16*>(static_cast<void*>(storage.value));
-            // A freshly-created/adopted region carries its initial
-            // mapping reference.  This preserves the existing ownership
-            // contract: the creator transfers that reference to its VMA.
-            for (usize i = 0; i < pages; ++i) {
-                page_refs_[i] = 1;
-            }
-            return true;
+        if (pages > (~usize{0}) / sizeof(u16)) {
+            return false;
+        }
+        auto storage = heap::alloc(pages * sizeof(u16));
+        if (!storage) {
+            return false;
+        }
+        base_      = base;
+        pages_     = pages;
+        page_refs_ = static_cast<u16*>(static_cast<void*>(storage.value));
+        // A freshly-created/adopted region carries its initial
+        // mapping reference.  This preserves the existing ownership
+        // contract: the creator transfers that reference to its VMA.
+        for (usize i = 0; i < pages; ++i) {
+            page_refs_[i] = 1;
+        }
+        return true;
     }
 
     auto phys_region::create(usize page_count, bool zero) -> phys_region* {
         if (page_count == 0) {
             return nullptr;
         }
-        const u64 base = kernel_frames().alloc(
-            page_count, zero ? frame_flags::zeroed : frame_flags::none);
+        const u64 base = kernel_frames().alloc(page_count, zero ? frame_flags::zeroed
+                                                                : frame_flags::none);
         if (base == frame_allocator::invalid_frame) {
             return nullptr;
         }
@@ -80,8 +80,7 @@ namespace astia::mm {
                     return false;
                 }
                 const u16 next = static_cast<u16>(old + 1);
-                if (__atomic_compare_exchange_n(slot, &old, next, false,
-                                                __ATOMIC_ACQ_REL,
+                if (__atomic_compare_exchange_n(slot, &old, next, false, __ATOMIC_ACQ_REL,
                                                 __ATOMIC_ACQUIRE)) {
                     break;
                 }
@@ -108,8 +107,7 @@ namespace astia::mm {
                     break;
                 }
                 const u16 next = static_cast<u16>(old - 1);
-                if (__atomic_compare_exchange_n(slot, &old, next, false,
-                                                __ATOMIC_ACQ_REL,
+                if (__atomic_compare_exchange_n(slot, &old, next, false, __ATOMIC_ACQ_REL,
                                                 __ATOMIC_ACQUIRE)) {
                     if (old == 1) {
                         kernel_frames().release(base_ + (first + i) * frame_size);
@@ -166,8 +164,8 @@ namespace astia::mm {
                 --refs_;
                 return;
             }
-            refs_    = 0;
-            orphans  = children_;
+            refs_     = 0;
+            orphans   = children_;
             children_ = nullptr;
         }
 
@@ -186,8 +184,7 @@ namespace astia::mm {
         // reference.  Normally their mapping counters are already zero;
         // releasing here is the defensive final cleanup.
         for (usize i = 0; i < pages_; ++i) {
-            u16 old = __atomic_exchange_n(&page_refs_[i], u16{0},
-                                          __ATOMIC_ACQ_REL);
+            u16 old = __atomic_exchange_n(&page_refs_[i], u16{0}, __ATOMIC_ACQ_REL);
             if (old != 0) {
                 kernel_frames().release(base_ + i * frame_size);
             }
@@ -213,7 +210,7 @@ namespace astia::mm {
 
     auto phys_region::unlink_child(phys_region* target) -> void {
         core::spinlock_guard guard(lock_);
-        child**             link = &children_;
+        child**              link = &children_;
         while (*link != nullptr) {
             if ((*link)->region == target) {
                 child* dead = *link;

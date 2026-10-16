@@ -1,5 +1,6 @@
-#include <astia/memory.hpp>
 #include "frame_allocator.hpp"
+
+#include <astia/memory.hpp>
 
 // Provided by the linker script (cmake/linker/virt-x86_64.ld).
 extern "C" char __kernel_start[];
@@ -33,8 +34,9 @@ namespace astia::mm {
         // Park the bitmap directly past the kernel image; the kernel range
         // is reserved below, so the bitmap is never handed out.
         const u64 bitmap_base = align_up(reinterpret_cast<u64>(__kernel_end), frame_size);
-        bitmap_physical_ = bitmap_base;
-        if (access_ == nullptr) access_ = identity_access;
+        bitmap_physical_      = bitmap_base;
+        if (access_ == nullptr)
+            access_ = identity_access;
         bitmap_ = static_cast<u64*>(access_(bitmap_base));
 
         for (usize i = 0; i < words_; ++i) {
@@ -139,8 +141,7 @@ namespace astia::mm {
 
         const u64 frame = static_cast<u64>(found) * frame_size;
         if (has_flag(flags, frame_flags::zeroed)) {
-                fill_zero(access_(frame),
-                      static_cast<usize>(count) * frame_size);
+            fill_zero(access_(frame), static_cast<usize>(count) * frame_size);
         }
         return frame;
     }

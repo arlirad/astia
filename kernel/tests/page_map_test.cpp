@@ -1,8 +1,7 @@
+#include "arena.hpp"
+#include "frame_allocator.hpp"
 #include "layout.hpp"
 #include "page_map.hpp"
-#include "frame_allocator.hpp"
-
-#include "arena.hpp"
 #include "test.hpp"
 
 namespace {
@@ -20,7 +19,8 @@ namespace {
         static bool ready = false;
         if (!ready) {
             astia::mm::memory_map map;
-            map.add(astia_test::arena_base, astia_test::arena_size, astia::mm::memory_type::usable);
+            map.add(astia_test::arena_base, astia_test::arena_size,
+                    astia::mm::memory_type::usable);
             astia::mm::kernel_frames().init(map);
             ready = true;
         }
@@ -29,7 +29,9 @@ namespace {
     }
 
     // An address inside the kernel half (kernel_base's PML4 slot).
-    auto kvirt(astia::u64 offset) -> astia::u64 { return astia::arch::kernel_base + offset; }
+    auto kvirt(astia::u64 offset) -> astia::u64 {
+        return astia::arch::kernel_base + offset;
+    }
 
 } // namespace
 
@@ -43,7 +45,7 @@ ASTIA_TEST(page_map_create_allocates_empty_root) {
 }
 
 ASTIA_TEST(page_map_map_4k_round_trip) {
-    auto pm = make_map();
+    auto             pm   = make_map();
     const astia::u64 phys = astia_test::arena_base + 0x200000;
 
     ASTIA_CHECK(pm.map_4k(0x400000, phys, rw));
@@ -54,7 +56,7 @@ ASTIA_TEST(page_map_map_4k_round_trip) {
 }
 
 ASTIA_TEST(page_map_map_2m_round_trip) {
-    auto pm = make_map();
+    auto             pm   = make_map();
     const astia::u64 phys = astia_test::arena_base + 0x400000; // 2 MiB aligned
 
     ASTIA_CHECK(pm.map_2m(0x200000, phys, rw));
@@ -63,7 +65,7 @@ ASTIA_TEST(page_map_map_2m_round_trip) {
 }
 
 ASTIA_TEST(page_map_map_4k_splits_2m_page) {
-    auto pm = make_map();
+    auto             pm        = make_map();
     const astia::u64 base_phys = astia_test::arena_base + 0x200000;
 
     ASTIA_CHECK(pm.map_2m(0x200000, base_phys, rw));
@@ -100,7 +102,7 @@ ASTIA_TEST(page_map_map_2m_refuses_existing_table) {
 }
 
 ASTIA_TEST(page_map_maps_higher_half) {
-    auto pm = make_map();
+    auto             pm   = make_map();
     const astia::u64 virt = 0xffffffff80000000ull; // canonical, PML4 slot 511
     const astia::u64 phys = astia_test::arena_base + 0x300000;
 
@@ -121,7 +123,7 @@ ASTIA_TEST(page_map_rejects_misaligned_and_non_canonical) {
 }
 
 ASTIA_TEST(page_map_unmap_removes_4k_over_split) {
-    auto pm = make_map();
+    auto             pm        = make_map();
     const astia::u64 base_phys = astia_test::arena_base + 0x200000;
 
     ASTIA_CHECK(pm.map_2m(0x200000, base_phys, rw));
@@ -136,8 +138,8 @@ ASTIA_TEST(page_map_unmap_removes_4k_over_split) {
 // --- parent pagemaps -------------------------------------------------------
 
 ASTIA_TEST(page_map_child_shares_parent_kernel_half) {
-    auto parent = make_map();
-    const astia::u64 phys = astia_test::arena_base + 0x200000;
+    auto             parent = make_map();
+    const astia::u64 phys   = astia_test::arena_base + 0x200000;
     ASTIA_CHECK(parent.map_4k(kvirt(0x400000), phys, rw));
 
     auto child = page_map::create(&parent);
@@ -160,7 +162,7 @@ ASTIA_TEST(page_map_without_parent_sees_no_kernel_mappings) {
 
 ASTIA_TEST(page_map_parent_fallback_for_late_kernel_maps) {
     auto parent = make_map();
-    auto child = page_map::create(&parent);
+    auto child  = page_map::create(&parent);
     ASTIA_CHECK(child.valid());
 
     // Mapped on the parent *after* the child copied its (empty) kernel
@@ -175,9 +177,9 @@ ASTIA_TEST(page_map_parent_fallback_for_late_kernel_maps) {
 }
 
 ASTIA_TEST(page_map_child_maps_only_its_own_half) {
-    auto parent = make_map();
-    auto child = page_map::create(&parent);
-    const astia::u64 phys = astia_test::arena_base + 0x200000;
+    auto             parent = make_map();
+    auto             child  = page_map::create(&parent);
+    const astia::u64 phys   = astia_test::arena_base + 0x200000;
 
     ASTIA_CHECK(child.map_4k(0x700000, phys, rw));
     ASTIA_CHECK(child.translate(0x700000) == phys);
@@ -200,9 +202,9 @@ ASTIA_TEST(page_map_recursive_slot_points_at_own_root) {
     // the full-recursion address aliases the root table page. Each map's
     // alias must resolve to *its own* root, not the parent's.
     const astia::u64 slot = (astia::arch::recursive_base >> 39) & 0x1ff;
-    const astia::u64 off = 0x123;
-    const astia::u64 self = astia::arch::recursive_base + (slot << 30) + (slot << 21) +
-                            (slot << 12) + off;
+    const astia::u64 off  = 0x123;
+    const astia::u64 self =
+        astia::arch::recursive_base + (slot << 30) + (slot << 21) + (slot << 12) + off;
 
     ASTIA_CHECK(parent.translate(self) == parent.root() + off);
     ASTIA_CHECK(child.translate(self) == child.root() + off);
@@ -210,14 +212,16 @@ ASTIA_TEST(page_map_recursive_slot_points_at_own_root) {
 }
 
 ASTIA_TEST(page_map_recursive_window_is_reserved) {
-    auto pm = make_map();
+    auto             pm   = make_map();
     const astia::u64 slot = (astia::arch::recursive_base >> 39) & 0x1ff;
-    const astia::u64 full = astia::arch::recursive_base + (slot << 30) + (slot << 21) +
-                            (slot << 12);
+    const astia::u64 full =
+        astia::arch::recursive_base + (slot << 30) + (slot << 21) + (slot << 12);
 
     // Nothing may be mapped on top of the self-referencing slot...
-    ASTIA_CHECK(!pm.map_4k(astia::arch::recursive_base + 0x1000, astia_test::arena_base + 0x200000, rw));
-    ASTIA_CHECK(!pm.map_2m(astia::arch::recursive_base + 0x200000, astia_test::arena_base + 0x400000, rw));
+    ASTIA_CHECK(!pm.map_4k(astia::arch::recursive_base + 0x1000,
+                           astia_test::arena_base + 0x200000, rw));
+    ASTIA_CHECK(!pm.map_2m(astia::arch::recursive_base + 0x200000,
+                           astia_test::arena_base + 0x400000, rw));
     ASTIA_CHECK(!pm.unmap(full));
 
     // ...but the window still translates through the self-entry: the

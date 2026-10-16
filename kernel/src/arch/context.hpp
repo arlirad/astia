@@ -34,16 +34,15 @@ namespace astia::arch {
     /// Prepare a new user thread at `entry` with its first argument in
     /// the ABI's %rdi.  The architecture uses a callee-saved staging
     /// register while entering the synthetic iretq frame.
-    auto context_prepare_user_start(context*, u64 kernel_stack_top,
-                                    u64 user_stack_top, u64 entry,
-                                    u64 fs_base, u64 argument) -> bool;
+    auto context_prepare_user_start(context*, u64 kernel_stack_top, u64 user_stack_top,
+                                    u64 entry, u64 fs_base, u64 argument) -> bool;
     /// Prepare `value` to enter ring 3 exactly where a forked parent
     /// sat inside its syscall: the register image, thread pointer, and
     /// FP/SSE state are the parent's, and rax reads 0 — the child's
     /// fork() return value.  The caller supplies the kernel stack the
     /// resume trampoline builds its iretq frame on.
-    auto context_prepare_fork(context*, u64 kernel_stack_top,
-                              const user_context* image) -> bool;
+    auto context_prepare_fork(context*, u64 kernel_stack_top, const user_context* image)
+        -> bool;
     auto context_destroy(context*) -> void;
 
     extern "C" auto context_switch(context* old_context, const context* next_context)

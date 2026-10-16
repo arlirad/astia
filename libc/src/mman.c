@@ -13,10 +13,9 @@
 #include <astia/api/syscalls.h>
 #include <sys/mman.h>
 
-void* mmap(void* addr, size_t len, int prot, int flags, int fd, long off)
-{
-    long rc = astia_mmap(addr, (uint64_t) len, (uint32_t) prot,
-                         (uint32_t) flags, (int32_t) fd, (int64_t) off);
+void* mmap(void* addr, size_t len, int prot, int flags, int fd, long off) {
+    long rc = astia_mmap(addr, (uint64_t) len, (uint32_t) prot, (uint32_t) flags,
+                         (int32_t) fd, (int64_t) off);
     if (rc < 0) {
         errno = (int) -rc;
         return MAP_FAILED;
@@ -24,8 +23,7 @@ void* mmap(void* addr, size_t len, int prot, int flags, int fd, long off)
     return (void*) rc;
 }
 
-int munmap(void* addr, size_t len)
-{
+int munmap(void* addr, size_t len) {
     long rc = astia_munmap(addr, (uint64_t) len);
     if (rc < 0) {
         errno = (int) -rc;

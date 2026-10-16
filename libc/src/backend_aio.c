@@ -1,7 +1,7 @@
-#include <astia/api/aio.h>
-#include <string.h>
-
 #include "file_port.h"
+#include <astia/api/aio.h>
+
+#include <string.h>
 
 /*
  * astia libc — the file port over the async I/O ring.
@@ -34,21 +34,20 @@ ASTIA_STATIC_ASSERT(FIO_OFF_APPEND == OFF_APPEND,
                     "port append offset must equal ABI OFF_APPEND");
 
 static astia_rings* g_ring;
-static uint64_t g_tag;
-static uint64_t g_inflight; /* 0: none.  Tag of an operation whose kick
-                               failed *after* publish: its submission
-                               state is unknown, so it must be settled
-                               before any new SQE is written —
-                               otherwise the next enter could consume
-                               the stale entry and wait on a completion
-                               that never comes, or an append could be
-                               applied twice. */
+static uint64_t     g_tag;
+static uint64_t     g_inflight; /* 0: none.  Tag of an operation whose kick
+                                   failed *after* publish: its submission
+                                   state is unknown, so it must be settled
+                                   before any new SQE is written —
+                                   otherwise the next enter could consume
+                                   the stale entry and wait on a completion
+                                   that never comes, or an append could be
+                                   applied twice. */
 
-static long ring_ensure(void)
-{
+static long ring_ensure(void) {
     if (g_ring == NULL) {
-        astia_rings* r = NULL;
-        long rc = astia_io_setup(RING_ENTRIES, 0, &r);
+        astia_rings* r  = NULL;
+        long         rc = astia_io_setup(RING_ENTRIES, 0, &r);
         if (rc < 0)
             return rc;
         if (r == NULL)
@@ -66,11 +65,10 @@ static long ring_ensure(void)
  * caller.  Returns < 0 only when the ring cannot be waited on at all —
  * then g_inflight stays set and the next transaction stops at this same
  * gate instead of compounding the unknown state. */
-static long settle(void)
-{
+static long settle(void) {
     for (;;) {
         astia_cqe* c = astia_cq_peek(g_ring);
-        long rc;
+        long       rc;
 
         if (c != NULL) {
             int ours = (c->user_data == g_inflight);
@@ -90,15 +88,13 @@ static long settle(void)
 /* One operation, start to finish: the sync story of the async ring.
  * Exactly one SQE is in flight at a time, so the first completion we
  * find with our tag is ours and nothing else can be pending. */
-static long transact(uint32_t op, int32_t fd, uint64_t off,
-                     const void* addr, uint32_t len, uint32_t op_flags,
-                     uint32_t aux)
-{
+static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
+                     uint32_t len, uint32_t op_flags, uint32_t aux) {
     astia_rings* r;
-    astia_sqe* s;
-    astia_cqe* c;
-    uint64_t tag;
-    long rc;
+    astia_sqe*   s;
+    astia_cqe*   c;
+    uint64_t     tag;
+    long         rc;
 
     rc = ring_ensure();
     if (rc < 0)
@@ -109,7 +105,7 @@ static long transact(uint32_t op, int32_t fd, uint64_t off,
             return rc;
     }
 
-    r = g_ring;
+    r   = g_ring;
     tag = ++g_tag;
 
     s = astia_sqe_slot(r);
@@ -170,8 +166,7 @@ static long transact(uint32_t op, int32_t fd, uint64_t off,
     }
 }
 
-long __astia_fio_open(const char* path, int flags, int mode)
-{
+long __astia_fio_open(const char* path, int flags, int mode) {
     uint32_t of;
 
     if ((flags & FIO_READ) && (flags & FIO_WRITE))
@@ -193,32 +188,28 @@ long __astia_fio_open(const char* path, int flags, int mode)
     return transact(OP_OPENAT, AT_FDCWD, 0, path, 0, of, (uint32_t) mode);
 }
 
-long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n)
-{
+long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n) {
     return transact(OP_READ, fd, off, buf, (uint32_t) n, 0, 0);
 }
 
-long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n)
-{
+long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n) {
     return transact(OP_WRITE, fd, off, buf, (uint32_t) n, 0, 0);
 }
 
-long __astia_fio_close(int fd)
-{
+long __astia_fio_close(int fd) {
     return transact(OP_CLOSE, fd, 0, NULL, 0, 0, 0);
 }
 
-long __astia_fio_size(int fd, uint64_t* out)
-{
+long __astia_fio_size(int fd, uint64_t* out) {
     astia_stat st;
-    long rc;
+    long       rc;
 
     /* fstat convention pinned by the STATX row's footnote in
        <astia/api/aio.h>: address NULL -> fd is the stat target,
        offset the stat* out-parameter. */
     memset(&st, 0, sizeof st);
-    rc = transact(OP_STATX, fd, (uint64_t) (uintptr_t) &st, NULL,
-                  (uint32_t) sizeof st, 0, 0);
+    rc = transact(OP_STATX, fd, (uint64_t) (uintptr_t) &st, NULL, (uint32_t) sizeof st, 0,
+                  0);
     if (rc < 0)
         return rc;
     *out = st.size;

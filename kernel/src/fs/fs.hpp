@@ -1,8 +1,8 @@
 #pragma once
 
-#include <astia/common.hpp>
 #include "phys_region.hpp"
 #include "shptr.hpp"
+#include <astia/common.hpp>
 
 // Minimal kernel VFS foundation.  This is deliberately fixed-storage:
 // it runs before the general heap and gives device drivers a stable

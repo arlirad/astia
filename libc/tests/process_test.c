@@ -4,28 +4,28 @@
  * rejection, status forwarding, ECHILD when no child is left.  The
  * port raw-syscalls the host; the wrapper layer under test is ours.
  */
+#include <sys/wait.h>
+
 #include <errno.h>
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 extern int fork(void); /* host libc: ours has no fork */
 
 static int fails;
 
-#define CHECK(cond)                                                     \
-    do {                                                                \
-        if (!(cond)) {                                                  \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);       \
-            fails++;                                                    \
-        }                                                               \
+#define CHECK(cond)                                                \
+    do {                                                           \
+        if (!(cond)) {                                             \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+            fails++;                                               \
+        }                                                          \
     } while (0)
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     /* A spawnve child re-enters here with the marker and stops before
        any check — the parent waits for exactly this exit status. */
     if (argc > 1 && strcmp(argv[1], "--child") == 0)
@@ -44,8 +44,8 @@ int main(int argc, char** argv)
     if (child == 0)
         _Exit(7); /* our _Exit -> port -> host SYS_exit, no atexit */
 
-    int status  = -1;
-    int reaped  = waitpid(-1, &status, 0);
+    int status = -1;
+    int reaped = waitpid(-1, &status, 0);
     CHECK(reaped == child);
     CHECK((status >> 8) == 7); /* host-encoded: WEXITSTATUS(status) */
 
@@ -55,8 +55,7 @@ int main(int argc, char** argv)
 
     /* spawnve: a missing image is ENOENT and creates no process */
     errno = 0;
-    CHECK(spawnve("/nonexistent/astia-image", argv, NULL) == -1 &&
-          errno == ENOENT);
+    CHECK(spawnve("/nonexistent/astia-image", argv, NULL) == -1 && errno == ENOENT);
 
     /* spawnve: re-exec ourselves with a marker — the child stops at the
        top of main with status 5, reaped here through our wrappers all

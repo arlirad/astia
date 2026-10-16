@@ -9,25 +9,23 @@
 struct scan_input {
     int (*get)(void*);
     int (*unget)(int, void*);
-    void* data;
+    void*  data;
     size_t count;
-    int input_eof;
+    int    input_eof;
 };
 
 struct string_input {
     const unsigned char* p;
 };
 
-static int string_get(void* data)
-{
+static int string_get(void* data) {
     struct string_input* in = data;
     if (*in->p == '\0')
         return EOF;
     return *in->p++;
 }
 
-static int string_unget(int c, void* data)
-{
+static int string_unget(int c, void* data) {
     struct string_input* in = data;
     if (c == EOF || in->p == NULL)
         return EOF;
@@ -35,18 +33,15 @@ static int string_unget(int c, void* data)
     return 0;
 }
 
-static int file_get(void* data)
-{
+static int file_get(void* data) {
     return fgetc((FILE*) data);
 }
 
-static int file_unget(int c, void* data)
-{
+static int file_unget(int c, void* data) {
     return ungetc(c, (FILE*) data) == EOF ? EOF : 0;
 }
 
-static int scan_get(struct scan_input* in)
-{
+static int scan_get(struct scan_input* in) {
     int c = in->get(in->data);
     if (c == EOF)
         in->input_eof = 1;
@@ -55,14 +50,12 @@ static int scan_get(struct scan_input* in)
     return c;
 }
 
-static void scan_unget(struct scan_input* in, int c)
-{
+static void scan_unget(struct scan_input* in, int c) {
     if (c != EOF && in->unget(c, in->data) == 0 && in->count != 0)
         in->count--;
 }
 
-static void skip_input_space(struct scan_input* in)
-{
+static void skip_input_space(struct scan_input* in) {
     int c;
 
     do {
@@ -71,10 +64,9 @@ static void skip_input_space(struct scan_input* in)
     scan_unget(in, c);
 }
 
-static int scanset_has(const char* set, int c)
-{
-    int invert = 0;
-    const char* p = set;
+static int scanset_has(const char* set, int c) {
+    int         invert = 0;
+    const char* p      = set;
 
     if (*p == '^') {
         invert = 1;
@@ -85,7 +77,8 @@ static int scanset_has(const char* set, int c)
             if (c >= (unsigned char) p[0] && c <= (unsigned char) p[2])
                 return !invert;
             p += 3;
-        } else {
+        }
+        else {
             if (c == (unsigned char) *p)
                 return !invert;
             p++;
@@ -94,8 +87,7 @@ static int scanset_has(const char* set, int c)
     return invert;
 }
 
-static const char* parse_scanset(const char* format, char* set, size_t cap)
-{
+static const char* parse_scanset(const char* format, char* set, size_t cap) {
     size_t n = 0;
 
     if (*format == '^' && n + 1 < cap)
@@ -114,8 +106,7 @@ static const char* parse_scanset(const char* format, char* set, size_t cap)
     return *format == ']' ? format + 1 : format;
 }
 
-static int conversion_width(const char** format)
-{
+static int conversion_width(const char** format) {
     int width = 0;
 
     while (isdigit((unsigned char) **format)) {
@@ -126,11 +117,10 @@ static int conversion_width(const char** format)
     return width;
 }
 
-static int scan_token(struct scan_input* in, char* token, size_t cap,
-                      int width, int (*accept)(int), int skip_space)
-{
+static int scan_token(struct scan_input* in, char* token, size_t cap, int width,
+                      int (*accept)(int), int skip_space) {
     size_t n = 0;
-    int c;
+    int    c;
 
     if (skip_space)
         skip_input_space(in);
@@ -147,22 +137,17 @@ static int scan_token(struct scan_input* in, char* token, size_t cap,
     return n != 0;
 }
 
-static int integer_char(int c)
-{
+static int integer_char(int c) {
     return isalnum((unsigned char) c) || c == '+' || c == '-';
 }
 
-static int float_char(int c)
-{
+static int float_char(int c) {
     return isalnum((unsigned char) c) || c == '+' || c == '-' || c == '.';
 }
 
-static int parse_integer(const char* token, char spec,
-                         long long* signed_value,
-                         unsigned long long* unsigned_value)
-{
-    int base = spec == 'i' ? 0 : spec == 'o' ? 8 :
-               (spec == 'x' || spec == 'X') ? 16 : 10;
+static int parse_integer(const char* token, char spec, long long* signed_value,
+                         unsigned long long* unsigned_value) {
+    int base = spec == 'i' ? 0 : spec == 'o' ? 8 : (spec == 'x' || spec == 'X') ? 16 : 10;
     char* end;
 
     if (spec == 'd' || spec == 'i') {
@@ -170,7 +155,8 @@ static int parse_integer(const char* token, char spec,
         if (*end != '\0')
             return 0;
         *signed_value = value;
-    } else {
+    }
+    else {
         unsigned long long value = strtoull(token, &end, base);
         if (*end != '\0')
             return 0;
@@ -179,11 +165,10 @@ static int parse_integer(const char* token, char spec,
     return 1;
 }
 
-static int scan_engine(struct scan_input* in, const char* format, va_list ap)
-{
-    int assigned = 0;
-    int matched = 1;
-    const char* p = format;
+static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
+    int         assigned = 0;
+    int         matched  = 1;
+    const char* p        = format;
 
     while (*p != '\0' && matched) {
         if (isspace((unsigned char) *p)) {
@@ -212,12 +197,12 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap)
             continue;
         }
         {
-            int suppress = 0;
-            int width;
+            int  suppress = 0;
+            int  width;
             char length = 0;
             char spec;
             char token[256];
-            int ok = 0;
+            int  ok = 0;
 
             if (*p == '*') {
                 suppress = 1;
@@ -226,32 +211,29 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap)
             width = conversion_width(&p);
             if (*p == 'h' || *p == 'l' || *p == 'L' || *p == 'z') {
                 length = *p++;
-                if ((length == 'h' && *p == 'h') ||
-                    (length == 'l' && *p == 'l')) {
+                if ((length == 'h' && *p == 'h') || (length == 'l' && *p == 'l')) {
                     p++;
                     length = length == 'h' ? 'H' : 'L';
                 }
             }
             spec = *p++;
-            if (spec == 'd' || spec == 'i' || spec == 'o' ||
-                spec == 'u' || spec == 'x' || spec == 'X' || spec == 'p') {
+            if (spec == 'd' || spec == 'i' || spec == 'o' || spec == 'u' || spec == 'x' ||
+                spec == 'X' || spec == 'p') {
                 if (spec == 'p') {
-                    char* end;
+                    char*              end;
                     unsigned long long value;
-                    ok = scan_token(in, token, sizeof token, width,
-                                    integer_char, 1);
+                    ok    = scan_token(in, token, sizeof token, width, integer_char, 1);
                     value = strtoull(token, &end, 16);
-                    ok = ok && *end == '\0';
+                    ok    = ok && *end == '\0';
                     if (ok && !suppress)
                         *va_arg(ap, void**) = (void*) (uintptr_t) value;
-                } else {
-                    long long signed_value = 0;
+                }
+                else {
+                    long long          signed_value   = 0;
                     unsigned long long unsigned_value = 0;
-                    ok = scan_token(in, token, sizeof token, width,
-                                    integer_char, 1);
+                    ok = scan_token(in, token, sizeof token, width, integer_char, 1);
                     if (ok)
-                        ok = parse_integer(token, spec, &signed_value,
-                                           &unsigned_value);
+                        ok = parse_integer(token, spec, &signed_value, &unsigned_value);
                     if (ok && !suppress) {
                         if (spec == 'd' || spec == 'i') {
                             if (length == 'L')
@@ -266,31 +248,35 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap)
                                 *va_arg(ap, long*) = (long) signed_value;
                             else
                                 *va_arg(ap, int*) = (int) signed_value;
-                        } else {
+                        }
+                        else {
                             if (length == 'L')
                                 *va_arg(ap, unsigned long long*) = unsigned_value;
                             else if (length == 'l')
-                                *va_arg(ap, unsigned long*) = (unsigned long) unsigned_value;
+                                *va_arg(ap, unsigned long*) =
+                                    (unsigned long) unsigned_value;
                             else if (length == 'H')
-                                *va_arg(ap, unsigned char*) = (unsigned char) unsigned_value;
+                                *va_arg(ap, unsigned char*) =
+                                    (unsigned char) unsigned_value;
                             else if (length == 'h')
-                                *va_arg(ap, unsigned short*) = (unsigned short) unsigned_value;
+                                *va_arg(ap, unsigned short*) =
+                                    (unsigned short) unsigned_value;
                             else if (length == 'z')
                                 *va_arg(ap, size_t*) = (size_t) unsigned_value;
                             else
-                                *va_arg(ap, unsigned int*) = (unsigned int) unsigned_value;
+                                *va_arg(ap, unsigned int*) =
+                                    (unsigned int) unsigned_value;
                         }
                     }
                 }
-            } else if (spec == 'f' || spec == 'e' || spec == 'E' ||
-                       spec == 'g' || spec == 'G' || spec == 'a' ||
-                       spec == 'A') {
-                char* end;
+            }
+            else if (spec == 'f' || spec == 'e' || spec == 'E' || spec == 'g' ||
+                     spec == 'G' || spec == 'a' || spec == 'A') {
+                char*  end;
                 double value;
-                ok = scan_token(in, token, sizeof token, width,
-                                float_char, 1);
+                ok    = scan_token(in, token, sizeof token, width, float_char, 1);
                 value = strtod(token, &end);
-                ok = ok && *end == '\0';
+                ok    = ok && *end == '\0';
                 if (ok && !suppress) {
                     if (length == 'l')
                         *va_arg(ap, double*) = value;
@@ -299,11 +285,12 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap)
                     else
                         *va_arg(ap, float*) = (float) value;
                 }
-            } else if (spec == 'c') {
-                int n = width == 0 ? 1 : width;
-                int i;
+            }
+            else if (spec == 'c') {
+                int   n = width == 0 ? 1 : width;
+                int   i;
                 char* dest = suppress ? NULL : va_arg(ap, char*);
-                ok = 1;
+                ok         = 1;
                 for (i = 0; i < n; i++) {
                     int c = scan_get(in);
                     if (c == EOF) {
@@ -313,14 +300,16 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap)
                     if (!suppress)
                         dest[i] = (char) c;
                 }
-            } else if (spec == 's' || spec == '[') {
-                char set[128];
-                char* dest = suppress ? NULL : va_arg(ap, char*);
-                size_t n = 0;
-                int c;
+            }
+            else if (spec == 's' || spec == '[') {
+                char   set[128];
+                char*  dest = suppress ? NULL : va_arg(ap, char*);
+                size_t n    = 0;
+                int    c;
                 if (spec == '[') {
                     p = parse_scanset(p, set, sizeof set);
-                } else {
+                }
+                else {
                     set[0] = '^';
                     set[1] = '\0';
                 }
@@ -328,9 +317,8 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap)
                     skip_input_space(in);
                 while (width == 0 || (int) n < width) {
                     c = scan_get(in);
-                    if (c == EOF || (spec == 's' ?
-                                     isspace((unsigned char) c) :
-                                     !scanset_has(set, c))) {
+                    if (c == EOF || (spec == 's' ? isspace((unsigned char) c)
+                                                 : !scanset_has(set, c))) {
                         scan_unget(in, c);
                         break;
                     }
@@ -341,7 +329,8 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap)
                 ok = n != 0;
                 if (ok && !suppress)
                     dest[n] = '\0';
-            } else if (spec == 'n') {
+            }
+            else if (spec == 'n') {
                 if (!suppress) {
                     if (length == 'l')
                         *va_arg(ap, long*) = (long) in->count;
@@ -349,7 +338,8 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap)
                         *va_arg(ap, int*) = (int) in->count;
                 }
                 ok = 1;
-            } else {
+            }
+            else {
                 matched = 0;
                 continue;
             }
@@ -362,17 +352,15 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap)
     return assigned == 0 && in->input_eof ? EOF : assigned;
 }
 
-int vsscanf(const char* input, const char* format, va_list ap)
-{
-    struct string_input data = { (const unsigned char*) input };
-    struct scan_input in = { string_get, string_unget, &data, 0, 0 };
+int vsscanf(const char* input, const char* format, va_list ap) {
+    struct string_input data = {(const unsigned char*) input};
+    struct scan_input   in   = {string_get, string_unget, &data, 0, 0};
     return scan_engine(&in, format, ap);
 }
 
-int sscanf(const char* input, const char* format, ...)
-{
+int sscanf(const char* input, const char* format, ...) {
     va_list ap;
-    int rc;
+    int     rc;
 
     va_start(ap, format);
     rc = vsscanf(input, format, ap);
@@ -380,18 +368,16 @@ int sscanf(const char* input, const char* format, ...)
     return rc;
 }
 
-int vfscanf(FILE* stream, const char* format, va_list ap)
-{
-    struct scan_input in = { file_get, file_unget, stream, 0, 0 };
+int vfscanf(FILE* stream, const char* format, va_list ap) {
+    struct scan_input in = {file_get, file_unget, stream, 0, 0};
     if (stream == NULL)
         return EOF;
     return scan_engine(&in, format, ap);
 }
 
-int fscanf(FILE* stream, const char* format, ...)
-{
+int fscanf(FILE* stream, const char* format, ...) {
     va_list ap;
-    int rc;
+    int     rc;
 
     va_start(ap, format);
     rc = vfscanf(stream, format, ap);
@@ -399,15 +385,13 @@ int fscanf(FILE* stream, const char* format, ...)
     return rc;
 }
 
-int vscanf(const char* format, va_list ap)
-{
+int vscanf(const char* format, va_list ap) {
     return vfscanf(stdin, format, ap);
 }
 
-int scanf(const char* format, ...)
-{
+int scanf(const char* format, ...) {
     va_list ap;
-    int rc;
+    int     rc;
 
     va_start(ap, format);
     rc = vscanf(format, ap);

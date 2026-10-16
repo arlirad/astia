@@ -1,5 +1,4 @@
 #include "exports.hpp"
-
 #include "test.hpp"
 
 // The mod export table: which kernel symbols a loadable module may bind

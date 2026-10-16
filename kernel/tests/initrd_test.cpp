@@ -1,5 +1,4 @@
 #include "initrd.hpp"
-
 #include "test.hpp"
 
 #include <cstring>
@@ -10,12 +9,12 @@
 // must be skipped.
 
 extern unsigned char initrd_blob[];
-extern unsigned int initrd_blob_len;
+extern unsigned int  initrd_blob_len;
 
 namespace {
 
     struct collect {
-        const char* names[4];
+        const char*  names[4];
         astia::usize n = 0;
     };
 
@@ -93,7 +92,7 @@ ASTIA_TEST(initrd_visit_stops_on_false) {
 }
 
 ASTIA_TEST(initrd_accepts_empty_archive) {
-    const unsigned char zeros[1024] = {};
+    const unsigned char    zeros[1024] = {};
     astia::initrd::archive a;
     ASTIA_CHECK(astia::initrd::open(zeros, sizeof(zeros), a));
     ASTIA_CHECK(astia::initrd::count(a) == 0);

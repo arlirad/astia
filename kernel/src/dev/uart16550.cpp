@@ -1,15 +1,15 @@
 #include "uart16550.hpp"
-#include "device_file.hpp"
 
+#include "aio.hpp"
+#include "cpu.hpp"
+#include "device_file.hpp"
+#include "interrupts.hpp"
+#include "pic.hpp"
+#include "proc.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
-#include "cpu.hpp"
-#include "interrupts.hpp"
-#include "pic.hpp"
 #include <astia/memory.hpp>
-#include "proc.hpp"
-#include "aio.hpp"
 
 /*
  * COM1 (the classic 0x3F8 port pair), driven two ways — as a device
@@ -43,25 +43,25 @@ namespace astia::dev {
 
         // 16550 register offsets from the port base.
         constexpr u32 reg_data = 0; // RBR (r) / THR (w) / DLL (DLAB on)
-        constexpr u32 reg_ier = 1;  // IER / DLM (DLAB on)
-        constexpr u32 reg_fcr = 2;  // FCR (w)
-        constexpr u32 reg_lcr = 3;
-        constexpr u32 reg_mcr = 4;
-        constexpr u32 reg_lsr = 5;
+        constexpr u32 reg_ier  = 1; // IER / DLM (DLAB on)
+        constexpr u32 reg_fcr  = 2; // FCR (w)
+        constexpr u32 reg_lcr  = 3;
+        constexpr u32 reg_mcr  = 4;
+        constexpr u32 reg_lsr  = 5;
 
         constexpr u8 lsr_data_ready = 0x01;
-        constexpr u8 lsr_thre = 0x20;
+        constexpr u8 lsr_thre       = 0x20;
 
         constexpr u8 ier_rx_ready = 0x01; // ERBFI: data-ready interrupt
 
         constexpr u8 fcr_enable = 0x07; // FIFOs on, both cleared, 1-byte trigger
-        constexpr u8 lcr_dlab = 0x80;
-        constexpr u8 lcr_8n1 = 0x03;
+        constexpr u8 lcr_dlab   = 0x80;
+        constexpr u8 lcr_8n1    = 0x03;
 
-        constexpr u8 mcr_dtr = 0x01;
-        constexpr u8 mcr_rts = 0x02;
-        constexpr u8 mcr_out2 = 0x08; // gates the IRQ line onto the PIC
-        constexpr u8 mcr_loopback = 0x10;
+        constexpr u8   mcr_dtr       = 0x01;
+        constexpr u8   mcr_rts       = 0x02;
+        constexpr u8   mcr_out2      = 0x08; // gates the IRQ line onto the PIC
+        constexpr u8   mcr_loopback  = 0x10;
         constexpr char device_path[] = "/dev/uart16550";
 
         // QEMU answers THR instantly and real hardware shifts a byte in
@@ -74,8 +74,8 @@ namespace astia::dev {
         // constructor having run, which is what a kernel without
         // .init_array needs.  constinit enforces static initialization
         // while retaining writable RX state and cursors.
-        constinit uart16550 com1 { "ttyS0", 0x3F8, 4 };
-        constinit device_file com1_file { &com1 };
+        constinit uart16550   com1{"ttyS0", 0x3F8, 4};
+        constinit device_file com1_file{&com1};
 
         auto uart16550_irq() -> void {
             com1.irq();
@@ -96,8 +96,8 @@ namespace astia::dev {
         // while the loop is closed every console byte goes back into
         // the receive FIFO instead of out the port.
         auto ring_selftest_body(astia_rings* ring, char* got) -> const char* {
-            constexpr char payload[] = "ping";
-            constexpr u32 payload_len = sizeof(payload) - 1;
+            constexpr char payload[]   = "ping";
+            constexpr u32  payload_len = sizeof(payload) - 1;
 
             // Open the device through the VFS first.  The rest of this
             // test deliberately uses the returned descriptor rather
@@ -106,11 +106,11 @@ namespace astia::dev {
             if (s == nullptr) {
                 return "sq full (open)";
             }
-            *s = astia_sqe {};
-            s->op = OP_OPENAT;
-            s->fd = -1; // current VFS has one exact-path namespace
-            s->address = reinterpret_cast<u64>(device_path);
-            s->aux = 0;
+            *s           = astia_sqe{};
+            s->op        = OP_OPENAT;
+            s->fd        = -1; // current VFS has one exact-path namespace
+            s->address   = reinterpret_cast<u64>(device_path);
+            s->aux       = 0;
             s->user_data = 0xC0DE00;
             astia_sq_publish(ring, 1);
             if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
@@ -130,9 +130,9 @@ namespace astia::dev {
             if (s == nullptr) {
                 return "sq full (dup)";
             }
-            *s = astia_sqe {};
-            s->op = OP_DUP;
-            s->fd = fd;
+            *s           = astia_sqe{};
+            s->op        = OP_DUP;
+            s->fd        = fd;
             s->user_data = 0xC0DE05;
             astia_sq_publish(ring, 1);
             if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
@@ -150,10 +150,10 @@ namespace astia::dev {
             if (s == nullptr) {
                 return "sq full (dup2)";
             }
-            *s = astia_sqe {};
-            s->op = OP_DUP2;
-            s->fd = dup_fd;
-            s->offset = 5;
+            *s           = astia_sqe{};
+            s->op        = OP_DUP2;
+            s->fd        = dup_fd;
+            s->offset    = 5;
             s->user_data = 0xC0DE06;
             astia_sq_publish(ring, 1);
             if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
@@ -169,16 +169,16 @@ namespace astia::dev {
             // Close the original two aliases and continue using only
             // the dup2 target.  The shared open_file must survive both
             // closes and remain usable through descriptor 5.
-            const i32 aliases[2] = { fd, dup_fd };
+            const i32 aliases[2] = {fd, dup_fd};
             for (u32 alias = 0; alias < 2; ++alias) {
                 const i32 close_fd = aliases[alias];
-                s = astia_sqe_slot(ring);
+                s                  = astia_sqe_slot(ring);
                 if (s == nullptr) {
                     return "sq full (alias close)";
                 }
-                *s = astia_sqe {};
-                s->op = OP_CLOSE;
-                s->fd = close_fd;
+                *s           = astia_sqe{};
+                s->op        = OP_CLOSE;
+                s->fd        = close_fd;
                 s->user_data = 0xC0DE07 + static_cast<u64>(close_fd == dup_fd);
                 astia_sq_publish(ring, 1);
                 if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
@@ -200,11 +200,11 @@ namespace astia::dev {
             if (s == nullptr) {
                 return "sq full";
             }
-            *s = astia_sqe {};
-            s->op = OP_READ;
-            s->fd = fd;
-            s->address = reinterpret_cast<u64>(got);
-            s->length = payload_len;
+            *s           = astia_sqe{};
+            s->op        = OP_READ;
+            s->fd        = fd;
+            s->address   = reinterpret_cast<u64>(got);
+            s->length    = payload_len;
             s->user_data = 0xC0DE01;
             astia_sq_publish(ring, 1);
 
@@ -212,11 +212,11 @@ namespace astia::dev {
             if (s == nullptr) {
                 return "sq full (write)";
             }
-            *s = astia_sqe {};
-            s->op = OP_WRITE;
-            s->fd = fd;
-            s->address = reinterpret_cast<u64>(payload);
-            s->length = payload_len;
+            *s           = astia_sqe{};
+            s->op        = OP_WRITE;
+            s->fd        = fd;
+            s->address   = reinterpret_cast<u64>(payload);
+            s->length    = payload_len;
             s->user_data = 0xC0DE02;
             astia_sq_publish(ring, 1);
 
@@ -229,12 +229,13 @@ namespace astia::dev {
             }
 
             // Reap by tag: completion order is not an ABI promise.
-            long read_count = -1;
+            long read_count  = -1;
             long write_count = -1;
             while (astia_cqe* c = astia_cq_peek(ring)) {
                 if (c->user_data == 0xC0DE01) {
                     read_count = c->result;
-                } else if (c->user_data == 0xC0DE02) {
+                }
+                else if (c->user_data == 0xC0DE02) {
                     write_count = c->result;
                 }
                 astia_cq_consume(ring, 1);
@@ -253,11 +254,11 @@ namespace astia::dev {
                 if (s == nullptr) {
                     return "sq full (collect)";
                 }
-                *s = astia_sqe {};
-                s->op = OP_READ;
-                s->fd = fd;
-                s->address = reinterpret_cast<u64>(got + have);
-                s->length = payload_len - have;
+                *s           = astia_sqe{};
+                s->op        = OP_READ;
+                s->fd        = fd;
+                s->address   = reinterpret_cast<u64>(got + have);
+                s->length    = payload_len - have;
                 s->user_data = 0xC0DE03 + round;
                 astia_sq_publish(ring, 1);
 
@@ -266,8 +267,7 @@ namespace astia::dev {
                     return "collect kick failed";
                 }
                 astia_cqe* c = astia_cq_peek(ring);
-                if (c == nullptr || c->user_data != 0xC0DE03 + round ||
-                    c->result < 1) {
+                if (c == nullptr || c->user_data != 0xC0DE03 + round || c->result < 1) {
                     return "collect mismatch";
                 }
                 have += static_cast<u32>(c->result);
@@ -288,9 +288,9 @@ namespace astia::dev {
             if (s == nullptr) {
                 return "sq full (close)";
             }
-            *s = astia_sqe {};
-            s->op = OP_CLOSE;
-            s->fd = fd;
+            *s           = astia_sqe{};
+            s->op        = OP_CLOSE;
+            s->fd        = fd;
             s->user_data = 0xC0DE04;
             astia_sq_publish(ring, 1);
             if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
@@ -335,18 +335,17 @@ namespace astia::dev {
         // Gate, not a lock: consumers are this CPU's dispatch loop
         // and the IRQ's retry, and the IRQ preempts the dispatch.
         arch::interrupt_guard gate;
-        auto* d = static_cast<u8*>(dst);
-        const u32 head = __atomic_load_n(&rx_head, __ATOMIC_ACQUIRE);
-        const u32 tail = rx_tail;
-        u32 n = (head - tail) & (rx_size - 1);
+        auto*                 d    = static_cast<u8*>(dst);
+        const u32             head = __atomic_load_n(&rx_head, __ATOMIC_ACQUIRE);
+        const u32             tail = rx_tail;
+        u32                   n    = (head - tail) & (rx_size - 1);
         if (n > len) {
             n = len;
         }
         for (u32 i = 0; i < n; ++i) {
             d[i] = rx[(tail + i) & (rx_size - 1)];
         }
-        __atomic_store_n(&rx_tail, (tail + n) & (rx_size - 1),
-                         __ATOMIC_RELEASE);
+        __atomic_store_n(&rx_tail, (tail + n) & (rx_size - 1), __ATOMIC_RELEASE);
         return static_cast<long>(n);
     }
 
@@ -371,8 +370,8 @@ namespace astia::dev {
 
     auto uart16550::write(const void* buf, u32 len, u64 off) -> long {
         (void) off;
-        const auto* s = static_cast<const u8*>(buf);
-        u32 sent = 0;
+        const auto* s    = static_cast<const u8*>(buf);
+        u32         sent = 0;
         while (sent < len) {
             if (!tx_byte(s[sent])) {
                 break; // wedged port: complete short, not late
@@ -391,7 +390,7 @@ namespace astia::dev {
     }
 
     auto uart16550::loopback(bool on) -> void {
-        const u8 mcr = mcr_dtr | mcr_rts | mcr_out2;
+        const u8 mcr    = mcr_dtr | mcr_rts | mcr_out2;
         _ports[reg_mcr] = on ? static_cast<u8>(mcr | mcr_loopback) : mcr;
     }
 
@@ -435,33 +434,33 @@ namespace astia::dev {
         default:
             return -EINVAL;
         }
-        const u8 lcr = _ports[reg_lcr];
-        _ports[reg_lcr] = static_cast<u8>(lcr | lcr_dlab);
+        const u8 lcr     = _ports[reg_lcr];
+        _ports[reg_lcr]  = static_cast<u8>(lcr | lcr_dlab);
         _ports[reg_data] = static_cast<u8>(divisor & 0xFF);
-        _ports[reg_ier] = static_cast<u8>(divisor >> 8);
-        _ports[reg_lcr] = lcr;
+        _ports[reg_ier]  = static_cast<u8>(divisor >> 8);
+        _ports[reg_lcr]  = lcr;
         return 0;
     }
 
     auto uart16550::init_uart() -> void {
-        _ports[reg_ier] = 0x00;     // interrupts off during bring-up
-        _ports[reg_lcr] = lcr_dlab; // divisor latch on
-        _ports[reg_data] = 0x01;    // divisor low byte: 1 -> 115200
-        _ports[reg_ier] = 0x00;     // divisor high byte (IER shares the latch)
-        _ports[reg_lcr] = lcr_8n1;  // 8N1, latch off
-        _ports[reg_fcr] = fcr_enable;
-        _ports[reg_mcr] = mcr_dtr | mcr_rts | mcr_out2;
+        _ports[reg_ier]  = 0x00;     // interrupts off during bring-up
+        _ports[reg_lcr]  = lcr_dlab; // divisor latch on
+        _ports[reg_data] = 0x01;     // divisor low byte: 1 -> 115200
+        _ports[reg_ier]  = 0x00;     // divisor high byte (IER shares the latch)
+        _ports[reg_lcr]  = lcr_8n1;  // 8N1, latch off
+        _ports[reg_fcr]  = fcr_enable;
+        _ports[reg_mcr]  = mcr_dtr | mcr_rts | mcr_out2;
     }
 
     auto uart16550::init_irq() -> bool {
         if (!arch::register_irq_handler(_irq, uart16550_irq)) {
             return false; // PIC line already taken
         }
-        if (fs::register_device(device_path,
-                                mm::shptr<fs::file>::borrowed(&com1_file)) < 0) {
+        if (fs::register_device(device_path, mm::shptr<fs::file>::borrowed(&com1_file)) <
+            0) {
             return false;
         }
-        _ports[reg_ier] = ier_rx_ready; // data-ready interrupts on
+        _ports[reg_ier] = ier_rx_ready;  // data-ready interrupts on
         arch::x86_64::pic::unmask(_irq); // handler in place first
         return true;
     }
@@ -476,8 +475,8 @@ namespace astia::dev {
     }
 
     auto uart16550_ring_selftest() -> bool {
-        constexpr char payload[] = "ping";
-        constexpr u32 payload_len = sizeof(payload) - 1;
+        constexpr char payload[]   = "ping";
+        constexpr u32  payload_len = sizeof(payload) - 1;
 
         console_puts("astia: uart16550 ring: start\n");
 
@@ -491,8 +490,8 @@ namespace astia::dev {
         com1.drain_rx();
         com1.loopback(true);
 
-        char got[payload_len] = {};
-        const char* why = ring_selftest_body(ring, got);
+        char        got[payload_len] = {};
+        const char* why              = ring_selftest_body(ring, got);
 
         // Close the loop before reporting: while it is open, console
         // output feeds the receive FIFO instead of leaving the port.

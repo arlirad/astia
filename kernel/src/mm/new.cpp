@@ -1,5 +1,4 @@
 #include "heap.hpp"
-
 #include <astia/common.hpp>
 
 // Global allocation, backed by mm::heap.
@@ -22,19 +21,35 @@ namespace {
 
 } // namespace
 
-void* operator new(astia::usize size) { return allocate(size); }
+void* operator new(astia::usize size) {
+    return allocate(size);
+}
 
-void* operator new[](astia::usize size) { return allocate(size); }
+void* operator new[](astia::usize size) {
+    return allocate(size);
+}
 
-void operator delete(void* ptr) noexcept { astia::mm::heap::free(ptr); }
+void operator delete(void* ptr) noexcept {
+    astia::mm::heap::free(ptr);
+}
 
-void operator delete[](void* ptr) noexcept { astia::mm::heap::free(ptr); }
+void operator delete[](void* ptr) noexcept {
+    astia::mm::heap::free(ptr);
+}
 
-void operator delete(void* ptr, astia::usize) noexcept { astia::mm::heap::free(ptr); }
+void operator delete(void* ptr, astia::usize) noexcept {
+    astia::mm::heap::free(ptr);
+}
 
-void operator delete[](void* ptr, astia::usize) noexcept { astia::mm::heap::free(ptr); }
+void operator delete[](void* ptr, astia::usize) noexcept {
+    astia::mm::heap::free(ptr);
+}
 
 // Placement forms: always succeed.
-void* operator new(astia::usize, void* where) noexcept { return where; }
+void* operator new(astia::usize, void* where) noexcept {
+    return where;
+}
 
-void* operator new[](astia::usize, void* where) noexcept { return where; }
+void* operator new[](astia::usize, void* where) noexcept {
+    return where;
+}

@@ -2,8 +2,8 @@
 
 #include "layout.hpp"
 #include "page_map.hpp"
-#include <astia/common.hpp>
 #include "proc.hpp"
+#include <astia/common.hpp>
 
 /*
  * User-pointer hygiene for the syscall boundary.
@@ -51,7 +51,7 @@ namespace astia::sys {
         if (base == 0) {
             return false;
         }
-        const proc::process* owner = proc::current_process();
+        const proc::process*  owner = proc::current_process();
         const arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
         if (space == nullptr) {
             return true; // kernel client: kernel pointers, as before
@@ -110,10 +110,10 @@ namespace astia::sys {
         if (capacity == 0) {
             return false;
         }
-        const proc::process* owner = proc::current_process();
+        const proc::process*  owner = proc::current_process();
         const arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
-        const auto*           from = static_cast<const u8*>(user);
-        u64                   byte = reinterpret_cast<u64>(from);
+        const auto*           from  = static_cast<const u8*>(user);
+        u64                   byte  = reinterpret_cast<u64>(from);
         if (byte == 0) {
             return false;
         }

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "page_map.hpp"
-#include <astia/common.hpp>
 #include "core/spinlock.hpp"
-#include "shptr.hpp"
 #include "fd_table.hpp"
 #include "mmap_region.hpp"
+#include "page_map.hpp"
+#include "shptr.hpp"
 #include "thread.hpp"
+#include <astia/common.hpp>
 
 namespace astia::proc {
 
@@ -16,9 +16,9 @@ namespace astia::proc {
     inline constexpr u32 max_process_waiters = 4;
 
     /// Userspace spawn limits for the startup frame (argv/envp).
-    inline constexpr u32   max_spawn_args      = 16;
-    inline constexpr u32   max_spawn_env       = 16;
-    inline constexpr usize spawn_string_bytes  = 2048;
+    inline constexpr u32   max_spawn_args     = 16;
+    inline constexpr u32   max_spawn_env      = 16;
+    inline constexpr usize spawn_string_bytes = 2048;
 
     enum class process_state : u8 {
         fresh,
@@ -129,8 +129,7 @@ namespace astia::proc {
         /// writes land on the private copy, and the mapping keeps the
         /// open file description alive across close().  `fd` resolves
         /// in this process' table; `off` must be page-aligned.
-        auto map_file(i32 fd, u64 addr, usize len, u32 prot, u32 flags,
-                      u64 off) -> u64;
+        auto map_file(i32 fd, u64 addr, usize len, u32 prot, u32 flags, u64 off) -> u64;
 
         /// munmap: drop [addr, addr + len) rounded up to pages; parts
         /// of mapped regions outside the range are kept.  Returns 0,
@@ -169,8 +168,8 @@ namespace astia::proc {
         /// + pages): `region` adopts the `pages` contiguous frames the
         /// caller mapped PTEs for, and the entry takes over its
         /// reference.
-        auto register_mapping(u64 base, usize pages, u32 prot,
-                              mm::phys_region* region) -> bool;
+        auto register_mapping(u64 base, usize pages, u32 prot, mm::phys_region* region)
+            -> bool;
         auto clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
                                   usize& mapping_pages) -> bool;
         /// Map PTEs for [base, base + pages) and insert the VMA entry,
@@ -178,15 +177,13 @@ namespace astia::proc {
         /// recorded on it, both empty for anonymous ranges).  On
         /// failure the PTEs are rolled back and `region` stays the
         /// caller's.
-        auto install_mapping(u64 base, usize pages, u32 prot,
-                             mm::phys_region* region,
-                             const mm::shptr<fs::open_file>& file,
-                             u64 file_offset, usize region_page = 0,
-                             bool shared = false) -> bool;
-        pid_t         pid_;
-        pid_t         parent_pid_;
-        char          name_[32]{};
-        process_state state_      = process_state::fresh;
+        auto  install_mapping(u64 base, usize pages, u32 prot, mm::phys_region* region,
+                              const mm::shptr<fs::open_file>& file, u64 file_offset,
+                              usize region_page = 0, bool shared = false) -> bool;
+        pid_t pid_;
+        pid_t parent_pid_;
+        char  name_[32]{};
+        process_state state_       = process_state::fresh;
         i32           exit_status_ = 0;
 
         mm::shptr<thread> threads_[max_process_threads];
@@ -196,7 +193,7 @@ namespace astia::proc {
         arch::page_map*   address_space_ = nullptr;
         u64               tls_tp_        = 0;
         mmap_region*      mmap_regions_  = nullptr; // base-sorted
-        core::spinlock    mmap_lock_ {};
+        core::spinlock    mmap_lock_{};
     };
 
     /// Queue a just-died thread for destruction once its kernel stack

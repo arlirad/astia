@@ -1,7 +1,7 @@
-#include "layout.hpp"
 #include "page_map.hpp"
 
 #include "frame_allocator.hpp"
+#include "layout.hpp"
 
 // x86_64 4-level paging (Intel SDM Vol. 3A, "IA-32e Paging"):
 //   virtual address = PML4[47:39] PDPT[38:30] PD[29:21] PT[20:12] offset[11:0]
@@ -27,14 +27,14 @@ namespace astia::arch {
 
     namespace {
 
-        constexpr u64 entry_present = 1ull << 0;
-        constexpr u64 entry_writable = 1ull << 1;
-        constexpr u64 entry_user = 1ull << 2;
+        constexpr u64 entry_present       = 1ull << 0;
+        constexpr u64 entry_writable      = 1ull << 1;
+        constexpr u64 entry_user          = 1ull << 2;
         constexpr u64 entry_write_through = 1ull << 3;
         constexpr u64 entry_cache_disable = 1ull << 4;
-        constexpr u64 entry_huge = 1ull << 7;
-        constexpr u64 entry_global = 1ull << 8;
-        constexpr u64 entry_no_execute = 1ull << 63;
+        constexpr u64 entry_huge          = 1ull << 7;
+        constexpr u64 entry_global        = 1ull << 8;
+        constexpr u64 entry_no_execute    = 1ull << 63;
 
         // Physical base of a table/4 KiB page lives in bits 51:12.
         constexpr u64 address_mask = 0x000FFFFFFFFFF000ull;
@@ -63,10 +63,18 @@ namespace astia::arch {
             pt,
         };
 
-        constexpr auto pml4_index(u64 virt) -> usize { return (virt >> 39) & 0x1ff; }
-        constexpr auto pdpt_index(u64 virt) -> usize { return (virt >> 30) & 0x1ff; }
-        constexpr auto pd_index(u64 virt) -> usize { return (virt >> 21) & 0x1ff; }
-        constexpr auto pt_index(u64 virt) -> usize { return (virt >> 12) & 0x1ff; }
+        constexpr auto pml4_index(u64 virt) -> usize {
+            return (virt >> 39) & 0x1ff;
+        }
+        constexpr auto pdpt_index(u64 virt) -> usize {
+            return (virt >> 30) & 0x1ff;
+        }
+        constexpr auto pd_index(u64 virt) -> usize {
+            return (virt >> 21) & 0x1ff;
+        }
+        constexpr auto pt_index(u64 virt) -> usize {
+            return (virt >> 12) & 0x1ff;
+        }
 
         auto is_canonical(u64 virt) -> bool {
             const u64 top = virt >> 47;
@@ -109,9 +117,9 @@ namespace astia::arch {
         ///   pd:   rec rec pml4 pdpt    pt:   rec pml4 pdpt pd
         auto alias(table_level level, u64 virt) -> u64 {
             const u64 rec = recursive_slot;
-            u64 a2 = rec;
-            u64 a3 = rec;
-            u64 a4 = rec;
+            u64       a2  = rec;
+            u64       a3  = rec;
+            u64       a4  = rec;
             switch (level) {
             case table_level::root:
                 break;
@@ -152,7 +160,8 @@ namespace astia::arch {
 
         /// The next-level table on `virt`'s walk, given the entry pointing
         /// at it (which the caller has verified present or just created).
-        auto next_table(const page_map& owner, u64 virt, table_level level, u64 entry) -> u64* {
+        auto next_table(const page_map& owner, u64 virt, table_level level, u64 entry)
+            -> u64* {
             if (active_map == &owner) {
                 return reinterpret_cast<u64*>(alias(level, virt));
             }
@@ -162,8 +171,8 @@ namespace astia::arch {
         /// Return the next-level table for `entry`, allocating and zeroing it
         /// (and setting PRESENT|RW, plus USER when requested) when absent.
         /// Returns nullptr if a huge page is in the way or allocation fails.
-        auto ensure_table(const page_map& owner, u64 virt, table_level level, u64& entry, page_flags flags)
-            -> u64* {
+        auto ensure_table(const page_map& owner, u64 virt, table_level level, u64& entry,
+                          page_flags flags) -> u64* {
             if ((entry & entry_present) != 0) {
                 if ((entry & entry_huge) != 0) {
                     return nullptr;
@@ -187,8 +196,8 @@ namespace astia::arch {
         auto split_2m(const page_map& owner, u64 virt, u64& pde) -> bool {
             const u64 base = pde & (~0ull << 21);
             const u64 inherited =
-                pde & (entry_writable | entry_user | entry_write_through | entry_cache_disable | entry_global |
-                       entry_no_execute);
+                pde & (entry_writable | entry_user | entry_write_through |
+                       entry_cache_disable | entry_global | entry_no_execute);
 
             const u64 frame = mm::kernel_frames().alloc(1, mm::frame_flags::zeroed);
             if (frame == mm::frame_allocator::invalid_frame) {
@@ -197,26 +206,28 @@ namespace astia::arch {
 
             // Publish the entry first so the new table is reachable through
             // the recursive window too, then fill it.
-            pde = (frame & address_mask) | inherited | entry_present;
+            pde        = (frame & address_mask) | inherited | entry_present;
             u64* table = next_table(owner, virt, table_level::pt, pde);
             for (usize i = 0; i < 512; ++i) {
-                table[i] = (base + static_cast<u64>(i) * 4096) | inherited | entry_present;
+                table[i] =
+                    (base + static_cast<u64>(i) * 4096) | inherited | entry_present;
             }
             return true;
         }
 
     } // namespace
 
-    page_map::page_map(page_map&& other) noexcept : root_(other.root_), parent_(other.parent_) {
-        other.root_ = 0;
+    page_map::page_map(page_map&& other) noexcept
+        : root_(other.root_), parent_(other.parent_) {
+        other.root_   = 0;
         other.parent_ = nullptr;
     }
 
     auto page_map::operator=(page_map&& other) noexcept -> page_map& {
         if (this != &other) {
-            root_ = other.root_;
-            parent_ = other.parent_;
-            other.root_ = 0;
+            root_         = other.root_;
+            parent_       = other.parent_;
+            other.root_   = 0;
             other.parent_ = nullptr;
         }
         return *this;
@@ -225,11 +236,11 @@ namespace astia::arch {
     auto page_map::create(const page_map* parent) -> page_map {
         const u64 frame = mm::kernel_frames().alloc(1, mm::frame_flags::zeroed);
         if (frame == mm::frame_allocator::invalid_frame) {
-            return page_map {};
+            return page_map{};
         }
 
         page_map map(frame, parent);
-        u64* dst = phys_ptr(frame);
+        u64*     dst = phys_ptr(frame);
         if (parent != nullptr && parent->valid()) {
             // Share the parent's kernel-half top-level entries: the same
             // table frames, so the hardware walk from a child address space
@@ -260,11 +271,13 @@ namespace astia::arch {
         }
 
         u64* pml4 = root_table(*this);
-        u64* pdpt = ensure_table(*this, virt, table_level::pdpt, pml4[pml4_index(virt)], flags);
+        u64* pdpt =
+            ensure_table(*this, virt, table_level::pdpt, pml4[pml4_index(virt)], flags);
         if (pdpt == nullptr) {
             return false;
         }
-        u64* pd = ensure_table(*this, virt, table_level::pd, pdpt[pdpt_index(virt)], flags);
+        u64* pd =
+            ensure_table(*this, virt, table_level::pd, pdpt[pdpt_index(virt)], flags);
         if (pd == nullptr) {
             return false;
         }
@@ -297,7 +310,8 @@ namespace astia::arch {
         }
 
         u64* pml4 = root_table(*this);
-        u64* pdpt = ensure_table(*this, virt, table_level::pdpt, pml4[pml4_index(virt)], flags);
+        u64* pdpt =
+            ensure_table(*this, virt, table_level::pdpt, pml4[pml4_index(virt)], flags);
         if (pdpt == nullptr) {
             return false;
         }
@@ -332,7 +346,8 @@ namespace astia::arch {
         if ((pml4e & entry_present) == 0) {
             return false;
         }
-        const u64 pdpe = next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
+        const u64 pdpe =
+            next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
         if ((pdpe & (entry_present | entry_huge)) != entry_present) {
             return false;
         }
@@ -362,7 +377,8 @@ namespace astia::arch {
             // after this map was created.
             return parent_ != nullptr ? parent_->translate(virt) : invalid;
         }
-        const u64 pdpe = next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
+        const u64 pdpe =
+            next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
         if ((pdpe & entry_present) == 0) {
             return invalid;
         }
@@ -398,7 +414,7 @@ namespace astia::arch {
 #ifndef ASTIA_HOST_TEST
         asm volatile("invlpg (%0)" : : "r"(virt) : "memory");
 #else
-        (void)virt;
+        (void) virt;
 #endif
     }
 

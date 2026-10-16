@@ -1,7 +1,6 @@
 #include "proc.hpp"
-
-#include <astia/api/errno.h>
 #include "share.hpp"
+#include <astia/api/errno.h>
 
 namespace astia::proc {
 
@@ -19,8 +18,7 @@ namespace astia::proc {
         arch::user_context image = *uctx;
         image.fs_base            = parent->tls_tp();
 
-        auto child =
-            mm::share<process>(allocate_pid(), parent->pid(), parent->name());
+        auto child = mm::share<process>(allocate_pid(), parent->pid(), parent->name());
         if (!child) {
             return -ENOMEM;
         }

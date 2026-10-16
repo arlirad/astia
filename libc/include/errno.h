@@ -28,7 +28,7 @@ extern "C" {
 #if __cplusplus >= 201103L
 extern thread_local int __astia_errno;
 #else
-extern int __astia_errno;       /* pre-C++11: no thread_local; best effort */
+extern int __astia_errno; /* pre-C++11: no thread_local; best effort */
 #endif
 #else
 extern _Thread_local int __astia_errno;

@@ -28,7 +28,7 @@ extern "C" {
 
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
-#define RAND_MAX     32767
+#define RAND_MAX 32767
 
 /* memory */
 void* malloc(size_t size);
@@ -38,21 +38,21 @@ void* realloc(void* ptr, size_t size);
 
 /* program */
 ASTIA_NORETURN void abort(void);
-int atexit(void (*function)(void));
+int                 atexit(void (*function)(void));
 ASTIA_NORETURN void exit(int status);
 ASTIA_NORETURN void _Exit(int status);
 
 /* string conversions */
-int           atoi(const char* nptr);
-long          atol(const char* nptr);
-long          strtol(const char* nptr, char** endptr, int base);
-unsigned long strtoul(const char* nptr, char** endptr, int base);
-long long     strtoll(const char* nptr, char** endptr, int base);
+int                atoi(const char* nptr);
+long               atol(const char* nptr);
+long               strtol(const char* nptr, char** endptr, int base);
+unsigned long      strtoul(const char* nptr, char** endptr, int base);
+long long          strtoll(const char* nptr, char** endptr, int base);
 unsigned long long strtoull(const char* nptr, char** endptr, int base);
-double        strtod(const char* nptr, char** endptr);
-float         strtof(const char* nptr, char** endptr);
-long double   strtold(const char* nptr, char** endptr);
-double        atof(const char* nptr);
+double             strtod(const char* nptr, char** endptr);
+float              strtof(const char* nptr, char** endptr);
+long double        strtold(const char* nptr, char** endptr);
+double             atof(const char* nptr);
 
 /* math (the half that cannot silently overflow) */
 int  abs(int j);

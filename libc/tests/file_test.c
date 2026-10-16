@@ -10,29 +10,30 @@
  * assertions distinguish "in the buffer" from "on the device".
  */
 
-#include <fcntl.h>    /* host: probe */
 #include <sys/types.h> /* host ssize_t/off_t: ours has no sys/types.h */
-#include <limits.h>   /* LONG_MAX: the fseek overflow pin */
+
 #include <errno.h>
+#include <fcntl.h>  /* host: probe */
+#include <limits.h> /* LONG_MAX: the fseek overflow pin */
 #include <stdio.h>
 #include <string.h>
 
 /* <unistd.h> is ours now (getpid/gettid); the host calls the stream
  * tests need are declared by hand, like every other host port here. */
-extern int dup(int fd);
-extern int dup2(int oldfd, int newfd);
-extern int unlink(const char* path);
-extern int close(int fd);
+extern int     dup(int fd);
+extern int     dup2(int oldfd, int newfd);
+extern int     unlink(const char* path);
+extern int     close(int fd);
 extern ssize_t pread(int fd, void* buf, size_t count, off_t offset);
 
 static int fails;
 
-#define CHECK(cond)                                                     \
-    do {                                                                \
-        if (!(cond)) {                                                  \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);       \
-            fails++;                                                    \
-        }                                                               \
+#define CHECK(cond)                                                \
+    do {                                                           \
+        if (!(cond)) {                                             \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+            fails++;                                               \
+        }                                                          \
     } while (0)
 
 #define P1 "file_test.dat"
@@ -40,9 +41,8 @@ static int fails;
 #define PM "file_test_missing.dat"
 
 /* host read of the raw file: byte count, or -1 (absent/unreadable) */
-static long probe(const char* path, void* buf, size_t cap)
-{
-    int fd = open(path, O_RDONLY);
+static long probe(const char* path, void* buf, size_t cap) {
+    int     fd = open(path, O_RDONLY);
     ssize_t r;
 
     if (fd < 0)
@@ -52,12 +52,11 @@ static long probe(const char* path, void* buf, size_t cap)
     return r < 0 ? -1 : (long) r;
 }
 
-static void test_roundtrip(void)
-{
+static void test_roundtrip(void) {
     static unsigned char pat[10000];
     static unsigned char out[10000];
-    FILE* f;
-    size_t n;
+    FILE*                f;
+    size_t               n;
 
     for (size_t i = 0; i < sizeof pat; i++)
         pat[i] = (unsigned char) (i * 31 + 7); /* NULs and newlines inside */
@@ -74,29 +73,28 @@ static void test_roundtrip(void)
     CHECK(f != NULL);
     if (!f)
         return;
-    n = fread(out, 1, 100, f);            /* buffered refill */
+    n = fread(out, 1, 100, f); /* buffered refill */
     CHECK(n == 100);
-    n += fread(out + 100, 1, 5000, f);    /* drain + direct read mix */
+    n += fread(out + 100, 1, 5000, f); /* drain + direct read mix */
     CHECK(n == 5100);
     n += fread(out + 5100, 1, 4900, f);
     CHECK(n == 10000);
     CHECK(memcmp(pat, out, sizeof pat) == 0);
     CHECK(ftell(f) == 10000);
-    CHECK(feof(f) == 0);                  /* exact end is not yet EOF */
-    CHECK(fread(out, 1, 1, f) == 0);      /* one byte past the end is */
+    CHECK(feof(f) == 0);             /* exact end is not yet EOF */
+    CHECK(fread(out, 1, 1, f) == 0); /* one byte past the end is */
     CHECK(feof(f) != 0);
     CHECK(ferror(f) == 0);
     clearerr(f);
     CHECK(feof(f) == 0);
     CHECK(fread(out, 1, 1, f) == 0);
-    CHECK(feof(f) != 0);                  /* clearerr re-asks, EOF again */
+    CHECK(feof(f) != 0); /* clearerr re-asks, EOF again */
     CHECK(fclose(f) == 0);
 }
 
-static void test_buffering_and_flush(void)
-{
+static void test_buffering_and_flush(void) {
     unsigned char buf[32];
-    FILE* f;
+    FILE*         f;
 
     f = fopen(P1, "w");
     CHECK(f != NULL);
@@ -108,16 +106,15 @@ static void test_buffering_and_flush(void)
     CHECK(probe(P1, buf, sizeof buf) == 5);
     CHECK(memcmp(buf, "early", 5) == 0);
     CHECK(fwrite("+late", 1, 5, f) == 5);
-    CHECK(fclose(f) == 0);                  /* fclose flushes as its job */
+    CHECK(fclose(f) == 0); /* fclose flushes as its job */
     CHECK(probe(P1, buf, sizeof buf) == 10);
     CHECK(memcmp(buf, "early+late", 10) == 0);
 }
 
-static void test_setvbuf(void)
-{
+static void test_setvbuf(void) {
     unsigned char buf[32];
-    char ubuf[16];
-    FILE* f;
+    char          ubuf[16];
+    FILE*         f;
 
     f = fopen(P1, "w");
     CHECK(f != NULL);
@@ -171,11 +168,10 @@ static void test_setvbuf(void)
     CHECK(memcmp(buf, "0123456789abcdefghij", 20) == 0);
 }
 
-static void test_seek_and_overwrite(void)
-{
+static void test_seek_and_overwrite(void) {
     unsigned char buf[128];
-    FILE* f;
-    int i;
+    FILE*         f;
+    int           i;
 
     f = fopen(P1, "w+"); /* reads below need the '+' access */
     CHECK(f != NULL);
@@ -221,10 +217,9 @@ static void test_seek_and_overwrite(void)
 /* SEEK_END must count bytes that are still only in the buffer: with a
  * size query sampled before the flush the end position came back stale
  * and the next write landed on top of the pending data. */
-static void test_seek_end_sees_pending(void)
-{
+static void test_seek_end_sees_pending(void) {
     unsigned char buf[16];
-    FILE* f;
+    FILE*         f;
 
     f = fopen(P2, "w");
     CHECK(f != NULL);
@@ -232,17 +227,16 @@ static void test_seek_end_sees_pending(void)
         return;
     CHECK(fwrite("abc", 1, 3, f) == 3); /* buffered; disk still empty */
     CHECK(fseek(f, 0, SEEK_END) == 0);
-    CHECK(ftell(f) == 3);               /* end includes the pending 3 */
-    CHECK(fwrite("XY", 1, 2, f) == 2);  /* after them, not over them */
+    CHECK(ftell(f) == 3);              /* end includes the pending 3 */
+    CHECK(fwrite("XY", 1, 2, f) == 2); /* after them, not over them */
     CHECK(fclose(f) == 0);
     CHECK(probe(P2, buf, sizeof buf) == 5);
     CHECK(memcmp(buf, "abcXY", 5) == 0);
 }
 
-static void test_append(void)
-{
+static void test_append(void) {
     unsigned char buf[32];
-    FILE* f;
+    FILE*         f;
 
     f = fopen(P1, "w");
     CHECK(f != NULL);
@@ -277,10 +271,9 @@ static void test_append(void)
     CHECK(memcmp(buf, "one\ntwo\nthree\n", 14) == 0);
 }
 
-static void test_read_write_switch(void)
-{
+static void test_read_write_switch(void) {
     unsigned char buf[16];
-    FILE* f;
+    FILE*         f;
 
     f = fopen(P1, "w+");
     CHECK(f != NULL);
@@ -298,10 +291,9 @@ static void test_read_write_switch(void)
     CHECK(memcmp(buf, "abXYef", 6) == 0);
 }
 
-static void test_errors(void)
-{
+static void test_errors(void) {
     unsigned char buf[8];
-    FILE* f;
+    FILE*         f;
 
     (void) unlink(PM);
     f = fopen(PM, "r");
@@ -372,9 +364,8 @@ static void test_errors(void)
     (void) unlink(P1);
 }
 
-static void test_chars_and_lines(void)
-{
-    char line[64];
+static void test_chars_and_lines(void) {
+    char  line[64];
     FILE* f;
 
     f = fopen(P1, "w");
@@ -404,14 +395,13 @@ static void test_chars_and_lines(void)
     CHECK(fclose(f) == 0);
 }
 
-static void test_element_accounting(void)
-{
+static void test_element_accounting(void) {
     static unsigned char chunk[64];
-    volatile size_t huge = (size_t) -1; /* volatile: this test wants the
-                                           runtime guard, not the
-                                           optimizer's verdict */
+    volatile size_t      huge = (size_t) -1; /* volatile: this test wants the
+                                                runtime guard, not the
+                                                optimizer's verdict */
     FILE* f;
-    int i;
+    int   i;
 
     f = fopen(P1, "w");
     CHECK(f != NULL);
@@ -425,10 +415,10 @@ static void test_element_accounting(void)
     CHECK(f != NULL);
     if (!f)
         return;
-    CHECK(fread(chunk, 10, 5, f) == 4); /* 47 = 4 whole + 7 torn bytes */
-    CHECK(ftell(f) == 47);              /* the torn bytes were consumed */
-    CHECK(feof(f) != 0);                /* the short element triggered
-                                           the read-past-end */
+    CHECK(fread(chunk, 10, 5, f) == 4);   /* 47 = 4 whole + 7 torn bytes */
+    CHECK(ftell(f) == 47);                /* the torn bytes were consumed */
+    CHECK(feof(f) != 0);                  /* the short element triggered
+                                             the read-past-end */
     CHECK(fread(chunk, huge, 2, f) == 0); /* size*nmemb overflows: 0, and
                                              the stream does not move */
     CHECK(ftell(f) == 47);
@@ -443,10 +433,9 @@ static void test_element_accounting(void)
     CHECK(fclose(f) == 0);
 }
 
-static void test_fflush_all(void)
-{
+static void test_fflush_all(void) {
     unsigned char buf[16];
-    FILE* f;
+    FILE*         f;
 
     f = fopen(P2, "w");
     CHECK(f != NULL);
@@ -460,12 +449,11 @@ static void test_fflush_all(void)
     CHECK(fclose(f) == 0);
 }
 
-static void test_fflush_discards_readahead(void)
-{
+static void test_fflush_discards_readahead(void) {
     static unsigned char seq[100];
     static unsigned char got[20];
-    FILE* f;
-    size_t i;
+    FILE*                f;
+    size_t               i;
 
     for (i = 0; i < sizeof seq; i++)
         seq[i] = (unsigned char) i;
@@ -492,8 +480,7 @@ static void test_fflush_discards_readahead(void)
 
 /* the error path end to end: a device that refuses writes.  Flags,
  * errno, position and the retry story must all stay coherent. */
-static void test_write_error_state(void)
-{
+static void test_write_error_state(void) {
     FILE* f;
 
     f = fopen("/dev/full", "w");
@@ -510,18 +497,17 @@ static void test_write_error_state(void)
     CHECK(fflush(f) == EOF); /* ... and the device still refuses */
     CHECK(ferror(f) != 0);
     clearerr(f);
-    CHECK(fclose(f) != 0);   /* the final flush fails too */
+    CHECK(fclose(f) != 0); /* the final flush fails too */
 }
 
-static void test_stdout_line_buffered(void)
-{
+static void test_stdout_line_buffered(void) {
     unsigned char buf[32];
-    int saved, tmp;
-    long n1, n2, n3;
-    int ok_restore;
+    int           saved, tmp;
+    long          n1, n2, n3;
+    int           ok_restore;
 
     saved = dup(1);
-    tmp = open("file_test_out.dat", O_RDWR | O_CREAT | O_TRUNC, 0644);
+    tmp   = open("file_test_out.dat", O_RDWR | O_CREAT | O_TRUNC, 0644);
     CHECK(saved >= 0 && tmp >= 0);
     if (saved < 0 || tmp < 0) {
         if (saved >= 0)
@@ -553,11 +539,10 @@ static void test_stdout_line_buffered(void)
     (void) unlink("file_test_out.dat");
 }
 
-static void test_fclose_stdout(void)
-{
+static void test_fclose_stdout(void) {
     char sbuf[32];
-    int saved = dup(1);
-    int rc;
+    int  saved = dup(1);
+    int  rc;
 
     CHECK(saved >= 0);
     if (saved < 0)
@@ -583,8 +568,7 @@ static void test_fclose_stdout(void)
     CHECK(ferror(stdout) == 0);
 }
 
-int main(void)
-{
+int main(void) {
     (void) unlink(P1);
     (void) unlink(P2);
     (void) unlink(PM);

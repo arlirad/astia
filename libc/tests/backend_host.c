@@ -17,9 +17,10 @@
  * compare against (the ABI copied the familiar POSIX/LINUX set).
  */
 
-#include <fcntl.h>    /* host O_* dialect, open() */
-#include <sys/stat.h> /* fstat */
+#include <sys/stat.h>  /* fstat */
 #include <sys/types.h> /* host ssize_t/off_t: ours has no sys/types.h */
+
+#include <fcntl.h> /* host O_* dialect, open() */
 
 /* <unistd.h> is ours now (getpid/gettid), so the host syscalls this
  * port drives are declared by hand — same pattern as every other host
@@ -28,21 +29,20 @@ extern ssize_t read(int fd, void* buf, size_t count);
 extern ssize_t write(int fd, const void* buf, size_t count);
 extern ssize_t pread(int fd, void* buf, size_t count, off_t offset);
 extern ssize_t pwrite(int fd, const void* buf, size_t count, off_t offset);
-extern int close(int fd);
+extern int     close(int fd);
 
 /* ESPIPE and friends: the ABI's codes, numerically identical to the
    host's for everything this port compares (ENOENT, EINVAL, EBADF,
    ESPIPE all match Linux).  Bare `errno` stays untouched — this file
    reads the host's TLS through __errno_location above, never ours. */
-#include <errno.h>
-
 #include "../src/file_port.h"
+
+#include <errno.h>
 
 extern int* __errno_location(void); /* glibc's errno, without its header */
 #define HOST_ERRNO (*__errno_location())
 
-long __astia_fio_open(const char* path, int flags, int mode)
-{
+long __astia_fio_open(const char* path, int flags, int mode) {
     int access = flags & (FIO_READ | FIO_WRITE);
     int hf;
 
@@ -66,8 +66,7 @@ long __astia_fio_open(const char* path, int flags, int mode)
     return fd >= 0 ? fd : -HOST_ERRNO;
 }
 
-long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n)
-{
+long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n) {
     ssize_t r = pread(fd, buf, n, (off_t) off);
 
     if (r < 0 && HOST_ERRNO == ESPIPE) {
@@ -78,15 +77,15 @@ long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n)
     return r >= 0 ? (long) r : -HOST_ERRNO;
 }
 
-long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n)
-{
+long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n) {
     ssize_t r;
 
     if (off == FIO_OFF_APPEND) {
         /* O_APPEND was set at open(): plain write appends, and pwrite
            would refuse UINT64_MAX as an offset anyway */
         r = write(fd, buf, n);
-    } else {
+    }
+    else {
         r = pwrite(fd, buf, n, (off_t) off);
         if (r < 0 && HOST_ERRNO == ESPIPE)
             r = write(fd, buf, n);
@@ -94,13 +93,11 @@ long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n)
     return r >= 0 ? (long) r : -HOST_ERRNO;
 }
 
-long __astia_fio_close(int fd)
-{
+long __astia_fio_close(int fd) {
     return close(fd) < 0 ? -HOST_ERRNO : 0;
 }
 
-long __astia_fio_size(int fd, uint64_t* out)
-{
+long __astia_fio_size(int fd, uint64_t* out) {
     struct stat st;
 
     if (fstat(fd, &st) < 0)

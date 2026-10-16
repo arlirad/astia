@@ -1,14 +1,14 @@
 #include "cpu.hpp"
-#include <astia/boot.hpp>
-#include <astia/common.hpp>
-#include "panic.hpp"
 #include "debug_exit.hpp"
-#include "uart16550.hpp"
-#include <astia/init.hpp>
 #include "log.hpp"
-#include "selftest.hpp"
+#include "panic.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
+#include "selftest.hpp"
+#include "uart16550.hpp"
+#include <astia/boot.hpp>
+#include <astia/common.hpp>
+#include <astia/init.hpp>
 
 namespace {
 
@@ -16,12 +16,12 @@ namespace {
     /// spawn failure apart from a bad exit status.
     auto run_image(const char* path, char* const argv[], char* const envp[],
                    bool& spawned) -> bool {
-        spawned = false;
+        spawned      = false;
         auto process = astia::proc::spawnve(path, argv, envp);
         if (!process) {
             return false;
         }
-        spawned               = true;
+        spawned                    = true;
         const astia::i32 child_pid = static_cast<astia::i32>(process->pid());
         astia::i32       status    = -1;
         const astia::i64 reaped    = astia::proc::waitpid(child_pid, &status);
@@ -37,21 +37,20 @@ namespace {
             // Two userspace images, each judged by its exit status: the
             // raw-ABI fixture, then the same tree's libc as a real C
             // program (CRT0, TLS, stdio over the rings).
-            char* init_argv[] = { const_cast<char*>("/sbin/init"),
-                                  const_cast<char*>("--flag"), nullptr };
-            char* init_envp[] = { const_cast<char*>("HOME=/"), nullptr };
-            char* libc_argv[] = { const_cast<char*>("/bin/init_libc"), nullptr };
-            char* libc_envp[] = { const_cast<char*>("HOME=/"), nullptr };
-            bool  spawned     = false;
-            const bool init_ok =
-                run_image("/sbin/init", init_argv, init_envp, spawned);
+            char*      init_argv[] = {const_cast<char*>("/sbin/init"),
+                                      const_cast<char*>("--flag"), nullptr};
+            char*      init_envp[] = {const_cast<char*>("HOME=/"), nullptr};
+            char*      libc_argv[] = {const_cast<char*>("/bin/init_libc"), nullptr};
+            char*      libc_envp[] = {const_cast<char*>("HOME=/"), nullptr};
+            bool       spawned     = false;
+            const bool init_ok = run_image("/sbin/init", init_argv, init_envp, spawned);
             if (!spawned) {
                 __atomic_store_n(ok, 2u, __ATOMIC_RELEASE);
-            } else {
+            }
+            else {
                 const bool libc_ok =
                     run_image("/bin/init_libc", libc_argv, libc_envp, spawned);
-                __atomic_store_n(ok, (init_ok && libc_ok) ? 1u : 3u,
-                                 __ATOMIC_RELEASE);
+                __atomic_store_n(ok, (init_ok && libc_ok) ? 1u : 3u, __ATOMIC_RELEASE);
             }
             // Process references were released inside run_image before
             // exit(): exit never returns, so an unwound frame (and its
@@ -85,7 +84,7 @@ extern "C" void kmain(void* start_info) {
 
     if (ctx.info != nullptr && ctx.info->module_count != 0) {
         volatile astia::u32 spawn_status = 0;
-        auto worker = astia::proc::scheduler::create_kernel(
+        auto                worker       = astia::proc::scheduler::create_kernel(
             spawn_init_worker, const_cast<astia::u32*>(&spawn_status));
         // The worker blocks in waitpid until user init exits, and this
         // bootstrap thread blocks in join() until the worker exits;

@@ -1,5 +1,6 @@
-#include <astia/api/errno.h>
 #include "device.hpp"
+
+#include <astia/api/errno.h>
 
 namespace astia::dev {
 

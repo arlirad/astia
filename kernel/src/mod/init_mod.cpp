@@ -1,10 +1,10 @@
-#include <astia/boot.hpp>
 #include "elf.hpp"
-#include <astia/init.hpp>
+#include "frame_allocator.hpp"
 #include "initrd.hpp"
 #include "log.hpp"
-#include "frame_allocator.hpp"
 #include "module.hpp"
+#include <astia/boot.hpp>
+#include <astia/init.hpp>
 
 // The "mod" init step: turn the bootloader's module list into running code.
 //

@@ -1,4 +1,5 @@
 #include "context.hpp"
+
 #include "gdt.hpp"
 
 namespace astia::arch {
@@ -26,8 +27,8 @@ namespace astia::arch {
         // under the x86-64 ABI — so switching between two of them must
         // swap the FXSAVE image too.  Kernel contexts never touch xmm
         // (-mgeneral-regs-only) and leave this alone.
-        bool           user = false;
-        alignas(16) u8 fx[512] {};
+        bool user = false;
+        alignas(16) u8 fx[512]{};
     };
 
     extern "C" void astia_context_switch_raw(context*, const context*);
@@ -48,12 +49,9 @@ namespace astia::arch {
             // switch takes us into its ring-3 code.  A context without
             // TLS zeroes it — no userspace code reaches %fs then.
             constexpr u32 ia32_fs_base = 0xC0000100u;
-            const u32     low  = static_cast<u32>(next_context->fs_base);
-            const u32     high = static_cast<u32>(next_context->fs_base >> 32);
-            asm volatile("wrmsr"
-                         :
-                         : "c"(ia32_fs_base), "a"(low), "d"(high)
-                         : "memory");
+            const u32     low          = static_cast<u32>(next_context->fs_base);
+            const u32     high         = static_cast<u32>(next_context->fs_base >> 32);
+            asm volatile("wrmsr" : : "c"(ia32_fs_base), "a"(low), "d"(high) : "memory");
         }
         astia_context_switch_raw(old_context, next_context);
     }
@@ -91,8 +89,8 @@ namespace astia::arch {
         // with every exception masked.  FXRSTOR of an all-zero image
         // would unmask them all and kill the thread on the first
         // denormal.
-        value->user    = true;
-        value->fs_base = fs_base;
+        value->user     = true;
+        value->fs_base  = fs_base;
         const u16 fcw   = 0x037F;
         const u32 mxcsr = 0x1F80;
         __builtin_memset(value->fx, 0, sizeof value->fx);
@@ -118,8 +116,7 @@ namespace astia::arch {
 
     auto context_prepare_fork(context* value, u64 kernel_stack_top,
                               const user_context* image) -> bool {
-        if (value == nullptr || image == nullptr ||
-            kernel_stack_top < 5 * sizeof(u64)) {
+        if (value == nullptr || image == nullptr || kernel_stack_top < 5 * sizeof(u64)) {
             return false;
         }
         // The iretq frame the resume trampoline pops: the parent's

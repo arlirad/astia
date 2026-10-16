@@ -1,24 +1,23 @@
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include <stdint.h>
 
 static int fails;
 
-#define CHECK(cond)                                                     \
-    do {                                                                \
-        if (!(cond)) {                                                  \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);       \
-            fails++;                                                    \
-        }                                                               \
+#define CHECK(cond)                                                \
+    do {                                                           \
+        if (!(cond)) {                                             \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+            fails++;                                               \
+        }                                                          \
     } while (0)
 
-static void test_alignment_and_content(void)
-{
+static void test_alignment_and_content(void) {
     static const size_t sizes[] = {1, 15, 16, 17, 100, 1000, 4096};
 
     for (size_t i = 0; i < sizeof sizes / sizeof sizes[0]; i++) {
-        size_t n = sizes[i];
+        size_t         n = sizes[i];
         unsigned char* p = malloc(n);
 
         CHECK(p != NULL);
@@ -36,27 +35,25 @@ static void test_alignment_and_content(void)
     }
 }
 
-static void test_zero_and_null(void)
-{
+static void test_zero_and_null(void) {
     void* z1 = malloc(0);
     void* z2 = malloc(0);
 
     CHECK(z1 != NULL);
     CHECK(z2 != NULL);
-    CHECK(z1 != z2);            /* distinct pointers, both usable */
+    CHECK(z1 != z2); /* distinct pointers, both usable */
     free(z1);
     free(z2);
-    free(NULL);                 /* no-op by definition */
+    free(NULL); /* no-op by definition */
     CHECK(1);
 }
 
-static void test_calloc(void)
-{
-    unsigned char* c;
-    volatile size_t huge = (size_t) -1;  /* volatile: this test wants the
-                                            runtime overflow check, not
-                                            the optimizer's verdict on an
-                                            impossible constant */
+static void test_calloc(void) {
+    unsigned char*  c;
+    volatile size_t huge = (size_t) -1; /* volatile: this test wants the
+                                           runtime overflow check, not
+                                           the optimizer's verdict on an
+                                           impossible constant */
     volatile size_t zero = 0;
 
     c = calloc(64, 4);
@@ -70,23 +67,22 @@ static void test_calloc(void)
         free(c);
     }
 
-    CHECK(calloc(huge, 4) == NULL);      /* nmemb*size would wrap */
+    CHECK(calloc(huge, 4) == NULL); /* nmemb*size would wrap */
     CHECK(calloc(4, huge) == NULL);
     c = calloc(zero, 8);
-    CHECK(c != NULL);                    /* malloc(0) semantics */
+    CHECK(c != NULL); /* malloc(0) semantics */
     free(c);
 }
 
-static void test_realloc(void)
-{
-    char* p = realloc(NULL, 32);              /* = malloc */
+static void test_realloc(void) {
+    char* p = realloc(NULL, 32); /* = malloc */
 
     CHECK(p != NULL);
     if (!p)
         return;
     memset(p, 'x', 32);
 
-    p = realloc(p, 200);                      /* grow: relocate or extend */
+    p = realloc(p, 200); /* grow: relocate or extend */
     CHECK(p != NULL);
     if (!p)
         return;
@@ -99,7 +95,7 @@ static void test_realloc(void)
     }
     memset(p + 32, 'y', 168);
 
-    p = realloc(p, 100);                      /* shrink: keep the head */
+    p = realloc(p, 100); /* shrink: keep the head */
     CHECK(p != NULL);
     if (!p)
         return;
@@ -133,11 +129,10 @@ static void test_realloc(void)
     }
 #pragma GCC diagnostic pop
 
-    CHECK(realloc(p, 0) == NULL);             /* frees, returns NULL */
+    CHECK(realloc(p, 0) == NULL); /* frees, returns NULL */
 }
 
-static void test_coalesce(void)
-{
+static void test_coalesce(void) {
     enum { N = 64 };
     void* ps[N];
     void* big;
@@ -172,55 +167,54 @@ static void test_coalesce(void)
     free(big);
 }
 
-static void test_exhaustion(void)
-{
+static void test_exhaustion(void) {
     enum { CHUNK = 65536, MAXC = 64 };
     void* chunks[MAXC];
-    int n = 0;
+    int   n = 0;
 
-    CHECK(malloc(2u << 20) == NULL);          /* larger than the arena */
+    CHECK(malloc(2u << 20) == NULL); /* larger than the arena */
 
     for (; n < MAXC; n++) {
         chunks[n] = malloc(CHUNK);
         if (chunks[n] == NULL)
             break;
     }
-    CHECK(n > 0);                             /* it served something */
-    CHECK(n < MAXC);                          /* ...but ran out */
+    CHECK(n > 0);    /* it served something */
+    CHECK(n < MAXC); /* ...but ran out */
     for (int i = 0; i < n; i++)
         free(chunks[i]);
 
     {
-        void* p = malloc(CHUNK);             /* whole arena is back */
+        void* p = malloc(CHUNK); /* whole arena is back */
         CHECK(p != NULL);
         free(p);
     }
 }
 
-static void test_stress(void)
-{
+static void test_stress(void) {
     enum { SLOTS = 128, ITERS = 3000 };
     static unsigned char* slots[SLOTS];
-    static size_t sizes[SLOTS];
-    int rng = 1;
+    static size_t         sizes[SLOTS];
+    int                   rng = 1;
 
     for (int it = 0; it < ITERS; it++) {
         int idx;
         rng = rng * 1103515245 + 12345;
         idx = (int) ((unsigned) rng / 65536u) % SLOTS;
 
-        if (slots[idx]) {                     /* verify, then recycle */
-            unsigned char* p = slots[idx];
-            int ok = 1;
+        if (slots[idx]) { /* verify, then recycle */
+            unsigned char* p  = slots[idx];
+            int            ok = 1;
             for (size_t j = 0; j < sizes[idx]; j++)
                 if (p[j] != (unsigned char) (idx * 31u + j))
                     ok = 0;
             CHECK(ok);
             free(p);
             slots[idx] = NULL;
-        } else {
-            size_t sz = 1 + (size_t) ((unsigned) rng % 4096u);
-            unsigned char* p = malloc(sz);
+        }
+        else {
+            size_t         sz = 1 + (size_t) ((unsigned) rng % 4096u);
+            unsigned char* p  = malloc(sz);
             CHECK(p != NULL);
             if (!p)
                 continue;
@@ -232,7 +226,7 @@ static void test_stress(void)
         }
     }
 
-    for (int i = 0; i < SLOTS; i++) {         /* drain: one last verify */
+    for (int i = 0; i < SLOTS; i++) { /* drain: one last verify */
         if (!slots[i])
             continue;
         {
@@ -247,13 +241,12 @@ static void test_stress(void)
     }
 }
 
-int main(void)
-{
+int main(void) {
     test_alignment_and_content();
     test_zero_and_null();
     test_calloc();
     test_realloc();
-    test_coalesce();                          /* needs a drained arena */
+    test_coalesce(); /* needs a drained arena */
     test_exhaustion();
     test_stress();
 

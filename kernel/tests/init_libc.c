@@ -6,38 +6,36 @@
  * greps for; any failed step leaves the boot test with a nonzero exit
  * status and this program's step number in the serial log.
  */
+#include <sys/futex.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+
 #include <errno.h>
+#include <pthread.h>
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <sys/futex.h>
-#include <sys/wait.h>
-#include <pthread.h>
-#include <sched.h>
 #include <unistd.h>
 
-static void* libc_thread_worker(void* opaque)
-{
+static void* libc_thread_worker(void* opaque) {
     int* value = (int*) opaque;
-    *value = 42;
-    errno = EINTR;
+    *value     = 42;
+    errno      = EINTR;
     return (void*) (unsigned long) (errno == EINTR ? 0x1234 : 0x1235);
 }
 
 static volatile unsigned int libc_futex_word;
-static volatile int libc_futex_ready;
+static volatile int          libc_futex_ready;
 
-static void* libc_futex_worker(void* opaque)
-{
+static void* libc_futex_worker(void* opaque) {
     (void) opaque;
     libc_futex_ready = 1;
-    const int rc = futex_wait((unsigned int*) &libc_futex_word, 0);
+    const int rc     = futex_wait((unsigned int*) &libc_futex_word, 0);
     return (void*) (unsigned long) (rc == 0 ? 0x2345 : 0x2346);
 }
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     /* 1: TLS.  errno is _Thread_local, reached at a negative %fs
        offset — only correct if the kernel loaded the thread pointer
        from the image's PT_TLS block. */
@@ -62,8 +60,8 @@ int main(int argc, char** argv)
     /* 5-8: anonymous mmap through the kernel — fresh memory that is
        zeroed, writable, and removable again */
     {
-        unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        unsigned char* page =
+            mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (page == MAP_FAILED)
             return 5;
         if (page[0] != 0 || page[4095] != 0) /* fresh anon memory is zeroed */
@@ -81,8 +79,8 @@ int main(int argc, char** argv)
         FILE* image = fopen("/sbin/init", "r");
         if (image == NULL)
             return 9;
-        unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                                   MAP_PRIVATE, fileno(image), 0);
+        unsigned char* page =
+            mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE, fileno(image), 0);
         fclose(image); /* the mapping keeps the file description alive */
         if (page == MAP_FAILED)
             return 10;
@@ -110,8 +108,8 @@ int main(int argc, char** argv)
        parent's page keeps its value, and waitpid reaps the child's
        exit status. */
     {
-        unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        unsigned char* page =
+            mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (page == MAP_FAILED)
             return 16;
         page[0] = 7;
@@ -147,7 +145,7 @@ int main(int argc, char** argv)
     /* 23-25: pthread_create/join.  join blocks the caller through the
        kernel futex-backed thread wake path until the worker returns. */
     {
-        int value = 0;
+        int       value = 0;
         pthread_t worker;
         errno = EAGAIN;
         if (pthread_create(&worker, NULL, libc_thread_worker, &value) != 0)
@@ -155,8 +153,7 @@ int main(int argc, char** argv)
         void* result = NULL;
         if (pthread_join(worker, &result) != 0)
             return 24;
-        if (value != 42 || result != (void*) (unsigned long) 0x1234 ||
-            errno != EAGAIN)
+        if (value != 42 || result != (void*) (unsigned long) 0x1234 || errno != EAGAIN)
             return 25;
     }
 
@@ -201,8 +198,8 @@ int main(int argc, char** argv)
             return 32;
         if (fflush(shared_file) != 0)
             return 33;
-        unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                                   MAP_SHARED, fileno(shared_file), 0);
+        unsigned char* page =
+            mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fileno(shared_file), 0);
         fclose(shared_file);
         if (page == MAP_FAILED)
             return 34;
@@ -277,11 +274,11 @@ int main(int argc, char** argv)
                                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (p == MAP_FAILED)
                 return 47;
-            p[0]     = 0xEE;
-            p[4095]  = 0xEE;
+            p[0]    = 0xEE;
+            p[4095] = 0xEE;
             if (q[0] != 0x55 || q[3 * 4096] != 0xAA) {
-                printf("recycle clobber i=%d p=%p q0=%02x q3=%02x p0=%02x\n",
-                       i, (void*) p, q[0], q[3 * 4096], p[0]);
+                printf("recycle clobber i=%d p=%p q0=%02x q3=%02x p0=%02x\n", i,
+                       (void*) p, q[0], q[3 * 4096], p[0]);
                 return 48;
             }
             if (munmap(p, 4096) != 0)

@@ -251,14 +251,14 @@ static inline long astia_futex(uint64_t* addr, uint32_t op, uint32_t val,
 
 static inline long astia_thread_create(void (*entry)(void*), void* stack_top,
                                        void* argument) {
-    return astia_raw6(SYS_THREAD_CREATE, (long) (uintptr_t) entry,
-                      (long) stack_top,
+    return astia_raw6(SYS_THREAD_CREATE, (long) (uintptr_t) entry, (long) stack_top,
                       (long) argument, 0, 0, 0);
 }
 
 static inline void astia_thread_exit(void* result) {
     (void) astia_raw6(SYS_THREAD_EXIT, (long) result, 0, 0, 0, 0, 0);
-    for (;;) { }
+    for (;;) {
+    }
 }
 
 static inline long astia_thread_join(uint32_t tid, void** result) {

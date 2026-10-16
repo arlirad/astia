@@ -1,9 +1,9 @@
 #pragma once
 
-#include <astia/api/termios.h>
-#include <astia/common.hpp>
 #include "chr/tty.hpp"
 #include "regs.hpp"
+#include <astia/api/termios.h>
+#include <astia/common.hpp>
 
 // COM1 as a 16550 UART, shaped by the dev layer's blk/char/net split:
 // a uart16550 is a tty (line discipline: termios, TCGETS/TCSETS, a

@@ -1,12 +1,12 @@
-#include <astia/api/errno.h>
-#include <astia/api/syscalls.h>
-#include "interrupts.hpp"
-#include "syscall.hpp"
-#include "user_mem.hpp"
 #include "heap.hpp"
+#include "interrupts.hpp"
+#include "log.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
-#include "log.hpp"
+#include "syscall.hpp"
+#include "user_mem.hpp"
+#include <astia/api/errno.h>
+#include <astia/api/syscalls.h>
 
 namespace astia::proc {
 
@@ -31,7 +31,8 @@ namespace astia::proc {
 
         auto sys_exit(i64 status, i64, i64, i64, i64, i64) -> i64 {
             auto* thread = current_thread();
-            if (thread == nullptr) return -ESRCH;
+            if (thread == nullptr)
+                return -ESRCH;
             log::info("user thread exit status=%ld", status);
             thread->exit(reinterpret_cast<void*>(static_cast<usize>(status)));
             __builtin_unreachable();
@@ -47,7 +48,7 @@ namespace astia::proc {
             if (status != nullptr && !sys::user_range_ok(status, sizeof(i32))) {
                 return -EFAULT;
             }
-            i32   local  = 0;
+            i32       local = 0;
             const i64 result =
                 waitpid(static_cast<i32>(pid), status == nullptr ? nullptr : &local);
             if (result >= 0 && status != nullptr &&
@@ -73,8 +74,8 @@ namespace astia::proc {
                 return 0; // a null vector means "empty"
             }
             for (usize i = 0; i < vec_max; ++i) {
-                char* element = nullptr;
-                const auto* slot = reinterpret_cast<const void*>(
+                char*       element = nullptr;
+                const auto* slot    = reinterpret_cast<const void*>(
                     static_cast<usize>(user_vector) + i * sizeof(char*));
                 if (!sys::copy_in(&element, slot, sizeof element)) {
                     return -EFAULT;
@@ -92,12 +93,11 @@ namespace astia::proc {
             return -E2BIG; // no NULL terminator within the bound
         }
 
-        auto sys_spawnve(i64 path_ptr, i64 argv_ptr, i64 envp_ptr, i64, i64, i64)
-            -> i64 {
+        auto sys_spawnve(i64 path_ptr, i64 argv_ptr, i64 envp_ptr, i64, i64, i64) -> i64 {
             char path[path_cap];
-            if (!sys::copy_in_string(path, sizeof path,
-                                     reinterpret_cast<const void*>(
-                                         static_cast<usize>(path_ptr)))) {
+            if (!sys::copy_in_string(
+                    path, sizeof path,
+                    reinterpret_cast<const void*>(static_cast<usize>(path_ptr)))) {
                 return -EFAULT;
             }
 
@@ -113,7 +113,7 @@ namespace astia::proc {
             }
             char** argv_vec = reinterpret_cast<char**>(storage.value);
             char** envp_vec = argv_vec + vec_max + 1;
-            char*  pool = reinterpret_cast<char*>(envp_vec + vec_max + 1);
+            char*  pool     = reinterpret_cast<char*>(envp_vec + vec_max + 1);
 
             i64 result = copy_in_vector(argv_vec, pool, argv_ptr);
             if (result == 0) {
@@ -122,7 +122,7 @@ namespace astia::proc {
             if (result == 0) {
                 int  error = -ENOMEM; // floor: spawnve sets one on every path
                 auto child = spawnve(path, argv_vec, envp_vec, &error);
-                result = child ? static_cast<i64>(child->pid()) : error;
+                result     = child ? static_cast<i64>(child->pid()) : error;
             }
             mm::heap::free(storage.value);
             return result;
@@ -130,8 +130,7 @@ namespace astia::proc {
         /// mmap — private memory in the caller's address space:
         /// anonymous, or a snapshot of an open file.  `addr` is a
         /// placement hint, never a forced address.  Never blocks.
-        auto sys_mmap(i64 addr, i64 len, i64 prot, i64 flags, i64 fd,
-                      i64 off) -> i64 {
+        auto sys_mmap(i64 addr, i64 len, i64 prot, i64 flags, i64 fd, i64 off) -> i64 {
             auto* process = current_process();
             if (process == nullptr) {
                 return -ESRCH;
@@ -144,21 +143,16 @@ namespace astia::proc {
                 if (fd != -1 || off != 0) {
                     return -EINVAL;
                 }
-                return static_cast<i64>(
-                    process->map_anonymous(static_cast<u64>(addr),
-                                           static_cast<usize>(len),
-                                           static_cast<u32>(prot),
-                                           static_cast<u32>(flags)));
+                return static_cast<i64>(process->map_anonymous(
+                    static_cast<u64>(addr), static_cast<usize>(len),
+                    static_cast<u32>(prot), static_cast<u32>(flags)));
             }
             if (fd < 0 || off < 0) {
                 return -EINVAL;
             }
-            return static_cast<i64>(
-                process->map_file(static_cast<i32>(fd), static_cast<u64>(addr),
-                                  static_cast<usize>(len),
-                                  static_cast<u32>(prot),
-                                  static_cast<u32>(flags),
-                                  static_cast<u64>(off)));
+            return static_cast<i64>(process->map_file(
+                static_cast<i32>(fd), static_cast<u64>(addr), static_cast<usize>(len),
+                static_cast<u32>(prot), static_cast<u32>(flags), static_cast<u64>(off)));
         }
 
         /// munmap — remove [addr, addr + len) from the caller's
@@ -171,8 +165,7 @@ namespace astia::proc {
             if (len <= 0) {
                 return -EINVAL;
             }
-            return process->unmap(static_cast<u64>(addr),
-                                  static_cast<usize>(len));
+            return process->unmap(static_cast<u64>(addr), static_cast<usize>(len));
         }
 
         /// fork — duplicate the caller copy-on-write.  The dispatch
@@ -186,8 +179,7 @@ namespace astia::proc {
             return proc::fork(reinterpret_cast<const arch::user_context*>(uctx));
         }
 
-        auto sys_futex(i64 address, i64 op, i64 expected, i64 timeout,
-                       i64, i64) -> i64 {
+        auto sys_futex(i64 address, i64 op, i64 expected, i64 timeout, i64, i64) -> i64 {
             const u32 operation = static_cast<u32>(op) & ~FUTEX_PRIVATE_FLAG;
             // Timeouts are deliberately deferred: an untimed wait/wake
             // is enough for the pthread join/lock substrate, while
@@ -196,34 +188,30 @@ namespace astia::proc {
                 return -ENOSYS;
             }
             if (operation == FUTEX_WAIT) {
-                return futex_wait(static_cast<u64>(address),
-                                  static_cast<u32>(expected));
+                return futex_wait(static_cast<u64>(address), static_cast<u32>(expected));
             }
             if (operation == FUTEX_WAKE) {
-                return futex_wake(static_cast<u64>(address),
-                                  static_cast<u32>(expected));
+                return futex_wake(static_cast<u64>(address), static_cast<u32>(expected));
             }
             return -EINVAL;
         }
 
-        auto sys_thread_create(i64 entry, i64 stack_top, i64 argument,
-                               i64, i64, i64) -> i64 {
+        auto sys_thread_create(i64 entry, i64 stack_top, i64 argument, i64, i64, i64)
+            -> i64 {
             auto* owner = current_process();
             if (owner == nullptr || entry <= 0 || stack_top <= 0 ||
                 static_cast<u64>(entry) >= arch::kernel_base ||
                 static_cast<u64>(stack_top) >= arch::kernel_base ||
-                (static_cast<u64>(stack_top) & 0xf) != 0 ||
-                stack_top < 16 ||
+                (static_cast<u64>(stack_top) & 0xf) != 0 || stack_top < 16 ||
                 !sys::user_range_ok(reinterpret_cast<void*>(static_cast<u64>(entry)),
                                     1) ||
                 !sys::user_range_ok(
-                    reinterpret_cast<void*>(static_cast<u64>(stack_top) - 16),
-                    16)) {
+                    reinterpret_cast<void*>(static_cast<u64>(stack_top) - 16), 16)) {
                 return -EFAULT;
             }
-            auto value = owner->create_thread(static_cast<u64>(entry),
-                                              static_cast<u64>(stack_top),
-                                              static_cast<u64>(argument));
+            auto value =
+                owner->create_thread(static_cast<u64>(entry), static_cast<u64>(stack_top),
+                                     static_cast<u64>(argument));
             return value ? static_cast<i64>(value->tid()) : -EAGAIN;
         }
 
@@ -249,8 +237,8 @@ namespace astia::proc {
             if (!target) {
                 return -ESRCH;
             }
-            void* result = nullptr;
-            const long rc = target->join(output == nullptr ? nullptr : &result);
+            void*      result = nullptr;
+            const long rc     = target->join(output == nullptr ? nullptr : &result);
             if (rc < 0) {
                 return rc;
             }
@@ -289,14 +277,10 @@ namespace astia::proc {
                sys::register_syscall(sys::syscall_id::munmap, sys_munmap) &&
                sys::register_syscall(sys::syscall_id::fork, sys_fork) &&
                sys::register_syscall(sys::syscall_id::futex, sys_futex) &&
-               sys::register_syscall(sys::syscall_id::thread_create,
-                                     sys_thread_create) &&
-               sys::register_syscall(sys::syscall_id::thread_exit,
-                                     sys_thread_exit) &&
-               sys::register_syscall(sys::syscall_id::thread_join,
-                                     sys_thread_join) &&
-               sys::register_syscall(sys::syscall_id::thread_detach,
-                                     sys_thread_detach) &&
+               sys::register_syscall(sys::syscall_id::thread_create, sys_thread_create) &&
+               sys::register_syscall(sys::syscall_id::thread_exit, sys_thread_exit) &&
+               sys::register_syscall(sys::syscall_id::thread_join, sys_thread_join) &&
+               sys::register_syscall(sys::syscall_id::thread_detach, sys_thread_detach) &&
                arch::register_user_fault_handler(user_fault);
     }
 

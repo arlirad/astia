@@ -1,8 +1,8 @@
 #pragma once
 
+#include "fs.hpp"
 #include <astia/api/aio.h>
 #include <astia/common.hpp>
-#include "fs.hpp"
 
 // The kernel side of the async I/O ring ABI (<astia/api/aio.h>): the
 // engine that consumes SQEs and posts CQEs.  Userspace will reach it

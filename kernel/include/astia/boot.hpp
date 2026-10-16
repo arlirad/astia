@@ -1,8 +1,8 @@
 #pragma once
 
+#include "memory_map.hpp"
 #include <astia/boot/types.hpp>
 #include <astia/common.hpp>
-#include "memory_map.hpp"
 
 namespace astia::boot {
 

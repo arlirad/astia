@@ -1,7 +1,6 @@
+#include "arena.hpp"
 #include "frame_allocator.hpp"
 #include "heap.hpp"
-
-#include "arena.hpp"
 #include "test.hpp"
 
 namespace {
@@ -13,7 +12,9 @@ namespace {
 
     // The heap backs its window through map_fn; on the host the "window" is
     // plain memory that is already reachable, so the arch hook is a no-op.
-    auto fake_map(astia::u64, astia::u64) -> bool { return true; }
+    auto fake_map(astia::u64, astia::u64) -> bool {
+        return true;
+    }
 
     // heap::init() takes its backing frames from the kernel frame allocator;
     // point that at the arena, like the other substrate-bound tests do.
@@ -23,7 +24,8 @@ namespace {
         static bool ready = false;
         if (!ready) {
             astia::mm::memory_map map;
-            map.add(astia_test::arena_base, astia_test::arena_size, astia::mm::memory_type::usable);
+            map.add(astia_test::arena_base, astia_test::arena_size,
+                    astia::mm::memory_type::usable);
             astia::mm::kernel_frames().init(map);
             ready = true;
         }

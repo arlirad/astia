@@ -36,10 +36,10 @@ char*  strstr(const char* hay, const char* needle);
 size_t strspn(const char* s, const char* accept);
 size_t strcspn(const char* s, const char* reject);
 char*  strpbrk(const char* s, const char* accept);
-char*  strtok(char* s, const char* delim); /* per-thread state (see source) */
-char*  strdup(const char* s);               /* POSIX */
-char*  strndup(const char* s, size_t n);    /* POSIX */
-int    strcasecmp(const char* a, const char* b);   /* POSIX */
+char*  strtok(char* s, const char* delim);       /* per-thread state (see source) */
+char*  strdup(const char* s);                    /* POSIX */
+char*  strndup(const char* s, size_t n);         /* POSIX */
+int    strcasecmp(const char* a, const char* b); /* POSIX */
 int    strncasecmp(const char* a, const char* b, size_t n); /* POSIX */
 char*  strerror(int errnum);
 

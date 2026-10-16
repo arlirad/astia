@@ -1,10 +1,9 @@
 #include "elf.hpp"
-
 #include "test.hpp"
+#include <sys/mman.h>
 
 #include <cstdint>
 #include <cstring>
-#include <sys/mman.h>
 
 // End-to-end tests of the generic ELF loader against *real compiler-produced*
 // images of both shapes it supports:
@@ -24,13 +23,13 @@
 
 // --- ET_REL fixture: imports kernel_add (see tests/hello_mod.c) ---
 extern unsigned char hello_mod_blob[];
-extern unsigned int hello_mod_blob_len;
+extern unsigned int  hello_mod_blob_len;
 
 // --- Executable fixtures (see tests/fixture_exec.c) ---
 extern unsigned char fixture_dyn_blob[];
-extern unsigned int fixture_dyn_blob_len;
+extern unsigned int  fixture_dyn_blob_len;
 extern unsigned char fixture_exec_blob[];
-extern unsigned int fixture_exec_blob_len;
+extern unsigned int  fixture_exec_blob_len;
 
 extern "C" int kernel_add(int a, int b) {
     return a + b;
@@ -47,16 +46,16 @@ namespace {
 
     struct stub_entry {
         const char* name;
-        astia::u64 addr;
+        astia::u64  addr;
     };
 
     struct reloc_arena {
         unsigned char* base;
-        size_t capacity;
-        size_t front; // sections grow up
-        size_t back;  // import stubs grow down
-        stub_entry cache[8];
-        size_t cache_n;
+        size_t         capacity;
+        size_t         front; // sections grow up
+        size_t         back;  // import stubs grow down
+        stub_entry     cache[8];
+        size_t         cache_n;
     };
 
     auto reloc_map(void* ctx, astia::u64, astia::usize size, astia::usize align,
@@ -72,7 +71,7 @@ namespace {
         if (off + size > a->back) {
             return nullptr;
         }
-        void* p = a->base + off;
+        void* p  = a->base + off;
         a->front = off + size;
         return p;
     }
@@ -96,8 +95,8 @@ namespace {
         }
         a->back -= 12;
         unsigned char* s = a->base + a->back;
-        s[0] = 0x48; // REX.W
-        s[1] = 0xB8; // mov rax, imm64
+        s[0]             = 0x48; // REX.W
+        s[1]             = 0xB8; // mov rax, imm64
         std::memcpy(s + 2, &target, 8);
         s[10] = 0xFF; // jmp rax
         s[11] = 0xE0;
@@ -115,16 +114,16 @@ namespace {
     // ====================================================================
 
     struct exec_arena {
-        void* base = nullptr;
+        void*  base = nullptr;
         size_t span = 0;
     };
 
-    auto exec_map(void* ctx, astia::u64 hint, astia::usize size, astia::usize,
-                  bool fixed) -> void* {
-        auto* a = static_cast<exec_arena*>(ctx);
-        int flags = MAP_PRIVATE | MAP_ANONYMOUS | (fixed ? MAP_FIXED_NOREPLACE : 0);
-        void* want = fixed ? reinterpret_cast<void*>(hint) : nullptr;
-        void* p = mmap(want, size, PROT_READ | PROT_WRITE | PROT_EXEC, flags, -1, 0);
+    auto exec_map(void* ctx, astia::u64 hint, astia::usize size, astia::usize, bool fixed)
+        -> void* {
+        auto* a     = static_cast<exec_arena*>(ctx);
+        int   flags = MAP_PRIVATE | MAP_ANONYMOUS | (fixed ? MAP_FIXED_NOREPLACE : 0);
+        void* want  = fixed ? reinterpret_cast<void*>(hint) : nullptr;
+        void* p     = mmap(want, size, PROT_READ | PROT_WRITE | PROT_EXEC, flags, -1, 0);
         if (p == MAP_FAILED) {
             return nullptr;
         }
@@ -136,7 +135,7 @@ namespace {
     // Map a fixed-capacity copy of a fixture we can corrupt per test.
     struct blob_copy {
         unsigned char data[8192];
-        astia::usize len;
+        astia::usize  len;
 
         blob_copy(const unsigned char* src, astia::usize n) : data{}, len(n) {
             if (len > sizeof(data)) {
@@ -171,23 +170,23 @@ ASTIA_TEST(elf_identifies_kind) {
 
 ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
     const size_t cap = 1 << 20;
-    void* mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
-                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    void*        mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     ASTIA_CHECK(mem != MAP_FAILED);
     if (mem == MAP_FAILED) {
         return;
     }
 
-    reloc_arena a {};
-    a.base = static_cast<unsigned char*>(mem);
+    reloc_arena a{};
+    a.base     = static_cast<unsigned char*>(mem);
     a.capacity = cap;
-    a.front = 0;
-    a.back = cap;
-    a.cache_n = 0;
+    a.front    = 0;
+    a.back     = cap;
+    a.cache_n  = 0;
 
-    astia::elf::env e {};
-    e.ctx = &a;
-    e.map = reloc_map;
+    astia::elf::env e{};
+    e.ctx     = &a;
+    e.map     = reloc_map;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
@@ -212,10 +211,10 @@ ASTIA_TEST(elf_relocatable_rejects_bad_magic) {
     blob_copy buf(hello_mod_blob, hello_mod_blob_len);
     buf.data[0] = 0x00;
 
-    reloc_arena a {};
-    astia::elf::env e {};
-    e.ctx = &a;
-    e.map = reloc_map;
+    reloc_arena     a{};
+    astia::elf::env e{};
+    e.ctx     = &a;
+    e.map     = reloc_map;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
@@ -227,10 +226,10 @@ ASTIA_TEST(elf_relocatable_rejects_wrong_machine) {
     buf.data[18] = 0x00; // e_machine (u16 LE); EM_X86_64 is 62
     buf.data[19] = 0x00;
 
-    reloc_arena a {};
-    astia::elf::env e {};
-    e.ctx = &a;
-    e.map = reloc_map;
+    reloc_arena     a{};
+    astia::elf::env e{};
+    e.ctx     = &a;
+    e.map     = reloc_map;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
@@ -242,10 +241,10 @@ ASTIA_TEST(elf_relocatable_rejects_non_relocatable) {
     buf.data[16] = 2; // e_type (u16 LE); set ET_EXEC instead of ET_REL
     buf.data[17] = 0;
 
-    reloc_arena a {};
-    astia::elf::env e {};
-    e.ctx = &a;
-    e.map = reloc_map;
+    reloc_arena     a{};
+    astia::elf::env e{};
+    e.ctx     = &a;
+    e.map     = reloc_map;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
@@ -257,10 +256,10 @@ ASTIA_TEST(elf_relocatable_rejects_non_relocatable) {
 ASTIA_TEST(elf_relocatable_rejects_unresolved_symbol) {
     blob_copy buf(hello_mod_blob, hello_mod_blob_len);
 
-    reloc_arena a {};
-    astia::elf::env e {};
-    e.ctx = &a;
-    e.map = reloc_map;
+    reloc_arena     a{};
+    astia::elf::env e{};
+    e.ctx     = &a;
+    e.map     = reloc_map;
     e.resolve = nullptr; // no resolver: kernel_add cannot bind
 
     astia::elf::image img;
@@ -272,8 +271,8 @@ ASTIA_TEST(elf_relocatable_rejects_unresolved_symbol) {
 // ========================================================================
 
 ASTIA_TEST(elf_loads_and_runs_pie_executable) {
-    exec_arena a {};
-    astia::elf::env e {};
+    exec_arena      a{};
+    astia::elf::env e{};
     e.ctx = &a;
     e.map = exec_map;
 
@@ -301,8 +300,8 @@ ASTIA_TEST(elf_loads_and_runs_pie_executable) {
 }
 
 ASTIA_TEST(elf_loads_and_runs_fixed_executable) {
-    exec_arena a {};
-    astia::elf::env e {};
+    exec_arena      a{};
+    astia::elf::env e{};
     e.ctx = &a;
     e.map = exec_map;
 
@@ -331,8 +330,8 @@ ASTIA_TEST(elf_executable_rejects_bad_magic) {
     blob_copy buf(fixture_exec_blob, fixture_exec_blob_len);
     buf.data[0] = 0x00;
 
-    exec_arena a {};
-    astia::elf::env e {};
+    exec_arena      a{};
+    astia::elf::env e{};
     e.ctx = &a;
     e.map = exec_map;
 
@@ -345,8 +344,8 @@ ASTIA_TEST(elf_executable_rejects_wrong_machine) {
     buf.data[18] = 0x03; // e_machine -> EM_386, not x86-64
     buf.data[19] = 0x00;
 
-    exec_arena a {};
-    astia::elf::env e {};
+    exec_arena      a{};
+    astia::elf::env e{};
     e.ctx = &a;
     e.map = exec_map;
 
@@ -357,8 +356,8 @@ ASTIA_TEST(elf_executable_rejects_wrong_machine) {
 ASTIA_TEST(elf_executable_rejects_truncated_phdrs) {
     blob_copy buf(fixture_exec_blob, fixture_exec_blob_len);
 
-    exec_arena a {};
-    astia::elf::env e {};
+    exec_arena      a{};
+    astia::elf::env e{};
     e.ctx = &a;
     e.map = exec_map;
 

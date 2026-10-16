@@ -6,7 +6,7 @@
 namespace astia::proc {
 
     auto fd_table::install_standard_streams() -> bool {
-        entries_[STDIN] = fs::open("/dev/uart16550");
+        entries_[STDIN]  = fs::open("/dev/uart16550");
         entries_[STDOUT] = fs::open("/dev/uart16550");
         entries_[STDERR] = fs::open("/dev/uart16550");
         return entries_[STDIN] && entries_[STDOUT] && entries_[STDERR];
@@ -15,7 +15,7 @@ namespace astia::proc {
     auto fd_table::get(i32 fd) const -> mm::shptr<fs::open_file> {
         return fd >= 0 && static_cast<u32>(fd) < max_process_fds
                    ? entries_[fd]
-                   : mm::shptr<fs::open_file> {};
+                   : mm::shptr<fs::open_file>{};
     }
 
     auto fd_table::set(i32 fd, const mm::shptr<fs::open_file>& file) -> bool {
@@ -30,7 +30,7 @@ namespace astia::proc {
         if (fd < 0 || static_cast<u32>(fd) >= max_process_fds) {
             return false;
         }
-        entries_[fd] = mm::shptr<fs::open_file> {};
+        entries_[fd] = mm::shptr<fs::open_file>{};
         return true;
     }
 

@@ -1,13 +1,13 @@
 #include "interrupts.hpp"
 
 #include "cpu.hpp"
+#include "debug_exit.hpp"
 #include "lapic.hpp"
+#include "log.hpp"
 #include "pic.hpp"
 #include "pit.hpp"
-#include <astia/common.hpp>
-#include "debug_exit.hpp"
 #include "uart16550.hpp"
-#include "log.hpp"
+#include <astia/common.hpp>
 
 // x86_64 interrupt delivery: the IDT and the dispatch loop; the device
 // drivers (pic.hpp, pit.hpp, lapic.hpp) live beside this file.
@@ -50,8 +50,8 @@ namespace astia::arch {
         struct idt_entry {
             u16 offset_low;
             u16 selector;
-            u8 ist;
-            u8 type_attr;
+            u8  ist;
+            u8  type_attr;
             u16 offset_mid;
             u32 offset_high;
             u32 reserved;
@@ -65,21 +65,21 @@ namespace astia::arch {
         static_assert(sizeof(idt_pointer) == 10);
 
         constexpr u64 kernel_code_selector = 0x08; // boot_gdt ring0 code segment
-        constexpr u8 gate_type_attr = 0x8E;        // present, ring0, 64-bit interrupt gate
+        constexpr u8  gate_type_attr = 0x8E; // present, ring0, 64-bit interrupt gate
 
         constexpr u32 tick_hz = 100;
 
         alignas(16) idt_entry idt[256];
 
-        u64 tick_count = 0;
-        u64 breakpoint_count = 0;
-        timer_hook tick_hook = nullptr;
-        timer_source current_source = timer_source::pit; // flipped by init_interrupts()
+        u64          tick_count       = 0;
+        u64          breakpoint_count = 0;
+        timer_hook   tick_hook        = nullptr;
+        timer_source current_source   = timer_source::pit; // flipped by init_interrupts()
 
         // One handler per PIC line; null = line claimed by nobody, in
         // which case the dispatch only EOIs (a latched edge with no
         // owner is acknowledged and forgotten).
-        irq_handler irq_handlers[16] {};
+        irq_handler irq_handlers[16]{};
 
         // The process layer's copy-on-write resolver; null until proc
         // registers one (no user processes can fault before then).
@@ -97,11 +97,12 @@ namespace astia::arch {
             if (regs.vector == 14) { // #PF: the faulting address is the useful part
                 u64 cr2;
                 asm volatile("mov %%cr2, %0" : "=r"(cr2));
-                log::error("exception %s vec=%llx err=%llx rip=%llx cr2=%llx",
-                           name, regs.vector, regs.error, regs.rip, cr2);
-            } else {
-                log::error("exception %s vec=%llx err=%llx rip=%llx",
-                           name, regs.vector, regs.error, regs.rip);
+                log::error("exception %s vec=%llx err=%llx rip=%llx cr2=%llx", name,
+                           regs.vector, regs.error, regs.rip, cr2);
+            }
+            else {
+                log::error("exception %s vec=%llx err=%llx rip=%llx", name, regs.vector,
+                           regs.error, regs.rip);
             }
 
             dev::debug_exit(1);
@@ -135,8 +136,7 @@ namespace astia::arch {
             // process layer resolves copy-on-write faults (fork's
             // shared pages).  Declined faults — genuine violations,
             // kernel faults, every other exception — stay fatal.
-            if (vector == 14 && page_fault_resolver != nullptr &&
-                (frame->cs & 3) != 0) {
+            if (vector == 14 && page_fault_resolver != nullptr && (frame->cs & 3) != 0) {
                 u64 cr2;
                 asm volatile("mov %%cr2, %0" : "=r"(cr2));
                 if (page_fault_resolver(cr2, (frame->error & 2) != 0)) {
@@ -177,17 +177,17 @@ namespace astia::arch {
 
     auto init_interrupts() -> bool {
         for (usize i = 0; i < 256; ++i) {
-            const u64 handler = isr_stub_table[i];
-            idt[i].offset_low = static_cast<u16>(handler & 0xffff);
-            idt[i].selector = static_cast<u16>(kernel_code_selector);
-            idt[i].ist = 0; // no TSS/IST yet; runs on the current stack
-            idt[i].type_attr = gate_type_attr;
-            idt[i].offset_mid = static_cast<u16>((handler >> 16) & 0xffff);
+            const u64 handler  = isr_stub_table[i];
+            idt[i].offset_low  = static_cast<u16>(handler & 0xffff);
+            idt[i].selector    = static_cast<u16>(kernel_code_selector);
+            idt[i].ist         = 0; // no TSS/IST yet; runs on the current stack
+            idt[i].type_attr   = gate_type_attr;
+            idt[i].offset_mid  = static_cast<u16>((handler >> 16) & 0xffff);
             idt[i].offset_high = static_cast<u32>(handler >> 32);
-            idt[i].reserved = 0;
+            idt[i].reserved    = 0;
         }
 
-        const idt_pointer pointer {
+        const idt_pointer pointer{
             static_cast<u16>(sizeof(idt) - 1),
             reinterpret_cast<u64>(&idt[0]),
         };
@@ -196,7 +196,8 @@ namespace astia::arch {
         x86_64::pic::remap();
         if (x86_64::lapic::start(tick_hz)) {
             current_source = timer_source::lapic;
-        } else {
+        }
+        else {
             // No usable LAPIC: the PIT is the tick source, IRQ0 its only
             // unmasked line.
             x86_64::pit::start(tick_hz);

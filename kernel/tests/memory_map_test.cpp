@@ -1,5 +1,4 @@
 #include "memory_map.hpp"
-
 #include "test.hpp"
 
 ASTIA_TEST(memory_map_add_and_index) {

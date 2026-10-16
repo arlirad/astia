@@ -1,6 +1,5 @@
-#include <astia/memory.hpp>
-
 #include "test.hpp"
+#include <astia/memory.hpp>
 
 ASTIA_TEST(align_up_rounds_up) {
     ASTIA_CHECK(astia::align_up(0u, 4096u) == 0u);
@@ -37,7 +36,7 @@ ASTIA_TEST(memset_fills_and_nul_terminates) {
 
 ASTIA_TEST(memcpy_and_memcmp) {
     const char source[5] = {'a', 'b', 'c', 'd', 'e'};
-    char copy[5] = {};
+    char       copy[5]   = {};
     memcpy(copy, source, sizeof(source));
     ASTIA_CHECK(memcmp(source, copy, sizeof(source)) == 0);
 

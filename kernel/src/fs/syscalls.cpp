@@ -1,9 +1,9 @@
-#include <astia/api/aio.h>
-#include <astia/api/errno.h>
-#include "fs.hpp"
 #include "aio.hpp"
+#include "fs.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
+#include <astia/api/aio.h>
+#include <astia/api/errno.h>
 
 namespace astia::fs {
 
@@ -16,8 +16,8 @@ namespace astia::fs {
             if (!sys::user_range_ok(ring_out, sizeof(astia_rings*))) {
                 return -EFAULT;
             }
-            return sys::io_setup(
-                static_cast<u32>(entries), static_cast<u32>(flags), ring_out);
+            return sys::io_setup(static_cast<u32>(entries), static_cast<u32>(flags),
+                                 ring_out);
         }
 
         auto sys_io_destroy(i64 ring, i64, i64, i64, i64, i64) -> i64 {
@@ -33,7 +33,7 @@ namespace astia::fs {
             // held across it.
             const void* user_timeout =
                 reinterpret_cast<const void*>(static_cast<usize>(timeout));
-            astia_timespec timeout_copy {};
+            astia_timespec timeout_copy{};
             if (user_timeout != nullptr &&
                 !sys::copy_in(&timeout_copy, user_timeout, sizeof(timeout_copy))) {
                 return -EFAULT;

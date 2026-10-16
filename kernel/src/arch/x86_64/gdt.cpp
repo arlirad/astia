@@ -1,14 +1,14 @@
 #include "gdt.hpp"
-#include "io.hpp"
 
 #include "heap.hpp"
+#include "io.hpp"
 
 namespace astia::arch::x86_64 {
 
     extern "C" {
-        u64 astia_syscall_stack_top = 0;
-        u64 astia_syscall_saved_r12 = 0;
-        void astia_syscall_entry();
+    u64  astia_syscall_stack_top = 0;
+    u64  astia_syscall_saved_r12 = 0;
+    void astia_syscall_entry();
     }
 
     namespace {
@@ -39,20 +39,18 @@ namespace astia::arch::x86_64 {
 
         alignas(8) u64 gdt[7];
         alignas(16) tss task_state;
-        gdtr descriptor;
+        gdtr  descriptor;
         void* kernel_stack;
 
         extern "C" auto astia_load_gdt_tss(const gdtr*, u16 selector) -> void;
 
         auto tss_descriptor(u64 base, u32 limit) -> void {
             const u64 access = 0x89ull << 40; // present, ring 0, available TSS
-            const u64 low = (limit & 0xFFFFu) |
-                            ((base & 0xFFFFFFu) << 16) |
-                            access |
-                            (static_cast<u64>((limit >> 16) & 0xFu) << 48) |
-                            ((base >> 24) & 0xFFull) << 56;
-            gdt[5] = low;
-            gdt[6] = base >> 32;
+            const u64 low    = (limit & 0xFFFFu) | ((base & 0xFFFFFFu) << 16) | access |
+                               (static_cast<u64>((limit >> 16) & 0xFu) << 48) |
+                               ((base >> 24) & 0xFFull) << 56;
+            gdt[5]           = low;
+            gdt[6]           = base >> 32;
         }
 
         // x86-64 userspace has SSE2 baked into its ABI — compilers emit
@@ -81,8 +79,8 @@ namespace astia::arch::x86_64 {
         if (!stack) {
             return false;
         }
-        kernel_stack = stack.value;
-        task_state = tss {};
+        kernel_stack          = stack.value;
+        task_state            = tss{};
         task_state.iomap_base = sizeof(tss);
 
         gdt[0] = 0;
@@ -93,12 +91,12 @@ namespace astia::arch::x86_64 {
         tss_descriptor(reinterpret_cast<u64>(&task_state), sizeof(tss) - 1);
 
         descriptor.limit = sizeof(gdt) - 1;
-        descriptor.base = reinterpret_cast<u64>(&gdt[0]);
+        descriptor.base  = reinterpret_cast<u64>(&gdt[0]);
         set_kernel_stack(reinterpret_cast<u64>(kernel_stack) + 16 * 1024);
         astia_load_gdt_tss(&descriptor, tss_selector);
 
-        constexpr u32 msr_efer = 0xC0000080;
-        constexpr u32 msr_star = 0xC0000081;
+        constexpr u32 msr_efer  = 0xC0000080;
+        constexpr u32 msr_star  = 0xC0000081;
         constexpr u32 msr_lstar = 0xC0000082;
         constexpr u32 msr_fmask = 0xC0000084;
         // SYSCALL enable (SCE) plus NX execution-disable (NXE): page_map
@@ -113,7 +111,7 @@ namespace astia::arch::x86_64 {
     }
 
     auto set_kernel_stack(u64 stack_top) -> void {
-        task_state.rsp0 = stack_top;
+        task_state.rsp0         = stack_top;
         astia_syscall_stack_top = stack_top;
     }
 

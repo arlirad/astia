@@ -25,12 +25,12 @@
 #include <stdint.h>
 
 enum { /* open flags — the subset every port can speak */
-    FIO_READ   = 1u << 0,
-    FIO_WRITE  = 1u << 1,
-    FIO_CREAT  = 1u << 2,
-    FIO_EXCL   = 1u << 3,
-    FIO_TRUNC  = 1u << 4,
-    FIO_APPEND = 1u << 5,
+       FIO_READ   = 1u << 0,
+       FIO_WRITE  = 1u << 1,
+       FIO_CREAT  = 1u << 2,
+       FIO_EXCL   = 1u << 3,
+       FIO_TRUNC  = 1u << 4,
+       FIO_APPEND = 1u << 5,
 };
 
 /* offset meaning "append"; == astia's OFF_APPEND by ABI design */

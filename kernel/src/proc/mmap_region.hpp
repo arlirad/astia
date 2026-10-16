@@ -1,9 +1,9 @@
 #pragma once
 
-#include <astia/common.hpp>
 #include "fs.hpp"
 #include "phys_region.hpp"
 #include "shptr.hpp"
+#include <astia/common.hpp>
 
 namespace astia::proc {
 
@@ -24,19 +24,19 @@ namespace astia::proc {
     /// mapping survives close(), and the offset records where the
     /// range was captured from.  Null/0 for anonymous mappings.
     struct mmap_region {
-        mmap_region*          next        = nullptr;
-        u64                   base        = 0; ///< page-aligned
-        usize                 pages       = 0;
-        u32                   prot        = 0; ///< ABI PROT_* word
-        bool                  shared      = false;
-        bool                  holds_ref   = false;
-        mm::phys_region*      backing     = nullptr;
+        mmap_region*     next      = nullptr;
+        u64              base      = 0; ///< page-aligned
+        usize            pages     = 0;
+        u32              prot      = 0; ///< ABI PROT_* word
+        bool             shared    = false;
+        bool             holds_ref = false;
+        mm::phys_region* backing   = nullptr;
         /// First page in `backing` represented by this VMA.  This is
         /// non-zero when an unmap trims the front of a region or when
         /// a shared file mapping starts at a page offset.
-        usize                 region_page = 0;
+        usize                    region_page = 0;
         mm::shptr<fs::open_file> file;
-        u64                   file_offset = 0;
+        u64                      file_offset = 0;
 
         auto size() const -> u64 {
             return pages * mm::phys_region::frame_size;

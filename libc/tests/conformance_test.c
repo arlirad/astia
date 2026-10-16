@@ -6,22 +6,29 @@
 /* <unistd.h> is ours now (getpid/gettid); the one host call this test
  * needs is declared by hand, like every other host port here. */
 extern int unlink(const char* path);
+#include <time.h>
 #include <wchar.h>
 #include <wctype.h>
-#include <time.h>
 
 static int fails;
 static int exit_order;
 
-#define CHECK(x) do { if (!(x)) fails++; } while (0)
+#define CHECK(x)     \
+    do {             \
+        if (!(x))    \
+            fails++; \
+    } while (0)
 
-static void exit_first(void) { exit_order = exit_order * 10 + 1; }
-static void exit_second(void) { exit_order = exit_order * 10 + 2; }
+static void exit_first(void) {
+    exit_order = exit_order * 10 + 1;
+}
+static void exit_second(void) {
+    exit_order = exit_order * 10 + 2;
+}
 
-static void test_stream_helpers(void)
-{
-    char buf[8];
-    FILE* f = fopen("conformance_test.dat", "w+");
+static void test_stream_helpers(void) {
+    char   buf[8];
+    FILE*  f = fopen("conformance_test.dat", "w+");
     fpos_t pos;
 
     CHECK(f != NULL);
@@ -45,12 +52,11 @@ static void test_stream_helpers(void)
     (void) unlink("conformance_test.dat");
 }
 
-static void test_conversions_and_strings(void)
-{
-    char* end;
-    char* copy;
-    char transformed[8];
-    long long signed_value;
+static void test_conversions_and_strings(void) {
+    char*              end;
+    char*              copy;
+    char               transformed[8];
+    long long          signed_value;
     unsigned long long unsigned_value;
 
     signed_value = strtoll("-9223372036854775808x", &end, 10);
@@ -70,10 +76,9 @@ static void test_conversions_and_strings(void)
     CHECK(strcmp(transformed, "abcdef") == 0);
 }
 
-static void test_printf_family(void)
-{
-    char buf[32];
-    char* end;
+static void test_printf_family(void) {
+    char   buf[32];
+    char*  end;
     double value;
 
     CHECK(snprintf(buf, sizeof buf, "%s %d", "ok", 42) == 5);
@@ -93,14 +98,13 @@ static void test_printf_family(void)
     CHECK(value == -312.5 && *end == 'x');
 }
 
-static void test_scan_family(void)
-{
-    char word[8];
-    char set[8];
-    int a;
+static void test_scan_family(void) {
+    char     word[8];
+    char     set[8];
+    int      a;
     unsigned b;
-    double value;
-    int count;
+    double   value;
+    int      count;
 
     CHECK(sscanf("-12 0xff word", "%d %x %7s", &a, &b, word) == 3);
     CHECK(a == -12 && b == 255 && strcmp(word, "word") == 0);
@@ -112,8 +116,7 @@ static void test_scan_family(void)
     CHECK(set[0] == 'x' && set[1] == 'y');
 }
 
-static void test_c_locale(void)
-{
+static void test_c_locale(void) {
     struct lconv* lc = localeconv();
 
     CHECK(strcmp(setlocale(LC_ALL, NULL), "C") == 0);
@@ -123,8 +126,7 @@ static void test_c_locale(void)
     CHECK(strcmp(lc->thousands_sep, "") == 0);
 }
 
-static void test_process_hooks(void)
-{
+static void test_process_hooks(void) {
     exit_order = 0;
     CHECK(atexit(exit_first) == 0);
     CHECK(atexit(exit_second) == 0);
@@ -132,12 +134,11 @@ static void test_process_hooks(void)
     CHECK(exit_order == 0);
 }
 
-static void test_wide_c_locale(void)
-{
-    wchar_t wide[16];
-    wchar_t back[16];
+static void test_wide_c_locale(void) {
+    wchar_t        wide[16];
+    wchar_t        back[16];
     const wchar_t* source = L"alpha beta";
-    const char* text = "alpha beta";
+    const char*    text   = "alpha beta";
 
     CHECK(wcslen(source) == 10);
     CHECK(wcscmp(wcschr(source, L'b'), L"beta") == 0);
@@ -152,11 +153,10 @@ static void test_wide_c_locale(void)
     CHECK(wctob(L'A') == 'A' && btowc('A') == L'A');
 }
 
-static void test_utc_time(void)
-{
-    time_t epoch = 0;
-    struct tm value;
-    char text[32];
+static void test_utc_time(void) {
+    time_t          epoch = 0;
+    struct tm       value;
+    char            text[32];
     struct timespec now;
 
     CHECK(gmtime_r(&epoch, &value) == &value);
@@ -169,8 +169,7 @@ static void test_utc_time(void)
     CHECK(timespec_get(&now, TIME_UTC) == TIME_UTC);
 }
 
-int main(void)
-{
+int main(void) {
     test_stream_helpers();
     test_conversions_and_strings();
     test_printf_family();

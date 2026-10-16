@@ -1,6 +1,7 @@
-#include <astia/api/errno.h>
 #include "devfs.hpp"
+
 #include "share.hpp"
+#include <astia/api/errno.h>
 
 namespace astia::fs {
 

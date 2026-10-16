@@ -34,16 +34,16 @@ namespace astia::init {
 
 } // namespace astia::init
 
-#define ASTIA_INIT_STEP_BASE(phase_, name, fn, needs_arr, after_arr, opt_)                        \
-    static const char* const* const  astia_init_needs_ptr_##name = needs_arr;                     \
-    static const char* const* const  astia_init_after_ptr_##name = after_arr;                     \
-    static const ::astia::init::step astia_init_step_##name __attribute__((                       \
-        section(".initcall"), aligned(8)))                       = {#name,                        \
-                                                                    ::astia::init::phase::phase_, \
-                                                                    fn,                           \
-                                                                    astia_init_needs_ptr_##name,  \
-                                                                    astia_init_after_ptr_##name,  \
-                                                                    opt_};                        \
+#define ASTIA_INIT_STEP_BASE(phase_, name, fn, needs_arr, after_arr, opt_)    \
+    static const char* const* const  astia_init_needs_ptr_##name = needs_arr; \
+    static const char* const* const  astia_init_after_ptr_##name = after_arr; \
+    static const ::astia::init::step astia_init_step_##name __attribute__((   \
+        section(".initcall"), aligned(8))) = {#name,                          \
+                                              ::astia::init::phase::phase_,   \
+                                              fn,                             \
+                                              astia_init_needs_ptr_##name,    \
+                                              astia_init_after_ptr_##name,    \
+                                              opt_};                          \
     static void                      astia_init_dummy_##name(void) {}
 
 #define ASTIA_INIT_STEP_0(phase_, name, fn, d1, d2, d3)                    \

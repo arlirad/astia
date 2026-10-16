@@ -1,5 +1,4 @@
 #include "pvh.hpp"
-
 #include "test.hpp"
 
 // Mirrors the on-the-wire PVH layout; the real structs are private to pvh.cpp.
@@ -41,9 +40,9 @@ ASTIA_TEST(pvh_parses_memmap) {
     };
 
     raw_start_info info = {};
-    info.magic = 0x336EC578u;
-    info.version = 1;
-    info.memmap_paddr = reinterpret_cast<astia::u64>(entries);
+    info.magic          = 0x336EC578u;
+    info.version        = 1;
+    info.memmap_paddr   = reinterpret_cast<astia::u64>(entries);
     info.memmap_entries = 2;
 
     astia::boot::boot_info out{};
@@ -60,19 +59,19 @@ ASTIA_TEST(pvh_parses_handoff_fields) {
     const raw_memmap_entry entries[1] = {
         {0x100000, 0x400000, 1, 0},
     };
-    const char cmdline[] = "quiet splash";
+    const char              cmdline[]  = "quiet splash";
     const raw_modlist_entry modules[1] = {
         {0x4000000, 0x1000, 0, 0}, // initrd
     };
 
     raw_start_info info = {};
-    info.magic = 0x336EC578u;
-    info.version = 1;
-    info.modlist_paddr = reinterpret_cast<astia::u64>(modules);
-    info.nr_modules = 1;
-    info.cmdline_paddr = reinterpret_cast<astia::u64>(cmdline);
-    info.rsdp_paddr = 0xfee00000;
-    info.memmap_paddr = reinterpret_cast<astia::u64>(entries);
+    info.magic          = 0x336EC578u;
+    info.version        = 1;
+    info.modlist_paddr  = reinterpret_cast<astia::u64>(modules);
+    info.nr_modules     = 1;
+    info.cmdline_paddr  = reinterpret_cast<astia::u64>(cmdline);
+    info.rsdp_paddr     = 0xfee00000;
+    info.memmap_paddr   = reinterpret_cast<astia::u64>(entries);
     info.memmap_entries = 1;
 
     astia::boot::boot_info out{};
@@ -95,9 +94,9 @@ ASTIA_TEST(pvh_absent_fields_stay_null) {
     };
 
     raw_start_info info = {};
-    info.magic = 0x336EC578u;
-    info.version = 1;
-    info.memmap_paddr = reinterpret_cast<astia::u64>(entries);
+    info.magic          = 0x336EC578u;
+    info.version        = 1;
+    info.memmap_paddr   = reinterpret_cast<astia::u64>(entries);
     info.memmap_entries = 1;
 
     astia::boot::boot_info out{};
@@ -109,7 +108,7 @@ ASTIA_TEST(pvh_absent_fields_stay_null) {
 
 ASTIA_TEST(pvh_rejects_bad_magic) {
     raw_start_info info = {};
-    info.version = 1;
+    info.version        = 1;
     info.memmap_entries = 1;
 
     astia::boot::boot_info out{};
@@ -118,8 +117,8 @@ ASTIA_TEST(pvh_rejects_bad_magic) {
 
 ASTIA_TEST(pvh_rejects_missing_memmap) {
     raw_start_info info = {};
-    info.magic = 0x336EC578u;
-    info.version = 1;
+    info.magic          = 0x336EC578u;
+    info.version        = 1;
     info.memmap_entries = 0;
 
     astia::boot::boot_info out{};
