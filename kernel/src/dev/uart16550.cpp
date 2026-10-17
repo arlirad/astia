@@ -321,93 +321,39 @@ namespace astia::dev {
         (void) tx_byte(static_cast<u8>(c));
     }
 
-    void uart16550::rx_push(u8 c) {
-        const u32 head = rx_head;
-        const u32 next = (head + 1) & (rx_size - 1);
-        if (next == rx_tail) {
-            return; // full: console input is best-effort, drop
-        }
-        rx[head] = c;
-        __atomic_store_n(&rx_head, next, __ATOMIC_RELEASE);
-    }
-
-    long uart16550::rx_pop(void* dst, u32 len) {
-        // Gate, not a lock: consumers are this CPU's dispatch loop
-        // and the IRQ's retry, and the IRQ preempts the dispatch.
-        arch::interrupt_guard gate;
-        auto*                 d    = static_cast<u8*>(dst);
-        const u32             head = __atomic_load_n(&rx_head, __ATOMIC_ACQUIRE);
-        const u32             tail = rx_tail;
-        u32                   n    = (head - tail) & (rx_size - 1);
-        if (n > len) {
-            n = len;
-        }
-        for (u32 i = 0; i < n; ++i) {
-            d[i] = rx[(tail + i) & (rx_size - 1)];
-        }
-        __atomic_store_n(&rx_tail, (tail + n) & (rx_size - 1), __ATOMIC_RELEASE);
-        return static_cast<long>(n);
-    }
-
     void uart16550::rx_drain() {
-        // IRQ side: take everything the FIFO has, then the caller
-        // lets the engine retry whatever is parked on this port's fds.
+        // The tty owns buffering; the UART only drains its hardware FIFO.
         while ((_ports[reg_lsr] & lsr_data_ready) != 0) {
-            rx_push(_ports[reg_data]);
+            tty_receive(_ports[reg_data]);
         }
     }
 
     void uart16550::drain_rx() {
-        u8 sink[16];
-        while (rx_pop(sink, sizeof(sink)) > 0) {
+        arch::interrupt_guard gate;
+        while ((_ports[reg_lsr] & lsr_data_ready) != 0) {
+            (void) _ports[reg_data];
         }
+        tty_discard_input();
     }
 
-    long uart16550::read(void* buf, u32 len, u64 off) {
-        (void) off; // a terminal is a stream; the SQE offset is void
-        return rx_pop(buf, len);
-    }
-
-    long uart16550::write(const void* buf, u32 len, u64 off) {
-        (void) off;
-        const auto* s    = static_cast<const u8*>(buf);
-        u32         sent = 0;
-        while (sent < len) {
-            if (!tx_byte(s[sent])) {
-                break; // wedged port: complete short, not late
-            }
-            ++sent;
-        }
-        return static_cast<long>(sent);
-    }
-
-    long uart16550::submit(io_request& request) {
-        if (request.direction() == io_direction::output) {
-            return write(request.buffer(), request.length(), request.offset());
-        }
-        const long n = rx_pop(request.buffer(), request.length());
-        if (n > 0) {
-            return n;
-        }
-        // Empty queue: park at "waiting for the receive IRQ".  The engine
-        // holds this exact request and calls back here from the handler,
-        // stage intact — the same continuation a disk controller needs,
-        // just with fewer steps.
-        request.stage(1);
-        return 0;
-    }
+    // Read and write are implemented by tty; this class only owns the UART.
 
     void uart16550::irq() {
         rx_drain();
-        // Wake every open descriptor backed by this UART, including
-        // descriptors obtained by opening /dev/uart16550 after the
-        // standard streams were installed.
-        sys::io_device_ready_context(&com1_file);
+        tty_input_ready();
     }
 
     void uart16550::loopback(bool on) {
         const u8 mcr    = mcr_dtr | mcr_rts | mcr_out2;
         _ports[reg_mcr] = on ? static_cast<u8>(mcr | mcr_loopback) : mcr;
+    }
+
+    bool uart16550::tty_putc(u8 byte) {
+        return tx_byte(byte);
+    }
+
+    void uart16550::tty_ready() {
+        sys::io_device_ready_context(&com1_file);
     }
 
     long uart16550::tty_speed(speed_t speed) {

@@ -2,6 +2,7 @@
 
 #include "chrdev.hpp"
 #include <astia/api/termios.h>
+#include <astia/io.hpp>
 
 // An asynchronous terminal: a character device that carries line
 // discipline state.  aretev's tty minus the iopkt/packet machinery —
@@ -36,9 +37,16 @@ namespace astia::dev {
             _termios.c_ospeed = B115200;
         }
 
+        long read(void* buf, u32 len, u64 off) override;
+        long write(const void* buf, u32 len, u64 off) override;
+        long submit(io_request& request) override;
         long ioctl(u64 request, void* argp) override;
 
         protected:
+        void tty_receive(u8 byte);
+        void tty_input_ready();
+        void tty_discard_input();
+
         /// Called per flag TCSETS changes, with the flag bit and its
         /// new state — the driver reacts without the tty layer knowing
         /// the hardware.  Default: accept silently.
@@ -52,9 +60,15 @@ namespace astia::dev {
         /// which fails the TCSETS).  A driver that can only run at one
         /// rate accepts exactly that one.
         virtual long tty_speed(speed_t speed);
+        virtual bool tty_putc(u8 byte) = 0;
+        virtual void tty_ready();
 
-        struct termios _termios;
-        u32            _column = 0; // cursor column, for OPOST work later
+        struct termios       _termios;
+        u32                  _column = 0; // cursor column, for OPOST work later
+        static constexpr u32 rx_size = 1024;
+        u8                   _rx[rx_size]{};
+        alignas(64) u32 _rx_head = 0;
+        alignas(64) u32 _rx_tail = 0;
     };
 
 } // namespace astia::dev

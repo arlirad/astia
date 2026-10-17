@@ -39,17 +39,7 @@ namespace astia::dev {
     class uart16550 : public tty {
         public:
         constexpr uart16550(const char* name, u16 base, u8 irq)
-            : tty(name, dv_char | dv_sync), _ports(base), _irq(irq), rx{}, rx_head(0),
-              rx_tail(0) {}
-
-        // sys::io_device contract: bytes in/out, no blocking, IRQ-safe.
-        long read(void* buf, u32 len, u64 off) override;
-        long write(const void* buf, u32 len, u64 off) override;
-
-        /// The async seam: an input request that finds the receive queue
-        /// empty parks at stage 1 instead of returning a bare 0, so the
-        /// engine can hand the very same request back when IRQ4 fires.
-        long submit(io_request& request) override;
+            : tty(name, dv_char | dv_sync), _ports(base), _irq(irq) {}
 
         /// Polled console face: bounded THRE wait, then THR write;
         /// drops the byte on a dead port rather than hanging.
@@ -80,27 +70,15 @@ namespace astia::dev {
         /// The line runs at the divisor table's rates only; a TCSETS
         /// naming anything else is refused (-EINVAL).
         long tty_speed(speed_t speed) override;
+        bool tty_putc(u8 byte) override;
+        void tty_ready() override;
 
         private:
         bool tx_byte(u8 c);
-        void rx_push(u8 c);
-        long rx_pop(void* dst, u32 len);
         void rx_drain();
-
-        static constexpr u32 rx_size = 1024; // power of two
 
         ports<u8> _ports;
         u8        _irq; // PIC line
-
-        u8 rx[rx_size];
-        // Producer and consumer cursors on separate cache lines: the
-        // IRQ pushes while this CPU pops, and neither should
-        // false-share with the other (the ABI's own rule).  No
-        // `volatile` here — the __atomic_* builtins are the access
-        // semantics, and volatile members would make the type
-        // non-literal, hence unconstant-initializable.
-        alignas(64) u32 rx_head;
-        alignas(64) u32 rx_tail;
     };
 
     /// Bring COM1 up: FIFOs on, 8N1, divisor 1, OUT2, interrupts off.
