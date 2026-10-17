@@ -1,10 +1,8 @@
-add_library(util STATIC
-        stub.cpp
-)
+add_library(util INTERFACE)
 
-target_include_directories(util PUBLIC
+target_include_directories(util INTERFACE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/include
 )
 
-target_link_libraries(util PUBLIC libcore)
+target_link_libraries(util INTERFACE libcore)

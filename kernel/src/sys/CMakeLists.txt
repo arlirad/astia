@@ -1,5 +1,4 @@
 add_library(sys STATIC
-        stub.cpp
         aio.cpp
         syscall.cpp
         time.cpp
