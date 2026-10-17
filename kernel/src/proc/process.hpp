@@ -8,6 +8,7 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/pinned_iovec.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/signal.hpp>
 
 namespace astia::proc {
 
@@ -54,6 +55,13 @@ namespace astia::proc {
         }
         i32 exit_status() const {
             return exit_status_;
+        }
+
+        signal_state& signals() {
+            return signals_;
+        }
+        const signal_state& signals() const {
+            return signals_;
         }
 
         /// Called by a thread that is exiting.  When the last live
@@ -196,6 +204,7 @@ namespace astia::proc {
         char  name_[32]{};
         process_state state_       = process_state::fresh;
         i32           exit_status_ = 0;
+        signal_state  signals_{};
 
         mm::shptr<thread> threads_[max_process_threads];
         u32               thread_count_ = 0;
