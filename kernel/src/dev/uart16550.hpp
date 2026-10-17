@@ -98,4 +98,8 @@ namespace astia::dev {
     /// parks again); returns false on any mismatch.
     bool uart16550_ring_selftest();
 
+    /// Polled final marker for boot harnesses; does not depend on the async
+    /// descriptor/ring path being drainable.
+    void uart16550_console_puts(const char* text);
+
 } // namespace astia::dev

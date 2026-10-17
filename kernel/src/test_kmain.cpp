@@ -25,10 +25,14 @@ namespace {
         const astia::i32 child_pid = static_cast<astia::i32>(process->pid());
         astia::i32       status    = -1;
         const astia::i64 reaped    = astia::proc::waitpid(child_pid, &status);
+        // waitpid re-enables IRQs before returning. Keep process teardown on
+        // this lifecycle stack non-preemptible.
+        astia::arch::cpu::nointerrupts();
         astia::log::info("spawn reaped pid=%ld status=%d path=%s",
                          static_cast<long>(reaped), status, path);
-        // The shptr releases here, while the frame still unwinds.
-        return reaped == child_pid && status == 0;
+        const bool ok = reaped == child_pid && status == 0;
+        process       = {};
+        return ok;
     }
 
     void spawn_init_worker(void* opaque) {
@@ -98,7 +102,8 @@ extern "C" void kmain(void* start_info) {
         astia::log::info("init lifecycle ok");
     }
 
-    astia::log::info("selftest ok");
+    astia::arch::cpu::nointerrupts();
+    astia::dev::uart16550_console_puts("core: selftest ok\n");
     astia::dev::debug_exit(0);
     halt();
 }

@@ -467,4 +467,13 @@ namespace astia::dev {
         return why == nullptr;
     }
 
+    void uart16550_console_puts(const char* text) {
+        if (text == nullptr) {
+            return;
+        }
+        while (*text != '\0') {
+            com1.polled_putc(*text++);
+        }
+    }
+
 } // namespace astia::dev
