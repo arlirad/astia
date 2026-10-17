@@ -8,6 +8,7 @@ namespace astia::sys {
     namespace {
         inline constexpr u32 syscall_capacity = 128;
         syscall_handler      handlers[syscall_capacity]{};
+        syscall_exit_hook    exit_hook = nullptr;
     }
 
     namespace detail {
@@ -21,6 +22,14 @@ namespace astia::sys {
             return true;
         }
     } // namespace detail
+
+    bool register_exit_hook(syscall_exit_hook hook) {
+        if (hook == nullptr || exit_hook != nullptr) {
+            return false;
+        }
+        exit_hook = hook;
+        return true;
+    }
 
     i64 dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
                  const arch::syscall_frame& frame) {
@@ -40,9 +49,13 @@ extern "C" long astia_syscall_dispatch(astia::arch::syscall_frame* frame) {
     if (frame == nullptr) {
         return -EFAULT;
     }
-    return static_cast<long>(astia::sys::dispatch(
+    const long result = static_cast<long>(astia::sys::dispatch(
         static_cast<astia::sys::syscall_id>(frame->nr),
         static_cast<astia::i64>(frame->a0), static_cast<astia::i64>(frame->a1),
         static_cast<astia::i64>(frame->a2), static_cast<astia::i64>(frame->a3),
         static_cast<astia::i64>(frame->a4), static_cast<astia::i64>(frame->a5), *frame));
+    if (astia::sys::exit_hook != nullptr) {
+        astia::sys::exit_hook(*frame);
+    }
+    return result;
 }

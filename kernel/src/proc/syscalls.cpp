@@ -122,6 +122,31 @@ namespace astia::proc {
             return 0;
         }
 
+        void deliver_default_signal(arch::syscall_frame&) {
+            auto* owner = current_process();
+            auto* self  = current_thread();
+            if (owner == nullptr || self == nullptr) {
+                return;
+            }
+            const signal_number signal = owner->signals().take_unblocked();
+            if (!valid_signal(signal)) {
+                return;
+            }
+            const signal_disposition disposition = owner->signals().disposition(signal);
+            if (disposition.action == signal_action::handler) {
+                // User handler frames are architecture-specific and are
+                // deliberately deferred until the arch signal ABI exists.
+                owner->signals().send(signal);
+                return;
+            }
+            if (default_action(signal) == signal_default::terminate ||
+                default_action(signal) == signal_default::core) {
+                self->exit(reinterpret_cast<void*>(128u + static_cast<u8>(signal)));
+                __builtin_unreachable();
+            }
+            owner->signals().send(signal);
+        }
+
         i64 sys_yield() {
             scheduler::yield();
             return 0;
@@ -376,6 +401,7 @@ namespace astia::proc {
                sys::register_syscall<sys_thread_exit>(sys::syscall_id::thread_exit) &&
                sys::register_syscall<sys_thread_join>(sys::syscall_id::thread_join) &&
                sys::register_syscall<sys_thread_detach>(sys::syscall_id::thread_detach) &&
+               sys::register_exit_hook(deliver_default_signal) &&
                arch::register_user_fault_handler(user_fault);
     }
 
