@@ -16,21 +16,33 @@ namespace astia::proc::scheduler {
         thread*              idle_thread = nullptr;
 
         void idle_entry(void*) {
+            // Entered by a switch like any other thread, and the switcher's
+            // gate is not ours to keep: open it so the next tick can take
+            // the CPU back out of the halt below.
+            arch::cpu::interrupts();
             for (;;) {
                 arch::cpu::halt();
             }
         }
 
         bool enqueue(thread* value) {
-            if (value == nullptr || queue_count == queue_capacity) {
+            if (value == nullptr) {
                 return false;
             }
+            if (value->queued()) {
+                return true;
+            }
+            if (queue_count == queue_capacity) {
+                return false;
+            }
+            value->queued(true);
             queue[queue_count++] = value;
             return true;
         }
 
         thread* remove_at(u32 index) {
             thread* value = queue[index];
+            value->queued(false);
             for (u32 i = index + 1; i < queue_count; ++i) {
                 queue[i - 1] = queue[i];
             }
@@ -84,6 +96,16 @@ namespace astia::proc::scheduler {
             // -20 advances slowly, nice 19 advances quickly.
             return nice < 0 ? 1024u / static_cast<u32>(1 - nice)
                             : 1024u * static_cast<u32>(1 + nice);
+        }
+
+        /// Restore the interrupt gate after the scheduler has finished its
+        /// masked bookkeeping.  A thread parked on a timer frame stays
+        /// masked — its iret restores RFLAGS.IF — while a thread that
+        /// blocked in kernel code gets back exactly what it yielded with.
+        void restore_gate(bool open) {
+            if (open) {
+                arch::cpu::interrupts();
+            }
         }
     } // namespace
 
@@ -146,9 +168,12 @@ namespace astia::proc::scheduler {
         if (queue_count == 0) {
             return;
         }
-        // Timer dispatch has already EOI'd the source. Open the gate
-        // before switching so the next context receives normal IF state.
-        arch::cpu::interrupts();
+        // The timer's dispatch has already EOI'd the source.  The gate
+        // stays shut across the switch: yield() saves this thread's
+        // context and must not be re-entered in the middle of doing it
+        // (see the comment there).  The context that resumes is given its
+        // own gate by yield(), and a thread parked on this timer frame
+        // gets it from the iret that pops the frame.
         yield();
     }
 
@@ -161,11 +186,31 @@ namespace astia::proc::scheduler {
             return;
         }
 
+        // Remember the caller's gate before masking it.  The value is kept
+        // locally until the switch is committed, so an interrupt in this
+        // small entry window cannot overwrite the resume state of a later
+        // switch.  Blocking protocols such as waitpid and futex yield
+        // masked and therefore resume masked.
+        const bool gate_open = arch::cpu::check_interrupts();
+        if (gate_open && previous->sched_class() == scheduling_class::normal) {
+            previous->charge_runtime(nice_charge(previous->nice()));
+        }
+
+        // This body must run to completion.  It saves the live context
+        // into `previous` and, on the way back in, hands the resumed
+        // thread its gate.  A timer frame landing between the enqueue
+        // below and the switch would run all of it a second time on this
+        // same stack, and the second save would park `next`'s context on
+        // `previous`'s kernel stack — after which two threads share one
+        // stack.  So the gate stays shut until the switch has happened.
+        arch::cpu::nointerrupts();
+
         if (!previous->idle() && (previous->state() == thread_state::running ||
                                   previous->state() == thread_state::runnable)) {
             previous->state(thread_state::runnable);
             if (!enqueue(previous)) {
                 previous->state(thread_state::running);
+                restore_gate(gate_open);
                 return;
             }
         }
@@ -178,10 +223,24 @@ namespace astia::proc::scheduler {
             if (previous->state() != thread_state::dead) {
                 previous->state(thread_state::running);
             }
+            restore_gate(gate_open);
             return;
+        }
+        if (next == previous && gate_open) {
+            // A voluntary yield must hand off when another runnable thread
+            // exists, even if vruntime still prefers the caller.  Otherwise
+            // a thread charged by a timer tick can starve a fresh thread
+            // while repeatedly selecting itself.
+            next = select_next();
+            if (next == nullptr) {
+                previous->state(thread_state::running);
+                restore_gate(gate_open);
+                return;
+            }
         }
         if (next == previous) {
             previous->state(thread_state::running);
+            restore_gate(gate_open);
             return;
         }
         next->state(thread_state::running);
@@ -195,12 +254,16 @@ namespace astia::proc::scheduler {
         if (next->kernel_stack_top() != 0) {
             arch::cpu::set_kernel_stack(next->kernel_stack_top());
         }
+        previous->gate_open(gate_open);
         arch::context_switch(previous->context(), next->context());
-        // We are now running as `next`; `previous` (and any thread that
-        // deferred its own destruction in finish()) can no longer run
-        // on its kernel stack, so dead threads queued by finish() can
-        // be destroyed safely here.
+        // We are now running as `next`, still masked.  `previous` (and any
+        // thread that deferred its own destruction in finish()) can no
+        // longer run on its kernel stack, so dead threads queued by
+        // finish() can be destroyed safely here — with the gate still
+        // shut, because the heap this frees into is shared with this very
+        // path.
         proc::reap_dead_threads();
+        restore_gate(next->gate_open());
     }
 
     bool ready() {

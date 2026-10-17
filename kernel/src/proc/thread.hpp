@@ -46,6 +46,27 @@ namespace astia::proc {
             state_ = value;
         }
 
+        /// Interrupt gate this thread was running with when the scheduler
+        /// last switched away from it.  The thread resumed in its place
+        /// must not inherit the switcher's gate, so the scheduler saves it
+        /// here and restores it when this thread is the one resumed.  A
+        /// thread that has never been switched away starts with it open;
+        /// kernel threads enter through thread_trampoline, which opens the
+        /// gate for them explicitly.
+        bool gate_open() const {
+            return gate_open_;
+        }
+        void gate_open(bool value) {
+            gate_open_ = value;
+        }
+
+        bool queued() const {
+            return queued_;
+        }
+        void queued(bool value) {
+            queued_ = value;
+        }
+
         scheduling_class sched_class() const {
             return sched_class_;
         }
@@ -147,6 +168,8 @@ namespace astia::proc {
         void*            result_            = nullptr;
         bool             detached_          = false;
         bool             idle_              = false;
+        bool             gate_open_         = true;
+        bool             queued_            = false;
     };
 
 } // namespace astia::proc
