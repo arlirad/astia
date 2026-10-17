@@ -45,7 +45,7 @@ astia_add_host_test(astia_common_test common_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 astia_add_host_test(astia_tty_test
         tty_test.cpp
-        ${CMAKE_SOURCE_DIR}/src/dev/tty.cpp
+        ${CMAKE_SOURCE_DIR}/src/dev/chr/tty.cpp
         ${CMAKE_SOURCE_DIR}/src/dev/device.cpp
 )
 target_include_directories(astia_tty_test PRIVATE ${CMAKE_SOURCE_DIR}/src/dev)
@@ -188,7 +188,7 @@ astia_add_arena_test(astia_phys_region_test
         phys_region_test.cpp
         ${CMAKE_SOURCE_DIR}/src/mm/phys_region.cpp
         ${CMAKE_SOURCE_DIR}/src/mm/pinned_buffer.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/pinned_iovec.cpp
+        ${CMAKE_SOURCE_DIR}/src/mm/iovec.cpp
         ${CMAKE_SOURCE_DIR}/src/mm/heap.cpp
         ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
 )

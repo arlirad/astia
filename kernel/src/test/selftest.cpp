@@ -1,10 +1,10 @@
 #include "selftest.hpp"
 
+#include "../dev/chr/tty/uart16550.hpp"
 #include "aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
 #include "syscall.hpp"
-#include "uart16550.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -35,12 +35,17 @@ namespace astia::test {
         }
 
         bool scheduler_checks() {
+            const bool gate_open = arch::cpu::check_interrupts();
+            arch::cpu::interrupts();
             scheduler_counts[0] = 0;
             scheduler_counts[1] = 0;
             if (!proc::scheduler::spawn_kernel(scheduler_worker,
                                                const_cast<u32*>(&scheduler_counts[0])) ||
                 !proc::scheduler::spawn_kernel(scheduler_worker,
                                                const_cast<u32*>(&scheduler_counts[1]))) {
+                if (!gate_open) {
+                    arch::cpu::nointerrupts();
+                }
                 logs::error("scheduler: could not spawn kernel threads");
                 return false;
             }
@@ -50,6 +55,9 @@ namespace astia::test {
             }
             const u32 first  = __atomic_load_n(&scheduler_counts[0], __ATOMIC_RELAXED);
             const u32 second = __atomic_load_n(&scheduler_counts[1], __ATOMIC_RELAXED);
+            if (!gate_open) {
+                arch::cpu::nointerrupts();
+            }
             if (first != 3 || second != 3) {
                 logs::error("scheduler: counts=%u,%u", first, second);
                 return false;

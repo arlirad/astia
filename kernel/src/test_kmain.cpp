@@ -1,9 +1,9 @@
 #include "debug_exit.hpp"
+#include "dev/chr/tty/uart16550.hpp"
 #include "panic.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
 #include "selftest.hpp"
-#include "uart16550.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/boot.hpp>
 #include <astia/common.hpp>

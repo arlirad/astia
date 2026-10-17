@@ -6,7 +6,7 @@
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
 #include <astia/io.hpp>
-#include <astia/mm/pinned_iovec.hpp>
+#include <astia/mm/iovec.hpp>
 
 /*
  * User-pointer hygiene for the syscall boundary.
@@ -159,13 +159,12 @@ namespace astia::sys {
     /// be allocated, and still be the frames the caller reads, when the device
     /// gets to them — possibly after the syscall returned and another thread
     /// of the process unmapped the range.  `out` then holds the pinned entry
-    /// (see mm::pinned_iovec), whose window folds the range's in-page offset
+    /// (see mm::iovec), whose window folds the range's in-page offset
     /// back in; `direction` decides whether a CoW split of those frames has to
     /// be refused.  A caller with no address space has nothing to snapshot, so
     /// its range is recorded as a plain kernel-memory entry: it cannot move,
     /// but the operation still has to walk it like every other entry.
-    inline long pin_user_range(user_range range, io_direction direction,
-                               mm::pinned_iovec& out) {
+    inline long pin_user_range(user_range range, io_direction direction, mm::iovec& out) {
         if (range.empty()) {
             return 0;
         }

@@ -7,7 +7,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/io.hpp>
 #include <astia/memory.hpp>
-#include <astia/mm/pinned_iovec.hpp>
+#include <astia/mm/iovec.hpp>
 
 void* operator new(astia::usize size, void* where) noexcept;
 
@@ -87,8 +87,8 @@ namespace astia::sys {
             /// them.  Empty for an in-kernel client, whose buffer is kernel
             /// memory and cannot be unmapped underneath it — its range is
             /// recorded in the same list, just with no pin behind it.
-            mm::pinned_iovec entries;
-            io_request       request;
+            mm::iovec  entries;
+            io_request request;
             /// Bytes the operation has already moved.  One operation may span
             /// several entries and the caller hears about it once, so the
             /// completion reports this and not the last stretch's count.
@@ -405,7 +405,7 @@ namespace astia::sys {
                 // READ/WRITE name one range, READV/WRITEV up to max_segments of
                 // them.  Both become the same list, so the engine has one path
                 // and a device still gets one buffer per submit() either way.
-                sys::user_range ranges[mm::pinned_iovec::max_segments];
+                sys::user_range ranges[mm::iovec::max_segments];
                 u32             count = 0;
                 if (s.op == OP_READ || s.op == OP_WRITE) {
                     ranges[0] = sys::user_range::bytes(s.address, s.length);
@@ -415,10 +415,10 @@ namespace astia::sys {
                     // For READV/WRITEV, `length` counts entries, not bytes.
                     // Bound the count before copying, so a bad one cannot ask
                     // the kernel to write past its own array.
-                    if (s.length > mm::pinned_iovec::max_segments) {
+                    if (s.length > mm::iovec::max_segments) {
                         return cq_post_guarded(ring, s.user_data, -EINVAL);
                     }
-                    astia_iovec raw[mm::pinned_iovec::max_segments];
+                    astia_iovec raw[mm::iovec::max_segments];
                     if (s.length != 0 &&
                         !sys::copy_in(raw, sys::user_range::bytes(
                                                s.address, static_cast<usize>(s.length) *

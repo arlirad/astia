@@ -1,7 +1,7 @@
 #pragma once
 
-#include "chr/tty.hpp"
-#include "regs.hpp"
+#include "../../regs.hpp"
+#include "../tty.hpp"
 #include <astia/api/termios.h>
 #include <astia/common.hpp>
 #include <astia/io.hpp>

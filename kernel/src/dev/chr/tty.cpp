@@ -1,6 +1,6 @@
-#include "chr/tty.hpp"
+#include "tty.hpp"
 
-#include "../sys/aio.hpp"
+#include "../../sys/aio.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 

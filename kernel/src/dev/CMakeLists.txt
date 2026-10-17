@@ -1,10 +1,10 @@
 add_library(dev STATIC
-        driver.cpp
-        pci.cpp
-        uart16550.cpp
         device.cpp
         device_file.cpp
-        tty.cpp
+        driver.cpp
+        pci.cpp
+        chr/tty.cpp
+        chr/tty/uart16550.cpp
         debug_exit.cpp
         init_dev.cpp
 )

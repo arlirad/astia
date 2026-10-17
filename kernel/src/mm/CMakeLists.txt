@@ -4,7 +4,7 @@ add_library(mm STATIC
         new.cpp
         phys_region.cpp
         pinned_buffer.cpp
-        pinned_iovec.cpp
+        iovec.cpp
         init_mm.cpp
 )
 

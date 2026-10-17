@@ -1,6 +1,6 @@
 #pragma once
 
-#include "device.hpp"
+#include "../device.hpp"
 
 // Character device: moves bytes, not sectors — no geometry, no
 // alignment, no offsets that matter.  Everything device already

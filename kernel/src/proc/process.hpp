@@ -6,7 +6,7 @@
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
-#include <astia/mm/pinned_iovec.hpp>
+#include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/signal.hpp>
 
@@ -158,7 +158,7 @@ namespace astia::proc {
         /// with no address space should not be here at all: its pointers are
         /// kernel memory, which cannot be unmapped out from under the
         /// operation in the first place (see sys::pin_user_range).
-        i32 pin_user(u64 addr, usize len, bool destination, mm::pinned_iovec& out);
+        i32 pin_user(u64 addr, usize len, bool destination, mm::iovec& out);
 
         /// Copy-on-write fork support (called on the parent): build
         /// `child`'s address space from this one.  Every VMA's backing

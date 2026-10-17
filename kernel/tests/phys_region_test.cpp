@@ -2,9 +2,9 @@
 #include "test.hpp"
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
+#include <astia/mm/iovec.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/pinned_buffer.hpp>
-#include <astia/mm/pinned_iovec.hpp>
 
 namespace {
 
@@ -297,14 +297,14 @@ ASTIA_TEST(phys_region_split_does_not_carry_destination_marks) {
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
 
-ASTIA_TEST(pinned_iovec_holds_every_entry_across_vma_release) {
+ASTIA_TEST(iovec_holds_every_entry_across_vma_release) {
     const auto before = init_world();
     auto*      first  = phys_region::create(4, true);
     auto*      second = phys_region::create(2, true);
     ASTIA_CHECK(first != nullptr && second != nullptr);
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 6);
 
-    astia::mm::pinned_iovec list;
+    astia::mm::iovec list;
     // Two entries in different regions, with a zero-length entry between them:
     // legal in a writev(), and it must leave no trace at all.
     ASTIA_CHECK(list.append(first, 1, 2, 0, 8192, false));
@@ -329,12 +329,12 @@ ASTIA_TEST(pinned_iovec_holds_every_entry_across_vma_release) {
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
 
-ASTIA_TEST(pinned_iovec_cursor_walks_entries_in_kernel_address_space) {
+ASTIA_TEST(iovec_cursor_walks_entries_in_kernel_address_space) {
     const auto before = init_world();
     auto*      region = phys_region::create(4, true);
     ASTIA_CHECK(region != nullptr);
 
-    astia::mm::pinned_iovec list;
+    astia::mm::iovec list;
     ASTIA_CHECK(list.append(region, 0, 2, 16, 5000, false)); // crosses pages 0..1
     ASTIA_CHECK(list.append(region, 2, 1, 0, 100, false));
     ASTIA_CHECK(list.bytes() == 5100);
@@ -368,12 +368,12 @@ ASTIA_TEST(pinned_iovec_cursor_walks_entries_in_kernel_address_space) {
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
 
-ASTIA_TEST(pinned_iovec_refuses_what_it_cannot_hold) {
+ASTIA_TEST(iovec_refuses_what_it_cannot_hold) {
     const auto before = init_world();
     auto*      region = phys_region::create(2, true);
     ASTIA_CHECK(region != nullptr);
 
-    astia::mm::pinned_iovec list;
+    astia::mm::iovec list;
     // Neither an entry that addresses bytes outside the frames the pin holds
     // nor one that starts past them may be recorded.
     ASTIA_CHECK(!list.append(region, 0, 1, 0, 4097, false));
@@ -381,25 +381,25 @@ ASTIA_TEST(pinned_iovec_refuses_what_it_cannot_hold) {
     ASTIA_CHECK(list.empty());
     ASTIA_CHECK(region->references() == 1); // the refusals retained nothing
 
-    for (astia::usize i = 0; i < astia::mm::pinned_iovec::max_segments; ++i) {
+    for (astia::usize i = 0; i < astia::mm::iovec::max_segments; ++i) {
         ASTIA_CHECK(list.append(region, 0, 1, 0, 16, false));
     }
-    ASTIA_CHECK(list.count() == astia::mm::pinned_iovec::max_segments);
+    ASTIA_CHECK(list.count() == astia::mm::iovec::max_segments);
     ASTIA_CHECK(!list.append(region, 0, 1, 0, 16, false)); // no room left
-    ASTIA_CHECK(list.count() == astia::mm::pinned_iovec::max_segments);
+    ASTIA_CHECK(list.count() == astia::mm::iovec::max_segments);
 
     list.release();
     region->release();
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
 
-ASTIA_TEST(pinned_iovec_walks_a_kernel_entry_like_any_other) {
+ASTIA_TEST(iovec_walks_a_kernel_entry_like_any_other) {
     const auto before = init_world();
     auto*      region = phys_region::create(2, true);
     char       local[8];
     ASTIA_CHECK(region != nullptr);
 
-    astia::mm::pinned_iovec list;
+    astia::mm::iovec list;
     ASTIA_CHECK(list.append(region, 0, 1, 8, 100, false));
     ASTIA_CHECK(list.append_kernel(local, sizeof local));
     ASTIA_CHECK(list.count() == 2);

@@ -18,7 +18,7 @@
  *
  * Limits, both owned by the kernel rather than this layer: one call is
  * at most the port's per-call ceiling in total, and at most eight
- * entries (mm::pinned_iovec::max_segments).  A list past either limit is
+ * entries (mm::iovec::max_segments).  A list past either limit is
  * refused whole with EINVAL, and every entry must lie in the caller's
  * address space — there is no short-call masking of a bad pointer.  A
  * short *count* still means what it means for read(2)/write(2): the

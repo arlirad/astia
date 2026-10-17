@@ -1,8 +1,8 @@
-#include <astia/mm/pinned_iovec.hpp>
+#include <astia/mm/iovec.hpp>
 
 namespace astia::mm {
 
-    pinned_iovec::pinned_iovec(pinned_iovec&& other) noexcept {
+    iovec::iovec(iovec&& other) noexcept {
         for (usize i = 0; i < other.count_; ++i) {
             segments_[i] = static_cast<pinned_segment&&>(other.segments_[i]);
         }
@@ -18,7 +18,7 @@ namespace astia::mm {
         other.remaining_ = 0;
     }
 
-    pinned_iovec& pinned_iovec::operator=(pinned_iovec&& other) noexcept {
+    iovec& iovec::operator=(iovec&& other) noexcept {
         if (this != &other) {
             release();
             for (usize i = 0; i < other.count_; ++i) {
@@ -38,8 +38,8 @@ namespace astia::mm {
         return *this;
     }
 
-    bool pinned_iovec::append(phys_region* region, usize first, usize count, usize offset,
-                              usize length, bool destination) {
+    bool iovec::append(phys_region* region, usize first, usize count, usize offset,
+                       usize length, bool destination) {
         if (count_ >= max_segments) {
             return false;
         }
@@ -70,7 +70,7 @@ namespace astia::mm {
         return true;
     }
 
-    bool pinned_iovec::append_kernel(void* address, usize length) {
+    bool iovec::append_kernel(void* address, usize length) {
         if (count_ >= max_segments) {
             return false;
         }
@@ -87,7 +87,7 @@ namespace astia::mm {
         return true;
     }
 
-    void pinned_iovec::release() {
+    void iovec::release() {
         for (usize i = 0; i < count_; ++i) {
             segments_[i].frames.release();
         }
@@ -100,33 +100,33 @@ namespace astia::mm {
         remaining_ = 0;
     }
 
-    bool pinned_iovec::empty() const {
+    bool iovec::empty() const {
         return count_ == 0;
     }
 
-    usize pinned_iovec::count() const {
+    usize iovec::count() const {
         return count_;
     }
 
-    usize pinned_iovec::bytes() const {
+    usize iovec::bytes() const {
         return total_;
     }
 
-    void pinned_iovec::aim(usize length) {
+    void iovec::aim(usize length) {
         index_     = 0;
         offset_    = 0;
         remaining_ = length < total_ ? length : total_;
     }
 
-    usize pinned_iovec::remaining() const {
+    usize iovec::remaining() const {
         return remaining_;
     }
 
-    bool pinned_iovec::done() const {
+    bool iovec::done() const {
         return remaining_ == 0;
     }
 
-    void* pinned_iovec::window() const {
+    void* iovec::window() const {
         if (remaining_ == 0 || index_ >= count_) {
             return nullptr;
         }
@@ -141,7 +141,7 @@ namespace astia::mm {
                (byte % phys_region::frame_size);
     }
 
-    usize pinned_iovec::chunk() const {
+    usize iovec::chunk() const {
         if (remaining_ == 0 || index_ >= count_) {
             return 0;
         }
@@ -149,7 +149,7 @@ namespace astia::mm {
         return left < remaining_ ? left : remaining_;
     }
 
-    usize pinned_iovec::advance(usize bytes) {
+    usize iovec::advance(usize bytes) {
         usize moved = 0;
         while (moved < bytes && remaining_ != 0 && index_ < count_) {
             const usize take = chunk();

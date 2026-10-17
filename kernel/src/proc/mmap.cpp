@@ -120,7 +120,7 @@ namespace astia::proc {
         return nullptr;
     }
 
-    i32 process::pin_user(u64 addr, usize len, bool destination, mm::pinned_iovec& out) {
+    i32 process::pin_user(u64 addr, usize len, bool destination, mm::iovec& out) {
         if (address_space_ == nullptr || len == 0) {
             return 0; // no address space: kernel memory cannot move
         }

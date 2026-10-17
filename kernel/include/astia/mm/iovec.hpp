@@ -56,21 +56,21 @@ namespace astia::mm {
     };
 
     /// A pinned entry list plus the position of the operation inside it.
-    class pinned_iovec {
+    class iovec {
         public:
         /// Entries per operation.  A readv()/writev() longer than this is
         /// refused with EINVAL, not truncated.
         static constexpr usize max_segments = 8;
 
-        pinned_iovec()                               = default;
-        pinned_iovec(const pinned_iovec&)            = delete;
-        pinned_iovec& operator=(const pinned_iovec&) = delete;
+        iovec()                        = default;
+        iovec(const iovec&)            = delete;
+        iovec& operator=(const iovec&) = delete;
 
         /// The cursor travels with the frames it walks: a slot hands the pair
         /// to the reaper, and reference-counted state must never have two
         /// owners.
-        pinned_iovec(pinned_iovec&& other) noexcept;
-        pinned_iovec& operator=(pinned_iovec&& other) noexcept;
+        iovec(iovec&& other) noexcept;
+        iovec& operator=(iovec&& other) noexcept;
 
         /// Reference one more entry.  A zero `length` is legal and dropped.
         /// False only on a hard failure — no room left, or the frames cannot

@@ -1,8 +1,8 @@
+#include "../../dev/chr/tty/uart16550.hpp"
 #include "debug_exit.hpp"
 #include "lapic.hpp"
 #include "pic.hpp"
 #include "pit.hpp"
-#include "uart16550.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
