@@ -4,6 +4,7 @@
 #include <astia/mm/heap.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/pinned_buffer.hpp>
+#include <astia/mm/pinned_iovec.hpp>
 
 namespace {
 
@@ -292,6 +293,102 @@ ASTIA_TEST(phys_region_split_does_not_carry_destination_marks) {
     pin.release();
     ASTIA_CHECK(!region->destination_pinned(1));
     copy->release();
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(pinned_iovec_holds_every_entry_across_vma_release) {
+    const auto before = init_world();
+    auto*      first  = phys_region::create(4, true);
+    auto*      second = phys_region::create(2, true);
+    ASTIA_CHECK(first != nullptr && second != nullptr);
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 6);
+
+    astia::mm::pinned_iovec list;
+    // Two entries in different regions, with a zero-length entry between them:
+    // legal in a writev(), and it must leave no trace at all.
+    ASTIA_CHECK(list.append(first, 1, 2, 0, 8192, false));
+    ASTIA_CHECK(list.append(second, 0, 1, 0, 0, false));
+    ASTIA_CHECK(list.append(second, 1, 1, 24, 40, false));
+    ASTIA_CHECK(list.count() == 2);
+    ASTIA_CHECK(list.bytes() == 8192 + 40);
+
+    // Both mappings go away while the operation is in flight.  The frames the
+    // entries referenced must survive, and so must the region objects that
+    // hold the counters release() will decrement.
+    first->release();
+    second->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 3);
+
+    list.release();
+    ASTIA_CHECK(list.count() == 0);
+    ASTIA_CHECK(list.empty());
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+
+    list.release(); // idempotent, and safe on an empty list
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(pinned_iovec_cursor_walks_entries_in_kernel_address_space) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(4, true);
+    ASTIA_CHECK(region != nullptr);
+
+    astia::mm::pinned_iovec list;
+    ASTIA_CHECK(list.append(region, 0, 2, 16, 5000, false)); // crosses pages 0..1
+    ASTIA_CHECK(list.append(region, 2, 1, 0, 100, false));
+    ASTIA_CHECK(list.bytes() == 5100);
+
+    list.aim(list.bytes());
+    ASTIA_CHECK(!list.done());
+    ASTIA_CHECK(list.remaining() == 5100);
+
+    // The window names the entry's first byte, not the page it sits on: the
+    // in-page offset is part of the operation, not of the pin.
+    ASTIA_CHECK(list.window() == static_cast<char*>(region->page_direct(0)) + 16);
+    ASTIA_CHECK(list.chunk() == 5000);
+    ASTIA_CHECK(list.advance(4080) == 4080); // rest of page 0
+    ASTIA_CHECK(list.remaining() == 1020);
+
+    // Same entry, now running on into its second page — and it runs on into
+    // the frame that actually follows, because a region is contiguous.
+    ASTIA_CHECK(list.window() == static_cast<char*>(region->page_direct(1)));
+    ASTIA_CHECK(list.chunk() == 920);
+    ASTIA_CHECK(list.advance(920) == 920); // rest of entry 0
+    ASTIA_CHECK(list.window() == static_cast<char*>(region->page_direct(2)));
+    ASTIA_CHECK(list.chunk() == 100);
+    ASTIA_CHECK(list.advance(100) == 100);
+    ASTIA_CHECK(list.done());
+    ASTIA_CHECK(list.remaining() == 0);
+    ASTIA_CHECK(list.window() == nullptr);
+    ASTIA_CHECK(list.advance(64) == 0); // nothing left to consume
+
+    region->release();
+    list.release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(pinned_iovec_refuses_what_it_cannot_hold) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(2, true);
+    ASTIA_CHECK(region != nullptr);
+
+    astia::mm::pinned_iovec list;
+    // Neither an entry that addresses bytes outside the frames the pin holds
+    // nor one that starts past them may be recorded.
+    ASTIA_CHECK(!list.append(region, 0, 1, 0, 4097, false));
+    ASTIA_CHECK(!list.append(region, 0, 1, 4096, 1, false));
+    ASTIA_CHECK(list.empty());
+    ASTIA_CHECK(region->references() == 1); // the refusals retained nothing
+
+    for (astia::usize i = 0; i < astia::mm::pinned_iovec::max_segments; ++i) {
+        ASTIA_CHECK(list.append(region, 0, 1, 0, 16, false));
+    }
+    ASTIA_CHECK(list.count() == astia::mm::pinned_iovec::max_segments);
+    ASTIA_CHECK(!list.append(region, 0, 1, 0, 16, false)); // no room left
+    ASTIA_CHECK(list.count() == astia::mm::pinned_iovec::max_segments);
+
+    list.release();
     region->release();
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }

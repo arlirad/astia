@@ -176,6 +176,7 @@ astia_add_arena_test(astia_phys_region_test
         phys_region_test.cpp
         ${CMAKE_SOURCE_DIR}/src/mm/phys_region.cpp
         ${CMAKE_SOURCE_DIR}/src/mm/pinned_buffer.cpp
+        ${CMAKE_SOURCE_DIR}/src/mm/pinned_iovec.cpp
         ${CMAKE_SOURCE_DIR}/src/mm/heap.cpp
         ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
 )
