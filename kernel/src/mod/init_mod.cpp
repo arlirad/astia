@@ -6,15 +6,16 @@
 #include <astia/log.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
-// The "mod" init step: turn the bootloader's module list into running code.
+// The "mod" init step: turn the bootloader's handoff into running code.
 //
-// A boot module is either a bare ELF image or an initrd (ustar tarball) that
-// carries one. Bare images are loaded directly; an initrd is unpacked and every
-// ELF file it contains is loaded and run. Anything that is neither is reported
-// and skipped — a single bad file must not brick the boot.
+// The ramdisk the loader hands over (boot::boot_info::initrd) is a ustar
+// archive: every ET_REL file it carries is a kernel module, and each of those
+// is loaded and run.  Modules besides the ramdisk are bare ELF images, loaded
+// directly.  Anything that is not an ELF image is reported and skipped — a
+// single bad module must not brick the boot.
 //
 // Depends on `frames` (the frame allocator places section contents) and
-// `boot_info` (the module list itself).
+// `boot_info` (the ramdisk and the module list).
 
 namespace astia::mod {
 
@@ -69,37 +70,38 @@ namespace astia::mod {
             return false;
         }
 
+        // The ramdisk is the fs layer's: it mounts it at / (fs/initrd_init.cpp).
+        // What mod takes from it are the kernel modules it carries.
+        const boot::module& ramdisk = ctx.info->initrd;
+        if (ramdisk.paddr != 0 && ramdisk.size != 0) {
+            const void*     data = mm::kernel_frames().to_virt(ramdisk.paddr);
+            initrd::archive arc;
+            if (initrd::open(data, static_cast<usize>(ramdisk.size), arc)) {
+                initrd_logs::info("%llu file(s)",
+                                  static_cast<unsigned long long>(initrd::count(arc)));
+                initrd::each(arc, visit_initrd_file, nullptr);
+            }
+        }
+
+        // Every other module the loader reported is a bare ELF image, or
+        // something we do not understand.
         for (usize i = 0; i < ctx.info->module_count; ++i) {
             const boot::module& m = ctx.info->modules[i];
             if (m.paddr == 0 || m.size == 0) {
                 continue;
             }
-            // Physical memory where the bootloader left it: go through
-            // the direct map so the bytes are addressable regardless of
-            // which address space is active (same rule as the initrd
-            // mount in fs/initrd_init.cpp).
+            // Physical memory where the bootloader left it: go through the
+            // direct map so the bytes are addressable regardless of which
+            // address space is active.
             const void* data = mm::kernel_frames().to_virt(m.paddr);
             usize       size = static_cast<usize>(m.size);
 
-            // A bare ELF image handed over directly.
             if (elf::kind_of(data, size) != elf::kind::none) {
                 load_and_run(data, size, nullptr, i);
                 continue;
             }
-
-            // Otherwise treat it as an initrd (ustar) archive and load the ELF
-            // images it carries.
-            initrd::archive arc;
-            if (!initrd::open(data, size, arc)) {
-                logs::warning("module %llu is neither ELF nor initrd",
-                              static_cast<unsigned long long>(i));
-                continue;
-            }
-            initrd_logs::info("module %llu: %llu file(s)",
-                              static_cast<unsigned long long>(i),
-                              static_cast<unsigned long long>(initrd::count(arc)));
-
-            initrd::each(arc, visit_initrd_file, nullptr);
+            logs::warning("module %llu is not an ELF image",
+                          static_cast<unsigned long long>(i));
         }
         return true;
     }

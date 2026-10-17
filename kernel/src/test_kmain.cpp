@@ -82,7 +82,7 @@ extern "C" void kmain(void* start_info) {
         astia::core::kpanic("kernel integration selftest failed");
     }
 
-    if (ctx.info != nullptr && ctx.info->module_count != 0) {
+    if (ctx.info != nullptr && ctx.info->initrd.paddr != 0) {
         volatile astia::u32 spawn_status = 0;
         auto                worker       = astia::proc::scheduler::create_kernel(
             spawn_init_worker, const_cast<astia::u32*>(&spawn_status));

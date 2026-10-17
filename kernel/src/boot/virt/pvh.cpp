@@ -73,10 +73,14 @@ namespace astia::boot::virt {
         }
         out.rsdp = info->rsdp_paddr;
 
-        if (info->modlist_paddr != 0) {
+        if (info->modlist_paddr != 0 && info->nr_modules != 0) {
             const auto* modules =
                 reinterpret_cast<const hvm_modlist_entry*>(info->modlist_paddr);
-            for (u32 i = 0; i < info->nr_modules && out.module_count < max_modules; ++i) {
+            // The ABI's convention: the first module is the ramdisk and
+            // everything after it is a module.  Linux reads the handoff the
+            // same way (arch/x86/platform/pvh/enlighten.c).
+            out.initrd = {modules[0].paddr, modules[0].size};
+            for (u32 i = 1; i < info->nr_modules && out.module_count < max_modules; ++i) {
                 out.modules[out.module_count++] = {modules[i].paddr, modules[i].size};
             }
         }

@@ -10,8 +10,8 @@ namespace astia::boot {
     /// loader reports are dropped, mirroring memory_map's fixed capacity.
     inline constexpr usize max_modules = 8;
 
-    /// One module (initrd, ramdisk, ...) the loader handed to the kernel,
-    /// described by physical address and size.
+    /// One module the loader handed to the kernel, described by physical
+    /// address and size.
     struct module {
         u64 paddr = 0;
         u64 size  = 0;
@@ -30,8 +30,14 @@ namespace astia::boot {
         mm::memory_map memory;            ///< Physical memory map.
         const char*    cmdline = nullptr; ///< NUL-terminated command line, or null.
         u64            rsdp    = 0;       ///< ACPI RSDP physical address, 0 if absent.
-        module         modules[max_modules]{}; ///< Loader modules.
-        usize          module_count = 0;       ///< Number of valid entries in modules.
+        /// The initrd the loader handed over, if any (paddr 0 when there is
+        /// none).  The PVH handoff has no initrd field of its own: by the
+        /// ABI's convention the first module *is* the ramdisk, which is how
+        /// Linux reads it too, so it is split out here and `modules` starts
+        /// after it.
+        module initrd;
+        module modules[max_modules]{}; ///< Loader modules besides the initrd.
+        usize  module_count = 0;       ///< Number of valid entries in modules.
     };
 
 } // namespace astia::boot
