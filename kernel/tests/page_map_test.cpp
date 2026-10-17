@@ -29,7 +29,7 @@ namespace {
     }
 
     // An address inside the kernel half (kernel_base's PML4 slot).
-    astia::u64 kvirt(astia::u64 offset) {
+    astia::vaddr_t kvirt(astia::vaddr_t offset) {
         return astia::arch::kernel_base + offset;
     }
 
@@ -45,8 +45,8 @@ ASTIA_TEST(page_map_create_allocates_empty_root) {
 }
 
 ASTIA_TEST(page_map_map_4k_round_trip) {
-    auto             pm   = make_map();
-    const astia::u64 phys = astia_test::arena_base + 0x200000;
+    auto                 pm   = make_map();
+    const astia::paddr_t phys = astia_test::arena_base + 0x200000;
 
     ASTIA_CHECK(pm.map_4k(0x400000, phys, rw));
     ASTIA_CHECK(pm.translate(0x400000) == phys);
@@ -56,8 +56,8 @@ ASTIA_TEST(page_map_map_4k_round_trip) {
 }
 
 ASTIA_TEST(page_map_map_2m_round_trip) {
-    auto             pm   = make_map();
-    const astia::u64 phys = astia_test::arena_base + 0x400000; // 2 MiB aligned
+    auto                 pm   = make_map();
+    const astia::paddr_t phys = astia_test::arena_base + 0x400000; // 2 MiB aligned
 
     ASTIA_CHECK(pm.map_2m(0x200000, phys, rw));
     ASTIA_CHECK(pm.translate(0x200000) == phys);

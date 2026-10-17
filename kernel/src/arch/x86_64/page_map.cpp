@@ -62,20 +62,20 @@ namespace astia::arch {
             pt,
         };
 
-        constexpr usize pml4_index(u64 virt) {
+        constexpr usize pml4_index(vaddr_t virt) {
             return (virt >> 39) & 0x1ff;
         }
-        constexpr usize pdpt_index(u64 virt) {
+        constexpr usize pdpt_index(vaddr_t virt) {
             return (virt >> 30) & 0x1ff;
         }
-        constexpr usize pd_index(u64 virt) {
+        constexpr usize pd_index(vaddr_t virt) {
             return (virt >> 21) & 0x1ff;
         }
-        constexpr usize pt_index(u64 virt) {
+        constexpr usize pt_index(vaddr_t virt) {
             return (virt >> 12) & 0x1ff;
         }
 
-        bool is_canonical(u64 virt) {
+        bool is_canonical(vaddr_t virt) {
             const u64 top = virt >> 47;
             return top == 0 || top == 0x1ffff;
         }
@@ -114,7 +114,7 @@ namespace astia::arch {
         /// window — so the remaining three form a fixed pattern per level:
         ///   root: rec rec rec rec      pdpt: rec rec rec pml4(v)
         ///   pd:   rec rec pml4 pdpt    pt:   rec pml4 pdpt pd
-        u64 alias(table_level level, u64 virt) {
+        vaddr_t alias(table_level level, vaddr_t virt) {
             const u64 rec = recursive_slot;
             u64       a2  = rec;
             u64       a3  = rec;
@@ -142,7 +142,7 @@ namespace astia::arch {
         /// are not active: through the kernel direct map once it runs (it is
         /// shared into every active map), through the identity window before
         /// that and in host tests.
-        u64* phys_ptr(u64 phys) {
+        u64* phys_ptr(paddr_t phys) {
             if (active_map != nullptr) {
                 return reinterpret_cast<u64*>(kernel_base + phys);
             }
@@ -159,7 +159,8 @@ namespace astia::arch {
 
         /// The next-level table on `virt`'s walk, given the entry pointing
         /// at it (which the caller has verified present or just created).
-        u64* next_table(const page_map& owner, u64 virt, table_level level, u64 entry) {
+        u64* next_table(const page_map& owner, vaddr_t virt, table_level level,
+                        u64 entry) {
             if (active_map == &owner) {
                 return reinterpret_cast<u64*>(alias(level, virt));
             }
@@ -169,8 +170,8 @@ namespace astia::arch {
         /// Return the next-level table for `entry`, allocating and zeroing it
         /// (and setting PRESENT|RW, plus USER when requested) when absent.
         /// Returns nullptr if a huge page is in the way or allocation fails.
-        u64* ensure_table(const page_map& owner, u64 virt, table_level level, u64& entry,
-                          page_flags flags) {
+        u64* ensure_table(const page_map& owner, vaddr_t virt, table_level level,
+                          u64& entry, page_flags flags) {
             if ((entry & entry_present) != 0) {
                 if ((entry & entry_huge) != 0) {
                     return nullptr;
@@ -191,7 +192,7 @@ namespace astia::arch {
         }
 
         /// Turn a 2 MiB leaf entry into a page table full of 4 KiB entries.
-        bool split_2m(const page_map& owner, u64 virt, u64& pde) {
+        bool split_2m(const page_map& owner, vaddr_t virt, u64& pde) {
             const u64 base = pde & (~0ull << 21);
             const u64 inherited =
                 pde & (entry_writable | entry_user | entry_write_through |
@@ -257,7 +258,7 @@ namespace astia::arch {
         return map;
     }
 
-    bool page_map::map_4k(u64 virt, u64 phys, page_flags flags) {
+    bool page_map::map_4k(vaddr_t virt, paddr_t phys, page_flags flags) {
         if (!valid() || !is_canonical(virt)) {
             return false;
         }
@@ -296,7 +297,7 @@ namespace astia::arch {
         return true;
     }
 
-    bool page_map::map_2m(u64 virt, u64 phys, page_flags flags) {
+    bool page_map::map_2m(vaddr_t virt, paddr_t phys, page_flags flags) {
         if (!valid() || !is_canonical(virt)) {
             return false;
         }
@@ -332,7 +333,7 @@ namespace astia::arch {
         return true;
     }
 
-    bool page_map::unmap(u64 virt) {
+    bool page_map::unmap(vaddr_t virt) {
         if (!valid() || !is_canonical(virt)) {
             return false;
         }
@@ -363,7 +364,7 @@ namespace astia::arch {
         return true;
     }
 
-    u64 page_map::translate(u64 virt) const {
+    paddr_t page_map::translate(vaddr_t virt) const {
         if (!valid() || !is_canonical(virt)) {
             return invalid;
         }
@@ -408,7 +409,7 @@ namespace astia::arch {
 #endif
     }
 
-    void page_map::invalidate(u64 virt) {
+    void page_map::invalidate(vaddr_t virt) {
 #ifndef ASTIA_HOST_TEST
         asm volatile("invlpg (%0)" : : "r"(virt) : "memory");
 #else

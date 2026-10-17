@@ -56,7 +56,7 @@ namespace astia::arch {
     /// paging init step).
     class page_map {
         public:
-        static constexpr u64 invalid = ~u64{0};
+        static constexpr paddr_t invalid = ~paddr_t{0};
 
         /// Empty (invalid) map; a placeholder for create()/assignment.
         page_map() = default;
@@ -76,7 +76,7 @@ namespace astia::arch {
         }
 
         /// Physical address of the root table (what the arch loads).
-        u64 root() const {
+        paddr_t root() const {
             return root_;
         }
 
@@ -86,30 +86,30 @@ namespace astia::arch {
         }
 
         /// Map one 4 KiB page. Splits a 2 MiB page if one is in the way.
-        bool map_4k(u64 virt, u64 phys, page_flags flags);
+        bool map_4k(vaddr_t virt, paddr_t phys, page_flags flags);
 
         /// Map one 2 MiB page. Fails if a 4 KiB table already covers `virt`.
-        bool map_2m(u64 virt, u64 phys, page_flags flags);
+        bool map_2m(vaddr_t virt, paddr_t phys, page_flags flags);
 
         /// Remove a 4 KiB mapping of *this* map. 2 MiB mappings are not
         /// touched (false); the parent's mappings are never touched.
-        bool unmap(u64 virt);
+        bool unmap(vaddr_t virt);
 
         /// Virtual to physical, or invalid. Consults the parent when this
         /// map has no entry of its own.
-        u64 translate(u64 virt) const;
+        paddr_t translate(vaddr_t virt) const;
 
         /// Install this page map (arch equivalent: load the root register).
         void activate() const;
 
         /// Invalidate any TLB entry for `virt`.
-        static void invalidate(u64 virt);
+        static void invalidate(vaddr_t virt);
 
         private:
-        explicit page_map(u64 root, const page_map* parent)
+        explicit page_map(paddr_t root, const page_map* parent)
             : root_(root), parent_(parent) {}
 
-        u64             root_   = 0;
+        paddr_t         root_   = 0;
         const page_map* parent_ = nullptr;
     };
 
