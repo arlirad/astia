@@ -1,7 +1,7 @@
 #include "support/test.hpp"
 #include <astia/common.hpp>
 
-using namespace astia::literals;
+using namespace astia;
 
 static_assert(sizeof(astia::paddr_t) == sizeof(astia::u64));
 static_assert(sizeof(astia::vaddr_t) == sizeof(astia::u64));

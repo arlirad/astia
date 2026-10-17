@@ -26,24 +26,20 @@ namespace astia {
     using paddr_t  = u64;
     using vaddr_t  = u64;
 
-    namespace literals {
+    consteval bytes_t operator""_b(unsigned long long value) {
+        return static_cast<bytes_t>(value);
+    }
 
-        consteval bytes_t operator""_b(unsigned long long value) {
-            return static_cast<bytes_t>(value);
-        }
+    consteval bytes_t operator""_kib(unsigned long long value) {
+        return static_cast<bytes_t>(value * 1024ull);
+    }
 
-        consteval bytes_t operator""_kib(unsigned long long value) {
-            return static_cast<bytes_t>(value * 1024ull);
-        }
+    consteval bytes_t operator""_mib(unsigned long long value) {
+        return static_cast<bytes_t>(value * 1024ull * 1024ull);
+    }
 
-        consteval bytes_t operator""_mib(unsigned long long value) {
-            return static_cast<bytes_t>(value * 1024ull * 1024ull);
-        }
-
-        consteval bytes_t operator""_gib(unsigned long long value) {
-            return static_cast<bytes_t>(value * 1024ull * 1024ull * 1024ull);
-        }
-
-    } // namespace literals
+    consteval bytes_t operator""_gib(unsigned long long value) {
+        return static_cast<bytes_t>(value * 1024ull * 1024ull * 1024ull);
+    }
 
 } // namespace astia
