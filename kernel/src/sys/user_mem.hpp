@@ -39,20 +39,97 @@
 
 namespace astia::sys {
 
-    /// True if [address, address + length) may be accessed by the
-    /// current caller.  A caller with no address space of its own (the
-    /// kernel process, in-kernel ring clients, selftests driving the
-    /// syscall table) passes kernel pointers through these same paths
-    /// and is trusted exactly as it always was.  Everyone else is a
-    /// ring-3 process: the range must lie entirely below kernel_base
-    /// and every page must translate in the caller's address space.
-    /// A zero length is vacuously valid; a null base with nonzero
+    /// An address the caller named, and the length that came with it.
+    ///
+    /// Deliberately not a pointer.  A user address is directly
+    /// dereferenceable in ring 0 here: page_map::activate() puts the
+    /// process's own table in CR3, and its map shares the kernel half, so
+    /// `*(u8*) sqe.address` does not fault — it succeeds, and reads
+    /// whatever the caller mapped there.  The hardware cannot catch that,
+    /// so the discipline has to: a caller-named address cannot be *used*
+    /// anonymously.  The two safe things to do with one are copy it now,
+    /// or pin it for the flight of an operation, and the gates below are
+    /// the only code that accepts a user_range — they are where the
+    /// address finally becomes a pointer.
+    ///
+    /// This is a discipline, not a proof: the casts still exist, and they
+    /// live in this header beside the validation that licenses them.
+    /// What the type buys is that every place turning a caller-named
+    /// address into a pointer names itself, and that bytes() and string()
+    /// are the only ways to name one — so a value that is not an address
+    /// off the ABI has to say so at one grep-able call.
+    class user_range {
+        public:
+        /// The null range: what a caller named when it named no memory at
+        /// all (an optional result slot that was passed as NULL).  Every
+        /// gate treats it as nothing to do, exactly as it treats any
+        /// zero-length range, so this says "absent" — it does not name an
+        /// address, and there is nothing behind it to reach.
+        user_range() = default;
+
+        /// A length-delimited range: the ordinary case, where the ABI — or
+        /// the syscall's own argument shape — says how many bytes are
+        /// meant.  Call it at the boundary; an address the kernel itself
+        /// computed halfway through is the caller lying, not the type
+        /// failing.
+        static user_range bytes(u64 address, usize length) {
+            return user_range(address, length);
+        }
+
+        /// A NUL-terminated string.  Its extent is its terminator, not a
+        /// count, so it carries no length: the gate that walks it supplies
+        /// the bound, and length() is 0 — no gate may read it as a size.
+        static user_range string(u64 address) {
+            return user_range(address, 0);
+        }
+
+        u64 address() const {
+            return address_;
+        }
+        usize length() const {
+            return length_;
+        }
+
+        /// A null address: the ABI's "no such argument" for an optional
+        /// result slot (waitpid's status, thread_join's result).
+        bool null() const {
+            return address_ == 0;
+        }
+
+        /// No bytes to move.
+        bool empty() const {
+            return length_ == 0;
+        }
+
+        /// The `length` bytes starting `offset` bytes into this range —
+        /// walking a caller's array of pointers.  Pure arithmetic on a user
+        /// address: it claims no bound of its own, and the gate
+        /// re-validates whatever it is handed, so the loop bound stays the
+        /// caller's to get right.
+        user_range slice(usize offset, usize length) const {
+            return user_range(address_ + offset, length);
+        }
+
+        private:
+        user_range(u64 address, usize length) : address_(address), length_(length) {}
+
+        u64   address_ = 0;
+        usize length_  = 0;
+    };
+
+    /// True if `range` may be accessed by the current caller.  A caller with
+    /// no address space of its own (the kernel process, in-kernel ring
+    /// clients, selftests driving the syscall table) passes kernel pointers
+    /// through these same paths and is trusted exactly as it always was.
+    /// Everyone else is a ring-3 process: the range must lie entirely below
+    /// kernel_base and every page must translate in the caller's address
+    /// space.  A zero length is vacuously valid; a null base with nonzero
     /// length is not.
-    inline bool user_range_ok(const void* address, usize length) {
-        if (length == 0) {
+    inline bool user_range_ok(user_range range) {
+        if (range.length() == 0) {
             return true;
         }
-        const u64 base = reinterpret_cast<u64>(address);
+        const u64 base = range.address();
         if (base == 0) {
             return false;
         }
@@ -61,11 +138,11 @@ namespace astia::sys {
         if (space == nullptr) {
             return true; // kernel client: kernel pointers, as before
         }
-        if (base >= arch::kernel_base || length > arch::kernel_base - base) {
+        if (base >= arch::kernel_base || range.length() > arch::kernel_base - base) {
             return false;
         }
         const u64 first = base & ~u64{0xfff};
-        const u64 last  = (base + length - 1) & ~u64{0xfff};
+        const u64 last  = (base + range.length() - 1) & ~u64{0xfff};
         for (u64 page = first;; page += 4096) {
             if (space->translate(page) == arch::page_map::invalid) {
                 return false;
@@ -87,65 +164,72 @@ namespace astia::sys {
     /// be refused.  A caller with no address space has nothing to snapshot, so
     /// its range is recorded as a plain kernel-memory entry: it cannot move,
     /// but the operation still has to walk it like every other entry.
-    inline long pin_user_range(const void* address, usize length, io_direction direction,
+    inline long pin_user_range(user_range range, io_direction direction,
                                mm::pinned_iovec& out) {
-        if (length == 0) {
+        if (range.empty()) {
             return 0;
         }
         proc::process* owner = proc::current_process();
         if (owner == nullptr || owner->address_space() == nullptr) {
-            // Kernel client: kernel memory, which cannot be unmapped.
-            return out.append_kernel(const_cast<void*>(address), length) ? 0 : -ENOMEM;
+            // Kernel client: kernel memory, which cannot be unmapped.  This
+            // is the one range the kernel owns rather than the caller, and
+            // it is the only cast of the address here that is not a user
+            // pointer at all.
+            return out.append_kernel(reinterpret_cast<void*>(range.address()),
+                                     range.length())
+                       ? 0
+                       : -ENOMEM;
         }
-        return owner->pin_user(reinterpret_cast<u64>(address), length,
+        return owner->pin_user(range.address(), range.length(),
                                direction == io_direction::input, out);
     }
 
-    /// Copy out of the kernel into a validated user range.  Returns
-    /// false (writing nothing) if the range fails validation.
-    inline bool copy_out(void* user, const void* source, usize length) {
-        if (!user_range_ok(user, length)) {
+    /// Copy out of the kernel into a validated user range.  The count comes
+    /// from the range; `source` must be at least that long (a kernel local,
+    /// so that much is the caller's own promise).  Returns false, writing
+    /// nothing, if the range fails validation.
+    inline bool copy_out(user_range destination, const void* source) {
+        if (!user_range_ok(destination)) {
             return false;
         }
-        auto*       to   = static_cast<u8*>(user);
+        auto*       to   = reinterpret_cast<u8*>(destination.address());
         const auto* from = static_cast<const u8*>(source);
-        for (usize i = 0; i < length; ++i) {
+        for (usize i = 0; i < destination.length(); ++i) {
             to[i] = from[i];
         }
         return true;
     }
 
     /// Copy in from a validated user range into the kernel.
-    inline bool copy_in(void* destination, const void* user, usize length) {
-        if (!user_range_ok(user, length)) {
+    inline bool copy_in(void* destination, user_range source) {
+        if (!user_range_ok(source)) {
             return false;
         }
         auto*       to   = static_cast<u8*>(destination);
-        const auto* from = static_cast<const u8*>(user);
-        for (usize i = 0; i < length; ++i) {
+        const auto* from = reinterpret_cast<const u8*>(source.address());
+        for (usize i = 0; i < source.length(); ++i) {
             to[i] = from[i];
         }
         return true;
     }
 
     /// Copy a NUL-terminated string out of the caller's memory into a
-    /// kernel buffer of `capacity` bytes (terminator included).  For a
-    /// ring-3 caller, pages are validated lazily as the walk crosses
-    /// them, so a string at the top of a mapped region is not rejected
-    /// for the unmapped page above it; a kernel client gets a plain
-    /// bounded copy.  Fails if any page is unmapped or the terminator
-    /// is not found within the capacity bound.
-    inline bool copy_in_string(char* destination, usize capacity, const void* user) {
-        if (capacity == 0) {
+    /// kernel buffer of `capacity` bytes (terminator included).  `source`
+    /// is a string range, so its length is not consulted: the walk ends at
+    /// the terminator or at `capacity`, whichever comes first.  For a
+    /// ring-3 caller, pages are validated lazily as the walk crosses them,
+    /// so a string at the top of a mapped region is not rejected for the
+    /// unmapped page above it; a kernel client gets a plain bounded copy.
+    /// Fails if any page is unmapped or the terminator is not found within
+    /// the capacity bound.
+    inline bool copy_in_string(char* destination, usize capacity, user_range source) {
+        if (capacity == 0 || source.null()) {
             return false;
         }
         const proc::process*  owner = proc::current_process();
         const arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
-        const auto*           from  = static_cast<const u8*>(user);
-        u64                   byte  = reinterpret_cast<u64>(from);
-        if (byte == 0) {
-            return false;
-        }
+        const auto*           from  = reinterpret_cast<const u8*>(source.address());
+        u64                   byte  = source.address();
         if (space == nullptr) { // kernel client: bounded straight copy
             for (usize i = 0; i < capacity; ++i) {
                 destination[i] = static_cast<char>(from[i]);

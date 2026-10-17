@@ -44,15 +44,15 @@ namespace astia::proc {
             // deliver the status through a kernel local and copy out
             // afterwards — waitpid blocks, so nothing may be held
             // across it, and the range is re-checked at delivery.
-            auto* status = reinterpret_cast<void*>(static_cast<usize>(status_ptr));
-            if (status != nullptr && !sys::user_range_ok(status, sizeof(i32))) {
+            const sys::user_range status =
+                sys::user_range::bytes(static_cast<u64>(status_ptr), sizeof(i32));
+            if (!status.null() && !sys::user_range_ok(status)) {
                 return -EFAULT;
             }
             i32       local = 0;
             const i64 result =
-                waitpid(static_cast<i32>(pid), status == nullptr ? nullptr : &local);
-            if (result >= 0 && status != nullptr &&
-                !sys::copy_out(status, &local, sizeof(local))) {
+                waitpid(static_cast<i32>(pid), status.null() ? nullptr : &local);
+            if (result >= 0 && !status.null() && !sys::copy_out(status, &local)) {
                 return -EFAULT; // reaped, but undeliverable
             }
             return result;
@@ -69,22 +69,27 @@ namespace astia::proc {
         enum : usize { path_cap = 256, arg_cap = 256, vec_max = 32 };
 
         i64 copy_in_vector(char** vec, char* pool, i64 user_vector) {
-            if (user_vector == 0) {
+            const sys::user_range vector = sys::user_range::bytes(
+                static_cast<u64>(user_vector), vec_max * sizeof(char*));
+            if (vector.null()) {
                 vec[0] = nullptr;
                 return 0; // a null vector means "empty"
             }
             for (usize i = 0; i < vec_max; ++i) {
-                char*       element = nullptr;
-                const auto* slot    = reinterpret_cast<const void*>(
-                    static_cast<usize>(user_vector) + i * sizeof(char*));
-                if (!sys::copy_in(&element, slot, sizeof element)) {
+                char* element = nullptr;
+                if (!sys::copy_in(&element,
+                                  vector.slice(i * sizeof(char*), sizeof element))) {
                     return -EFAULT;
                 }
                 if (element == nullptr) {
                     vec[i] = nullptr;
                     return 0;
                 }
-                if (!sys::copy_in_string(pool, arg_cap, element)) {
+                // An element is a user address read out of user memory, so
+                // it is exactly as untrusted as the vector that named it.
+                if (!sys::copy_in_string(
+                        pool, arg_cap,
+                        sys::user_range::string(reinterpret_cast<u64>(element)))) {
                     return -EFAULT;
                 }
                 vec[i] = pool;
@@ -97,7 +102,7 @@ namespace astia::proc {
             char path[path_cap];
             if (!sys::copy_in_string(
                     path, sizeof path,
-                    reinterpret_cast<const void*>(static_cast<usize>(path_ptr)))) {
+                    sys::user_range::string(static_cast<u64>(path_ptr)))) {
                 return -EFAULT;
             }
 
@@ -202,10 +207,9 @@ namespace astia::proc {
                 static_cast<u64>(entry) >= arch::kernel_base ||
                 static_cast<u64>(stack_top) >= arch::kernel_base ||
                 (static_cast<u64>(stack_top) & 0xf) != 0 || stack_top < 16 ||
-                !sys::user_range_ok(reinterpret_cast<void*>(static_cast<u64>(entry)),
-                                    1) ||
+                !sys::user_range_ok(sys::user_range::bytes(static_cast<u64>(entry), 1)) ||
                 !sys::user_range_ok(
-                    reinterpret_cast<void*>(static_cast<u64>(stack_top) - 16), 16)) {
+                    sys::user_range::bytes(static_cast<u64>(stack_top) - 16, 16))) {
                 return -EFAULT;
             }
             auto value =
@@ -228,8 +232,9 @@ namespace astia::proc {
             if (owner == nullptr) {
                 return -ESRCH;
             }
-            auto* output = reinterpret_cast<void*>(static_cast<usize>(result_ptr));
-            if (output != nullptr && !sys::user_range_ok(output, sizeof(void*))) {
+            const sys::user_range output =
+                sys::user_range::bytes(static_cast<u64>(result_ptr), sizeof(void*));
+            if (!output.null() && !sys::user_range_ok(output)) {
                 return -EFAULT;
             }
             auto target = owner->thread_by_tid(static_cast<tid_t>(tid));
@@ -237,11 +242,11 @@ namespace astia::proc {
                 return -ESRCH;
             }
             void*      result = nullptr;
-            const long rc     = target->join(output == nullptr ? nullptr : &result);
+            const long rc     = target->join(output.null() ? nullptr : &result);
             if (rc < 0) {
                 return rc;
             }
-            if (output != nullptr && !sys::copy_out(output, &result, sizeof(result))) {
+            if (!output.null() && !sys::copy_out(output, &result)) {
                 return -EFAULT;
             }
             return 0;

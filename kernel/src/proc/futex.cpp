@@ -21,13 +21,15 @@ namespace astia::proc {
     } // namespace
 
     i64 futex_wait(u64 address, u32 expected) {
-        auto* owner = current_process();
-        auto* self  = current_thread();
-        auto* word  = reinterpret_cast<u32*>(static_cast<usize>(address));
-        if (owner == nullptr || self == nullptr ||
-            !sys::user_range_ok(word, sizeof(*word))) {
+        auto*                 owner = current_process();
+        auto*                 self  = current_thread();
+        const sys::user_range range = sys::user_range::bytes(address, sizeof(u32));
+        if (owner == nullptr || self == nullptr || !sys::user_range_ok(range)) {
             return -EFAULT;
         }
+        // The validated range is what licenses this dereference: a futex
+        // word is read and written in place, so it cannot be copied.
+        auto* word = reinterpret_cast<u32*>(range.address());
 
         // The value check and waiter publication are one critical
         // section.  With interrupts disabled, a same-CPU FUTEX_WAKE
@@ -61,8 +63,11 @@ namespace astia::proc {
 
     i64 futex_wake(u64 address, u32 count) {
         auto* owner = current_process();
-        auto* word  = reinterpret_cast<u32*>(static_cast<usize>(address));
-        if (owner == nullptr || !sys::user_range_ok(word, sizeof(*word))) {
+        // A wake only names the word — the waiters compare the address and
+        // are never read, written or freed through it — but the caller
+        // still has to own the memory it named.
+        if (owner == nullptr ||
+            !sys::user_range_ok(sys::user_range::bytes(address, sizeof(u32)))) {
             return -EFAULT;
         }
         arch::cpu::nointerrupts();

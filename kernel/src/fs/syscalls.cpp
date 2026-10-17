@@ -12,12 +12,13 @@ namespace astia::fs {
             // The result slot is written by io_setup; validate before it
             // runs rather than letting the kernel write through a raw
             // pointer.  io_setup never blocks, so there is no window.
-            auto* ring_out = reinterpret_cast<astia_rings**>(static_cast<usize>(out));
-            if (!sys::user_range_ok(ring_out, sizeof(astia_rings*))) {
+            const sys::user_range ring_out =
+                sys::user_range::bytes(static_cast<u64>(out), sizeof(astia_rings*));
+            if (!sys::user_range_ok(ring_out)) {
                 return -EFAULT;
             }
             return sys::io_setup(static_cast<u32>(entries), static_cast<u32>(flags),
-                                 ring_out);
+                                 reinterpret_cast<astia_rings**>(ring_out.address()));
         }
 
         i64 sys_io_destroy(i64 ring, i64, i64, i64, i64, i64) {
@@ -31,18 +32,16 @@ namespace astia::fs {
             // tick count — io_enter_abi owns that translation.  Copy it in
             // first: the wait below blocks, so nothing user-owned may be
             // held across it.
-            const void* user_timeout =
-                reinterpret_cast<const void*>(static_cast<usize>(timeout));
+            const sys::user_range user_timeout =
+                sys::user_range::bytes(static_cast<u64>(timeout), sizeof(astia_timespec));
             astia_timespec timeout_copy{};
-            if (user_timeout != nullptr &&
-                !sys::copy_in(&timeout_copy, user_timeout, sizeof(timeout_copy))) {
+            if (!user_timeout.null() && !sys::copy_in(&timeout_copy, user_timeout)) {
                 return -EFAULT;
             }
             return sys::io_enter_abi(
                 reinterpret_cast<astia_rings*>(static_cast<usize>(ring)),
                 static_cast<u32>(submit), static_cast<u32>(complete),
-                static_cast<u32>(flags),
-                user_timeout == nullptr ? nullptr : &timeout_copy);
+                static_cast<u32>(flags), user_timeout.null() ? nullptr : &timeout_copy);
         }
 
         i64 sys_io_register(i64, i64, i64, i64, i64, i64) {

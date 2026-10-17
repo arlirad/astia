@@ -276,7 +276,7 @@ namespace astia::sys {
         /// consumed.
         bool submit_request(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
                             const mm::shptr<fs::open_file>& object,
-                            const astia_iovec* entries, u32 count,
+                            const sys::user_range* entries, u32 count,
                             io_direction direction) {
             arch::interrupt_guard gate;
             parked_op*            p = nullptr;
@@ -304,9 +304,8 @@ namespace astia::sys {
             // buffer the operation is filling — cannot move or free what the
             // device is working on.
             for (u32 i = 0; i < count; ++i) {
-                const long pinned = sys::pin_user_range(
-                    entries[i].base, static_cast<usize>(entries[i].len), direction,
-                    p->entries);
+                const long pinned =
+                    sys::pin_user_range(entries[i], direction, p->entries);
                 if (pinned < 0) {
                     // A failed submission keeps nothing: release whatever the
                     // earlier entries had already taken, so a refused readv()
@@ -390,14 +389,11 @@ namespace astia::sys {
                 // READ/WRITE name one range, READV/WRITEV up to max_segments of
                 // them.  Both become the same list, so the engine has one path
                 // and a device still gets one buffer per submit() either way.
-                astia_iovec        range[mm::pinned_iovec::max_segments];
-                const astia_iovec* entries = range;
-                u32                count   = 0;
+                sys::user_range ranges[mm::pinned_iovec::max_segments];
+                u32             count = 0;
                 if (s.op == OP_READ || s.op == OP_WRITE) {
-                    range[0].base =
-                        reinterpret_cast<void*>(static_cast<usize>(s.address));
-                    range[0].len = s.length;
-                    count        = 1;
+                    ranges[0] = sys::user_range::bytes(s.address, s.length);
+                    count     = 1;
                 }
                 else {
                     // For READV/WRITEV, `length` counts entries, not bytes.
@@ -406,14 +402,23 @@ namespace astia::sys {
                     if (s.length > mm::pinned_iovec::max_segments) {
                         return cq_post_guarded(ring, s.user_data, -EINVAL);
                     }
+                    astia_iovec raw[mm::pinned_iovec::max_segments];
                     if (s.length != 0 &&
-                        !sys::copy_in(
-                            range,
-                            reinterpret_cast<const void*>(static_cast<usize>(s.address)),
-                            static_cast<usize>(s.length) * sizeof(astia_iovec))) {
+                        !sys::copy_in(raw, sys::user_range::bytes(
+                                               s.address, static_cast<usize>(s.length) *
+                                                              sizeof(astia_iovec)))) {
                         return cq_post_guarded(ring, s.user_data, -EFAULT);
                     }
-                    count = s.length;
+                    // The ABI spells each entry's address as a pointer; decode
+                    // it into the kernel's own range type here, at the one line
+                    // that reads the caller's array, so nothing below this sees
+                    // a raw pointer out of user memory.
+                    for (u64 i = 0; i < s.length; ++i) {
+                        ranges[i] =
+                            sys::user_range::bytes(reinterpret_cast<u64>(raw[i].base),
+                                                   static_cast<usize>(raw[i].len));
+                    }
+                    count = static_cast<u32>(s.length);
                 }
                 // Validated at submission, before anything is pinned, so a bad
                 // list is refused whole; the ranges are then held for the
@@ -422,15 +427,14 @@ namespace astia::sys {
                 // from under the device.
                 usize total = 0;
                 for (u32 i = 0; i < count; ++i) {
-                    if (!sys::user_range_ok(range[i].base,
-                                            static_cast<usize>(range[i].len))) {
+                    if (!sys::user_range_ok(ranges[i])) {
                         return cq_post_guarded(ring, s.user_data, -EFAULT);
                     }
-                    if (range[i].len > max_operation_bytes ||
-                        total > max_operation_bytes - static_cast<usize>(range[i].len)) {
+                    if (ranges[i].length() > max_operation_bytes ||
+                        total > max_operation_bytes - ranges[i].length()) {
                         return cq_post_guarded(ring, s.user_data, -EINVAL);
                     }
-                    total += static_cast<usize>(range[i].len);
+                    total += ranges[i].length();
                 }
                 // Zero bytes is satisfied, not parked: 0 is submit()'s "in
                 // flight", so a zero-length op must never reach it — a
@@ -439,16 +443,15 @@ namespace astia::sys {
                 if (total == 0) {
                     return cq_post_guarded(ring, s.user_data, 0);
                 }
-                return submit_request(slot, ring, s, object, entries, count, direction);
+                return submit_request(slot, ring, s, object, ranges, count, direction);
             }
 
             case OP_OPENAT: {
                 // The pathname is user memory: copy it into the kernel
                 // rather than letting the VFS walk a raw user pointer.
                 char path[256];
-                if (!sys::copy_in_string(
-                        path, sizeof path,
-                        reinterpret_cast<const void*>(static_cast<usize>(s.address)))) {
+                if (!sys::copy_in_string(path, sizeof path,
+                                         sys::user_range::string(s.address))) {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 }
                 // op_flags carries O_*; aux is the creation mode.  The
@@ -511,8 +514,9 @@ namespace astia::sys {
                 // the stat target (fstat), otherwise address is a pathname
                 // and fd is the dirfd. The VFS still has one exact-path
                 // namespace, so the dirfd is accepted and ignored.
-                auto* out = reinterpret_cast<astia_stat*>(static_cast<usize>(s.offset));
-                if (!sys::user_range_ok(out, sizeof(astia_stat))) {
+                const sys::user_range out =
+                    sys::user_range::bytes(s.offset, sizeof(astia_stat));
+                if (!sys::user_range_ok(out)) {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 }
                 if (s.length != sizeof(astia_stat)) {
@@ -523,8 +527,7 @@ namespace astia::sys {
                 if (s.address != 0) {
                     char path[256];
                     if (!sys::copy_in_string(path, sizeof path,
-                                             reinterpret_cast<const void*>(
-                                                 static_cast<usize>(s.address)))) {
+                                             sys::user_range::string(s.address))) {
                         return cq_post_guarded(ring, s.user_data, -EFAULT);
                     }
                     object = fs::open_path(path);
@@ -544,10 +547,12 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, static_cast<i32>(size));
                 }
                 // The VFS carries a size and nothing else about a node, so
-                // mode/uid/times stay zero rather than being guessed.
-                __builtin_memset(out, 0, sizeof *out);
-                out->size   = static_cast<u64>(size);
-                out->blocks = (static_cast<u64>(size) + 511u) / 512u;
+                // mode/uid/times stay zero rather than being guessed.  The
+                // range was validated above; this is the write it licensed.
+                auto* stat_out = reinterpret_cast<astia_stat*>(out.address());
+                __builtin_memset(stat_out, 0, sizeof *stat_out);
+                stat_out->size   = static_cast<u64>(size);
+                stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
                 return cq_post_guarded(ring, s.user_data, 0);
             }
 

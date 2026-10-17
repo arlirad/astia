@@ -28,8 +28,9 @@ namespace astia::sys {
         constexpr i64 realtime_epoch_sec = 1767225600;
 
         i64 sys_clock_gettime(i64 clock_id, i64 out, i64, i64, i64, i64) {
-            auto* ts_out = reinterpret_cast<void*>(static_cast<usize>(out));
-            if (!sys::user_range_ok(ts_out, sizeof(astia_timespec))) {
+            const sys::user_range ts_out =
+                sys::user_range::bytes(static_cast<u64>(out), sizeof(astia_timespec));
+            if (!sys::user_range_ok(ts_out)) {
                 return -EFAULT;
             }
             const u64 hz = arch::timer_hz();
@@ -53,7 +54,7 @@ namespace astia::sys {
             }
 
             astia_timespec ts{sec, nsec};
-            if (!sys::copy_out(ts_out, &ts, sizeof(ts))) {
+            if (!sys::copy_out(ts_out, &ts)) {
                 return -EFAULT;
             }
             return 0;
