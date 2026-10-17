@@ -6,12 +6,9 @@
  * The struct a tty carries and the TCGETS/TCSETS ioctls that read and
  * replace it, shaped after <termios.h>.  Flag and speed values follow
  * glibc numbering so libc's tcgetattr/tcsetattr will pass them through
- * untouched.  The kernel interprets only what it implements — today:
- * the character-size/CREAD/CLOCAL control bits, the divisor-backed
- * speed table on the UART tty, and the flag-change hooks the driver
- * overrides.  Everything else is stored and echoed back; the
- * canonical-processing flags (ICANON, ECHO, ICRNL, OPOST) name
- * behavior the tty layer has not grown yet.
+ * untouched. The tty implements raw/canonical input, echo, basic input/output
+ * translations, software flow control, line editing and VMIN=0/nonzero.
+ * Signal delivery and VTIME still require the kernel signal/timer services.
  */
 
 #ifdef __cplusplus
@@ -19,6 +16,19 @@ extern "C" {
 #endif
 
 #define NCCS 11
+
+/* c_cc indexes */
+#define VINTR 0
+#define VQUIT 1
+#define VERASE 2
+#define VKILL 3
+#define VEOF 4
+#define VTIME 5
+#define VMIN 6
+#define VSWTC 7
+#define VSTART 8
+#define VSTOP 9
+#define VSUSP 10
 
 typedef unsigned int  tcflag_t;
 typedef unsigned char cc_t;
@@ -40,6 +50,8 @@ struct termios {
 #define BRKINT 0x000002
 #define IGNPAR 0x000004
 #define INPCK 0x000010
+#define INLCR 0x000040
+#define IGNCR 0x000080
 #define ICRNL 0x000100
 #define IXON 0x000400
 #define IXOFF 0x001000

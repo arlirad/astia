@@ -10,7 +10,8 @@ namespace astia::dev {
         // Flags the tty layer knows about, per mode word: TCSETS walks
         // these to tell the driver only about bits that actually
         // moved.
-        constexpr tcflag_t iflags[] = {IGNBRK, BRKINT, IGNPAR, INPCK, ICRNL, IXON, IXOFF};
+        constexpr tcflag_t iflags[] = {IGNBRK, BRKINT, IGNPAR, INPCK, INLCR,
+                                       IGNCR,  ICRNL,  IXON,   IXOFF};
         constexpr tcflag_t oflags[] = {OPOST, ONLCR};
         constexpr tcflag_t cflags[] = {CSIZE, CSTOPB, PARENB, CREAD, CLOCAL};
         constexpr tcflag_t lflags[] = {ISIG, ICANON, ECHO, ECHOE, ECHOK, ECHONL};
@@ -26,6 +27,10 @@ namespace astia::dev {
         if (count > len) {
             count = len;
         }
+        if ((_termios.c_lflag & ICANON) == 0 && _termios.c_cc[VMIN] != 0 &&
+            count < _termios.c_cc[VMIN]) {
+            count = 0;
+        }
         for (u32 i = 0; i < count; ++i) {
             dst[i] = _rx[(tail + i) & (rx_size - 1)];
         }
@@ -35,6 +40,9 @@ namespace astia::dev {
 
     long tty::write(const void* buf, u32 len, u64 off) {
         (void) off;
+        if (_output_stopped) {
+            return 0;
+        }
         const auto* source = static_cast<const u8*>(buf);
         u32         sent   = 0;
         for (; sent < len; ++sent) {
@@ -60,18 +68,93 @@ namespace astia::dev {
         if (count > 0) {
             return count;
         }
+        if ((_termios.c_lflag & ICANON) == 0 && _termios.c_cc[VMIN] == 0) {
+            request.complete(true);
+            return 0;
+        }
         request.stage(1);
         return 0;
     }
 
     void tty::tty_receive(u8 byte) {
-        const u32 head = _rx_head;
-        const u32 next = (head + 1) & (rx_size - 1);
-        if (next == _rx_tail) {
+        if ((_termios.c_iflag & IXON) != 0) {
+            if (byte == _termios.c_cc[VSTOP]) {
+                _output_stopped = true;
+                return;
+            }
+            if (byte == _termios.c_cc[VSTART]) {
+                _output_stopped = false;
+                tty_input_ready();
+                return;
+            }
+        }
+
+        if (byte == '\r') {
+            if ((_termios.c_iflag & IGNCR) != 0) {
+                return;
+            }
+            if ((_termios.c_iflag & ICRNL) != 0) {
+                byte = '\n';
+            }
+        }
+        else if (byte == '\n' && (_termios.c_iflag & INLCR) != 0) {
+            byte = '\r';
+        }
+
+        if ((_termios.c_lflag & ISIG) != 0 &&
+            (byte == _termios.c_cc[VINTR] || byte == _termios.c_cc[VQUIT] ||
+             byte == _termios.c_cc[VSUSP])) {
+            tty_signal(byte);
             return;
         }
-        _rx[head] = byte;
-        __atomic_store_n(&_rx_head, next, __ATOMIC_RELEASE);
+
+        if ((_termios.c_lflag & ICANON) == 0) {
+            const u32 head = _rx_head;
+            const u32 next = (head + 1) & (rx_size - 1);
+            if (next == _rx_tail) {
+                return;
+            }
+            _rx[head] = byte;
+            __atomic_store_n(&_rx_head, next, __ATOMIC_RELEASE);
+            tty_echo(byte);
+            return;
+        }
+
+        if (byte == _termios.c_cc[VERASE]) {
+            if (_line_length != 0) {
+                --_line_length;
+                if ((_termios.c_lflag & ECHOE) != 0) {
+                    tty_echo('\b');
+                    tty_echo(' ');
+                    tty_echo('\b');
+                }
+            }
+            return;
+        }
+        if (byte == _termios.c_cc[VKILL]) {
+            _line_length = 0;
+            if ((_termios.c_lflag & ECHOK) != 0) {
+                tty_echo('\n');
+            }
+            return;
+        }
+        if (byte == _termios.c_cc[VEOF]) {
+            tty_commit_line(true);
+            return;
+        }
+        if (byte == '\n') {
+            tty_commit_line(false);
+            if ((_termios.c_lflag & ECHO) != 0 || (_termios.c_lflag & ECHONL) != 0) {
+                tty_echo('\n');
+            }
+            return;
+        }
+        if (_line_length < rx_size - 1) {
+            _line[_line_length++] = byte;
+            if ((_termios.c_lflag & ECHO) != 0) {
+                tty_echo(byte);
+            }
+        }
     }
 
     void tty::tty_input_ready() {
@@ -82,6 +165,31 @@ namespace astia::dev {
         arch::interrupt_guard gate;
         const u32             head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
         __atomic_store_n(&_rx_tail, head, __ATOMIC_RELEASE);
+        _line_length = 0;
+    }
+
+    void tty::tty_commit_line(bool eof) {
+        const u32 head = _rx_head;
+        u32       next = head;
+        for (u32 i = 0; i < _line_length; ++i) {
+            const u32 candidate = (next + 1) & (rx_size - 1);
+            if (candidate == _rx_tail) {
+                break;
+            }
+            _rx[next] = _line[i];
+            next      = candidate;
+        }
+        if (!eof && next != _rx_tail) {
+            _rx[next] = '\n';
+            next      = (next + 1) & (rx_size - 1);
+        }
+        _line_length = 0;
+        __atomic_store_n(&_rx_head, next, __ATOMIC_RELEASE);
+        tty_input_ready();
+    }
+
+    void tty::tty_echo(u8 byte) {
+        (void) tty_putc(byte);
     }
 
     long tty::ioctl(u64 request, void* argp) {
@@ -152,6 +260,10 @@ namespace astia::dev {
     }
 
     void tty::tty_ready() {}
+
+    void tty::tty_signal(u8 byte) {
+        (void) byte;
+    }
 
     long tty::tty_speed(speed_t speed) {
         (void) speed;
