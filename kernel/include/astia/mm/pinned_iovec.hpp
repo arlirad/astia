@@ -27,6 +27,11 @@
 // user pointer and the whole structure is safe to resume from an interrupt
 // handler.
 //
+// Not every entry is a user range.  An in-kernel caller has a buffer that
+// cannot move, so there is nothing to snapshot — but the operation still walks
+// it as an entry (append_kernel), because a caller that parks must not need a
+// second engine path just for being kernel memory.
+//
 // Zero-length entries are legal in the interface and are dropped on the way
 // in.  Recording one would give the cursor a place it can stop, and a walk
 // that stops on an empty entry reports a short operation that never happened
@@ -41,11 +46,13 @@
 namespace astia::mm {
 
     /// One entry: the frames behind a user range, where that range's bytes
-    /// begin inside them, and how many there are.
+    /// begin inside them, and how many there are.  `frames` stays empty for an
+    /// entry that is plain kernel memory, which is what `base` is for.
     struct pinned_segment {
         pinned_buffer frames;
-        usize         offset = 0; // first byte's position inside page 0
-        usize         length = 0; // bytes from offset, within the pinned pages
+        u8*           base   = nullptr; // kernel address of byte 0, kernel entries
+        usize         offset = 0;       // first byte's position inside page 0
+        usize         length = 0;       // bytes from offset, within the pinned pages
     };
 
     /// A pinned entry list plus the position of the operation inside it.
@@ -72,6 +79,12 @@ namespace astia::mm {
         bool append(phys_region* region, usize first, usize count, usize offset,
                     usize length, bool destination);
 
+        /// Reference one more entry whose bytes are already kernel memory — an
+        /// in-kernel caller's buffer, which cannot be unmapped and so needs no
+        /// pin.  Such a caller can still park, so its operation walks the same
+        /// cursor as everyone else's rather than needing a second engine path.
+        bool append_kernel(void* address, usize length);
+
         /// Drop every reference.  Safe and idempotent on an empty list, and
         /// task context only: it may take a lock and may free a region.
         void release();
@@ -83,8 +96,9 @@ namespace astia::mm {
         // ---- the cursor: where the operation is inside that list ----
 
         /// Point at the first byte and walk at most `length` bytes: the
-        /// operation may be shorter than the list.  Starting over is not a
-        /// new operation — the frames are the same ones, already pinned.
+        /// operation may be shorter than the list.  A list that is never aimed
+        /// walks everything it holds, because appending arms what it appended;
+        /// aim() is for starting over, or for deliberately walking less.
         void aim(usize length);
 
         usize remaining() const;

@@ -7,7 +7,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/io.hpp>
 #include <astia/memory.hpp>
-#include <astia/mm/pinned_buffer.hpp>
+#include <astia/mm/pinned_iovec.hpp>
 
 void* operator new(astia::usize size, void* where) noexcept;
 
@@ -77,10 +77,16 @@ namespace astia::sys {
             i32                      fd;
             mm::shptr<fs::open_file> object;
             /// The caller's frames, held for the whole flight of the
-            /// operation.  Empty for an in-kernel client, whose buffer is
-            /// kernel memory and cannot be unmapped underneath it.
-            mm::pinned_buffer pin;
-            io_request        request;
+            /// operation, together with the position of the operation inside
+            /// them.  Empty for an in-kernel client, whose buffer is kernel
+            /// memory and cannot be unmapped underneath it — its range is
+            /// recorded in the same list, just with no pin behind it.
+            mm::pinned_iovec entries;
+            io_request       request;
+            /// Bytes the operation has already moved.  One operation may span
+            /// several entries and the caller hears about it once, so the
+            /// completion reports this and not the last stretch's count.
+            usize moved = 0;
         };
 
         struct ring_slot {
@@ -211,6 +217,49 @@ namespace astia::sys {
                                       : current->descriptor(fd);
         }
 
+        /// Drive one operation through the device, one contiguous stretch at a
+        /// time.  The device contract is untouched — submit() still means
+        /// "> 0 moved, 0 not ready, < 0 error" and still receives one buffer —
+        /// but the engine may call it once per entry, so an operation that
+        /// spans several entries never forces a device to learn a cursor.
+        /// Returns > 0 (total bytes moved, the operation is done), 0 (parked)
+        /// or -errno.
+        ///
+        /// `op.request` must describe the stretch about to be submitted.  The
+        /// resume path hands it the request the device parked on, which is why
+        /// nothing here rebuilds a request before its first submit: rebuilding
+        /// would wipe the device_state the parked device left behind.
+        long pump(parked_op& op) {
+            for (;;) {
+                const usize ask = static_cast<usize>(op.request.length());
+                const long  n   = op.object->submit(op.request);
+                if (n == 0) {
+                    return 0; // still not ready; a resume picks this request up
+                }
+                if (n < 0) {
+                    // A stretch that already moved bytes is reported as the
+                    // short operation it is; an error would throw them away.
+                    return op.moved != 0 ? static_cast<long>(op.moved) : n;
+                }
+                const usize consumed = op.entries.advance(static_cast<usize>(n));
+                op.moved += consumed;
+                if (consumed < ask || op.entries.done()) {
+                    // Short, the way a single read() is short, or the entries
+                    // are spent: either way the caller's operation is over.
+                    return static_cast<long>(op.moved);
+                }
+                // On to the next entry.  The file layer resolved the caller's
+                // `offset_current` on the first submit and wrote the concrete
+                // position back into the request, so continuing from the
+                // request's own offset is what keeps a resume on the byte the
+                // caller asked for.
+                op.request.offset(op.request.offset() + consumed);
+                op.request = io_request(
+                    op.entries.window(), static_cast<u32>(op.entries.chunk()),
+                    op.request.offset(), op.request.user_data(), op.request.direction());
+            }
+        }
+
         /// Start one READ/WRITE through the device's submit() seam.  The
         /// park slot is taken up front so the request sits at its final
         /// address before the device ever sees it: handing a device a
@@ -237,32 +286,29 @@ namespace astia::sys {
             p->done   = false;
             p->fd     = s.fd;
             p->object = object;
+            p->moved  = 0;
 
             // Snapshot the caller's frames for as long as this operation
             // lasts.  From here the device is handed a kernel window and
             // never the user pointer again, so a concurrent munmap — or a
             // CoW split of a buffer the operation is filling — cannot move
             // or free what the device is working on.
-            const long pinned = sys::pin_user_range(buf, s.length, direction, p->pin);
+            const long pinned = sys::pin_user_range(buf, s.length, direction, p->entries);
             if (pinned < 0) {
+                p->entries.release();
                 p->object = mm::shptr<fs::open_file>{};
                 p->used   = false;
                 (void) cq_post(ring, s.user_data, static_cast<i32>(pinned));
                 return true;
             }
-            // The pin is page-granular, so its window names the base of the
-            // first pinned page.  Fold the caller's byte offset inside that
-            // page back in, or the device would work on the page rather than
-            // on the range the SQE named.
-            void* device_buffer = buf;
-            if (p->pin.valid()) {
-                const u64 page_offset =
-                    reinterpret_cast<u64>(buf) & (mm::phys_region::frame_size - 1);
-                device_buffer = static_cast<u8*>(p->pin.direct()) + page_offset;
-            }
+            // Hand the device the first stretch.  The entry's window already
+            // folds in the caller's byte offset inside the first page, so the
+            // device works on the range the SQE named rather than on the page
+            // it happens to sit on.
             p->request =
-                io_request(device_buffer, s.length, s.offset, s.user_data, direction);
-            const long n = object->submit(p->request);
+                io_request(p->entries.window(), static_cast<u32>(p->entries.chunk()),
+                           s.offset, s.user_data, direction);
+            const long n = pump(*p);
             if (n == 0) {
                 return true; // parked: a device resume completes it
             }
@@ -270,17 +316,18 @@ namespace astia::sys {
             // full CQ loses the completion rather than replaying it — the
             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
             (void) cq_post(ring, s.user_data, static_cast<i32>(n));
-            p->pin.release();
+            p->entries.release();
             p->object = mm::shptr<fs::open_file>{};
             p->used   = false;
             return true;
         }
 
         /// Re-submit a parked operation: the device picks its continuation
-        /// up from request.stage().  A device that is still not ready
+        /// up from request.stage(), and a stretch that finishes hands the
+        /// operation on to the next entry.  A device that is still not ready
         /// returns 0 and stays parked.
         void resume_parked(astia_rings* ring, parked_op& op) {
-            const long n = op.object->submit(op.request);
+            const long n = pump(op);
             if (n == 0) {
                 return;
             }
@@ -299,7 +346,7 @@ namespace astia::sys {
             for (u32 i = 0; i < park_capacity; ++i) {
                 parked_op& op = slot.park[i];
                 if (op.used && op.done) {
-                    op.pin.release();
+                    op.entries.release();
                     op.object = mm::shptr<fs::open_file>{};
                     op.done   = false;
                     op.used   = false;

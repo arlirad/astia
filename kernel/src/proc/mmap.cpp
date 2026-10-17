@@ -120,7 +120,7 @@ namespace astia::proc {
         return nullptr;
     }
 
-    i32 process::pin_user(u64 addr, usize len, bool destination, mm::pinned_buffer& out) {
+    i32 process::pin_user(u64 addr, usize len, bool destination, mm::pinned_iovec& out) {
         if (address_space_ == nullptr || len == 0) {
             return 0; // no address space: kernel memory cannot move
         }
@@ -148,7 +148,11 @@ namespace astia::proc {
         const usize page = static_cast<usize>((first - vma->base) / page_bytes);
         const usize count =
             static_cast<usize>((last - first + page_bytes - 1) / page_bytes);
-        if (!out.acquire(vma->backing, vma->region_page + page, count, destination)) {
+        // The entry carries the range's in-page offset, so the window the
+        // operation is handed names the caller's first byte and not the page
+        // it happens to sit on.
+        if (!out.append(vma->backing, vma->region_page + page, count,
+                        static_cast<usize>(addr - first), len, destination)) {
             return -ENOMEM;
         }
         return 0;

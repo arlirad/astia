@@ -1,11 +1,12 @@
 #pragma once
 
 #include "proc.hpp"
+#include <astia/api/errno.h>
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
 #include <astia/io.hpp>
-#include <astia/mm/pinned_buffer.hpp>
+#include <astia/mm/pinned_iovec.hpp>
 
 /*
  * User-pointer hygiene for the syscall boundary.
@@ -75,26 +76,26 @@ namespace astia::sys {
         }
     }
 
-    /// Snapshot a user range for the duration of an asynchronous
-    /// operation: 0, or a negated errno.  user_range_ok() only proves the
-    /// range is readable *now*; an operation that parks for a device needs
-    /// the frames to still be allocated, and still be the frames the
-    /// caller reads, when the device gets to them — possibly after the
-    /// syscall returned and another thread of the process unmapped the
-    /// range.  `out` then holds the pin (see mm::pinned_buffer); its window
-    /// is page-granular, so a caller that pinned a range starting mid-page
-    /// adds the in-page offset to it, and `direction` decides whether a CoW
-    /// split of those frames has to be refused.  A caller with no address
-    /// space has nothing to snapshot and reports 0, leaving `out` empty: its
-    /// pointer is kernel memory, and the device uses it directly.
+    /// Snapshot one entry of an asynchronous operation's buffer list: 0, or a
+    /// negated errno.  user_range_ok() only proves the range is readable
+    /// *now*; an operation that parks for a device needs the frames to still
+    /// be allocated, and still be the frames the caller reads, when the device
+    /// gets to them — possibly after the syscall returned and another thread
+    /// of the process unmapped the range.  `out` then holds the pinned entry
+    /// (see mm::pinned_iovec), whose window folds the range's in-page offset
+    /// back in; `direction` decides whether a CoW split of those frames has to
+    /// be refused.  A caller with no address space has nothing to snapshot, so
+    /// its range is recorded as a plain kernel-memory entry: it cannot move,
+    /// but the operation still has to walk it like every other entry.
     inline long pin_user_range(const void* address, usize length, io_direction direction,
-                               mm::pinned_buffer& out) {
+                               mm::pinned_iovec& out) {
         if (length == 0) {
             return 0;
         }
         proc::process* owner = proc::current_process();
         if (owner == nullptr || owner->address_space() == nullptr) {
-            return 0; // kernel client
+            // Kernel client: kernel memory, which cannot be unmapped.
+            return out.append_kernel(const_cast<void*>(address), length) ? 0 : -ENOMEM;
         }
         return owner->pin_user(reinterpret_cast<u64>(address), length,
                                direction == io_direction::input, out);

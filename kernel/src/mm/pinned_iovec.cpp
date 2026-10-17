@@ -63,6 +63,27 @@ namespace astia::mm {
         segment.length = length;
         count_++;
         total_ += length;
+        // Appending arms what it appended.  A list that is never explicitly
+        // aimed then walks everything it holds, instead of handing the engine
+        // an empty window and parking the operation forever.
+        remaining_ += length;
+        return true;
+    }
+
+    bool pinned_iovec::append_kernel(void* address, usize length) {
+        if (count_ >= max_segments) {
+            return false;
+        }
+        if (length == 0) {
+            return true;
+        }
+        pinned_segment& segment = segments_[count_];
+        segment.base            = static_cast<u8*>(address);
+        segment.offset          = 0;
+        segment.length          = length;
+        count_++;
+        total_ += length;
+        remaining_ += length; // see append(): appending arms the new bytes
         return true;
     }
 
@@ -111,6 +132,9 @@ namespace astia::mm {
         }
         const pinned_segment& segment = segments_[index_];
         const usize           byte    = segment.offset + offset_;
+        if (!segment.frames.valid()) {
+            return segment.base + byte; // kernel memory: nothing was pinned
+        }
         // A region is a contiguous frame run and the direct map is linear, so
         // the window runs on through later pages without another lookup.
         return static_cast<u8*>(segment.frames.direct(byte / phys_region::frame_size)) +

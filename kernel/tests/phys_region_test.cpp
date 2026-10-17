@@ -392,3 +392,35 @@ ASTIA_TEST(pinned_iovec_refuses_what_it_cannot_hold) {
     region->release();
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
+
+ASTIA_TEST(pinned_iovec_walks_a_kernel_entry_like_any_other) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(2, true);
+    char       local[8];
+    ASTIA_CHECK(region != nullptr);
+
+    astia::mm::pinned_iovec list;
+    ASTIA_CHECK(list.append(region, 0, 1, 8, 100, false));
+    ASTIA_CHECK(list.append_kernel(local, sizeof local));
+    ASTIA_CHECK(list.count() == 2);
+    ASTIA_CHECK(list.bytes() == 100 + sizeof local);
+
+    // Appending armed the operation: nothing has to call aim() for a freshly
+    // built list to be walkable.  Without this the window would be empty and
+    // every operation would park forever.
+    ASTIA_CHECK(list.remaining() == list.bytes());
+    ASTIA_CHECK(list.window() == static_cast<char*>(region->page_direct(0)) + 8);
+    ASTIA_CHECK(list.advance(100) == 100);
+    // The next entry is an in-kernel caller's buffer: there is nothing to
+    // pin, so its window is simply the pointer it handed us.  The cursor
+    // still walks it like any other entry.
+    ASTIA_CHECK(list.window() == local);
+    ASTIA_CHECK(list.chunk() == sizeof local);
+    ASTIA_CHECK(list.advance(sizeof local) == sizeof local);
+    ASTIA_CHECK(list.done());
+
+    region->release();
+    list.release();
+    ASTIA_CHECK(list.count() == 0);
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
