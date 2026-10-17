@@ -100,6 +100,11 @@ namespace astia::proc {
     }
 
     void thread::finish() {
+        // Once marked dead this thread is intentionally never re-enqueued.
+        // Keep interrupts masked until its joiner/parent is woken and the
+        // final scheduler switch is committed; otherwise a timer can park
+        // this dead context before wake(joiner_) and lose the wakeup forever.
+        arch::cpu::nointerrupts();
         state(thread_state::dead);
         if (owner_ != nullptr) {
             owner_->thread_exited(this,

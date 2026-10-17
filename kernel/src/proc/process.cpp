@@ -3,6 +3,7 @@
 #include "proc.hpp"
 #include "scheduler.hpp"
 #include <astia/api/syscalls.h>
+#include <astia/arch/cpu.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/share.hpp>
@@ -217,6 +218,10 @@ namespace astia::proc {
     }
 
     process::~process() {
+        // VMA teardown releases frame references under spinlocks. Do not let
+        // the timer switch this CPU while the dying process owns one: the
+        // next thread could attempt the same lock and deadlock permanently.
+        arch::interrupt_guard gate;
         // Remove every VMA's page coverage first.  Sibling VMAs may
         // intentionally share one allocation reference (`holds_ref`),
         // so object lifetime and page coverage are released separately.
