@@ -6,6 +6,7 @@
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
+#include <astia/mm/pinned_buffer.hpp>
 #include <astia/mm/shptr.hpp>
 
 namespace astia::proc {
@@ -138,6 +139,18 @@ namespace astia::proc {
         /// The mmap_region covering `addr`, or nullptr — the entry
         /// point for the future user page-fault path.
         mmap_region* find_region(u64 addr);
+
+        /// Snapshot [addr, addr + len) into `out` for the duration of an
+        /// asynchronous operation: 0, or a negated errno.  `destination`
+        /// marks a buffer the operation will fill (see mm::pinned_buffer).
+        /// v1 resolves the range to a single backing region — a region is
+        /// a contiguous frame run and the direct map is linear, so the
+        /// whole pin is one kernel window a device can be handed — and
+        /// answers -EFAULT for a range that crosses out of one.  A process
+        /// with no address space reports 0 and pins nothing: its pointers
+        /// are kernel memory, which cannot be unmapped out from under the
+        /// operation in the first place.
+        i32 pin_user(u64 addr, usize len, bool destination, mm::pinned_buffer& out);
 
         /// Copy-on-write fork support (called on the parent): build
         /// `child`'s address space from this one.  Every VMA's backing

@@ -4,6 +4,8 @@
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
+#include <astia/io.hpp>
+#include <astia/mm/pinned_buffer.hpp>
 
 /*
  * User-pointer hygiene for the syscall boundary.
@@ -25,8 +27,10 @@
  * space — which is the active map for the whole duration of a syscall.
  * It does not check page *permissions* (no mprotect enforcement yet),
  * and it is TOCTOU against a concurrent munmap from another thread of
- * the same process; blocking syscalls must therefore keep no user
- * pointer across the block (copy in first, copy out after).
+ * the same process; a blocking syscall must therefore keep no user
+ * pointer across the block (copy in first, copy out after), and an
+ * operation that parks for a device must pin the range instead
+ * (pin_user_range) so its frames outlive the mapping.
  *
  * Header-only on purpose: proc's syscall wrappers and sys/fs code both
  * need it, and a .cpp would put proc and sys in a link cycle.
@@ -69,6 +73,31 @@ namespace astia::sys {
                 return true;
             }
         }
+    }
+
+    /// Snapshot a user range for the duration of an asynchronous
+    /// operation: 0, or a negated errno.  user_range_ok() only proves the
+    /// range is readable *now*; an operation that parks for a device needs
+    /// the frames to still be allocated, and still be the frames the
+    /// caller reads, when the device gets to them — possibly after the
+    /// syscall returned and another thread of the process unmapped the
+    /// range.  `out` then holds the pin (see mm::pinned_buffer); its window
+    /// is page-granular, so a caller that pinned a range starting mid-page
+    /// adds the in-page offset to it, and `direction` decides whether a CoW
+    /// split of those frames has to be refused.  A caller with no address
+    /// space has nothing to snapshot and reports 0, leaving `out` empty: its
+    /// pointer is kernel memory, and the device uses it directly.
+    inline long pin_user_range(const void* address, usize length, io_direction direction,
+                               mm::pinned_buffer& out) {
+        if (length == 0) {
+            return 0;
+        }
+        proc::process* owner = proc::current_process();
+        if (owner == nullptr || owner->address_space() == nullptr) {
+            return 0; // kernel client
+        }
+        return owner->pin_user(reinterpret_cast<u64>(address), length,
+                               direction == io_direction::input, out);
     }
 
     /// Copy out of the kernel into a validated user range.  Returns

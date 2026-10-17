@@ -3,6 +3,7 @@ add_library(mm STATIC
         heap.cpp
         new.cpp
         phys_region.cpp
+        pinned_buffer.cpp
         init_mm.cpp
 )
 

@@ -7,6 +7,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/io.hpp>
 #include <astia/memory.hpp>
+#include <astia/mm/pinned_buffer.hpp>
 
 void* operator new(astia::usize size, void* where) noexcept;
 
@@ -64,10 +65,22 @@ namespace astia::sys {
         // keeps this reference (and whatever it put in device_state) across
         // the park, and the engine hands the same object back on resume.
         struct parked_op {
-            bool                     used;
+            bool used;
+            /// The device completed this operation from an interrupt
+            /// handler.  The completion is posted there, but the slot is
+            /// reclaimed later, in task context: releasing the pin takes
+            /// the region lock and can return frames to the allocator, and
+            /// an IRQ may have landed inside exactly such a critical
+            /// section on this CPU.  Letting the handler take those locks
+            /// would deadlock.
+            bool                     done = false;
             i32                      fd;
             mm::shptr<fs::open_file> object;
-            io_request               request;
+            /// The caller's frames, held for the whole flight of the
+            /// operation.  Empty for an in-kernel client, whose buffer is
+            /// kernel memory and cannot be unmapped underneath it.
+            mm::pinned_buffer pin;
+            io_request        request;
         };
 
         struct ring_slot {
@@ -220,11 +233,35 @@ namespace astia::sys {
                 (void) cq_post(ring, s.user_data, -EBUSY);
                 return true;
             }
-            p->used    = true;
-            p->fd      = s.fd;
-            p->object  = object;
-            p->request = io_request(buf, s.length, s.offset, s.user_data, direction);
+            p->used   = true;
+            p->done   = false;
+            p->fd     = s.fd;
+            p->object = object;
 
+            // Snapshot the caller's frames for as long as this operation
+            // lasts.  From here the device is handed a kernel window and
+            // never the user pointer again, so a concurrent munmap — or a
+            // CoW split of a buffer the operation is filling — cannot move
+            // or free what the device is working on.
+            const long pinned = sys::pin_user_range(buf, s.length, direction, p->pin);
+            if (pinned < 0) {
+                p->object = mm::shptr<fs::open_file>{};
+                p->used   = false;
+                (void) cq_post(ring, s.user_data, static_cast<i32>(pinned));
+                return true;
+            }
+            // The pin is page-granular, so its window names the base of the
+            // first pinned page.  Fold the caller's byte offset inside that
+            // page back in, or the device would work on the page rather than
+            // on the range the SQE named.
+            void* device_buffer = buf;
+            if (p->pin.valid()) {
+                const u64 page_offset =
+                    reinterpret_cast<u64>(buf) & (mm::phys_region::frame_size - 1);
+                device_buffer = static_cast<u8*>(p->pin.direct()) + page_offset;
+            }
+            p->request =
+                io_request(device_buffer, s.length, s.offset, s.user_data, direction);
             const long n = object->submit(p->request);
             if (n == 0) {
                 return true; // parked: a device resume completes it
@@ -233,6 +270,7 @@ namespace astia::sys {
             // full CQ loses the completion rather than replaying it — the
             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
             (void) cq_post(ring, s.user_data, static_cast<i32>(n));
+            p->pin.release();
             p->object = mm::shptr<fs::open_file>{};
             p->used   = false;
             return true;
@@ -249,8 +287,23 @@ namespace astia::sys {
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.
             if (cq_post(ring, op.request.user_data(), static_cast<i32>(n))) {
-                op.object = mm::shptr<fs::open_file>{};
-                op.used   = false;
+                op.done = true;
+            }
+        }
+
+        /// Reclaim park slots whose operations finished in an interrupt
+        /// handler.  Task context only: dropping a pin may take a lock and
+        /// may return frames to the allocator.
+        void reap_completed(ring_slot& slot) {
+            arch::interrupt_guard gate;
+            for (u32 i = 0; i < park_capacity; ++i) {
+                parked_op& op = slot.park[i];
+                if (op.used && op.done) {
+                    op.pin.release();
+                    op.object = mm::shptr<fs::open_file>{};
+                    op.done   = false;
+                    op.used   = false;
+                }
             }
         }
 
@@ -266,9 +319,10 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
                 auto* buf = reinterpret_cast<void*>(static_cast<usize>(s.address));
-                // Validated at submission; the buffer is not pinned across
-                // a park, so a concurrent unmap from another thread of the
-                // same process is still on the pinning worklist.
+                // Validated at submission; the range is then pinned for the
+                // flight of the operation (see submit_request), so another
+                // thread of the process unmapping it cannot pull the buffer
+                // out from under the device.
                 if (!sys::user_range_ok(buf, s.length)) {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 }
@@ -468,6 +522,9 @@ namespace astia::sys {
         if (slot == nullptr) {
             return -EINVAL;
         }
+        // Reclaim everything the device already finished, then refuse only
+        // while an operation is genuinely still in flight.
+        reap_completed(*slot);
         arch::interrupt_guard gate;
         for (u32 i = 0; i < park_capacity; ++i) {
             if (slot->park[i].used) {
@@ -498,6 +555,9 @@ namespace astia::sys {
         if ((flags & ~known) != 0) {
             return -EINVAL;
         }
+        // An interrupted completion is only a posted CQE until someone in
+        // task context says otherwise; do that before claiming capacity.
+        reap_completed(*slot);
 
         astia_sq_ring* sq       = astia_rings_sq(ring);
         const u32      tail     = __atomic_load_n(&sq->tail, __ATOMIC_ACQUIRE);
@@ -578,7 +638,7 @@ namespace astia::sys {
             astia_rings* ring = rings_of(slot);
             for (u32 p = 0; p < park_capacity; ++p) {
                 parked_op& op = slot.park[p];
-                if (op.used && op.fd == fd) {
+                if (op.used && !op.done && op.fd == fd) {
                     resume_parked(ring, op);
                 }
             }
@@ -599,7 +659,7 @@ namespace astia::sys {
             astia_rings* ring = rings_of(slot);
             for (u32 p = 0; p < park_capacity; ++p) {
                 parked_op& op = slot.park[p];
-                if (op.used && op.object->backing() == dev) {
+                if (op.used && !op.done && op.object->backing() == dev) {
                     resume_parked(ring, op);
                 }
             }

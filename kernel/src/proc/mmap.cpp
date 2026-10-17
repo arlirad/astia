@@ -120,6 +120,40 @@ namespace astia::proc {
         return nullptr;
     }
 
+    i32 process::pin_user(u64 addr, usize len, bool destination, mm::pinned_buffer& out) {
+        if (address_space_ == nullptr || len == 0) {
+            return 0; // no address space: kernel memory cannot move
+        }
+        const u64 page_bytes = mm::phys_region::frame_size;
+        const u64 last       = addr + len;
+        if (last < addr) {
+            return -EINVAL;
+        }
+        const u64 first = addr & ~(page_bytes - 1);
+
+        core::spinlock_guard guard(mmap_lock_);
+        // Resolve the whole range under one lock: a pin names exactly one
+        // region, and deriving the VMA per page would let a concurrent
+        // munmap from another thread make the range half-resolvable.
+        mmap_region* vma = nullptr;
+        for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
+            if (it->covers(addr)) {
+                vma = it;
+                break;
+            }
+        }
+        if (vma == nullptr || vma->end() < last) {
+            return -EFAULT; // unmapped, or crossing out of the region
+        }
+        const usize page = static_cast<usize>((first - vma->base) / page_bytes);
+        const usize count =
+            static_cast<usize>((last - first + page_bytes - 1) / page_bytes);
+        if (!out.acquire(vma->backing, vma->region_page + page, count, destination)) {
+            return -ENOMEM;
+        }
+        return 0;
+    }
+
     bool process::install_mapping(u64 base, usize pages, u32 prot,
                                   mm::phys_region*                region,
                                   const mm::shptr<fs::open_file>& file, u64 file_offset,

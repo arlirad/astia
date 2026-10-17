@@ -19,7 +19,10 @@
 // matters without needing scatter/gather: a region is a contiguous frame run
 // and the kernel direct map is linear, so the whole pinned range is one
 // contiguous kernel window — direct() — which a device can be handed instead
-// of the user's address.
+// of the user's address.  The window is page-granular, like the pin itself:
+// direct() names the first pinned page, and a range that started mid-page is
+// reached by adding that offset, which the operation's own description of
+// the buffer — not the pin — carries.
 //
 // The pin holds two references on the region, and it needs both.  The
 // mapping coverage keeps every frame out of the allocator; the allocation
