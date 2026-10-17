@@ -1,7 +1,4 @@
 add_library(core STATIC
-        test.cpp
-        trivial.cpp
-        trivial.c
         init_core.cpp
 )
 
