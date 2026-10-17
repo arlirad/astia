@@ -15,13 +15,13 @@ namespace astia::dev {
         return true;
     }
 
-    bool driver_manager::bind(const device_descriptor& descriptor) {
+    bool driver_manager::bind(const pci_device& device_info) {
         for (u32 i = 0; i < driver_count_; ++i) {
             driver& candidate = *drivers_[i];
-            if (!candidate.match(descriptor)) {
+            if (!candidate.match(device_info)) {
                 continue;
             }
-            device* value = candidate.probe(descriptor);
+            device* value = candidate.probe(device_info);
             if (value == nullptr) {
                 continue;
             }

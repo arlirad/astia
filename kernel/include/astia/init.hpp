@@ -8,7 +8,7 @@ namespace astia::init {
 
     struct context;
 
-    typedef bool (*step_fn)(context&);
+    using step_fn = bool (*)(context&);
 
     struct step {
         const char*        name;
@@ -43,8 +43,7 @@ namespace astia::init {
                                               fn,                             \
                                               astia_init_needs_ptr_##name,    \
                                               astia_init_after_ptr_##name,    \
-                                              opt_};                          \
-    static void                      astia_init_dummy_##name(void) {}
+                                               opt_};
 
 #define ASTIA_INIT_STEP_0(phase_, name, fn, d1, d2, d3)                    \
     static const char* const        astia_init_needs_##name[] = {nullptr}; \

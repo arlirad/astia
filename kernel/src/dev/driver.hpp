@@ -1,49 +1,17 @@
 #pragma once
 
 #include "device.hpp"
-#include <astia/common.hpp>
+#include "pci.hpp"
 
 namespace astia::dev {
 
-    enum class bus_kind : u8 {
-        pci,
-    };
-
-    struct pci_identity {
-        u8  bus;
-        u8  device;
-        u8  function;
-        u16 vendor_id;
-        u16 device_id;
-        u8  revision;
-        u8  class_code;
-        u8  subclass;
-        u8  programming_interface;
-        u8  header_type;
-    };
-
-    struct pci_bar {
-        u64 address = 0;
-        u64 size    = 0;
-        bool io     = false;
-        bool prefetchable = false;
-    };
-
-    struct device_descriptor {
-        bus_kind     bus = bus_kind::pci;
-        pci_identity pci{};
-        pci_bar      bars[6]{};
-    };
-
-    /// A driver owns the policy for turning a bus descriptor into a logical
-    /// device.  `probe` must return a statically owned or otherwise
-    /// long-lived device; the registry keeps a non-owning binding.
+    /// A driver turns an enumerated bus device into a logical device.
+    /// Drivers are statically owned; the manager stores non-owning pointers.
     class driver {
         public:
-        virtual ~driver() = default;
-        virtual const char* name() const = 0;
-        virtual bool match(const device_descriptor& descriptor) const = 0;
-        virtual device* probe(const device_descriptor& descriptor) = 0;
+        virtual const char* name() const                          = 0;
+        virtual bool        match(const pci_device& device) const = 0;
+        virtual device*     probe(const pci_device& device)       = 0;
     };
 
     class driver_manager {
@@ -52,7 +20,7 @@ namespace astia::dev {
         static constexpr u32 max_devices = 64;
 
         bool register_driver(driver& value);
-        bool bind(const device_descriptor& descriptor);
+        bool bind(const pci_device& device);
         u32  driver_count() const {
             return driver_count_;
         }

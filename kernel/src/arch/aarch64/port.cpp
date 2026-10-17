@@ -1,4 +1,5 @@
-// Placeholder for aarch64 architecture implementation
+// Minimal AArch64 port: enough architecture glue for the generic kernel to
+// link while interrupt, paging, and user-context support are being added.
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
