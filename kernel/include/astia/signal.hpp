@@ -122,6 +122,10 @@ namespace astia {
             if (!valid_signal(signal)) {
                 return false;
             }
+            if (!is_uncatchable(signal) &&
+                dispositions_[static_cast<u8>(signal)].action == signal_action::ignore) {
+                return true;
+            }
             pending_ |= signal_bit(signal);
             return true;
         }

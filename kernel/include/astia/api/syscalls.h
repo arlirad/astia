@@ -84,6 +84,7 @@ enum {
     SYS_THREAD_EXIT   = 17,
     SYS_THREAD_JOIN   = 18,
     SYS_THREAD_DETACH = 19,
+    SYS_KILL          = 20,
 };
 
 /* ------------------------------------------------------------------ */
@@ -216,6 +217,10 @@ static inline long astia_getpid(void) {
 
 static inline long astia_gettid(void) {
     return astia_raw6(SYS_GETTID, 0, 0, 0, 0, 0, 0);
+}
+
+static inline long astia_kill(int32_t pid, int32_t signal) {
+    return astia_raw6(SYS_KILL, (long) pid, (long) signal, 0, 0, 0, 0);
 }
 
 /* pid > 0: wait for that child; pid == -1: any child.  On success the

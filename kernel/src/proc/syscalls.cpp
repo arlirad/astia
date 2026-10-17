@@ -28,6 +28,18 @@ namespace astia::proc {
             return thread == nullptr ? -ESRCH : static_cast<i64>(thread->tid());
         }
 
+        i64 sys_kill(i32 pid, i32 value) {
+            if (pid <= 0 || value <= 0 || value >= static_cast<i32>(signal_count)) {
+                return -EINVAL;
+            }
+            auto* target = find_process(static_cast<pid_t>(pid));
+            if (target == nullptr) {
+                return -ESRCH;
+            }
+            return target->signals().send(static_cast<signal_number>(value)) ? 0
+                                                                             : -EINVAL;
+        }
+
         i64 sys_yield() {
             scheduler::yield();
             return 0;
@@ -267,6 +279,7 @@ namespace astia::proc {
     bool register_syscalls() {
         return sys::register_syscall<sys_getpid>(sys::syscall_id::getpid) &&
                sys::register_syscall<sys_gettid>(sys::syscall_id::gettid) &&
+               sys::register_syscall<sys_kill>(sys::syscall_id::kill) &&
                sys::register_syscall<sys_yield>(sys::syscall_id::yield) &&
                sys::register_syscall<sys_exit>(sys::syscall_id::exit) &&
                sys::register_syscall<sys_waitpid>(sys::syscall_id::waitpid) &&
