@@ -12,15 +12,17 @@ namespace astia::sys {
         syscall_handler      handlers[syscall_capacity]{};
     }
 
-    bool register_syscall(syscall_id id, syscall_handler handler) {
-        const u32 number = static_cast<u32>(id);
-        if (number >= syscall_capacity || handler == nullptr ||
-            handlers[number] != nullptr) {
-            return false;
+    namespace detail {
+        bool register_abi(syscall_id id, syscall_handler handler) {
+            const u32 number = static_cast<u32>(id);
+            if (number >= syscall_capacity || handler == nullptr ||
+                handlers[number] != nullptr) {
+                return false;
+            }
+            handlers[number] = handler;
+            return true;
         }
-        handlers[number] = handler;
-        return true;
-    }
+    } // namespace detail
 
     i64 dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5) {
         const u32 number = static_cast<u32>(id);
