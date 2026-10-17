@@ -28,6 +28,15 @@
  *         process (every boot's first spawn, pid 1) spawns and reaps
  *         one full copy of itself — children skip that case or they
  *         would recurse forever
+ *   22    READV over four iovecs, one of them empty, checked against a
+ *         plain READ of the same range: a walk that stopped on the empty
+ *         entry, or that restarted per entry, shows up as content in the
+ *         wrong place rather than as a wrong count
+ *   23    the same list past the kernel's entry cap comes back -EINVAL
+ *         whole, never as a silently truncated read
+ *   24    WRITEV the same way, then read the file back and compare the
+ *         bytes: the direction that fills pages is checked by content,
+ *         not only by count
  */
 
 #include <astia/api/aio.h>
@@ -158,6 +167,137 @@ void c_main(const long* frame) {
     rc = kick(ring, (uint64_t) tag++, &(long) {0});
     if (rc != 0 || st_path.size != st.size)
         astia_exit(14);
+
+    /* --- READV: four iovecs, one of them empty, one operation ---------
+       The kernel walks the list, so the bytes have to land in their own
+       iovecs.  Comparing against a plain READ of the same range is what
+       turns "the walk stopped early" or "the walk restarted on every
+       entry" into content in the wrong place.  A zero-length entry is
+       legal and must be dropped, not stopped on. */
+    {
+        char        expect[64];
+        char        part0[8];
+        char        part1[32];
+        char        part2[24];
+        astia_iovec iov[4];
+        int         i;
+
+        if (fill(ring, OP_READ, (int32_t) fd, (uint64_t) (uintptr_t) expect, 0,
+                 (uint32_t) sizeof expect, tag) == NULL)
+            astia_exit(22);
+        if (kick(ring, (uint64_t) tag++, &(long) {0}) != (long) sizeof expect)
+            astia_exit(22);
+
+        iov[0].base = part0;
+        iov[0].len  = sizeof part0;
+        iov[1].base = part1;
+        iov[1].len  = 0;
+        iov[2].base = part1;
+        iov[2].len  = sizeof part1;
+        iov[3].base = part2;
+        iov[3].len  = sizeof part2;
+        if (fill(ring, OP_READV, (int32_t) fd, (uint64_t) (uintptr_t) iov, 0, 4, tag) ==
+            NULL)
+            astia_exit(22);
+        if (kick(ring, (uint64_t) tag++, &(long) {0}) != (long) sizeof expect)
+            astia_exit(22);
+
+        for (i = 0; i < (int) sizeof part0; ++i)
+            if (part0[i] != expect[i])
+                astia_exit(22);
+        for (i = 0; i < (int) sizeof part1; ++i)
+            if (part1[i] != expect[sizeof part0 + i])
+                astia_exit(22);
+        for (i = 0; i < (int) sizeof part2; ++i)
+            if (part2[i] != expect[sizeof part0 + sizeof part1 + i])
+                astia_exit(22);
+    }
+
+    /* --- past the entry cap the list is refused whole ----------------- */
+    {
+        astia_iovec many[32];
+        int         i;
+
+        for (i = 0; i < 32; ++i) {
+            many[i].base = &many[i];
+            many[i].len  = 1;
+        }
+        if (fill(ring, OP_READV, (int32_t) fd, (uint64_t) (uintptr_t) many, 0, 32, tag) ==
+            NULL)
+            astia_exit(23);
+        if (kick(ring, (uint64_t) tag++, &(long) {0}) != -EINVAL)
+            astia_exit(23);
+    }
+
+    /* --- WRITEV, then read it back: content, not just count ----------- */
+    {
+        char        w0[5];
+        char        w1[7];
+        char        w2[11];
+        char        back[23];
+        astia_iovec iov[3];
+        astia_sqe*  osqe;
+        int32_t     wfd;
+        int32_t     rfd;
+        int         i;
+
+        for (i = 0; i < (int) sizeof w0; ++i)
+            w0[i] = (char) ('a' + i);
+        for (i = 0; i < (int) sizeof w1; ++i)
+            w1[i] = (char) ('0' + i);
+        for (i = 0; i < (int) sizeof w2; ++i)
+            w2[i] = (char) ('A' + i);
+
+        osqe =
+            fill(ring, OP_OPENAT, -1, (uint64_t) (uintptr_t) "/tmp/readv.bin", 0, 0, tag);
+        if (osqe == NULL)
+            astia_exit(24);
+        osqe->op_flags = O_CREAT | O_RDWR | O_TRUNC;
+        wfd            = (int32_t) kick(ring, (uint64_t) tag++, &(long) {0});
+        if (wfd < 0)
+            astia_exit(24);
+
+        iov[0].base = w0;
+        iov[0].len  = sizeof w0;
+        iov[1].base = w1;
+        iov[1].len  = sizeof w1;
+        iov[2].base = w2;
+        iov[2].len  = sizeof w2;
+        if (fill(ring, OP_WRITEV, wfd, (uint64_t) (uintptr_t) iov, 0, 3, tag) == NULL)
+            astia_exit(24);
+        if (kick(ring, (uint64_t) tag++, &(long) {0}) != (long) sizeof back)
+            astia_exit(24);
+        if (fill(ring, OP_CLOSE, wfd, 0, 0, 0, tag) == NULL)
+            astia_exit(24);
+        if (kick(ring, (uint64_t) tag++, &(long) {0}) != 0)
+            astia_exit(24);
+
+        if (fill(ring, OP_OPENAT, -1, (uint64_t) (uintptr_t) "/tmp/readv.bin", 0, 0,
+                 tag) == NULL)
+            astia_exit(24);
+        rfd = (int32_t) kick(ring, (uint64_t) tag++, &(long) {0});
+        if (rfd < 0)
+            astia_exit(24);
+        if (fill(ring, OP_READ, rfd, (uint64_t) (uintptr_t) back, 0,
+                 (uint32_t) sizeof back, tag) == NULL)
+            astia_exit(24);
+        if (kick(ring, (uint64_t) tag++, &(long) {0}) != (long) sizeof back)
+            astia_exit(24);
+        if (fill(ring, OP_CLOSE, rfd, 0, 0, 0, tag) == NULL)
+            astia_exit(24);
+        if (kick(ring, (uint64_t) tag++, &(long) {0}) != 0)
+            astia_exit(24);
+
+        for (i = 0; i < (int) sizeof w0; ++i)
+            if (back[i] != w0[i])
+                astia_exit(24);
+        for (i = 0; i < (int) sizeof w1; ++i)
+            if (back[sizeof w0 + i] != w1[i])
+                astia_exit(24);
+        for (i = 0; i < (int) sizeof w2; ++i)
+            if (back[sizeof w0 + sizeof w1 + i] != w2[i])
+                astia_exit(24);
+    }
 
     /* --- CLOSE ------------------------------------------------------- */
     if (fill(ring, OP_CLOSE, (int32_t) fd, 0, 0, 0, tag) == NULL)

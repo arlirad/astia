@@ -44,6 +44,12 @@ namespace astia::sys {
         constexpr u32 ring_count    = 2;
         constexpr u32 park_capacity = 16;
 
+        // Longest operation the engine will accept, in bytes.  A CQE result is
+        // a positive i32 and one stretch reaches the device as a u32 length, so
+        // anything longer could only be reported by clamping the count that
+        // actually moved.  Linux draws the same line at MAX_RW_COUNT.
+        constexpr usize max_operation_bytes = 0x7ffff000;
+
         constexpr usize map_bytes = sizeof(astia_rings) + sizeof(astia_sq_ring) +
                                     sizeof(astia_cq_ring) +
                                     sizeof(astia_sqe) * io_ring_max_entries +
@@ -260,13 +266,17 @@ namespace astia::sys {
             }
         }
 
-        /// Start one READ/WRITE through the device's submit() seam.  The
-        /// park slot is taken up front so the request sits at its final
-        /// address before the device ever sees it: handing a device a
-        /// stack-local request would leave it holding a dangling pointer the
-        /// instant it parked.  Returns whether the SQE was consumed.
+        /// Start one operation through the device's submit() seam.  The park
+        /// slot is taken up front so the request sits at its final address
+        /// before the device ever sees it: handing a device a stack-local
+        /// request would leave it holding a dangling pointer the instant it
+        /// parked.  `entries` is the operation's whole buffer list — one range
+        /// for READ/WRITE, up to max_segments of them for READV/WRITEV — and
+        /// every entry is pinned for the flight.  Returns whether the SQE was
+        /// consumed.
         bool submit_request(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
-                            const mm::shptr<fs::open_file>& object, void* buf,
+                            const mm::shptr<fs::open_file>& object,
+                            const astia_iovec* entries, u32 count,
                             io_direction direction) {
             arch::interrupt_guard gate;
             parked_op*            p = nullptr;
@@ -288,18 +298,25 @@ namespace astia::sys {
             p->object = object;
             p->moved  = 0;
 
-            // Snapshot the caller's frames for as long as this operation
-            // lasts.  From here the device is handed a kernel window and
-            // never the user pointer again, so a concurrent munmap — or a
-            // CoW split of a buffer the operation is filling — cannot move
-            // or free what the device is working on.
-            const long pinned = sys::pin_user_range(buf, s.length, direction, p->entries);
-            if (pinned < 0) {
-                p->entries.release();
-                p->object = mm::shptr<fs::open_file>{};
-                p->used   = false;
-                (void) cq_post(ring, s.user_data, static_cast<i32>(pinned));
-                return true;
+            // Snapshot every entry for as long as this operation lasts.  From
+            // here the device is handed kernel windows and never the user
+            // pointers again, so a concurrent munmap — or a CoW split of a
+            // buffer the operation is filling — cannot move or free what the
+            // device is working on.
+            for (u32 i = 0; i < count; ++i) {
+                const long pinned = sys::pin_user_range(
+                    entries[i].base, static_cast<usize>(entries[i].len), direction,
+                    p->entries);
+                if (pinned < 0) {
+                    // A failed submission keeps nothing: release whatever the
+                    // earlier entries had already taken, so a refused readv()
+                    // does not leave a partial pin behind.
+                    p->entries.release();
+                    p->object = mm::shptr<fs::open_file>{};
+                    p->used   = false;
+                    (void) cq_post(ring, s.user_data, static_cast<i32>(pinned));
+                    return true;
+                }
             }
             // Hand the device the first stretch.  The entry's window already
             // folds in the caller's byte offset inside the first page, so the
@@ -360,29 +377,69 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, 0);
 
             case OP_READ:
-            case OP_WRITE: {
+            case OP_WRITE:
+            case OP_READV:
+            case OP_WRITEV: {
                 mm::shptr<fs::open_file> object = file_for(s.fd);
                 if (!object) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                auto* buf = reinterpret_cast<void*>(static_cast<usize>(s.address));
-                // Validated at submission; the range is then pinned for the
+                const io_direction direction = (s.op == OP_READ || s.op == OP_READV)
+                                                   ? io_direction::input
+                                                   : io_direction::output;
+                // READ/WRITE name one range, READV/WRITEV up to max_segments of
+                // them.  Both become the same list, so the engine has one path
+                // and a device still gets one buffer per submit() either way.
+                astia_iovec        range[mm::pinned_iovec::max_segments];
+                const astia_iovec* entries = range;
+                u32                count   = 0;
+                if (s.op == OP_READ || s.op == OP_WRITE) {
+                    range[0].base =
+                        reinterpret_cast<void*>(static_cast<usize>(s.address));
+                    range[0].len = s.length;
+                    count        = 1;
+                }
+                else {
+                    // For READV/WRITEV, `length` counts entries, not bytes.
+                    // Bound the count before copying, so a bad one cannot ask
+                    // the kernel to write past its own array.
+                    if (s.length > mm::pinned_iovec::max_segments) {
+                        return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    }
+                    if (s.length != 0 &&
+                        !sys::copy_in(
+                            range,
+                            reinterpret_cast<const void*>(static_cast<usize>(s.address)),
+                            static_cast<usize>(s.length) * sizeof(astia_iovec))) {
+                        return cq_post_guarded(ring, s.user_data, -EFAULT);
+                    }
+                    count = s.length;
+                }
+                // Validated at submission, before anything is pinned, so a bad
+                // list is refused whole; the ranges are then held for the
                 // flight of the operation (see submit_request), so another
-                // thread of the process unmapping it cannot pull the buffer
-                // out from under the device.
-                if (!sys::user_range_ok(buf, s.length)) {
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                // thread of the process unmapping one cannot pull a buffer out
+                // from under the device.
+                usize total = 0;
+                for (u32 i = 0; i < count; ++i) {
+                    if (!sys::user_range_ok(range[i].base,
+                                            static_cast<usize>(range[i].len))) {
+                        return cq_post_guarded(ring, s.user_data, -EFAULT);
+                    }
+                    if (range[i].len > max_operation_bytes ||
+                        total > max_operation_bytes - static_cast<usize>(range[i].len)) {
+                        return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    }
+                    total += static_cast<usize>(range[i].len);
                 }
                 // Zero bytes is satisfied, not parked: 0 is submit()'s "in
                 // flight", so a zero-length op must never reach it — a
                 // parked zero-length read would wait for a wake that can
                 // never come.
-                if (s.length == 0) {
+                if (total == 0) {
                     return cq_post_guarded(ring, s.user_data, 0);
                 }
-                const io_direction direction =
-                    s.op == OP_READ ? io_direction::input : io_direction::output;
-                return submit_request(slot, ring, s, object, buf, direction);
+                return submit_request(slot, ring, s, object, entries, count, direction);
             }
 
             case OP_OPENAT: {
