@@ -41,7 +41,7 @@ status=$?
 
 cat "$log"
 
-if [ "$status" -eq 1 ] && grep -q "astia: selftest ok" "$log"; then
+if [ "$status" -eq 1 ] && grep -q "core: selftest ok" "$log"; then
     for pattern in "$@"; do
         if ! grep -qF "$pattern" "$log"; then
             echo "run_boot_test: expected output not found: $pattern" >&2

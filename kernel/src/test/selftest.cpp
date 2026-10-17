@@ -18,6 +18,9 @@ namespace astia::test {
 
     namespace {
 
+        /// This suite's log source.
+        using logs = astia::log::context<"selftest">;
+
         volatile u32 scheduler_counts[2]{};
         volatile u32 preempt_started   = 0;
         volatile u32 preempt_main_seen = 0;
@@ -38,7 +41,7 @@ namespace astia::test {
                                                const_cast<u32*>(&scheduler_counts[0])) ||
                 !proc::scheduler::spawn_kernel(scheduler_worker,
                                                const_cast<u32*>(&scheduler_counts[1]))) {
-                log::error("scheduler selftest could not spawn kernel threads");
+                logs::error("scheduler: could not spawn kernel threads");
                 return false;
             }
             for (u32 i = 0;
@@ -48,10 +51,10 @@ namespace astia::test {
             const u32 first  = __atomic_load_n(&scheduler_counts[0], __ATOMIC_RELAXED);
             const u32 second = __atomic_load_n(&scheduler_counts[1], __ATOMIC_RELAXED);
             if (first != 3 || second != 3) {
-                log::error("scheduler selftest counts=%u,%u", first, second);
+                logs::error("scheduler: counts=%u,%u", first, second);
                 return false;
             }
-            log::info("scheduler selftest ok");
+            logs::info("scheduler ok");
             return true;
         }
 
@@ -70,32 +73,32 @@ namespace astia::test {
 
         bool join_checks() {
             if (proc::current_thread()->join() != -EDEADLK) {
-                log::error("join selftest self-join was not rejected");
+                logs::error("join: self-join was not rejected");
                 return false;
             }
             auto target = proc::scheduler::create_kernel(join_worker, nullptr);
             if (!target) {
-                log::error("join selftest could not spawn kernel thread");
+                logs::error("join: could not spawn kernel thread");
                 return false;
             }
             void*      result = nullptr;
             const long rc     = target->join(&result);
             if (rc != 0 || result != reinterpret_cast<void*>(0x42)) {
-                log::error("join selftest failed rc=%ld result=%p", rc, result);
+                logs::error("join: failed rc=%ld result=%p", rc, result);
                 return false;
             }
             if (target->join() != -EINVAL) {
-                log::error("join selftest double join was not rejected");
+                logs::error("join: double join was not rejected");
                 return false;
             }
 
             auto detached = proc::scheduler::create_kernel(join_worker, nullptr);
             if (!detached || detached->detach() != 0 || detached->join() != -EINVAL) {
-                log::error("join selftest detached join was not rejected");
+                logs::error("join: detached join was not rejected");
                 return false;
             }
             proc::scheduler::yield();
-            log::info("join selftest ok");
+            logs::info("join ok");
             return true;
         }
 
@@ -104,7 +107,7 @@ namespace astia::test {
             preempt_main_seen = 0;
             preempt_done      = 0;
             if (!proc::scheduler::spawn_kernel(preempt_worker, nullptr)) {
-                log::error("preemption selftest could not spawn kernel thread");
+                logs::error("preemption: could not spawn kernel thread");
                 return false;
             }
 
@@ -116,7 +119,7 @@ namespace astia::test {
             }
             if (__atomic_load_n(&preempt_started, __ATOMIC_ACQUIRE) == 0) {
                 arch::cpu::nointerrupts();
-                log::error("preemption selftest did not switch to worker");
+                logs::error("preemption: did not switch to worker");
                 return false;
             }
             __atomic_store_n(&preempt_main_seen, 1, __ATOMIC_RELEASE);
@@ -126,10 +129,10 @@ namespace astia::test {
             }
             arch::cpu::nointerrupts();
             if (__atomic_load_n(&preempt_done, __ATOMIC_ACQUIRE) == 0) {
-                log::error("preemption selftest worker did not finish");
+                logs::error("preemption: worker did not finish");
                 return false;
             }
-            log::info("preemption selftest ok");
+            logs::info("preemption ok");
             return true;
         }
 
@@ -137,14 +140,14 @@ namespace astia::test {
             // Gate observability.
             arch::cpu::nointerrupts();
             if (arch::cpu::check_interrupts()) {
-                log::error("interrupts selftest fail (gate)");
+                logs::error("interrupts fail (gate)");
                 return false;
             }
 
             // Software dispatch through the real IDT.
             asm volatile("int $3");
             if (arch::breakpoint_hits() != 1) {
-                log::error("interrupts selftest fail (int3)");
+                logs::error("interrupts fail (int3)");
                 return false;
             }
 
@@ -153,12 +156,12 @@ namespace astia::test {
             {
                 arch::interrupt_guard guard;
                 if (arch::cpu::check_interrupts()) {
-                    log::error("interrupts selftest fail (guard mask)");
+                    logs::error("interrupts fail (guard mask)");
                     return false;
                 }
             }
             if (!arch::cpu::check_interrupts()) {
-                log::error("interrupts selftest fail (guard restore)");
+                logs::error("interrupts fail (guard restore)");
                 return false;
             }
 
@@ -170,13 +173,13 @@ namespace astia::test {
             const bool ticked = arch::timer_ticks() != tick_start;
             arch::cpu::nointerrupts();
             if (!ticked) {
-                log::error("interrupts selftest fail (tick)");
+                logs::error("interrupts fail (tick)");
                 return false;
             }
 
-            log::info("interrupts ok (%s)",
-                      arch::current_timer_source() == arch::timer_source::lapic ? "lapic"
-                                                                                : "pit");
+            logs::info("interrupts ok (%s)",
+                       arch::current_timer_source() == arch::timer_source::lapic ? "lapic"
+                                                                                 : "pit");
             return true;
         }
 
@@ -206,26 +209,26 @@ namespace astia::test {
 
             if (read(CLOCK_MONOTONIC, &first) != 0 || first.tv_nsec < 0 ||
                 first.tv_nsec >= 1000000000) {
-                log::error("clock selftest fail (monotonic)");
+                logs::error("clock fail (monotonic)");
                 return false;
             }
             if (read(CLOCK_REALTIME, &wall) != 0 || wall.tv_sec < 1000000000) {
                 // Wall time is uptime anchored at a fixed epoch: it must be
                 // far past 2001, unlike the uptime reading next to it.
-                log::error("clock selftest fail (realtime)");
+                logs::error("clock fail (realtime)");
                 return false;
             }
             if (read(CLOCK_MONOTONIC, &second) != 0 || second.tv_sec < first.tv_sec ||
                 (second.tv_sec == first.tv_sec && second.tv_nsec < first.tv_nsec)) {
-                log::error("clock selftest fail (regression)");
+                logs::error("clock fail (regression)");
                 return false;
             }
             if (read(99, &first) != -EINVAL) {
-                log::error("clock selftest fail (bad clock id)");
+                logs::error("clock fail (bad clock id)");
                 return false;
             }
 
-            log::info("clock ok");
+            logs::info("clock ok");
             return true;
         }
 
@@ -246,13 +249,13 @@ namespace astia::test {
 
             if (fs::register_device(probe_path,
                                     mm::shptr<fs::file>::borrowed(&probe_node)) < 0) {
-                log::error("statx selftest fail (probe node)");
+                logs::error("statx fail (probe node)");
                 return false;
             }
 
             astia_rings* ring = nullptr;
             if (sys::io_setup(8, 0, &ring) < 0 || ring == nullptr) {
-                log::error("statx selftest fail (ring)");
+                logs::error("statx fail (ring)");
                 return false;
             }
 
@@ -283,20 +286,20 @@ namespace astia::test {
 
             astia_stat st{};
             if (statx(probe_path, -1, &st) != 0 || st.size != 4096 || st.blocks != 8) {
-                log::error("statx selftest fail (path form)");
+                logs::error("statx fail (path form)");
                 return false;
             }
             if (statx(missing_path, -1, &st) != -ENOENT) {
-                log::error("statx selftest fail (missing path)");
+                logs::error("statx fail (missing path)");
                 return false;
             }
             if (statx(nullptr, -1, &st) != -EBADF) {
-                log::error("statx selftest fail (fstat without descriptor)");
+                logs::error("statx fail (fstat without descriptor)");
                 return false;
             }
 
             (void) sys::io_destroy(ring);
-            log::info("statx ok");
+            logs::info("statx ok");
             return true;
         }
 
@@ -328,10 +331,10 @@ namespace astia::test {
         const bool ring_ok = dev::uart16550_ring_selftest();
         arch::cpu::nointerrupts();
         if (!ring_ok) {
-            log::error("uart16550 ring selftest fail");
+            logs::error("uart16550 ring fail");
             return false;
         }
-        log::info("uart16550 ring ok");
+        logs::info("uart16550 ring ok");
         return true;
     }
 

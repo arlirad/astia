@@ -191,9 +191,9 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ""
-                "astia: interrupts ok (lapic)"
-                "astia: clock ok"
-                "astia: statx ok"
+                "selftest: interrupts ok (lapic)"
+                "selftest: clock ok"
+                "selftest: statx ok"
         )
         set_tests_properties(astia_kernel_boot PROPERTIES TIMEOUT 60)
 
@@ -295,8 +295,8 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/boot_initrd.tar
-                "astia: mod: hello_initrd.o rc=42"
-                "astia: statx ok"
+                "mod: hello_initrd.o rc=42"
+                "selftest: statx ok"
                 "user thread exit status=0"
                 "astia: libc ok"
         )

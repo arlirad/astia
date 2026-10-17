@@ -23,27 +23,30 @@ namespace astia::mod {
         using astia::u64;
         using astia::usize;
 
+        /// This module's log source, and the initrd walk inside it.
+        using logs        = astia::log::context<"mod">;
+        using initrd_logs = logs::child<"initrd">;
+
         // Load one ELF image and run it, logging the outcome. `name` labels an
         // initrd file; when null the boot-module index `i` is used instead.
         void load_and_run(const void* data, usize size, const char* name, u64 i) {
             const module* mod = load_module(data, size);
             if (mod == nullptr) {
                 if (name != nullptr) {
-                    log::error("mod: %s failed to load", name);
+                    logs::error("%s failed to load", name);
                 }
                 else {
-                    log::error("mod: module %llu failed to load",
-                               static_cast<unsigned long long>(i));
+                    logs::error("module %llu failed to load",
+                                static_cast<unsigned long long>(i));
                 }
                 return;
             }
             const int rc = run_module(mod);
             if (name != nullptr) {
-                log::info("mod: %s rc=%d", name, rc);
+                logs::info("%s rc=%d", name, rc);
             }
             else {
-                log::info("mod: module %llu rc=%d", static_cast<unsigned long long>(i),
-                          rc);
+                logs::info("module %llu rc=%d", static_cast<unsigned long long>(i), rc);
             }
         }
 
@@ -88,13 +91,13 @@ namespace astia::mod {
             // images it carries.
             initrd::archive arc;
             if (!initrd::open(data, size, arc)) {
-                log::warning("mod: module %llu is neither ELF nor initrd",
-                             static_cast<unsigned long long>(i));
+                logs::warning("module %llu is neither ELF nor initrd",
+                              static_cast<unsigned long long>(i));
                 continue;
             }
-            log::info("mod: initrd %llu: %llu file(s)",
-                      static_cast<unsigned long long>(i),
-                      static_cast<unsigned long long>(initrd::count(arc)));
+            initrd_logs::info("module %llu: %llu file(s)",
+                              static_cast<unsigned long long>(i),
+                              static_cast<unsigned long long>(initrd::count(arc)));
 
             initrd::each(arc, visit_initrd_file, nullptr);
         }

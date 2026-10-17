@@ -13,6 +13,10 @@ void* operator new[](astia::usize size, void* where) noexcept;
 namespace astia::proc {
 
     namespace {
+        /// This module's log source, and the image-loading half of it.
+        using logs       = astia::log::context<"proc">;
+        using spawn_logs = logs::child<"spawn">;
+
         process* kernel   = nullptr;
         thread*  current  = nullptr;
         tid_t    next_tid = 1;
@@ -114,12 +118,12 @@ namespace astia::proc {
         }
         auto image_file = fs::open_path(path);
         if (!image_file) {
-            log::error("spawnve: open failed for %s", path);
+            spawn_logs::error("open failed for %s", path);
             return fail(ENOENT);
         }
         const long image_size = image_file->size();
         if (image_size <= 0) {
-            log::error("spawnve: invalid image size=%ld", image_size);
+            spawn_logs::error("invalid image size=%ld", image_size);
             return fail(ENOEXEC);
         }
         auto image = mm::heap::alloc(static_cast<usize>(image_size));
@@ -129,7 +133,7 @@ namespace astia::proc {
         const long loaded =
             image_file->read(image.value, static_cast<u32>(image_size), 0);
         if (loaded != image_size) {
-            log::error("spawnve: short read=%ld expected=%ld", loaded, image_size);
+            spawn_logs::error("short read=%ld expected=%ld", loaded, image_size);
             mm::heap::free(image.value);
             return fail(EIO);
         }
@@ -146,11 +150,11 @@ namespace astia::proc {
             child->load_user_image(image.value, static_cast<usize>(image_size), &entry);
         mm::heap::free(image.value);
         if (!loaded_image || !child->create_user_thread(entry, argv, envp)) {
-            log::error("spawnve: ELF load or user thread setup failed");
+            spawn_logs::error("ELF load or user thread setup failed");
             return fail(ENOEXEC);
         }
         if (!register_process(child)) {
-            log::error("spawnve: process registry full");
+            spawn_logs::error("process registry full");
             return fail(EAGAIN);
         }
         child->state(process_state::runnable);
@@ -213,8 +217,8 @@ namespace astia::proc {
                 if (status != nullptr) {
                     *status = zombie_child->exit_status();
                 }
-                log::info("proc: reaped pid=%u status=%d", static_cast<u32>(child_pid),
-                          status == nullptr ? zombie_child->exit_status() : *status);
+                logs::info("reaped pid=%u status=%d", static_cast<u32>(child_pid),
+                           status == nullptr ? zombie_child->exit_status() : *status);
                 result = static_cast<i64>(child_pid);
                 parent->remove_waiter(self);
                 taken = {};

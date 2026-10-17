@@ -15,6 +15,9 @@ namespace astia::proc {
     i64 futex_wake(u64 address, u32 count);
 
     namespace {
+        /// This module's log source: the same one proc.cpp logs under.
+        using logs = astia::log::context<"proc">;
+
         i64 sys_getpid() {
             auto* process = current_process();
             return process == nullptr ? -ESRCH : static_cast<i64>(process->pid());
@@ -34,7 +37,7 @@ namespace astia::proc {
             auto* thread = current_thread();
             if (thread == nullptr)
                 return -ESRCH;
-            log::info("user thread exit status=%ld", status);
+            logs::info("user thread exit status=%ld", status);
             thread->exit(reinterpret_cast<void*>(static_cast<usize>(status)));
             __builtin_unreachable();
         }

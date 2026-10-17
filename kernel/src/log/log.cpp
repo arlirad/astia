@@ -1,11 +1,13 @@
 #include "proc.hpp"
 #include <astia/api/syscalls.h>
+#include <astia/arch/interrupts.hpp>
 #include <astia/log.hpp>
 
 namespace astia::log::detail {
 
     namespace {
         inline constexpr u32 pending_capacity = 4096;
+        inline constexpr u32 level_width      = 5;
         char                 pending[2][pending_capacity];
         u32                  pending_count[2]{};
 
@@ -17,6 +19,66 @@ namespace astia::log::detail {
             const u32 slot = pending_slot(severity);
             if (pending_count[slot] < pending_capacity) {
                 pending[slot][pending_count[slot]++] = c;
+            }
+        }
+
+        const char* level_name(level severity) {
+            switch (severity) {
+            case level::debug:
+                return "DEBUG";
+            case level::info:
+                return "INFO";
+            case level::warning:
+                return "WARN";
+            case level::error:
+                return "ERROR";
+            case level::panic:
+                return "PANIC";
+            }
+            return "?";
+        }
+
+        /// A number right-aligned in `width` columns, padded on the left
+        /// with `pad`.
+        void field(level severity, u64 value, u32 width, char pad) {
+            char digits[20];
+            u32  count = 0;
+            do {
+                digits[count++] = static_cast<char>('0' + value % 10);
+                value /= 10;
+            } while (value != 0 && count < sizeof(digits));
+            for (u32 i = count; i < width; ++i) {
+                put(severity, pad);
+            }
+            while (count != 0) {
+                put(severity, digits[--count]);
+            }
+        }
+
+        /// Seconds since the timer started, and the fraction of a second the
+        /// tick rate actually resolves: `  123.456789`.  Before there is a
+        /// timer the clock reads zero rather than refusing to log.
+        void time_field(level severity) {
+            const u64 hz     = arch::timer_hz();
+            const u64 ticks  = arch::timer_ticks();
+            const u64 micros = hz == 0 ? 0 : ticks * 1000000 / hz;
+            field(severity, micros / 1000000, 5, ' ');
+            put(severity, '.');
+            field(severity, micros % 1000000, 6, '0');
+        }
+
+        /// The severity, right-aligned in five columns: ` INFO`, `ERROR`.
+        void level_field(level severity) {
+            const char* word   = level_name(severity);
+            u32         length = 0;
+            while (word[length] != '\0') {
+                ++length;
+            }
+            for (u32 i = length; i < level_width; ++i) {
+                put(severity, ' ');
+            }
+            for (u32 i = 0; i < length; ++i) {
+                put(severity, word[i]);
             }
         }
     } // namespace
@@ -54,39 +116,19 @@ namespace astia::log::detail {
         }
     }
 
-    void prefix(level severity) {
-        switch (severity) {
-        case level::debug: {
-            const char* value = "astia: debug: ";
-            while (*value != '\0')
-                put(severity, *value++);
-            break;
+    /// The `[time LEVEL] context: ` a line opens with.
+    void prefix(level severity, const char* context, u32 length) {
+        put(severity, '[');
+        time_field(severity);
+        put(severity, ' ');
+        level_field(severity);
+        put(severity, ']');
+        put(severity, ' ');
+        for (u32 i = 0; i < length; ++i) {
+            put(severity, context[i]);
         }
-        case level::info: {
-            const char* value = "astia: ";
-            while (*value != '\0')
-                put(severity, *value++);
-            break;
-        }
-        case level::warning: {
-            const char* value = "astia: warning: ";
-            while (*value != '\0')
-                put(severity, *value++);
-            break;
-        }
-        case level::error: {
-            const char* value = "astia: error: ";
-            while (*value != '\0')
-                put(severity, *value++);
-            break;
-        }
-        case level::panic: {
-            const char* value = "astia: KERNEL PANIC: ";
-            while (*value != '\0')
-                put(severity, *value++);
-            break;
-        }
-        }
+        put(severity, ':');
+        put(severity, ' ');
     }
 
     void number(level severity, u64 value, unsigned base, bool upper) {

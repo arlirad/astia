@@ -13,9 +13,50 @@ namespace astia::log {
         panic,
     };
 
+    /// A context's own name: a compile-time string, so the name is part of
+    /// the type and costs nothing to carry, copy or compare.
+    template <u32 N>
+    struct name {
+        char text[N]{};
+
+        static constexpr u32 length = N - 1;
+
+        constexpr name() = default;
+
+        constexpr name(const char (&value)[N]) {
+            for (u32 i = 0; i < N; ++i) {
+                text[i] = value[i];
+            }
+        }
+    };
+
     namespace detail {
+
+        /// A context's whole name: its parent's, a dot, and its own, so
+        /// `dev` then `uart` is `dev::uart`.  A context with no parent is
+        /// its own full name.
+        template <name Own, typename Parent>
+        consteval auto join() {
+            if constexpr (std::is_void_v<Parent>) {
+                return Own;
+            }
+            else {
+                constexpr auto                           parent = Parent::full_name;
+                name<parent.length + 2 + Own.length + 1> joined{};
+                for (u32 i = 0; i < parent.length; ++i) {
+                    joined.text[i] = parent.text[i];
+                }
+                joined.text[parent.length]     = ':';
+                joined.text[parent.length + 1] = ':';
+                for (u32 i = 0; i < Own.length; ++i) {
+                    joined.text[parent.length + 2 + i] = Own.text[i];
+                }
+                return joined;
+            }
+        }
+
         void put(level severity, char c);
-        void prefix(level severity);
+        void prefix(level severity, const char* context, u32 length);
         void number(level severity, u64 value, unsigned base, bool upper);
         void signed_number(level severity, i64 value);
 
@@ -112,37 +153,90 @@ namespace astia::log {
             }
         }
 
-        template <typename... arg_types>
-        void print(level severity, const char* format, arg_types&&... args) {
-            prefix(severity);
+        template <u32 N, typename... arg_types>
+        void print(level severity, const name<N>& context, const char* format,
+                   arg_types&&... args) {
+            prefix(severity, context.text, name<N>::length);
             write_format(severity, format, static_cast<arg_types&&>(args)...);
             put(severity, '\n');
         }
     } // namespace detail
 
-    template <typename... arg_types>
-    void print(level severity, const char* format, arg_types&&... args) {
-        detail::print(severity, format, static_cast<arg_types&&>(args)...);
-    }
+    /// A log source: the name its lines are filed under, and the parent
+    /// those names hang from.  Both are types, so the whole name is composed
+    /// once, at compile time — a context costs nothing at the call site, and
+    /// nesting one costs nothing at all.
+    ///
+    ///     using dev  = astia::log::context<"dev">;
+    ///     using uart = dev::child<"uart">;        // lines say dev::uart
+    ///
+    template <name Name, typename Parent = void>
+    struct context {
+        /// The whole name: the parent's, a dot, and this one's.
+        static constexpr auto full_name = detail::join<Name, Parent>();
+
+        /// The source `Child` inside this one.
+        template <name Child>
+        using child = context<Child, context>;
+
+        template <typename... arg_types>
+        static void debug(const char* format, arg_types&&... args) {
+            detail::print(level::debug, full_name, format,
+                          static_cast<arg_types&&>(args)...);
+        }
+
+        template <typename... arg_types>
+        static void info(const char* format, arg_types&&... args) {
+            detail::print(level::info, full_name, format,
+                          static_cast<arg_types&&>(args)...);
+        }
+
+        template <typename... arg_types>
+        static void warning(const char* format, arg_types&&... args) {
+            detail::print(level::warning, full_name, format,
+                          static_cast<arg_types&&>(args)...);
+        }
+
+        template <typename... arg_types>
+        static void error(const char* format, arg_types&&... args) {
+            detail::print(level::error, full_name, format,
+                          static_cast<arg_types&&>(args)...);
+        }
+
+        /// A line at a severity the caller carries rather than names.
+        template <typename... arg_types>
+        static void print(level severity, const char* format, arg_types&&... args) {
+            detail::print(severity, full_name, format, static_cast<arg_types&&>(args)...);
+        }
+    };
+
+    /// The kernel's own context: the boot path, and a panic from anywhere.
+    /// A module names itself instead of hanging under this.
+    using root = context<"core">;
 
     template <typename... arg_types>
     void debug(const char* format, arg_types&&... args) {
-        detail::print(level::debug, format, static_cast<arg_types&&>(args)...);
+        root::debug(format, static_cast<arg_types&&>(args)...);
     }
 
     template <typename... arg_types>
     void info(const char* format, arg_types&&... args) {
-        detail::print(level::info, format, static_cast<arg_types&&>(args)...);
+        root::info(format, static_cast<arg_types&&>(args)...);
     }
 
     template <typename... arg_types>
     void warning(const char* format, arg_types&&... args) {
-        detail::print(level::warning, format, static_cast<arg_types&&>(args)...);
+        root::warning(format, static_cast<arg_types&&>(args)...);
     }
 
     template <typename... arg_types>
     void error(const char* format, arg_types&&... args) {
-        detail::print(level::error, format, static_cast<arg_types&&>(args)...);
+        root::error(format, static_cast<arg_types&&>(args)...);
+    }
+
+    template <typename... arg_types>
+    void print(level severity, const char* format, arg_types&&... args) {
+        root::print(severity, format, static_cast<arg_types&&>(args)...);
     }
 
 } // namespace astia::log

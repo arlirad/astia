@@ -84,6 +84,9 @@ namespace astia::arch {
         // registers one (no user processes can fault before then).
         user_fault_handler page_fault_resolver = nullptr;
 
+        /// This module's log source.
+        using logs = astia::log::context<"arch">;
+
         [[noreturn]] void fatal_exception(const registers& regs) {
             static const char* const names[32] = {
                 "#DE", "#DB", "NMI", "#BP", "#OF", "#BR", "#UD", "#NM",
@@ -96,12 +99,12 @@ namespace astia::arch {
             if (regs.vector == 14) { // #PF: the faulting address is the useful part
                 u64 cr2;
                 asm volatile("mov %%cr2, %0" : "=r"(cr2));
-                log::error("exception %s vec=%llx err=%llx rip=%llx cr2=%llx", name,
-                           regs.vector, regs.error, regs.rip, cr2);
+                logs::error("exception %s vec=%llx err=%llx rip=%llx cr2=%llx", name,
+                            regs.vector, regs.error, regs.rip, cr2);
             }
             else {
-                log::error("exception %s vec=%llx err=%llx rip=%llx", name, regs.vector,
-                           regs.error, regs.rip);
+                logs::error("exception %s vec=%llx err=%llx rip=%llx", name, regs.vector,
+                            regs.error, regs.rip);
             }
 
             dev::debug_exit(1);

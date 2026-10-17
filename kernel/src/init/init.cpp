@@ -1,20 +1,23 @@
 #include <astia/init.hpp>
-
-#ifndef ASTIA_HOST_TEST
 #include <astia/log.hpp>
-#endif
 
 namespace astia::init {
 
     namespace {
 
 #ifndef ASTIA_HOST_TEST
-        void log_line(const char* prefix, const char* name) {
-            astia::log::info("%s%s", prefix, name);
+        /// This module's log source.
+        using logs = astia::log::context<"init">;
+
+        /// One line for one step.  The context already says `init`; the
+        /// severity names itself, so a skipped or failed step is no longer
+        /// reported at the level of a step that ran.
+        void log_line(log::level severity, const char* format, const char* name) {
+            logs::print(severity, format, name);
         }
 #else
         // Host tests exercise the ordering rules only; diagnostics are silent.
-        void log_line(const char*, const char*) {}
+        void log_line(log::level, const char*, const char*) {}
 #endif
 
         // The step table is bounded by a fixed size so the ordering pass needs
@@ -57,7 +60,8 @@ namespace astia::init {
                 return true;
             }
             if (p.color[index] == 1) {
-                log_line("init dependency cycle at ", p.steps[index].name);
+                log_line(log::level::error, "dependency cycle at %s",
+                         p.steps[index].name);
                 return false;
             }
             p.color[index] = 1;
@@ -67,7 +71,7 @@ namespace astia::init {
                  ++deps) {
                 const isize dep = find(p.steps, p.count, *deps);
                 if (dep < 0) {
-                    log_line("init unknown dependency ", *deps);
+                    log_line(log::level::error, "unknown dependency %s", *deps);
                     return false;
                 }
                 if (!visit(p, static_cast<usize>(dep))) {
@@ -78,7 +82,7 @@ namespace astia::init {
                  ++deps) {
                 const isize dep = find(p.steps, p.count, *deps);
                 if (dep < 0) {
-                    log_line("init unknown ordering ", *deps);
+                    log_line(log::level::error, "unknown ordering %s", *deps);
                     return false;
                 }
                 if (!visit(p, static_cast<usize>(dep))) {
@@ -128,18 +132,18 @@ namespace astia::init {
 
                 if (missing) {
                     p.status[index] = state::skipped;
-                    log_line("init skip ", s.name);
+                    log_line(log::level::warning, "skip %s", s.name);
                     if (!s.optional) {
                         failed = true;
                     }
                     continue;
                 }
 
-                log_line("init ", s.name);
+                log_line(log::level::info, "%s", s.name);
                 const bool ok   = s.fn != nullptr && s.fn(ctx);
                 p.status[index] = ok ? state::ok : state::failed;
                 if (!ok) {
-                    log_line("init FAILED ", s.name);
+                    log_line(log::level::error, "FAILED %s", s.name);
                     if (!s.optional) {
                         failed = true;
                     }
