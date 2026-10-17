@@ -41,6 +41,7 @@ astia_add_host_test(astia_pvh_test pvh_test.cpp ${CMAKE_SOURCE_DIR}/src/boot/vir
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
+astia_add_host_test(astia_common_test common_test.cpp)
 
 find_package(Threads REQUIRED)
 astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)
