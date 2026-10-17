@@ -42,6 +42,10 @@ astia_add_host_test(astia_pvh_test pvh_test.cpp ${CMAKE_SOURCE_DIR}/src/boot/vir
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
 
+find_package(Threads REQUIRED)
+astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)
+target_link_libraries(astia_mpmc_queue_test PRIVATE Threads::Threads)
+
 # --- ELF fixtures: compile real images with the host toolchain and byte-embed
 # them, so the loader sees genuine gcc output rather than hand-written ELF.
 set(_fix_dir ${CMAKE_CURRENT_BINARY_DIR}/fixtures)
