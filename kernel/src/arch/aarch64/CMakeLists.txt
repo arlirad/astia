@@ -1,6 +1,7 @@
 add_library(arch_aarch64 STATIC
         # Add aarch64-specific sources here
         stub.cpp
+        pci_config.cpp
 )
 
 target_include_directories(arch_aarch64 PUBLIC
