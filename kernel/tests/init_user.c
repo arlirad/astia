@@ -283,6 +283,22 @@ void c_main(const long* frame) {
             astia_exit(24);
         if (kick(ring, (uint64_t) tag++, &(long) {0}) != (long) sizeof back)
             astia_exit(24);
+        /* At the end of the file a read is a completed nothing — 0 bytes,
+           not an operation the engine parks and waits on a resume for that
+           will never come.  This is the one outcome the submit() protocol's
+           return value cannot carry, so it is asserted here rather than
+           left to whatever the next reader of this file happens to ask. */
+        {
+            char     eof_byte = 'x';
+            uint64_t at       = (uint64_t) sizeof back;
+            if (fill(ring, OP_READ, rfd, (uint64_t) (uintptr_t) &eof_byte, at, 1, tag) ==
+                NULL)
+                astia_exit(25);
+            if (kick(ring, (uint64_t) tag++, &(long) {0}) != 0)
+                astia_exit(25);
+            if (eof_byte != 'x')
+                astia_exit(25);
+        }
         if (fill(ring, OP_CLOSE, rfd, 0, 0, 0, tag) == NULL)
             astia_exit(24);
         if (kick(ring, (uint64_t) tag++, &(long) {0}) != 0)

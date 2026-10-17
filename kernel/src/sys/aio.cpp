@@ -223,36 +223,51 @@ namespace astia::sys {
                                       : current->descriptor(fd);
         }
 
+        /// What one pump() did with an operation.  The two cannot share a
+        /// return value: an operation that completes without moving anything
+        /// (a read at end of file) carries exactly the 0 that parking uses.
+        enum class io_outcome : u8 {
+            parked,    ///< the node will be resumed; the operation stays in flight
+            completed, ///< over, one way or another; `result` says how
+        };
+
         /// Drive one operation through the device, one contiguous stretch at a
         /// time.  The device contract is untouched — submit() still means
         /// "> 0 moved, 0 not ready, < 0 error" and still receives one buffer —
         /// but the engine may call it once per entry, so an operation that
         /// spans several entries never forces a device to learn a cursor.
-        /// Returns > 0 (total bytes moved, the operation is done), 0 (parked)
-        /// or -errno.
+        /// A 0 that is not a park is a node finishing with nothing to move
+        /// (see io_request::complete); `result` is the operation's answer
+        /// once it completes — bytes moved, or -errno — and is untouched
+        /// while it is parked.
         ///
         /// `op.request` must describe the stretch about to be submitted.  The
         /// resume path hands it the request the device parked on, which is why
         /// nothing here rebuilds a request before its first submit: rebuilding
         /// would wipe the device_state the parked device left behind.
-        long pump(parked_op& op) {
+        io_outcome pump(parked_op& op, long& result) {
             for (;;) {
                 const usize ask = static_cast<usize>(op.request.length());
                 const long  n   = op.object->submit(op.request);
-                if (n == 0) {
-                    return 0; // still not ready; a resume picks this request up
+                if (n == 0 && !op.request.complete()) {
+                    return io_outcome::parked; // a resume picks this request up
                 }
                 if (n < 0) {
                     // A stretch that already moved bytes is reported as the
                     // short operation it is; an error would throw them away.
-                    return op.moved != 0 ? static_cast<long>(op.moved) : n;
+                    result = op.moved != 0 ? static_cast<long>(op.moved) : n;
+                    return io_outcome::completed;
                 }
                 const usize consumed = op.entries.advance(static_cast<usize>(n));
                 op.moved += consumed;
-                if (consumed < ask || op.entries.done()) {
-                    // Short, the way a single read() is short, or the entries
-                    // are spent: either way the caller's operation is over.
-                    return static_cast<long>(op.moved);
+                if (n == 0 || consumed < ask || op.entries.done()) {
+                    // Short, the way a single read() is short, the entries are
+                    // spent, or the node had nothing left to give (end of
+                    // file): either way the caller's operation is over.  The
+                    // n == 0 arm is what stops a completed nothing from being
+                    // read as a stretched entry and asked for again.
+                    result = static_cast<long>(op.moved);
+                    return io_outcome::completed;
                 }
                 // On to the next entry.  The file layer resolved the caller's
                 // `offset_current` on the first submit and wrote the concrete
@@ -324,14 +339,15 @@ namespace astia::sys {
             p->request =
                 io_request(p->entries.window(), static_cast<u32>(p->entries.chunk()),
                            s.offset, s.user_data, direction);
-            const long n = pump(*p);
-            if (n == 0) {
+            long       result  = 0;
+            const auto outcome = pump(*p, result);
+            if (outcome == io_outcome::parked) {
                 return true; // parked: a device resume completes it
             }
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
-            (void) cq_post(ring, s.user_data, static_cast<i32>(n));
+            (void) cq_post(ring, s.user_data, static_cast<i32>(result));
             p->entries.release();
             p->object = mm::shptr<fs::open_file>{};
             p->used   = false;
@@ -343,13 +359,13 @@ namespace astia::sys {
         /// operation on to the next entry.  A device that is still not ready
         /// returns 0 and stays parked.
         void resume_parked(astia_rings* ring, parked_op& op) {
-            const long n = pump(op);
-            if (n == 0) {
+            long result = 0;
+            if (pump(op, result) == io_outcome::parked) {
                 return;
             }
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.
-            if (cq_post(ring, op.request.user_data(), static_cast<i32>(n))) {
+            if (cq_post(ring, op.request.user_data(), static_cast<i32>(result))) {
                 op.done = true;
             }
         }

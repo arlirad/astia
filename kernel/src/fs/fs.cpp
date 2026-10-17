@@ -200,12 +200,20 @@ namespace astia::fs {
     }
     long file::submit(io_request& request) {
         // Synchronous default: a node that finishes inline answers with
-        // whatever its read()/write() returns.  Note the trap — returning 0
-        // here parks forever, so a node that can genuinely be "not ready"
-        // must override submit() and set a stage.
-        return request.direction() == io_direction::input
-                   ? read(request.buffer(), request.length(), request.offset())
-                   : write(request.buffer(), request.length(), request.offset());
+        // whatever its read()/write() returns.  A 0 from it here is not the
+        // device contract's "park me" — a file has no device to resume it,
+        // and end of file is exactly a completion with nothing moved — so it
+        // is marked complete before the engine can mistake the two and wait
+        // for a resume that never comes.  A node that genuinely can be "not
+        // ready" overrides submit(), parks, and resumes by stage instead.
+        const long result =
+            request.direction() == io_direction::input
+                ? read(request.buffer(), request.length(), request.offset())
+                : write(request.buffer(), request.length(), request.offset());
+        if (result == 0) {
+            request.complete(true);
+        }
+        return result;
     }
     long file::ioctl(u64 request, void* argp) {
         (void) request;

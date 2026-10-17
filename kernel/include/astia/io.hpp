@@ -11,7 +11,10 @@
 //
 //   > 0   satisfied: that many bytes moved, the operation is done
 //     0   not ready: the request is parked, and the device keeps its
-//         reference until the engine resumes it
+//         reference until the engine resumes it — *unless* the node also
+//         marked the request complete, which is how a node with nothing to
+//         resume reports the one outcome its return value cannot carry:
+//         done, and nothing moved (a read at end of file).  See complete().
 //   < 0   -errno: done with an error
 //
 // A request is a *stable* object for its whole flight.  The engine builds
@@ -76,6 +79,20 @@ namespace astia {
             _stage = value;
         }
 
+        /// True when the node finished this request inline without moving
+        /// anything, and there is no device to resume it: the engine's 0
+        /// would otherwise read "wait for me" and the operation would stay
+        /// parked forever.  This is the completion a synchronous node
+        /// cannot express any other way — a read at end of file.  A node
+        /// that parks leaves it clear, and a request rebuilt for the next
+        /// entry starts clear again.
+        bool complete() const {
+            return _complete;
+        }
+        void complete(bool value) {
+            _complete = value;
+        }
+
         /// Device-private, and safe to hold across a park — unlike anything
         /// on the submitting stack, which is long gone by resume time.
         void* device_state() const {
@@ -93,6 +110,7 @@ namespace astia {
         void*        _device_state = nullptr;
         io_direction _direction    = io_direction::input;
         u8           _stage        = 0;
+        bool         _complete     = false;
     };
 
 } // namespace astia
