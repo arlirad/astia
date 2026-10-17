@@ -113,6 +113,20 @@ namespace astia::arch {
         return true;
     }
 
+    user_context caller_image(const syscall_frame& frame) {
+        user_context image;
+        image.rip    = frame.rip;
+        image.rflags = frame.rflags;
+        image.rsp    = frame.rsp;
+        image.rbx    = frame.rbx;
+        image.rbp    = frame.rbp;
+        image.r12    = frame.r12;
+        image.r13    = frame.r13;
+        image.r14    = frame.r14;
+        image.r15    = frame.r15;
+        return image;
+    }
+
     bool context_prepare_fork(context* value, u64 kernel_stack_top,
                               const user_context* image) {
         if (value == nullptr || image == nullptr || kernel_stack_top < 5 * sizeof(u64)) {

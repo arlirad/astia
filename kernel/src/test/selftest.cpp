@@ -185,10 +185,19 @@ namespace astia::test {
         // the resolution, so samples only have to be in range and must not
         // run backwards.
         bool clock_checks() {
+            // The table's door takes what the entry would have handed it:
+            // the call number, the six registers, and the image it packed
+            // them into. clock_gettime reads registers and never looks at
+            // the image, but the image is still the real one a trap for
+            // this call would have made.
             auto read = [](i64 id, astia_timespec* out) -> long {
-                return static_cast<long>(sys::dispatch(sys::syscall_id::clock_gettime, id,
-                                                       reinterpret_cast<i64>(out), 0, 0,
-                                                       0, 0));
+                arch::syscall_frame frame{};
+                frame.nr = static_cast<u64>(sys::syscall_id::clock_gettime);
+                frame.a0 = static_cast<u64>(id);
+                frame.a1 = reinterpret_cast<u64>(out);
+                return static_cast<long>(sys::dispatch(
+                    sys::syscall_id::clock_gettime, static_cast<i64>(frame.a0),
+                    static_cast<i64>(frame.a1), 0, 0, 0, 0, frame));
             };
 
             astia_timespec first{};

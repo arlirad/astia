@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/arch/context.hpp>
 #include <astia/common.hpp>
 
 namespace astia::sys {
@@ -32,11 +33,18 @@ namespace astia::sys {
     /// arguments any handler can be given.
     inline constexpr u32 syscall_argument_count = 6;
 
-    /// The ABI's own shape: six machine words.  This is what the table
-    /// stores and the arch layer calls; handlers do not spell it out —
-    /// register_syscall() derives it from the handler (below).
-    using syscall_handler = i64 (*)(i64 arg0, i64 arg1, i64 arg2, i64 arg3, i64 arg4,
-                                    i64 arg5);
+    /// What the table stores: the six argument registers the ABI passes,
+    /// then the trap image those registers came from.  A handler names the
+    /// registers it uses — the adapter picks that prefix out of the six —
+    /// and one handler takes the image instead: fork, which resumes the
+    /// child in the caller's own state and so needs more of the caller
+    /// than the arguments say.  Nothing else pays for it: the registers
+    /// stay registers for the other nineteen calls.
+    using syscall_handler = i64 (*)(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
+                                    const arch::syscall_frame& frame);
+
+    /// The shape that one handler has: the image itself, no registers.
+    using syscall_image_handler = i64 (*)(const arch::syscall_frame& frame);
 
     namespace detail {
 
@@ -85,24 +93,41 @@ namespace astia::sys {
             static constexpr u32 value = sizeof...(A);
         };
 
-        /// One handler widened to the ABI's six-register form.  Parameter
-        /// n of the handler is register n, cast to the type the handler
-        /// declared it with: a `u32 flags` truncates a junk-high register
-        /// exactly as the per-handler casts used to, except the cast is
-        /// named once here and not repeated in every body.
+        /// The handler that takes the image needs no registers picked out
+        /// of the six, so the adapter hands it the image and nothing else.
+        template <typename Fn>
+        struct is_image_handler {
+            static constexpr bool value = false;
+        };
+
+        template <>
+        struct is_image_handler<syscall_image_handler> {
+            static constexpr bool value = true;
+        };
+
+        /// One handler widened to the table's shape.  Parameter n of the
+        /// handler is register n, cast to the type the handler declared it
+        /// with: a `u32 flags` truncates a junk-high register exactly as
+        /// the per-handler casts used to, except the cast is named once
+        /// here and not repeated in every body.  The registers a handler
+        /// of this arity does not name, and the image it does not want,
+        /// are the adapter's business, not the handler's.
         template <auto Fn, typename Signature, typename Index>
         struct adapter;
 
         template <auto Fn, typename R, typename... A, u32... I>
         struct adapter<Fn, R (*)(A...), index_sequence<I...>> {
-            /// A handler of arity N leaves registers N..5 unused here; that
-            /// is the whole point of the adapter, so they are marked as
-            /// such rather than named into a body.
             static i64 call([[maybe_unused]] i64 a0, [[maybe_unused]] i64 a1,
                             [[maybe_unused]] i64 a2, [[maybe_unused]] i64 a3,
-                            [[maybe_unused]] i64 a4, [[maybe_unused]] i64 a5) {
-                return static_cast<i64>(
-                    Fn(static_cast<A>(argument<I>(a0, a1, a2, a3, a4, a5))...));
+                            [[maybe_unused]] i64 a4, [[maybe_unused]] i64 a5,
+                            [[maybe_unused]] const arch::syscall_frame& frame) {
+                if constexpr (is_image_handler<decltype(Fn)>::value) {
+                    return static_cast<i64>(Fn(frame));
+                }
+                else {
+                    return static_cast<i64>(
+                        Fn(static_cast<A>(argument<I>(a0, a1, a2, a3, a4, a5))...));
+                }
             }
         };
 
@@ -111,7 +136,7 @@ namespace astia::sys {
             adapter<Fn, decltype(Fn),
                     typename make_index_sequence<arity<decltype(Fn)>::value>::type>;
 
-        /// The table door, for a handler already in the six-register form.
+        /// The table door: store a handler already in the table's form.
         /// register_syscall() is what callers use; this is what it hands
         /// the table.
         bool register_abi(syscall_id id, syscall_handler handler);
@@ -124,20 +149,29 @@ namespace astia::sys {
     ///     i64 sys_waitpid(i32 pid, u64 status_ptr);
     ///     i64 sys_getpid();
     ///
-    /// The handler is a template argument (the id is not), so the adapter
-    /// is a distinct function per handler and the table keeps storing
-    /// plain function pointers.  A handler that asks for more than the six
-    /// ABI registers, or that is not a function at all, is a compile error
-    /// here rather than a bad call at the first trap.
+    /// A handler that cannot say what it needs in six registers takes the
+    /// trap image itself, and is stored as it is:
+    ///
+    ///     i64 sys_fork(const arch::syscall_frame& frame);
+    ///
+    /// Either way the handler is a template argument and the id is not, so
+    /// the adapter is a distinct function per handler and the table keeps
+    /// storing plain function pointers.  A handler that asks for more than
+    /// the six ABI registers, or that is not a function at all, is a
+    /// compile error here rather than a bad call at the first trap.
     template <auto handler>
     bool register_syscall(syscall_id id) {
         static_assert(detail::arity<decltype(handler)>::value <= syscall_argument_count,
-                      "a syscall handler sees the six ABI registers: give it at most six "
+                      "a syscall handler sees the six ABI registers: name at most six "
                       "parameters, in the order the ABI passes them");
         return detail::register_abi(id, &detail::widened<handler>::call);
     }
 
-    /// Dispatch a system call
-    i64 dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5);
+    /// Dispatch a system call: the number the caller trapped with, the six
+    /// registers it passed, and the image the entry packed them into.  The
+    /// registers travel as registers, as they did into the entry; the
+    /// image travels for the one handler that reads it.
+    i64 dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
+                 const arch::syscall_frame& frame);
 
 } // namespace astia::sys

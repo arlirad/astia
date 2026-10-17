@@ -4,6 +4,7 @@
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/arch/context.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
@@ -169,15 +170,13 @@ namespace astia::proc {
             return process->unmap(addr, static_cast<usize>(len));
         }
 
-        /// fork — duplicate the caller copy-on-write.  The dispatch
-        /// shim packs the caller's register image and passes it as
-        /// a0: the child resumes the parent's ring-3 call site with
-        /// rax = 0.  Never blocks.
-        i64 sys_fork(u64 uctx) {
-            if (uctx == 0) {
-                return -EFAULT;
-            }
-            return proc::fork(reinterpret_cast<const arch::user_context*>(uctx));
+        /// fork — duplicate the caller copy-on-write.  The one handler
+        /// that takes the trap image itself instead of its six argument
+        /// registers: the child resumes at the caller's own ring-3
+        /// instruction, so proc::fork wants the caller's whole register
+        /// state.  Never blocks.
+        i64 sys_fork(const arch::syscall_frame& frame) {
+            return proc::fork(arch::caller_image(frame));
         }
 
         i64 sys_futex(u64 address, u32 op, u32 expected, u64 timeout) {

@@ -4,19 +4,20 @@
 
 namespace astia::proc {
 
-    i64 fork(const arch::user_context* uctx) {
+    i64 fork(const arch::user_context& uctx) {
         process* parent = current_process();
-        if (parent == nullptr || uctx == nullptr) {
+        if (parent == nullptr) {
             return -ESRCH; // kernel threads have nothing to duplicate
         }
         if (parent->address_space() == nullptr) {
             return -EAGAIN;
         }
 
-        // The arch entry packs registers but cannot know the process's
-        // thread pointer — the address space owns it.
-        arch::user_context image = *uctx;
-        image.fs_base            = parent->tls_tp();
+        // The trap image carries registers but not the thread pointer —
+        // the address space owns that, so the child's copy of the image
+        // gains it here.
+        arch::user_context child_image = uctx;
+        child_image.fs_base            = parent->tls_tp();
 
         auto child = mm::share<process>(allocate_pid(), parent->pid(), parent->name());
         if (!child) {
@@ -24,7 +25,7 @@ namespace astia::proc {
         }
         if (!child->copy_descriptors_from(*parent) ||
             !parent->clone_address_space_cow(child.get()) ||
-            !child->create_fork_thread(image)) {
+            !child->create_fork_thread(child_image)) {
             // The child shptr drops here; ~process releases every
             // backing reference and descriptor its failed clone took.
             return -EAGAIN;

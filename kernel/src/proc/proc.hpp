@@ -40,10 +40,11 @@ namespace astia::proc {
     /// Duplicate the calling process copy-on-write: the child shares
     /// every mapping (each backing region gains one reference, private
     /// writable pages lose their write bits on both sides) and resumes
-    /// the parent's ring-3 register image with rax = 0 — the child's
-    /// fork() return.  `uctx` is the syscall-entry register image the
-    /// arch dispatch packed.  Returns the child pid, or -ESRCH (no
-    /// user process) / -EAGAIN (resource or registry failure).
-    i64 fork(const arch::user_context* uctx);
+    /// the caller's ring-3 image with rax = 0 — the child's fork()
+    /// return.  `uctx` is that image (arch::caller_image); the
+    /// thread pointer is the address space's, and this takes it from the
+    /// parent.  Returns the child pid, or -ESRCH (no user process) /
+    /// -EAGAIN (resource or registry failure).
+    i64 fork(const arch::user_context& uctx);
 
 } // namespace astia::proc

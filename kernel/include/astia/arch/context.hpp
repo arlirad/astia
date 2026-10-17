@@ -8,6 +8,21 @@ namespace astia::arch {
     /// architecture defines its register layout and allocates it.
     struct context;
 
+    /// Register image of a ring-3 caller at syscall time, as the entry
+    /// packs it: the call number, its argument registers, the caller's
+    /// return state, then the callee-saved image.  The selected
+    /// architecture defines the layout and its syscall entry is the one
+    /// writer — nothing else may reorder it.
+    struct syscall_frame {
+        u64 nr, a0, a1, a2, a3, a4, a5;
+        u64 rip, rflags, rsp;
+        // Callee-saved image: the entry stores it so the exit path can
+        // restore it explicitly (no reliance on the compiler's choices
+        // in the C++ handler), and fork packs the child's resume from
+        // it — the one call that needs the whole register set.
+        u64 rbx, rbp, r12, r13, r14, r15;
+    };
+
     /// Register image of a ring-3 caller at syscall time.  The arch
     /// syscall entry packs it from its frame; fork hands the copy to
     /// context_prepare_fork so the child resumes exactly where the
@@ -26,6 +41,13 @@ namespace astia::arch {
         u64 r15     = 0;
         u64 fs_base = 0; ///< thread pointer the resume loads into %fs
     };
+
+    /// The caller's own state out of a trap image, in the form a context
+    /// is prepared from: what fork hands the child so it returns from the
+    /// syscall exactly where the parent sat.  It deliberately does not
+    /// carry fs_base — the thread pointer belongs to the address space,
+    /// not to the trap, and proc::fork takes it from the parent's.
+    user_context caller_image(const syscall_frame& frame);
 
     context* context_create();
     bool     context_prepare_kernel(context*, u64 stack_top, u64 entry);
