@@ -35,6 +35,7 @@ add_library(astia_libc STATIC
   src/string.c
   src/time.c
   src/time_aio.c
+  src/uio.c
   src/wchar.c
 )
 

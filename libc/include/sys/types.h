@@ -1,0 +1,29 @@
+#pragma once
+
+/*
+ * astia libc — <sys/types.h>.  Only the types this libc's I/O surface
+ * actually needs: ssize_t, a byte count that may be an error, off_t, a
+ * file offset, and size_t, which POSIX puts here too and which is the
+ * compiler's <stddef.h> rather than anything of ours.
+ *
+ * ssize_t and off_t are `long` on this target, which is what the ABI
+ * spells them as (<astia/api/aio.h>'s iovec carries uint64_t lengths,
+ * the SQE a uint64_t offset) and what the build machine's LP64 types
+ * alias to, so the host ports in tests/ can include this header and
+ * keep using their own headers for everything else.  Nothing else POSIX
+ * puts here exists yet — no pid_t, no mode_t — and declaring a type no
+ * prototype uses would only be a promise to keep.
+ */
+
+#include <stddef.h> /* size_t: the compiler's, in both builds */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef long ssize_t;
+typedef long off_t;
+
+#ifdef __cplusplus
+}
+#endif

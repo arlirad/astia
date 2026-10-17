@@ -33,6 +33,13 @@ add_executable(libc_file_test file_test.c backend_host.c)
 target_link_libraries(libc_file_test PRIVATE astia_libc)
 add_test(NAME libc_file_test COMMAND libc_file_test)
 
+# <sys/uio.h>: the position-based vector pair, same object trick.  The
+# port's readv/writev go by raw syscall there, because this libc is the
+# definition the binary would otherwise resolve them to.
+add_executable(libc_uio_test uio_test.c backend_host.c)
+target_link_libraries(libc_uio_test PRIVATE astia_libc)
+add_test(NAME libc_uio_test COMMAND libc_uio_test)
+
 # errno's thread-locality is a design contract, so it gets a real second
 # thread: host pthreads as a thread source only, the object under test
 # is ours.

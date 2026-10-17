@@ -10,7 +10,7 @@
  * assertions distinguish "in the buffer" from "on the device".
  */
 
-#include <sys/types.h> /* host ssize_t/off_t: ours has no sys/types.h */
+#include <sys/types.h> /* ssize_t/off_t: ours now, `long` like the host's */
 
 #include <errno.h>
 #include <fcntl.h>  /* host: probe */

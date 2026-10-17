@@ -231,6 +231,7 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_SOURCE_DIR}/../libc/src/string.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/time.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/time_aio.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/uio.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/wchar.c
         )
         target_include_directories(astia_userspace_libc PRIVATE

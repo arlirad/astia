@@ -17,14 +17,18 @@
  * compare against (the ABI copied the familiar POSIX/LINUX set).
  */
 
-#include <sys/stat.h>  /* fstat */
-#include <sys/types.h> /* host ssize_t/off_t: ours has no sys/types.h */
+#include <sys/stat.h>    /* fstat */
+#include <sys/syscall.h> /* SYS_readv/SYS_writev, for the raw host calls below */
+#include <sys/types.h>   /* ssize_t/off_t: ours now, `long` like the host's */
 
 #include <fcntl.h> /* host O_* dialect, open() */
 
 /* <unistd.h> is ours now (getpid/gettid), so the host syscalls this
  * port drives are declared by hand — same pattern as every other host
- * port in these tests. */
+ * port in these tests.  readv/writev are the exception that proves the
+ * rule: this libc exports both now, so a call by name would bind to
+ * ours and recurse straight back into this port; they go by raw syscall
+ * instead, where nothing can interpose. */
 extern ssize_t read(int fd, void* buf, size_t count);
 extern ssize_t write(int fd, const void* buf, size_t count);
 extern ssize_t pread(int fd, void* buf, size_t count, off_t offset);
@@ -41,6 +45,22 @@ extern int     close(int fd);
 
 extern int* __errno_location(void); /* glibc's errno, without its header */
 #define HOST_ERRNO (*__errno_location())
+
+/* The vector pair.  preadv/pwritev are host library calls with no name
+ * of ours to collide with; readv/writev, for the reason above, are raw
+ * host syscalls.  glibc's syscall() normalizes errors to -1 + its errno,
+ * while the seam's contract is the ABI's negated code — host_vector()
+ * converts, and SYS_readv/SYS_writev cannot legitimately return -1 any
+ * other way. */
+extern ssize_t preadv(int fd, const struct iovec* iov, int iovcnt, off_t offset);
+extern ssize_t pwritev(int fd, const struct iovec* iov, int iovcnt, off_t offset);
+extern long    syscall(long number, ...);
+
+static long host_vector(long number, int fd, const struct iovec* iov, uint32_t count) {
+    long rc = syscall(number, fd, (long) (uintptr_t) iov, count, 0);
+
+    return rc == -1 ? -HOST_ERRNO : rc;
+}
 
 long __astia_fio_open(const char* path, int flags, int mode) {
     int access = flags & (FIO_READ | FIO_WRITE);
@@ -90,6 +110,24 @@ long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n) {
         if (r < 0 && HOST_ERRNO == ESPIPE)
             r = write(fd, buf, n);
     }
+    return r >= 0 ? (long) r : -HOST_ERRNO;
+}
+
+long __astia_fio_readv(int fd, uint64_t off, const struct iovec* iov, uint32_t count) {
+    ssize_t r;
+
+    if (off == FIO_OFF_APPEND) /* the descriptor's own cursor */
+        return host_vector(SYS_readv, fd, iov, count);
+    r = preadv(fd, iov, (int) count, (off_t) off); /* not seekable: ESPIPE, as pread */
+    return r >= 0 ? (long) r : -HOST_ERRNO;
+}
+
+long __astia_fio_writev(int fd, uint64_t off, const struct iovec* iov, uint32_t count) {
+    ssize_t r;
+
+    if (off == FIO_OFF_APPEND)
+        return host_vector(SYS_writev, fd, iov, count);
+    r = pwritev(fd, iov, (int) count, (off_t) off);
     return r >= 0 ? (long) r : -HOST_ERRNO;
 }
 

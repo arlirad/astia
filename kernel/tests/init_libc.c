@@ -8,6 +8,7 @@
  */
 #include <sys/futex.h>
 #include <sys/mman.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 
 #include <errno.h>
@@ -286,6 +287,62 @@ int main(int argc, char** argv) {
         }
         if (munmap(q, 4 * 4096) != 0)
             return 50;
+    }
+
+    /* 52-60: the public scatter/gather pair over a real file.  writev()
+       sends two entries; a fresh open description reads them back
+       through three, the middle one empty, so the bytes have to land in
+       the order the vector named them and the empty entry has to be
+       stepped over rather than stopped on.  A further one-byte readv
+       comes back 0, which is the descriptor's position having moved by
+       exactly what was read.  The last step is the cap the kernel owns:
+       a vector longer than its eight entries is refused whole with
+       EINVAL, never truncated into a shorter answer. */
+    {
+        FILE* out = fopen("/tmp/uio", "w+");
+        if (out == NULL)
+            return 52;
+        char first[5];
+        char second[4];
+        memcpy(first, "alpha", 5);
+        memcpy(second, "beta", 4);
+        const struct iovec sent[2] = {
+            {first, 5},
+            {second, 4},
+        };
+        if (writev(fileno(out), sent, 2) != 9)
+            return 53;
+        if (fclose(out) != 0)
+            return 54;
+
+        FILE* in = fopen("/tmp/uio", "r");
+        if (in == NULL)
+            return 55;
+        char               charter[3] = {0};
+        char               middle     = 'x';
+        char               last[6]    = {0};
+        const struct iovec taken[3]   = {
+            {charter, 3},
+            {&middle, 0},
+            {last, 6},
+        };
+        if (readv(fileno(in), taken, 3) != 9)
+            return 56;
+        if (memcmp(charter, "alp", 3) != 0 || middle != 'x' ||
+            memcmp(last, "habeta", 6) != 0)
+            return 57;
+
+        char               tail_byte = 0;
+        const struct iovec tail      = {&tail_byte, 1};
+        if (readv(fileno(in), &tail, 1) != 0)
+            return 58;
+
+        struct iovec too_many[9] = {0}; /* one past the kernel's cap */
+        errno                    = 0;
+        if (readv(fileno(in), too_many, 9) != -1 || errno != EINVAL)
+            return 59;
+        if (fclose(in) != 0)
+            return 60;
     }
 
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from

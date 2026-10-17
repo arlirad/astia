@@ -32,6 +32,10 @@ enum { RING_ENTRIES = 64 };
 
 ASTIA_STATIC_ASSERT(FIO_OFF_APPEND == OFF_APPEND,
                     "port append offset must equal ABI OFF_APPEND");
+ASTIA_STATIC_ASSERT(sizeof(struct iovec) == sizeof(astia_iovec) &&
+                        offsetof(struct iovec, iov_base) == offsetof(astia_iovec, base) &&
+                        offsetof(struct iovec, iov_len) == offsetof(astia_iovec, len),
+                    "port iovec must be the ABI's astia_iovec");
 
 static astia_rings* g_ring;
 static uint64_t     g_tag;
@@ -194,6 +198,17 @@ long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n) {
 
 long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n) {
     return transact(OP_WRITE, fd, off, buf, (uint32_t) n, 0, 0);
+}
+
+long __astia_fio_readv(int fd, uint64_t off, const struct iovec* iov, uint32_t count) {
+    /* The layout assert above is what makes this cast sound; for
+       READV/WRITEV the SQE's length is the entry *count*, and its
+       address the list itself. */
+    return transact(OP_READV, fd, off, iov, count, 0, 0);
+}
+
+long __astia_fio_writev(int fd, uint64_t off, const struct iovec* iov, uint32_t count) {
+    return transact(OP_WRITEV, fd, off, iov, count, 0, 0);
 }
 
 long __astia_fio_close(int fd) {
