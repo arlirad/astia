@@ -154,6 +154,11 @@ namespace astia {
             blocked_ &= ~mask;
         }
 
+        void set_blocked(signal_mask mask) {
+            blocked_ = mask & ~(signal_bit(signal_number::kill) |
+                                signal_bit(signal_number::stop));
+        }
+
         signal_mask blocked() const {
             return blocked_;
         }

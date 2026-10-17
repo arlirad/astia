@@ -30,6 +30,7 @@
  */
 
 #include <astia/api/errno.h>
+#include <astia/api/signal.h>
 
 #include <stdint.h>
 
@@ -85,6 +86,8 @@ enum {
     SYS_THREAD_JOIN   = 18,
     SYS_THREAD_DETACH = 19,
     SYS_KILL          = 20,
+    SYS_SIGACTION     = 21,
+    SYS_SIGPROCMASK   = 22,
 };
 
 /* ------------------------------------------------------------------ */
@@ -221,6 +224,15 @@ static inline long astia_gettid(void) {
 
 static inline long astia_kill(int32_t pid, int32_t signal) {
     return astia_raw6(SYS_KILL, (long) pid, (long) signal, 0, 0, 0, 0);
+}
+
+static inline long astia_sigaction(int32_t signal, const astia_sigaction_t* next,
+                                   astia_sigaction_t* old) {
+    return astia_raw6(SYS_SIGACTION, (long) signal, (long) next, (long) old, 0, 0, 0);
+}
+
+static inline long astia_sigprocmask(int32_t how, uint32_t set, uint32_t* old) {
+    return astia_raw6(SYS_SIGPROCMASK, (long) how, (long) set, (long) old, 0, 0, 0);
 }
 
 /* pid > 0: wait for that child; pid == -1: any child.  On success the

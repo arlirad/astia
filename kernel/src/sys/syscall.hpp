@@ -28,6 +28,8 @@ namespace astia::sys {
         thread_join,
         thread_detach,
         kill,
+        sigaction,
+        sigprocmask,
     };
 
     /// How many registers the ABI hands every trap — and so the most

@@ -3,6 +3,7 @@
 #include "syscall.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
+#include <astia/api/signal.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/context.hpp>
 #include <astia/arch/interrupts.hpp>
@@ -38,6 +39,87 @@ namespace astia::proc {
             }
             return target->signals().send(static_cast<signal_number>(value)) ? 0
                                                                              : -EINVAL;
+        }
+
+        i64 sys_sigaction(i32 value, u64 next_ptr, u64 old_ptr) {
+            if (value <= 0 || value >= static_cast<i32>(signal_count)) {
+                return -EINVAL;
+            }
+            const auto signal = static_cast<signal_number>(value);
+            auto*      owner  = current_process();
+            if (owner == nullptr) {
+                return -ESRCH;
+            }
+            const auto old = owner->signals().disposition(signal);
+            if (old_ptr != 0) {
+                const auto range =
+                    sys::user_range::bytes(old_ptr, sizeof(struct astia_sigaction));
+                if (!sys::user_range_ok(range)) {
+                    return -EFAULT;
+                }
+                struct astia_sigaction out{};
+                out.handler = old.action == signal_action::ignore ? ASTIA_SIG_IGN
+                              : old.action == signal_action::handler
+                                  ? reinterpret_cast<uintptr_t>(old.handler)
+                                  : ASTIA_SIG_DFL;
+                if (!sys::copy_out(range, &out)) {
+                    return -EFAULT;
+                }
+            }
+            if (next_ptr != 0) {
+                const auto range =
+                    sys::user_range::bytes(next_ptr, sizeof(struct astia_sigaction));
+                if (!sys::user_range_ok(range)) {
+                    return -EFAULT;
+                }
+                struct astia_sigaction next{};
+                if (!sys::copy_in(&next, range)) {
+                    return -EFAULT;
+                }
+                signal_disposition disposition{};
+                if (next.handler == ASTIA_SIG_IGN) {
+                    disposition.action = signal_action::ignore;
+                }
+                else if (next.handler != ASTIA_SIG_DFL) {
+                    disposition.action  = signal_action::handler;
+                    disposition.handler = reinterpret_cast<signal_handler>(next.handler);
+                }
+                if (!owner->signals().disposition(signal, disposition)) {
+                    return -EINVAL;
+                }
+            }
+            return 0;
+        }
+
+        i64 sys_sigprocmask(i32 how, u32 set, u64 old_ptr) {
+            auto* owner = current_process();
+            if (owner == nullptr) {
+                return -ESRCH;
+            }
+            if (old_ptr != 0) {
+                const auto range = sys::user_range::bytes(old_ptr, sizeof(u32));
+                if (!sys::user_range_ok(range)) {
+                    return -EFAULT;
+                }
+                const u32 old = owner->signals().blocked();
+                if (!sys::copy_out(range, &old)) {
+                    return -EFAULT;
+                }
+            }
+            switch (how) {
+            case ASTIA_SIG_BLOCK:
+                owner->signals().block(set);
+                break;
+            case ASTIA_SIG_UNBLOCK:
+                owner->signals().unblock(set);
+                break;
+            case ASTIA_SIG_SETMASK:
+                owner->signals().set_blocked(set);
+                break;
+            default:
+                return -EINVAL;
+            }
+            return 0;
         }
 
         i64 sys_yield() {
@@ -280,6 +362,8 @@ namespace astia::proc {
         return sys::register_syscall<sys_getpid>(sys::syscall_id::getpid) &&
                sys::register_syscall<sys_gettid>(sys::syscall_id::gettid) &&
                sys::register_syscall<sys_kill>(sys::syscall_id::kill) &&
+               sys::register_syscall<sys_sigaction>(sys::syscall_id::sigaction) &&
+               sys::register_syscall<sys_sigprocmask>(sys::syscall_id::sigprocmask) &&
                sys::register_syscall<sys_yield>(sys::syscall_id::yield) &&
                sys::register_syscall<sys_exit>(sys::syscall_id::exit) &&
                sys::register_syscall<sys_waitpid>(sys::syscall_id::waitpid) &&
