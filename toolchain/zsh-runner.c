@@ -2,7 +2,7 @@
 #include <unistd.h>
 
 int main(void) {
-    char* argv[] = {"/bin/zsh", "-f", "-i", "+m", NULL};
+    char* argv[] = {"/bin/zsh", "-f", "-i", NULL};
     char* envp[] = {"HOME=/", "PATH=/bin", "TERM=xterm", NULL};
     const int child = spawnve("/bin/zsh", argv, envp);
     if (child < 0)

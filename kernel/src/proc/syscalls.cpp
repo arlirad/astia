@@ -53,7 +53,9 @@ namespace astia::proc {
         }
 
         i64 sys_getpgrp() { return static_cast<i64>(getpgrp()); }
-        i64 sys_setpgid(i32 pid, i32 pgid) { return setpgid(pid, pgid); }
+        i64 sys_setpgid(i32 pid, i32 pgid) {
+            return setpgid(pid, pgid);
+        }
         i64 sys_setsid() { return setsid(); }
 
         i64 sys_sigaction(i32 value, u64 next_ptr, u64 old_ptr) {
