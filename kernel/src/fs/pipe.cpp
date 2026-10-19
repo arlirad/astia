@@ -1,5 +1,6 @@
 #include "pipe.hpp"
 
+#include "../sys/aio.hpp"
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
 
@@ -20,6 +21,10 @@ namespace astia::fs {
                 for (u32 i = 0; i < count; ++i)
                     out[i] = data_[(tail + i) & (capacity - 1)];
                 __atomic_store_n(&tail_, tail + count, __ATOMIC_RELEASE);
+                // A reader creates space for a parked writer.  Wake by
+                // backing object rather than fd: fork/dup share the pipe,
+                // while their descriptor numbers need not match.
+                sys::io_device_ready_context(this);
                 return count;
             }
 
@@ -34,6 +39,10 @@ namespace astia::fs {
                 for (u32 i = 0; i < count; ++i)
                     data_[(head + i) & (capacity - 1)] = in[i];
                 __atomic_store_n(&head_, head + count, __ATOMIC_RELEASE);
+                // A writer makes data available to parked readers.  The
+                // engine retries the operation after the release above, so
+                // its acquire load observes the published bytes.
+                sys::io_device_ready_context(this);
                 return count;
             }
 

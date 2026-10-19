@@ -8,6 +8,7 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/io.hpp>
+#include <astia/log.hpp>
 #include <astia/memory.hpp>
 #include <astia/mm/iovec.hpp>
 

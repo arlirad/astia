@@ -41,6 +41,21 @@ namespace astia::proc {
             }
             return -1;
         }
+
+        // registry_lock must be held.  Looking up the requested PID alone
+        // would incorrectly allow setpgid() to join an arbitrary process
+        // rather than an existing process group.
+        process* find_group_locked(pid_t group, pid_t session) {
+            for (u32 i = 0; i < registry_capacity; ++i) {
+                process* value = registry[i].get();
+                if (value != nullptr && value->process_group() == group &&
+                    value->session() == session && value->state() != process_state::zombie &&
+                    value->state() != process_state::dead) {
+                    return value;
+                }
+            }
+            return nullptr;
+        }
     }
 
     bool register_process(const mm::shptr<process>& value) {
@@ -182,24 +197,29 @@ namespace astia::proc {
         if (pgid == 0) pgid = pid;
         if (pid <= 0 || pgid <= 0) return -EINVAL;
 
-        process* target = find_process(static_cast<pid_t>(pid));
+        core::spinlock_guard guard(registry_lock);
+        const i32             slot = find_slot_locked(static_cast<pid_t>(pid));
+        process*              target = slot < 0 ? nullptr : registry[slot].get();
         if (target == nullptr || target->state() == process_state::zombie ||
-            target->state() == process_state::dead)
+            target->state() == process_state::dead) {
             return -ESRCH;
-        if (target != caller && target->parent_pid() != caller->pid()) return -ESRCH;
-        if (target->session() != caller->session()) return -EPERM;
-        // A session leader may redundantly set its own existing group; it
-        // only becomes invalid when trying to move to a different group.
-        if (target->session() == target->pid() &&
-            static_cast<pid_t>(pgid) != target->process_group())
+        }
+        if (target != caller && target->parent_pid() != caller->pid()) {
+            return -ESRCH;
+        }
+        if (target->session() != caller->session()) {
             return -EPERM;
+        }
+        // POSIX rejects setpgid() for a session leader, including a
+        // redundant request for its current process group.
+        if (target->session() == target->pid()) {
+            return -EPERM;
+        }
 
         if (static_cast<pid_t>(pgid) != target->pid()) {
-            process* group = find_process(static_cast<pid_t>(pgid));
-            if (group == nullptr || group->state() == process_state::zombie ||
-                group->state() == process_state::dead ||
-                group->session() != caller->session())
+            if (find_group_locked(static_cast<pid_t>(pgid), caller->session()) == nullptr) {
                 return -EPERM;
+            }
         }
         target->process_group(static_cast<pid_t>(pgid));
         return 0;
