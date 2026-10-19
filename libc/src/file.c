@@ -89,6 +89,23 @@ static size_t io_cap(size_t n) {
     return n > FIO_MAXIO ? FIO_MAXIO : n;
 }
 
+char* cuserid(char* buffer) {
+    static char fallback[] = "astia";
+    if (buffer == NULL)
+        return fallback;
+    buffer[0] = 'a';
+    buffer[1] = 's';
+    buffer[2] = 't';
+    buffer[3] = 'i';
+    buffer[4] = 'a';
+    buffer[5] = '\0';
+    return buffer;
+}
+
+FILE* fdopen(int fd, const char* mode) { (void) fd; (void) mode; return NULL; }
+FILE* popen(const char* command, const char* mode) { (void) command; (void) mode; return NULL; }
+int pclose(FILE* stream) { (void) stream; return -1; }
+
 /* Forward the pending write buffer; on error keep the unwritten tail at
  * the front of the buffer — pos - len still resolves to the right
  * offset, so a clearerr + retry continues where it stopped. */

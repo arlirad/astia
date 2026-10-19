@@ -161,9 +161,13 @@ namespace astia::arch {
         /// at it (which the caller has verified present or just created).
         u64* next_table(const page_map& owner, vaddr_t virt, table_level level,
                         u64 entry) {
-            if (active_map == &owner) {
-                return reinterpret_cast<u64*>(alias(level, virt));
-            }
+            /* The active_map cache can lag a CR3 switch performed by the
+               scheduler or an exec staging path.  The recursive alias is
+               therefore unsafe as a write target here: use the direct map
+               of the table frame, which is valid for every page_map. */
+            (void) owner;
+            (void) virt;
+            (void) level;
             return phys_ptr(entry & address_mask);
         }
 

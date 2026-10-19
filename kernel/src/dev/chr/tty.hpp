@@ -18,6 +18,18 @@
 
 namespace astia::dev {
 
+    namespace tty_defaults {
+        inline constexpr cc_t ctrl_c         = 0x03;
+        inline constexpr cc_t ctrl_backslash = 0x1c;
+        inline constexpr cc_t del            = 0x7f;
+        inline constexpr cc_t ctrl_u         = 0x15;
+        inline constexpr cc_t ctrl_d         = 0x04;
+        inline constexpr cc_t min_bytes      = 0x01;
+        inline constexpr cc_t ctrl_q         = 0x11;
+        inline constexpr cc_t ctrl_s         = 0x13;
+        inline constexpr cc_t ctrl_z         = 0x1a;
+    }
+
     class tty : public chrdev {
         public:
         constexpr tty(const char* name, unsigned flags) : chrdev(name, flags | dv_tty) {
@@ -33,15 +45,15 @@ namespace astia::dev {
             for (u32 i = 0; i < NCCS; ++i) {
                 _termios.c_cc[i] = 0;
             }
-            _termios.c_cc[VINTR]  = 3;
-            _termios.c_cc[VQUIT]  = 28;
-            _termios.c_cc[VERASE] = 127;
-            _termios.c_cc[VKILL]  = 21;
-            _termios.c_cc[VEOF]   = 4;
-            _termios.c_cc[VMIN]   = 1;
-            _termios.c_cc[VSTART] = 17;
-            _termios.c_cc[VSTOP]  = 19;
-            _termios.c_cc[VSUSP]  = 26;
+            _termios.c_cc[VINTR]  = tty_defaults::ctrl_c;
+            _termios.c_cc[VQUIT]  = tty_defaults::ctrl_backslash;
+            _termios.c_cc[VERASE] = tty_defaults::del;
+            _termios.c_cc[VKILL]  = tty_defaults::ctrl_u;
+            _termios.c_cc[VEOF]   = tty_defaults::ctrl_d;
+            _termios.c_cc[VMIN]   = tty_defaults::min_bytes;
+            _termios.c_cc[VSTART] = tty_defaults::ctrl_q;
+            _termios.c_cc[VSTOP]  = tty_defaults::ctrl_s;
+            _termios.c_cc[VSUSP]  = tty_defaults::ctrl_z;
             _termios.c_ispeed     = B115200;
             _termios.c_ospeed     = B115200;
         }
@@ -75,15 +87,17 @@ namespace astia::dev {
         virtual bool tty_putc(u8 byte) = 0;
         virtual void tty_ready();
 
-        struct termios       _termios;
-        u32                  _column = 0; // cursor column, for OPOST work later
-        static constexpr u32 rx_size = 1024;
-        u8                   _rx[rx_size]{};
-        u8                   _line[rx_size]{};
-        u32                  _line_length    = 0;
-        bool                 _output_stopped = false;
-        alignas(64) u32 _rx_head             = 0;
-        alignas(64) u32 _rx_tail             = 0;
+        struct termios           _termios;
+        u32                      _column = 0; // cursor column, for OPOST work later
+        i32                      _foreground_pgrp = 0;
+        static constexpr bytes_t rx_capacity_bytes = 1_kib;
+        u8                       _rx[rx_capacity_bytes]{};
+        u8                       _line[rx_capacity_bytes]{};
+        u32                      _line_length    = 0;
+        bool                     _line_overflow  = false;
+        bool                     _output_stopped = false;
+        alignas(64) u32 _rx_head                 = 0;
+        alignas(64) u32 _rx_tail                 = 0;
     };
 
 } // namespace astia::dev

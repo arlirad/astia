@@ -12,10 +12,14 @@ long __astia_process_gettid(void);
 long __astia_process_yield(void);
 long __astia_process_waitpid(int pid, int* status);
 long __astia_process_spawnve(const char* path, char* const argv[], char* const envp[]);
+long __astia_process_execve(const char* path, char* const argv[], char* const envp[]);
 long __astia_process_fork(void);
+long __astia_process_sigsuspend(const unsigned int* mask);
 long __astia_process_futex(unsigned int* address, unsigned int operation,
                            unsigned int value);
 long __astia_process_thread_create(void (*entry)(void*), void* stack_top, void* argument);
+long __astia_process_thread_create2(void (*entry)(void*, void*), void* stack_top,
+                                    void* argument0, void* argument1);
 void __astia_process_thread_exit(void* result);
 long __astia_process_thread_join(unsigned long tid, void** result);
 long __astia_process_thread_detach(unsigned long tid);

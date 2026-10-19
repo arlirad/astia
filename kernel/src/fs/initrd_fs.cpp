@@ -54,6 +54,29 @@ namespace astia::fs {
             return true;
         }
 
+        bool child_name(const char* directory, const char* full, char* name,
+                        u32 capacity, u32& type) {
+            u32 directory_len = 0;
+            u32 full_len      = 0;
+            while (directory[directory_len] != '\0') ++directory_len;
+            while (full[full_len] != '\0') ++full_len;
+            const u32 start = directory_len == 1 ? 1 : directory_len + 1;
+            if (start >= full_len) return false;
+            if (directory_len != 1) {
+                for (u32 i = 0; i < directory_len; ++i)
+                    if (full[i] != directory[i]) return false;
+                if (full[directory_len] != '/') return false;
+            }
+            u32 end = start;
+            while (end < full_len && full[end] != '/') ++end;
+            const u32 length = end - start;
+            if (length + 1 > capacity) return false;
+            for (u32 i = 0; i < length; ++i) name[i] = full[start + i];
+            name[length] = '\0';
+            type        = end < full_len ? directory_dir : directory_reg;
+            return true;
+        }
+
         bool add_file(void* opaque, const initrd::file& source) {
             auto& mount = *static_cast<initrd_mount*>(opaque);
             return mount.add(source.name, source.data, source.size);
@@ -99,6 +122,37 @@ namespace astia::fs {
             }
         }
         return {};
+    }
+
+    long initrd_mount::read_directory(const char* path, u64 index, char* name,
+                                       u32 capacity, u32* type) {
+        if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
+            return -EINVAL;
+        u64 ordinal = 0;
+        for (u32 i = 0; i < initrd_max_entries; ++i) {
+            if (!entries_[i].used) continue;
+            const char* full = entries_[i].path;
+            char candidate[256]{};
+            u32 candidate_type = directory_unknown;
+            if (!child_name(path, full, candidate, sizeof candidate, candidate_type))
+                continue;
+            bool duplicate = false;
+            for (u32 p = 0; p < i && !duplicate; ++p) {
+                if (!entries_[p].used) continue;
+                char prior[256]{};
+                u32 prior_type = directory_unknown;
+                if (child_name(path, entries_[p].path, prior, sizeof prior, prior_type) &&
+                    equal(candidate, prior))
+                    duplicate = true;
+            }
+            if (duplicate || ordinal++ != index) continue;
+            u32 length = 0;
+            while (candidate[length] != '\0') ++length;
+            for (u32 j = 0; j <= length; ++j) name[j] = candidate[j];
+            *type = candidate_type;
+            return 1;
+        }
+        return 0;
     }
 
     bool initrd_filesystem::attach(const initrd::archive& archive) {

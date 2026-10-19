@@ -5,6 +5,8 @@ project(astia_libc
   DESCRIPTION "astia C standard library"
   LANGUAGES C)
 
+include(GNUInstallDirs)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
@@ -21,20 +23,34 @@ add_library(astia_libc STATIC
   src/assert.c
   src/backend_aio.c
   src/ctype.c
+  src/dirent.c
   src/errno.c
   src/file.c
+  src/group.c
+  src/ioctl.c
   src/locale.c
+  src/math.c
   src/malloc.c
   src/mman.c
   src/process.c
   src/process_aio.c
+  src/prctl.c
+  src/rlimit.c
   src/printf.c
   src/scanf.c
   src/snprintf.c
+  src/signal.c
+  src/setjmp.c
   src/stdlib.c
   src/string.c
+  src/stat.c
+  src/termcap.c
+  src/termios.c
   src/time.c
   src/time_aio.c
+  src/times.c
+  src/utsname.c
+  src/unistd.c
   src/uio.c
   src/wchar.c
 )
@@ -90,6 +106,11 @@ set_source_files_properties(src/printf.c PROPERTIES
 set_source_files_properties(src/time.c PROPERTIES
   COMPILE_OPTIONS "-fno-builtin"
 )
+
+install(TARGETS astia_libc ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/astia/api)
 
 if(ASTIA_BUILD_TESTS)
   enable_testing()

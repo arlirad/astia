@@ -3,6 +3,7 @@
 # arguments, run main, and leave through libc exit() so atexit handlers
 # run and the stdio streams flush.
     .text
+    .extern environ
     .globl _start
     .type _start, @function
 _start:
@@ -10,7 +11,8 @@ _start:
     movq    (%rsp), %rdi            # argc
     leaq    8(%rsp), %rsi           # argv
     movq    %rdi, %rax
-    leaq    24(%rsp,%rax,8), %rdx   # envp = &argv[argc + 1]
+    leaq    16(%rsp,%rax,8), %rdx   # envp = &argv[argc + 1]
+    movq    %rdx, environ(%rip)     # POSIX libc global environment pointer
     and     $-16, %rsp              # SysV: 16-byte alignment at the call
     call    main
     movl    %eax, %edi

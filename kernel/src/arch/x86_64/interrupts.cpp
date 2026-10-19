@@ -1,5 +1,6 @@
 #include "../../dev/chr/tty/uart16550.hpp"
 #include "debug_exit.hpp"
+#include "../../dbg/stacktrace.hpp"
 #include "lapic.hpp"
 #include "pic.hpp"
 #include "pit.hpp"
@@ -106,6 +107,8 @@ namespace astia::arch {
                 logs::error("exception %s vec=%llx err=%llx rip=%llx", name, regs.vector,
                             regs.error, regs.rip);
             }
+
+            dbg::stacktrace(regs.rbp, regs.rip);
 
             dev::debug_exit(1);
             for (;;) {

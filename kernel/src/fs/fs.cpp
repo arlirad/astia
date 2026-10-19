@@ -114,6 +114,10 @@ namespace astia::fs {
         return -ENOSYS;
     }
 
+    long mount::read_directory(const char*, u64, char*, u32, u32*) {
+        return -ENOSYS;
+    }
+
     bool init() {
         for (u32 i = 0; i < max_types; ++i)
             types[i] = type_entry{};
@@ -183,6 +187,28 @@ namespace astia::fs {
 
     mm::shptr<open_file> open(const char* path, u32 flags) {
         return open_path(path, flags);
+    }
+
+    long read_directory(const char* path, u64 index, char* name, u32 capacity,
+                        u32* type) {
+        if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
+            return -EINVAL;
+        mount_entry* entry = find_mount(path);
+        if (entry == nullptr)
+            return -ENOENT;
+        return entry->instance->read_directory(relative_path(*entry, path), index,
+                                                name, capacity, type);
+    }
+
+    bool read_batch(kernel_read* requests, usize count) {
+        if (requests == nullptr) return false;
+        for (usize i = 0; i < count; ++i) {
+            if (requests[i].file == nullptr || requests[i].buffer == nullptr) return false;
+            requests[i].result = requests[i].file->read(
+                requests[i].buffer, requests[i].length, requests[i].offset);
+            if (requests[i].result < 0) return false;
+        }
+        return true;
     }
 
     // The remaining file/open-file implementation stays in this TU.

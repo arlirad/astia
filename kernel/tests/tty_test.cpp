@@ -124,3 +124,18 @@ ASTIA_TEST(tty_eof_and_software_flow_control) {
     tty.tty_receive(17);
     ASTIA_CHECK(tty.write(text, 1, 0) == 1);
 }
+
+ASTIA_TEST(tty_canonical_overflow_does_not_join_next_line) {
+    test_tty tty;
+    set_termios(tty, 0, 0, ICANON);
+    char result[8]{};
+    for (unsigned i = 0; i < 1200; ++i)
+        tty.tty_receive('p');
+    tty.tty_receive('\n');
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 1);
+    ASTIA_CHECK(result[0] == '\n');
+    tty.tty_receive('i');
+    tty.tty_receive('\n');
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 2);
+    ASTIA_CHECK(result[0] == 'i' && result[1] == '\n');
+}

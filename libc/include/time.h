@@ -39,6 +39,13 @@ struct tm {
 };
 #endif
 
+struct tms {
+    clock_t tms_utime;
+    clock_t tms_stime;
+    clock_t tms_cutime;
+    clock_t tms_cstime;
+};
+
 #define CLOCKS_PER_SEC 1000000L
 #define TIME_UTC 1
 #define CLOCK_MONOTONIC 0
@@ -47,6 +54,7 @@ struct tm {
 
 int        clock_gettime(int clock_id, struct timespec* result);
 time_t     time(time_t* result);
+clock_t    times(struct tms* result);
 int        timespec_get(struct timespec* result, int base);
 struct tm* gmtime(const time_t* timer);
 struct tm* gmtime_r(const time_t* timer, struct tm* result);

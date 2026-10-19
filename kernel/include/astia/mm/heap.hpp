@@ -12,7 +12,7 @@ namespace astia::mm::heap {
 
     /// The heap's virtual window size; the arch paging step publishes the
     /// window address (image window, right after the kernel image).
-    inline constexpr usize region_bytes = 1ull << 20; // 1 MiB
+    inline constexpr bytes_t region_bytes = 8_mib;
 
     /// Backing-page size used while wiring up the region.
     inline constexpr usize page_bytes = 4096;

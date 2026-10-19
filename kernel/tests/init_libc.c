@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
         int status = 0;
         if (waitpid(child, &status, 0) != child)
             return 18;
-        if (status != 42)
+        if ((status & 0x7f) != 0 || ((status >> 8) & 0xff) != 42)
             return 19;
         if (page[0] != 7) /* the child's write never touched our page */
             return 20;
@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
         int status = 0;
         if (waitpid(child, &status, 0) != child)
             return 43;
-        if (status != 42)
+        if ((status & 0x7f) != 0 || ((status >> 8) & 0xff) != 42)
             return 44;
         if (q[3 * 4096] != 0xAA) /* the child's 0xBB stayed private */
             return 45;

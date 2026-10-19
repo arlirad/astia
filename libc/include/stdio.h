@@ -74,6 +74,10 @@ int vsprintf(char* str, const char* format, va_list ap) ASTIA_PRINTF_FMT(2, 0);
 
 /* file streams — synchronous semantics over the async-ring port */
 FILE*  fopen(const char* path, const char* mode);
+char*  cuserid(char* buffer);
+FILE*  fdopen(int fd, const char* mode);
+FILE*  popen(const char* command, const char* mode);
+int    pclose(FILE* stream);
 int    fclose(FILE* stream);
 int    fileno(FILE* stream);
 size_t fread(void* ptr, size_t size, size_t nmemb, FILE* stream);

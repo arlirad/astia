@@ -170,6 +170,14 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     }
 }
 
+void __astia_fio_prepare_exec(void) {
+    if (g_ring != NULL)
+        (void) astia_io_destroy(g_ring);
+    g_ring = NULL;
+    g_inflight = 0;
+    g_tag = 0;
+}
+
 long __astia_fio_open(const char* path, int flags, int mode) {
     uint32_t of;
 
@@ -194,6 +202,58 @@ long __astia_fio_open(const char* path, int flags, int mode) {
 
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n) {
     return transact(OP_READ, fd, off, buf, (uint32_t) n, 0, 0);
+}
+
+long __astia_fio_read_batch(struct astia_fio_batch_read* requests, size_t count) {
+    astia_rings* r;
+    size_t submitted = 0;
+    size_t completed = 0;
+
+    if (count == 0) return 0;
+    if (count > RING_ENTRIES) return -EINVAL;
+    if (requests == NULL) return -EFAULT;
+    if (ring_ensure() < 0) return -EIO;
+    r = g_ring;
+    if (g_inflight != 0) {
+        long rc = settle();
+        if (rc < 0) return rc;
+    }
+
+    while (submitted < count) {
+        astia_sqe* s = astia_sqe_slot(r);
+        if (s == NULL) return -EBUSY;
+        memset(s, 0, sizeof *s);
+        s->op = OP_READ;
+        s->fd = requests[submitted].fd;
+        s->offset = requests[submitted].offset;
+        s->address = (uint64_t) (uintptr_t) requests[submitted].buffer;
+        s->length = (uint32_t) requests[submitted].length;
+        s->user_data = ++g_tag;
+        requests[submitted].result = -EAGAIN;
+        ++submitted;
+        astia_sq_publish(r, 1);
+    }
+
+    long rc = astia_io_enter(r, (uint32_t) count, (uint32_t) count,
+                             ENTER_GETEVENTS, NULL);
+    if (rc < 0) return rc;
+    while (completed < count) {
+        astia_cqe* c = astia_cq_peek(r);
+        if (c == NULL) {
+            rc = astia_io_enter(r, 0, 1, ENTER_GETEVENTS, NULL);
+            if (rc < 0) return rc;
+            continue;
+        }
+        uint64_t tag = c->user_data;
+        /* Tags are allocated in submission order; the batch has no other
+           producer, so map the completion by its monotonic tag. */
+        uint64_t first = g_tag - count + 1;
+        if (tag >= first && tag <= g_tag)
+            requests[tag - first].result = c->result;
+        astia_cq_consume(r, 1);
+        ++completed;
+    }
+    return 0;
 }
 
 long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n) {
@@ -229,4 +289,35 @@ long __astia_fio_size(int fd, uint64_t* out) {
         return rc;
     *out = st.size;
     return 0;
+}
+
+long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
+    return transact(OP_READDIR, (int32_t) index, (uint64_t) (uintptr_t) path,
+                    out, (uint32_t) sizeof *out, 0, 0);
+}
+
+long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
+    return transact(OP_IOCTL, fd, request, arg, (uint32_t) length, 0, 0);
+}
+
+long __astia_fio_pipe(int fds[2]) {
+    return transact(OP_PIPE, -1, 0, fds, 2u * sizeof(int), 0, 0);
+}
+
+long __astia_fio_dup(int fd) {
+    return transact(OP_DUP, fd, 0, NULL, 0, 0, 0);
+}
+
+long __astia_fio_dup2(int old_fd, int new_fd) {
+    return transact(OP_DUP2, old_fd, (uint64_t) (uint32_t) new_fd,
+                    NULL, 0, 0, 0);
+}
+
+void __astia_fio_after_fork(void) {
+    /* The ring's user alias belongs to the parent address space.  The child
+       inherits libc data through CoW, so it must acquire its own ring before
+       issuing any I/O. */
+    g_ring = NULL;
+    g_inflight = 0;
+    g_tag = 0;
 }

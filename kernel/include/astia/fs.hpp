@@ -17,6 +17,13 @@ namespace astia::fs {
     inline constexpr u32 path_max       = 64;
     inline constexpr u64 offset_current = ~u64{0};
 
+    inline constexpr u32 directory_unknown = 0;
+    inline constexpr u32 directory_fifo    = 1;
+    inline constexpr u32 directory_chr     = 2;
+    inline constexpr u32 directory_dir     = 4;
+    inline constexpr u32 directory_reg     = 8;
+    inline constexpr u32 directory_lnk     = 10;
+
     /// The polymorphic object behind a filesystem node.  Device classes
     /// derive from this interface; the kernel passes these objects
     /// directly, while only the userspace ABI layer translates handles
@@ -76,5 +83,20 @@ namespace astia::fs {
     /// Open a registered path.  Descriptor allocation belongs to the
     /// syscall/ring layer; the VFS returns an open file description.
     mm::shptr<open_file> open(const char* path, u32 flags = 0);
+
+    long read_directory(const char* path, u64 index, char* name, u32 capacity,
+                        u32* type);
+
+    struct kernel_read {
+        open_file* file;
+        void*      buffer;
+        u64        offset;
+        u32        length;
+        long       result;
+    };
+
+    /// Trusted kernel-side batch read. Buffers are kernel addresses; this
+    /// never enters the userspace pointer-validation path.
+    bool read_batch(kernel_read* requests, usize count);
 
 } // namespace astia::fs

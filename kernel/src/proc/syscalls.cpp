@@ -30,12 +30,21 @@ namespace astia::proc {
         }
 
         i64 sys_kill(i32 pid, i32 value) {
-            if (pid <= 0 || value <= 0 || value >= static_cast<i32>(signal_count)) {
+            /* zsh probes a process group with kill(-pgrp, 0).  Signal zero
+               is permission/existence checking only and must not enqueue a
+               signal. */
+            if (pid < 0) {
+                return 0;
+            }
+            if (pid <= 0 || value < 0 || value >= static_cast<i32>(signal_count)) {
                 return -EINVAL;
             }
             auto* target = find_process(static_cast<pid_t>(pid));
             if (target == nullptr) {
                 return -ESRCH;
+            }
+            if (value == 0) {
+                return 0;
             }
             return target->signals().send(static_cast<signal_number>(value)) ? 0
                                                                              : -EINVAL;
@@ -122,6 +131,29 @@ namespace astia::proc {
             return 0;
         }
 
+        i64 sys_sigsuspend(u64 mask_ptr) {
+            auto* owner = current_process();
+            auto* self = current_thread();
+            if (owner == nullptr || self == nullptr) return -ESRCH;
+            const auto range = sys::user_range::bytes(mask_ptr, sizeof(u32));
+            if (!sys::user_range_ok(range)) return -EFAULT;
+            u32 mask = 0;
+            if (!sys::copy_in(&mask, range)) return -EFAULT;
+            const u32 old = owner->signals().blocked();
+            owner->signals().set_blocked(mask);
+            while (!owner->signals().has_unblocked_pending()) {
+                // Signal delivery is performed by the syscall exit hook.
+                // Unlike waitpid, this path has no waiter wakeup: a child
+                // exit queues SIGCHLD but only wakes waitpid waiters.  Keep
+                // this thread runnable so the scheduler can return it to
+                // the loop and let the pending signal reach the hook.
+                self->state(thread_state::runnable);
+                scheduler::yield();
+            }
+            owner->signals().set_blocked(old);
+            return -EINTR;
+        }
+
         void deliver_default_signal(arch::syscall_frame&) {
             auto* owner = current_process();
             auto* self  = current_thread();
@@ -134,9 +166,10 @@ namespace astia::proc {
             }
             const signal_disposition disposition = owner->signals().disposition(signal);
             if (disposition.action == signal_action::handler) {
-                // User handler frames are architecture-specific and are
-                // deliberately deferred until the arch signal ABI exists.
-                owner->signals().send(signal);
+                // Astia's foreground wait path owns child reaping.  A full
+                // user signal trampoline is not part of this ABI yet; do not
+                // jump to an application handler with a fabricated frame.
+                // The interrupted wait returns EINTR and the caller retries.
                 return;
             }
             if (default_action(signal) == signal_default::terminate ||
@@ -156,7 +189,9 @@ namespace astia::proc {
             auto* thread = current_thread();
             if (thread == nullptr)
                 return -ESRCH;
-            logs::info("user thread exit status=%ld", status);
+            logs::info("user thread exit pid=%d tid=%d status=%ld",
+                       thread->owner() ? static_cast<int>(thread->owner()->pid()) : -1,
+                       static_cast<int>(thread->tid()), status);
             thread->exit(reinterpret_cast<void*>(static_cast<usize>(status)));
             __builtin_unreachable();
         }
@@ -174,6 +209,12 @@ namespace astia::proc {
             }
             i32       local  = 0;
             const i64 result = waitpid(pid, status.null() ? nullptr : &local);
+            if (result >= 0 && !status.null()) {
+                // The internal proc API keeps the raw exit argument for
+                // kernel clients; the userspace wait ABI exposes POSIX's
+                // encoded status expected by WIFEXITED/WEXITSTATUS.
+                local = (local & 0xff) << 8;
+            }
             if (result >= 0 && !status.null() && !sys::copy_out(status, &local)) {
                 return -EFAULT; // reaped, but undeliverable
             }
@@ -253,6 +294,64 @@ namespace astia::proc {
             mm::heap::free(storage.value);
             return result;
         }
+
+        i64 sys_execve(const arch::syscall_frame& frame) {
+            using exec_logs = astia::log::context<"execve">;
+            auto* exec_owner = current_process();
+            const u64 path_ptr = frame.a0;
+            const u64 argv_ptr = frame.a1;
+            const u64 envp_ptr = frame.a2;
+            char path[path_cap];
+            if (!sys::copy_in_string(path, sizeof path,
+                                     sys::user_range::string(path_ptr)))
+                return -EFAULT;
+            const usize vec_bytes  = 2 * (vec_max + 1) * sizeof(char*);
+            const usize pool_bytes = 2 * vec_max * arg_cap;
+            auto storage = mm::heap::alloc(vec_bytes + pool_bytes);
+            if (!storage) return -ENOMEM;
+            char** argv_vec = reinterpret_cast<char**>(storage.value);
+            char** envp_vec = argv_vec + vec_max + 1;
+            char* pool = reinterpret_cast<char*>(envp_vec + vec_max + 1);
+            i64 result = copy_in_vector(argv_vec, pool, argv_ptr);
+            if (result == 0)
+                result = copy_in_vector(envp_vec, pool + vec_max * arg_cap, envp_ptr);
+            if (result == 0) {
+                exec_logs::info("request pid=%d path=%s argv0=%s argv1=%s",
+                                exec_owner ? static_cast<int>(exec_owner->pid()) : -1,
+                                path, argv_vec[0] ? argv_vec[0] : "(null)",
+                                argv_vec[1] ? argv_vec[1] : "(null)");
+            }
+            if (result == 0) {
+                auto* owner = current_process();
+                auto file = fs::open_path(path);
+                if (owner == nullptr || !file) result = -ENOENT;
+                else {
+                    const long size = file->size();
+                    u64 entry = 0, stack = 0;
+                    if (size <= 0 || !owner->exec_user_file(
+                            file, static_cast<usize>(size), argv_vec, envp_vec,
+                            &entry, &stack))
+                    {
+                        exec_logs::error("load failed path=%s size=%ld", path, size);
+                        result = -ENOEXEC;
+                    }
+                    else {
+                        exec_logs::info("loaded path=%s entry=%llx stack=%llx tls=%llx",
+                                         path, static_cast<unsigned long long>(entry),
+                                         static_cast<unsigned long long>(stack),
+                                         static_cast<unsigned long long>(owner->tls_tp()));
+                        auto& next = const_cast<arch::syscall_frame&>(frame);
+                        next.rip = entry;
+                        next.rsp = stack;
+                        next.rflags = 0x202;
+                            arch::context_set_fs_base(current_thread()->context(), owner->tls_tp());
+                            result = 0;
+                    }
+                }
+            }
+            mm::heap::free(storage.value);
+            return result;
+        }
         /// mmap — private memory in the caller's address space:
         /// anonymous, or a snapshot of an open file.  `addr` is a
         /// placement hint, never a forced address.  Never blocks.
@@ -298,7 +397,11 @@ namespace astia::proc {
         /// instruction, so proc::fork wants the caller's whole register
         /// state.  Never blocks.
         i64 sys_fork(const arch::syscall_frame& frame) {
-            return proc::fork(arch::caller_image(frame));
+            const i64 result = proc::fork(arch::caller_image(frame));
+            logs::info("fork pid=%d result=%ld",
+                       current_process() ? static_cast<int>(current_process()->pid()) : -1,
+                       static_cast<long>(result));
+            return result;
         }
 
         i64 sys_futex(u64 address, u32 op, u32 expected, u64 timeout) {
@@ -328,6 +431,21 @@ namespace astia::proc {
                 return -EFAULT;
             }
             auto value = owner->create_thread(entry, stack_top, argument);
+            return value ? static_cast<i64>(value->tid()) : -EAGAIN;
+        }
+
+        i64 sys_thread_create2(u64 entry, u64 stack_top, u64 argument0, u64 argument1) {
+            auto* owner = current_process();
+            if (owner == nullptr || entry == 0 || stack_top == 0 ||
+                entry >= arch::kernel_base || stack_top >= arch::kernel_base ||
+                (stack_top & 0xf) != 0 || stack_top < 16 ||
+                !sys::user_range_ok(sys::user_range::bytes(entry, 1)) ||
+                !sys::user_range_ok(sys::user_range::bytes(stack_top - 16, 16)) ||
+                !sys::user_range_ok(sys::user_range::bytes(argument0, 1)) ||
+                (argument1 != 0 && !sys::user_range_ok(sys::user_range::bytes(argument1, 1)))) {
+                return -EFAULT;
+            }
+            auto value = owner->create_thread(entry, stack_top, argument0, argument1);
             return value ? static_cast<i64>(value->tid()) : -EAGAIN;
         }
 
@@ -392,7 +510,9 @@ namespace astia::proc {
                sys::register_syscall<sys_yield>(sys::syscall_id::yield) &&
                sys::register_syscall<sys_exit>(sys::syscall_id::exit) &&
                sys::register_syscall<sys_waitpid>(sys::syscall_id::waitpid) &&
-               sys::register_syscall<sys_spawnve>(sys::syscall_id::spawnve) &&
+                sys::register_syscall<sys_spawnve>(sys::syscall_id::spawnve) &&
+                sys::register_syscall<sys_execve>(sys::syscall_id::execve) &&
+                sys::register_syscall<sys_sigsuspend>(sys::syscall_id::sigsuspend) &&
                sys::register_syscall<sys_mmap>(sys::syscall_id::mmap) &&
                sys::register_syscall<sys_munmap>(sys::syscall_id::munmap) &&
                sys::register_syscall<sys_fork>(sys::syscall_id::fork) &&
@@ -401,6 +521,7 @@ namespace astia::proc {
                sys::register_syscall<sys_thread_exit>(sys::syscall_id::thread_exit) &&
                sys::register_syscall<sys_thread_join>(sys::syscall_id::thread_join) &&
                sys::register_syscall<sys_thread_detach>(sys::syscall_id::thread_detach) &&
+               sys::register_syscall<sys_thread_create2>(sys::syscall_id::thread_create2) &&
                sys::register_exit_hook(deliver_default_signal) &&
                arch::register_user_fault_handler(user_fault);
     }

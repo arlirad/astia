@@ -3,6 +3,7 @@
 # freestanding compile/link settings inherited from the parent directory.
 set(CMAKE_CXX_FLAGS "-Wall -Wextra")
 set_property(DIRECTORY PROPERTY LINK_OPTIONS "")
+option(ASTIA_CROSS_USERSPACE "Use the Clang Astia sysroot for init_libc" OFF)
 
 add_library(astia_test_support STATIC
         support/main.cpp
@@ -228,21 +229,35 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_SOURCE_DIR}/../libc/src/assert.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/backend_aio.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/ctype.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/dirent.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/errno.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/file.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/group.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/ioctl.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/locale.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/malloc.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/math.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/mman.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/process.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/process_aio.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/prctl.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/pthread.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/printf.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/rlimit.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/scanf.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/setjmp.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/signal.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/snprintf.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/stdlib.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/stat.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/string.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/termcap.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/termios.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/time.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/time_aio.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/times.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/unistd.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/utsname.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/uio.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/wchar.c
         )
@@ -257,25 +272,52 @@ if (ARCH STREQUAL "x86_64")
 
         # A real userspace program: CRT0 unpacks the kernel's startup
         # frame into main(argc, argv, envp) and leaves via libc exit().
-        add_custom_command(
-                OUTPUT ${_fix_dir}/init_libc
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
-                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
-                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${CMAKE_SOURCE_DIR}/include
-                -I${CMAKE_SOURCE_DIR}/../libc/include
-                -o ${_fix_dir}/init_libc_main.o
-                ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
-                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -lgcc
-                -o ${_fix_dir}/init_libc ${_fix_dir}/crt0.o
-                ${_fix_dir}/init_libc_main.o $<TARGET_FILE:astia_userspace_libc>
-                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
-                ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c astia_userspace_libc
-                COMMENT "Linking libc-backed userspace image init_libc"
-        )
+        # Prefer the standalone Clang sysroot so this image cannot silently
+        # depend on the host compiler's headers or libgcc.
+        find_program(ASTIA_CLANG clang)
+        if (ASTIA_CROSS_USERSPACE AND ASTIA_CLANG)
+            set(_cross_dir ${_fix_dir}/clang)
+            file(GLOB _cross_libc_sources CONFIGURE_DEPENDS
+                    ${CMAKE_SOURCE_DIR}/../libc/src/*.c)
+            add_custom_command(
+                    OUTPUT ${_cross_dir}/image/init_libc
+                    COMMAND ${CMAKE_COMMAND} -E env
+                    ASTIA_CROSS_BUILD=${_cross_dir}
+                    ASTIA_SYSROOT=${_cross_dir}/sysroot
+                    CLANG=${ASTIA_CLANG}
+                    ${CMAKE_SOURCE_DIR}/../toolchain/build-init-libc.sh
+                    DEPENDS
+                    ${CMAKE_SOURCE_DIR}/../toolchain/build-init-libc.sh
+                    ${CMAKE_SOURCE_DIR}/../toolchain/astia-x86_64-clang.cmake
+                    ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                    ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
+                    ${_cross_libc_sources}
+                    ${CMAKE_SOURCE_DIR}/../libc/CMakeLists.txt
+                    COMMENT "Cross-building libc-backed userspace image init_libc"
+            )
+            set(_init_libc_image ${_cross_dir}/image/init_libc)
+        else ()
+            add_custom_command(
+                    OUTPUT ${_fix_dir}/init_libc
+                    COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                    -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                    -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                    COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                    -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                    -fno-builtin -I${CMAKE_SOURCE_DIR}/include
+                    -I${CMAKE_SOURCE_DIR}/../libc/include
+                    -o ${_fix_dir}/init_libc_main.o
+                    ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
+                    COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -lgcc
+                    -o ${_fix_dir}/init_libc ${_fix_dir}/crt0.o
+                    ${_fix_dir}/init_libc_main.o $<TARGET_FILE:astia_userspace_libc>
+                    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                    ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c astia_userspace_libc
+                    COMMENT "Linking libc-backed userspace image init_libc"
+            )
+            set(_init_libc_image ${_fix_dir}/init_libc)
+        endif ()
 
     add_custom_command(
             OUTPUT ${_fix_dir}/boot_initrd.tar
@@ -294,9 +336,9 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/init_user ${_fix_dir}/boot_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E copy
-                ${_fix_dir}/init_libc ${_fix_dir}/boot_stage/bin/init_libc
+                ${_init_libc_image} ${_fix_dir}/boot_stage/bin/init_libc
                 COMMAND sh -c "tar cf ${_fix_dir}/boot_initrd.tar -C ${_fix_dir}/boot_stage hello_initrd.o sbin/init bin/init_libc"
-                DEPENDS ${_fix_dir}/hello_initrd.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_fix_dir}/init_libc
+                DEPENDS ${_fix_dir}/hello_initrd.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
                 COMMENT "Packing boot initrd boot_initrd.tar"
         )
         # Tarballs are test inputs, not sources of any target, so build them as
@@ -309,7 +351,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_initrd.tar
                 "mod: hello_initrd.o rc=42"
                 "selftest: statx ok"
-                "user thread exit status=0"
+                "user thread exit pid="
                 "astia: libc ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)

@@ -2,6 +2,7 @@ add_library(fs STATIC
         fs.cpp
         devfs.cpp
         initrd_fs.cpp
+        pipe.cpp
         initrd_init.cpp
         tmpfs.cpp
         syscalls.cpp

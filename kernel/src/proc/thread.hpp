@@ -113,7 +113,8 @@ namespace astia::proc {
         }
         bool prepare_kernel(kernel_entry entry, void* argument);
         bool prepare_user(u64 entry, u64 user_stack_top, u64 fs_base);
-        bool prepare_user_start(u64 entry, u64 user_stack_top, u64 fs_base, u64 argument);
+        bool prepare_user_start(u64 entry, u64 user_stack_top, u64 fs_base,
+                                u64 argument0, u64 argument1);
         /// Fork: the same kernel-stack/context frame a user thread
         /// gets, but the context is prepared from the parent's saved
         /// syscall register image (arch::context_prepare_fork) — the

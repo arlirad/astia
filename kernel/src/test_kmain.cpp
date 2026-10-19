@@ -10,6 +10,10 @@
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 
+#ifndef ASTIA_RUN_SELFTEST
+#define ASTIA_RUN_SELFTEST 1
+#endif
+
 namespace {
 
     /// Spawn one userspace image and wait for it out.  `spawned` tells
@@ -82,7 +86,7 @@ extern "C" void kmain(void* start_info) {
     const bool init_ok = astia::init::run(ctx);
     astia::log::info("init result=%s", init_ok ? "ok" : "fail");
 
-    if (!init_ok || !astia::test::run()) {
+    if (!init_ok || (ASTIA_RUN_SELFTEST && !astia::test::run())) {
         astia::core::kpanic("kernel integration selftest failed");
     }
 
@@ -103,7 +107,10 @@ extern "C" void kmain(void* start_info) {
     }
 
     astia::arch::cpu::nointerrupts();
-    astia::dev::uart16550_console_puts("core: selftest ok\n");
+    if (ASTIA_RUN_SELFTEST)
+        astia::dev::uart16550_console_puts("core: selftest ok\n");
+    else
+        astia::dev::uart16550_console_puts("core: runtime ok\n");
     astia::dev::debug_exit(0);
     halt();
 }

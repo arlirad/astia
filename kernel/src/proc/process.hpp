@@ -80,6 +80,7 @@ namespace astia::proc {
         bool add_waiter(thread* value);
         void remove_waiter(thread* value);
         void wake_waiters();
+        void wake_signal_waiters();
 
         bool              add_thread(const mm::shptr<thread>& value);
         mm::shptr<thread> thread_at(u32 index) const;
@@ -113,7 +114,8 @@ namespace astia::proc {
         /// Create an additional user thread in this address space.  The
         /// supplied stack belongs to userspace (pthread_create maps it);
         /// `argument` becomes the new entry's first ABI argument.
-        mm::shptr<thread> create_thread(u64 entry, u64 user_stack_top, u64 argument);
+        mm::shptr<thread> create_thread(u64 entry, u64 user_stack_top, u64 argument,
+                                        u64 argument1 = 0);
         /// Find a thread by its process-local tid, retaining it while a
         /// blocking join syscall operates on it.
         mm::shptr<thread>     thread_by_tid(tid_t id);
@@ -173,6 +175,15 @@ namespace astia::proc {
         /// (POSIX — file offsets move together).
         bool copy_descriptors_from(const process& other);
 
+        bool exec_user_image(const void* bytes, usize length,
+                             char* const argv[], char* const envp[],
+                             u64* entry_out, u64* stack_out);
+        bool exec_user_file(const mm::shptr<fs::open_file>& file, usize length,
+                            char* const argv[], char* const envp[],
+                            u64* entry_out, u64* stack_out);
+        bool load_user_file(const mm::shptr<fs::open_file>& file, usize length,
+                            u64* entry_out);
+
         /// Fork: the child's first thread, resuming `uctx` inside the
         /// parent's ring-3 call site with rax = 0.
         mm::shptr<thread> create_fork_thread(const arch::user_context& uctx);
@@ -189,6 +200,8 @@ namespace astia::proc {
         /// caller mapped PTEs for, and the entry takes over its
         /// reference.
         bool register_mapping(u64 base, usize pages, u32 prot, mm::phys_region* region);
+        bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
+        void discard_image();
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
                                   usize& mapping_pages);
         /// Map PTEs for [base, base + pages) and insert the VMA entry,

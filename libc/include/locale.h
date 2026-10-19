@@ -1,5 +1,7 @@
 #pragma once
 
+#define MB_CUR_MAX 4
+
 /* The first libc locale is the ISO C/POSIX locale only. */
 
 #include <stddef.h>

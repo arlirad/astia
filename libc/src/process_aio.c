@@ -27,8 +27,16 @@ long __astia_process_spawnve(const char* path, char* const argv[], char* const e
     return astia_spawnve(path, argv, envp);
 }
 
+long __astia_process_execve(const char* path, char* const argv[], char* const envp[]) {
+    return astia_raw6(SYS_EXECVE, (long) path, (long) argv, (long) envp, 0, 0, 0);
+}
+
 long __astia_process_fork(void) {
     return astia_fork();
+}
+
+long __astia_process_sigsuspend(const unsigned int* mask) {
+    return astia_raw6(SYS_SIGSUSPEND, (long) mask, 0, 0, 0, 0, 0);
 }
 
 long __astia_process_futex(unsigned int* address, unsigned int operation,
@@ -39,6 +47,11 @@ long __astia_process_futex(unsigned int* address, unsigned int operation,
 long __astia_process_thread_create(void (*entry)(void*), void* stack_top,
                                    void* argument) {
     return astia_thread_create(entry, stack_top, argument);
+}
+
+long __astia_process_thread_create2(void (*entry)(void*, void*), void* stack_top,
+                                    void* argument0, void* argument1) {
+    return astia_thread_create2(entry, stack_top, argument0, argument1);
 }
 
 void __astia_process_thread_exit(void* result) {

@@ -30,6 +30,9 @@ namespace astia::sys {
         kill,
         sigaction,
         sigprocmask,
+        thread_create2,
+        execve,
+        sigsuspend,
     };
 
     /// How many registers the ABI hands every trap — and so the most

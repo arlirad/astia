@@ -32,6 +32,8 @@
 // threads, callers will need the same external serialization the libc
 // side documents (libc/src/file.c); nothing here takes a lock today.
 
+namespace astia::proc { class process; }
+
 namespace astia::sys {
 
     /// Pool geometry for kernel-owned rings (v1).  The ABI allows 4096
@@ -95,5 +97,7 @@ namespace astia::sys {
     /// file instance.  Device IRQ handlers should use this so
     /// dynamically opened `/dev/*` descriptors wake just like stdio.
     void io_device_ready_context(const io_device* dev);
+    void io_device_ready_context_except(const io_device* dev, u64 user_data);
+    void io_exec_process(proc::process* owner);
 
 } // namespace astia::sys

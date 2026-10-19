@@ -9,16 +9,8 @@
 
 enum { default_stack_size = 64 * 1024 };
 
-struct pthread_start {
-    void* (*function)(void*);
-    void* argument;
-};
-
-static void pthread_start_trampoline(void* opaque) {
-    struct pthread_start* start = (struct pthread_start*) opaque;
-    void* (*function)(void*)    = start->function;
-    void* argument              = start->argument;
-    free(start);
+static void pthread_start_trampoline(void* function_value, void* argument) {
+    void* (*function)(void*) = (void* (*)(void*)) function_value;
     __astia_process_thread_exit(function(argument));
     __builtin_unreachable();
 }
@@ -53,18 +45,11 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (stack == MAP_FAILED)
         return errno;
-    struct pthread_start* start = (struct pthread_start*) malloc(sizeof(*start));
-    if (start == NULL) {
-        munmap(stack, stack_size);
-        return ENOMEM;
-    }
-    start->function   = start_routine;
-    start->argument   = argument;
     unsigned long top = (unsigned long) stack + stack_size;
     long          tid =
-        __astia_process_thread_create(pthread_start_trampoline, (void*) top, start);
+        __astia_process_thread_create2(pthread_start_trampoline, (void*) top,
+                                       (void*) start_routine, argument);
     if (tid < 0) {
-        free(start);
         munmap(stack, stack_size);
         errno = (int) -tid;
         return errno;

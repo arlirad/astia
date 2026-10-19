@@ -1,5 +1,7 @@
 #pragma once
 
+char* getenv(const char* name);
+
 /*
  * astia libc — <stdlib.h>
  *

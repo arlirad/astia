@@ -1,5 +1,6 @@
 # Core source directories
 add_subdirectory(lib)
+add_subdirectory(dbg)
 add_subdirectory(core)
 add_subdirectory(mm)
 add_subdirectory(fs)
@@ -34,6 +35,7 @@ set(_astia_kernel_libs
         plat_${PLATFORM}
         util
         libcore
+        dbg
         -Wl,--no-whole-archive
 )
 
@@ -58,3 +60,10 @@ add_executable(astiakrn_test
         test/selftest.cpp
 )
 astia_configure_kernel(astiakrn_test)
+target_compile_definitions(astiakrn_test PRIVATE ASTIA_RUN_SELFTEST=1)
+
+add_executable(astiakrn_runtime
+        test_kmain.cpp
+)
+astia_configure_kernel(astiakrn_runtime)
+target_compile_definitions(astiakrn_runtime PRIVATE ASTIA_RUN_SELFTEST=0)

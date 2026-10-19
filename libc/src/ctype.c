@@ -23,6 +23,8 @@ int isspace(int c) {
     return c == ' ' || (c >= '\t' && c <= '\r'); /* \t \n \v \f \r */
 }
 
+int isascii(int c) { return ((unsigned int) c & ~0x7fu) == 0; }
+
 int isblank(int c) {
     return c == ' ' || c == '\t';
 }

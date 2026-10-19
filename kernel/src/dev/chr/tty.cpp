@@ -3,6 +3,7 @@
 #include "../../sys/aio.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/log.hpp>
 
 namespace astia::dev {
 
@@ -23,7 +24,7 @@ namespace astia::dev {
         auto*                 dst   = static_cast<u8*>(buf);
         const u32             head  = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
         const u32             tail  = _rx_tail;
-        u32                   count = (head - tail) & (rx_size - 1);
+        u32                   count = (head - tail) & (rx_capacity_bytes - 1);
         if (count > len) {
             count = len;
         }
@@ -32,9 +33,10 @@ namespace astia::dev {
             count = 0;
         }
         for (u32 i = 0; i < count; ++i) {
-            dst[i] = _rx[(tail + i) & (rx_size - 1)];
+            dst[i] = _rx[(tail + i) & (rx_capacity_bytes - 1)];
         }
-        __atomic_store_n(&_rx_tail, (tail + count) & (rx_size - 1), __ATOMIC_RELEASE);
+        __atomic_store_n(&_rx_tail, (tail + count) & (rx_capacity_bytes - 1),
+                         __ATOMIC_RELEASE);
         return static_cast<long>(count);
     }
 
@@ -93,7 +95,12 @@ namespace astia::dev {
             if ((_termios.c_iflag & IGNCR) != 0) {
                 return;
             }
-            if ((_termios.c_iflag & ICRNL) != 0) {
+            /* Serial consoles commonly deliver Enter as CR.  Keep that
+               key useful after a raw-mode program (notably zsh) clears
+               ICRNL: zsh binds both CR and LF to accept-line, while a
+               bare CR otherwise only moves the host cursor to column zero. */
+            if ((_termios.c_iflag & ICRNL) != 0 ||
+                (_termios.c_lflag & ICANON) == 0) {
                 byte = '\n';
             }
         }
@@ -110,7 +117,7 @@ namespace astia::dev {
 
         if ((_termios.c_lflag & ICANON) == 0) {
             const u32 head = _rx_head;
-            const u32 next = (head + 1) & (rx_size - 1);
+            const u32 next = (head + 1) & (rx_capacity_bytes - 1);
             if (next == _rx_tail) {
                 return;
             }
@@ -133,6 +140,7 @@ namespace astia::dev {
         }
         if (byte == _termios.c_cc[VKILL]) {
             _line_length = 0;
+            _line_overflow = false;
             if ((_termios.c_lflag & ECHOK) != 0) {
                 tty_echo('\n');
             }
@@ -143,17 +151,33 @@ namespace astia::dev {
             return;
         }
         if (byte == '\n') {
+            if (_line_overflow) {
+                // A canonical line that exceeded the discipline buffer is
+                // rejected as one line.  Do not leave its tail to be joined
+                // with the next command (which made a later `uname` appear
+                // as another suffix of the old command).
+                _line_length = 0;
+                _line_overflow = false;
+                tty_commit_line(false);
+                if ((_termios.c_lflag & ECHO) != 0 ||
+                    (_termios.c_lflag & ECHONL) != 0)
+                    tty_echo('\n');
+                return;
+            }
             tty_commit_line(false);
             if ((_termios.c_lflag & ECHO) != 0 || (_termios.c_lflag & ECHONL) != 0) {
                 tty_echo('\n');
             }
             return;
         }
-        if (_line_length < rx_size - 1) {
+        if (_line_length < rx_capacity_bytes - 1) {
             _line[_line_length++] = byte;
             if ((_termios.c_lflag & ECHO) != 0) {
                 tty_echo(byte);
             }
+        }
+        else {
+            _line_overflow = true;
         }
     }
 
@@ -166,22 +190,26 @@ namespace astia::dev {
         const u32             head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
         __atomic_store_n(&_rx_tail, head, __ATOMIC_RELEASE);
         _line_length = 0;
+        _line_overflow = false;
     }
 
     void tty::tty_commit_line(bool eof) {
         const u32 head = _rx_head;
         u32       next = head;
         for (u32 i = 0; i < _line_length; ++i) {
-            const u32 candidate = (next + 1) & (rx_size - 1);
+            const u32 candidate = (next + 1) & (rx_capacity_bytes - 1);
             if (candidate == _rx_tail) {
                 break;
             }
             _rx[next] = _line[i];
             next      = candidate;
         }
-        if (!eof && next != _rx_tail) {
-            _rx[next] = '\n';
-            next      = (next + 1) & (rx_size - 1);
+        if (!eof) {
+            const u32 candidate = (next + 1) & (rx_capacity_bytes - 1);
+            if (candidate != _rx_tail) {
+                _rx[next] = '\n';
+                next      = candidate;
+            }
         }
         _line_length = 0;
         __atomic_store_n(&_rx_head, next, __ATOMIC_RELEASE);
@@ -234,6 +262,16 @@ namespace astia::dev {
                 return rc;
             }
             _termios = next;
+            return 0;
+        }
+        if (request == TIOCGPGRP) {
+            if (argp == nullptr) return -EINVAL;
+            *static_cast<i32*>(argp) = _foreground_pgrp;
+            return 0;
+        }
+        if (request == TIOCSPGRP) {
+            if (argp == nullptr) return -EINVAL;
+            _foreground_pgrp = *static_cast<const i32*>(argp);
             return 0;
         }
         return -ENOTTY;

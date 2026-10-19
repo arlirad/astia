@@ -2,7 +2,9 @@
 
 #include "proc.hpp"
 #include "user_mem.hpp"
+#include "../fs/pipe.hpp"
 #include <astia/api/errno.h>
+#include <astia/api/termios.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/io.hpp>
@@ -97,6 +99,7 @@ namespace astia::sys {
 
         struct ring_slot {
             bool      used;
+            proc::process* owner;
             u64       user_base; // user-half alias of the ring; 0 = not mapped
             parked_op park[park_capacity];
             // Page-aligned: aliasing the ring into a process maps whole
@@ -124,13 +127,15 @@ namespace astia::sys {
 
         ring_slot* slot_of(const astia_rings* ring) {
             const u64 address = reinterpret_cast<u64>(ring);
+            proc::process* caller = proc::current_process();
             for (u32 i = 0; i < ring_count; ++i) {
                 // The user alias carries the ring's intra-page offset, so
                 // match any address inside the slot's aliased page range.
                 const u64 alias_span = static_cast<u64>(user_ring_pages) * 4096u;
                 if (g_slots[i] != nullptr && g_slots[i]->used &&
-                    (reinterpret_cast<u64>(rings_of(*g_slots[i])) == address ||
-                     (g_slots[i]->user_base != 0 &&
+                    (((caller == nullptr || caller->address_space() == nullptr) &&
+                      reinterpret_cast<u64>(rings_of(*g_slots[i])) == address) ||
+                     (g_slots[i]->owner == caller && g_slots[i]->user_base != 0 &&
                       address - g_slots[i]->user_base < alias_span))) {
                     return g_slots[i];
                 }
@@ -144,6 +149,7 @@ namespace astia::sys {
             }
             __builtin_memset(slot.map, 0, sizeof slot.map);
             slot.user_base = 0;
+            slot.owner     = nullptr;
             slot.used      = false;
         }
 
@@ -346,12 +352,12 @@ namespace astia::sys {
             }
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
-            // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
-            (void) cq_post(ring, s.user_data, static_cast<i32>(result));
-            p->entries.release();
-            p->object = mm::shptr<fs::open_file>{};
-            p->used   = false;
-            return true;
+             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
+             (void) cq_post(ring, s.user_data, static_cast<i32>(result));
+             p->entries.release();
+             p->object = mm::shptr<fs::open_file>{};
+             p->used   = false;
+             return true;
         }
 
         /// Re-submit a parked operation: the device picks its continuation
@@ -384,6 +390,14 @@ namespace astia::sys {
                     op.used   = false;
                 }
             }
+        }
+
+        bool has_parked(const ring_slot& slot) {
+            for (u32 i = 0; i < park_capacity; ++i) {
+                if (slot.park[i].used)
+                    return true;
+            }
+            return false;
         }
 
         bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
@@ -572,6 +586,85 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, 0);
             }
 
+            case OP_READDIR: {
+                char path[256];
+                if (!sys::copy_in_string(path, sizeof path,
+                                         sys::user_range::string(s.offset)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                const sys::user_range out =
+                    sys::user_range::bytes(s.address, sizeof(astia_dirent));
+                if (!sys::user_range_ok(out))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* result = reinterpret_cast<astia_dirent*>(out.address());
+                __builtin_memset(result, 0, sizeof *result);
+                long rc = fs::read_directory(path, s.fd < 0 ? 0 : s.fd,
+                                              result->name, sizeof result->name,
+                                              &result->type);
+                if (rc > 0) {
+                    u32 length = 0;
+                    while (length < sizeof result->name && result->name[length] != '\0')
+                        ++length;
+                    result->namelen = length;
+                }
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+            }
+
+            case OP_IOCTL: {
+                /* ioctl is a control-plane fence.  Do not consume this SQE
+                   while an older read/write is parked: otherwise a batch
+                   containing READ, IOCTL, READ could observe tty state out
+                   of order.  Returning false leaves SQ head at IOCTL; the
+                   wake-up path retries it after the parked operation posts. */
+                if (has_parked(slot))
+                    return false;
+                if (s.length == 0 || !sys::user_range_ok(
+                        sys::user_range::bytes(s.address, s.length)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                mm::shptr<fs::open_file> object = file_for(s.fd);
+                if (!object)
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                __atomic_thread_fence(__ATOMIC_SEQ_CST);
+                long rc = object->ioctl(s.offset,
+                                        reinterpret_cast<void*>(s.address));
+                __atomic_thread_fence(__ATOMIC_SEQ_CST);
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+            }
+
+            case OP_PIPE: {
+                const sys::user_range out = sys::user_range::bytes(s.address, 2 * sizeof(i32));
+                if (!sys::user_range_ok(out))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                proc::process* current = proc::current_process();
+                if (current == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                mm::shptr<fs::open_file> read_end;
+                mm::shptr<fs::open_file> write_end;
+                long rc = fs::create_pipe(read_end, write_end);
+                if (rc < 0)
+                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+                i32 read_fd = -1;
+                i32 write_fd = -1;
+                for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
+                    if (read_fd < 0 && !current->descriptor(fd)) {
+                        current->set_descriptor(fd, read_end);
+                        read_fd = fd;
+                    }
+                    else if (write_fd < 0 && !current->descriptor(fd)) {
+                        current->set_descriptor(fd, write_end);
+                        write_fd = fd;
+                        break;
+                    }
+                }
+                if (read_fd < 0 || write_fd < 0) {
+                    if (read_fd >= 0) current->clear_descriptor(read_fd);
+                    return cq_post_guarded(ring, s.user_data, -EMFILE);
+                }
+                auto* result = reinterpret_cast<i32*>(out.address());
+                result[0] = read_fd;
+                result[1] = write_fd;
+                return cq_post_guarded(ring, s.user_data, 0);
+            }
+
             default:
                 return cq_post_guarded(ring, s.user_data, -ENOSYS);
             }
@@ -603,6 +696,7 @@ namespace astia::sys {
             ring_slot& slot = *slot_ptr;
             clear_slot(slot);
             slot.used = true;
+            slot.owner = proc::current_process();
 
             astia_rings* r = rings_of(slot);
             r->magic       = RINGS_MAGIC;
@@ -771,6 +865,10 @@ namespace astia::sys {
     }
 
     void io_device_ready_context(const io_device* dev) {
+        io_device_ready_context_except(dev, ~u64{0});
+    }
+
+    void io_device_ready_context_except(const io_device* dev, u64 excluded_user_data) {
         if (dev == nullptr) {
             return;
         }
@@ -784,10 +882,24 @@ namespace astia::sys {
             astia_rings* ring = rings_of(slot);
             for (u32 p = 0; p < park_capacity; ++p) {
                 parked_op& op = slot.park[p];
-                if (op.used && !op.done && op.object->backing() == dev) {
+                if (op.used && !op.done && op.object &&
+                    op.request.user_data() != excluded_user_data &&
+                    op.object->backing() == dev) {
                     resume_parked(ring, op);
                 }
             }
+        }
+    }
+
+    void io_exec_process(proc::process* owner) {
+        if (owner == nullptr) return;
+        for (u32 i = 0; i < ring_count; ++i) {
+            ring_slot* slot = g_slots[i];
+            if (slot == nullptr || !slot->used || slot->owner != owner)
+                continue;
+            reap_completed(*slot);
+            unmap_ring_user(*slot, owner);
+            clear_slot(*slot);
         }
     }
 

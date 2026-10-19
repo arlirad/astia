@@ -128,6 +128,7 @@ namespace astia::proc {
         }
         auto image = mm::heap::alloc(static_cast<usize>(image_size));
         if (!image) {
+            spawn_logs::error("image allocation failed size=%ld", image_size);
             return fail(ENOMEM);
         }
         const long loaded =
@@ -170,6 +171,9 @@ namespace astia::proc {
     i64 waitpid(i32 pid, i32* status) {
         process* parent = current_process();
         thread*  self   = current_thread();
+        logs::info("waitpid parent=%d tid=%d target=%d",
+                   parent ? static_cast<int>(parent->pid()) : -1,
+                   self ? static_cast<int>(self->tid()) : -1, pid);
         if (parent == nullptr || self == nullptr) {
             return -ESRCH;
         }

@@ -59,6 +59,14 @@ namespace astia::arch {
         return new context{};
     }
 
+    void context_set_fs_base(context* value, u64 fs_base) {
+        if (value != nullptr) value->fs_base = fs_base;
+        constexpr u32 ia32_fs_base = 0xC0000100u;
+        const u32 low = static_cast<u32>(fs_base);
+        const u32 high = static_cast<u32>(fs_base >> 32);
+        asm volatile("wrmsr" : : "c"(ia32_fs_base), "a"(low), "d"(high) : "memory");
+    }
+
     bool context_prepare_kernel(context* value, u64 stack_top, u64 entry) {
         if (value == nullptr) {
             return false;
@@ -100,7 +108,7 @@ namespace astia::arch {
 
     bool context_prepare_user_start(context* value, u64 kernel_stack_top,
                                     u64 user_stack_top, u64 entry, u64 fs_base,
-                                    u64 argument) {
+                                    u64 argument0, u64 argument1) {
         if (!context_prepare_user(value, kernel_stack_top, user_stack_top, entry,
                                   fs_base)) {
             return false;
@@ -109,7 +117,8 @@ namespace astia::arch {
         // trampoline; user.S moves it into rdi.  r12 is caller-saved
         // by neither the kernel nor the initial C ABI entry, so this
         // does not leak a kernel pointer into the new thread.
-        value->r12 = argument;
+        value->r12 = argument0;
+        value->r13 = argument1;
         return true;
     }
 

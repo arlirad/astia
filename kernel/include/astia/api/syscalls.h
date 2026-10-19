@@ -88,6 +88,9 @@ enum {
     SYS_KILL          = 20,
     SYS_SIGACTION     = 21,
     SYS_SIGPROCMASK   = 22,
+    SYS_THREAD_CREATE2 = 23,
+    SYS_EXECVE         = 24,
+    SYS_SIGSUSPEND     = 25,
 };
 
 /* ------------------------------------------------------------------ */
@@ -270,6 +273,12 @@ static inline long astia_thread_create(void (*entry)(void*), void* stack_top,
                                        void* argument) {
     return astia_raw6(SYS_THREAD_CREATE, (long) (uintptr_t) entry, (long) stack_top,
                       (long) argument, 0, 0, 0);
+}
+
+static inline long astia_thread_create2(void (*entry)(void*, void*), void* stack_top,
+                                        void* argument0, void* argument1) {
+    return astia_raw6(SYS_THREAD_CREATE2, (long) (uintptr_t) entry,
+                      (long) stack_top, (long) argument0, (long) argument1, 0, 0);
 }
 
 static inline void astia_thread_exit(void* result) {

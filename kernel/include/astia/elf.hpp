@@ -50,12 +50,26 @@ namespace astia::elf {
     /// relocatable path consults this.
     using resolve_fn = u64 (*)(void* ctx, const char* name);
 
+    struct read_request {
+        u64    offset;
+        void*  buffer;
+        usize  length;
+        long   result;
+    };
+
+    /// Batch file reader. The callback must complete all requests before
+    /// returning; implementations may submit them as one I/O-ring batch.
+    using read_batch_fn = bool (*)(void* ctx, read_request* requests, usize count);
+    using copy_fn = bool (*)(void* ctx, u64 address, const void* source, usize length);
+
     /// Caller-supplied environment: where memory comes from and how symbols
     /// are resolved.
     struct env {
         void*      ctx     = nullptr;
         map_fn     map     = nullptr;
         resolve_fn resolve = nullptr;
+        read_batch_fn read_batch = nullptr;
+        copy_fn      copy = nullptr;
     };
 
     /// One loaded PT_LOAD segment of an executable (relocatable images leave
@@ -109,6 +123,10 @@ namespace astia::elf {
     /// R_X86_64_RELATIVE dynamic relocations, and set `entry` to e_entry +
     /// load_bias. Requires `env::map`.
     bool load_executable(const void* bytes, usize len, const env& e, image& out);
+
+    /// Streaming executable loader. Reads only the ELF header/PHDR table and
+    /// then fetches PT_LOAD file ranges through env::read_batch.
+    bool load_executable_stream(const env& e, usize file_size, image& out);
 
     /// Dispatch to the right loader based on kind_of(). Returns false for
     /// anything that is not a supported ELF image.

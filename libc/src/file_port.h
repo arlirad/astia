@@ -32,6 +32,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <astia/api/aio.h>
 
 enum { /* open flags — the subset every port can speak */
        FIO_READ   = 1u << 0,
@@ -50,8 +51,26 @@ enum { /* open flags — the subset every port can speak */
 
 long __astia_fio_open(const char* path, int flags, int mode);
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n);
+
+struct astia_fio_batch_read {
+    int fd;
+    uint64_t offset;
+    void* buffer;
+    size_t length;
+    long result;
+};
+
+/* Submit all reads as one ring batch and wait for all CQEs. */
+long __astia_fio_read_batch(struct astia_fio_batch_read* requests, size_t count);
+void __astia_fio_prepare_exec(void);
 long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n);
 long __astia_fio_readv(int fd, uint64_t off, const struct iovec* iov, uint32_t count);
 long __astia_fio_writev(int fd, uint64_t off, const struct iovec* iov, uint32_t count);
 long __astia_fio_close(int fd);
 long __astia_fio_size(int fd, uint64_t* out); /* file length, for SEEK_END */
+long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out);
+long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length);
+long __astia_fio_pipe(int fds[2]);
+long __astia_fio_dup(int fd);
+long __astia_fio_dup2(int old_fd, int new_fd);
+void __astia_fio_after_fork(void);

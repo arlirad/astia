@@ -24,6 +24,11 @@ namespace astia::proc {
             u32             count = 0;
         };
 
+        struct stream_context {
+            image_map      map;
+            fs::open_file* file;
+        };
+
         void* map_user(void* opaque, u64 hint, usize size, usize align, bool fixed) {
             auto&     state = *static_cast<image_map*>(opaque);
             const u64 base  = fixed ? hint : (state.next_base + align - 1) & ~(align - 1);
@@ -55,6 +60,20 @@ namespace astia::proc {
             return reinterpret_cast<void*>(base);
         }
 
+        bool copy_image(void* opaque, u64 address, const void* source, usize length) {
+            auto& state = *static_cast<image_map*>(opaque);
+            for (u32 i = 0; i < state.count; ++i) {
+                const auto& seg = state.segs[i];
+                if (address < seg.virt ||
+                    address + length > seg.virt + seg.pages * elf::page_size)
+                    continue;
+                auto* destination = static_cast<u8*>(mm::kernel_frames().to_virt(seg.frames));
+                __builtin_memcpy(destination + (address - seg.virt), source, length);
+                return true;
+            }
+            return false;
+        }
+
         // The ELF loader reserves and maps one contiguous span for all
         // PT_LOAD segments.  Until VMAs can split that span at each
         // segment boundary, keep the span executable and writable:
@@ -71,8 +90,9 @@ namespace astia::proc {
         // user stack (create_user_thread owns the stack near the top of
         // the user half).
         constexpr u64 tls_base = 0x00007ffff0000000ull;
-        // Mapped headroom after the thread pointer: %fs:0 and up is
-        // where a TCB would live if libc code ever wants one.
+        // Mapped headroom after the thread pointer: the first word is the
+        // self-pointer used by Clang's x86_64 TLS sequence, and the rest is
+        // available to the userspace TCB.
         constexpr u64 tls_tcb_headroom = 256;
 
         // Materialize the PT_TLS template in the child: user pages, the
@@ -108,6 +128,7 @@ namespace astia::proc {
                 destination[index] = source[index];
             }
             tp_out     = tls_base + span;
+            *reinterpret_cast<u64*>(destination + span) = tp_out;
             frames_out = frames;
             pages_out  = pages;
             return true;
@@ -125,7 +146,7 @@ namespace astia::proc {
             return false;
         }
         image_map  state{&map, 0x40000000ull};
-        elf::env   environment{&state, map_user, nullptr};
+        elf::env   environment{&state, map_user, nullptr, nullptr, copy_image};
         elf::image image{};
 
         // The ELF implementation copies segment bytes through the virtual
@@ -194,6 +215,104 @@ namespace astia::proc {
         if (address_space_ == nullptr) {
             return false;
         }
+        *entry_out = reinterpret_cast<u64>(image.entry);
+        return true;
+    }
+
+    namespace {
+        bool read_stream_batch(void* opaque, elf::read_request* requests, usize count) {
+            auto* context = static_cast<stream_context*>(opaque);
+            if (context == nullptr || context->file == nullptr) return false;
+            fs::kernel_read batch[elf::max_segments]{};
+            if (count > elf::max_segments) return false;
+            for (usize i = 0; i < count; ++i) {
+                batch[i] = {context->file, requests[i].buffer, requests[i].offset,
+                            static_cast<u32>(requests[i].length), -1};
+            }
+            if (!fs::read_batch(batch, count)) return false;
+            for (usize i = 0; i < count; ++i) requests[i].result = batch[i].result;
+            return true;
+        }
+
+        void* map_user_stream(void* opaque, u64 hint, usize size, usize align,
+                              bool fixed) {
+            return map_user(&static_cast<stream_context*>(opaque)->map, hint, size,
+                            align, fixed);
+        }
+
+        bool map_tls_file(arch::page_map& map, const mm::shptr<fs::open_file>& file,
+                          const elf::image& image, u64& tp_out, u64& frames_out,
+                          u64& pages_out) {
+            const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
+            const u64 span = (image.tls_memsz + align - 1) & ~(align - 1);
+            const u64 pages = (span + tls_tcb_headroom + elf::page_size - 1) /
+                              elf::page_size;
+            const u64 frames = mm::kernel_frames().alloc(pages, mm::frame_flags::zeroed);
+            if (frames == mm::frame_allocator::invalid_frame) return false;
+            for (u64 page = 0; page < pages; ++page) {
+                if (!map.map_4k(tls_base + page * elf::page_size,
+                                frames + page * elf::page_size,
+                                arch::page_flags::present | arch::page_flags::writable |
+                                    arch::page_flags::user)) {
+                    mm::kernel_frames().release(frames, pages);
+                    return false;
+                }
+            }
+            if (image.tls_filesz != 0) {
+                auto* destination = mm::kernel_frames().to_virt(frames);
+                const long read = file->read(destination, static_cast<u32>(image.tls_filesz),
+                                             image.tls_offset);
+                if (read != static_cast<long>(image.tls_filesz)) {
+                    mm::kernel_frames().release(frames, pages);
+                    return false;
+                }
+            }
+            auto* destination = static_cast<u8*>(mm::kernel_frames().to_virt(frames));
+            tp_out = tls_base + span;
+            *reinterpret_cast<u64*>(destination + span) = tp_out;
+            frames_out = frames;
+            pages_out = pages;
+            return true;
+        }
+    }
+
+    bool process::load_user_file(const mm::shptr<fs::open_file>& file, usize length,
+                                 u64* entry_out) {
+        if (!file || length == 0 || entry_out == nullptr || address_space_ != nullptr)
+            return false;
+        arch::page_map map = arch::page_map::create(arch::kernel_page_map());
+        if (!map.valid()) return false;
+        stream_context stream{{&map, 0x40000000ull}, file.get()};
+        elf::image image{};
+        const process* caller = current_process();
+        const arch::page_map* caller_map = caller == nullptr ? nullptr : caller->address_space();
+        map.activate();
+        const bool loaded = elf::load_executable_stream(
+            elf::env{&stream, map_user_stream, nullptr, read_stream_batch}, length, image);
+        if (caller_map != nullptr) caller_map->activate();
+        else arch::kernel_page_map()->activate();
+        if (!loaded) return false;
+        for (u32 i = 0; i < stream.map.count; ++i) {
+            const auto& seg = stream.map.segs[i];
+            auto* region = mm::phys_region::adopt(seg.frames, seg.pages);
+            if (region == nullptr || !register_mapping(seg.virt, seg.pages,
+                                                        segment_prot(image, seg.virt), region))
+                return false;
+        }
+        if (image.tls_memsz != 0) {
+            u64 tls_frames = 0, tls_pages = 0, tp = 0;
+            if (!map_tls_file(map, file, image, tp, tls_frames, tls_pages)) return false;
+            auto* region = mm::phys_region::adopt(tls_frames, tls_pages);
+            if (region == nullptr ||
+                !register_mapping(tls_base, tls_pages, PROT_READ | PROT_WRITE, region)) {
+                if (region != nullptr) region->release();
+                return false;
+            }
+            tls_tp_ = tp;
+        }
+        address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
+        if (address_space_ == nullptr) return false;
+        if (image.tls_memsz == 0) tls_tp_ = 0;
         *entry_out = reinterpret_cast<u64>(image.entry);
         return true;
     }

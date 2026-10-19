@@ -687,13 +687,9 @@ namespace astia::elf {
         }
         u64 load_bias = mapped_addr - span_start;
 
-        // Zero the whole span so bss tails and inter-segment gaps are cleared.
-        {
-            u8* p = static_cast<u8*>(mapped);
-            for (u64 i = 0; i < span; ++i) {
-                p[i] = 0;
-            }
-        }
+        // map_fn allocates zeroed frames, so the whole span (including BSS
+        // and inter-segment gaps) is already clear.  Do not dereference the
+        // freshly mapped user virtual range from this kernel context.
 
         // --- Pass 2: copy each segment's file bytes into place.
         usize seg_i = 0;
@@ -706,10 +702,25 @@ namespace astia::elf {
             }
             u64       dest = ph[i].p_vaddr + load_bias;
             const u8* src  = base_bytes + ph[i].p_offset;
-            u8*       d    = reinterpret_cast<u8*>(dest);
-            for (u64 k = 0; k < ph[i].p_filesz; ++k) {
-                d[k] = src[k];
+            u8*       d    = nullptr;
+            for (usize mapped_i = 0; mapped_i < seg_i; ++mapped_i) {
+                const segment& mapped_seg = out.segs[mapped_i];
+                if (dest >= reinterpret_cast<u64>(mapped_seg.loc) &&
+                    dest < reinterpret_cast<u64>(mapped_seg.loc) + mapped_seg.memsz) {
+                    d = static_cast<u8*>(mapped_seg.loc) + (dest -
+                        reinterpret_cast<u64>(mapped_seg.loc));
+                    break;
+                }
             }
+            if (e.copy != nullptr) {
+                if (!e.copy(e.ctx, dest, src, static_cast<usize>(ph[i].p_filesz)))
+                    return false;
+            }
+            else if (d == nullptr) {
+                d = reinterpret_cast<u8*>(dest);
+            }
+            if (e.copy == nullptr)
+                for (u64 k = 0; k < ph[i].p_filesz; ++k) d[k] = src[k];
             segment& seg = out.segs[seg_i++];
             seg.vaddr    = ph[i].p_vaddr;
             seg.filesz   = ph[i].p_filesz;
@@ -749,6 +760,101 @@ namespace astia::elf {
         out.loaded    = (type == et_dyn) ? kind::dyn : kind::executable;
         out.load_bias = load_bias;
         out.nsegs     = seg_i;
+        return true;
+    }
+
+    bool load_executable_stream(const env& e, usize file_size, image& out) {
+        if (e.map == nullptr || e.read_batch == nullptr || file_size < sizeof(elf64_ehdr))
+            return false;
+        elf64_ehdr header{};
+        read_request head_request{0, &header, sizeof header, -1};
+        if (!e.read_batch(e.ctx, &head_request, 1) ||
+            head_request.result != static_cast<long>(sizeof header))
+            return false;
+
+        u16 type = 0;
+        if (!ident_type(&header, sizeof header, type) ||
+            (type != et_exec && type != et_dyn) || header.e_phnum == 0 ||
+            header.e_phentsize != sizeof(elf64_phdr))
+            return false;
+        if (header.e_phnum > 64 ||
+            !in_bounds(header.e_phoff,
+                       static_cast<u64>(header.e_phnum) * sizeof(elf64_phdr), file_size))
+            return false;
+
+        elf64_phdr ph[64]{};
+        read_request ph_request{
+            header.e_phoff, ph,
+            static_cast<usize>(header.e_phnum) * sizeof(elf64_phdr), -1};
+        if (!e.read_batch(e.ctx, &ph_request, 1) ||
+            ph_request.result != static_cast<long>(ph_request.length))
+            return false;
+
+        u64 min_vaddr = ~u64{0}, max_end = 0;
+        usize nsegs = 0;
+        for (u16 i = 0; i < header.e_phnum; ++i) {
+            if (ph[i].p_type == pt_dynamic)
+                return false; // relocations need a second metadata read path
+            if (ph[i].p_type != pt_load) continue;
+            if (nsegs >= max_segments || ph[i].p_memsz < ph[i].p_filesz ||
+                !in_bounds(ph[i].p_offset, ph[i].p_filesz, file_size))
+                return false;
+            min_vaddr = ph[i].p_vaddr < min_vaddr ? ph[i].p_vaddr : min_vaddr;
+            const u64 end = ph[i].p_vaddr + ph[i].p_memsz;
+            if (end < ph[i].p_vaddr) return false;
+            max_end = end > max_end ? end : max_end;
+            ++nsegs;
+        }
+        if (nsegs == 0 || min_vaddr == ~u64{0} || max_end <= min_vaddr)
+            return false;
+
+        const u64 span_start = align_down(min_vaddr);
+        const u64 span_end = align_up(max_end);
+        const u64 span = span_end - span_start;
+        const bool fixed = type == et_exec;
+        void* mapped = e.map(e.ctx, span_start, static_cast<usize>(span), page_size, fixed);
+        if (mapped == nullptr || (fixed && reinterpret_cast<u64>(mapped) != span_start))
+            return false;
+        const u64 bias = reinterpret_cast<u64>(mapped) - span_start;
+        for (u64 i = 0; i < span; ++i)
+            static_cast<u8*>(mapped)[i] = 0;
+
+        read_request requests[max_segments]{};
+        usize request_count = 0;
+        usize segment_count = 0;
+        for (u16 i = 0; i < header.e_phnum; ++i) {
+            if (ph[i].p_type != pt_load) continue;
+            if (ph[i].p_filesz != 0) {
+                requests[request_count++] = {
+                    ph[i].p_offset,
+                    reinterpret_cast<void*>(ph[i].p_vaddr + bias),
+                    static_cast<usize>(ph[i].p_filesz), -1};
+            }
+            out.segs[segment_count++] = {
+                ph[i].p_vaddr, ph[i].p_filesz, ph[i].p_memsz, ph[i].p_flags,
+                reinterpret_cast<void*>(ph[i].p_vaddr + bias)};
+        }
+        if (request_count != 0 &&
+            (!e.read_batch(e.ctx, requests, request_count)))
+            return false;
+        for (usize i = 0; i < request_count; ++i)
+            if (requests[i].result != static_cast<long>(requests[i].length)) return false;
+
+        for (u16 i = 0; i < header.e_phnum; ++i) {
+            if (ph[i].p_type == pt_tls && ph[i].p_memsz != 0) {
+                if (!in_bounds(ph[i].p_offset, ph[i].p_filesz, file_size)) return false;
+                out.tls_offset = ph[i].p_offset;
+                out.tls_filesz = ph[i].p_filesz;
+                out.tls_memsz = ph[i].p_memsz;
+                out.tls_align = ph[i].p_align;
+            }
+        }
+        out.entry = reinterpret_cast<void*>(header.e_entry + bias);
+        out.base = mapped;
+        out.size = static_cast<usize>(span);
+        out.loaded = type == et_dyn ? kind::dyn : kind::executable;
+        out.load_bias = bias;
+        out.nsegs = segment_count;
         return true;
     }
 

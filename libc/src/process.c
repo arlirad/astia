@@ -1,4 +1,5 @@
 #include "process_port.h"
+#include "file_port.h"
 #include <sys/wait.h>
 
 #include <errno.h>
@@ -10,7 +11,6 @@
 enum { ATEXIT_MAX = 32 };
 static void (*g_atexit[ATEXIT_MAX])(void);
 static size_t g_atexit_count;
-
 /* Every wrapper speaks the seam's convention: >= 0, or negated error
  * code — mapped here to the -1/errno form the standard demands. */
 static int process_result(long rc) {
@@ -24,6 +24,8 @@ static int process_result(long rc) {
 int getpid(void) {
     return process_result(__astia_process_getpid());
 }
+
+int getppid(void) { errno = ENOSYS; return -1; }
 
 int gettid(void) {
     return process_result(__astia_process_gettid());
@@ -39,11 +41,19 @@ int sched_yield(void) {
 }
 
 int waitpid(int pid, int* status, int options) {
-    if (options != 0) { /* WNOHANG and friends are not in the ABI yet */
+    if (options & ~(WNOHANG | WUNTRACED)) {
         errno = EINVAL;
         return -1;
     }
-    return process_result(__astia_process_waitpid(pid, status));
+    /* The direct ABI has no options word.  WNOHANG is therefore a best-effort
+     * compatibility flag until the kernel ABI grows one; never fake a
+     * second successful reap from a previous blocking wait. */
+    if ((options & WNOHANG) != 0)
+        return 0;
+    int local = 0;
+    int* output = status == NULL ? &local : status;
+    int result = process_result(__astia_process_waitpid(pid, output));
+    return result;
 }
 
 int spawnve(const char* path, char* const argv[], char* const envp[]) {
@@ -54,7 +64,25 @@ int fork(void) {
     /* The kernel resumes the child at this return with rax = 0 — the
      * seam's success value — so the standard child/parent split falls
      * out of the raw result. */
-    return process_result(__astia_process_fork());
+    int result = process_result(__astia_process_fork());
+    if (result == 0)
+        __astia_fio_after_fork();
+    return result;
+}
+
+int setuid(unsigned int uid) { (void) uid; errno = ENOSYS; return -1; }
+unsigned int getuid(void) { return 0; }
+unsigned int geteuid(void) { return 0; }
+int seteuid(unsigned int uid) { (void) uid; errno = ENOSYS; return -1; }
+int setgid(unsigned int gid) { (void) gid; errno = ENOSYS; return -1; }
+unsigned int getgid(void) { return 0; }
+unsigned int getegid(void) { return 0; }
+int setegid(unsigned int gid) { (void) gid; errno = ENOSYS; return -1; }
+int setreuid(unsigned int real_uid, unsigned int effective_uid) {
+    (void) real_uid; (void) effective_uid; errno = ENOSYS; return -1;
+}
+int setregid(unsigned int real_gid, unsigned int effective_gid) {
+    (void) real_gid; (void) effective_gid; errno = ENOSYS; return -1;
 }
 
 int atexit(void (*function)(void)) {

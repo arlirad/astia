@@ -134,6 +134,17 @@ char* strcat(char* dst, const char* src) {
     return r;
 }
 
+char* strncat(char* dst, const char* src, size_t limit) {
+    size_t offset = strlen(dst);
+    size_t index = 0;
+    while (index < limit && src[index] != '\0') {
+        dst[offset + index] = src[index];
+        ++index;
+    }
+    dst[offset + index] = '\0';
+    return dst;
+}
+
 char* strchr(const char* s, int c) {
     char t = (char) c;
     for (;; s++) {

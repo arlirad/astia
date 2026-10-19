@@ -3,6 +3,7 @@
 .type context_user_iret, @function
 context_user_iret:
     movq %r12, %rdi
+    movq %r13, %rsi
     iretq
 .size context_user_iret, .-context_user_iret
 

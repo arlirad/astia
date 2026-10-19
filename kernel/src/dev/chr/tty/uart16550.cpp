@@ -458,6 +458,11 @@ namespace astia::dev {
         // Close the loop before reporting: while it is open, console
         // output feeds the receive FIFO instead of leaving the port.
         com1.loopback(false);
+        // The ring selftest consumes its own payload through a separate
+        // descriptor, but the tty line discipline is shared with stdin.
+        // Discard any residual loopback bytes before userspace inherits the
+        // console, otherwise zsh starts with a phantom `ping` command.
+        com1.drain_rx();
         if (why != nullptr) {
             console_puts("astia: uart16550 ring: ");
             console_puts(why);
