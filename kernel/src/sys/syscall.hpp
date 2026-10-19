@@ -33,6 +33,9 @@ namespace astia::sys {
         thread_create2,
         execve,
         sigsuspend,
+        getpgrp,
+        setpgid,
+        setsid,
     };
 
     /// How many registers the ABI hands every trap — and so the most

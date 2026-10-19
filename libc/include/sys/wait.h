@@ -2,17 +2,23 @@
 
 #define WNOHANG 1
 #define WUNTRACED 2
+#define WCONTINUED 8
+#define WIFEXITED(status) (((status) & 0x7f) == 0)
+#define WEXITSTATUS(status) (((status) >> 8) & 0xff)
+#define WIFSIGNALED(status) (((status) & 0x7f) != 0 && ((status) & 0x7f) != 0x7f)
+#define WTERMSIG(status) ((status) & 0x7f)
+#define WCOREDUMP(status) ((status) & 0x80)
+#define WIFSTOPPED(status) (((status) & 0xff) == 0x7f)
+#define WSTOPSIG(status) (((status) >> 8) & 0xff)
+#define WIFCONTINUED(status) ((status) == 0xffff)
 
 int waitpid(int pid, int* status, int options);
 
 /*
  * astia libc — <sys/wait.h>
  *
- * The Astia syscall provides the blocking form.  WNOHANG is accepted by
- * the libc compatibility wrapper but cannot observe completion until the
- * syscall ABI carries wait options.  On success the reaped pid is returned
- * and *status (when non-null) receives the child's exit status as passed to
- * exit(); on failure -1 with errno.
+ * SYS_WAITPID retains its original number and appends an options argument.
+ * Status values use the traditional POSIX bit layout.
  */
 
 #ifdef __cplusplus

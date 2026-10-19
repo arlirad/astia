@@ -91,6 +91,9 @@ enum {
     SYS_THREAD_CREATE2 = 23,
     SYS_EXECVE         = 24,
     SYS_SIGSUSPEND     = 25,
+    SYS_GETPGRP        = 26,
+    SYS_SETPGID        = 27,
+    SYS_SETSID         = 28,
 };
 
 /* ------------------------------------------------------------------ */
@@ -225,6 +228,18 @@ static inline long astia_gettid(void) {
     return astia_raw6(SYS_GETTID, 0, 0, 0, 0, 0, 0);
 }
 
+static inline long astia_getpgrp(void) {
+    return astia_raw6(SYS_GETPGRP, 0, 0, 0, 0, 0, 0);
+}
+
+static inline long astia_setpgid(int32_t pid, int32_t pgid) {
+    return astia_raw6(SYS_SETPGID, (long) pid, (long) pgid, 0, 0, 0, 0);
+}
+
+static inline long astia_setsid(void) {
+    return astia_raw6(SYS_SETSID, 0, 0, 0, 0, 0, 0);
+}
+
 static inline long astia_kill(int32_t pid, int32_t signal) {
     return astia_raw6(SYS_KILL, (long) pid, (long) signal, 0, 0, 0, 0);
 }
@@ -241,8 +256,13 @@ static inline long astia_sigprocmask(int32_t how, uint32_t set, uint32_t* old) {
 /* pid > 0: wait for that child; pid == -1: any child.  On success the
  * reaped pid is returned and *status (if non-null) receives the exit
  * status.  May block. */
+enum { ASTIA_WNOHANG = 1u << 0, ASTIA_WUNTRACED = 1u << 1,
+       ASTIA_WCONTINUED = 1u << 3 };
+static inline long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options) {
+    return astia_raw6(SYS_WAITPID, (long) pid, (long) status, (long) options, 0, 0, 0);
+}
 static inline long astia_waitpid(int32_t pid, int32_t* status) {
-    return astia_raw6(SYS_WAITPID, (long) pid, (long) status, 0, 0, 0, 0);
+    return astia_waitpid_options(pid, status, 0);
 }
 
 /* Create a process from the executable at `path`, materializing the

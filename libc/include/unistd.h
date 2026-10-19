@@ -50,8 +50,10 @@ long lseek(int fd, long offset, int whence);
 int pipe(int fds[2]);
 int execve(const char* path, char* const argv[], char* const envp[]);
 pid_t getpgrp(void);
+int setpgid(int pid, int process_group);
+int setsid(void);
 int setpgrp(int pid, int process_group);
-int tcgetpgrp(int fd);
+pid_t tcgetpgrp(int fd);
 int tcsetpgrp(int fd, int pgrp);
 int link(const char* old_path, const char* new_path);
 int getgroups(int count, gid_t groups[]);
@@ -59,6 +61,7 @@ int rename(const char* old_path, const char* new_path);
 int waitpid(int pid, int* status, int options);
 #define WNOHANG 1
 #define WUNTRACED 2
+#define WCONTINUED 8
 unsigned int alarm(unsigned int seconds);
 unsigned int sleep(unsigned int seconds);
 char* mktemp(char* template_name);

@@ -35,9 +35,15 @@ int main(int argc, char** argv) {
     CHECK(gettid() > 0);
     CHECK(sched_yield() == 0);
 
-    /* options beyond 0 are not in the ABI: rejected before any wait */
+    CHECK(WNOHANG == 1 && WUNTRACED == 2 && WCONTINUED == 8);
+    CHECK(WIFEXITED(5 << 8) && WEXITSTATUS(5 << 8) == 5);
+    CHECK(WIFSIGNALED(9) && WTERMSIG(9) == 9);
+    CHECK(WIFSTOPPED((19 << 8) | 0x7f) && WSTOPSIG((19 << 8) | 0x7f) == 19);
+    CHECK(WIFCONTINUED(0xffff));
+
+    /* unknown options are rejected before any wait */
     errno = 0;
-    CHECK(waitpid(-1, NULL, 1) == -1 && errno == EINVAL);
+    CHECK(waitpid(-1, NULL, 4) == -1 && errno == EINVAL);
 
     int child = fork();
     CHECK(child >= 0);

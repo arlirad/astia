@@ -41,18 +41,13 @@ int sched_yield(void) {
 }
 
 int waitpid(int pid, int* status, int options) {
-    if (options & ~(WNOHANG | WUNTRACED)) {
+    if (options & ~(WNOHANG | WUNTRACED | WCONTINUED)) {
         errno = EINVAL;
         return -1;
     }
-    /* The direct ABI has no options word.  WNOHANG is therefore a best-effort
-     * compatibility flag until the kernel ABI grows one; never fake a
-     * second successful reap from a previous blocking wait. */
-    if ((options & WNOHANG) != 0)
-        return 0;
     int local = 0;
     int* output = status == NULL ? &local : status;
-    int result = process_result(__astia_process_waitpid(pid, output));
+    int result = process_result(__astia_process_waitpid(pid, output, options));
     return result;
 }
 

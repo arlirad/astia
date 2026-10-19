@@ -139,3 +139,12 @@ ASTIA_TEST(tty_canonical_overflow_does_not_join_next_line) {
     ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 2);
     ASTIA_CHECK(result[0] == 'i' && result[1] == '\n');
 }
+
+ASTIA_TEST(tty_process_group_round_trip) {
+    test_tty tty;
+    astia::i32 group = 42;
+    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group) == 0);
+    group = 0;
+    ASTIA_CHECK(tty.ioctl(TIOCGPGRP, &group) == 0);
+    ASTIA_CHECK(group == 42);
+}

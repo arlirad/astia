@@ -23,6 +23,7 @@ namespace astia::proc {
         if (!child) {
             return -ENOMEM;
         }
+        child->inherit_groups(*parent);
         if (!child->copy_descriptors_from(*parent) ||
             !parent->clone_address_space_cow(child.get()) ||
             !child->create_fork_thread(child_image)) {

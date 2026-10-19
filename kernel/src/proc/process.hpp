@@ -44,6 +44,22 @@ namespace astia::proc {
         pid_t parent_pid() const {
             return parent_pid_;
         }
+        pid_t process_group() const {
+            return process_group_;
+        }
+        pid_t session() const {
+            return session_;
+        }
+        void inherit_groups(const process& parent) {
+            process_group_ = parent.process_group_;
+            session_       = parent.session_;
+        }
+        void process_group(pid_t value) {
+            process_group_ = value;
+        }
+        void session(pid_t value) {
+            session_ = value;
+        }
         const char* name() const {
             return name_;
         }
@@ -56,6 +72,11 @@ namespace astia::proc {
         i32 exit_status() const {
             return exit_status_;
         }
+        i32 wait_status() const {
+            return termination_signal_ != 0 ? (termination_signal_ & 0x7f)
+                                            : ((exit_status_ & 0xff) << 8);
+        }
+        void signal_termination(i32 signal) { termination_signal_ = signal; }
 
         signal_state& signals() {
             return signals_;
@@ -214,9 +235,12 @@ namespace astia::proc {
                               usize region_page = 0, bool shared = false);
         pid_t pid_;
         pid_t parent_pid_;
+        pid_t process_group_;
+        pid_t session_;
         char  name_[32]{};
         process_state state_       = process_state::fresh;
         i32           exit_status_ = 0;
+        i32           termination_signal_ = 0;
         signal_state  signals_{};
 
         mm::shptr<thread> threads_[max_process_threads];

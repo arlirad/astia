@@ -44,6 +44,7 @@ astia_add_host_test(astia_pvh_test pvh_test.cpp ${CMAKE_SOURCE_DIR}/src/boot/vir
 astia_add_host_test(astia_optional_test optional_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
+astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_tty_test
         tty_test.cpp
         ${CMAKE_SOURCE_DIR}/src/dev/chr/tty.cpp

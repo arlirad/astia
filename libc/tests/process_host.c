@@ -39,8 +39,8 @@ long __astia_process_yield(void) {
     return host_trap(SYS_sched_yield, 0, 0, 0, 0);
 }
 
-long __astia_process_waitpid(int pid, int* status) {
-    return host_trap(SYS_wait4, pid, (long) status, 0, 0);
+long __astia_process_waitpid(int pid, int* status, int options) {
+    return host_trap(SYS_wait4, pid, (long) status, options, 0);
 }
 
 /* The one seam function that goes through a host *library* call: the

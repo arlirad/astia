@@ -33,11 +33,13 @@ namespace astia::proc {
             /* zsh probes a process group with kill(-pgrp, 0).  Signal zero
                is permission/existence checking only and must not enqueue a
                signal. */
-            if (pid < 0) {
-                return 0;
-            }
-            if (pid <= 0 || value < 0 || value >= static_cast<i32>(signal_count)) {
+            if (value < 0 || value >= static_cast<i32>(signal_count)) {
                 return -EINVAL;
+            }
+            if (pid <= 0) {
+                const pid_t group = pid == 0 ? getpgrp()
+                                             : static_cast<pid_t>(-static_cast<i64>(pid));
+                return signal_process_group(group, value);
             }
             auto* target = find_process(static_cast<pid_t>(pid));
             if (target == nullptr) {
@@ -49,6 +51,10 @@ namespace astia::proc {
             return target->signals().send(static_cast<signal_number>(value)) ? 0
                                                                              : -EINVAL;
         }
+
+        i64 sys_getpgrp() { return static_cast<i64>(getpgrp()); }
+        i64 sys_setpgid(i32 pid, i32 pgid) { return setpgid(pid, pgid); }
+        i64 sys_setsid() { return setsid(); }
 
         i64 sys_sigaction(i32 value, u64 next_ptr, u64 old_ptr) {
             if (value <= 0 || value >= static_cast<i32>(signal_count)) {
@@ -174,6 +180,7 @@ namespace astia::proc {
             }
             if (default_action(signal) == signal_default::terminate ||
                 default_action(signal) == signal_default::core) {
+                owner->signal_termination(static_cast<i32>(signal));
                 self->exit(reinterpret_cast<void*>(128u + static_cast<u8>(signal)));
                 __builtin_unreachable();
             }
@@ -196,7 +203,7 @@ namespace astia::proc {
             __builtin_unreachable();
         }
 
-        i64 sys_waitpid(i32 pid, u64 status_ptr) {
+        i64 sys_waitpid(i32 pid, u64 status_ptr, u32 options) {
             // No user pointer ever reaches proc::waitpid: validate the
             // range up front (a bad pointer fails before we block), then
             // deliver the status through a kernel local and copy out
@@ -208,13 +215,7 @@ namespace astia::proc {
                 return -EFAULT;
             }
             i32       local  = 0;
-            const i64 result = waitpid(pid, status.null() ? nullptr : &local);
-            if (result >= 0 && !status.null()) {
-                // The internal proc API keeps the raw exit argument for
-                // kernel clients; the userspace wait ABI exposes POSIX's
-                // encoded status expected by WIFEXITED/WEXITSTATUS.
-                local = (local & 0xff) << 8;
-            }
+            const i64 result = waitpid(pid, status.null() ? nullptr : &local, options);
             if (result >= 0 && !status.null() && !sys::copy_out(status, &local)) {
                 return -EFAULT; // reaped, but undeliverable
             }
@@ -512,7 +513,10 @@ namespace astia::proc {
                sys::register_syscall<sys_waitpid>(sys::syscall_id::waitpid) &&
                 sys::register_syscall<sys_spawnve>(sys::syscall_id::spawnve) &&
                 sys::register_syscall<sys_execve>(sys::syscall_id::execve) &&
-                sys::register_syscall<sys_sigsuspend>(sys::syscall_id::sigsuspend) &&
+               sys::register_syscall<sys_sigsuspend>(sys::syscall_id::sigsuspend) &&
+               sys::register_syscall<sys_getpgrp>(sys::syscall_id::getpgrp) &&
+               sys::register_syscall<sys_setpgid>(sys::syscall_id::setpgid) &&
+               sys::register_syscall<sys_setsid>(sys::syscall_id::setsid) &&
                sys::register_syscall<sys_mmap>(sys::syscall_id::mmap) &&
                sys::register_syscall<sys_munmap>(sys::syscall_id::munmap) &&
                sys::register_syscall<sys_fork>(sys::syscall_id::fork) &&

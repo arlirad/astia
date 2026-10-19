@@ -2,6 +2,7 @@
 
 #include "scheduler.hpp"
 #include <astia/api/errno.h>
+#include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/log.hpp>
@@ -145,6 +146,7 @@ namespace astia::proc {
             mm::heap::free(image.value);
             return fail(ENOMEM);
         }
+        child->inherit_groups(*parent);
         child->install_standard_streams();
         u64        entry = 0;
         const bool loaded_image =
@@ -168,7 +170,68 @@ namespace astia::proc {
         return slot < 0 ? nullptr : registry[slot].get();
     }
 
-    i64 waitpid(i32 pid, i32* status) {
+    pid_t getpgrp() {
+        process* owner = current_process();
+        return owner == nullptr ? 0 : owner->process_group();
+    }
+
+    i64 setpgid(i32 pid, i32 pgid) {
+        process* caller = current_process();
+        if (caller == nullptr) return -ESRCH;
+        if (pid == 0) pid = static_cast<i32>(caller->pid());
+        if (pgid == 0) pgid = pid;
+        if (pid <= 0 || pgid <= 0) return -EINVAL;
+
+        process* target = find_process(static_cast<pid_t>(pid));
+        if (target == nullptr || target->state() == process_state::zombie ||
+            target->state() == process_state::dead)
+            return -ESRCH;
+        if (target != caller && target->parent_pid() != caller->pid()) return -ESRCH;
+        if (target->session() != caller->session()) return -EPERM;
+        // A session leader may redundantly set its own existing group; it
+        // only becomes invalid when trying to move to a different group.
+        if (target->session() == target->pid() &&
+            static_cast<pid_t>(pgid) != target->process_group())
+            return -EPERM;
+
+        if (static_cast<pid_t>(pgid) != target->pid()) {
+            process* group = find_process(static_cast<pid_t>(pgid));
+            if (group == nullptr || group->state() == process_state::zombie ||
+                group->state() == process_state::dead ||
+                group->session() != caller->session())
+                return -EPERM;
+        }
+        target->process_group(static_cast<pid_t>(pgid));
+        return 0;
+    }
+
+    i64 setsid() {
+        process* owner = current_process();
+        if (owner == nullptr) return -ESRCH;
+        if (owner->process_group() == owner->pid()) return -EPERM;
+        owner->session(owner->pid());
+        owner->process_group(owner->pid());
+        return static_cast<i64>(owner->session());
+    }
+
+    i64 signal_process_group(pid_t group, i32 value) {
+        if (value < 0 || value >= static_cast<i32>(signal_count)) return -EINVAL;
+        bool found = false;
+        core::spinlock_guard guard(registry_lock);
+        for (u32 i = 0; i < registry_capacity; ++i) {
+            process* target = registry[i].get();
+            if (target == nullptr || target->process_group() != group ||
+                target->state() == process_state::zombie ||
+                target->state() == process_state::dead)
+                continue;
+            found = true;
+            if (value != 0 && !target->signals().send(static_cast<signal_number>(value)))
+                return -EINVAL;
+        }
+        return found ? 0 : -ESRCH;
+    }
+
+    i64 waitpid(i32 pid, i32* status, u32 options) {
         process* parent = current_process();
         thread*  self   = current_thread();
         logs::info("waitpid parent=%d tid=%d target=%d",
@@ -180,6 +243,7 @@ namespace astia::proc {
         if (pid < -1 || pid == 0) {
             return -EINVAL;
         }
+        if (options & ~(ASTIA_WNOHANG | ASTIA_WUNTRACED | ASTIA_WCONTINUED)) return -EINVAL;
 
         // From here to the blocking yield the scan and the waiter
         // registration must be atomic against child exits, which can
@@ -219,7 +283,7 @@ namespace astia::proc {
                 // already switched off this CPU before we were resumed.
                 const pid_t child_pid = zombie_child->pid();
                 if (status != nullptr) {
-                    *status = zombie_child->exit_status();
+                    *status = zombie_child->wait_status();
                 }
                 logs::info("reaped pid=%u status=%d", static_cast<u32>(child_pid),
                            status == nullptr ? zombie_child->exit_status() : *status);
@@ -231,6 +295,11 @@ namespace astia::proc {
             if (!has_children) {
                 parent->remove_waiter(self);
                 result = -ECHILD;
+                break;
+            }
+            if (options & ASTIA_WNOHANG) {
+                parent->remove_waiter(self);
+                result = 0;
                 break;
             }
 

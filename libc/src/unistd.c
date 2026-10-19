@@ -3,6 +3,7 @@
 #include "process_port.h"
 #include <stddef.h>
 #include <sys/ioctl.h>
+#include <astia/api/syscalls.h>
 #include <unistd.h>
 
 char** environ;
@@ -78,19 +79,40 @@ int fcntl(int fd, int command, ...) {
         return -1;
     }
 }
-int getpgrp(void) { return getpid(); }
-int setpgrp(int pid, int process_group) {
-    (void) pid; (void) process_group; return 0;
+int getpgrp(void) {
+    long rc = astia_getpgrp();
+    if (rc < 0) { errno = (int) -rc; return -1; }
+    return (int) rc;
 }
-int tcgetpgrp(int fd) {
-    (void) fd;
-    errno = ENOTTY;
-    return -1;
+int setpgid(int pid, int process_group) {
+    long rc = astia_setpgid(pid, process_group);
+    if (rc < 0) { errno = (int) -rc; return -1; }
+    return 0;
+}
+int setsid(void) {
+    long rc = astia_setsid();
+    if (rc < 0) { errno = (int) -rc; return -1; }
+    return (int) rc;
+}
+int setpgrp(int pid, int process_group) {
+    return setpgid(pid, process_group);
+}
+pid_t tcgetpgrp(int fd) {
+    int  process_group;
+    long rc = ioctl(fd, TIOCGPGRP, &process_group);
+    if (rc < 0) {
+        /* ioctl has already translated the ABI's negative errno into the
+           libc errno slot.  Do not replace EBADF/EFAULT/ENOTTY with a
+           made-up value here. */
+        return -1;
+    }
+    return process_group;
 }
 int tcsetpgrp(int fd, int pgrp) {
-    (void) fd; (void) pgrp;
-    errno = ENOTTY;
-    return -1;
+    long rc = ioctl(fd, TIOCSPGRP, &pgrp);
+    if (rc < 0)
+        return -1;
+    return 0;
 }
 int link(const char* old_path, const char* new_path) {
     (void) old_path; (void) new_path; errno = ENOSYS; return -1;

@@ -81,6 +81,35 @@ cmake --build build
 
 Change ARCH to `aarch64` as needed.
 
+## TTY foreground process-group contract
+
+The libc `tcgetpgrp()` and `tcsetpgrp()` wrappers are deliberately thin:
+they issue `ioctl(fd, TIOCGPGRP, &pid)` and `ioctl(fd, TIOCSPGRP, &pid)` and
+preserve the kernel error (`EBADF`, `EFAULT`, `ENOTTY`, `EINVAL`, etc.).  No
+new direct libc syscall is implied by these functions.
+
+The current tty field is only storage for a foreground process-group ID.  The
+process subsystem now owns process-group/session identity; the tty layer still
+needs the following kernel-side validation and job-control contract:
+
+* every process has a `pgrp` ID (initially its PID), and the kernel can resolve
+  an ID to a live process group;
+* `TIOCGPGRP` returns the tty's live foreground `pgrp` ID, or `-ENOTTY` for a
+  non-terminal and `-EBADF` for an invalid descriptor;
+* `TIOCSPGRP` accepts only a live group in the caller's session, otherwise
+  returns `-EINVAL` (or `-EPERM` when the session/ownership check fails);
+* a tty read by a member of a non-foreground group sends `SIGTTIN` to that
+  group and does not perform the read.  If the group blocks or ignores the
+  signal, the operation instead fails with `-EIO`;
+* a tty write by a non-foreground group sends `SIGTTOU` when `TOSTOP` is set
+  and does not perform the write.  If blocked or ignored, it fails with
+  `-EIO`; `tcsetpgrp()` itself follows the same `SIGTTOU` rule.
+
+Signal delivery must target the complete process group, and the check must be
+made by the kernel before the tty operation.  Until the tty layer consumes
+that process API, its stored ID must not be treated as proof that a group
+exists or as a reason to synthesize process-group IDs in libc.
+
 ## Running
 
 ```bash

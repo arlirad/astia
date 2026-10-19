@@ -19,8 +19,8 @@ long __astia_process_yield(void) {
     return astia_yield();
 }
 
-long __astia_process_waitpid(int pid, int* status) {
-    return astia_waitpid((int32_t) pid, (int32_t*) status);
+long __astia_process_waitpid(int pid, int* status, int options) {
+    return astia_waitpid_options((int32_t) pid, (int32_t*) status, (uint32_t) options);
 }
 
 long __astia_process_spawnve(const char* path, char* const argv[], char* const envp[]) {

@@ -32,10 +32,18 @@ namespace astia::proc {
     /// Look up a live process by pid in the registry.
     process* find_process(pid_t id);
 
+    /// Process-group/session operations for the calling process.
+    pid_t getpgrp();
+    i64 setpgid(i32 pid, i32 pgid);
+    i64 setsid();
+    /// Send a signal to every live member of a process group.  Signal zero
+    /// only checks that the group has a live member.
+    i64 signal_process_group(pid_t group, i32 signal);
+
     /// Wait for a child of the current process to exit and reap it.
     /// pid > 0 waits for that child, pid == -1 for any child.  Returns
     /// the reaped pid with *status set, or -ECHILD/-EINVAL/-ESRCH.
-    i64 waitpid(i32 pid, i32* status);
+    i64 waitpid(i32 pid, i32* status, u32 options = 0);
 
     /// Duplicate the calling process copy-on-write: the child shares
     /// every mapping (each backing region gains one reference, private
