@@ -8,6 +8,15 @@
 namespace astia::dev {
 
     namespace {
+        struct tty_winsize {
+            u16 rows;
+            u16 columns;
+            u16 xpixel;
+            u16 ypixel;
+        };
+        constexpr u64 tiocgwinsz = 0x5413;
+        constexpr u64 tiocswinsz = 0x5414;
+
         // Flags the tty layer knows about, per mode word: TCSETS walks
         // these to tell the driver only about bits that actually
         // moved.
@@ -263,6 +272,18 @@ namespace astia::dev {
             }
             _termios = next;
             return 0;
+        }
+        if (request == tiocgwinsz) {
+            if (argp == nullptr) return -EINVAL;
+            auto* size = static_cast<tty_winsize*>(argp);
+            size->rows = 24;
+            size->columns = 80;
+            size->xpixel = 0;
+            size->ypixel = 0;
+            return 0;
+        }
+        if (request == tiocswinsz) {
+            return argp == nullptr ? -EINVAL : 0;
         }
         if (request == TIOCGPGRP) {
             if (argp == nullptr) return -EINVAL;
