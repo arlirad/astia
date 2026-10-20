@@ -37,37 +37,43 @@ astia_syscall_entry:
     sti
     call astia_syscall_dispatch
 
+    cmpq $-1, 0(%rsp)
+    je .signal_return
     cmpq $-2, 0(%rsp)
     je .sigreturn_return
-    cmpq $-1, 0(%rsp)
-    jne .normal_return
+    jmp .normal_return
+
+.signal_return:
+    /* Signal entry: frame.a0 is the signal number and the handler receives
+       it in RDI.  Keep it live while constructing the iret frame. */
+    movq 8(%rsp), %rdi
+    xorl %esi, %esi
+    xorl %edx, %edx
+    xorl %r10d, %r10d
+    xorl %r8d, %r8d
+    xorl %r9d, %r9d
+    xorl %eax, %eax
+    movq 96(%rsp), %rsi
+    jmp .build_iret
+
+.sigreturn_return:
+    /* sigreturn's C result is the interrupted user RAX; the remaining
+       caller-saved registers were copied into the syscall frame. */
+    movq %rax, %rcx
     movq 8(%rsp), %rdi
     movq 16(%rsp), %rsi
     movq 24(%rsp), %rdx
     movq 32(%rsp), %r10
     movq 40(%rsp), %r8
     movq 48(%rsp), %r9
-    xorl %eax, %eax
-    jmp .common_return
-.sigreturn_return:
-    movq 8(%rsp), %rdi
-    movq 16(%rsp), %rsi
-    movq 24(%rsp), %rdx
-    movq 32(%rsp), %r10
-    movq 40(%rsp), %r8
-     movq 48(%rsp), %r9
-     movq %rax, %rcx            /* sigreturn's result is saved user RAX */
+    movq 96(%rsp), %rax
+    jmp .build_iret_sigreturn
+
 .normal_return:
-    /* Build an iretq frame from the saved user return state. */
-.common_return:
-     cmpq $-1, 0(%rsp)          /* signal delivery owns user %rdi */
-     je .save_signal_rdi
-     cmpq $-2, 0(%rsp)          /* sigreturn restores user %rdi too */
-     jne .save_user_r12
-.save_signal_rdi:
-     movq %rdi, %rax            /* keep signal-mode %rdi across iret setup */
-.save_user_r12:
-     movq 96(%rsp), %rdi        /* saved user R12; keep it across iret setup */
+    movq 96(%rsp), %rsi
+    jmp .build_iret
+
+.build_iret:
     movq 56(%rsp), %r12       /* user RIP */
     movq 64(%rsp), %r10       /* user RFLAGS */
     movq 72(%rsp), %r11       /* user RSP */
@@ -77,25 +83,30 @@ astia_syscall_entry:
     movq 112(%rsp), %r14
     movq 120(%rsp), %r15
     addq $128, %rsp
-    pushq $0x1B                /* user SS */
+    pushq $0x1B
     pushq %r11
     pushq %r10
-    pushq $0x23                /* user CS */
+    pushq $0x23
     pushq %r12
-    /* User R12 returns from the frame, not the global stash.  The saved
-       value was kept in %rdi because the iret frame overwrites its slot. */
-     movq %rdi, %r12
-     cmpq $-1, 40(%rsp)
-     je .signal_rdi_return
-     cmpq $-2, 40(%rsp)
-     je .sigreturn_rdi_return
-     movq 48(%rsp), %rdi        /* restore saved user RDI */
-     jmp .iret_return
-.signal_rdi_return:
-     movq %rax, %rdi
-.sigreturn_rdi_return:
-     movq %rax, %rdi            /* sigreturn restores saved user RDI */
-     movq %rcx, %rax
-.iret_return:
-     iretq
+    movq %rsi, %r12
+    iretq
+
+.build_iret_sigreturn:
+    movq 56(%rsp), %r12
+    movq 64(%rsp), %r10
+    movq 72(%rsp), %r11
+    movq 80(%rsp), %rbx
+    movq 88(%rsp), %rbp
+    movq 104(%rsp), %r13
+    movq 112(%rsp), %r14
+    movq 120(%rsp), %r15
+    addq $128, %rsp
+    pushq $0x1B
+    pushq %r11
+    pushq %r10
+    pushq $0x23
+    pushq %r12
+    movq %rax, %r12
+    movq %rcx, %rax
+    iretq
 .size astia_syscall_entry, .-astia_syscall_entry

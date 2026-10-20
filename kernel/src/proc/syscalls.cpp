@@ -182,7 +182,6 @@ namespace astia::proc {
             if (!sys::user_range_ok(range)) return -EFAULT;
             u32 mask = 0;
             if (!sys::copy_in(&mask, range)) return -EFAULT;
-            const u32 old = owner->signals().blocked();
             // Match waitpid's register-before-scan protocol.  Interrupts stay
             // masked until either a pending signal is observed or this thread
             // is blocked, so delivery cannot fall between the check and the
@@ -197,7 +196,6 @@ namespace astia::proc {
                 scheduler::yield();
             }
             owner->remove_signal_waiter(self);
-            owner->signals().set_blocked(old);
             arch::cpu::interrupts();
             return -EINTR;
         }
