@@ -28,3 +28,22 @@ if "ASTIA skips process-group handshake" not in s:
     s = s.replace(needle, "#endif\n" + needle, 1)
     open(path, "w").write(s)
 PY
+
+python3 - "$source/Src/signals.c" <<'PY'
+import sys
+path = sys.argv[1]
+s = open(path).read()
+if "ASTIA signal polling" not in s:
+    if "#include <sched.h>" not in s:
+        s = "#include <sched.h>\n" + s
+    needle = "    ret = sigsuspend(&set);"
+    replacement = ("#ifdef ASTIA /* ASTIA signal polling */\n"
+                   "    wait_for_processes();\n"
+                   "    sched_yield();\n"
+                   "    ret = -1;\n"
+                   "#else\n" + needle + "\n#endif")
+    if needle not in s:
+        raise SystemExit("signal_suspend boundary not found")
+    s = s.replace(needle, replacement, 1)
+    open(path, "w").write(s)
+PY
