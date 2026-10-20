@@ -24,8 +24,7 @@ namespace astia::fs {
                 // A reader creates space for a parked writer.  Wake by
                 // backing object rather than fd: fork/dup share the pipe,
                 // while their descriptor numbers need not match.
-                if (count != 0)
-                    sys::io_device_ready_context(this);
+                sys::io_device_ready_context(this);
                 return count;
             }
 
@@ -43,8 +42,7 @@ namespace astia::fs {
                 // A writer makes data available to parked readers.  The
                 // engine retries the operation after the release above, so
                 // its acquire load observes the published bytes.
-                if (count != 0)
-                    sys::io_device_ready_context(this);
+                sys::io_device_ready_context(this);
                 return count;
             }
 
