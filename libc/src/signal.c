@@ -65,9 +65,12 @@ int sigaction(int signal_number, const struct sigaction* action,
         next_value.handler = (uintptr_t) action->sa_handler;
         next_value.mask = action->sa_mask;
         next_value.flags = (uint32_t) action->sa_flags;
-        next_value.restorer = action->sa_restorer != 0
-                                  ? action->sa_restorer
-                                  : (uintptr_t) &astia_signal_trampoline;
+        /* sa_restorer is not part of the POSIX interface.  In particular,
+           callers such as zsh initialize the handler, mask, and flags but
+           leave this extension member indeterminate.  Do not pass that
+           stack garbage to the kernel: the libc trampoline is the ABI
+           restorer for every ordinary sigaction call. */
+        next_value.restorer = (uintptr_t) &astia_signal_trampoline;
         next = &next_value;
     }
     astia_sigaction_t*       old  = (astia_sigaction_t*) old_action;
