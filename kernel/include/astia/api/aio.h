@@ -369,7 +369,7 @@ enum {
 enum {
     WNOHANG    = 1u << 0, /* complete at once with pid or -EAGAIN */
     WUNTRACED  = 1u << 1,
-    WCONTINUED = 1u << 2,
+    WCONTINUED = 1u << 3,
 };
 
 /* sleep options (SLEEP op_flags) */
