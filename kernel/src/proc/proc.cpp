@@ -193,13 +193,17 @@ namespace astia::proc {
     i64 setpgid(i32 pid, i32 pgid) {
         process* caller = current_process();
         if (caller == nullptr) return -ESRCH;
-        if (pid == 0) pid = static_cast<i32>(caller->pid());
+        const bool self_target = pid == 0;
+        if (self_target) pid = static_cast<i32>(caller->pid());
         if (pgid == 0) pgid = pid;
         if (pid <= 0 || pgid <= 0) return -EINVAL;
 
         core::spinlock_guard guard(registry_lock);
-        const i32             slot = find_slot_locked(static_cast<pid_t>(pid));
-        process*              target = slot < 0 ? nullptr : registry[slot].get();
+        const i32 slot = find_slot_locked(static_cast<pid_t>(pid));
+        // A freshly forked child can execute setpgid(0, ...) before another
+        // registry scan observes its slot.  pid==0 is explicitly the caller,
+        // so use that stable object directly.
+        process* target = self_target ? caller : (slot < 0 ? nullptr : registry[slot].get());
         if (target == nullptr || target->state() == process_state::zombie ||
             target->state() == process_state::dead) {
             return -ESRCH;
