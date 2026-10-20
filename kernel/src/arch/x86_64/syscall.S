@@ -94,6 +94,7 @@ astia_syscall_entry:
 .signal_rdi_return:
      movq %rax, %rdi
 .sigreturn_rdi_return:
+     movq %rax, %rdi            /* sigreturn restores saved user RDI */
      movq %rcx, %rax
 .iret_return:
      iretq

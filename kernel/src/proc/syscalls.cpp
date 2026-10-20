@@ -246,6 +246,10 @@ namespace astia::proc {
                 self->exit(reinterpret_cast<void*>(128u + static_cast<u8>(signal)));
                 __builtin_unreachable();
             }
+            // A default-ignored signal is consumed here.  Re-queueing it
+            // would make every syscall exit deliver SIGCHLD forever when a
+            // shell has no explicit SIGCHLD disposition.
+            if (default_action(signal) == signal_default::ignore) return;
             owner->signals().send(signal);
             return;
         fatal_signal:
