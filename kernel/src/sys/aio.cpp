@@ -46,6 +46,7 @@ namespace astia::sys {
 
         constexpr u32 ring_count    = 2;
         constexpr u32 park_capacity = 16;
+        constexpr u32 ready_capacity = ring_count * park_capacity;
 
         // Longest operation the engine will accept, in bytes.  A CQE result is
         // a positive i32 and one stretch reaches the device as a u32 length, so
@@ -116,6 +117,13 @@ namespace astia::sys {
         // aligned pool; no global shptr destructors are registered.
         ring_slot* g_slots[ring_count];
         alignas(4096) u8 slot_storage[ring_count][sizeof(ring_slot)];
+
+        // A pipe/device may publish readiness from inside submit().  Do not
+        // resume another process from that call stack: its submit() may wake
+        // this device again before the current pump has unwound.
+        io_device* deferred_ready[ready_capacity];
+        u32        deferred_ready_count = 0;
+        u32        pump_depth           = 0;
 
         static_assert(alignof(ring_slot) >= 4096,
                       "ring slots must be page-granular (see ring_slot::map)");
@@ -288,6 +296,8 @@ namespace astia::sys {
             }
         }
 
+        io_outcome run_pump(parked_op& op, long& result);
+
         /// Start one operation through the device's submit() seam.  The park
         /// slot is taken up front so the request sits at its final address
         /// before the device ever sees it: handing a device a stack-local
@@ -347,7 +357,7 @@ namespace astia::sys {
                 io_request(p->entries.window(), static_cast<u32>(p->entries.chunk()),
                            s.offset, s.user_data, direction);
             long       result  = 0;
-            const auto outcome = pump(*p, result);
+            const auto outcome = run_pump(*p, result);
             if (outcome == io_outcome::parked) {
                 return true; // parked: a device resume completes it
             }
@@ -367,7 +377,7 @@ namespace astia::sys {
         /// returns 0 and stays parked.
         void resume_parked(astia_rings* ring, parked_op& op) {
             long result = 0;
-            if (pump(op, result) == io_outcome::parked) {
+            if (run_pump(op, result) == io_outcome::parked) {
                 return;
             }
             // A full CQ leaves the operation and its shared file
@@ -391,6 +401,22 @@ namespace astia::sys {
                     op.used   = false;
                 }
             }
+        }
+
+        void drain_deferred_ready(u64 excluded_user_data) {
+            while (deferred_ready_count != 0) {
+                const io_device* dev = deferred_ready[--deferred_ready_count];
+                io_device_ready_context_except(dev, excluded_user_data);
+            }
+        }
+
+        io_outcome run_pump(parked_op& op, long& result) {
+            ++pump_depth;
+            const io_outcome outcome = pump(op, result);
+            --pump_depth;
+            if (pump_depth == 0)
+                drain_deferred_ready(op.request.user_data());
+            return outcome;
         }
 
         bool has_parked(const ring_slot& slot) {
@@ -871,6 +897,15 @@ namespace astia::sys {
 
     void io_device_ready_context_except(const io_device* dev, u64 excluded_user_data) {
         if (dev == nullptr) {
+            return;
+        }
+        if (pump_depth != 0) {
+            for (u32 i = 0; i < deferred_ready_count; ++i) {
+                if (deferred_ready[i] == dev)
+                    return;
+            }
+            if (deferred_ready_count < ready_capacity)
+                deferred_ready[deferred_ready_count++] = const_cast<io_device*>(dev);
             return;
         }
         arch::interrupt_guard gate;
