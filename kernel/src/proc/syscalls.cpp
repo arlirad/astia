@@ -6,6 +6,7 @@
 #include <astia/api/signal.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/context.hpp>
+#include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
@@ -182,21 +183,22 @@ namespace astia::proc {
             u32 mask = 0;
             if (!sys::copy_in(&mask, range)) return -EFAULT;
             const u32 old = owner->signals().blocked();
-            logs::info("sigsuspend pid=%d mask=%x pending=%d", static_cast<int>(owner->pid()),
-                       mask, owner->signals().has_unblocked_pending());
+            // Match waitpid's register-before-scan protocol.  Interrupts stay
+            // masked until either a pending signal is observed or this thread
+            // is blocked, so delivery cannot fall between the check and the
+            // waiter registration.
+            arch::cpu::nointerrupts();
             owner->signals().set_blocked(mask);
+            owner->add_signal_waiter(self);
             while (!owner->signals().has_unblocked_pending()) {
                 // Signal delivery is performed by the syscall exit hook.
-                // Unlike waitpid, this path has no waiter wakeup: a child
-                // exit queues SIGCHLD but only wakes waitpid waiters.  Keep
-                // this thread runnable so the scheduler can return it to
-                // the loop and let the pending signal reach the hook.
-                self->state(thread_state::runnable);
+                // Signal senders clear the registration before waking us.
+                self->state(thread_state::blocked);
                 scheduler::yield();
             }
-            logs::info("sigsuspend wake pid=%d pending=%d", static_cast<int>(owner->pid()),
-                       owner->signals().has_unblocked_pending());
+            owner->remove_signal_waiter(self);
             owner->signals().set_blocked(old);
+            arch::cpu::interrupts();
             return -EINTR;
         }
 

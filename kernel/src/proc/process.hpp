@@ -16,6 +16,7 @@ namespace astia::proc {
 
     inline constexpr u32 max_process_threads = 16;
     inline constexpr u32 max_process_waiters = 4;
+    inline constexpr u32 max_process_signal_waiters = max_process_threads;
 
     /// Userspace spawn limits for the startup frame (argv/envp).
     inline constexpr u32   max_spawn_args     = 16;
@@ -101,6 +102,8 @@ namespace astia::proc {
         bool add_waiter(thread* value);
         void remove_waiter(thread* value);
         void wake_waiters();
+        bool add_signal_waiter(thread* value);
+        void remove_signal_waiter(thread* value);
         void wake_signal_waiters();
 
         bool              add_thread(const mm::shptr<thread>& value);
@@ -246,6 +249,7 @@ namespace astia::proc {
         mm::shptr<thread> threads_[max_process_threads];
         u32               thread_count_ = 0;
         thread*           waiters_[max_process_waiters]{};
+        thread*           signal_waiters_[max_process_signal_waiters]{};
         fd_table          descriptors_;
         arch::page_map*   address_space_ = nullptr;
         u64               tls_tp_        = 0;

@@ -381,11 +381,43 @@ namespace astia::proc {
         }
     }
 
+    bool process::add_signal_waiter(thread* value) {
+        if (value == nullptr) {
+            return false;
+        }
+        core::spinlock_guard guard(process_lock);
+        for (u32 i = 0; i < max_process_signal_waiters; ++i) {
+            if (signal_waiters_[i] == nullptr) {
+                signal_waiters_[i] = value;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void process::remove_signal_waiter(thread* value) {
+        core::spinlock_guard guard(process_lock);
+        for (u32 i = 0; i < max_process_signal_waiters; ++i) {
+            if (signal_waiters_[i] == value) {
+                signal_waiters_[i] = nullptr;
+            }
+        }
+    }
+
     void process::wake_signal_waiters() {
-        for (u32 i = 0; i < max_process_threads; ++i) {
-            auto value = thread_at(i);
-            if (value && value->state() == thread_state::blocked)
-                scheduler::wake(value.get());
+        thread* wake_list[max_process_signal_waiters];
+        u32     count = 0;
+        {
+            core::spinlock_guard guard(process_lock);
+            for (u32 i = 0; i < max_process_signal_waiters; ++i) {
+                if (signal_waiters_[i] != nullptr) {
+                    wake_list[count++] = signal_waiters_[i];
+                    signal_waiters_[i]  = nullptr;
+                }
+            }
+        }
+        for (u32 i = 0; i < count; ++i) {
+            scheduler::wake(wake_list[i]);
         }
     }
 
