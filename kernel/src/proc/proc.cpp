@@ -249,8 +249,13 @@ namespace astia::proc {
                 target->state() == process_state::dead)
                 continue;
             found = true;
-            if (value != 0 && !target->signals().send(static_cast<signal_number>(value)))
-                return -EINVAL;
+            if (value != 0) {
+                if (!target->signals().send(static_cast<signal_number>(value)))
+                    return -EINVAL;
+                // Process-group signals must wake sigsuspend() just like
+                // direct kill() and child exit do.
+                target->wake_signal_waiters();
+            }
         }
         return found ? 0 : -ESRCH;
     }

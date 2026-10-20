@@ -48,8 +48,14 @@ namespace astia::proc {
             if (value == 0) {
                 return 0;
             }
-            return target->signals().send(static_cast<signal_number>(value)) ? 0
-                                                                             : -EINVAL;
+            if (!target->signals().send(static_cast<signal_number>(value))) {
+                return -EINVAL;
+            }
+            // A signal is also a wakeup source for sigsuspend().  Child exit
+            // has the same responsibility in process::thread_exited(); keep
+            // direct kill delivery from leaving a suspended thread asleep.
+            target->wake_signal_waiters();
+            return 0;
         }
 
         i64 sys_getpgrp() { return static_cast<i64>(getpgrp()); }
