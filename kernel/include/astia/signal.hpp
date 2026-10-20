@@ -59,6 +59,8 @@ namespace astia {
     struct signal_disposition {
         signal_action  action  = signal_action::default_action;
         signal_handler handler = nullptr;
+        u64            restorer = 0;
+        signal_mask    mask = 0;
     };
 
     constexpr bool valid_signal(signal_number signal) {

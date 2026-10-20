@@ -5,6 +5,14 @@
 #include <astia/api/signal.h>
 #include <astia/api/syscalls.h>
 
+__attribute__((noreturn, naked, visibility("hidden")))
+void astia_signal_trampoline(void) {
+    __asm__ volatile("movq (%rsp), %rdi\n"
+                     "movl $29, %eax\n"
+                     "syscall\n"
+                     "ud2\n");
+}
+
 int sigemptyset(sigset_t* set) {
     if (set == NULL) {
         errno = EINVAL;
@@ -51,7 +59,17 @@ int sigismember(const sigset_t* set, int signal_number) {
 
 int sigaction(int signal_number, const struct sigaction* action,
               struct sigaction* old_action) {
-    const astia_sigaction_t* next = (const astia_sigaction_t*) action;
+    astia_sigaction_t next_value;
+    const astia_sigaction_t* next = NULL;
+    if (action != NULL) {
+        next_value.handler = (uintptr_t) action->sa_handler;
+        next_value.mask = action->sa_mask;
+        next_value.flags = (uint32_t) action->sa_flags;
+        next_value.restorer = action->sa_restorer != 0
+                                  ? action->sa_restorer
+                                  : (uintptr_t) &astia_signal_trampoline;
+        next = &next_value;
+    }
     astia_sigaction_t*       old  = (astia_sigaction_t*) old_action;
     const long rc = astia_sigaction(signal_number, next, old);
     if (rc < 0) {
@@ -101,8 +119,8 @@ int sigsuspend(const sigset_t* mask) {
 }
 
 sighandler_t signal(int signal_number, sighandler_t handler) {
-    struct sigaction next = {handler, 0, 0};
-    struct sigaction old  = {0, 0, 0};
+    struct sigaction next = {handler, 0, 0, 0};
+    struct sigaction old  = {0, 0, 0, 0};
     if (sigaction(signal_number, &next, &old) != 0) {
         return SIG_ERR;
     }

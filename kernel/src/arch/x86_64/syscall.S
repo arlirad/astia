@@ -37,7 +37,29 @@ astia_syscall_entry:
     sti
     call astia_syscall_dispatch
 
+    cmpq $-2, 0(%rsp)
+    je .sigreturn_return
+    cmpq $-1, 0(%rsp)
+    jne .normal_return
+    movq 8(%rsp), %rdi
+    movq 16(%rsp), %rsi
+    movq 24(%rsp), %rdx
+    movq 32(%rsp), %r10
+    movq 40(%rsp), %r8
+    movq 48(%rsp), %r9
+    xorl %eax, %eax
+    jmp .common_return
+.sigreturn_return:
+    movq 8(%rsp), %rdi
+    movq 16(%rsp), %rsi
+    movq 24(%rsp), %rdx
+    movq 32(%rsp), %r10
+    movq 40(%rsp), %r8
+    movq 48(%rsp), %r9
+.normal_return:
     /* Build an iretq frame from the saved user return state. */
+.common_return:
+    movq 96(%rsp), %rdi       /* saved user R12; keep it across iret setup */
     movq 56(%rsp), %r12       /* user RIP */
     movq 64(%rsp), %r10       /* user RFLAGS */
     movq 72(%rsp), %r11       /* user RSP */
@@ -52,11 +74,9 @@ astia_syscall_entry:
     pushq %r10
     pushq $0x23                /* user CS */
     pushq %r12
-    /* User R12 returns from the frame, not the global stash: two
-       threads' syscalls must not race for one scratch slot (the
-       stash above survives only because this entry must free %r12
-       before it can push anything).  After the five iretq pushes the
-       frame base sits 88 below, so slot 96 is 8(%rsp). */
-    movq 8(%rsp), %r12
+    /* User R12 returns from the frame, not the global stash.  The saved
+       value was kept in %rdi because the iret frame overwrites its slot. */
+    movq %rdi, %r12
+    movq -80(%rsp), %rdi     /* restore saved user RDI after using it as temp */
     iretq
 .size astia_syscall_entry, .-astia_syscall_entry

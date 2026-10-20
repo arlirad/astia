@@ -54,6 +54,11 @@ extern "C" long astia_syscall_dispatch(astia::arch::syscall_frame* frame) {
         static_cast<astia::i64>(frame->a0), static_cast<astia::i64>(frame->a1),
         static_cast<astia::i64>(frame->a2), static_cast<astia::i64>(frame->a3),
         static_cast<astia::i64>(frame->a4), static_cast<astia::i64>(frame->a5), *frame));
+    /* The exit hook uses this slot as the interrupted RAX value.  Signal
+       delivery and sigreturn reserve the two all-ones values as return-mode
+       markers, so do not overwrite those markers here. */
+    if (frame->nr != ~astia::u64{0} && frame->nr != ~astia::u64{1})
+        frame->nr = static_cast<astia::u64>(result);
     if (astia::sys::exit_hook != nullptr) {
         astia::sys::exit_hook(*frame);
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,6 +15,7 @@ struct sigaction {
     sighandler_t sa_handler;
     sigset_t     sa_mask;
     int          sa_flags;
+    uintptr_t    sa_restorer;
 };
 
 #define SIG_DFL ((sighandler_t) 0)

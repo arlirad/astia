@@ -84,7 +84,10 @@ namespace astia::proc {
                 out.handler = old.action == signal_action::ignore ? ASTIA_SIG_IGN
                               : old.action == signal_action::handler
                                   ? reinterpret_cast<uintptr_t>(old.handler)
-                                  : ASTIA_SIG_DFL;
+                                   : ASTIA_SIG_DFL;
+                out.mask = old.mask;
+                out.flags = 0;
+                out.restorer = old.restorer;
                 if (!sys::copy_out(range, &out)) {
                     return -EFAULT;
                 }
@@ -106,12 +109,37 @@ namespace astia::proc {
                 else if (next.handler != ASTIA_SIG_DFL) {
                     disposition.action  = signal_action::handler;
                     disposition.handler = reinterpret_cast<signal_handler>(next.handler);
+                    disposition.restorer = next.restorer;
+                    disposition.mask = next.mask;
+                    if (disposition.restorer == 0 ||
+                        !sys::user_range_ok(sys::user_range::bytes(disposition.restorer, 1)))
+                        return -EFAULT;
                 }
                 if (!owner->signals().disposition(signal, disposition)) {
                     return -EINVAL;
                 }
             }
             return 0;
+        }
+
+        i64 sys_sigreturn(const arch::syscall_frame& input) {
+            const auto range = sys::user_range::bytes(
+                input.a0, sizeof(astia_x86_64_signal_context_t));
+            if (!sys::user_range_ok(range)) return -EFAULT;
+            astia_x86_64_signal_context_t saved{};
+            if (!sys::copy_in(&saved, range)) return -EFAULT;
+            if (saved.rip == 0 || saved.rsp == 0 || saved.rip >= arch::kernel_base ||
+                saved.rsp >= arch::kernel_base || (saved.rflags & (1u << 9)) == 0)
+                return -EFAULT;
+            auto& frame = const_cast<arch::syscall_frame&>(input);
+            frame.nr = ~u64{1};
+            frame.a0 = saved.rdi; frame.a1 = saved.rsi; frame.a2 = saved.rdx;
+            frame.a3 = saved.r10; frame.a4 = saved.r8; frame.a5 = saved.r9;
+            frame.rip = saved.rip; frame.rflags = saved.rflags; frame.rsp = saved.rsp;
+            frame.rbx = saved.rbx; frame.rbp = saved.rbp; frame.r12 = saved.r12;
+            frame.r13 = saved.r13; frame.r14 = saved.r14; frame.r15 = saved.r15;
+            if (auto* owner = current_process()) owner->signals().set_blocked(saved.blocked);
+            return static_cast<i64>(saved.rax);
         }
 
         i64 sys_sigprocmask(i32 how, u32 set, u64 old_ptr) {
@@ -168,7 +196,7 @@ namespace astia::proc {
             return -EINTR;
         }
 
-        void deliver_default_signal(arch::syscall_frame&) {
+        void deliver_default_signal(arch::syscall_frame& raw_frame) {
             auto* owner = current_process();
             auto* self  = current_thread();
             if (owner == nullptr || self == nullptr) {
@@ -180,10 +208,30 @@ namespace astia::proc {
             }
             const signal_disposition disposition = owner->signals().disposition(signal);
             if (disposition.action == signal_action::handler) {
-                // Astia's foreground wait path owns child reaping.  A full
-                // user signal trampoline is not part of this ABI yet; do not
-                // jump to an application handler with a fabricated frame.
-                // The interrupted wait returns EINTR and the caller retries.
+                auto& frame = raw_frame;
+                constexpr usize bytes = sizeof(astia_x86_64_signal_context_t) + 8;
+                if (frame.rsp < bytes || disposition.restorer == 0) goto fatal_signal;
+                const u64 context = frame.rsp - sizeof(astia_x86_64_signal_context_t);
+                const u64 retaddr = context - 8;
+                if (!sys::user_range_ok(sys::user_range::bytes(retaddr, bytes)) ||
+                    !sys::user_range_ok(sys::user_range::bytes(
+                        reinterpret_cast<u64>(disposition.handler), 1)))
+                    goto fatal_signal;
+                astia_x86_64_signal_context_t saved{
+                    frame.nr, frame.rbx, frame.rip, frame.a2, frame.a1, frame.a0,
+                    frame.a4, frame.a5, frame.a3, frame.rflags, frame.r12, frame.r13,
+                    frame.r14, frame.r15, frame.rbp, frame.rip, frame.rsp, frame.rflags,
+                    owner->signals().blocked(), 0};
+                if (!sys::copy_out(sys::user_range::bytes(context, sizeof saved), &saved) ||
+                    !sys::copy_out(sys::user_range::bytes(retaddr, 8), &disposition.restorer))
+                    goto fatal_signal;
+                owner->signals().block(signal_bit(signal) | disposition.mask);
+                frame.nr = ~u64{0};
+                frame.a0 = static_cast<u64>(signal);
+                frame.a1 = frame.a2 = frame.a3 = frame.a4 = frame.a5 = 0;
+                frame.rip = reinterpret_cast<u64>(disposition.handler);
+                frame.rsp = retaddr;
+                frame.rbx = frame.rbp = frame.r12 = frame.r13 = frame.r14 = frame.r15 = 0;
                 return;
             }
             if (default_action(signal) == signal_default::terminate ||
@@ -193,6 +241,11 @@ namespace astia::proc {
                 __builtin_unreachable();
             }
             owner->signals().send(signal);
+            return;
+        fatal_signal:
+            owner->signal_termination(static_cast<i32>(signal));
+            self->exit(reinterpret_cast<void*>(128u + static_cast<u8>(signal)));
+            __builtin_unreachable();
         }
 
         i64 sys_yield() {
@@ -514,7 +567,8 @@ namespace astia::proc {
         return sys::register_syscall<sys_getpid>(sys::syscall_id::getpid) &&
                sys::register_syscall<sys_gettid>(sys::syscall_id::gettid) &&
                sys::register_syscall<sys_kill>(sys::syscall_id::kill) &&
-               sys::register_syscall<sys_sigaction>(sys::syscall_id::sigaction) &&
+                sys::register_syscall<sys_sigaction>(sys::syscall_id::sigaction) &&
+                sys::register_syscall<sys_sigreturn>(sys::syscall_id::sigreturn) &&
                sys::register_syscall<sys_sigprocmask>(sys::syscall_id::sigprocmask) &&
                sys::register_syscall<sys_yield>(sys::syscall_id::yield) &&
                sys::register_syscall<sys_exit>(sys::syscall_id::exit) &&

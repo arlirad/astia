@@ -11,6 +11,27 @@
 enum { ATEXIT_MAX = 32 };
 static void (*g_atexit[ATEXIT_MAX])(void);
 static size_t g_atexit_count;
+
+/* Freestanding C++ runtimes may emit these even when no hosted runtime is
+ * linked.  Keep the ABI available to mixed C/C++ user images; C atexit
+ * handlers retain the normal libc behavior, while destructor callbacks are
+ * run at exit with their registration argument. */
+void* __dso_handle __attribute__((visibility("hidden")));
+void* __dso_handle;
+struct cxa_atexit_entry {
+    void (*function)(void*);
+    void* argument;
+};
+static struct cxa_atexit_entry g_cxa_atexit[ATEXIT_MAX];
+static size_t g_cxa_atexit_count;
+
+int __cxa_atexit(void (*function)(void*), void* argument, void* dso_handle) {
+    (void) dso_handle;
+    if (function == NULL || g_cxa_atexit_count == ATEXIT_MAX)
+        return -1;
+    g_cxa_atexit[g_cxa_atexit_count++] = (struct cxa_atexit_entry){function, argument};
+    return 0;
+}
 /* Every wrapper speaks the seam's convention: >= 0, or negated error
  * code — mapped here to the -1/errno form the standard demands. */
 static int process_result(long rc) {
@@ -93,6 +114,10 @@ _Noreturn void _Exit(int status) {
 }
 
 _Noreturn void exit(int status) {
+    while (g_cxa_atexit_count != 0) {
+        struct cxa_atexit_entry entry = g_cxa_atexit[--g_cxa_atexit_count];
+        entry.function(entry.argument);
+    }
     while (g_atexit_count != 0)
         g_atexit[--g_atexit_count]();
     fflush(NULL); /* ISO C: streams flush after the atexit handlers */
