@@ -7,7 +7,7 @@
 
 __attribute__((noreturn, naked, visibility("hidden")))
 void astia_signal_trampoline(void) {
-    __asm__ volatile("movq (%rsp), %rdi\n"
+    __asm__ volatile("leaq (%rsp), %rdi\n"
                      "movl $29, %eax\n"
                      "syscall\n"
                      "ud2\n");

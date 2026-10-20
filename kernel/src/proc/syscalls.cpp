@@ -182,6 +182,8 @@ namespace astia::proc {
             u32 mask = 0;
             if (!sys::copy_in(&mask, range)) return -EFAULT;
             const u32 old = owner->signals().blocked();
+            logs::info("sigsuspend pid=%d mask=%x pending=%d", static_cast<int>(owner->pid()),
+                       mask, owner->signals().has_unblocked_pending());
             owner->signals().set_blocked(mask);
             while (!owner->signals().has_unblocked_pending()) {
                 // Signal delivery is performed by the syscall exit hook.
@@ -192,6 +194,8 @@ namespace astia::proc {
                 self->state(thread_state::runnable);
                 scheduler::yield();
             }
+            logs::info("sigsuspend wake pid=%d pending=%d", static_cast<int>(owner->pid()),
+                       owner->signals().has_unblocked_pending());
             owner->signals().set_blocked(old);
             return -EINTR;
         }
