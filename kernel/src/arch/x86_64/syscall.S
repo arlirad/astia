@@ -77,6 +77,6 @@ astia_syscall_entry:
     /* User R12 returns from the frame, not the global stash.  The saved
        value was kept in %rdi because the iret frame overwrites its slot. */
     movq %rdi, %r12
-    movq -80(%rsp), %rdi     /* restore saved user RDI after using it as temp */
+     movq -120(%rsp), %rdi    /* restore saved user RDI after using it as temp */
     iretq
 .size astia_syscall_entry, .-astia_syscall_entry
