@@ -1,5 +1,6 @@
 add_library(libcore STATIC
         memory.cpp
+        cxxabi.cpp
 )
 
 target_include_directories(libcore PUBLIC
