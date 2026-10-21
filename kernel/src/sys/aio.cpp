@@ -2,7 +2,7 @@
 
 #include "proc.hpp"
 #include "user_mem.hpp"
-#include "../fs/pipe.hpp"
+#include "../ipc/pipe.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/termios.h>
 #include <astia/arch/cpu.hpp>

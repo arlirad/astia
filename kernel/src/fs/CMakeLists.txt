@@ -2,11 +2,11 @@ add_library(fs STATIC
         fs.cpp
         devfs.cpp
         initrd_fs.cpp
-        pipe.cpp
         initrd_init.cpp
         tmpfs.cpp
         syscalls.cpp
         init_fs.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/pipe.cpp
 )
 
 target_include_directories(fs PUBLIC
@@ -18,4 +18,4 @@ target_include_directories(fs PUBLIC
         ${CMAKE_SOURCE_DIR}/src/initrd
 )
 
-target_link_libraries(fs PUBLIC libcore mm initrd)
+target_link_libraries(fs PUBLIC libcore mm initrd ipc)

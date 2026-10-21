@@ -1,5 +1,6 @@
 # Core source directories
 add_subdirectory(lib)
+add_subdirectory(ipc)
 add_subdirectory(dbg)
 add_subdirectory(core)
 add_subdirectory(mm)

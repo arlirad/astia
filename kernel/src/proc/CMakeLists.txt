@@ -3,13 +3,13 @@ add_library(proc STATIC
         process.cpp
         exec.cpp
         fork.cpp
-        futex.cpp
         mmap.cpp
         syscalls.cpp
         thread.cpp
         fd_table.cpp
         scheduler.cpp
         init_proc.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/futex.cpp
 )
 
 target_include_directories(proc PUBLIC
@@ -19,4 +19,4 @@ target_include_directories(proc PUBLIC
         ${CMAKE_SOURCE_DIR}/src/fs
 )
 
-target_link_libraries(proc PUBLIC libcore core mm arch_${ARCH} fs elf)
+target_link_libraries(proc PUBLIC libcore core mm arch_${ARCH} fs elf ipc)
