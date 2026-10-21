@@ -225,19 +225,6 @@ namespace astia::proc {
         // next thread could attempt the same lock and deadlock permanently.
         arch::interrupt_guard gate;
         discard_image();
-        /* // Remove every VMA's page coverage first.  Sibling VMAs may
-        // intentionally share one allocation reference (`holds_ref`),
-        // so object lifetime and page coverage are released separately.
-        while (mmap_regions_ != nullptr) {
-            mmap_region* victim = mmap_regions_;
-            mmap_regions_       = victim->next;
-            victim->backing->unmap_range(victim->region_page, victim->pages);
-            if (victim->holds_ref) {
-                victim->backing->release_ref();
-            }
-            delete victim;
-        }
-        delete address_space_; */
     }
 
     void process::discard_image() {
@@ -429,8 +416,8 @@ namespace astia::proc {
         if (installed) {
             auto tty = descriptor(STDIN);
             if (tty) {
-                const i32 group = static_cast<i32>(process_group_);
-                (void) tty->ioctl(TIOCSPGRP, const_cast<i32*>(&group));
+                i32 group = static_cast<i32>(process_group_);
+                (void) tty->ioctl(TIOCSPGRP, &group);
             }
         }
         return installed;

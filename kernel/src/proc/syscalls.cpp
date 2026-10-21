@@ -467,11 +467,7 @@ namespace astia::proc {
         /// instruction, so proc::fork wants the caller's whole register
         /// state.  Never blocks.
         i64 sys_fork(const arch::syscall_frame& frame) {
-            const i64 result = proc::fork(arch::caller_image(frame));
-            logs::info("fork pid=%d result=%ld",
-                       current_process() ? static_cast<int>(current_process()->pid()) : -1,
-                       static_cast<long>(result));
-            return result;
+            return proc::fork(arch::caller_image(frame));
         }
 
         i64 sys_futex(u64 address, u32 op, u32 expected, u64 timeout) {
@@ -575,14 +571,14 @@ namespace astia::proc {
         return sys::register_syscall<sys_getpid>(sys::syscall_id::getpid) &&
                sys::register_syscall<sys_gettid>(sys::syscall_id::gettid) &&
                sys::register_syscall<sys_kill>(sys::syscall_id::kill) &&
-                sys::register_syscall<sys_sigaction>(sys::syscall_id::sigaction) &&
-                sys::register_syscall<sys_sigreturn>(sys::syscall_id::sigreturn) &&
+               sys::register_syscall<sys_sigaction>(sys::syscall_id::sigaction) &&
+               sys::register_syscall<sys_sigreturn>(sys::syscall_id::sigreturn) &&
                sys::register_syscall<sys_sigprocmask>(sys::syscall_id::sigprocmask) &&
                sys::register_syscall<sys_yield>(sys::syscall_id::yield) &&
                sys::register_syscall<sys_exit>(sys::syscall_id::exit) &&
                sys::register_syscall<sys_waitpid>(sys::syscall_id::waitpid) &&
-                sys::register_syscall<sys_spawnve>(sys::syscall_id::spawnve) &&
-                sys::register_syscall<sys_execve>(sys::syscall_id::execve) &&
+               sys::register_syscall<sys_spawnve>(sys::syscall_id::spawnve) &&
+               sys::register_syscall<sys_execve>(sys::syscall_id::execve) &&
                sys::register_syscall<sys_sigsuspend>(sys::syscall_id::sigsuspend) &&
                sys::register_syscall<sys_getpgrp>(sys::syscall_id::getpgrp) &&
                sys::register_syscall<sys_setpgid>(sys::syscall_id::setpgid) &&

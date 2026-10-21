@@ -20,6 +20,7 @@ if [ ! -x "$zsh_source/configure" ]; then
     (cd "$zsh_source" && ./Util/preconfig)
 fi
 
+# Kept as a source-tree validation hook; the hook is intentionally a no-op.
 "$root/toolchain/patch-zsh-astia.sh" "$zsh_source"
 
 ASTIA_CROSS_BUILD="$build/astia" ASTIA_SYSROOT="$sysroot" CLANG="$clang" \

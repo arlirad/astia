@@ -356,12 +356,12 @@ namespace astia::sys {
             }
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
-             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
-             (void) cq_post(ring, s.user_data, static_cast<i32>(result));
-             p->entries.release();
-             p->object = mm::shptr<fs::open_file>{};
-             p->used   = false;
-             return true;
+            // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
+            (void) cq_post(ring, s.user_data, static_cast<i32>(result));
+            p->entries.release();
+            p->object = mm::shptr<fs::open_file>{};
+            p->used   = false;
+            return true;
         }
 
         /// Re-submit a parked operation: the device picks its continuation

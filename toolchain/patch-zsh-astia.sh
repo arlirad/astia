@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
-# Astia uses native process groups, tty ownership, signal delivery, and pipe
-# handshakes.  Keep this hook for build compatibility; it must not rewrite zsh.
+# Astia provides process groups, tty ownership, signal delivery, and pipe
+# handshakes natively.  Retain this validation hook for build-script
+# compatibility; it must not rewrite zsh or bypass any of those paths.
 test -d "$1/Src"

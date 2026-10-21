@@ -93,9 +93,9 @@ int sigprocmask(int how, const sigset_t* set, sigset_t* old_set) {
 }
 
 int kill(int pid, int signal_number) {
-    /* Job-control probes and SIGCONT are advisory until process groups are
-       fully implemented; do not turn a completed foreground job into a
-       shell error. SIGCHLD/reaping uses the kernel wait path separately. */
+    /* Keep zsh's job-control probes and stop/continue notifications
+       non-fatal in this minimal libc. SIGCHLD/reaping uses the kernel wait
+       path separately. */
     if (pid <= 0 || signal_number == SIGCONT || signal_number == SIGTSTP)
         return 0;
     const long rc = astia_kill(pid, signal_number);

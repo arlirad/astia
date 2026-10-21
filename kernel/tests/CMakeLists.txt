@@ -224,8 +224,8 @@ if (ARCH STREQUAL "x86_64")
                 COMMENT "Compiling ET_REL fixture hello_initrd.o"
         )
         # The libc in ring 3: the same sources the host tests link, but
-        # freestanding and non-PIE, with the aio ports as the astia side
-        # of the seams.  Userspace images link this against tests/crt0.S.
+        # freestanding and non-PIE, with the AIO ports as Astia's side of the
+        # seams.  Userspace images link this against tests/crt0.S.
         add_library(astia_userspace_libc STATIC
                 ${CMAKE_SOURCE_DIR}/../libc/src/assert.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/backend_aio.c

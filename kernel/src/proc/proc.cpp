@@ -263,9 +263,6 @@ namespace astia::proc {
     i64 waitpid(i32 pid, i32* status, u32 options) {
         process* parent = current_process();
         thread*  self   = current_thread();
-        logs::info("waitpid parent=%d tid=%d target=%d",
-                   parent ? static_cast<int>(parent->pid()) : -1,
-                   self ? static_cast<int>(self->tid()) : -1, pid);
         if (parent == nullptr || self == nullptr) {
             return -ESRCH;
         }
@@ -314,8 +311,6 @@ namespace astia::proc {
                 if (status != nullptr) {
                     *status = zombie_child->wait_status();
                 }
-                logs::info("reaped pid=%u status=%d", static_cast<u32>(child_pid),
-                           status == nullptr ? zombie_child->exit_status() : *status);
                 result = static_cast<i64>(child_pid);
                 parent->remove_waiter(self);
                 taken = {};

@@ -23,8 +23,8 @@ The resulting sysroot contains:
 - `lib/libastia_libc.a` — the freestanding C library.
 
 The first userspace link still needs Astia's `crt0.S` and Clang's compiler
-builtins archive.  This is intentional: startup code is an ABI component and
-will become part of the userspace runtime before porting zsh.
+builtins archive.  This is intentional: startup code is an ABI component of
+every freestanding userspace image, including zsh.
 
 The current end-to-end smoke test automates the sysroot build and links the
 existing libc integration image:
