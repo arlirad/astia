@@ -211,6 +211,12 @@ namespace astia::arch {
         return true; // interrupts stay masked: see cpu::interrupts()
     }
 
+    void load_interrupts() {
+        const idt_pointer pointer{static_cast<u16>(sizeof(idt) - 1),
+                                  reinterpret_cast<u64>(&idt[0])};
+        asm volatile("lidt %0" : : "m"(pointer));
+    }
+
     u64 timer_ticks() {
         return __atomic_load_n(&tick_count, __ATOMIC_RELAXED);
     }

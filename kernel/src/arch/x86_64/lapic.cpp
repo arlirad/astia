@@ -21,6 +21,9 @@ namespace astia::arch::x86_64 {
 
         // Register offsets are byte offsets; the window is u32 dwords.
         constexpr u64 reg_eoi           = 0x0B0 / 4;
+        constexpr u64 reg_id            = 0x020 / 4;
+        constexpr u64 reg_icr_low       = 0x300 / 4;
+        constexpr u64 reg_icr_high      = 0x310 / 4;
         constexpr u64 reg_svr           = 0x0F0 / 4;
         constexpr u64 reg_lvt_timer     = 0x320 / 4;
         constexpr u64 reg_timer_initial = 0x380 / 4;
@@ -105,6 +108,36 @@ namespace astia::arch::x86_64 {
         if (lapic_regs != nullptr) {
             reg_write(reg_eoi, 0); // LAPIC-sourced: EOI goes to the LAPIC
         }
+    }
+
+    u32 lapic::id() { return lapic_regs == nullptr ? 0 : reg_read(reg_id) >> 24; }
+
+    bool lapic::init_sipi(u32 apic_id, u8 vector) {
+        if (lapic_regs == nullptr) return false;
+        reg_write(reg_icr_high, apic_id << 24);
+        reg_write(reg_icr_low, 0x00004500); // INIT, asserted, edge
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        reg_write(reg_icr_low, 0x00000500); // INIT, deassert
+        for (u32 i = 0; i < 1000000; ++i) asm volatile("" ::: "memory");
+        reg_write(reg_icr_low, 0x00004600 | vector);
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        reg_write(reg_icr_low, 0x00004600 | vector); // the architectural second SIPI
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        return (reg_read(reg_icr_low) & (1u << 12)) == 0;
+    }
+
+    bool lapic::init_sipi_all(u8 vector) {
+        if (lapic_regs == nullptr) return false;
+        reg_write(reg_icr_high, 0);
+        reg_write(reg_icr_low, 0x000C4500);
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        reg_write(reg_icr_low, 0x000C0500);
+        for (u32 i = 0; i < 1000000; ++i) asm volatile("" ::: "memory");
+        reg_write(reg_icr_low, 0x000C4600 | vector);
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        reg_write(reg_icr_low, 0x000C4600 | vector);
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        return (reg_read(reg_icr_low) & (1u << 12)) == 0;
     }
 
 } // namespace astia::arch::x86_64

@@ -14,6 +14,7 @@ namespace astia::arch::x86_64 {
     /// when a future user thread enters ring 0; the current kernel remains
     /// on its bootstrap stack until usermode is enabled.
     bool init_gdt_tss();
+    bool init_gdt_tss_cpu(u32 cpu_index);
     void set_kernel_stack(u64 stack_top);
 
 } // namespace astia::arch::x86_64

@@ -223,8 +223,21 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: interrupts ok (lapic)"
                 "selftest: clock ok"
                 "selftest: statx ok"
+                "smp: discovered=2 online=1"
+                "AP startup deferred: no APIC-ID topology"
         )
         set_tests_properties(astia_kernel_lifecycle_smp2 PROPERTIES
+                TIMEOUT 60 ENVIRONMENT "ASTIA_QEMU_SMP=2")
+
+        # Keep a focused SMP boot assertion in addition to the lifecycle run.
+        add_test(NAME astia_kernel_smp_boot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ""
+                "smp: discovered=2 online=1"
+                "AP startup deferred: no APIC-ID topology"
+        )
+        set_tests_properties(astia_kernel_smp_boot PROPERTIES
                 TIMEOUT 60 ENVIRONMENT "ASTIA_QEMU_SMP=2")
 
         # End-to-end initrd: the same kernel, but the boot module is a tarball

@@ -8,6 +8,13 @@ kernel_image_base = 0xFFFFFFFF80000000;
 
 SECTIONS
 {
+    /* AP reset vectors must be below 1 MiB. The frame allocator reserves
+     * this region and the boot identity map covers it. */
+    . = 0x8000;
+    .ap_trampoline : {
+        KEEP(*(.ap_trampoline))
+    }
+
     /* Physical base. QEMU's PVH loader reads segments at their p_paddr and
      * jumps to the physical entry from the .note.Xen descriptor. */
     . = 1M;

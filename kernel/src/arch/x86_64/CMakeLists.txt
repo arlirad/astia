@@ -12,10 +12,12 @@ add_library(arch_x86_64 STATIC
         context.cpp
         gdt.cpp
         gdt.S
+        ap_trampoline.S
         isrs.S
         ${CMAKE_CURRENT_BINARY_DIR}/isrs_gen.S
         init_arch.cpp
         pci_config.cpp
+        smp.cpp
 )
 
 # The 256 per-vector entry stubs (and their address table) are mechanical;

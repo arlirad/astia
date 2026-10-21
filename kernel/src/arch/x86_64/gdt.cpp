@@ -37,21 +37,13 @@ namespace astia::arch::x86_64 {
 
         static_assert(sizeof(tss) == 104);
 
-        alignas(8) u64 gdt[7];
-        alignas(16) tss task_state;
-        gdtr  descriptor;
-        void* kernel_stack;
+        constexpr usize max_cpus = 256;
+        alignas(8) u64 gdt[max_cpus][7];
+        alignas(16) tss task_state[max_cpus];
+        gdtr  descriptor[max_cpus];
+        void* kernel_stack[max_cpus];
 
         extern "C" void astia_load_gdt_tss(const gdtr*, u16 selector);
-
-        void tss_descriptor(u64 base, u32 limit) {
-            const u64 access = 0x89ull << 40; // present, ring 0, available TSS
-            const u64 low    = (limit & 0xFFFFu) | ((base & 0xFFFFFFu) << 16) | access |
-                               (static_cast<u64>((limit >> 16) & 0xFu) << 48) |
-                               ((base >> 24) & 0xFFull) << 56;
-            gdt[5]           = low;
-            gdt[6]           = base >> 32;
-        }
 
         // x86-64 userspace has SSE2 baked into its ABI — compilers emit
         // pxor/movups for plain struct zeroing — so ring 3 needs the
@@ -74,26 +66,36 @@ namespace astia::arch::x86_64 {
         }
     } // namespace
 
-    bool init_gdt_tss() {
+    bool init_gdt_tss_cpu(u32 cpu_index) {
+        if (cpu_index >= max_cpus) return false;
         auto stack = mm::heap::alloc(16 * 1024);
         if (!stack) {
             return false;
         }
-        kernel_stack          = stack.value;
-        task_state            = tss{};
-        task_state.iomap_base = sizeof(tss);
+        kernel_stack[cpu_index]          = stack.value;
+        task_state[cpu_index]            = tss{};
+        task_state[cpu_index].iomap_base = sizeof(tss);
 
-        gdt[0] = 0;
-        gdt[1] = 0x00AF9A000000FFFFull; // ring-0 64-bit code
-        gdt[2] = 0x00AF92000000FFFFull; // ring-0 data
-        gdt[3] = 0x00AFF2000000FFFFull; // ring-3 data
-        gdt[4] = 0x00AFFA000000FFFFull; // ring-3 64-bit code
-        tss_descriptor(reinterpret_cast<u64>(&task_state), sizeof(tss) - 1);
+        auto* cpu_gdt = gdt[cpu_index];
+        cpu_gdt[0] = 0;
+        cpu_gdt[1] = 0x00AF9A000000FFFFull;
+        cpu_gdt[2] = 0x00AF92000000FFFFull;
+        cpu_gdt[3] = 0x00AFF2000000FFFFull;
+        cpu_gdt[4] = 0x00AFFA000000FFFFull;
+        const u64 access = 0x89ull << 40;
+        const u64 base = reinterpret_cast<u64>(&task_state[cpu_index]);
+        cpu_gdt[5] = (sizeof(tss) - 1) | ((base & 0xFFFFFFu) << 16) | access |
+                     (((sizeof(tss) - 1) >> 16) & 0xFu) << 48 | ((base >> 24) & 0xFFull) << 56;
+        cpu_gdt[6] = base >> 32;
 
-        descriptor.limit = sizeof(gdt) - 1;
-        descriptor.base  = reinterpret_cast<u64>(&gdt[0]);
-        set_kernel_stack(reinterpret_cast<u64>(kernel_stack) + 16 * 1024);
-        astia_load_gdt_tss(&descriptor, tss_selector);
+        descriptor[cpu_index].limit = sizeof(gdt[0]) - 1;
+        descriptor[cpu_index].base  = reinterpret_cast<u64>(cpu_gdt);
+        task_state[cpu_index].rsp0 = reinterpret_cast<u64>(kernel_stack[cpu_index]) + 16 * 1024;
+        // The current syscall entry still uses the bootstrap global stack
+        // slot; APs are parked before entering userspace. Keep the BSP slot
+        // intact while each AP nevertheless loads its own syscall MSRs/TSS.
+        if (cpu_index == 0) astia_syscall_stack_top = task_state[cpu_index].rsp0;
+        astia_load_gdt_tss(&descriptor[cpu_index], tss_selector);
 
         constexpr u32 msr_efer  = 0xC0000080;
         constexpr u32 msr_star  = 0xC0000081;
@@ -110,8 +112,10 @@ namespace astia::arch::x86_64 {
         return true;
     }
 
+    bool init_gdt_tss() { return init_gdt_tss_cpu(0); }
+
     void set_kernel_stack(u64 stack_top) {
-        task_state.rsp0         = stack_top;
+        task_state[0].rsp0      = stack_top;
         astia_syscall_stack_top = stack_top;
     }
 

@@ -1,4 +1,5 @@
 #include "gdt.hpp"
+#include "smp.hpp"
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
@@ -125,9 +126,15 @@ namespace astia::arch::x86_64 {
         return init_gdt_tss();
     }
 
+    static bool step_smp(init::context& ctx) {
+        return ctx.info != nullptr && smp::init(*ctx.info);
+    }
+
 } // namespace astia::arch::x86_64
 
 ASTIA_INIT_STEP(memory, paging, astia::arch::x86_64::step_paging, "frames")
 ASTIA_INIT_STEP(devices, gdt_tss, astia::arch::x86_64::step_gdt_tss, "heap")
 ASTIA_INIT_STEP(devices, interrupts, astia::arch::x86_64::step_interrupts, "paging",
                 "gdt_tss")
+ASTIA_INIT_STEP(devices, smp, astia::arch::x86_64::step_smp, "boot_info", "gdt_tss",
+                "interrupts")

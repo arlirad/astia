@@ -52,6 +52,7 @@ namespace astia::arch {
     /// re-executes; false = genuine violation, stays fatal.
     using user_fault_handler = bool (*)(u64 addr, bool write);
     bool register_user_fault_handler(user_fault_handler handler);
+    void load_interrupts();
 
     /// Handler for one maskable device IRQ line, provided by the driver
     /// that owns the device.  Runs with the interrupt gate closed (an

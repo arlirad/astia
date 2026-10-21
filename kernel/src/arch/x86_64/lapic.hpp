@@ -23,6 +23,9 @@ namespace astia::arch::x86_64 {
         /// LAPIC end-of-interrupt, for vectors the LAPIC delivered. No-op
         /// when the LAPIC never came up.
         static void eoi();
+        static u32 id();
+        static bool init_sipi(u32 apic_id, u8 vector);
+        static bool init_sipi_all(u8 vector);
     };
 
 } // namespace astia::arch::x86_64
