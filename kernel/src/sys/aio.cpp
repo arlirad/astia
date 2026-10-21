@@ -44,7 +44,9 @@ namespace astia::sys {
 
     namespace {
 
-        constexpr u32 ring_count    = 2;
+        // The parent keeps its ring while two forked children perform their
+        // pipe handshakes.  Exiting children release their private slots.
+        constexpr u32 ring_count    = 4;
         constexpr u32 park_capacity = 16;
 
         // Longest operation the engine will accept, in bytes.  A CQE result is
@@ -83,6 +85,7 @@ namespace astia::sys {
             /// section on this CPU.  Letting the handler take those locks
             /// would deadlock.
             bool                     done = false;
+            bool                     resuming = false;
             i32                      fd;
             mm::shptr<fs::open_file> object;
             /// The caller's frames, held for the whole flight of the
@@ -366,8 +369,11 @@ namespace astia::sys {
         /// operation on to the next entry.  A device that is still not ready
         /// returns 0 and stays parked.
         void resume_parked(astia_rings* ring, parked_op& op) {
+            if (op.resuming) return;
+            op.resuming = true;
             long result = 0;
             if (pump(op, result) == io_outcome::parked) {
+                op.resuming = false;
                 return;
             }
             // A full CQ leaves the operation and its shared file
@@ -375,6 +381,7 @@ namespace astia::sys {
             if (cq_post(ring, op.request.user_data(), static_cast<i32>(result))) {
                 op.done = true;
             }
+            op.resuming = false;
         }
 
         /// Reclaim park slots whose operations finished in an interrupt
@@ -901,6 +908,29 @@ namespace astia::sys {
             reap_completed(*slot);
             unmap_ring_user(*slot, owner);
             clear_slot(*slot);
+        }
+    }
+
+    void io_exit_process(proc::process* owner) {
+        if (owner == nullptr) return;
+        for (u32 i = 0; i < ring_count; ++i) {
+            ring_slot* slot = g_slots[i];
+            if (slot == nullptr || !slot->used || slot->owner != owner)
+                continue;
+            reap_completed(*slot);
+            bool busy = false;
+            for (u32 p = 0; p < park_capacity; ++p) {
+                if (slot->park[p].used) {
+                    busy = true;
+                    break;
+                }
+            }
+            if (busy)
+                continue;
+            unmap_ring_user(*slot, owner);
+            clear_slot(*slot);
+            g_slots[i] = nullptr;
+            slot->~ring_slot();
         }
     }
 

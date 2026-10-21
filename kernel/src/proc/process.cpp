@@ -292,6 +292,9 @@ namespace astia::proc {
             exit_status_ = status;
             state_       = process_state::zombie;
         }
+        // Release a child's private ring at exit rather than waiting for
+        // waitpid: the parent and subsequent children may still need slots.
+        sys::io_exit_process(this);
         // A dynamically-created thread owns a private static-TLS VMA.
         // It is safe to remove after the thread has entered the kernel
         // through pthread_exit: no user instruction will touch %fs
