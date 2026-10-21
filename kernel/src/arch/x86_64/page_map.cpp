@@ -1,5 +1,8 @@
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
+#ifndef ASTIA_HOST_TEST
+#include <astia/arch/cpu.hpp>
+#endif
 #include <astia/mm/frame_allocator.hpp>
 
 // x86_64 4-level paging (Intel SDM Vol. 3A, "IA-32e Paging"):
@@ -48,6 +51,25 @@ namespace astia::arch {
         // is arch::recursive_base). create() writes it after any parent copy,
         // and map_4k/map_2m/unmap refuse to operate inside the window.
         constexpr usize recursive_slot = 510;
+
+        // Release only page-table frames. User leaf frames belong to VMAs;
+        // higher-half tables may be shared with the kernel map.
+        void release_table(paddr_t frame, u32 level) {
+            auto* table = static_cast<u64*>(mm::kernel_frames().to_virt(frame));
+            if (table == nullptr) {
+                return;
+            }
+            if (level > 1) {
+                for (usize i = 0; i < 512; ++i) {
+                    const u64 entry = table[i];
+                    if ((entry & entry_present) == 0 || (entry & entry_huge) != 0) {
+                        continue;
+                    }
+                    release_table(entry & address_mask, level - 1);
+                }
+            }
+            mm::kernel_frames().release(frame);
+        }
 
         // The map currently installed in the hardware root register — set by
         // activate(). Null before the first activation and always null in
@@ -226,8 +248,28 @@ namespace astia::arch {
         other.parent_ = nullptr;
     }
 
+    page_map::~page_map() {
+        if (!valid()) {
+            return;
+        }
+#ifndef ASTIA_HOST_TEST
+        interrupt_guard gate;
+#endif
+        u64*            root = root_table(*this);
+        for (usize i = 0; i < kernel_slot; ++i) {
+            const u64 entry = root[i];
+            if ((entry & entry_present) != 0 && (entry & entry_huge) == 0) {
+                release_table(entry & address_mask, 3);
+            }
+        }
+        mm::kernel_frames().release(root_);
+        root_   = 0;
+        parent_ = nullptr;
+    }
+
     page_map& page_map::operator=(page_map&& other) noexcept {
         if (this != &other) {
+            page_map old(static_cast<page_map&&>(*this));
             root_         = other.root_;
             parent_       = other.parent_;
             other.root_   = 0;

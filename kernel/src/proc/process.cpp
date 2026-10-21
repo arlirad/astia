@@ -225,6 +225,13 @@ namespace astia::proc {
         // next thread could attempt the same lock and deadlock permanently.
         arch::interrupt_guard gate;
         discard_image();
+        // Member destructors run after this body, which would otherwise
+        // restore IF before their shptr releases. Empty them while the gate
+        // is still closed.
+        descriptors_.clear_all();
+        for (u32 i = 0; i < max_process_threads; ++i) {
+            threads_[i] = {};
+        }
     }
 
     void process::discard_image() {
@@ -320,14 +327,18 @@ namespace astia::proc {
     }
 
     void process::release_thread(thread* value) {
-        core::spinlock_guard guard(process_lock);
-        for (u32 i = 0; i < max_process_threads; ++i) {
-            if (threads_[i] && threads_[i].get() == value) {
-                threads_[i] = {};
-                if (thread_count_ != 0) {
-                    --thread_count_;
+        mm::shptr<thread> released;
+        {
+            core::spinlock_guard guard(process_lock);
+            for (u32 i = 0; i < max_process_threads; ++i) {
+                if (threads_[i] && threads_[i].get() == value) {
+                    // Do not run ~thread while process_lock is held.
+                    released = static_cast<mm::shptr<thread>&&>(threads_[i]);
+                    if (thread_count_ != 0) {
+                        --thread_count_;
+                    }
+                    break;
                 }
-                return;
             }
         }
     }

@@ -60,6 +60,7 @@ namespace astia::arch {
 
         /// Empty (invalid) map; a placeholder for create()/assignment.
         page_map() = default;
+        ~page_map();
 
         /// Allocate a fresh, zeroed root table. Check valid() before use.
         /// With `parent`, the child also starts out seeing the parent's

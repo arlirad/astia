@@ -212,6 +212,21 @@ if (ARCH STREQUAL "x86_64")
         )
         set_tests_properties(astia_kernel_boot PROPERTIES TIMEOUT 60)
 
+        # Repeat the process/thread/ring lifecycle with two virtual CPUs. The
+        # kernel still has one scheduling domain; this deliberately changes
+        # only QEMU's interrupt topology so teardown paths are exercised under
+        # the multi-vCPU configuration without broad SMP policy changes.
+        add_test(NAME astia_kernel_lifecycle_smp2
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ""
+                "selftest: interrupts ok (lapic)"
+                "selftest: clock ok"
+                "selftest: statx ok"
+        )
+        set_tests_properties(astia_kernel_lifecycle_smp2 PROPERTIES
+                TIMEOUT 60 ENVIRONMENT "ASTIA_QEMU_SMP=2")
+
         # End-to-end initrd: the same kernel, but the boot module is a tarball
         # carrying a self-contained ET_REL module. QEMU's PVH path puts -initrd in
         # the modlist, so this covers modlist -> tar walk -> ELF load -> run.

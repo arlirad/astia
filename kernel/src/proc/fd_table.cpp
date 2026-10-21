@@ -34,6 +34,12 @@ namespace astia::proc {
         return true;
     }
 
+    void fd_table::clear_all() {
+        for (u32 fd = 0; fd < max_process_fds; ++fd) {
+            entries_[fd] = {};
+        }
+    }
+
     i32 fd_table::duplicate(i32 old_fd) {
         auto source = get(old_fd);
         if (!source) {

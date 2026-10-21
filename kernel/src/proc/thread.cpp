@@ -30,6 +30,10 @@ namespace astia::proc {
         : owner_(owner), tid_(id), context_(arch::context_create()) {}
 
     thread::~thread() {
+        // Destruction can happen on an interruptible join path, not only in
+        // scheduler::reap_dead_threads(); both operations take allocator
+        // state protected by locks.
+        arch::interrupt_guard gate;
         mm::heap::free(kernel_stack_);
         arch::context_destroy(context_);
     }

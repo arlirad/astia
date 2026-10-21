@@ -17,6 +17,7 @@ namespace astia::proc {
         mm::shptr<fs::open_file> get(i32 fd) const;
         bool                     set(i32 fd, const mm::shptr<fs::open_file>& file);
         bool                     clear(i32 fd);
+        void                     clear_all();
         i32                      duplicate(i32 old_fd);
         i32                      duplicate_to(i32 old_fd, i32 new_fd);
 
