@@ -1,6 +1,7 @@
 #include "support/test.hpp"
 #include <astia/api/signal.h>
-#include <astia/signal.hpp>
+
+#include <signal.hpp>
 
 ASTIA_TEST(signal_state_queues_and_masks_signals) {
     astia::signal_state state;

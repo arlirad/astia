@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../ipc/signal.hpp"
 #include "fd_table.hpp"
 #include "mmap_region.hpp"
 #include "thread.hpp"
@@ -8,7 +9,6 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
-#include <astia/signal.hpp>
 
 namespace astia::proc {
 

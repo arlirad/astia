@@ -19,6 +19,7 @@ target_include_directories(astia_test_support PUBLIC
 set(_astia_test_includes
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/src/lib
+        ${CMAKE_SOURCE_DIR}/src/ipc
         ${CMAKE_SOURCE_DIR}/src/mm
         ${CMAKE_SOURCE_DIR}/src/elf
         ${CMAKE_SOURCE_DIR}/src/initrd
