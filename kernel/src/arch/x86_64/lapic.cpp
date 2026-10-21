@@ -110,7 +110,21 @@ namespace astia::arch::x86_64 {
         }
     }
 
+    bool lapic::enable() {
+        if (lapic_regs == nullptr) return false;
+        reg_write(reg_svr, 0x1FF);
+        return true;
+    }
+
     u32 lapic::id() { return lapic_regs == nullptr ? 0 : reg_read(reg_id) >> 24; }
+
+    bool lapic::send_ipi(u32 apic_id, u8 vector) {
+        if (lapic_regs == nullptr) return false;
+        reg_write(reg_icr_high, apic_id << 24);
+        reg_write(reg_icr_low, static_cast<u32>(vector));
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        return (reg_read(reg_icr_low) & (1u << 12)) == 0;
+    }
 
     bool lapic::init_sipi(u32 apic_id, u8 vector) {
         if (lapic_regs == nullptr) return false;

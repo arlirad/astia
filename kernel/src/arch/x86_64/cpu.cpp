@@ -1,4 +1,5 @@
 #include "gdt.hpp"
+#include "smp.hpp"
 #include <astia/arch/cpu.hpp>
 
 namespace astia::arch {
@@ -25,6 +26,16 @@ namespace astia::arch {
 
     void cpu::set_kernel_stack(u64 stack_top) {
         x86_64::set_kernel_stack(stack_top);
+    }
+
+    void cpu::request_reschedule() {
+        x86_64::smp::request_reschedule();
+    }
+
+    u32 cpu::current_index() {
+        u32 value;
+        asm volatile("movl %%gs:0, %0" : "=r"(value));
+        return value;
     }
 
 } // namespace astia::arch

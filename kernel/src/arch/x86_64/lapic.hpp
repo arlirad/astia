@@ -12,6 +12,7 @@ namespace astia::arch::x86_64 {
     class lapic {
         public:
         static constexpr u32 timer_vector = 48; // past the PIC's 32..47
+        static constexpr u32 reschedule_vector = 49;
 
         /// Bring the LAPIC up as the tick source at `hz`: map the MMIO
         /// window, software-enable the APIC, measure the timer against a
@@ -23,7 +24,9 @@ namespace astia::arch::x86_64 {
         /// LAPIC end-of-interrupt, for vectors the LAPIC delivered. No-op
         /// when the LAPIC never came up.
         static void eoi();
+        static bool enable();
         static u32 id();
+        static bool send_ipi(u32 apic_id, u8 vector);
         static bool init_sipi(u32 apic_id, u8 vector);
         static bool init_sipi_all(u8 vector);
     };

@@ -5,15 +5,21 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/mm/share.hpp>
+#include <astia/core/spinlock.hpp>
 
 namespace astia::proc::scheduler {
 
     namespace {
+        inline constexpr u32 max_cpus = 256;
         inline constexpr u32 queue_capacity = 32;
-        thread*              queue[queue_capacity];
-        u32                  queue_count = 0;
+        struct cpu_state {
+            core::spinlock lock;
+            thread* queue[queue_capacity]{};
+            u32 queue_count = 0;
+            thread* idle_thread = nullptr;
+            bool initialized = false;
+        } cpus[max_cpus];
         bool                 initialized = false;
-        thread*              idle_thread = nullptr;
 
         void idle_entry(void*) {
             // Entered by a switch like any other thread, and the switcher's
@@ -29,37 +35,33 @@ namespace astia::proc::scheduler {
             if (value == nullptr) {
                 return false;
             }
+            const u32 index = value->cpu_owner();
+            if (index >= max_cpus || !cpus[index].initialized) return false;
+            auto& state = cpus[index];
+            core::spinlock_guard guard(state.lock);
             if (value->queued()) {
                 return true;
             }
-            if (queue_count == queue_capacity) {
+            if (state.queue_count == queue_capacity) {
                 return false;
             }
             value->queued(true);
-            queue[queue_count++] = value;
+            state.queue[state.queue_count++] = value;
             return true;
         }
 
-        thread* remove_at(u32 index) {
-            thread* value = queue[index];
-            value->queued(false);
-            for (u32 i = index + 1; i < queue_count; ++i) {
-                queue[i - 1] = queue[i];
-            }
-            --queue_count;
-            return value;
-        }
-
-        thread* select_next() {
-            if (queue_count == 0) {
+        thread* select_next(u32 index) {
+            auto& state = cpus[index];
+            core::spinlock_guard guard(state.lock);
+            if (state.queue_count == 0) {
                 return nullptr;
             }
 
             // Realtime policy: strict priority, FIFO among equal priority.
             i32 realtime_index    = -1;
             u8  realtime_priority = 0;
-            for (u32 i = 0; i < queue_count; ++i) {
-                thread* value = queue[i];
+            for (u32 i = 0; i < state.queue_count; ++i) {
+                thread* value = state.queue[i];
                 if (value->state() != thread_state::runnable ||
                     value->sched_class() != scheduling_class::realtime) {
                     continue;
@@ -70,7 +72,12 @@ namespace astia::proc::scheduler {
                 }
             }
             if (realtime_index >= 0) {
-                return remove_at(static_cast<u32>(realtime_index));
+                thread* value = state.queue[realtime_index];
+                value->queued(false);
+                for (u32 i = static_cast<u32>(realtime_index) + 1; i < state.queue_count; ++i)
+                    state.queue[i - 1] = state.queue[i];
+                --state.queue_count;
+                return value;
             }
 
             // Normal policy: lowest virtual runtime first.  nice affects
@@ -78,8 +85,8 @@ namespace astia::proc::scheduler {
             // advances more slowly and receives more CPU time.
             i32 normal_index = -1;
             u64 lowest       = ~u64{0};
-            for (u32 i = 0; i < queue_count; ++i) {
-                thread* value = queue[i];
+            for (u32 i = 0; i < state.queue_count; ++i) {
+                thread* value = state.queue[i];
                 if (value->state() != thread_state::runnable) {
                     continue;
                 }
@@ -88,7 +95,13 @@ namespace astia::proc::scheduler {
                     lowest       = value->vruntime();
                 }
             }
-            return normal_index < 0 ? nullptr : remove_at(static_cast<u32>(normal_index));
+            if (normal_index < 0) return nullptr;
+            thread* value = state.queue[normal_index];
+            value->queued(false);
+            for (u32 i = static_cast<u32>(normal_index) + 1; i < state.queue_count; ++i)
+                state.queue[i - 1] = state.queue[i];
+            --state.queue_count;
+            return value;
         }
 
         u64 nice_charge(i32 nice) {
@@ -114,6 +127,12 @@ namespace astia::proc::scheduler {
         if (!initialized || !arch::register_timer_hook(tick)) {
             return false;
         }
+        if (!init_cpu(arch::cpu::current_index())) return false;
+        return true;
+    }
+
+    bool init_cpu(u32 cpu_index) {
+        if (!initialized || cpu_index >= max_cpus || cpus[cpu_index].initialized) return false;
         auto idle = mm::share<thread>(proc::kernel_process(), proc::allocate_tid());
         if (!idle || !idle->prepare_kernel(idle_entry, nullptr) ||
             !proc::kernel_process()->add_thread(idle)) {
@@ -121,7 +140,16 @@ namespace astia::proc::scheduler {
         }
         idle->idle(true);
         idle->state(thread_state::runnable);
-        idle_thread = idle.get();
+        idle->cpu_owner(cpu_index);
+        cpus[cpu_index].idle_thread = idle.get();
+        cpus[cpu_index].initialized = true;
+        // APs enter directly in their idle loop rather than through a
+        // context switch, so publish the CPU-local current object now.  The
+        // BSP already owns its bootstrap thread and keeps it.
+        if (proc::current_thread() == nullptr) {
+            idle->state(thread_state::running);
+            proc::set_current_thread(idle.get());
+        }
         return true;
     }
 
@@ -140,6 +168,8 @@ namespace astia::proc::scheduler {
         value->nice(nice);
         value->rt_priority(rt_priority);
         value->state(thread_state::runnable);
+        value->cpu_owner(arch::cpu::current_index());
+        arch::interrupt_guard gate;
         if (!enqueue(value.get())) {
             return {};
         }
@@ -156,17 +186,17 @@ namespace astia::proc::scheduler {
         if (value == nullptr || value->state() == thread_state::dead) {
             return false;
         }
+        arch::interrupt_guard gate;
         value->state(thread_state::runnable);
-        return enqueue(value);
+        const bool queued = enqueue(value);
+        if (queued) arch::cpu::request_reschedule();
+        return queued;
     }
 
     void tick() {
         thread* current = proc::current_thread();
         if (current != nullptr && current->sched_class() == scheduling_class::normal) {
             current->charge_runtime(nice_charge(current->nice()));
-        }
-        if (queue_count == 0) {
-            return;
         }
         // The timer's dispatch has already EOI'd the source.  The gate
         // stays shut across the switch: yield() saves this thread's
@@ -182,6 +212,7 @@ namespace astia::proc::scheduler {
             return;
         }
         thread* previous = proc::current_thread();
+        const u32 cpu_index = arch::cpu::current_index();
         if (previous == nullptr) {
             return;
         }
@@ -215,9 +246,9 @@ namespace astia::proc::scheduler {
             }
         }
 
-        thread* next = select_next();
+        thread* next = select_next(cpu_index);
         if (next == nullptr) {
-            next = idle_thread;
+            next = cpus[cpu_index].idle_thread;
         }
         if (next == nullptr) {
             if (previous->state() != thread_state::dead) {
@@ -231,7 +262,7 @@ namespace astia::proc::scheduler {
             // exists, even if vruntime still prefers the caller.  Otherwise
             // a thread charged by a timer tick can starve a fresh thread
             // while repeatedly selecting itself.
-            next = select_next();
+            next = select_next(cpu_index);
             if (next == nullptr) {
                 previous->state(thread_state::running);
                 restore_gate(gate_open);

@@ -1,6 +1,7 @@
 #include "gdt.hpp"
 
 #include "io.hpp"
+#include <astia/arch/cpu.hpp>
 #include <astia/mm/heap.hpp>
 
 namespace astia::arch::x86_64 {
@@ -42,6 +43,7 @@ namespace astia::arch::x86_64 {
         alignas(16) tss task_state[max_cpus];
         gdtr  descriptor[max_cpus];
         void* kernel_stack[max_cpus];
+        alignas(64) u32 cpu_local_index[max_cpus];
 
         extern "C" void astia_load_gdt_tss(const gdtr*, u16 selector);
 
@@ -95,7 +97,14 @@ namespace astia::arch::x86_64 {
         // slot; APs are parked before entering userspace. Keep the BSP slot
         // intact while each AP nevertheless loads its own syscall MSRs/TSS.
         if (cpu_index == 0) astia_syscall_stack_top = task_state[cpu_index].rsp0;
-        astia_load_gdt_tss(&descriptor[cpu_index], tss_selector);
+            astia_load_gdt_tss(&descriptor[cpu_index], tss_selector);
+
+        // GS is reserved for the small CPU-local anchor.  Keeping this out
+        // of the process/TLS machinery means the scheduler can identify the
+        // current CPU before user mode exists.
+        constexpr u32 msr_gs_base = 0xC0000101;
+        cpu_local_index[cpu_index] = cpu_index;
+        wrmsr(msr_gs_base, reinterpret_cast<u64>(&cpu_local_index[cpu_index]));
 
         constexpr u32 msr_efer  = 0xC0000080;
         constexpr u32 msr_star  = 0xC0000081;
@@ -115,7 +124,8 @@ namespace astia::arch::x86_64 {
     bool init_gdt_tss() { return init_gdt_tss_cpu(0); }
 
     void set_kernel_stack(u64 stack_top) {
-        task_state[0].rsp0      = stack_top;
+        const u32 index = ::astia::arch::cpu::current_index();
+        task_state[index].rsp0 = stack_top;
         astia_syscall_stack_top = stack_top;
     }
 

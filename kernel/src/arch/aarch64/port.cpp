@@ -68,6 +68,9 @@ namespace astia::arch {
     }
 
     void cpu::set_kernel_stack(u64) {}
+    void cpu::request_reschedule() {}
+
+    u32 cpu::current_index() { return 0; }
 
     // No GICv3/port-based timer bringup yet; the aarch64 port implements
     // this when it gains an interrupt controller driver.

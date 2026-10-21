@@ -38,6 +38,11 @@ namespace astia::arch {
         /// architectures may leave this as a no-op until their exception
         /// level transition is implemented.
         static void set_kernel_stack(u64 stack_top);
+        static void request_reschedule();
+
+        /// Logical CPU index assigned during SMP bring-up.  The value is
+        /// CPU-local and remains stable for the lifetime of the CPU.
+        static u32 current_index();
     };
 
     /// Scoped mask of the maskable-interrupt gate: nointerrupts() on

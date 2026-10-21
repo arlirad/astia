@@ -8,6 +8,7 @@
 #include <astia/log.hpp>
 #include "gdt.hpp"
 #include "lapic.hpp"
+#include "../../proc/scheduler.hpp"
 
 extern "C" {
 extern volatile astia::u32 astia_ap_cr3;
@@ -30,6 +31,7 @@ namespace astia::arch::x86_64::smp {
         u32 cpu_total = 1;
         u32 cpu_online = 1;
         u32 apic_ids[max_cpus]{};
+        alignas(64) u32 reschedule_pending[max_cpus]{};
 
         extern "C" void ap_entry(u64 cpu_index) {
             logs::info("AP%u entered trampoline", static_cast<u32>(cpu_index));
@@ -38,10 +40,25 @@ namespace astia::arch::x86_64::smp {
                 return;
             }
             astia::arch::load_interrupts();
+            if (!astia::proc::scheduler::init_cpu(static_cast<u32>(cpu_index))) {
+                logs::error("AP%u scheduler initialization failed", static_cast<u32>(cpu_index));
+                return;
+            }
+            if (!lapic::enable()) {
+                logs::error("AP%u LAPIC enable failed", static_cast<u32>(cpu_index));
+                return;
+            }
             __atomic_fetch_add(&cpu_online, 1, __ATOMIC_RELEASE);
             logs::info("AP%u online", static_cast<u32>(cpu_index));
-            astia::arch::cpu::nointerrupts();
-            for (;;) astia::arch::cpu::halt();
+            astia::arch::cpu::interrupts();
+            logs::info("AP%u park", static_cast<u32>(cpu_index));
+            for (;;) {
+                astia::arch::cpu::halt();
+                if (consume_reschedule(static_cast<u32>(cpu_index))) {
+                    logs::info("AP%u wake", static_cast<u32>(cpu_index));
+                    logs::info("AP%u park", static_cast<u32>(cpu_index));
+                }
+            }
         }
 
         u32 cpuid_threads() {
@@ -160,10 +177,12 @@ namespace astia::arch::x86_64::smp {
     bool init(const boot::boot_info& info) {
         cpu_total = 1;
         cpu_online = 1;
+        __atomic_store_n(&reschedule_pending[0], 0u, __ATOMIC_RELAXED);
         bool have_acpi = info.rsdp != 0;
         if (!have_acpi) {
             cpu_total = cpuid_threads();
             logs::info("discovered=%u online=1 (CPUID; no ACPI RSDP)", cpu_total);
+            logs::info("reschedule IPI armed");
             if (cpu_total > 2) {
                 logs::error("AP startup unavailable: no APIC-ID topology (safe limit is 1 AP)");
                 return true;
@@ -175,6 +194,7 @@ namespace astia::arch::x86_64::smp {
             have_acpi = false;
             cpu_total = cpuid_threads();
             logs::info("discovered=%u online=1 (CPUID; invalid ACPI RSDP)", cpu_total);
+            logs::info("reschedule IPI armed");
             if (cpu_total > 1) {
                 logs::info("AP startup deferred: no APIC-ID topology (invalid ACPI RSDP)");
                 return true;
@@ -186,6 +206,7 @@ namespace astia::arch::x86_64::smp {
         if (cpu_total <= 1) return true;
         if (!have_acpi) {
             logs::info("AP startup deferred: no APIC-ID topology (PVH provides no ACPI RSDP)");
+            logs::info("reschedule IPI armed");
             return true;
         }
 
@@ -218,10 +239,26 @@ namespace astia::arch::x86_64::smp {
             ++index;
         }
         logs::info("online=%u", cpu_online);
+        logs::info("reschedule IPI armed");
+        request_reschedule();
         return true;
     }
 
     u32 discovered_cpus() { return cpu_total; }
     u32 online_cpus() { return cpu_online; }
+
+    void request_reschedule() {
+        const u32 online = __atomic_load_n(&cpu_online, __ATOMIC_ACQUIRE);
+        for (u32 index = 1; index < online && index < max_cpus; ++index) {
+            __atomic_store_n(&reschedule_pending[index], 1u, __ATOMIC_RELEASE);
+            (void)lapic::send_ipi(apic_ids[index], lapic::reschedule_vector);
+        }
+    }
+
+    bool consume_reschedule(u32 cpu_index) {
+        if (cpu_index >= max_cpus) return false;
+        return __atomic_exchange_n(&reschedule_pending[cpu_index], 0u,
+                                   __ATOMIC_ACQ_REL) != 0;
+    }
 
 } // namespace astia::arch::x86_64::smp

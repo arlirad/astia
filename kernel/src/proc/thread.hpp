@@ -63,6 +63,13 @@ namespace astia::proc {
         bool queued() const {
             return queued_;
         }
+
+        u32 cpu_owner() const {
+            return cpu_owner_;
+        }
+        void cpu_owner(u32 value) {
+            cpu_owner_ = value;
+        }
         void queued(bool value) {
             queued_ = value;
         }
@@ -171,6 +178,7 @@ namespace astia::proc {
         bool             idle_              = false;
         bool             gate_open_         = true;
         bool             queued_            = false;
+        u32              cpu_owner_        = 0;
     };
 
 } // namespace astia::proc

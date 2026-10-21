@@ -166,6 +166,10 @@ namespace astia::arch {
             }
             return;
         }
+        if (vector == lapic::reschedule_vector) {
+            lapic::eoi();
+            return;
+        }
         if (vector >= pic::irq_base && vector < pic::irq_base + 16) {
             // Driver-owned lines: service first, EOI after, so the 8259
             // sees the next edge only once the device has been drained.

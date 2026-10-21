@@ -19,7 +19,8 @@ namespace astia::proc {
         using spawn_logs = logs::child<"spawn">;
 
         process* kernel   = nullptr;
-        thread*  current  = nullptr;
+        inline constexpr u32 max_cpus = 256;
+        thread*  current[max_cpus]{};
         tid_t    next_tid = 1;
         pid_t    next_pid = 1;
 
@@ -95,7 +96,7 @@ namespace astia::proc {
             return false;
         }
         bootstrap->state(thread_state::running);
-        current = bootstrap.get();
+        current[arch::cpu::current_index()] = bootstrap.get();
         kernel->state(process_state::runnable);
         return true;
     }
@@ -105,11 +106,13 @@ namespace astia::proc {
     }
 
     process* current_process() {
-        return current == nullptr ? nullptr : current->owner();
+        thread* value = current_thread();
+        return value == nullptr ? nullptr : value->owner();
     }
 
     thread* current_thread() {
-        return current;
+        const u32 index = arch::cpu::current_index();
+        return index < max_cpus ? current[index] : nullptr;
     }
 
     tid_t allocate_tid() {
@@ -117,7 +120,8 @@ namespace astia::proc {
     }
 
     void set_current_thread(thread* value) {
-        current = value;
+        const u32 index = arch::cpu::current_index();
+        if (index < max_cpus) current[index] = value;
     }
 
     mm::shptr<process> spawnve(const char* path, char* const argv[], char* const envp[],
