@@ -40,7 +40,8 @@ namespace astia::arch::x86_64::smp {
                 return;
             }
             astia::arch::load_interrupts();
-            if (!astia::proc::scheduler::init_cpu(static_cast<u32>(cpu_index))) {
+            if (astia::proc::scheduler::ready() &&
+                !astia::proc::scheduler::init_cpu(static_cast<u32>(cpu_index))) {
                 logs::error("AP%u scheduler initialization failed", static_cast<u32>(cpu_index));
                 return;
             }
