@@ -14,8 +14,8 @@ namespace astia::proc {
 
     using pid_t = u32;
 
-    inline constexpr u32 max_process_threads = 16;
-    inline constexpr u32 max_process_waiters = 4;
+    inline constexpr u32 max_process_threads        = 16;
+    inline constexpr u32 max_process_waiters        = 4;
     inline constexpr u32 max_process_signal_waiters = max_process_threads;
 
     /// Userspace spawn limits for the startup frame (argv/envp).
@@ -77,7 +77,9 @@ namespace astia::proc {
             return termination_signal_ != 0 ? (termination_signal_ & 0x7f)
                                             : ((exit_status_ & 0xff) << 8);
         }
-        void signal_termination(i32 signal) { termination_signal_ = signal; }
+        void signal_termination(i32 signal) {
+            termination_signal_ = signal;
+        }
 
         signal_state& signals() {
             return signals_;
@@ -199,12 +201,11 @@ namespace astia::proc {
         /// (POSIX — file offsets move together).
         bool copy_descriptors_from(const process& other);
 
-        bool exec_user_image(const void* bytes, usize length,
-                             char* const argv[], char* const envp[],
-                             u64* entry_out, u64* stack_out);
+        bool exec_user_image(const void* bytes, usize length, char* const argv[],
+                             char* const envp[], u64* entry_out, u64* stack_out);
         bool exec_user_file(const mm::shptr<fs::open_file>& file, usize length,
-                            char* const argv[], char* const envp[],
-                            u64* entry_out, u64* stack_out);
+                            char* const argv[], char* const envp[], u64* entry_out,
+                            u64* stack_out);
         bool load_user_file(const mm::shptr<fs::open_file>& file, usize length,
                             u64* entry_out);
 
@@ -241,8 +242,8 @@ namespace astia::proc {
         pid_t process_group_;
         pid_t session_;
         char  name_[32]{};
-        process_state state_       = process_state::fresh;
-        i32           exit_status_ = 0;
+        process_state state_              = process_state::fresh;
+        i32           exit_status_        = 0;
         i32           termination_signal_ = 0;
         signal_state  signals_{};
 

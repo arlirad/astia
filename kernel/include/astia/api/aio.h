@@ -280,8 +280,8 @@ enum {
     OP_READDIR = 23,
     /* Fence: dispatch waits for all older parked operations before applying
        the control request; later SQEs are ordered after its completion. */
-    OP_IOCTL   = 24,
-    OP_PIPE    = 25,
+    OP_IOCTL = 24,
+    OP_PIPE  = 25,
 };
 
 /* astia_sqe.flags */

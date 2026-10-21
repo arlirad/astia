@@ -1,9 +1,10 @@
 #include "common.h"
+
 #include <fcntl.h>
 #include <stdlib.h>
 
 static int copy_lines(int fd, const char* name, unsigned long wanted) {
-    char buffer[4096];
+    char          buffer[4096];
     unsigned long lines = 0;
     for (;;) {
         long count = read(fd, buffer, sizeof buffer);
@@ -23,7 +24,7 @@ static int copy_lines(int fd, const char* name, unsigned long wanted) {
 
 int main(int argc, char** argv) {
     unsigned long lines = 10;
-    int first = 1;
+    int           first = 1;
     if (first < argc && argv[first][0] == '-') {
         lines = strtoul(argv[first] + (argv[first][1] == 'n' ? 2 : 1), 0, 10);
         first++;

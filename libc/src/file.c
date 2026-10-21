@@ -102,9 +102,20 @@ char* cuserid(char* buffer) {
     return buffer;
 }
 
-FILE* fdopen(int fd, const char* mode) { (void) fd; (void) mode; return NULL; }
-FILE* popen(const char* command, const char* mode) { (void) command; (void) mode; return NULL; }
-int pclose(FILE* stream) { (void) stream; return -1; }
+FILE* fdopen(int fd, const char* mode) {
+    (void) fd;
+    (void) mode;
+    return NULL;
+}
+FILE* popen(const char* command, const char* mode) {
+    (void) command;
+    (void) mode;
+    return NULL;
+}
+int pclose(FILE* stream) {
+    (void) stream;
+    return -1;
+}
 
 /* Forward the pending write buffer; on error keep the unwritten tail at
  * the front of the buffer — pos - len still resolves to the right

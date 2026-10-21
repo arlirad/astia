@@ -69,25 +69,25 @@ enum {
     SYS_IO_ENTER    = 2,
     SYS_IO_REGISTER = 3,
     /* never-blocking direct calls */
-    SYS_MMAP          = 4,
-    SYS_MUNMAP        = 5,
-    SYS_MPROTECT      = 6,
-    SYS_CLOCK_GETTIME = 7,
-    SYS_EXIT          = 8,
-    SYS_YIELD         = 9,
-    SYS_GETPID        = 10,
-    SYS_GETTID        = 11,
-    SYS_FUTEX         = 12,
-    SYS_WAITPID       = 13,
-    SYS_SPAWNVE       = 14,
-    SYS_FORK          = 15,
-    SYS_THREAD_CREATE = 16,
-    SYS_THREAD_EXIT   = 17,
-    SYS_THREAD_JOIN   = 18,
-    SYS_THREAD_DETACH = 19,
-    SYS_KILL          = 20,
-    SYS_SIGACTION     = 21,
-    SYS_SIGPROCMASK   = 22,
+    SYS_MMAP           = 4,
+    SYS_MUNMAP         = 5,
+    SYS_MPROTECT       = 6,
+    SYS_CLOCK_GETTIME  = 7,
+    SYS_EXIT           = 8,
+    SYS_YIELD          = 9,
+    SYS_GETPID         = 10,
+    SYS_GETTID         = 11,
+    SYS_FUTEX          = 12,
+    SYS_WAITPID        = 13,
+    SYS_SPAWNVE        = 14,
+    SYS_FORK           = 15,
+    SYS_THREAD_CREATE  = 16,
+    SYS_THREAD_EXIT    = 17,
+    SYS_THREAD_JOIN    = 18,
+    SYS_THREAD_DETACH  = 19,
+    SYS_KILL           = 20,
+    SYS_SIGACTION      = 21,
+    SYS_SIGPROCMASK    = 22,
     SYS_THREAD_CREATE2 = 23,
     SYS_EXECVE         = 24,
     SYS_SIGSUSPEND     = 25,
@@ -257,8 +257,7 @@ static inline long astia_sigprocmask(int32_t how, uint32_t set, uint32_t* old) {
 /* pid > 0: wait for that child; pid == -1: any child.  On success the
  * reaped pid is returned and *status (if non-null) receives the exit
  * status.  May block. */
-enum { ASTIA_WNOHANG = 1u << 0, ASTIA_WUNTRACED = 1u << 1,
-       ASTIA_WCONTINUED = 1u << 3 };
+enum { ASTIA_WNOHANG = 1u << 0, ASTIA_WUNTRACED = 1u << 1, ASTIA_WCONTINUED = 1u << 3 };
 static inline long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options) {
     return astia_raw6(SYS_WAITPID, (long) pid, (long) status, (long) options, 0, 0, 0);
 }
@@ -298,8 +297,8 @@ static inline long astia_thread_create(void (*entry)(void*), void* stack_top,
 
 static inline long astia_thread_create2(void (*entry)(void*, void*), void* stack_top,
                                         void* argument0, void* argument1) {
-    return astia_raw6(SYS_THREAD_CREATE2, (long) (uintptr_t) entry,
-                      (long) stack_top, (long) argument0, (long) argument1, 0, 0);
+    return astia_raw6(SYS_THREAD_CREATE2, (long) (uintptr_t) entry, (long) stack_top,
+                      (long) argument0, (long) argument1, 0, 0);
 }
 
 static inline void astia_thread_exit(void* result) {

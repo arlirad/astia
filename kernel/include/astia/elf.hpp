@@ -51,10 +51,10 @@ namespace astia::elf {
     using resolve_fn = u64 (*)(void* ctx, const char* name);
 
     struct read_request {
-        u64    offset;
-        void*  buffer;
-        usize  length;
-        long   result;
+        u64   offset;
+        void* buffer;
+        usize length;
+        long  result;
     };
 
     /// Batch file reader. The callback must complete all requests before
@@ -65,11 +65,11 @@ namespace astia::elf {
     /// Caller-supplied environment: where memory comes from and how symbols
     /// are resolved.
     struct env {
-        void*      ctx     = nullptr;
-        map_fn     map     = nullptr;
-        resolve_fn resolve = nullptr;
+        void*         ctx        = nullptr;
+        map_fn        map        = nullptr;
+        resolve_fn    resolve    = nullptr;
         read_batch_fn read_batch = nullptr;
-        copy_fn      copy = nullptr;
+        copy_fn       copy       = nullptr;
     };
 
     /// One loaded PT_LOAD segment of an executable (relocatable images leave

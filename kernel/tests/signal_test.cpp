@@ -1,6 +1,6 @@
 #include "support/test.hpp"
-#include <astia/signal.hpp>
 #include <astia/api/signal.h>
+#include <astia/signal.hpp>
 
 ASTIA_TEST(signal_state_queues_and_masks_signals) {
     astia::signal_state state;
@@ -26,10 +26,10 @@ ASTIA_TEST(signal_state_protects_uncatchable_signals) {
 
 ASTIA_TEST(signal_disposition_preserves_handler_mask_and_restorer) {
     astia::signal_state state;
-    const auto signal = astia::signal_number::usr1;
-    const auto handler = reinterpret_cast<astia::signal_handler>(0x400123);
-    const astia::signal_disposition installed{
-        astia::signal_action::handler, handler, 0x1357u, 0x2468u};
+    const auto          signal  = astia::signal_number::usr1;
+    const auto          handler = reinterpret_cast<astia::signal_handler>(0x400123);
+    const astia::signal_disposition installed{astia::signal_action::handler, handler,
+                                              0x1357u, 0x2468u};
 
     ASTIA_CHECK(state.disposition(signal, installed));
     const auto observed = state.disposition(signal);

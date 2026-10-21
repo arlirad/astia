@@ -34,8 +34,8 @@ namespace astia::proc {
 
     /// Process-group/session operations for the calling process.
     pid_t getpgrp();
-    i64 setpgid(i32 pid, i32 pgid);
-    i64 setsid();
+    i64   setpgid(i32 pid, i32 pgid);
+    i64   setsid();
     /// Send a signal to every live member of a process group.  Signal zero
     /// only checks that the group has a live member.
     i64 signal_process_group(pid_t group, i32 signal);

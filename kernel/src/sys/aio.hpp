@@ -32,7 +32,9 @@
 // threads, callers will need the same external serialization the libc
 // side documents (libc/src/file.c); nothing here takes a lock today.
 
-namespace astia::proc { class process; }
+namespace astia::proc {
+    class process;
+}
 
 namespace astia::sys {
 

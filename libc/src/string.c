@@ -136,7 +136,7 @@ char* strcat(char* dst, const char* src) {
 
 char* strncat(char* dst, const char* src, size_t limit) {
     size_t offset = strlen(dst);
-    size_t index = 0;
+    size_t index  = 0;
     while (index < limit && src[index] != '\0') {
         dst[offset + index] = src[index];
         ++index;

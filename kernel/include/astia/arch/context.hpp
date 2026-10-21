@@ -58,7 +58,7 @@ namespace astia::arch {
     /// the ABI's %rdi.  The architecture uses a callee-saved staging
     /// register while entering the synthetic iretq frame.
     bool context_prepare_user_start(context*, u64 kernel_stack_top, u64 user_stack_top,
-                                     u64 entry, u64 fs_base, u64 argument0, u64 argument1);
+                                    u64 entry, u64 fs_base, u64 argument0, u64 argument1);
     /// Prepare `value` to enter ring 3 exactly where a forked parent
     /// sat inside its syscall: the register image, thread pointer, and
     /// FP/SSE state are the parent's, and rax reads 0 — the child's

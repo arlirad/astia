@@ -1,11 +1,16 @@
 #include "common.h"
 
 static const char* value(const char* option) {
-    if (option[1] == 's') return "Astia";
-    if (option[1] == 'n') return "astia";
-    if (option[1] == 'r') return "0.1";
-    if (option[1] == 'v') return "Astia kernel";
-    if (option[1] == 'm') return "x86_64";
+    if (option[1] == 's')
+        return "Astia";
+    if (option[1] == 'n')
+        return "astia";
+    if (option[1] == 'r')
+        return "0.1";
+    if (option[1] == 'v')
+        return "Astia kernel";
+    if (option[1] == 'm')
+        return "x86_64";
     return 0;
 }
 

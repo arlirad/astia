@@ -1,6 +1,5 @@
-#include <astia/arch/pci_config.hpp>
-
 #include "io.hpp"
+#include <astia/arch/pci_config.hpp>
 
 namespace astia::arch {
 

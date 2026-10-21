@@ -28,11 +28,11 @@
  * wherever the descriptor's cursor has reached, 0 for a fresh open.)
  */
 
+#include <astia/api/aio.h>
 #include <sys/uio.h>
 
 #include <stddef.h>
 #include <stdint.h>
-#include <astia/api/aio.h>
 
 enum { /* open flags — the subset every port can speak */
        FIO_READ   = 1u << 0,
@@ -53,11 +53,11 @@ long __astia_fio_open(const char* path, int flags, int mode);
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n);
 
 struct astia_fio_batch_read {
-    int fd;
+    int      fd;
     uint64_t offset;
-    void* buffer;
-    size_t length;
-    long result;
+    void*    buffer;
+    size_t   length;
+    long     result;
 };
 
 /* Submit all reads as one ring batch and wait for all CQEs. */

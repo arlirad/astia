@@ -10,7 +10,7 @@
 enum { default_stack_size = 64 * 1024 };
 
 static void pthread_start_trampoline(void* function_value, void* argument) {
-    void* (*function)(void*) = (void* (*)(void*)) function_value;
+    void* (*function)(void*) = (void* (*) (void*) ) function_value;
     __astia_process_thread_exit(function(argument));
     __builtin_unreachable();
 }
@@ -46,9 +46,8 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     if (stack == MAP_FAILED)
         return errno;
     unsigned long top = (unsigned long) stack + stack_size;
-    long          tid =
-        __astia_process_thread_create2(pthread_start_trampoline, (void*) top,
-                                       (void*) start_routine, argument);
+    long tid = __astia_process_thread_create2(pthread_start_trampoline, (void*) top,
+                                              (void*) start_routine, argument);
     if (tid < 0) {
         munmap(stack, stack_size);
         errno = (int) -tid;

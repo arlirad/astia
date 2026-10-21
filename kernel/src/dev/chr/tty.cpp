@@ -108,8 +108,7 @@ namespace astia::dev {
                key useful after a raw-mode program (notably zsh) clears
                ICRNL: zsh binds both CR and LF to accept-line, while a
                bare CR otherwise only moves the host cursor to column zero. */
-            if ((_termios.c_iflag & ICRNL) != 0 ||
-                (_termios.c_lflag & ICANON) == 0) {
+            if ((_termios.c_iflag & ICRNL) != 0 || (_termios.c_lflag & ICANON) == 0) {
                 byte = '\n';
             }
         }
@@ -148,7 +147,7 @@ namespace astia::dev {
             return;
         }
         if (byte == _termios.c_cc[VKILL]) {
-            _line_length = 0;
+            _line_length   = 0;
             _line_overflow = false;
             if ((_termios.c_lflag & ECHOK) != 0) {
                 tty_echo('\n');
@@ -165,11 +164,10 @@ namespace astia::dev {
                 // rejected as one line.  Do not leave its tail to be joined
                 // with the next command (which made a later `uname` appear
                 // as another suffix of the old command).
-                _line_length = 0;
+                _line_length   = 0;
                 _line_overflow = false;
                 tty_commit_line(false);
-                if ((_termios.c_lflag & ECHO) != 0 ||
-                    (_termios.c_lflag & ECHONL) != 0)
+                if ((_termios.c_lflag & ECHO) != 0 || (_termios.c_lflag & ECHONL) != 0)
                     tty_echo('\n');
                 return;
             }
@@ -198,7 +196,7 @@ namespace astia::dev {
         arch::interrupt_guard gate;
         const u32             head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
         __atomic_store_n(&_rx_tail, head, __ATOMIC_RELEASE);
-        _line_length = 0;
+        _line_length   = 0;
         _line_overflow = false;
     }
 
@@ -274,24 +272,27 @@ namespace astia::dev {
             return 0;
         }
         if (request == tiocgwinsz) {
-            if (argp == nullptr) return -EINVAL;
-            auto* size = static_cast<tty_winsize*>(argp);
-            size->rows = 24;
+            if (argp == nullptr)
+                return -EINVAL;
+            auto* size    = static_cast<tty_winsize*>(argp);
+            size->rows    = 24;
             size->columns = 80;
-            size->xpixel = 0;
-            size->ypixel = 0;
+            size->xpixel  = 0;
+            size->ypixel  = 0;
             return 0;
         }
         if (request == tiocswinsz) {
             return argp == nullptr ? -EINVAL : 0;
         }
         if (request == TIOCGPGRP) {
-            if (argp == nullptr) return -EINVAL;
+            if (argp == nullptr)
+                return -EINVAL;
             *static_cast<i32*>(argp) = _foreground_pgrp;
             return 0;
         }
         if (request == TIOCSPGRP) {
-            if (argp == nullptr) return -EINVAL;
+            if (argp == nullptr)
+                return -EINVAL;
             _foreground_pgrp = *static_cast<const i32*>(argp);
             return 0;
         }

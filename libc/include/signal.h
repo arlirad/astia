@@ -20,20 +20,20 @@ struct sigaction {
 
 #define SIG_DFL ((sighandler_t) 0)
 #define SIG_IGN ((sighandler_t) 1)
-#define SIG_ERR ((sighandler_t) -1)
+#define SIG_ERR ((sighandler_t) - 1)
 
-#define SIG_BLOCK   0
+#define SIG_BLOCK 0
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 
-#define SIGHUP  1
-#define SIGINT  2
+#define SIGHUP 1
+#define SIGINT 2
 #define SIGQUIT 3
-#define SIGILL  4
+#define SIGILL 4
 #define SIGTRAP 5
 #define SIGABRT 6
-#define SIGBUS  7
-#define SIGFPE  8
+#define SIGBUS 7
+#define SIGFPE 8
 #define SIGKILL 9
 #define SIGUSR1 10
 #define SIGSEGV 11
@@ -47,7 +47,7 @@ struct sigaction {
 #define SIGTSTP 20
 #define SIGTTIN 21
 #define SIGTTOU 22
-#define SIGURG  23
+#define SIGURG 23
 #define SIGXCPU 24
 #define SIGXFSZ 25
 #define SIGVTALRM 26

@@ -1,5 +1,6 @@
-#include <errno.h>
 #include <sys/utsname.h>
+
+#include <errno.h>
 
 int uname(struct utsname* name) {
     (void) name;

@@ -43,7 +43,7 @@ namespace astia::init {
                                               fn,                             \
                                               astia_init_needs_ptr_##name,    \
                                               astia_init_after_ptr_##name,    \
-                                               opt_};
+                                              opt_};
 
 #define ASTIA_INIT_STEP_0(phase_, name, fn, d1, d2, d3)                    \
     static const char* const        astia_init_needs_##name[] = {nullptr}; \

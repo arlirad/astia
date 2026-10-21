@@ -60,10 +60,11 @@ namespace astia::arch {
     }
 
     void context_set_fs_base(context* value, u64 fs_base) {
-        if (value != nullptr) value->fs_base = fs_base;
+        if (value != nullptr)
+            value->fs_base = fs_base;
         constexpr u32 ia32_fs_base = 0xC0000100u;
-        const u32 low = static_cast<u32>(fs_base);
-        const u32 high = static_cast<u32>(fs_base >> 32);
+        const u32     low          = static_cast<u32>(fs_base);
+        const u32     high         = static_cast<u32>(fs_base >> 32);
         asm volatile("wrmsr" : : "c"(ia32_fs_base), "a"(low), "d"(high) : "memory");
     }
 

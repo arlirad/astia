@@ -141,7 +141,7 @@ ASTIA_TEST(tty_canonical_overflow_does_not_join_next_line) {
 }
 
 ASTIA_TEST(tty_process_group_round_trip) {
-    test_tty tty;
+    test_tty   tty;
     astia::i32 group = 42;
     ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group) == 0);
     group = 0;

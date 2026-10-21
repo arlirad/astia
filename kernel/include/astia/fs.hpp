@@ -84,8 +84,7 @@ namespace astia::fs {
     /// syscall/ring layer; the VFS returns an open file description.
     mm::shptr<open_file> open(const char* path, u32 flags = 0);
 
-    long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                        u32* type);
+    long read_directory(const char* path, u64 index, char* name, u32 capacity, u32* type);
 
     struct kernel_read {
         open_file* file;

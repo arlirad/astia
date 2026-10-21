@@ -1,12 +1,13 @@
 #include "process_port.h"
-#include <errno.h>
-#include <signal.h>
-#include <unistd.h>
 #include <astia/api/signal.h>
 #include <astia/api/syscalls.h>
 
-__attribute__((noreturn, naked, visibility("hidden")))
-void astia_signal_trampoline(void) {
+#include <errno.h>
+#include <signal.h>
+#include <unistd.h>
+
+__attribute__((noreturn, naked, visibility("hidden"))) void
+astia_signal_trampoline(void) {
     __asm__ volatile("leaq (%rsp), %rdi\n"
                      "movl $29, %eax\n"
                      "syscall\n"
@@ -59,22 +60,22 @@ int sigismember(const sigset_t* set, int signal_number) {
 
 int sigaction(int signal_number, const struct sigaction* action,
               struct sigaction* old_action) {
-    astia_sigaction_t next_value;
+    astia_sigaction_t        next_value;
     const astia_sigaction_t* next = NULL;
     if (action != NULL) {
         next_value.handler = (uintptr_t) action->sa_handler;
-        next_value.mask = action->sa_mask;
-        next_value.flags = (uint32_t) action->sa_flags;
+        next_value.mask    = action->sa_mask;
+        next_value.flags   = (uint32_t) action->sa_flags;
         /* sa_restorer is not part of the POSIX interface.  In particular,
            callers such as zsh initialize the handler, mask, and flags but
            leave this extension member indeterminate.  Do not pass that
            stack garbage to the kernel: the libc trampoline is the ABI
            restorer for every ordinary sigaction call. */
         next_value.restorer = (uintptr_t) &astia_signal_trampoline;
-        next = &next_value;
+        next                = &next_value;
     }
-    astia_sigaction_t*       old  = (astia_sigaction_t*) old_action;
-    const long rc = astia_sigaction(signal_number, next, old);
+    astia_sigaction_t* old = (astia_sigaction_t*) old_action;
+    const long         rc  = astia_sigaction(signal_number, next, old);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
@@ -84,7 +85,7 @@ int sigaction(int signal_number, const struct sigaction* action,
 
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set) {
     const uint32_t value = set == NULL ? 0 : *set;
-    const long rc = astia_sigprocmask(how, value, (uint32_t*) old_set);
+    const long     rc    = astia_sigprocmask(how, value, (uint32_t*) old_set);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;

@@ -1,5 +1,6 @@
-#include <errno.h>
 #include <sys/stat.h>
+
+#include <errno.h>
 
 static int unsupported(void) {
     errno = ENOSYS;

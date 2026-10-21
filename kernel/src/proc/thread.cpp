@@ -76,8 +76,9 @@ namespace astia::proc {
         kernel_stack_top_ =
             static_cast<u64>(reinterpret_cast<usize>(kernel_stack_)) + kernel_stack_size_;
         user_stack_top_ = user_stack_top;
-        return arch::context_prepare_user_start(
-            context_, kernel_stack_top_, user_stack_top_, entry, fs_base, argument0, argument1);
+        return arch::context_prepare_user_start(context_, kernel_stack_top_,
+                                                user_stack_top_, entry, fs_base,
+                                                argument0, argument1);
     }
 
     bool thread::prepare_fork_user(const arch::user_context& uctx) {

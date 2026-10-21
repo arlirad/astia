@@ -1,5 +1,5 @@
-#include "process_port.h"
 #include "file_port.h"
+#include "process_port.h"
 #include <sys/wait.h>
 
 #include <errno.h>
@@ -23,13 +23,13 @@ struct cxa_atexit_entry {
     void* argument;
 };
 static struct cxa_atexit_entry g_cxa_atexit[ATEXIT_MAX];
-static size_t g_cxa_atexit_count;
+static size_t                  g_cxa_atexit_count;
 
 int __cxa_atexit(void (*function)(void*), void* argument, void* dso_handle) {
     (void) dso_handle;
     if (function == NULL || g_cxa_atexit_count == ATEXIT_MAX)
         return -1;
-    g_cxa_atexit[g_cxa_atexit_count++] = (struct cxa_atexit_entry){function, argument};
+    g_cxa_atexit[g_cxa_atexit_count++] = (struct cxa_atexit_entry) {function, argument};
     return 0;
 }
 /* Every wrapper speaks the seam's convention: >= 0, or negated error
@@ -46,7 +46,10 @@ int getpid(void) {
     return process_result(__astia_process_getpid());
 }
 
-int getppid(void) { errno = ENOSYS; return -1; }
+int getppid(void) {
+    errno = ENOSYS;
+    return -1;
+}
 
 int gettid(void) {
     return process_result(__astia_process_gettid());
@@ -66,9 +69,9 @@ int waitpid(int pid, int* status, int options) {
         errno = EINVAL;
         return -1;
     }
-    int local = 0;
+    int  local  = 0;
     int* output = status == NULL ? &local : status;
-    int result = process_result(__astia_process_waitpid(pid, output, options));
+    int  result = process_result(__astia_process_waitpid(pid, output, options));
     return result;
 }
 
@@ -86,19 +89,49 @@ int fork(void) {
     return result;
 }
 
-int setuid(unsigned int uid) { (void) uid; errno = ENOSYS; return -1; }
-unsigned int getuid(void) { return 0; }
-unsigned int geteuid(void) { return 0; }
-int seteuid(unsigned int uid) { (void) uid; errno = ENOSYS; return -1; }
-int setgid(unsigned int gid) { (void) gid; errno = ENOSYS; return -1; }
-unsigned int getgid(void) { return 0; }
-unsigned int getegid(void) { return 0; }
-int setegid(unsigned int gid) { (void) gid; errno = ENOSYS; return -1; }
+int setuid(unsigned int uid) {
+    (void) uid;
+    errno = ENOSYS;
+    return -1;
+}
+unsigned int getuid(void) {
+    return 0;
+}
+unsigned int geteuid(void) {
+    return 0;
+}
+int seteuid(unsigned int uid) {
+    (void) uid;
+    errno = ENOSYS;
+    return -1;
+}
+int setgid(unsigned int gid) {
+    (void) gid;
+    errno = ENOSYS;
+    return -1;
+}
+unsigned int getgid(void) {
+    return 0;
+}
+unsigned int getegid(void) {
+    return 0;
+}
+int setegid(unsigned int gid) {
+    (void) gid;
+    errno = ENOSYS;
+    return -1;
+}
 int setreuid(unsigned int real_uid, unsigned int effective_uid) {
-    (void) real_uid; (void) effective_uid; errno = ENOSYS; return -1;
+    (void) real_uid;
+    (void) effective_uid;
+    errno = ENOSYS;
+    return -1;
 }
 int setregid(unsigned int real_gid, unsigned int effective_gid) {
-    (void) real_gid; (void) effective_gid; errno = ENOSYS; return -1;
+    (void) real_gid;
+    (void) effective_gid;
+    errno = ENOSYS;
+    return -1;
 }
 
 int atexit(void (*function)(void)) {

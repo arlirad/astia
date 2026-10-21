@@ -1,4 +1,5 @@
 #include "common.h"
+
 #include <dirent.h>
 #include <errno.h>
 #include <string.h>
@@ -12,8 +13,8 @@ static int list_one(const char* path, int header) {
         return 1;
     }
     struct dirent* entry;
-    int status = 0;
-    errno = 0;
+    int            status = 0;
+    errno                 = 0;
     while ((entry = readdir(directory)) != 0) {
         if (cu_puts(entry->d_name) < 0 || cu_puts("\n") < 0) {
             status = 1;
@@ -27,7 +28,7 @@ static int list_one(const char* path, int header) {
 }
 
 int main(int argc, char** argv) {
-    int status = 0;
+    int status  = 0;
     int headers = argc > 2;
     if (argc == 1)
         return list_one("/", 0);

@@ -196,17 +196,20 @@ namespace astia::fs {
         mount_entry* entry = find_mount(path);
         if (entry == nullptr)
             return -ENOENT;
-        return entry->instance->read_directory(relative_path(*entry, path), index,
-                                                name, capacity, type);
+        return entry->instance->read_directory(relative_path(*entry, path), index, name,
+                                               capacity, type);
     }
 
     bool read_batch(kernel_read* requests, usize count) {
-        if (requests == nullptr) return false;
+        if (requests == nullptr)
+            return false;
         for (usize i = 0; i < count; ++i) {
-            if (requests[i].file == nullptr || requests[i].buffer == nullptr) return false;
+            if (requests[i].file == nullptr || requests[i].buffer == nullptr)
+                return false;
             requests[i].result = requests[i].file->read(
                 requests[i].buffer, requests[i].length, requests[i].offset);
-            if (requests[i].result < 0) return false;
+            if (requests[i].result < 0)
+                return false;
         }
         return true;
     }

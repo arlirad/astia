@@ -38,8 +38,8 @@ namespace astia::proc {
                 return -EINVAL;
             }
             if (pid <= 0) {
-                const pid_t group = pid == 0 ? getpgrp()
-                                             : static_cast<pid_t>(-static_cast<i64>(pid));
+                const pid_t group =
+                    pid == 0 ? getpgrp() : static_cast<pid_t>(-static_cast<i64>(pid));
                 return signal_process_group(group, value);
             }
             auto* target = find_process(static_cast<pid_t>(pid));
@@ -59,11 +59,15 @@ namespace astia::proc {
             return 0;
         }
 
-        i64 sys_getpgrp() { return static_cast<i64>(getpgrp()); }
+        i64 sys_getpgrp() {
+            return static_cast<i64>(getpgrp());
+        }
         i64 sys_setpgid(i32 pid, i32 pgid) {
             return setpgid(pid, pgid);
         }
-        i64 sys_setsid() { return setsid(); }
+        i64 sys_setsid() {
+            return setsid();
+        }
 
         i64 sys_sigaction(i32 value, u64 next_ptr, u64 old_ptr) {
             if (value <= 0 || value >= static_cast<i32>(signal_count)) {
@@ -82,12 +86,12 @@ namespace astia::proc {
                     return -EFAULT;
                 }
                 struct astia_sigaction out{};
-                out.handler = old.action == signal_action::ignore ? ASTIA_SIG_IGN
-                              : old.action == signal_action::handler
-                                  ? reinterpret_cast<uintptr_t>(old.handler)
+                out.handler  = old.action == signal_action::ignore ? ASTIA_SIG_IGN
+                               : old.action == signal_action::handler
+                                   ? reinterpret_cast<uintptr_t>(old.handler)
                                    : ASTIA_SIG_DFL;
-                out.mask = old.mask;
-                out.flags = 0;
+                out.mask     = old.mask;
+                out.flags    = 0;
                 out.restorer = old.restorer;
                 if (!sys::copy_out(range, &out)) {
                     return -EFAULT;
@@ -108,12 +112,13 @@ namespace astia::proc {
                     disposition.action = signal_action::ignore;
                 }
                 else if (next.handler != ASTIA_SIG_DFL) {
-                    disposition.action  = signal_action::handler;
-                    disposition.handler = reinterpret_cast<signal_handler>(next.handler);
+                    disposition.action   = signal_action::handler;
+                    disposition.handler  = reinterpret_cast<signal_handler>(next.handler);
                     disposition.restorer = next.restorer;
-                    disposition.mask = next.mask;
+                    disposition.mask     = next.mask;
                     if (disposition.restorer == 0 ||
-                        !sys::user_range_ok(sys::user_range::bytes(disposition.restorer, 1)))
+                        !sys::user_range_ok(
+                            sys::user_range::bytes(disposition.restorer, 1)))
                         return -EFAULT;
                 }
                 if (!owner->signals().disposition(signal, disposition)) {
@@ -124,22 +129,35 @@ namespace astia::proc {
         }
 
         i64 sys_sigreturn(const arch::syscall_frame& input) {
-            const auto range = sys::user_range::bytes(
-                input.a0, sizeof(astia_x86_64_signal_context_t));
-            if (!sys::user_range_ok(range)) return -EFAULT;
+            const auto range =
+                sys::user_range::bytes(input.a0, sizeof(astia_x86_64_signal_context_t));
+            if (!sys::user_range_ok(range))
+                return -EFAULT;
             astia_x86_64_signal_context_t saved{};
-            if (!sys::copy_in(&saved, range)) return -EFAULT;
+            if (!sys::copy_in(&saved, range))
+                return -EFAULT;
             if (saved.rip == 0 || saved.rsp == 0 || saved.rip >= arch::kernel_base ||
                 saved.rsp >= arch::kernel_base || (saved.rflags & (1u << 9)) == 0)
                 return -EFAULT;
-            auto& frame = const_cast<arch::syscall_frame&>(input);
-            frame.nr = ~u64{1};
-            frame.a0 = saved.rdi; frame.a1 = saved.rsi; frame.a2 = saved.rdx;
-            frame.a3 = saved.r10; frame.a4 = saved.r8; frame.a5 = saved.r9;
-            frame.rip = saved.rip; frame.rflags = saved.rflags; frame.rsp = saved.rsp;
-            frame.rbx = saved.rbx; frame.rbp = saved.rbp; frame.r12 = saved.r12;
-            frame.r13 = saved.r13; frame.r14 = saved.r14; frame.r15 = saved.r15;
-            if (auto* owner = current_process()) owner->signals().set_blocked(saved.blocked);
+            auto& frame  = const_cast<arch::syscall_frame&>(input);
+            frame.nr     = ~u64{1};
+            frame.a0     = saved.rdi;
+            frame.a1     = saved.rsi;
+            frame.a2     = saved.rdx;
+            frame.a3     = saved.r10;
+            frame.a4     = saved.r8;
+            frame.a5     = saved.r9;
+            frame.rip    = saved.rip;
+            frame.rflags = saved.rflags;
+            frame.rsp    = saved.rsp;
+            frame.rbx    = saved.rbx;
+            frame.rbp    = saved.rbp;
+            frame.r12    = saved.r12;
+            frame.r13    = saved.r13;
+            frame.r14    = saved.r14;
+            frame.r15    = saved.r15;
+            if (auto* owner = current_process())
+                owner->signals().set_blocked(saved.blocked);
             return static_cast<i64>(saved.rax);
         }
 
@@ -176,12 +194,15 @@ namespace astia::proc {
 
         i64 sys_sigsuspend(u64 mask_ptr) {
             auto* owner = current_process();
-            auto* self = current_thread();
-            if (owner == nullptr || self == nullptr) return -ESRCH;
+            auto* self  = current_thread();
+            if (owner == nullptr || self == nullptr)
+                return -ESRCH;
             const auto range = sys::user_range::bytes(mask_ptr, sizeof(u32));
-            if (!sys::user_range_ok(range)) return -EFAULT;
+            if (!sys::user_range_ok(range))
+                return -EFAULT;
             u32 mask = 0;
-            if (!sys::copy_in(&mask, range)) return -EFAULT;
+            if (!sys::copy_in(&mask, range))
+                return -EFAULT;
             // Match waitpid's register-before-scan protocol.  Interrupts stay
             // masked until either a pending signal is observed or this thread
             // is blocked, so delivery cannot fall between the check and the
@@ -212,22 +233,40 @@ namespace astia::proc {
             }
             const signal_disposition disposition = owner->signals().disposition(signal);
             if (disposition.action == signal_action::handler) {
-                auto& frame = raw_frame;
+                auto&           frame = raw_frame;
                 constexpr usize bytes = sizeof(astia_x86_64_signal_context_t) + 8;
-                if (frame.rsp < bytes || disposition.restorer == 0) goto fatal_signal;
+                if (frame.rsp < bytes || disposition.restorer == 0)
+                    goto fatal_signal;
                 const u64 context = frame.rsp - sizeof(astia_x86_64_signal_context_t);
                 const u64 retaddr = context - 8;
                 if (!sys::user_range_ok(sys::user_range::bytes(retaddr, bytes)) ||
                     !sys::user_range_ok(sys::user_range::bytes(
                         reinterpret_cast<u64>(disposition.handler), 1)))
                     goto fatal_signal;
-                astia_x86_64_signal_context_t saved{
-                    frame.nr, frame.rbx, frame.rip, frame.a2, frame.a1, frame.a0,
-                    frame.a4, frame.a5, frame.a3, frame.rflags, frame.r12, frame.r13,
-                    frame.r14, frame.r15, frame.rbp, frame.rip, frame.rsp, frame.rflags,
-                    owner->signals().blocked(), 0};
-                if (!sys::copy_out(sys::user_range::bytes(context, sizeof saved), &saved) ||
-                    !sys::copy_out(sys::user_range::bytes(retaddr, 8), &disposition.restorer))
+                astia_x86_64_signal_context_t saved{frame.nr,
+                                                    frame.rbx,
+                                                    frame.rip,
+                                                    frame.a2,
+                                                    frame.a1,
+                                                    frame.a0,
+                                                    frame.a4,
+                                                    frame.a5,
+                                                    frame.a3,
+                                                    frame.rflags,
+                                                    frame.r12,
+                                                    frame.r13,
+                                                    frame.r14,
+                                                    frame.r15,
+                                                    frame.rbp,
+                                                    frame.rip,
+                                                    frame.rsp,
+                                                    frame.rflags,
+                                                    owner->signals().blocked(),
+                                                    0};
+                if (!sys::copy_out(sys::user_range::bytes(context, sizeof saved),
+                                   &saved) ||
+                    !sys::copy_out(sys::user_range::bytes(retaddr, 8),
+                                   &disposition.restorer))
                     goto fatal_signal;
                 owner->signals().block(signal_bit(signal) | disposition.mask);
                 frame.nr = ~u64{0};
@@ -247,7 +286,8 @@ namespace astia::proc {
             // A default-ignored signal is consumed here.  Re-queueing it
             // would make every syscall exit deliver SIGCHLD forever when a
             // shell has no explicit SIGCHLD disposition.
-            if (default_action(signal) == signal_default::ignore) return;
+            if (default_action(signal) == signal_default::ignore)
+                return;
             owner->signals().send(signal);
             return;
         fatal_signal:
@@ -366,23 +406,24 @@ namespace astia::proc {
         }
 
         i64 sys_execve(const arch::syscall_frame& frame) {
-            using exec_logs = astia::log::context<"execve">;
-            auto* exec_owner = current_process();
-            const u64 path_ptr = frame.a0;
-            const u64 argv_ptr = frame.a1;
-            const u64 envp_ptr = frame.a2;
-            char path[path_cap];
+            using exec_logs      = astia::log::context<"execve">;
+            auto*     exec_owner = current_process();
+            const u64 path_ptr   = frame.a0;
+            const u64 argv_ptr   = frame.a1;
+            const u64 envp_ptr   = frame.a2;
+            char      path[path_cap];
             if (!sys::copy_in_string(path, sizeof path,
                                      sys::user_range::string(path_ptr)))
                 return -EFAULT;
             const usize vec_bytes  = 2 * (vec_max + 1) * sizeof(char*);
             const usize pool_bytes = 2 * vec_max * arg_cap;
-            auto storage = mm::heap::alloc(vec_bytes + pool_bytes);
-            if (!storage) return -ENOMEM;
+            auto        storage    = mm::heap::alloc(vec_bytes + pool_bytes);
+            if (!storage)
+                return -ENOMEM;
             char** argv_vec = reinterpret_cast<char**>(storage.value);
             char** envp_vec = argv_vec + vec_max + 1;
-            char* pool = reinterpret_cast<char*>(envp_vec + vec_max + 1);
-            i64 result = copy_in_vector(argv_vec, pool, argv_ptr);
+            char*  pool     = reinterpret_cast<char*>(envp_vec + vec_max + 1);
+            i64    result   = copy_in_vector(argv_vec, pool, argv_ptr);
             if (result == 0)
                 result = copy_in_vector(envp_vec, pool + vec_max * arg_cap, envp_ptr);
             if (result == 0) {
@@ -393,29 +434,30 @@ namespace astia::proc {
             }
             if (result == 0) {
                 auto* owner = current_process();
-                auto file = fs::open_path(path);
-                if (owner == nullptr || !file) result = -ENOENT;
+                auto  file  = fs::open_path(path);
+                if (owner == nullptr || !file)
+                    result = -ENOENT;
                 else {
-                    const long size = file->size();
-                    u64 entry = 0, stack = 0;
-                    if (size <= 0 || !owner->exec_user_file(
-                            file, static_cast<usize>(size), argv_vec, envp_vec,
-                            &entry, &stack))
-                    {
+                    const long size  = file->size();
+                    u64        entry = 0, stack = 0;
+                    if (size <= 0 ||
+                        !owner->exec_user_file(file, static_cast<usize>(size), argv_vec,
+                                               envp_vec, &entry, &stack)) {
                         exec_logs::error("load failed path=%s size=%ld", path, size);
                         result = -ENOEXEC;
                     }
                     else {
                         exec_logs::info("loaded path=%s entry=%llx stack=%llx tls=%llx",
-                                         path, static_cast<unsigned long long>(entry),
-                                         static_cast<unsigned long long>(stack),
-                                         static_cast<unsigned long long>(owner->tls_tp()));
-                        auto& next = const_cast<arch::syscall_frame&>(frame);
-                        next.rip = entry;
-                        next.rsp = stack;
+                                        path, static_cast<unsigned long long>(entry),
+                                        static_cast<unsigned long long>(stack),
+                                        static_cast<unsigned long long>(owner->tls_tp()));
+                        auto& next  = const_cast<arch::syscall_frame&>(frame);
+                        next.rip    = entry;
+                        next.rsp    = stack;
                         next.rflags = 0x202;
-                            arch::context_set_fs_base(current_thread()->context(), owner->tls_tp());
-                            result = 0;
+                        arch::context_set_fs_base(current_thread()->context(),
+                                                  owner->tls_tp());
+                        result = 0;
                     }
                 }
             }
@@ -508,7 +550,8 @@ namespace astia::proc {
                 !sys::user_range_ok(sys::user_range::bytes(entry, 1)) ||
                 !sys::user_range_ok(sys::user_range::bytes(stack_top - 16, 16)) ||
                 !sys::user_range_ok(sys::user_range::bytes(argument0, 1)) ||
-                (argument1 != 0 && !sys::user_range_ok(sys::user_range::bytes(argument1, 1)))) {
+                (argument1 != 0 &&
+                 !sys::user_range_ok(sys::user_range::bytes(argument1, 1)))) {
                 return -EFAULT;
             }
             auto value = owner->create_thread(entry, stack_top, argument0, argument1);
@@ -591,7 +634,8 @@ namespace astia::proc {
                sys::register_syscall<sys_thread_exit>(sys::syscall_id::thread_exit) &&
                sys::register_syscall<sys_thread_join>(sys::syscall_id::thread_join) &&
                sys::register_syscall<sys_thread_detach>(sys::syscall_id::thread_detach) &&
-               sys::register_syscall<sys_thread_create2>(sys::syscall_id::thread_create2) &&
+               sys::register_syscall<sys_thread_create2>(
+                   sys::syscall_id::thread_create2) &&
                sys::register_exit_hook(deliver_default_signal) &&
                arch::register_user_fault_handler(user_fault);
     }

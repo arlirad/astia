@@ -13,9 +13,9 @@
 extern "C" {
 #endif
 
-int getpid(void);
-int getppid(void);
-int gettid(void);
+int   getpid(void);
+int   getppid(void);
+int   gettid(void);
 char* ttyname(int fd);
 
 /* Create a process from the executable at `path` with the given
@@ -28,47 +28,47 @@ int spawnve(const char* path, char* const argv[], char* const envp[]);
  * either side writes it, and the child resumes at fork()'s return
  * with the value 0.  Returns the child pid in the parent, 0 in the
  * child, -1 with errno on failure. */
-int fork(void);
-int setuid(unsigned int uid);
+int          fork(void);
+int          setuid(unsigned int uid);
 unsigned int getuid(void);
 unsigned int geteuid(void);
-int seteuid(unsigned int uid);
-int setgid(unsigned int gid);
+int          seteuid(unsigned int uid);
+int          setgid(unsigned int gid);
 unsigned int getgid(void);
 unsigned int getegid(void);
-int setegid(unsigned int gid);
-int setreuid(unsigned int real_uid, unsigned int effective_uid);
-int setregid(unsigned int real_gid, unsigned int effective_gid);
-int access(const char* path, int mode);
-int close(int fd);
-int dup(int fd);
-int dup2(int old_fd, int new_fd);
-int isatty(int fd);
-long read(int fd, void* buffer, unsigned long length);
-long write(int fd, const void* buffer, unsigned long length);
-long lseek(int fd, long offset, int whence);
-int pipe(int fds[2]);
-int execve(const char* path, char* const argv[], char* const envp[]);
-pid_t getpgrp(void);
-int setpgid(int pid, int process_group);
-int setsid(void);
-int setpgrp(int pid, int process_group);
-pid_t tcgetpgrp(int fd);
-int tcsetpgrp(int fd, int pgrp);
-int link(const char* old_path, const char* new_path);
-int getgroups(int count, gid_t groups[]);
-int rename(const char* old_path, const char* new_path);
-int waitpid(int pid, int* status, int options);
+int          setegid(unsigned int gid);
+int          setreuid(unsigned int real_uid, unsigned int effective_uid);
+int          setregid(unsigned int real_gid, unsigned int effective_gid);
+int          access(const char* path, int mode);
+int          close(int fd);
+int          dup(int fd);
+int          dup2(int old_fd, int new_fd);
+int          isatty(int fd);
+long         read(int fd, void* buffer, unsigned long length);
+long         write(int fd, const void* buffer, unsigned long length);
+long         lseek(int fd, long offset, int whence);
+int          pipe(int fds[2]);
+int          execve(const char* path, char* const argv[], char* const envp[]);
+pid_t        getpgrp(void);
+int          setpgid(int pid, int process_group);
+int          setsid(void);
+int          setpgrp(int pid, int process_group);
+pid_t        tcgetpgrp(int fd);
+int          tcsetpgrp(int fd, int pgrp);
+int          link(const char* old_path, const char* new_path);
+int          getgroups(int count, gid_t groups[]);
+int          rename(const char* old_path, const char* new_path);
+int          waitpid(int pid, int* status, int options);
 #define WNOHANG 1
 #define WUNTRACED 2
 #define WCONTINUED 8
 unsigned int alarm(unsigned int seconds);
 unsigned int sleep(unsigned int seconds);
-char* mktemp(char* template_name);
-int chdir(const char* path);
+char*        mktemp(char* template_name);
+int          chdir(const char* path);
 unsigned int umask(unsigned int mode);
-char* getcwd(char* buffer, unsigned long length);
-void _exit(int status) __attribute__((noreturn));
+char*        getcwd(char* buffer, unsigned long length);
+void         _exit(int status) __attribute__((noreturn));
 
 #define F_OK 0
 #define X_OK 1
