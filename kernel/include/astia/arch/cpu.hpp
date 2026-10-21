@@ -39,6 +39,10 @@ namespace astia::arch {
         /// level transition is implemented.
         static void set_kernel_stack(u64 stack_top);
         static void request_reschedule();
+        /// Ask this CPU to schedule at the next safe return boundary.
+        static void request_local_reschedule();
+        /// Consume this CPU's deferred scheduling request.
+        static bool consume_reschedule();
 
         /// Logical CPU index assigned during SMP bring-up.  The value is
         /// CPU-local and remains stable for the lifetime of the CPU.

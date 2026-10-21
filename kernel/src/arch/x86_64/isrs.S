@@ -37,6 +37,10 @@ isr_common:
     andq $-16, %rsp         /* SysV 16-byte alignment for the call */
     movq %rbx, %rdi         /* arg1: the register frame */
     call interrupt_dispatch
+    /* Scheduling is deferred until dispatch has returned and the complete
+       register frame is stable.  The hook may context-switch, but never runs
+       from inside an IRQ handler. */
+    call astia_reschedule_if_needed
     movq %rbx, %rsp
 
     popq %r15

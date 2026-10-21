@@ -249,11 +249,25 @@ namespace astia::arch::x86_64::smp {
     u32 online_cpus() { return cpu_online; }
 
     void request_reschedule() {
+        request_local_reschedule();
         const u32 online = __atomic_load_n(&cpu_online, __ATOMIC_ACQUIRE);
         for (u32 index = 1; index < online && index < max_cpus; ++index) {
             __atomic_store_n(&reschedule_pending[index], 1u, __ATOMIC_RELEASE);
             (void)lapic::send_ipi(apic_ids[index], lapic::reschedule_vector);
         }
+    }
+
+    void request_local_reschedule() {
+        const u32 index = astia::arch::cpu::current_index();
+        if (index < max_cpus) {
+            __atomic_store_n(&reschedule_pending[index], 1u, __ATOMIC_RELEASE);
+        }
+    }
+
+    // Called by the vector-49 epilogue while the interrupt gate is still
+    // closed.  Keep the interrupt handler itself to flagging and EOI only.
+    void request_local_reschedule_from_interrupt() {
+        request_local_reschedule();
     }
 
     bool consume_reschedule(u32 cpu_index) {

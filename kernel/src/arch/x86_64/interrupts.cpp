@@ -4,6 +4,7 @@
 #include "lapic.hpp"
 #include "pic.hpp"
 #include "pit.hpp"
+#include "smp.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
@@ -167,6 +168,7 @@ namespace astia::arch {
             return;
         }
         if (vector == lapic::reschedule_vector) {
+            x86_64::smp::request_local_reschedule_from_interrupt();
             lapic::eoi();
             return;
         }

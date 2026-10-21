@@ -13,6 +13,8 @@ namespace astia::arch::x86_64::smp {
     u32 discovered_cpus();
     u32 online_cpus();
     void request_reschedule();
+    void request_local_reschedule();
+    void request_local_reschedule_from_interrupt();
     bool consume_reschedule(u32 cpu_index);
 
 } // namespace astia::arch::x86_64::smp

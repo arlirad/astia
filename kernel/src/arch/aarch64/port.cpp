@@ -69,6 +69,8 @@ namespace astia::arch {
 
     void cpu::set_kernel_stack(u64) {}
     void cpu::request_reschedule() {}
+    void cpu::request_local_reschedule() {}
+    bool cpu::consume_reschedule() { return false; }
 
     u32 cpu::current_index() { return 0; }
 

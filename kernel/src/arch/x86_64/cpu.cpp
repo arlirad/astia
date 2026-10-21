@@ -32,6 +32,14 @@ namespace astia::arch {
         x86_64::smp::request_reschedule();
     }
 
+    void cpu::request_local_reschedule() {
+        x86_64::smp::request_local_reschedule();
+    }
+
+    bool cpu::consume_reschedule() {
+        return x86_64::smp::consume_reschedule(current_index());
+    }
+
     u32 cpu::current_index() {
         u32 value;
         asm volatile("movl %%gs:0, %0" : "=r"(value));

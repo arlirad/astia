@@ -3,9 +3,12 @@
 .type astia_syscall_entry, @function
 astia_syscall_entry:
     /* SYSCALL leaves the user RSP in the architectural register. */
-    movq %r12, astia_syscall_saved_r12(%rip)
+    /* GS points at the current CPU's anchor.  These values must not be
+       process-wide: another CPU may enter a syscall while this one is
+       constructing its frame. */
+    movq %r12, %gs:16
     movq %rsp, %r12
-    movq astia_syscall_stack_top(%rip), %rsp
+    movq %gs:8, %rsp
 
     /* syscall_frame: nr, a0..a5, user RIP, RFLAGS, RSP, then the
        callee-saved image (rbx, rbp, r12..r15) — pushed first, so it
@@ -15,7 +18,7 @@ astia_syscall_entry:
     pushq %r15
     pushq %r14
     pushq %r13
-    pushq astia_syscall_saved_r12(%rip) /* user R12 (r12 is the RSP stash) */
+    pushq %gs:16                  /* user R12 (r12 is the RSP stash) */
     pushq %rbp
     pushq %rbx
     pushq %r12                           /* user RSP */
@@ -36,6 +39,11 @@ astia_syscall_entry:
        halt-and-wake on timer ticks. */
     sti
     call astia_syscall_dispatch
+    /* A wakeup or timer may have requested this CPU while the syscall ran.
+       Switch only at this syscall return boundary, never from IRQ dispatch. */
+    pushq %rax
+    call astia_reschedule_if_needed
+    popq %rax
 
     cmpq $-1, 0(%rsp)
     je .signal_return

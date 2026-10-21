@@ -198,13 +198,9 @@ namespace astia::proc::scheduler {
         if (current != nullptr && current->sched_class() == scheduling_class::normal) {
             current->charge_runtime(nice_charge(current->nice()));
         }
-        // The timer's dispatch has already EOI'd the source.  The gate
-        // stays shut across the switch: yield() saves this thread's
-        // context and must not be re-entered in the middle of doing it
-        // (see the comment there).  The context that resumes is given its
-        // own gate by yield(), and a thread parked on this timer frame
-        // gets it from the iret that pops the frame.
-        yield();
+        // The timer handler must not switch stacks from inside IRQ dispatch.
+        // The ISR epilogue consumes this request after dispatch has returned.
+        arch::cpu::request_local_reschedule();
     }
 
     void yield() {
@@ -299,6 +295,13 @@ namespace astia::proc::scheduler {
 
     bool ready() {
         return initialized;
+    }
+
+    extern "C" void astia_reschedule_if_needed() {
+        if (!initialized || !arch::cpu::consume_reschedule()) {
+            return;
+        }
+        yield();
     }
 
 } // namespace astia::proc::scheduler
