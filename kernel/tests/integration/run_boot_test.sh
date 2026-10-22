@@ -24,18 +24,22 @@ smp_args=
 if [ -n "${ASTIA_QEMU_SMP:-}" ]; then
     smp_args="-smp $ASTIA_QEMU_SMP"
 fi
+machine_args=
+if [ -n "${ASTIA_QEMU_MACHINE:-}" ]; then
+    machine_args="-machine $ASTIA_QEMU_MACHINE"
+fi
 
 # The invocation is written out per branch rather than assembled with
 # `set --`, because "$@" carries the patterns across this point.
 if [ -n "$initrd" ]; then
-    timeout 30 "$qemu" $smp_args -kernel "$kernel" -initrd "$initrd" \
+    timeout 30 "$qemu" $machine_args $smp_args -kernel "$kernel" -initrd "$initrd" \
         -serial "file:$log" \
         -display none \
         -monitor none \
         -device isa-debug-exit \
         -no-reboot
 else
-    timeout 30 "$qemu" $smp_args -kernel "$kernel" \
+    timeout 30 "$qemu" $machine_args $smp_args -kernel "$kernel" \
         -serial "file:$log" \
         -display none \
         -monitor none \

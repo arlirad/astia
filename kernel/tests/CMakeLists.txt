@@ -249,7 +249,7 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: scheduler ok"
                 "smp: discovered=2")
         set_tests_properties(astia_kernel_scheduler_smp2 PROPERTIES
-                TIMEOUT 60 ENVIRONMENT "ASTIA_QEMU_SMP=2")
+                TIMEOUT 60 ENVIRONMENT "ASTIA_QEMU_SMP=2;ASTIA_QEMU_MACHINE=q35")
 
         # End-to-end initrd: the same kernel, but the boot module is a tarball
         # carrying a self-contained ET_REL module. QEMU's PVH path puts -initrd in
