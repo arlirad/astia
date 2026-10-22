@@ -240,6 +240,8 @@ namespace astia::arch::x86_64::smp {
             ++index;
         }
         logs::info("online=%u", cpu_online);
+        if (cpu_online == cpu_total)
+            logs::info("smp: verified online=%u", cpu_online);
         logs::info("reschedule IPI armed");
         request_reschedule();
         return true;

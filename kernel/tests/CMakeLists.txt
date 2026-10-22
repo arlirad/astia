@@ -203,6 +203,9 @@ astia_add_arena_test(astia_phys_region_test
 # TLB, real physical memory, the boot path itself).
 if (ARCH STREQUAL "x86_64")
     find_program(ASTIA_QEMU qemu-system-x86_64)
+    find_program(GRUB_FILE grub-file)
+    find_program(GRUB_MKRESCUE grub-mkrescue)
+    find_program(XORRISO xorriso)
     if (ASTIA_QEMU)
         add_test(NAME astia_kernel_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
@@ -398,6 +401,20 @@ if (ARCH STREQUAL "x86_64")
                 "astia: libc ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
+
+        if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
+            add_custom_target(astia_grub_iso ALL
+                    COMMAND BUILD=${CMAKE_BINARY_DIR}/grub ISO=${CMAKE_BINARY_DIR}/astia-grub.iso
+                            ${CMAKE_SOURCE_DIR}/scripts/make-grub-iso.sh
+                    BYPRODUCTS ${CMAKE_BINARY_DIR}/astia-grub.iso
+                    DEPENDS astiakrn
+                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                    COMMENT "Building GRUB Multiboot2 ISO")
+            add_test(NAME astia_grub_smp_boot
+                    COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/test-grub-smp.sh
+                    ${CMAKE_BINARY_DIR}/astia-grub.iso)
+            set_tests_properties(astia_grub_smp_boot PROPERTIES TIMEOUT 30)
+        endif ()
     else ()
         message(STATUS "astia: qemu-system-x86_64 not found; skipping astia_kernel_boot")
     endif ()
