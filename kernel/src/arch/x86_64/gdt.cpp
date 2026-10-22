@@ -50,6 +50,8 @@ namespace astia::arch::x86_64 {
             u32 reserved;
             u64 syscall_stack_top;
             u64 syscall_saved_r12;
+            u32 interrupt_depth;
+            u32 should_yield;
         };
         static_assert(offsetof(cpu_local, index) == 0);
         static_assert(offsetof(cpu_local, syscall_stack_top) == 8);
@@ -113,6 +115,8 @@ namespace astia::arch::x86_64 {
         cpu_locals[cpu_index].index            = cpu_index;
         cpu_locals[cpu_index].syscall_stack_top = task_state[cpu_index].rsp0;
         cpu_locals[cpu_index].syscall_saved_r12 = 0;
+        cpu_locals[cpu_index].interrupt_depth = 0;
+        cpu_locals[cpu_index].should_yield = 0;
         wrmsr(msr_gs_base, reinterpret_cast<u64>(&cpu_locals[cpu_index]));
 
         constexpr u32 msr_efer  = 0xC0000080;

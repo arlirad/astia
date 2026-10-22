@@ -298,7 +298,8 @@ namespace astia::proc::scheduler {
     }
 
     extern "C" void astia_reschedule_if_needed() {
-        if (!initialized || !arch::cpu::consume_reschedule()) {
+        if (!initialized || (!arch::cpu::consume_should_yield() &&
+                             !arch::cpu::consume_reschedule())) {
             return;
         }
         yield();

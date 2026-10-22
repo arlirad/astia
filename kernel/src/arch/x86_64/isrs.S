@@ -37,10 +37,9 @@ isr_common:
     andq $-16, %rsp         /* SysV 16-byte alignment for the call */
     movq %rbx, %rdi         /* arg1: the register frame */
     call interrupt_dispatch
-    /* Scheduling is deferred until dispatch has returned and the complete
-       register frame is stable.  The hook may context-switch, but never runs
-       from inside an IRQ handler. */
-    call astia_reschedule_if_needed
+    /* The outermost dispatch publishes should_yield in GS:28.  Restore the
+       exact GPR/iret layout first; no C helper is called while that frame is
+       live. */
     movq %rbx, %rsp
 
     popq %r15
@@ -60,4 +59,45 @@ isr_common:
     popq %rax
 
     addq $16, %rsp          /* drop vector + error code */
+
+    /* If the outermost dispatch raised should_yield, preserve every restored
+       register around the C safe-point call.  The trampoline's aligned stack
+       may context-switch; on return it restores this exact iret frame. */
+    cmpl $0, %gs:28
+    je .isr_return
+    pushq %rax
+    pushq %rcx
+    pushq %rdx
+    pushq %rbx
+    pushq %rbp
+    pushq %rsi
+    pushq %rdi
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    movq %rsp, %rbx
+    andq $-16, %rsp
+    call astia_reschedule_if_needed
+    movq %rbx, %rsp
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rdi
+    popq %rsi
+    popq %rbp
+    popq %rbx
+    popq %rdx
+    popq %rcx
+    popq %rax
+.isr_return:
     iretq

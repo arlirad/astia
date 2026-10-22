@@ -131,6 +131,14 @@ namespace astia::arch {
         using x86_64::lapic;
         using x86_64::pic;
 
+        // Keep nesting/accounting at the dispatch boundary.  In particular,
+        // handlers only raise a request; the scheduler is never entered from
+        // this function while the ISR register image is live.
+        struct interrupt_scope {
+            interrupt_scope() { cpu::interrupt_enter(); }
+            ~interrupt_scope() { cpu::interrupt_exit(); }
+        } scope;
+
         const u64 vector = frame->vector;
 
         if (vector == 3) { // #BP: software int3 (debugger, boot selftest)

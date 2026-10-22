@@ -38,6 +38,14 @@ namespace astia::arch {
         /// architectures may leave this as a no-op until their exception
         /// level transition is implemented.
         static void set_kernel_stack(u64 stack_top);
+        /// Account for entry to/exit from an interrupt handler on this CPU.
+        static void interrupt_enter();
+        static void interrupt_exit();
+        /// Consume the reschedule indication published when the outermost
+        /// interrupt returned.  This is deliberately separate from the
+        /// scheduler's pending bit: the ISR epilogue can inspect it without
+        /// making a C call while its register frame is still live.
+        static bool consume_should_yield();
         static void request_reschedule();
         /// Ask this CPU to schedule at the next safe return boundary.
         static void request_local_reschedule();
