@@ -18,6 +18,34 @@
 
 .set XEN_ELFNOTE_PHYS32_ENTRY, 18
 
+/* ---- Multiboot2 image header --------------------------------------- */
+/* The header is in the first load segment and is 8-byte aligned.  GRUB
+ * selects _multiboot2_start through the entry-address tag. */
+.section .multiboot2, "a"
+.align 8
+.global multiboot2_header
+multiboot2_header:
+    .long 0xE85250D6                 /* magic */
+    .long 0                           /* i386 protected-mode architecture */
+    .long 80                          /* header length */
+    .long 0x17ADAEDA                 /* checksum */
+    .word 1, 0                       /* request information */
+    .long 28
+    .long 1                           /* command line */
+    .long 3                           /* modules */
+    .long 6                           /* memory map */
+    .long 14                          /* ACPI 1 RSDP */
+    .long 15                          /* ACPI 2 RSDP */
+    .long 0                           /* padding to 8-byte tag alignment */
+    .word 6, 0                        /* module alignment */
+    .long 8
+    .word 3, 0                        /* entry address */
+    .long 12
+    .long _multiboot2_start
+    .long 0                           /* padding to 8-byte end-tag alignment */
+    .word 0, 0                        /* end tag */
+    .long 8
+
 /* ---- PVH entry note ------------------------------------------------ */
 .section .note.Xen, "a", @note
 .align 4
@@ -32,7 +60,9 @@
 .section .boot.text, "ax"
 .code32
 .global _start
+.global _multiboot2_start
 _start:
+_multiboot2_start:
     cli
     movl $boot_stack_top, %esp
     movl %esp, %ebp

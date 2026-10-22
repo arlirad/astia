@@ -20,6 +20,15 @@ SECTIONS
     . = 1M;
     __kernel_start = .;
 
+    /* Multiboot2 requires the complete header within the first 32768 bytes
+     * and on an 8-byte boundary. */
+    .multiboot2 : ALIGN(8) {
+        KEEP(*(.multiboot2))
+    }
+    ASSERT(SIZEOF(.multiboot2) > 0, "missing Multiboot2 header")
+    ASSERT(ADDR(.multiboot2) - __kernel_start < 32768,
+           "Multiboot2 header is outside first 32 KiB")
+
     /* Must precede the .note collection below. */
     /DISCARD/ : {
         *(.comment)

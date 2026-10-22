@@ -1,6 +1,7 @@
 add_library(boot_virt STATIC
         boot.S
         pvh.cpp
+        multiboot2.cpp
         init_boot.cpp
 )
 

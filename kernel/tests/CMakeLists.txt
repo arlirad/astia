@@ -40,6 +40,8 @@ endfunction()
 # --- Pure logic: no hardware, no fake memory needed. ------------------------
 astia_add_host_test(astia_memory_map_test memory_map_test.cpp)
 astia_add_host_test(astia_pvh_test pvh_test.cpp ${CMAKE_SOURCE_DIR}/src/boot/virt/pvh.cpp)
+astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
+        ${CMAKE_SOURCE_DIR}/src/boot/virt/multiboot2.cpp)
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
