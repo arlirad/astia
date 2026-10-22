@@ -10,6 +10,9 @@ namespace astia::arch::x86_64::smp {
     /// loader does not provide a usable low-memory trampoline allocator.
     bool init(const boot::boot_info& info);
 
+    /// Initialize scheduler state for APs after the BSP has initialized proc.
+    bool init_scheduler();
+
     u32 discovered_cpus();
     u32 online_cpus();
     void request_reschedule();

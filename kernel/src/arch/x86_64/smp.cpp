@@ -40,11 +40,6 @@ namespace astia::arch::x86_64::smp {
                 return;
             }
             astia::arch::load_interrupts();
-            if (astia::proc::scheduler::ready() &&
-                !astia::proc::scheduler::init_cpu(static_cast<u32>(cpu_index))) {
-                logs::error("AP%u scheduler initialization failed", static_cast<u32>(cpu_index));
-                return;
-            }
             if (!lapic::enable()) {
                 logs::error("AP%u LAPIC enable failed", static_cast<u32>(cpu_index));
                 return;
@@ -244,6 +239,19 @@ namespace astia::arch::x86_64::smp {
             logs::info("smp: verified online=%u", cpu_online);
         logs::info("reschedule IPI armed");
         request_reschedule();
+        return true;
+    }
+
+    bool init_scheduler() {
+        // AP entry must not wait for proc: APs finish architectural bring-up
+        // and park, then the BSP publishes their scheduler state here.
+        const u32 online = __atomic_load_n(&cpu_online, __ATOMIC_ACQUIRE);
+        for (u32 index = 1; index < online && index < max_cpus; ++index) {
+            if (!astia::proc::scheduler::init_cpu(index)) {
+                logs::error("AP%u scheduler initialization failed", index);
+                return false;
+            }
+        }
         return true;
     }
 

@@ -8,6 +8,7 @@
 #include <astia/memory.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
+#include "../../proc/scheduler.hpp"
 
 // Kernel image bounds from the linker script; both are *physical* addresses
 // (see cmake/linker/virt-x86_64.ld): the frame allocator reserves
@@ -130,6 +131,10 @@ namespace astia::arch::x86_64 {
         return ctx.info != nullptr && smp::init(*ctx.info);
     }
 
+    static bool step_smp_scheduler(init::context&) {
+        return smp::init_scheduler();
+    }
+
 } // namespace astia::arch::x86_64
 
 ASTIA_INIT_STEP(memory, paging, astia::arch::x86_64::step_paging, "frames")
@@ -138,3 +143,5 @@ ASTIA_INIT_STEP(devices, interrupts, astia::arch::x86_64::step_interrupts, "pagi
                 "gdt_tss")
 ASTIA_INIT_STEP(devices, smp, astia::arch::x86_64::step_smp, "boot_info", "gdt_tss",
                 "interrupts")
+ASTIA_INIT_STEP(subsystems, smp_scheduler, astia::arch::x86_64::step_smp_scheduler,
+                "smp", "proc")
