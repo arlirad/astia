@@ -24,6 +24,8 @@ namespace astia::test {
 
         volatile u32 scheduler_counts[2]{};
         volatile u32 ap_work_seen = 0;
+        volatile u32 ap_stress_done = 0;
+        volatile u32 ap_stress_cpu_mask = 0;
         volatile u32 preempt_started   = 0;
         volatile u32 preempt_main_seen = 0;
         volatile u32 preempt_done      = 0;
@@ -40,6 +42,13 @@ namespace astia::test {
             if (arch::cpu::current_index() == 1) {
                 __atomic_store_n(&ap_work_seen, 1, __ATOMIC_RELEASE);
             }
+            proc::current_thread()->exit();
+        }
+
+        void ap_stress_worker(void*) {
+            const u32 cpu = arch::cpu::current_index();
+            __atomic_or_fetch(&ap_stress_cpu_mask, 1u << cpu, __ATOMIC_RELEASE);
+            __atomic_add_fetch(&ap_stress_done, 1, __ATOMIC_RELEASE);
             proc::current_thread()->exit();
         }
 
@@ -61,7 +70,29 @@ namespace astia::test {
                 logs::error("smp scheduler: AP work did not run");
                 return false;
             }
-            logs::info("smp scheduler: AP work ok");
+            constexpr u32 stress_jobs = 8;
+            ap_stress_done = 0;
+            ap_stress_cpu_mask = 0;
+            for (u32 i = 0; i < stress_jobs; ++i) {
+                if (!proc::scheduler::create_kernel_on(1, ap_stress_worker, nullptr)) {
+                    logs::error("smp scheduler: stress queue failed at %u", i);
+                    return false;
+                }
+            }
+            arch::cpu::interrupts();
+            for (u32 i = 0;
+                 i < 400 && __atomic_load_n(&ap_stress_done, __ATOMIC_ACQUIRE) < stress_jobs;
+                 ++i) {
+                arch::cpu::halt();
+            }
+            arch::cpu::nointerrupts();
+            const u32 done = __atomic_load_n(&ap_stress_done, __ATOMIC_ACQUIRE);
+            const u32 mask = __atomic_load_n(&ap_stress_cpu_mask, __ATOMIC_ACQUIRE);
+            if (done != stress_jobs || mask != (1u << 1)) {
+                logs::error("smp scheduler: stress done=%u mask=%x", done, mask);
+                return false;
+            }
+            logs::info("smp scheduler: AP work ok; stress=%u cpu-mask=%x", done, mask);
             return true;
         }
 
