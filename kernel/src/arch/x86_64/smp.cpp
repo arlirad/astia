@@ -30,6 +30,7 @@ namespace astia::arch::x86_64::smp {
 
         u32 cpu_total = 1;
         u32 cpu_online = 1;
+        u32 scheduler_online = 0;
         u32 apic_ids[max_cpus]{};
         alignas(64) u32 reschedule_pending[max_cpus]{};
 
@@ -48,11 +49,17 @@ namespace astia::arch::x86_64::smp {
             logs::info("AP%u online", static_cast<u32>(cpu_index));
             astia::arch::cpu::interrupts();
             logs::info("AP%u park", static_cast<u32>(cpu_index));
+            while (__atomic_load_n(&scheduler_online, __ATOMIC_ACQUIRE) == 0) {
+                astia::arch::cpu::halt();
+            }
+            if (!astia::proc::scheduler::start_cpu(static_cast<u32>(cpu_index))) {
+                logs::error("AP%u scheduler start failed", static_cast<u32>(cpu_index));
+                return;
+            }
             for (;;) {
                 astia::arch::cpu::halt();
                 if (consume_reschedule(static_cast<u32>(cpu_index))) {
-                    logs::info("AP%u wake", static_cast<u32>(cpu_index));
-                    logs::info("AP%u park", static_cast<u32>(cpu_index));
+                    astia::proc::scheduler::yield();
                 }
             }
         }
@@ -173,6 +180,7 @@ namespace astia::arch::x86_64::smp {
     bool init(const boot::boot_info& info) {
         cpu_total = 1;
         cpu_online = 1;
+        scheduler_online = 0;
         __atomic_store_n(&reschedule_pending[0], 0u, __ATOMIC_RELAXED);
         bool have_acpi = info.rsdp != 0;
         if (!have_acpi) {
@@ -252,6 +260,9 @@ namespace astia::arch::x86_64::smp {
                 return false;
             }
         }
+        __atomic_store_n(&scheduler_online, 1u, __ATOMIC_RELEASE);
+        if (__atomic_load_n(&cpu_online, __ATOMIC_ACQUIRE) > 1)
+            request_reschedule();
         return true;
     }
 

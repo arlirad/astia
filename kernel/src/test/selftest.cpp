@@ -13,6 +13,7 @@
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
+#include "../arch/x86_64/smp.hpp"
 
 namespace astia::test {
 
@@ -22,6 +23,7 @@ namespace astia::test {
         using logs = astia::log::context<"selftest">;
 
         volatile u32 scheduler_counts[2]{};
+        volatile u32 ap_work_seen = 0;
         volatile u32 preempt_started   = 0;
         volatile u32 preempt_main_seen = 0;
         volatile u32 preempt_done      = 0;
@@ -32,6 +34,35 @@ namespace astia::test {
                 __atomic_add_fetch(count, 1, __ATOMIC_RELAXED);
                 proc::scheduler::yield();
             }
+        }
+
+        void ap_scheduler_worker(void*) {
+            if (arch::cpu::current_index() == 1) {
+                __atomic_store_n(&ap_work_seen, 1, __ATOMIC_RELEASE);
+            }
+            proc::current_thread()->exit();
+        }
+
+        bool ap_scheduler_checks() {
+            if (arch::x86_64::smp::online_cpus() < 2) return true;
+            ap_work_seen = 0;
+            if (!proc::scheduler::create_kernel_on(1, ap_scheduler_worker, nullptr)) {
+                logs::error("smp scheduler: could not queue AP work");
+                return false;
+            }
+            arch::cpu::interrupts();
+            for (u32 i = 0; i < 200 &&
+                            __atomic_load_n(&ap_work_seen, __ATOMIC_ACQUIRE) == 0;
+                 ++i) {
+                arch::cpu::halt();
+            }
+            arch::cpu::nointerrupts();
+            if (__atomic_load_n(&ap_work_seen, __ATOMIC_ACQUIRE) == 0) {
+                logs::error("smp scheduler: AP work did not run");
+                return false;
+            }
+            logs::info("smp scheduler: AP work ok");
+            return true;
         }
 
         bool scheduler_checks() {
@@ -315,6 +346,9 @@ namespace astia::test {
 
     bool run() {
         if (!scheduler_checks()) {
+            return false;
+        }
+        if (!ap_scheduler_checks()) {
             return false;
         }
         if (!join_checks()) {

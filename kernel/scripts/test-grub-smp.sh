@@ -16,5 +16,12 @@ cat "$log"
 # The production image intentionally parks after boot, so timeout is expected.
 grep -qF "smp: discovered=2 online=1" "$log"
 grep -qF "smp: verified online=2" "$log"
-grep -qF "core: boot ok" "$log"
+if grep -qF "core: boot ok" "$log"; then
+    :
+else
+    grep -qF "core: selftest ok" "$log"
+fi
+if [ "${ASTIA_GRUB_EXPECT_AP_WORK:-0}" = 1 ]; then
+    grep -qF "smp scheduler: AP work ok" "$log"
+fi
 exit 0

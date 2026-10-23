@@ -405,13 +405,14 @@ if (ARCH STREQUAL "x86_64")
         if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
             add_custom_target(astia_grub_iso ALL
                     COMMAND BUILD=${CMAKE_BINARY_DIR}/grub ISO=${CMAKE_BINARY_DIR}/astia-grub.iso
+                            KERNEL_TARGET=astiakrn_test
                             ${CMAKE_SOURCE_DIR}/scripts/make-grub-iso.sh
                     BYPRODUCTS ${CMAKE_BINARY_DIR}/astia-grub.iso
-                    DEPENDS astiakrn
+                    DEPENDS astiakrn_test
                     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
                     COMMENT "Building GRUB Multiboot2 ISO")
             add_test(NAME astia_grub_smp_boot
-                    COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/test-grub-smp.sh
+                    COMMAND env ASTIA_GRUB_EXPECT_AP_WORK=1 sh ${CMAKE_SOURCE_DIR}/scripts/test-grub-smp.sh
                     ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp_boot PROPERTIES TIMEOUT 30)
         endif ()

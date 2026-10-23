@@ -8,10 +8,15 @@ namespace astia::proc::scheduler {
     /// to this CPU until migration and TLB shootdown are implemented.
     bool init();
     bool init_cpu(u32 cpu_index);
+    bool start_cpu(u32 cpu_index);
     mm::shptr<thread>
     create_kernel(kernel_entry entry, void* argument,
                   scheduling_class sched_class = scheduling_class::normal, i32 nice = 0,
                   u8 rt_priority = 0);
+    mm::shptr<thread>
+    create_kernel_on(u32 cpu_index, kernel_entry entry, void* argument,
+                     scheduling_class sched_class = scheduling_class::normal, i32 nice = 0,
+                     u8 rt_priority = 0);
     bool spawn_kernel(kernel_entry entry, void* argument,
                       scheduling_class sched_class = scheduling_class::normal,
                       i32 nice = 0, u8 rt_priority = 0);

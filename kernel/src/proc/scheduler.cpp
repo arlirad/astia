@@ -28,6 +28,9 @@ namespace astia::proc::scheduler {
             arch::cpu::interrupts();
             for (;;) {
                 arch::cpu::halt();
+                if (arch::cpu::consume_reschedule()) {
+                    yield();
+                }
             }
         }
 
@@ -153,12 +156,32 @@ namespace astia::proc::scheduler {
         return true;
     }
 
+    bool start_cpu(u32 cpu_index) {
+        if (!initialized || cpu_index >= max_cpus || !cpus[cpu_index].initialized ||
+            proc::current_thread() != nullptr) {
+            return false;
+        }
+        auto* idle = cpus[cpu_index].idle_thread;
+        idle->state(thread_state::running);
+        proc::set_current_thread(idle);
+        yield();
+        return true;
+    }
+
     mm::shptr<thread> create_kernel(kernel_entry entry, void* argument,
-                                    scheduling_class sched_class, i32 nice,
-                                    u8 rt_priority) {
+                                     scheduling_class sched_class, i32 nice,
+                                     u8 rt_priority) {
+        return create_kernel_on(arch::cpu::current_index(), entry, argument, sched_class, nice,
+                                rt_priority);
+    }
+
+    mm::shptr<thread> create_kernel_on(u32 cpu_index, kernel_entry entry, void* argument,
+                                       scheduling_class sched_class, i32 nice,
+                                       u8 rt_priority) {
         if (!initialized || entry == nullptr || proc::kernel_process() == nullptr) {
             return {};
         }
+        if (cpu_index >= max_cpus || !cpus[cpu_index].initialized) return {};
         auto value = mm::share<thread>(proc::kernel_process(), proc::allocate_tid());
         if (!value || !value->prepare_kernel(entry, argument) ||
             !proc::kernel_process()->add_thread(value)) {
@@ -168,10 +191,13 @@ namespace astia::proc::scheduler {
         value->nice(nice);
         value->rt_priority(rt_priority);
         value->state(thread_state::runnable);
-        value->cpu_owner(arch::cpu::current_index());
+        value->cpu_owner(cpu_index);
         arch::interrupt_guard gate;
         if (!enqueue(value.get())) {
             return {};
+        }
+        if (cpu_index != arch::cpu::current_index()) {
+            arch::cpu::request_reschedule();
         }
         return value;
     }
