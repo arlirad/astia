@@ -204,8 +204,11 @@ namespace astia::proc::scheduler {
 
     bool spawn_kernel(kernel_entry entry, void* argument, scheduling_class sched_class,
                       i32 nice, u8 rt_priority) {
-        return static_cast<bool>(
-            create_kernel(entry, argument, sched_class, nice, rt_priority));
+        auto value = create_kernel(entry, argument, sched_class, nice, rt_priority);
+        if (!value || value->detach() != 0) {
+            return false;
+        }
+        return true;
     }
 
     bool wake(thread* value) {

@@ -166,6 +166,13 @@ namespace astia::proc {
             return -EINVAL;
         }
         detached_ = true;
+        // A fire-and-forget kernel thread can finish before its creator gets
+        // to detach it (especially when it is queued on another CPU).  Its
+        // stack is no longer active in this case, so move the process-owned
+        // reference to the deferred reaper just as finish() would have done.
+        if (state_ == thread_state::dead && owner_ != nullptr) {
+            defer_dead_thread(owner_->take_thread(this));
+        }
         return 0;
     }
 
