@@ -211,6 +211,53 @@ namespace astia::proc::scheduler {
         return true;
     }
 
+    bool migrate(thread* value, u32 cpu_index) {
+        if (!initialized || value == nullptr || cpu_index >= max_cpus ||
+            !cpus[cpu_index].initialized || value->cpu_owner() == cpu_index ||
+            !value->queued() || value->state() != thread_state::runnable) {
+            return false;
+        }
+        const u32 source_index = value->cpu_owner();
+        if (source_index >= max_cpus || !cpus[source_index].initialized) return false;
+
+        arch::interrupt_guard gate;
+        auto& source = cpus[source_index];
+        {
+            core::spinlock_guard source_guard(source.lock);
+            u32 position = source.queue_count;
+            for (u32 i = 0; i < source.queue_count; ++i) {
+                if (source.queue[i] == value) {
+                    position = i;
+                    break;
+                }
+            }
+            if (position == source.queue_count) return false;
+            value->queued(false);
+            for (u32 i = position + 1; i < source.queue_count; ++i)
+                source.queue[i - 1] = source.queue[i];
+            --source.queue_count;
+        }
+
+        auto& target = cpus[cpu_index];
+        {
+            core::spinlock_guard target_guard(target.lock);
+            if (target.queue_count == queue_capacity) {
+                // Restore the original ownership if the destination is full.
+                core::spinlock_guard source_guard(source.lock);
+                if (source.queue_count == queue_capacity) return false;
+                value->cpu_owner(source_index);
+                value->queued(true);
+                source.queue[source.queue_count++] = value;
+                return false;
+            }
+            value->cpu_owner(cpu_index);
+            value->queued(true);
+            target.queue[target.queue_count++] = value;
+        }
+        arch::cpu::request_reschedule();
+        return true;
+    }
+
     bool wake(thread* value) {
         if (value == nullptr || value->state() == thread_state::dead) {
             return false;

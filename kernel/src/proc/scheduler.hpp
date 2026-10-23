@@ -20,6 +20,8 @@ namespace astia::proc::scheduler {
     bool spawn_kernel(kernel_entry entry, void* argument,
                       scheduling_class sched_class = scheduling_class::normal,
                       i32 nice = 0, u8 rt_priority = 0);
+    /// Move a queued runnable thread to another initialized CPU.
+    bool migrate(thread* value, u32 cpu_index);
     bool wake(thread* value);
     void tick();
     void yield();

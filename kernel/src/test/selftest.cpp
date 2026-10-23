@@ -26,6 +26,8 @@ namespace astia::test {
         volatile u32 ap_work_seen = 0;
         volatile u32 ap_stress_done = 0;
         volatile u32 ap_stress_cpu_mask = 0;
+        volatile u32 migration_done = 0;
+        volatile u32 migration_cpu_mask = 0;
         volatile u32 preempt_started   = 0;
         volatile u32 preempt_main_seen = 0;
         volatile u32 preempt_done      = 0;
@@ -52,10 +54,18 @@ namespace astia::test {
             proc::current_thread()->exit();
         }
 
+        void migration_worker(void*) {
+            __atomic_or_fetch(&migration_cpu_mask, 1u << arch::cpu::current_index(),
+                              __ATOMIC_RELEASE);
+            __atomic_add_fetch(&migration_done, 1, __ATOMIC_RELEASE);
+            proc::current_thread()->exit();
+        }
+
         bool ap_scheduler_checks() {
             if (arch::x86_64::smp::online_cpus() < 2) return true;
             ap_work_seen = 0;
-            if (!proc::scheduler::create_kernel_on(1, ap_scheduler_worker, nullptr)) {
+            auto ap_work = proc::scheduler::create_kernel_on(1, ap_scheduler_worker, nullptr);
+            if (!ap_work || ap_work->detach() != 0) {
                 logs::error("smp scheduler: could not queue AP work");
                 return false;
             }
@@ -74,7 +84,8 @@ namespace astia::test {
             ap_stress_done = 0;
             ap_stress_cpu_mask = 0;
             for (u32 i = 0; i < stress_jobs; ++i) {
-                if (!proc::scheduler::create_kernel_on(1, ap_stress_worker, nullptr)) {
+                auto job = proc::scheduler::create_kernel_on(1, ap_stress_worker, nullptr);
+                if (!job || job->detach() != 0) {
                     logs::error("smp scheduler: stress queue failed at %u", i);
                     return false;
                 }
@@ -92,7 +103,32 @@ namespace astia::test {
                 logs::error("smp scheduler: stress done=%u mask=%x", done, mask);
                 return false;
             }
-            logs::info("smp scheduler: AP work ok; stress=%u cpu-mask=%x", done, mask);
+            constexpr u32 migration_jobs = 8;
+            migration_done = 0;
+            migration_cpu_mask = 0;
+            for (u32 i = 0; i < migration_jobs; ++i) {
+                auto job = proc::scheduler::create_kernel_on(0, migration_worker, nullptr);
+                if (!job || job->detach() != 0 || !proc::scheduler::migrate(job.get(), 1)) {
+                    logs::error("smp scheduler: migration queue failed at %u", i);
+                    return false;
+                }
+            }
+            arch::cpu::interrupts();
+            for (u32 i = 0;
+                 i < 400 && __atomic_load_n(&migration_done, __ATOMIC_ACQUIRE) < migration_jobs;
+                 ++i) {
+                arch::cpu::halt();
+            }
+            arch::cpu::nointerrupts();
+            const u32 migrated_done = __atomic_load_n(&migration_done, __ATOMIC_ACQUIRE);
+            const u32 migrated_mask = __atomic_load_n(&migration_cpu_mask, __ATOMIC_ACQUIRE);
+            if (migrated_done != migration_jobs || migrated_mask != (1u << 1)) {
+                logs::error("smp scheduler: migration done=%u mask=%x", migrated_done,
+                            migrated_mask);
+                return false;
+            }
+            logs::info("smp scheduler: AP work ok; stress=%u cpu-mask=%x migration=%u mask=%x",
+                       done, mask, migrated_done, migrated_mask);
             return true;
         }
 
