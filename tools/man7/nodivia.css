@@ -12,6 +12,8 @@ pre { padding: 12px; overflow-x: auto; background: #111; border: 1px solid #333;
 li { margin: 6px 0; }
 .man-list { padding-left: 28px; }
 .man-list li { margin: 8px 0; }
+.man-list--detail { margin-top: 6px; }
+.man-list--detail li { margin: 4px 0; color: #ccc; }
 ::-webkit-scrollbar { width: 12px; }
 ::-webkit-scrollbar-track { background: #333; border-left: 1px solid #555; }
 ::-webkit-scrollbar-thumb { background: #444; }

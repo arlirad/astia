@@ -130,8 +130,9 @@ def render(name: str, body: str) -> str:
                         reason = code_match.group(2).strip() if code_match else item
                         reason = reason or ERROR_FALLBACKS.get(code[1:], "the operation failed")
                     rendered_items.append(
-                        f"<li><code>{html.escape(code)}</code> "
-                        f"{html.escape(reason.rstrip('.'))}.</li>"
+                        f"<li><code>{html.escape(code)}</code>"
+                        f"<ul class=\"man-list man-list--detail\"><li>"
+                        f"{html.escape(reason.rstrip('.'))}.</li></ul></li>"
                     )
                 else:
                     rendered_items.append(f"<li>{html.escape(item)}</li>")
