@@ -21,6 +21,7 @@ namespace astia {
         einval,     ///< Invalid argument.
         enoent,     ///< No such entry.
         enomem,     ///< Out of memory.
+        emfile,     ///< Process file descriptor limit reached.
         enospc,     ///< No space left.
         enosys,     ///< Function not implemented.
         enotdir,    ///< Not a directory.
@@ -60,6 +61,8 @@ namespace astia {
             return "not found";
         case error_t::enomem:
             return "out of memory";
+        case error_t::emfile:
+            return "too many open files";
         case error_t::enospc:
             return "no space left";
         case error_t::enosys:

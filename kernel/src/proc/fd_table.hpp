@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/optional.hpp>
 #include <astia/fs.hpp>
 
 namespace astia::proc {
@@ -18,8 +19,8 @@ namespace astia::proc {
         bool                     set(fd_t fd, const mm::shptr<fs::open_file>& file);
         bool                     clear(fd_t fd);
         void                     clear_all();
-        fd_t                     duplicate(fd_t old_fd);
-        fd_t                     duplicate_to(fd_t old_fd, fd_t new_fd);
+        optional<fd_t>            duplicate(fd_t old_fd);
+        optional<fd_t>            duplicate_to(fd_t old_fd, fd_t new_fd);
 
         private:
         mm::shptr<fs::open_file> entries_[max_process_fds];

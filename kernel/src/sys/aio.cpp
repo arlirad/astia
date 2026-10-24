@@ -528,11 +528,9 @@ namespace astia::sys {
                 if (current == nullptr || !source) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                const i32 fd = current->duplicate_descriptor(s.fd);
-                if (fd >= 0) {
-                    return cq_post_guarded(ring, s.user_data, fd);
-                }
-                return cq_post_guarded(ring, s.user_data, -EMFILE);
+                const auto fd = current->duplicate_descriptor(s.fd);
+                return cq_post_guarded(ring, s.user_data,
+                                       fd ? static_cast<i64>(fd.value) : -EMFILE);
             }
 
             case OP_DUP2: {

@@ -119,8 +119,8 @@ namespace astia::proc {
         mm::shptr<fs::open_file> descriptor(fd_t fd) const;
         bool set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value);
         bool clear_descriptor(fd_t fd);
-        fd_t duplicate_descriptor(fd_t old_fd);
-        fd_t duplicate_descriptor_to(fd_t old_fd, fd_t new_fd);
+        optional<fd_t> duplicate_descriptor(fd_t old_fd);
+        optional<fd_t> duplicate_descriptor_to(fd_t old_fd, fd_t new_fd);
 
         /// Load an ET_EXEC/ET_DYN image with the shared ELF loader into
         /// this process address space.  This prepares the image only;

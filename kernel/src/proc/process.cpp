@@ -447,11 +447,11 @@ namespace astia::proc {
         return descriptors_.clear(fd);
     }
 
-    fd_t process::duplicate_descriptor(fd_t old_fd) {
+    optional<fd_t> process::duplicate_descriptor(fd_t old_fd) {
         return descriptors_.duplicate(old_fd);
     }
 
-    fd_t process::duplicate_descriptor_to(fd_t old_fd, fd_t new_fd) {
+    optional<fd_t> process::duplicate_descriptor_to(fd_t old_fd, fd_t new_fd) {
         return descriptors_.duplicate_to(old_fd, new_fd);
     }
 

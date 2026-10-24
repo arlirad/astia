@@ -40,24 +40,24 @@ namespace astia::proc {
         }
     }
 
-    fd_t fd_table::duplicate(fd_t old_fd) {
+    optional<fd_t> fd_table::duplicate(fd_t old_fd) {
         auto source = get(old_fd);
         if (!source) {
-            return -EBADF;
+            return error_t::ebadf;
         }
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
             if (!entries_[fd]) {
                 entries_[fd] = source;
-                return static_cast<i32>(fd);
+                return static_cast<fd_t>(fd);
             }
         }
-        return -EMFILE;
+        return error_t::emfile;
     }
 
-    fd_t fd_table::duplicate_to(fd_t old_fd, fd_t new_fd) {
+    optional<fd_t> fd_table::duplicate_to(fd_t old_fd, fd_t new_fd) {
         auto source = get(old_fd);
         if (!source || new_fd < 0 || static_cast<u32>(new_fd) >= max_process_fds) {
-            return -EBADF;
+            return error_t::ebadf;
         }
         if (old_fd != new_fd) {
             entries_[new_fd] = source;

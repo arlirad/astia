@@ -34,6 +34,7 @@ namespace astia {
         case error_t::einval: return EINVAL;
         case error_t::enoent: return ENOENT;
         case error_t::enomem: return ENOMEM;
+        case error_t::emfile: return EMFILE;
         case error_t::enospc: return ENOSPC;
         case error_t::enosys: return ENOSYS;
         case error_t::enotdir: return ENOTDIR;
