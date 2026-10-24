@@ -99,6 +99,8 @@ def render(name: str, body: str) -> str:
             items = [item.strip() for item in re.split(
                 r";\s*|,\s*(?=-E[A-Z])", content
             ) if item.strip()]
+            if heading == "ERRORS":
+                items = [item.rstrip(".") + "." for item in items]
             html_body = "<ul class=\"man-list\">" + "".join(
                 f"<li>{html.escape(item)}</li>" for item in items
             ) + "</ul>"
