@@ -15,7 +15,14 @@ namespace astia {
 
     using usize = __SIZE_TYPE__;
     using isize = __PTRDIFF_TYPE__;
-    using fd_t  = i32;
+    using raw_fd_t = i32;
+    struct fd_t {
+        i32 value = -1;
+        constexpr fd_t() = default;
+        constexpr explicit fd_t(i32 raw) : value(raw) {}
+        constexpr bool operator==(fd_t other) const { return value == other.value; }
+        constexpr bool operator!=(fd_t other) const { return value != other.value; }
+    };
 
     /// Explicit vocabulary for values that otherwise tend to be naked u64s
     /// or machine-sized integers at subsystem boundaries. These are aliases,

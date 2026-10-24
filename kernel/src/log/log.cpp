@@ -88,7 +88,7 @@ namespace astia::log::detail {
         auto           stream =
             current == nullptr
                 ? mm::shptr<fs::open_file>{}
-                : current->descriptor(severity == level::info ? STDOUT : STDERR);
+                : current->descriptor(fd_t{severity == level::info ? STDOUT : STDERR});
         if (!stream) {
             buffer(severity, c);
             return;

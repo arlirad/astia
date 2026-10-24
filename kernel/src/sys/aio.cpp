@@ -230,7 +230,7 @@ namespace astia::sys {
         mm::shptr<fs::open_file> file_for(i32 fd) {
             proc::process* current = proc::current_process();
             return current == nullptr ? mm::shptr<fs::open_file>{}
-                                      : current->descriptor(fd);
+                                       : current->descriptor(fd_t{fd});
         }
 
         /// What one pump() did with an operation.  The two cannot share a
@@ -506,7 +506,7 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -ESRCH);
                 }
                 for (i32 i = 3; i < static_cast<i32>(proc::max_process_fds); ++i) {
-                    if (!current->descriptor(i) && current->set_descriptor(i, object)) {
+                    if (!current->descriptor(fd_t{i}) && current->set_descriptor(fd_t{i}, object)) {
                         return cq_post_guarded(ring, s.user_data, i);
                     }
                 }
@@ -515,10 +515,10 @@ namespace astia::sys {
 
             case OP_CLOSE: {
                 proc::process* current = proc::current_process();
-                if (current == nullptr || !current->descriptor(s.fd)) {
+                if (current == nullptr || !current->descriptor(fd_t{s.fd})) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                current->clear_descriptor(s.fd);
+                current->clear_descriptor(fd_t{s.fd});
                 return cq_post_guarded(ring, s.user_data, 0);
             }
 
@@ -528,9 +528,9 @@ namespace astia::sys {
                 if (current == nullptr || !source) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                const auto fd = current->duplicate_descriptor(s.fd);
+                const auto fd = current->duplicate_descriptor(fd_t{s.fd});
                 return cq_post_guarded(ring, s.user_data,
-                                       fd ? static_cast<i64>(fd.value) : -EMFILE);
+                                       fd ? static_cast<i64>(fd.value.value) : -EMFILE);
             }
 
             case OP_DUP2: {
@@ -541,7 +541,7 @@ namespace astia::sys {
                 }
                 const i32 target = static_cast<i32>(s.offset);
                 if (target != s.fd) {
-                    current->set_descriptor(target, source);
+                    current->set_descriptor(fd_t{target}, source);
                 }
                 return cq_post_guarded(ring, s.user_data, target);
             }
@@ -651,19 +651,19 @@ namespace astia::sys {
                 i32 read_fd  = -1;
                 i32 write_fd = -1;
                 for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
-                    if (read_fd < 0 && !current->descriptor(fd)) {
-                        current->set_descriptor(fd, read_end);
+                    if (read_fd < 0 && !current->descriptor(fd_t{fd})) {
+                        current->set_descriptor(fd_t{fd}, read_end);
                         read_fd = fd;
                     }
-                    else if (write_fd < 0 && !current->descriptor(fd)) {
-                        current->set_descriptor(fd, write_end);
+                    else if (write_fd < 0 && !current->descriptor(fd_t{fd})) {
+                        current->set_descriptor(fd_t{fd}, write_end);
                         write_fd = fd;
                         break;
                     }
                 }
                 if (read_fd < 0 || write_fd < 0) {
                     if (read_fd >= 0)
-                        current->clear_descriptor(read_fd);
+                        current->clear_descriptor(fd_t{read_fd});
                     return cq_post_guarded(ring, s.user_data, -EMFILE);
                 }
                 auto* result = reinterpret_cast<i32*>(out.address());
@@ -851,7 +851,7 @@ namespace astia::sys {
 
     void io_device_ready(i32 fd) {
         proc::process* current = proc::current_process();
-        if (current == nullptr || !current->descriptor(fd)) {
+        if (current == nullptr || !current->descriptor(fd_t{fd})) {
             return;
         }
         arch::interrupt_guard gate;

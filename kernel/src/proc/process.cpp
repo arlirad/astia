@@ -426,7 +426,7 @@ namespace astia::proc {
     bool process::install_standard_streams() {
         const bool installed = descriptors_.install_standard_streams();
         if (installed) {
-            auto tty = descriptor(STDIN);
+            auto tty = descriptor(fd_t{STDIN});
             if (tty) {
                 i32 group = static_cast<i32>(process_group_);
                 (void) tty->ioctl(TIOCSPGRP, &group);
@@ -754,8 +754,8 @@ namespace astia::proc {
 
     bool process::copy_descriptors_from(const process& other) {
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
-            auto entry = other.descriptors_.get(static_cast<i32>(fd));
-            if (entry && !descriptors_.set(static_cast<i32>(fd), entry)) {
+            auto entry = other.descriptors_.get(fd_t{static_cast<i32>(fd)});
+            if (entry && !descriptors_.set(fd_t{static_cast<i32>(fd)}, entry)) {
                 return false;
             }
         }

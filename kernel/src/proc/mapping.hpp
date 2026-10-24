@@ -45,7 +45,7 @@ namespace astia {
         static optional<fd_t> from(i64 raw) {
             if (raw < 0 || raw >= static_cast<i64>(proc::max_process_fds))
                 return optional<fd_t>(error_t::ebadf);
-            return optional<fd_t>(static_cast<fd_t>(raw));
+            return optional<fd_t>(fd_t{static_cast<i32>(raw)});
         }
     };
 
