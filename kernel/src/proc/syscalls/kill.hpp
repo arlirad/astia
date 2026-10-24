@@ -14,6 +14,9 @@ namespace astia::proc::syscall {
     ///     process group, and pid < 0 targets process group -pid. Signal
     ///     zero performs an existence check without enqueuing a signal.
     ///
+    /// Return Value:
+    ///     Returns zero on success.
+    ///
     /// Errors: -EINVAL for malformed identifiers/signals; -ESRCH when no
     /// matching live process or process group exists.
     i64 kill(i32 pid_raw, i32 signal_raw);
