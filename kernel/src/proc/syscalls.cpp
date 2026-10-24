@@ -1,6 +1,11 @@
 #include "proc.hpp"
 #include "mapping.hpp"
 #include "syscalls/kill.hpp"
+#include "syscalls/getpid.hpp"
+#include "syscalls/gettid.hpp"
+#include "syscalls/getpgrp.hpp"
+#include "syscalls/setpgid.hpp"
+#include "syscalls/setsid.hpp"
 #include "../ipc/futex.hpp"
 #include "../ipc/mapping.hpp"
 #include "scheduler.hpp"
@@ -24,38 +29,6 @@ namespace astia::proc {
         /// This module's log source: the same one proc.cpp logs under.
         using logs = astia::log::context<"proc">;
 
-
-        i64 sys_getpid() {
-            auto* process = current_process();
-            return process == nullptr ? -ESRCH : static_cast<i64>(process->pid());
-        }
-
-        i64 sys_gettid() {
-            auto* thread = current_thread();
-            return thread == nullptr ? -ESRCH : static_cast<i64>(thread->tid());
-        }
-
-        i64 sys_getpgrp() {
-            return static_cast<i64>(getpgrp());
-        }
-        i64 sys_setpgid(i32 pid, i32 pgid) {
-            pid_t typed_pid = 0;
-            if (pid != 0) {
-                auto mapped_pid = mapper<pid_t>::from(pid);
-                if (!mapped_pid) return -EINVAL;
-                typed_pid = mapped_pid.value;
-            }
-            pgrp_t typed_group = 0;
-            if (pgid != 0) {
-                auto mapped_group = mapper<pgrp_t>::from(pgid);
-                if (!mapped_group) return -EINVAL;
-                typed_group = mapped_group.value;
-            }
-            return setpgid(typed_pid, typed_group);
-        }
-        i64 sys_setsid() {
-            return setsid();
-        }
 
         i64 sys_sigaction(i32 value, u64 next_ptr, u64 old_ptr) {
             auto mapped_signal = mapper<signal_t>::from(value);
@@ -611,8 +584,8 @@ namespace astia::proc {
     }
 
     bool register_syscalls() {
-        return sys::register_syscall<sys_getpid>(sys::syscall_id::getpid) &&
-               sys::register_syscall<sys_gettid>(sys::syscall_id::gettid) &&
+         return sys::register_syscall<syscall::getpid>(sys::syscall_id::getpid) &&
+                sys::register_syscall<syscall::gettid>(sys::syscall_id::gettid) &&
                sys::register_syscall<syscall::kill>(sys::syscall_id::kill) &&
                sys::register_syscall<sys_sigaction>(sys::syscall_id::sigaction) &&
                sys::register_syscall<sys_sigreturn>(sys::syscall_id::sigreturn) &&
@@ -623,9 +596,9 @@ namespace astia::proc {
                sys::register_syscall<sys_spawnve>(sys::syscall_id::spawnve) &&
                sys::register_syscall<sys_execve>(sys::syscall_id::execve) &&
                sys::register_syscall<sys_sigsuspend>(sys::syscall_id::sigsuspend) &&
-               sys::register_syscall<sys_getpgrp>(sys::syscall_id::getpgrp) &&
-               sys::register_syscall<sys_setpgid>(sys::syscall_id::setpgid) &&
-               sys::register_syscall<sys_setsid>(sys::syscall_id::setsid) &&
+                sys::register_syscall<syscall::getpgrp>(sys::syscall_id::getpgrp) &&
+                sys::register_syscall<syscall::setpgid>(sys::syscall_id::setpgid) &&
+                sys::register_syscall<syscall::setsid>(sys::syscall_id::setsid) &&
                sys::register_syscall<sys_mmap>(sys::syscall_id::mmap) &&
                sys::register_syscall<sys_munmap>(sys::syscall_id::munmap) &&
                sys::register_syscall<sys_fork>(sys::syscall_id::fork) &&

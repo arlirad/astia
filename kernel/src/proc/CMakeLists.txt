@@ -6,6 +6,11 @@ add_library(proc STATIC
         mmap.cpp
         syscalls.cpp
         syscalls/kill.cpp
+        syscalls/getpid.cpp
+        syscalls/gettid.cpp
+        syscalls/getpgrp.cpp
+        syscalls/setpgid.cpp
+        syscalls/setsid.cpp
         thread.cpp
         fd_table.cpp
         scheduler.cpp
