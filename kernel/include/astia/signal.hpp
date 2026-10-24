@@ -44,6 +44,12 @@ namespace astia {
     using signal_mask                 = u32;
     using signal_handler              = void (*)(int);
 
+    enum class signal_mask_operation : u8 {
+        block,
+        unblock,
+        setmask,
+    };
+
     enum class signal_action : u8 {
         default_action,
         ignore,

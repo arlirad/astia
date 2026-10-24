@@ -15,6 +15,16 @@ namespace astia {
     };
 
     template <>
+    struct mapper<signal_mask_operation> {
+        static optional<signal_mask_operation> from(i64 raw) {
+            if (raw < 0 || raw > 2)
+                return optional<signal_mask_operation>(error_t::einval);
+            return optional<signal_mask_operation>(
+                static_cast<signal_mask_operation>(raw));
+        }
+    };
+
+    template <>
     struct mapper<proc::wait_options>
         : bitmask_mapper<proc::wait_options,
                          static_cast<u64>(proc::wait_options::nohang) |

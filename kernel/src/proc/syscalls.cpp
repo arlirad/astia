@@ -190,18 +190,18 @@ namespace astia::proc {
                     return -EFAULT;
                 }
             }
-            switch (how) {
-            case ASTIA_SIG_BLOCK:
+            auto operation = mapper<signal_mask_operation>::from(how);
+            if (!operation) return -EINVAL;
+            switch (operation.value) {
+            case signal_mask_operation::block:
                 owner->signals().block(set);
                 break;
-            case ASTIA_SIG_UNBLOCK:
+            case signal_mask_operation::unblock:
                 owner->signals().unblock(set);
                 break;
-            case ASTIA_SIG_SETMASK:
+            case signal_mask_operation::setmask:
                 owner->signals().set_blocked(set);
                 break;
-            default:
-                return -EINVAL;
             }
             return 0;
         }
