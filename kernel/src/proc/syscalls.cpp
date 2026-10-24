@@ -85,10 +85,9 @@ namespace astia::proc {
         }
 
         i64 sys_sigaction(i32 value, u64 next_ptr, u64 old_ptr) {
-            if (value <= 0 || value >= static_cast<i32>(signal_count)) {
-                return -EINVAL;
-            }
-            const auto signal = static_cast<signal_number>(value);
+            auto mapped_signal = mapper<signal_t>::from(value);
+            if (!mapped_signal || !valid_signal(mapped_signal.value)) return -EINVAL;
+            const auto signal = mapped_signal.value;
             auto*      owner  = current_process();
             if (owner == nullptr) {
                 return -ESRCH;
@@ -504,8 +503,11 @@ namespace astia::proc {
             if (fd < 0 || off < 0) {
                 return -EINVAL;
             }
+            auto mapped_fd = mapper<fd_t>::from(fd);
+            if (!mapped_fd) return -EBADF;
             return static_cast<i64>(process->map_file(
-                fd, addr, static_cast<usize>(len), prot, flags, static_cast<u64>(off)));
+                mapped_fd.value, addr, static_cast<usize>(len), prot, flags,
+                static_cast<u64>(off)));
         }
 
         /// munmap — remove [addr, addr + len) from the caller's

@@ -240,7 +240,7 @@ namespace astia::proc {
         return base;
     }
 
-    u64 process::map_file(i32 fd, u64 addr, usize len, u32 prot, u32 flags, u64 off) {
+    u64 process::map_file(fd_t fd, u64 addr, usize len, u32 prot, u32 flags, u64 off) {
         // File mappings: private mappings capture bytes into
         // fresh frames at map time — snapshot semantics, the same
         // kernel-side read the ELF loader trusts.  Writes land on the

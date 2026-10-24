@@ -166,7 +166,7 @@ namespace astia::proc {
         /// writes land on the private copy, and the mapping keeps the
         /// open file description alive across close().  `fd` resolves
         /// in this process' table; `off` must be page-aligned.
-        u64 map_file(i32 fd, u64 addr, usize len, u32 prot, u32 flags, u64 off);
+        u64 map_file(fd_t fd, u64 addr, usize len, u32 prot, u32 flags, u64 off);
 
         /// munmap: drop [addr, addr + len) rounded up to pages; parts
         /// of mapped regions outside the range are kept.  Returns 0,
