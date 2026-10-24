@@ -38,6 +38,8 @@ namespace astia {
         sys    = 31,
     };
 
+    using signal_t = signal_number;
+
     inline constexpr u32 signal_count = 32;
     using signal_mask                 = u32;
     using signal_handler              = void (*)(int);

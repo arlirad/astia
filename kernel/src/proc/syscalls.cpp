@@ -1,4 +1,5 @@
 #include "proc.hpp"
+#include "abi_mapper.hpp"
 #include "scheduler.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
@@ -20,6 +21,17 @@ namespace astia::proc {
         /// This module's log source: the same one proc.cpp logs under.
         using logs = astia::log::context<"proc">;
 
+        i64 errno_value(error_t error) {
+            switch (error) {
+            case error_t::enoent: return ENOENT;
+            case error_t::enomem: return ENOMEM;
+            case error_t::eagain: return EAGAIN;
+            case error_t::eio: return EIO;
+            case error_t::einval: return EINVAL;
+            default: return EINVAL;
+            }
+        }
+
         i64 sys_getpid() {
             auto* process = current_process();
             return process == nullptr ? -ESRCH : static_cast<i64>(process->pid());
@@ -34,13 +46,12 @@ namespace astia::proc {
             /* zsh probes a process group with kill(-pgrp, 0).  Signal zero
                is permission/existence checking only and must not enqueue a
                signal. */
-            if (value < 0 || value >= static_cast<i32>(signal_count)) {
-                return -EINVAL;
-            }
+            auto mapped_signal = abi::mapper<signal_t>::from(value);
+            if (!mapped_signal) return -EINVAL;
             if (pid <= 0) {
                 const pid_t group =
                     pid == 0 ? getpgrp() : static_cast<pid_t>(-static_cast<i64>(pid));
-                return signal_process_group(group, value);
+                return signal_process_group(static_cast<pgrp_t>(group), mapped_signal.value);
             }
             auto* target = find_process(static_cast<pid_t>(pid));
             if (target == nullptr) {
@@ -49,7 +60,7 @@ namespace astia::proc {
             if (value == 0) {
                 return 0;
             }
-            if (!target->signals().send(static_cast<signal_number>(value))) {
+            if (!target->signals().send(mapped_signal.value)) {
                 return -EINVAL;
             }
             // A signal is also a wakeup source for sigsuspend().  Child exit
@@ -63,7 +74,11 @@ namespace astia::proc {
             return static_cast<i64>(getpgrp());
         }
         i64 sys_setpgid(i32 pid, i32 pgid) {
-            return setpgid(pid, pgid);
+            const pid_t typed_pid = pid == 0 ? 0 : abi::mapper<pid_t>::from(pid).value_or(0);
+            const pgrp_t typed_group = pgid == 0 ? 0 : abi::mapper<pgrp_t>::from(pgid).value_or(0);
+            if (typed_pid == 0 && pid != 0) return -EINVAL;
+            if (typed_group == 0 && pgid != 0) return -EINVAL;
+            return setpgid(typed_pid, typed_group);
         }
         i64 sys_setsid() {
             return setsid();
@@ -324,7 +339,10 @@ namespace astia::proc {
                 return -EFAULT;
             }
             i32       local  = 0;
-            const i64 result = waitpid(pid, status.null() ? nullptr : &local, options);
+            auto mapped_options = abi::mapper<wait_options>::from(options);
+            if (!mapped_options) return -EINVAL;
+            const i64 result = waitpid(pid, status.null() ? nullptr : &local,
+                                       mapped_options.value);
             if (result >= 0 && !status.null() && !sys::copy_out(status, &local)) {
                 return -EFAULT; // reaped, but undeliverable
             }
@@ -397,9 +415,9 @@ namespace astia::proc {
                 result = copy_in_vector(envp_vec, pool + vec_max * arg_cap, envp_ptr);
             }
             if (result == 0) {
-                int  error = -ENOMEM; // floor: spawnve sets one on every path
-                auto child = spawnve(path, argv_vec, envp_vec, &error);
-                result     = child ? static_cast<i64>(child->pid()) : error;
+                auto child = spawnve(path, argv_vec, envp_vec);
+                result = child ? static_cast<i64>(child.value->pid())
+                               : -errno_value(child.error);
             }
             mm::heap::free(storage.value);
             return result;

@@ -12,7 +12,8 @@
 
 namespace astia::proc {
 
-    using pid_t = u32;
+    using pid_t  = u32;
+    using pgrp_t = pid_t;
 
     inline constexpr u32 max_process_threads        = 16;
     inline constexpr u32 max_process_waiters        = 4;
@@ -115,11 +116,11 @@ namespace astia::proc {
         }
 
         bool                     install_standard_streams();
-        mm::shptr<fs::open_file> descriptor(i32 fd) const;
-        bool set_descriptor(i32 fd, const mm::shptr<fs::open_file>& value);
-        bool clear_descriptor(i32 fd);
-        i32  duplicate_descriptor(i32 old_fd);
-        i32  duplicate_descriptor_to(i32 old_fd, i32 new_fd);
+        mm::shptr<fs::open_file> descriptor(fd_t fd) const;
+        bool set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value);
+        bool clear_descriptor(fd_t fd);
+        fd_t duplicate_descriptor(fd_t old_fd);
+        fd_t duplicate_descriptor_to(fd_t old_fd, fd_t new_fd);
 
         /// Load an ET_EXEC/ET_DYN image with the shared ELF loader into
         /// this process address space.  This prepares the image only;

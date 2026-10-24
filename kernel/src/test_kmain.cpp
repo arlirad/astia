@@ -22,7 +22,8 @@ namespace {
     bool run_image(const char* path, char* const argv[], char* const envp[],
                    bool& spawned) {
         spawned      = false;
-        auto process = astia::proc::spawnve(path, argv, envp);
+        auto spawned_result = astia::proc::spawnve(path, argv, envp);
+        auto process = spawned_result.value;
         if (!process) {
             return false;
         }

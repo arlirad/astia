@@ -12,13 +12,13 @@ namespace astia::proc {
         return entries_[STDIN] && entries_[STDOUT] && entries_[STDERR];
     }
 
-    mm::shptr<fs::open_file> fd_table::get(i32 fd) const {
+    mm::shptr<fs::open_file> fd_table::get(fd_t fd) const {
         return fd >= 0 && static_cast<u32>(fd) < max_process_fds
                    ? entries_[fd]
                    : mm::shptr<fs::open_file>{};
     }
 
-    bool fd_table::set(i32 fd, const mm::shptr<fs::open_file>& file) {
+    bool fd_table::set(fd_t fd, const mm::shptr<fs::open_file>& file) {
         if (fd < 0 || static_cast<u32>(fd) >= max_process_fds) {
             return false;
         }
@@ -26,7 +26,7 @@ namespace astia::proc {
         return true;
     }
 
-    bool fd_table::clear(i32 fd) {
+    bool fd_table::clear(fd_t fd) {
         if (fd < 0 || static_cast<u32>(fd) >= max_process_fds) {
             return false;
         }
@@ -40,7 +40,7 @@ namespace astia::proc {
         }
     }
 
-    i32 fd_table::duplicate(i32 old_fd) {
+    fd_t fd_table::duplicate(fd_t old_fd) {
         auto source = get(old_fd);
         if (!source) {
             return -EBADF;
@@ -54,7 +54,7 @@ namespace astia::proc {
         return -EMFILE;
     }
 
-    i32 fd_table::duplicate_to(i32 old_fd, i32 new_fd) {
+    fd_t fd_table::duplicate_to(fd_t old_fd, fd_t new_fd) {
         auto source = get(old_fd);
         if (!source || new_fd < 0 || static_cast<u32>(new_fd) >= max_process_fds) {
             return -EBADF;

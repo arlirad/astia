@@ -15,6 +15,7 @@ namespace astia {
 
     using usize = __SIZE_TYPE__;
     using isize = __PTRDIFF_TYPE__;
+    using fd_t  = i32;
 
     /// Explicit vocabulary for values that otherwise tend to be naked u64s
     /// or machine-sized integers at subsystem boundaries. These are aliases,

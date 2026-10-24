@@ -435,23 +435,23 @@ namespace astia::proc {
         return installed;
     }
 
-    mm::shptr<fs::open_file> process::descriptor(i32 fd) const {
+    mm::shptr<fs::open_file> process::descriptor(fd_t fd) const {
         return descriptors_.get(fd);
     }
 
-    bool process::set_descriptor(i32 fd, const mm::shptr<fs::open_file>& value) {
+    bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value) {
         return descriptors_.set(fd, value);
     }
 
-    bool process::clear_descriptor(i32 fd) {
+    bool process::clear_descriptor(fd_t fd) {
         return descriptors_.clear(fd);
     }
 
-    i32 process::duplicate_descriptor(i32 old_fd) {
+    fd_t process::duplicate_descriptor(fd_t old_fd) {
         return descriptors_.duplicate(old_fd);
     }
 
-    i32 process::duplicate_descriptor_to(i32 old_fd, i32 new_fd) {
+    fd_t process::duplicate_descriptor_to(fd_t old_fd, fd_t new_fd) {
         return descriptors_.duplicate_to(old_fd, new_fd);
     }
 

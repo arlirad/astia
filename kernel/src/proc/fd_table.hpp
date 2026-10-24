@@ -14,12 +14,12 @@ namespace astia::proc {
         public:
         bool install_standard_streams();
 
-        mm::shptr<fs::open_file> get(i32 fd) const;
-        bool                     set(i32 fd, const mm::shptr<fs::open_file>& file);
-        bool                     clear(i32 fd);
+        mm::shptr<fs::open_file> get(fd_t fd) const;
+        bool                     set(fd_t fd, const mm::shptr<fs::open_file>& file);
+        bool                     clear(fd_t fd);
         void                     clear_all();
-        i32                      duplicate(i32 old_fd);
-        i32                      duplicate_to(i32 old_fd, i32 new_fd);
+        fd_t                     duplicate(fd_t old_fd);
+        fd_t                     duplicate_to(fd_t old_fd, fd_t new_fd);
 
         private:
         mm::shptr<fs::open_file> entries_[max_process_fds];

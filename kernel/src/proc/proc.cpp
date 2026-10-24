@@ -124,14 +124,15 @@ namespace astia::proc {
         if (index < max_cpus) current[index] = value;
     }
 
-    mm::shptr<process> spawnve(const char* path, char* const argv[], char* const envp[],
-                               int* error) {
-        // Every failure path hands the syscall boundary its negated errno.
-        const auto fail = [error](int code) -> mm::shptr<process> {
-            if (error != nullptr) {
-                *error = -code;
-            }
-            return {};
+    optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],
+                                         char* const envp[]) {
+        const auto fail = [](int code) -> optional<mm::shptr<process>> {
+            error_t error = error_t::einval;
+            if (code == ENOENT) error = error_t::enoent;
+            else if (code == ENOMEM) error = error_t::enomem;
+            else if (code == EAGAIN) error = error_t::eagain;
+            else if (code == EIO) error = error_t::eio;
+            return optional<mm::shptr<process>>(error);
         };
         process* parent = current_process();
         if (parent == nullptr || path == nullptr) {
@@ -181,7 +182,7 @@ namespace astia::proc {
             return fail(EAGAIN);
         }
         child->state(process_state::runnable);
-        return child;
+        return optional<mm::shptr<process>>(child);
     }
 
     process* find_process(pid_t id) {
@@ -195,20 +196,20 @@ namespace astia::proc {
         return owner == nullptr ? 0 : owner->process_group();
     }
 
-    i64 setpgid(i32 pid, i32 pgid) {
+    i64 setpgid(pid_t pid, pgrp_t pgid) {
         process* caller = current_process();
         if (caller == nullptr)
             return -ESRCH;
         const bool self_target = pid == 0;
         if (self_target)
-            pid = static_cast<i32>(caller->pid());
+            pid = caller->pid();
         if (pgid == 0)
             pgid = pid;
-        if (pid <= 0 || pgid <= 0)
+        if (pid == 0 || pgid == 0)
             return -EINVAL;
 
         core::spinlock_guard guard(registry_lock);
-        const i32            slot = find_slot_locked(static_cast<pid_t>(pid));
+        const i32 slot = find_slot_locked(pid);
         // A freshly forked child can execute setpgid(0, ...) before another
         // registry scan observes its slot.  pid==0 is explicitly the caller,
         // so use that stable object directly.
@@ -230,13 +231,13 @@ namespace astia::proc {
             return -EPERM;
         }
 
-        if (static_cast<pid_t>(pgid) != target->pid()) {
-            if (find_group_locked(static_cast<pid_t>(pgid), caller->session()) ==
+        if (pgid != target->pid()) {
+            if (find_group_locked(pgid, caller->session()) ==
                 nullptr) {
                 return -EPERM;
             }
         }
-        target->process_group(static_cast<pid_t>(pgid));
+        target->process_group(pgid);
         return 0;
     }
 
@@ -251,8 +252,8 @@ namespace astia::proc {
         return static_cast<i64>(owner->session());
     }
 
-    i64 signal_process_group(pid_t group, i32 value) {
-        if (value < 0 || value >= static_cast<i32>(signal_count))
+    i64 signal_process_group(pgrp_t group, signal_t value) {
+        if (static_cast<u8>(value) >= signal_count)
             return -EINVAL;
         bool                 found = false;
         core::spinlock_guard guard(registry_lock);
@@ -263,8 +264,8 @@ namespace astia::proc {
                 target->state() == process_state::dead)
                 continue;
             found = true;
-            if (value != 0) {
-                if (!target->signals().send(static_cast<signal_number>(value)))
+            if (value != static_cast<signal_t>(0)) {
+                if (!target->signals().send(value))
                     return -EINVAL;
                 // Process-group signals must wake sigsuspend() just like
                 // direct kill() and child exit do.
@@ -274,7 +275,7 @@ namespace astia::proc {
         return found ? 0 : -ESRCH;
     }
 
-    i64 waitpid(i32 pid, i32* status, u32 options) {
+    i64 waitpid(i32 pid, i32* status, wait_options options) {
         process* parent = current_process();
         thread*  self   = current_thread();
         if (parent == nullptr || self == nullptr) {
@@ -283,7 +284,8 @@ namespace astia::proc {
         if (pid < -1 || pid == 0) {
             return -EINVAL;
         }
-        if (options & ~(ASTIA_WNOHANG | ASTIA_WUNTRACED | ASTIA_WCONTINUED))
+        if (static_cast<u32>(options) &
+            ~(ASTIA_WNOHANG | ASTIA_WUNTRACED | ASTIA_WCONTINUED))
             return -EINVAL;
 
         // From here to the blocking yield the scan and the waiter
@@ -336,7 +338,7 @@ namespace astia::proc {
                 result = -ECHILD;
                 break;
             }
-            if (options & ASTIA_WNOHANG) {
+            if (static_cast<u32>(options) & ASTIA_WNOHANG) {
                 parent->remove_waiter(self);
                 result = 0;
                 break;

@@ -1,8 +1,21 @@
 #pragma once
 
 #include "process.hpp"
+#include <astia/api/aio.h>
+#include <astia/optional.hpp>
 
 namespace astia::proc {
+
+    enum class wait_options : u32 {
+        none      = 0,
+        nohang    = WNOHANG,
+        untraced  = 1u << 1,
+        continued = 1u << 3,
+    };
+
+    constexpr wait_options operator|(wait_options a, wait_options b) {
+        return static_cast<wait_options>(static_cast<u32>(a) | static_cast<u32>(b));
+    }
 
     /// Create the initial kernel process and bootstrap thread.  This
     /// establishes ownership/current-object semantics only; scheduling
@@ -24,26 +37,25 @@ namespace astia::proc {
     /// the child's user stack as the standard startup frame
     /// (argc/argv/envp + AT_NULL), built in an arch-neutral way; the
     /// architecture only consumes the resulting entry stack pointer.
-    /// On failure an empty shptr comes back and *error (when given)
-    /// receives the negated errno for the syscall boundary to return.
-    mm::shptr<process> spawnve(const char* path, char* const argv[], char* const envp[],
-                               int* error = nullptr);
+    /// On failure the optional carries the typed kernel error.
+    optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],
+                                          char* const envp[]);
 
     /// Look up a live process by pid in the registry.
     process* find_process(pid_t id);
 
     /// Process-group/session operations for the calling process.
-    pid_t getpgrp();
-    i64   setpgid(i32 pid, i32 pgid);
+    pgrp_t getpgrp();
+    i64    setpgid(pid_t pid, pgrp_t pgid);
     i64   setsid();
     /// Send a signal to every live member of a process group.  Signal zero
     /// only checks that the group has a live member.
-    i64 signal_process_group(pid_t group, i32 signal);
+    i64 signal_process_group(pgrp_t group, signal_t signal);
 
     /// Wait for a child of the current process to exit and reap it.
     /// pid > 0 waits for that child, pid == -1 for any child.  Returns
     /// the reaped pid with *status set, or -ECHILD/-EINVAL/-ESRCH.
-    i64 waitpid(i32 pid, i32* status, u32 options = 0);
+    i64 waitpid(i32 pid, i32* status, wait_options options = wait_options::none);
 
     /// Duplicate the calling process copy-on-write: the child shares
     /// every mapping (each backing region gains one reference, private
