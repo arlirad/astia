@@ -4,7 +4,7 @@
 
 namespace astia::proc::syscall {
 
-    /// kill — send a signal to a process or process group
+    /// kill - send a signal to a process or process group
     ///
     /// Synopsis:
     ///     long kill(int pid, int signal);
