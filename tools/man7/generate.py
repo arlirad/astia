@@ -60,10 +60,13 @@ def main() -> int:
     args = parser.parse_args()
 
     pages: dict[str, str] = {}
-    for path in sorted(args.source.rglob("*.hpp")):
+    doc_source = args.source / "syscalls" if (args.source / "syscalls").is_dir() else args.source
+    for path in sorted(doc_source.rglob("*.hpp")):
         for name, body in comments(path.read_text()):
             pages[name] = body
     for path in sorted(args.source.rglob("*.cpp")):
+        if path.name != "syscalls.cpp":
+            continue
         for name, body in legacy_pages(path.read_text()):
             pages.setdefault(name, body)
 
