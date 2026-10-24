@@ -23,16 +23,6 @@ namespace astia::proc {
         /// This module's log source: the same one proc.cpp logs under.
         using logs = astia::log::context<"proc">;
 
-        i64 errno_value(error_t error) {
-            switch (error) {
-            case error_t::enoent: return ENOENT;
-            case error_t::enomem: return ENOMEM;
-            case error_t::eagain: return EAGAIN;
-            case error_t::eio: return EIO;
-            case error_t::einval: return EINVAL;
-            default: return EINVAL;
-            }
-        }
 
         i64 sys_getpid() {
             auto* process = current_process();
@@ -418,7 +408,7 @@ namespace astia::proc {
             if (result == 0) {
                 auto child = spawnve(path, argv_vec, envp_vec);
                 result = child ? static_cast<i64>(child.value->pid())
-                               : -errno_value(child.error);
+                               : -astia::errno_value(child.error);
             }
             mm::heap::free(storage.value);
             return result;

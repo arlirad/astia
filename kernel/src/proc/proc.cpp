@@ -126,46 +126,41 @@ namespace astia::proc {
 
     optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],
                                          char* const envp[]) {
-        const auto fail = [](int code) -> optional<mm::shptr<process>> {
-            error_t error = error_t::einval;
-            if (code == ENOENT) error = error_t::enoent;
-            else if (code == ENOMEM) error = error_t::enomem;
-            else if (code == EAGAIN) error = error_t::eagain;
-            else if (code == EIO) error = error_t::eio;
+        const auto fail = [](error_t error) -> optional<mm::shptr<process>> {
             return optional<mm::shptr<process>>(error);
         };
         process* parent = current_process();
         if (parent == nullptr || path == nullptr) {
-            return fail(EINVAL);
+            return fail(error_t::einval);
         }
         auto image_file = fs::open_path(path);
         if (!image_file) {
             spawn_logs::error("open failed for %s", path);
-            return fail(ENOENT);
+            return fail(error_t::enoent);
         }
         const long image_size = image_file->size();
         if (image_size <= 0) {
             spawn_logs::error("invalid image size=%ld", image_size);
-            return fail(ENOEXEC);
+            return fail(error_t::einval);
         }
         auto image = mm::heap::alloc(static_cast<usize>(image_size));
         if (!image) {
             spawn_logs::error("image allocation failed size=%ld", image_size);
-            return fail(ENOMEM);
+            return fail(error_t::enomem);
         }
         const long loaded =
             image_file->read(image.value, static_cast<u32>(image_size), 0);
         if (loaded != image_size) {
             spawn_logs::error("short read=%ld expected=%ld", loaded, image_size);
             mm::heap::free(image.value);
-            return fail(EIO);
+            return fail(error_t::eio);
         }
 
         const u32 child_id = next_pid++;
         auto      child    = mm::share<process>(child_id, parent->pid(), path);
         if (!child) {
             mm::heap::free(image.value);
-            return fail(ENOMEM);
+            return fail(error_t::enomem);
         }
         child->inherit_groups(*parent);
         child->install_standard_streams();
@@ -175,11 +170,11 @@ namespace astia::proc {
         mm::heap::free(image.value);
         if (!loaded_image || !child->create_user_thread(entry, argv, envp)) {
             spawn_logs::error("ELF load or user thread setup failed");
-            return fail(ENOEXEC);
+            return fail(error_t::einval);
         }
         if (!register_process(child)) {
             spawn_logs::error("process registry full");
-            return fail(EAGAIN);
+            return fail(error_t::eagain);
         }
         child->state(process_state::runnable);
         return optional<mm::shptr<process>>(child);
