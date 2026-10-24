@@ -1,4 +1,5 @@
-#include "proc.hpp"
+#include "futex.hpp"
+#include "../proc/proc.hpp"
 #include "scheduler.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
