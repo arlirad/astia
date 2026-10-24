@@ -70,6 +70,12 @@ namespace astia::proc {
         void cpu_owner(u32 value) {
             cpu_owner_ = value;
         }
+        bool migratable() const {
+            return migratable_;
+        }
+        void migratable(bool value) {
+            migratable_ = value;
+        }
         void queued(bool value) {
             queued_ = value;
         }
@@ -178,6 +184,7 @@ namespace astia::proc {
         bool             idle_              = false;
         bool             gate_open_         = true;
         bool             queued_            = false;
+        bool             migratable_        = false;
         u32              cpu_owner_        = 0;
     };
 

@@ -415,6 +415,11 @@ if (ARCH STREQUAL "x86_64")
                     COMMAND env ASTIA_GRUB_EXPECT_AP_WORK=1 sh ${CMAKE_SOURCE_DIR}/scripts/test-grub-smp.sh
                     ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp_boot PROPERTIES TIMEOUT 30)
+            add_test(NAME astia_grub_smp4_boot
+                    COMMAND env ASTIA_SMP=4 ASTIA_GRUB_EXPECT_AP_WORK=1
+                            sh ${CMAKE_SOURCE_DIR}/scripts/test-grub-smp.sh
+                            ${CMAKE_BINARY_DIR}/astia-grub.iso)
+            set_tests_properties(astia_grub_smp4_boot PROPERTIES TIMEOUT 30)
         endif ()
     else ()
         message(STATUS "astia: qemu-system-x86_64 not found; skipping astia_kernel_boot")

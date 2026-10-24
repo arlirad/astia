@@ -67,7 +67,8 @@ namespace astia::proc::scheduler {
                     target.queue_count == queue_capacity) continue;
                 u32 position = source.queue_count;
                 for (u32 i = 0; i < source.queue_count; ++i) {
-                    if (source.queue[i]->state() == thread_state::runnable) {
+                    if (source.queue[i]->state() == thread_state::runnable &&
+                        source.queue[i]->migratable()) {
                         position = i;
                         break;
                     }
@@ -199,16 +200,10 @@ namespace astia::proc::scheduler {
         return true;
     }
 
-    mm::shptr<thread> create_kernel(kernel_entry entry, void* argument,
-                                     scheduling_class sched_class, i32 nice,
-                                     u8 rt_priority) {
-        return create_kernel_on(arch::cpu::current_index(), entry, argument, sched_class, nice,
-                                rt_priority);
-    }
-
-    mm::shptr<thread> create_kernel_on(u32 cpu_index, kernel_entry entry, void* argument,
-                                       scheduling_class sched_class, i32 nice,
-                                       u8 rt_priority) {
+    namespace {
+        mm::shptr<thread> create_kernel_impl(u32 cpu_index, kernel_entry entry, void* argument,
+                                             scheduling_class sched_class, i32 nice,
+                                             u8 rt_priority, bool migratable) {
         if (!initialized || entry == nullptr || proc::kernel_process() == nullptr) {
             return {};
         }
@@ -223,6 +218,7 @@ namespace astia::proc::scheduler {
         value->rt_priority(rt_priority);
         value->state(thread_state::runnable);
         value->cpu_owner(cpu_index);
+        value->migratable(migratable);
         arch::interrupt_guard gate;
         if (!enqueue(value.get())) {
             return {};
@@ -231,6 +227,27 @@ namespace astia::proc::scheduler {
             arch::cpu::request_reschedule();
         }
         return value;
+    }
+
+    }
+
+    mm::shptr<thread> create_kernel(kernel_entry entry, void* argument,
+                                    scheduling_class sched_class, i32 nice, u8 rt_priority) {
+        return create_kernel_impl(arch::cpu::current_index(), entry, argument, sched_class, nice,
+                                  rt_priority, false);
+    }
+
+    mm::shptr<thread> create_kernel_migratable(kernel_entry entry, void* argument,
+                                               scheduling_class sched_class, i32 nice,
+                                               u8 rt_priority) {
+        return create_kernel_impl(arch::cpu::current_index(), entry, argument, sched_class, nice,
+                                  rt_priority, true);
+    }
+
+    mm::shptr<thread> create_kernel_on(u32 cpu_index, kernel_entry entry, void* argument,
+                                       scheduling_class sched_class, i32 nice, u8 rt_priority) {
+        return create_kernel_impl(cpu_index, entry, argument, sched_class, nice, rt_priority,
+                                  false);
     }
 
     bool spawn_kernel(kernel_entry entry, void* argument, scheduling_class sched_class,
