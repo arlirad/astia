@@ -4,7 +4,7 @@
 #include <astia/api/aio.h>
 #include <astia/mapping.hpp>
 
-namespace astia::mapping {
+namespace astia {
 
     template <>
     struct mapper<signal_t> {
@@ -38,4 +38,4 @@ namespace astia::mapping {
         }
     };
 
-} // namespace astia::mapping
+} // namespace astia

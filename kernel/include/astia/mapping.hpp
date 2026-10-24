@@ -2,7 +2,7 @@
 
 #include <astia/optional.hpp>
 
-namespace astia::mapping {
+namespace astia {
 
     /// Compile-time selected conversion from an ABI scalar to a validated
     /// domain type. Subsystems provide specializations in their mapping.hpp.
@@ -18,4 +18,4 @@ namespace astia::mapping {
         }
     };
 
-} // namespace astia::mapping
+} // namespace astia

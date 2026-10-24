@@ -46,7 +46,7 @@ namespace astia::proc {
             /* zsh probes a process group with kill(-pgrp, 0).  Signal zero
                is permission/existence checking only and must not enqueue a
                signal. */
-            auto mapped_signal = mapping::mapper<signal_t>::from(value);
+            auto mapped_signal = mapper<signal_t>::from(value);
             if (!mapped_signal) return -EINVAL;
             if (pid <= 0) {
                 const pid_t group =
@@ -74,8 +74,8 @@ namespace astia::proc {
             return static_cast<i64>(getpgrp());
         }
         i64 sys_setpgid(i32 pid, i32 pgid) {
-            const pid_t typed_pid = pid == 0 ? 0 : mapping::mapper<pid_t>::from(pid).value_or(0);
-            const pgrp_t typed_group = pgid == 0 ? 0 : mapping::mapper<pgrp_t>::from(pgid).value_or(0);
+            const pid_t typed_pid = pid == 0 ? 0 : mapper<pid_t>::from(pid).value_or(0);
+            const pgrp_t typed_group = pgid == 0 ? 0 : mapper<pgrp_t>::from(pgid).value_or(0);
             if (typed_pid == 0 && pid != 0) return -EINVAL;
             if (typed_group == 0 && pgid != 0) return -EINVAL;
             return setpgid(typed_pid, typed_group);
@@ -339,7 +339,7 @@ namespace astia::proc {
                 return -EFAULT;
             }
             i32       local  = 0;
-            auto mapped_options = mapping::mapper<wait_options>::from(options);
+            auto mapped_options = mapper<wait_options>::from(options);
             if (!mapped_options) return -EINVAL;
             const i64 result = waitpid(pid, status.null() ? nullptr : &local,
                                        mapped_options.value);
