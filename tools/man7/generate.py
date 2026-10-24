@@ -90,7 +90,14 @@ def render(name: str, body: str) -> str:
         if not content:
             continue
         escaped = html.escape(content)
-        if content.startswith("    ") or heading == "SYNOPSIS":
+        if heading in {"ERRORS", "RETURN VALUE"}:
+            items = [item.strip() for item in re.split(
+                r";\s*|,\s*(?=-E[A-Z])", content
+            ) if item.strip()]
+            html_body = "<ul class=\"man-list\">" + "".join(
+                f"<li>{html.escape(item)}</li>" for item in items
+            ) + "</ul>"
+        elif content.startswith("    ") or heading == "SYNOPSIS":
             html_body = "<pre>" + escaped + "</pre>"
         else:
             html_body = "<p>" + escaped.replace("\n", "<br>\n") + "</p>"
