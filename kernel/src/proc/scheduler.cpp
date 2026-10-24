@@ -203,7 +203,7 @@ namespace astia::proc::scheduler {
     namespace {
         mm::shptr<thread> create_kernel_impl(u32 cpu_index, kernel_entry entry, void* argument,
                                              scheduling_class sched_class, i32 nice,
-                                             u8 rt_priority, bool migratable) {
+                                             u8 rt_priority, thread_options options) {
         if (!initialized || entry == nullptr || proc::kernel_process() == nullptr) {
             return {};
         }
@@ -218,7 +218,7 @@ namespace astia::proc::scheduler {
         value->rt_priority(rt_priority);
         value->state(thread_state::runnable);
         value->cpu_owner(cpu_index);
-        value->migratable(migratable);
+        value->migratable(options == thread_options::migratable);
         arch::interrupt_guard gate;
         if (!enqueue(value.get())) {
             return {};
@@ -232,27 +232,22 @@ namespace astia::proc::scheduler {
     }
 
     mm::shptr<thread> create_kernel(kernel_entry entry, void* argument,
-                                    scheduling_class sched_class, i32 nice, u8 rt_priority) {
+                                    scheduling_class sched_class, i32 nice, u8 rt_priority,
+                                    thread_options options) {
         return create_kernel_impl(arch::cpu::current_index(), entry, argument, sched_class, nice,
-                                  rt_priority, false);
-    }
-
-    mm::shptr<thread> create_kernel_migratable(kernel_entry entry, void* argument,
-                                               scheduling_class sched_class, i32 nice,
-                                               u8 rt_priority) {
-        return create_kernel_impl(arch::cpu::current_index(), entry, argument, sched_class, nice,
-                                  rt_priority, true);
+                                  rt_priority, options);
     }
 
     mm::shptr<thread> create_kernel_on(u32 cpu_index, kernel_entry entry, void* argument,
-                                       scheduling_class sched_class, i32 nice, u8 rt_priority) {
+                                       scheduling_class sched_class, i32 nice, u8 rt_priority,
+                                       thread_options options) {
         return create_kernel_impl(cpu_index, entry, argument, sched_class, nice, rt_priority,
-                                  false);
+                                  options);
     }
 
     bool spawn_kernel(kernel_entry entry, void* argument, scheduling_class sched_class,
-                      i32 nice, u8 rt_priority) {
-        auto value = create_kernel(entry, argument, sched_class, nice, rt_priority);
+                      i32 nice, u8 rt_priority, thread_options options) {
+        auto value = create_kernel(entry, argument, sched_class, nice, rt_priority, options);
         if (!value || value->detach() != 0) {
             return false;
         }

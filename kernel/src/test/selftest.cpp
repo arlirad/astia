@@ -107,7 +107,9 @@ namespace astia::test {
             migration_done = 0;
             migration_cpu_mask = 0;
             for (u32 i = 0; i < migration_jobs; ++i) {
-                auto job = proc::scheduler::create_kernel_migratable(migration_worker, nullptr);
+                auto job = proc::scheduler::create_kernel(
+                    migration_worker, nullptr, proc::scheduling_class::normal, 0, 0,
+                    proc::scheduler::thread_options::migratable);
                 if (!job || job->detach() != 0) {
                     logs::error("smp scheduler: migration queue failed at %u", i);
                     return false;
