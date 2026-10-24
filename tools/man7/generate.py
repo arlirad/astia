@@ -12,6 +12,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CSS = ROOT / "nodivia.css"
 
+ERROR_FALLBACKS = {
+    "E2BIG": "the argument or environment list exceeds the supported limit",
+    "EAGAIN": "a required resource is temporarily unavailable",
+    "EBADF": "the supplied file descriptor is invalid",
+    "EFAULT": "a supplied userspace pointer is invalid or inaccessible",
+    "ECHILD": "the caller has no matching child process",
+    "EINTR": "the operation was interrupted by a signal",
+    "EINVAL": "an argument or flag has an invalid value",
+    "EIO": "the underlying input/output operation failed",
+    "ENOMEM": "the kernel cannot allocate the requested memory",
+    "ENOSYS": "the requested operation is not implemented",
+    "ENOENT": "the requested path or object does not exist",
+    "ENOEXEC": "the selected file is not a valid executable",
+    "EPERM": "the operation is not permitted for the current process",
+    "ESRCH": "the requested process, thread, or group does not exist",
+}
+
 
 def comments(text: str) -> list[tuple[str, str]]:
     pages: list[tuple[str, str]] = []
@@ -97,13 +114,28 @@ def render(name: str, body: str) -> str:
         escaped = html.escape(content)
         if heading in {"ERRORS", "RETURN VALUE"}:
             items = [item.strip() for item in re.split(
-                r";\s*|,\s*(?=-E[A-Z])", content
+                r";\s*|\n\s*(?=-E[A-Z])|,\s*(?=-E[A-Z])", content
             ) if item.strip()]
             if heading == "ERRORS":
                 items = [item.rstrip(".") + "." for item in items]
-            html_body = "<ul class=\"man-list\">" + "".join(
-                f"<li>{html.escape(item)}</li>" for item in items
-            ) + "</ul>"
+            rendered_items = []
+            for item in items:
+                if heading == "ERRORS":
+                    match = re.match(r"(-E[A-Z0-9]+)\s*:\s*(.*)$", item)
+                    if match:
+                        code, reason = match.groups()
+                    else:
+                        code_match = re.match(r"(-E[A-Z0-9]+)\s*(.*)$", item)
+                        code = code_match.group(1) if code_match else ""
+                        reason = code_match.group(2).strip() if code_match else item
+                        reason = reason or ERROR_FALLBACKS.get(code[1:], "the operation failed")
+                    rendered_items.append(
+                        f"<li><code>{html.escape(code)}</code> "
+                        f"{html.escape(reason.rstrip('.'))}.</li>"
+                    )
+                else:
+                    rendered_items.append(f"<li>{html.escape(item)}</li>")
+            html_body = "<ul class=\"man-list\">" + "".join(rendered_items) + "</ul>"
         elif content.startswith("    ") or heading == "SYNOPSIS":
             html_body = "<pre>" + escaped + "</pre>"
         else:
