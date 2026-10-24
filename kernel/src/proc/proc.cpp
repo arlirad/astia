@@ -284,8 +284,11 @@ namespace astia::proc {
         if (pid < -1 || pid == 0) {
             return -EINVAL;
         }
-        if (static_cast<u32>(options) &
-            ~(ASTIA_WNOHANG | ASTIA_WUNTRACED | ASTIA_WCONTINUED))
+        constexpr u32 valid_wait_options =
+            static_cast<u32>(wait_options::nohang) |
+            static_cast<u32>(wait_options::untraced) |
+            static_cast<u32>(wait_options::continued);
+        if (static_cast<u32>(options) & ~valid_wait_options)
             return -EINVAL;
 
         // From here to the blocking yield the scan and the waiter
@@ -338,7 +341,7 @@ namespace astia::proc {
                 result = -ECHILD;
                 break;
             }
-            if (static_cast<u32>(options) & ASTIA_WNOHANG) {
+            if (static_cast<u32>(options) & static_cast<u32>(wait_options::nohang)) {
                 parent->remove_waiter(self);
                 result = 0;
                 break;

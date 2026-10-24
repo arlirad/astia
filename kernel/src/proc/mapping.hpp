@@ -1,7 +1,6 @@
 #pragma once
 
 #include "proc.hpp"
-#include <astia/api/aio.h>
 #include <astia/mapping.hpp>
 
 namespace astia {
@@ -18,7 +17,9 @@ namespace astia {
     template <>
     struct mapper<proc::wait_options>
         : bitmask_mapper<proc::wait_options,
-                         WNOHANG | WUNTRACED | WCONTINUED> {};
+                         static_cast<u64>(proc::wait_options::nohang) |
+                             static_cast<u64>(proc::wait_options::untraced) |
+                             static_cast<u64>(proc::wait_options::continued)> {};
 
     template <>
     struct mapper<proc::pid_t> {

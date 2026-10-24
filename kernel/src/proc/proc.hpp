@@ -1,14 +1,13 @@
 #pragma once
 
 #include "process.hpp"
-#include <astia/api/aio.h>
 #include <astia/optional.hpp>
 
 namespace astia::proc {
 
     enum class wait_options : u32 {
         none      = 0,
-        nohang    = WNOHANG,
+        nohang    = 1u << 0,
         untraced  = 1u << 1,
         continued = 1u << 3,
     };

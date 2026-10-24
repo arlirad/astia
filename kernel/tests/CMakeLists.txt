@@ -45,6 +45,7 @@ astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
+astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
