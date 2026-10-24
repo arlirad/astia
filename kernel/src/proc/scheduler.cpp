@@ -53,6 +53,37 @@ namespace astia::proc::scheduler {
             return true;
         }
 
+        bool rebalance_idle_cpu(u32 target_index) {
+            if (target_index >= max_cpus || !cpus[target_index].initialized) return false;
+            for (u32 source_index = 0; source_index < max_cpus; ++source_index) {
+                if (source_index == target_index || !cpus[source_index].initialized) continue;
+                const u32 first = source_index < target_index ? source_index : target_index;
+                const u32 second = source_index < target_index ? target_index : source_index;
+                core::spinlock_guard first_guard(cpus[first].lock);
+                core::spinlock_guard second_guard(cpus[second].lock);
+                auto& source = cpus[source_index];
+                auto& target = cpus[target_index];
+                if (source.queue_count <= target.queue_count + 1 ||
+                    target.queue_count == queue_capacity) continue;
+                u32 position = source.queue_count;
+                for (u32 i = 0; i < source.queue_count; ++i) {
+                    if (source.queue[i]->state() == thread_state::runnable) {
+                        position = i;
+                        break;
+                    }
+                }
+                if (position == source.queue_count) continue;
+                thread* value = source.queue[position];
+                for (u32 i = position + 1; i < source.queue_count; ++i)
+                    source.queue[i - 1] = source.queue[i];
+                --source.queue_count;
+                value->cpu_owner(target_index);
+                target.queue[target.queue_count++] = value;
+                return true;
+            }
+            return false;
+        }
+
         thread* select_next(u32 index) {
             auto& state = cpus[index];
             core::spinlock_guard guard(state.lock);
@@ -319,6 +350,9 @@ namespace astia::proc::scheduler {
         }
 
         thread* next = select_next(cpu_index);
+        if (next == nullptr && previous->idle() && rebalance_idle_cpu(cpu_index)) {
+            next = select_next(cpu_index);
+        }
         if (next == nullptr) {
             next = cpus[cpu_index].idle_thread;
         }

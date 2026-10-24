@@ -108,11 +108,12 @@ namespace astia::test {
             migration_cpu_mask = 0;
             for (u32 i = 0; i < migration_jobs; ++i) {
                 auto job = proc::scheduler::create_kernel_on(0, migration_worker, nullptr);
-                if (!job || job->detach() != 0 || !proc::scheduler::migrate(job.get(), 1)) {
+                if (!job || job->detach() != 0) {
                     logs::error("smp scheduler: migration queue failed at %u", i);
                     return false;
                 }
             }
+            arch::cpu::request_reschedule();
             arch::cpu::interrupts();
             for (u32 i = 0;
                  i < 400 && __atomic_load_n(&migration_done, __ATOMIC_ACQUIRE) < migration_jobs;
@@ -122,7 +123,7 @@ namespace astia::test {
             arch::cpu::nointerrupts();
             const u32 migrated_done = __atomic_load_n(&migration_done, __ATOMIC_ACQUIRE);
             const u32 migrated_mask = __atomic_load_n(&migration_cpu_mask, __ATOMIC_ACQUIRE);
-            if (migrated_done != migration_jobs || migrated_mask != (1u << 1)) {
+            if (migrated_done != migration_jobs || (migrated_mask & (1u << 1)) == 0) {
                 logs::error("smp scheduler: migration done=%u mask=%x", migrated_done,
                             migrated_mask);
                 return false;

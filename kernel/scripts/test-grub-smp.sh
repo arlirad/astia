@@ -22,6 +22,6 @@ else
     grep -qF "core: selftest ok" "$log"
 fi
 if [ "${ASTIA_GRUB_EXPECT_AP_WORK:-0}" = 1 ]; then
-    grep -qF "smp scheduler: AP work ok; stress=8 cpu-mask=2 migration=8 mask=2" "$log"
+    grep -qF "smp scheduler: AP work ok; stress=8 cpu-mask=2 migration=8 mask=3" "$log"
 fi
 exit 0
