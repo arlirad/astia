@@ -85,6 +85,31 @@ LEGACY = {
     "io_register": ("long io_register(void);", "Registers asynchronous I/O resources.", "-EINVAL, -ENOSYS."),
 }
 
+ERROR_DETAILS = {
+    "setpgid": "-EINVAL: The PID or process-group ID is zero after special-value handling.\n-EPERM: The target is not a child of the caller.\n-EPERM: The target belongs to another session.\n-EPERM: The target is a session leader.\n-ESRCH: The target process does not exist.",
+    "setsid": "-EPERM: The caller is already a process-group leader.\n-ESRCH: There is no current process.",
+    "sigaction": "-EFAULT: The old or new action pointer is not accessible userspace memory.\n-EINVAL: The signal number is invalid or uncatchable.\n-ESRCH: There is no current process.",
+    "sigreturn": "-EFAULT: The saved context is outside userspace.\n-EFAULT: The saved instruction pointer, stack pointer, or flags are invalid.",
+    "sigprocmask": "-EFAULT: The old mask pointer is not writable userspace memory.\n-EINVAL: The operation is not BLOCK, UNBLOCK, or SETMASK.\n-ESRCH: There is no current process.",
+    "sigsuspend": "-EFAULT: The mask pointer is not readable userspace memory.\n-EINTR: A signal interrupted the suspended thread.\n-ESRCH: There is no current process or thread.",
+    "waitpid": "-EFAULT: The status pointer is not writable userspace memory.\n-ECHILD: The caller has no matching child.\n-EINVAL: The PID or option mask is invalid.\n-ESRCH: There is no current process or thread.",
+    "spawnve": "-E2BIG: The argument or environment vector exceeds its limit.\n-EFAULT: A path, vector, or string pointer is invalid.\n-EIO: The executable cannot be read completely.\n-ENOMEM: The image or process cannot be allocated.\n-ENOENT: The executable path does not exist.\n-ENOEXEC: The file is not a valid executable.\n-EAGAIN: The process registry is full.",
+    "execve": "-E2BIG: The argument or environment vector exceeds its limit.\n-EFAULT: A path, vector, or string pointer is invalid.\n-ENOENT: The executable path does not exist.\n-ENOEXEC: The file is not a valid executable.\n-ENOMEM: The replacement image cannot be allocated.",
+    "mmap": "-EBADF: The file descriptor is invalid for a file mapping.\n-EINVAL: The length, offset, protection, flags, or anonymous sentinel is invalid.\n-ENOMEM: The address space or physical backing cannot be allocated.\n-ENOSYS: The requested fixed or shared mapping mode is not implemented.",
+    "munmap": "-EINVAL: The length is zero or the address range is invalid.\n-ESRCH: There is no current process.",
+    "fork": "-EAGAIN: A process, thread, or registry slot cannot be allocated.\n-ESRCH: There is no current user process.",
+    "futex": "-EAGAIN: The futex value changed or the waiter table is full.\n-EFAULT: The futex word is not accessible userspace memory.\n-EINVAL: The operation is unknown.\n-ENOSYS: A timeout was requested but is not implemented.",
+    "thread_create": "-EAGAIN: The process thread limit or memory limit was reached.\n-EFAULT: The entry point or user stack is invalid.\n-ESRCH: There is no current process.",
+    "thread_create2": "-EAGAIN: The process thread limit or memory limit was reached.\n-EFAULT: The entry point, stack, or argument pointer is invalid.\n-ESRCH: There is no current process.",
+    "thread_join": "-EFAULT: The result pointer is not writable userspace memory.\n-EINVAL: The thread is detached, already joined, or is the caller.\n-ESRCH: The thread does not exist.",
+    "thread_detach": "-EINVAL: The thread already has a joiner.\n-ESRCH: The thread does not exist.",
+    "io_setup": "-EFAULT: The output ring pointer is not writable userspace memory.\n-EINVAL: The ring parameters are invalid.\n-ENOMEM: The ring cannot be allocated.",
+    "io_destroy": "-EINVAL: The ring handle is invalid.\n-ESRCH: The ring does not belong to the caller.",
+    "io_enter": "-EFAULT: The timeout or ring pointer is invalid.\n-EINVAL: The submission parameters are invalid.\n-EAGAIN: The operation cannot make progress immediately.",
+    "io_register": "-ENOSYS: Resource registration is not implemented yet.",
+    "clock_gettime": "-EFAULT: The output timespec pointer is not writable userspace memory.\n-EINVAL: The clock ID is unsupported.",
+}
+
 
 def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
     names = re.findall(r"\bi64\s+sys_(\w+)\s*\(", text)
@@ -94,6 +119,7 @@ def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
             name,
             (f"long {name}(...);", f"System call handler for `{name}`.", "See the kernel error ABI."),
         )
+        errors = ERROR_DETAILS.get(name, errors)
         pages.append((name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\nReturns a non-negative result on success. Negative values are ABI errno codes.\n\nErrors:\n{errors}\n\nABI:\nArguments enter through the direct syscall ABI; validation is performed before entering the process subsystem.", subsystem))
     return pages
 
@@ -124,6 +150,10 @@ def render(name: str, body: str) -> str:
             items = [item.strip() for item in re.split(
                 r";\s*|\n\s*(?=-E[A-Z])|,\s*(?=-E[A-Z])", content
             ) if item.strip()]
+            if heading == "ERRORS" and not any(item.startswith("-E") for item in items):
+                html_body = "<p>" + html.escape(sentence(content)) + "</p>"
+                sections.append(f"<section><h2>{html.escape(heading)}</h2>{html_body}</section>")
+                continue
             if heading == "ERRORS":
                 items = [item.rstrip(".") + "." for item in items]
             rendered_items = []
