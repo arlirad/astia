@@ -1,0 +1,33 @@
+#include "kill.hpp"
+
+#include "../mapping.hpp"
+#include "../proc.hpp"
+#include <astia/api/errno.h>
+
+namespace astia::proc::syscall {
+
+    i64 kill(i32 pid_raw, i32 signal_raw) {
+        auto mapped_signal = mapper<signal_t>::from(signal_raw);
+        if (!mapped_signal) return -EINVAL;
+
+        if (pid_raw <= 0) {
+            pgrp_t group = getpgrp();
+            if (pid_raw < 0) {
+                auto mapped_group = mapper<pgrp_t>::from(-static_cast<i64>(pid_raw));
+                if (!mapped_group) return -EINVAL;
+                group = mapped_group.value;
+            }
+            return signal_process_group(group, mapped_signal.value);
+        }
+
+        auto mapped_pid = mapper<pid_t>::from(pid_raw);
+        if (!mapped_pid) return -EINVAL;
+        auto* target = find_process(mapped_pid.value);
+        if (target == nullptr) return -ESRCH;
+        if (signal_raw == 0) return 0;
+        if (!target->signals().send(mapped_signal.value)) return -EINVAL;
+        target->wake_signal_waiters();
+        return 0;
+    }
+
+} // namespace astia::proc::syscall

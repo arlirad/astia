@@ -5,6 +5,7 @@ add_library(proc STATIC
         fork.cpp
         mmap.cpp
         syscalls.cpp
+        syscalls/kill.cpp
         thread.cpp
         fd_table.cpp
         scheduler.cpp

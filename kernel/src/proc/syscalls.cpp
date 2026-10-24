@@ -1,5 +1,6 @@
 #include "proc.hpp"
 #include "mapping.hpp"
+#include "syscalls/kill.hpp"
 #include "../ipc/futex.hpp"
 #include "../ipc/mapping.hpp"
 #include "scheduler.hpp"
@@ -32,40 +33,6 @@ namespace astia::proc {
         i64 sys_gettid() {
             auto* thread = current_thread();
             return thread == nullptr ? -ESRCH : static_cast<i64>(thread->tid());
-        }
-
-        i64 sys_kill(i32 pid, i32 value) {
-            /* zsh probes a process group with kill(-pgrp, 0).  Signal zero
-               is permission/existence checking only and must not enqueue a
-               signal. */
-            auto mapped_signal = mapper<signal_t>::from(value);
-            if (!mapped_signal) return -EINVAL;
-            if (pid <= 0) {
-                pgrp_t group = getpgrp();
-                if (pid < 0) {
-                    auto mapped_group = mapper<pgrp_t>::from(-static_cast<i64>(pid));
-                    if (!mapped_group) return -EINVAL;
-                    group = mapped_group.value;
-                }
-                return signal_process_group(group, mapped_signal.value);
-            }
-            auto mapped_pid = mapper<pid_t>::from(pid);
-            if (!mapped_pid) return -EINVAL;
-            auto* target = find_process(mapped_pid.value);
-            if (target == nullptr) {
-                return -ESRCH;
-            }
-            if (value == 0) {
-                return 0;
-            }
-            if (!target->signals().send(mapped_signal.value)) {
-                return -EINVAL;
-            }
-            // A signal is also a wakeup source for sigsuspend().  Child exit
-            // has the same responsibility in process::thread_exited(); keep
-            // direct kill delivery from leaving a suspended thread asleep.
-            target->wake_signal_waiters();
-            return 0;
         }
 
         i64 sys_getpgrp() {
@@ -646,7 +613,7 @@ namespace astia::proc {
     bool register_syscalls() {
         return sys::register_syscall<sys_getpid>(sys::syscall_id::getpid) &&
                sys::register_syscall<sys_gettid>(sys::syscall_id::gettid) &&
-               sys::register_syscall<sys_kill>(sys::syscall_id::kill) &&
+               sys::register_syscall<syscall::kill>(sys::syscall_id::kill) &&
                sys::register_syscall<sys_sigaction>(sys::syscall_id::sigaction) &&
                sys::register_syscall<sys_sigreturn>(sys::syscall_id::sigreturn) &&
                sys::register_syscall<sys_sigprocmask>(sys::syscall_id::sigprocmask) &&
