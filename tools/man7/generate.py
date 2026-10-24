@@ -12,6 +12,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CSS = ROOT / "nodivia.css"
 
+
+def sentence(text: str) -> str:
+    text = text.strip().rstrip(".")
+    for index, char in enumerate(text):
+        if char.isalpha():
+            return text[:index] + char.upper() + text[index + 1:] + "."
+    return text + "."
+
 ERROR_FALLBACKS = {
     "E2BIG": "the argument or environment list exceeds the supported limit",
     "EAGAIN": "a required resource is temporarily unavailable",
@@ -132,7 +140,7 @@ def render(name: str, body: str) -> str:
                     rendered_items.append(
                         f"<li><code>{html.escape(code)}</code>"
                         f"<ul class=\"man-list man-list--detail\"><li>"
-                        f"{html.escape(reason.rstrip('.'))}.</li></ul></li>"
+                        f"{html.escape(sentence(reason))}</li></ul></li>"
                     )
                 else:
                     rendered_items.append(f"<li>{html.escape(item)}</li>")
