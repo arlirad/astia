@@ -5,6 +5,10 @@ add_library(fs STATIC
         initrd_init.cpp
         tmpfs.cpp
         syscalls.cpp
+        syscalls/io_setup.cpp
+        syscalls/io_destroy.cpp
+        syscalls/io_enter.cpp
+        syscalls/io_register.cpp
         init_fs.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/pipe.cpp
 )
