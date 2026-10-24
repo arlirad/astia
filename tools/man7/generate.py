@@ -201,8 +201,11 @@ def main() -> int:
     args = parser.parse_args()
 
     pages: dict[str, tuple[str, str]] = {}
-    for path in sorted(args.source.rglob("syscalls/*.hpp")):
-        subsystem = path.parent.parent.name
+    for path in sorted(args.source.rglob("*.hpp")):
+        if "syscalls" not in path.parts:
+            continue
+        syscall_index = path.parts.index("syscalls")
+        subsystem = path.parts[syscall_index - 1]
         for name, body in comments(path.read_text()):
             pages[name] = (body, subsystem)
     for path in sorted(args.source.rglob("*.cpp")):

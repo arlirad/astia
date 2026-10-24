@@ -11,6 +11,10 @@ add_library(proc STATIC
         syscalls/getpgrp.cpp
         syscalls/setpgid.cpp
         syscalls/setsid.cpp
+        syscalls/signal/sigaction.cpp
+        syscalls/signal/sigreturn.cpp
+        syscalls/signal/sigprocmask.cpp
+        syscalls/signal/sigsuspend.cpp
         thread.cpp
         fd_table.cpp
         scheduler.cpp

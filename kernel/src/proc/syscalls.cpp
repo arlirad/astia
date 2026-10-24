@@ -6,6 +6,10 @@
 #include "syscalls/getpgrp.hpp"
 #include "syscalls/setpgid.hpp"
 #include "syscalls/setsid.hpp"
+#include "syscalls/signal/sigaction.hpp"
+#include "syscalls/signal/sigreturn.hpp"
+#include "syscalls/signal/sigprocmask.hpp"
+#include "syscalls/signal/sigsuspend.hpp"
 #include "../ipc/futex.hpp"
 #include "../ipc/mapping.hpp"
 #include "scheduler.hpp"
@@ -30,156 +34,8 @@ namespace astia::proc {
         using logs = astia::log::context<"proc">;
 
 
-        i64 sys_sigaction(i32 value, u64 next_ptr, u64 old_ptr) {
-            auto mapped_signal = mapper<signal_t>::from(value);
-            if (!mapped_signal || !valid_signal(mapped_signal.value)) return -EINVAL;
-            const auto signal = mapped_signal.value;
-            auto*      owner  = current_process();
-            if (owner == nullptr) {
-                return -ESRCH;
-            }
-            const auto old = owner->signals().disposition(signal);
-            if (old_ptr != 0) {
-                const auto range =
-                    sys::user_range::bytes(old_ptr, sizeof(struct astia_sigaction));
-                if (!sys::user_range_ok(range)) {
-                    return -EFAULT;
-                }
-                struct astia_sigaction out{};
-                out.handler  = old.action == signal_action::ignore ? ASTIA_SIG_IGN
-                               : old.action == signal_action::handler
-                                   ? reinterpret_cast<uintptr_t>(old.handler)
-                                   : ASTIA_SIG_DFL;
-                out.mask     = old.mask;
-                out.flags    = 0;
-                out.restorer = old.restorer;
-                if (!sys::copy_out(range, &out)) {
-                    return -EFAULT;
-                }
-            }
-            if (next_ptr != 0) {
-                const auto range =
-                    sys::user_range::bytes(next_ptr, sizeof(struct astia_sigaction));
-                if (!sys::user_range_ok(range)) {
-                    return -EFAULT;
-                }
-                struct astia_sigaction next{};
-                if (!sys::copy_in(&next, range)) {
-                    return -EFAULT;
-                }
-                signal_disposition disposition{};
-                if (next.handler == ASTIA_SIG_IGN) {
-                    disposition.action = signal_action::ignore;
-                }
-                else if (next.handler != ASTIA_SIG_DFL) {
-                    disposition.action   = signal_action::handler;
-                    disposition.handler  = reinterpret_cast<signal_handler>(next.handler);
-                    disposition.restorer = next.restorer;
-                    disposition.mask     = next.mask;
-                    if (disposition.restorer == 0 ||
-                        !sys::user_range_ok(
-                            sys::user_range::bytes(disposition.restorer, 1)))
-                        return -EFAULT;
-                }
-                if (!owner->signals().disposition(signal, disposition)) {
-                    return -EINVAL;
-                }
-            }
-            return 0;
-        }
 
-        i64 sys_sigreturn(const arch::syscall_frame& input) {
-            const auto range =
-                sys::user_range::bytes(input.a0, sizeof(astia_x86_64_signal_context_t));
-            if (!sys::user_range_ok(range))
-                return -EFAULT;
-            astia_x86_64_signal_context_t saved{};
-            if (!sys::copy_in(&saved, range))
-                return -EFAULT;
-            if (saved.rip == 0 || saved.rsp == 0 || saved.rip >= arch::kernel_base ||
-                saved.rsp >= arch::kernel_base || (saved.rflags & (1u << 9)) == 0)
-                return -EFAULT;
-            auto& frame  = const_cast<arch::syscall_frame&>(input);
-            frame.nr     = ~u64{1};
-            frame.a0     = saved.rdi;
-            frame.a1     = saved.rsi;
-            frame.a2     = saved.rdx;
-            frame.a3     = saved.r10;
-            frame.a4     = saved.r8;
-            frame.a5     = saved.r9;
-            frame.rip    = saved.rip;
-            frame.rflags = saved.rflags;
-            frame.rsp    = saved.rsp;
-            frame.rbx    = saved.rbx;
-            frame.rbp    = saved.rbp;
-            frame.r12    = saved.r12;
-            frame.r13    = saved.r13;
-            frame.r14    = saved.r14;
-            frame.r15    = saved.r15;
-            if (auto* owner = current_process())
-                owner->signals().set_blocked(saved.blocked);
-            return static_cast<i64>(saved.rax);
-        }
 
-        i64 sys_sigprocmask(i32 how, u32 set, u64 old_ptr) {
-            auto* owner = current_process();
-            if (owner == nullptr) {
-                return -ESRCH;
-            }
-            if (old_ptr != 0) {
-                const auto range = sys::user_range::bytes(old_ptr, sizeof(u32));
-                if (!sys::user_range_ok(range)) {
-                    return -EFAULT;
-                }
-                const u32 old = owner->signals().blocked();
-                if (!sys::copy_out(range, &old)) {
-                    return -EFAULT;
-                }
-            }
-            auto operation = mapper<signal_mask_operation>::from(how);
-            if (!operation) return -EINVAL;
-            switch (operation.value) {
-            case signal_mask_operation::block:
-                owner->signals().block(set);
-                break;
-            case signal_mask_operation::unblock:
-                owner->signals().unblock(set);
-                break;
-            case signal_mask_operation::setmask:
-                owner->signals().set_blocked(set);
-                break;
-            }
-            return 0;
-        }
-
-        i64 sys_sigsuspend(u64 mask_ptr) {
-            auto* owner = current_process();
-            auto* self  = current_thread();
-            if (owner == nullptr || self == nullptr)
-                return -ESRCH;
-            const auto range = sys::user_range::bytes(mask_ptr, sizeof(u32));
-            if (!sys::user_range_ok(range))
-                return -EFAULT;
-            u32 mask = 0;
-            if (!sys::copy_in(&mask, range))
-                return -EFAULT;
-            // Match waitpid's register-before-scan protocol.  Interrupts stay
-            // masked until either a pending signal is observed or this thread
-            // is blocked, so delivery cannot fall between the check and the
-            // waiter registration.
-            arch::cpu::nointerrupts();
-            owner->signals().set_blocked(mask);
-            owner->add_signal_waiter(self);
-            while (!owner->signals().has_unblocked_pending()) {
-                // Signal delivery is performed by the syscall exit hook.
-                // Signal senders clear the registration before waking us.
-                self->state(thread_state::blocked);
-                scheduler::yield();
-            }
-            owner->remove_signal_waiter(self);
-            arch::cpu::interrupts();
-            return -EINTR;
-        }
 
         void deliver_default_signal(arch::syscall_frame& raw_frame) {
             auto* owner = current_process();
@@ -587,15 +443,15 @@ namespace astia::proc {
          return sys::register_syscall<syscall::getpid>(sys::syscall_id::getpid) &&
                 sys::register_syscall<syscall::gettid>(sys::syscall_id::gettid) &&
                sys::register_syscall<syscall::kill>(sys::syscall_id::kill) &&
-               sys::register_syscall<sys_sigaction>(sys::syscall_id::sigaction) &&
-               sys::register_syscall<sys_sigreturn>(sys::syscall_id::sigreturn) &&
-               sys::register_syscall<sys_sigprocmask>(sys::syscall_id::sigprocmask) &&
+                sys::register_syscall<syscall::sigaction>(sys::syscall_id::sigaction) &&
+                sys::register_syscall<syscall::sigreturn>(sys::syscall_id::sigreturn) &&
+                sys::register_syscall<syscall::sigprocmask>(sys::syscall_id::sigprocmask) &&
                sys::register_syscall<sys_yield>(sys::syscall_id::yield) &&
                sys::register_syscall<sys_exit>(sys::syscall_id::exit) &&
                sys::register_syscall<sys_waitpid>(sys::syscall_id::waitpid) &&
                sys::register_syscall<sys_spawnve>(sys::syscall_id::spawnve) &&
                sys::register_syscall<sys_execve>(sys::syscall_id::execve) &&
-               sys::register_syscall<sys_sigsuspend>(sys::syscall_id::sigsuspend) &&
+                sys::register_syscall<syscall::sigsuspend>(sys::syscall_id::sigsuspend) &&
                 sys::register_syscall<syscall::getpgrp>(sys::syscall_id::getpgrp) &&
                 sys::register_syscall<syscall::setpgid>(sys::syscall_id::setpgid) &&
                 sys::register_syscall<syscall::setsid>(sys::syscall_id::setsid) &&
