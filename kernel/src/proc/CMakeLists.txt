@@ -15,6 +15,8 @@ add_library(proc STATIC
         syscalls/signal/sigreturn.cpp
         syscalls/signal/sigprocmask.cpp
         syscalls/signal/sigsuspend.cpp
+        syscalls/process/exit.cpp
+        syscalls/process/waitpid.cpp
         thread.cpp
         fd_table.cpp
         scheduler.cpp

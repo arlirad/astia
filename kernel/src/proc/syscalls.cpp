@@ -10,6 +10,8 @@
 #include "syscalls/signal/sigreturn.hpp"
 #include "syscalls/signal/sigprocmask.hpp"
 #include "syscalls/signal/sigsuspend.hpp"
+#include "syscalls/process/exit.hpp"
+#include "syscalls/process/waitpid.hpp"
 #include "../ipc/futex.hpp"
 #include "../ipc/mapping.hpp"
 #include "scheduler.hpp"
@@ -117,38 +119,6 @@ namespace astia::proc {
             return 0;
         }
 
-        i64 sys_exit(i64 status) {
-            auto* thread = current_thread();
-            if (thread == nullptr)
-                return -ESRCH;
-            logs::info("user thread exit pid=%d tid=%d status=%ld",
-                       thread->owner() ? static_cast<int>(thread->owner()->pid()) : -1,
-                       static_cast<int>(thread->tid()), status);
-            thread->exit(reinterpret_cast<void*>(static_cast<usize>(status)));
-            __builtin_unreachable();
-        }
-
-        i64 sys_waitpid(i32 pid, u64 status_ptr, u32 options) {
-            // No user pointer ever reaches proc::waitpid: validate the
-            // range up front (a bad pointer fails before we block), then
-            // deliver the status through a kernel local and copy out
-            // afterwards — waitpid blocks, so nothing may be held
-            // across it, and the range is re-checked at delivery.
-            const sys::user_range status =
-                sys::user_range::bytes(status_ptr, sizeof(i32));
-            if (!status.null() && !sys::user_range_ok(status)) {
-                return -EFAULT;
-            }
-            i32       local  = 0;
-            auto mapped_options = mapper<wait_options>::from(options);
-            if (!mapped_options) return -EINVAL;
-            const i64 result = waitpid(pid, status.null() ? nullptr : &local,
-                                       mapped_options.value);
-            if (result >= 0 && !status.null() && !sys::copy_out(status, &local)) {
-                return -EFAULT; // reaped, but undeliverable
-            }
-            return result;
-        }
 
         /* spawnve's three arguments cross as user pointers: a path
          * string and two NULL-terminated pointer vectors, each element
@@ -447,8 +417,8 @@ namespace astia::proc {
                 sys::register_syscall<syscall::sigreturn>(sys::syscall_id::sigreturn) &&
                 sys::register_syscall<syscall::sigprocmask>(sys::syscall_id::sigprocmask) &&
                sys::register_syscall<sys_yield>(sys::syscall_id::yield) &&
-               sys::register_syscall<sys_exit>(sys::syscall_id::exit) &&
-               sys::register_syscall<sys_waitpid>(sys::syscall_id::waitpid) &&
+                sys::register_syscall<syscall::exit>(sys::syscall_id::exit) &&
+                sys::register_syscall<syscall::waitpid>(sys::syscall_id::waitpid) &&
                sys::register_syscall<sys_spawnve>(sys::syscall_id::spawnve) &&
                sys::register_syscall<sys_execve>(sys::syscall_id::execve) &&
                 sys::register_syscall<syscall::sigsuspend>(sys::syscall_id::sigsuspend) &&
