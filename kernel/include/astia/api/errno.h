@@ -57,6 +57,7 @@ enum {
     ENOTEMPTY    = 39,
     ELOOP        = 40,
     EOVERFLOW    = 75,
+    EADDRINUSE   = 98,
     EILSEQ       = 84,
     ENOTSUP      = 95,
     ETIMEDOUT    = 110,

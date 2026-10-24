@@ -41,11 +41,17 @@ namespace astia::proc {
             auto mapped_signal = mapper<signal_t>::from(value);
             if (!mapped_signal) return -EINVAL;
             if (pid <= 0) {
-                const pid_t group =
-                    pid == 0 ? getpgrp() : static_cast<pid_t>(-static_cast<i64>(pid));
-                return signal_process_group(static_cast<pgrp_t>(group), mapped_signal.value);
+                pgrp_t group = getpgrp();
+                if (pid < 0) {
+                    auto mapped_group = mapper<pgrp_t>::from(-static_cast<i64>(pid));
+                    if (!mapped_group) return -EINVAL;
+                    group = mapped_group.value;
+                }
+                return signal_process_group(group, mapped_signal.value);
             }
-            auto* target = find_process(static_cast<pid_t>(pid));
+            auto mapped_pid = mapper<pid_t>::from(pid);
+            if (!mapped_pid) return -EINVAL;
+            auto* target = find_process(mapped_pid.value);
             if (target == nullptr) {
                 return -ESRCH;
             }
@@ -66,10 +72,18 @@ namespace astia::proc {
             return static_cast<i64>(getpgrp());
         }
         i64 sys_setpgid(i32 pid, i32 pgid) {
-            const pid_t typed_pid = pid == 0 ? 0 : mapper<pid_t>::from(pid).value_or(0);
-            const pgrp_t typed_group = pgid == 0 ? 0 : mapper<pgrp_t>::from(pgid).value_or(0);
-            if (typed_pid == 0 && pid != 0) return -EINVAL;
-            if (typed_group == 0 && pgid != 0) return -EINVAL;
+            pid_t typed_pid = 0;
+            if (pid != 0) {
+                auto mapped_pid = mapper<pid_t>::from(pid);
+                if (!mapped_pid) return -EINVAL;
+                typed_pid = mapped_pid.value;
+            }
+            pgrp_t typed_group = 0;
+            if (pgid != 0) {
+                auto mapped_group = mapper<pgrp_t>::from(pgid);
+                if (!mapped_group) return -EINVAL;
+                typed_group = mapped_group.value;
+            }
             return setpgid(typed_pid, typed_group);
         }
         i64 sys_setsid() {
