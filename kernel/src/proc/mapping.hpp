@@ -39,4 +39,10 @@ namespace astia {
         }
     };
 
+    template <>
+    struct mapper<proc::map_protection> : bitmask_mapper<proc::map_protection, 0x7> {};
+
+    template <>
+    struct mapper<proc::map_flags> : bitmask_mapper<proc::map_flags, 0x33> {};
+
 } // namespace astia

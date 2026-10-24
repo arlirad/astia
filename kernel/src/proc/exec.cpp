@@ -81,10 +81,10 @@ namespace astia::proc {
         // this preserves the loader's established mapping contract and
         // lets fork/CoW account for it as one physical region.  The
         // page-granular permission split is a later mprotect/exec slice.
-        u32 segment_prot(const elf::image& image, u64 base) {
+        map_protection segment_prot(const elf::image& image, u64 base) {
             (void) image;
             (void) base;
-            return PROT_READ | PROT_WRITE | PROT_EXEC;
+            return map_protection::read | map_protection::write | map_protection::exec;
         }
 
         // Where the static TLS block lives: a fixed base well below the
@@ -204,7 +204,8 @@ namespace astia::proc {
             tls_tp_      = tp;
             auto* region = mm::phys_region::adopt(tls_frames, tls_pages);
             if (region == nullptr ||
-                !register_mapping(tls_base, tls_pages, PROT_READ | PROT_WRITE, region)) {
+                !register_mapping(tls_base, tls_pages,
+                                  map_protection::read | map_protection::write, region)) {
                 if (region != nullptr) {
                     region->release();
                 }
@@ -318,7 +319,8 @@ namespace astia::proc {
                 return false;
             auto* region = mm::phys_region::adopt(tls_frames, tls_pages);
             if (region == nullptr ||
-                !register_mapping(tls_base, tls_pages, PROT_READ | PROT_WRITE, region)) {
+                !register_mapping(tls_base, tls_pages,
+                                  map_protection::read | map_protection::write, region)) {
                 if (region != nullptr)
                     region->release();
                 return false;

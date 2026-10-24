@@ -497,16 +497,22 @@ namespace astia::proc {
                 if (fd != -1 || off != 0) {
                     return -EINVAL;
                 }
-                return static_cast<i64>(
-                    process->map_anonymous(addr, static_cast<usize>(len), prot, flags));
+                auto mapped_prot = mapper<map_protection>::from(prot);
+                auto mapped_flags = mapper<map_flags>::from(flags);
+                if (!mapped_prot || !mapped_flags) return -EINVAL;
+                return static_cast<i64>(process->map_anonymous(
+                    addr, static_cast<usize>(len), mapped_prot.value, mapped_flags.value));
             }
             if (fd < 0 || off < 0) {
                 return -EINVAL;
             }
             auto mapped_fd = mapper<fd_t>::from(fd);
             if (!mapped_fd) return -EBADF;
+            auto mapped_prot = mapper<map_protection>::from(prot);
+            auto mapped_flags = mapper<map_flags>::from(flags);
+            if (!mapped_prot || !mapped_flags) return -EINVAL;
             return static_cast<i64>(process->map_file(
-                mapped_fd.value, addr, static_cast<usize>(len), prot, flags,
+                mapped_fd.value, addr, static_cast<usize>(len), mapped_prot.value, mapped_flags.value,
                 static_cast<u64>(off)));
         }
 

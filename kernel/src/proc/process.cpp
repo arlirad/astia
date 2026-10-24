@@ -480,7 +480,8 @@ namespace astia::proc {
         }
         auto* region = mm::phys_region::adopt(run, stack_pages);
         if (region == nullptr ||
-            !register_mapping(stack_base, stack_pages, PROT_READ | PROT_WRITE, region))
+            !register_mapping(stack_base, stack_pages,
+                              map_protection::read | map_protection::write, region))
             return false;
         const char* argv_list[max_spawn_args]{};
         const char* envp_list[max_spawn_env]{};
@@ -599,7 +600,8 @@ namespace astia::proc {
         }
         auto* stack_region = mm::phys_region::adopt(run, stack_pages);
         if (stack_region == nullptr ||
-            !register_mapping(stack_base, stack_pages, PROT_READ | PROT_WRITE,
+            !register_mapping(stack_base, stack_pages,
+                              map_protection::read | map_protection::write,
                               stack_region)) {
             if (stack_region != nullptr) {
                 stack_region->release();
@@ -723,7 +725,8 @@ namespace astia::proc {
                 return false;
             }
         }
-        if (!register_mapping(base, source->pages, PROT_READ | PROT_WRITE, copy)) {
+        if (!register_mapping(base, source->pages,
+                              map_protection::read | map_protection::write, copy)) {
             for (usize page = 0; page < source->pages; ++page) {
                 address_space_->unmap(base + page * page_bytes);
             }

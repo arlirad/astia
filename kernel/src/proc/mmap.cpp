@@ -25,12 +25,12 @@ namespace astia::proc {
         /// when PROT_WRITE; executable only when PROT_EXEC (x86
         /// defaults to NX).  The arch translates these into its native
         /// bits.
-        arch::page_flags pte_flags(u32 prot) {
+        arch::page_flags pte_flags(map_protection prot) {
             auto flags = arch::page_flags::present | arch::page_flags::user;
-            if ((prot & PROT_WRITE) != 0) {
+            if (has(prot, map_protection::write)) {
                 flags = flags | arch::page_flags::writable;
             }
-            if ((prot & PROT_EXEC) == 0) {
+            if (!has(prot, map_protection::exec)) {
                 flags = flags | arch::page_flags::no_execute;
             }
             return flags;
@@ -158,7 +158,7 @@ namespace astia::proc {
         return 0;
     }
 
-    bool process::install_mapping(u64 base, usize pages, u32 prot,
+    bool process::install_mapping(u64 base, usize pages, map_protection prot,
                                   mm::phys_region*                region,
                                   const mm::shptr<fs::open_file>& file, u64 file_offset,
                                   usize region_page, bool shared) {
@@ -199,19 +199,19 @@ namespace astia::proc {
         return true;
     }
 
-    u64 process::map_anonymous(u64 addr, usize len, u32 prot, u32 flags) {
+    u64 process::map_anonymous(u64 addr, usize len, map_protection prot, map_flags flags) {
         // v1: private anonymous memory; shared mappings come with the
         // page cache and IPC.
-        if ((flags & MAP_PRIVATE) == 0) {
+        if (!has(flags, map_flags::priv)) {
             return -EINVAL;
         }
-        if ((flags & MAP_ANONYMOUS) == 0) {
+        if (!has(flags, map_flags::anonymous)) {
             return -ENOSYS;
         }
-        if ((flags & MAP_FIXED) != 0) {
+        if (has(flags, map_flags::fixed)) {
             return -ENOSYS;
         }
-        if ((prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) != 0) {
+        if (static_cast<u32>(prot) & ~0x7u) {
             return -EINVAL;
         }
         if (address_space_ == nullptr || len == 0) {
@@ -240,24 +240,25 @@ namespace astia::proc {
         return base;
     }
 
-    u64 process::map_file(fd_t fd, u64 addr, usize len, u32 prot, u32 flags, u64 off) {
+    u64 process::map_file(fd_t fd, u64 addr, usize len, map_protection prot, map_flags flags,
+                          u64 off) {
         // File mappings: private mappings capture bytes into
         // fresh frames at map time — snapshot semantics, the same
         // kernel-side read the ELF loader trusts.  Writes land on the
         // private copy; page-cache coherence and MAP_SHARED arrive
         // with the cache and writeback.  MAP_FIXED waits for the
         // merge/replacement rules.
-        if ((flags & (MAP_PRIVATE | MAP_SHARED)) == 0 ||
-            ((flags & MAP_PRIVATE) != 0 && (flags & MAP_SHARED) != 0)) {
+        if ((!has(flags, map_flags::priv) && !has(flags, map_flags::shared)) ||
+            (has(flags, map_flags::priv) && has(flags, map_flags::shared))) {
             return -EINVAL;
         }
-        if ((flags & MAP_ANONYMOUS) != 0) {
+        if (has(flags, map_flags::anonymous)) {
             return -EINVAL;
         }
-        if ((flags & MAP_FIXED) != 0) {
+        if (has(flags, map_flags::fixed)) {
             return -ENOSYS;
         }
-        if ((prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) != 0) {
+        if (static_cast<u32>(prot) & ~0x7u) {
             return -EINVAL;
         }
         if (address_space_ == nullptr || len == 0) {
@@ -290,7 +291,7 @@ namespace astia::proc {
         if (base == 0) {
             return -ENOMEM;
         }
-        if ((flags & MAP_SHARED) != 0) {
+        if (has(flags, map_flags::shared)) {
             auto* object        = file->backing();
             auto* shared_region = object == nullptr ? nullptr : object->memory_region();
             if (shared_region == nullptr || off + want < off ||
@@ -427,7 +428,7 @@ namespace astia::proc {
         return 0;
     }
 
-    bool process::register_mapping(u64 base, usize pages, u32 prot,
+    bool process::register_mapping(u64 base, usize pages, map_protection prot,
                                    mm::phys_region* region) {
         // PTEs are the caller's job — exec segments, the user stack,
         // and the TLS block map their own — and so is adopting the
@@ -491,8 +492,10 @@ namespace astia::proc {
             // faults into a private copy.  Read-only ranges (text,
             // the TLS template) keep their flags and are shared as
             // they are.
-            const bool cow   = !it->shared && (it->prot & PROT_WRITE) != 0;
-            const auto flags = pte_flags(cow ? (it->prot & ~PROT_WRITE) : it->prot);
+            const bool cow   = !it->shared && has(it->prot, map_protection::write);
+            const auto flags = pte_flags(cow ?
+                static_cast<map_protection>(static_cast<u32>(it->prot) &
+                                             ~static_cast<u32>(map_protection::write)) : it->prot);
             for (u64 page = 0; page < it->pages; ++page) {
                 const u64 virt = it->base + page * page_bytes;
                 const u64 phys = address_space_->translate(virt);
@@ -539,7 +542,7 @@ namespace astia::proc {
             }
             prev = it;
         }
-        if (vma == nullptr || vma->shared || (vma->prot & PROT_WRITE) == 0) {
+        if (vma == nullptr || vma->shared || !has(vma->prot, map_protection::write)) {
             return false; // not ours, or a genuine violation
         }
         const bool  held         = vma->holds_ref; // captured before the split

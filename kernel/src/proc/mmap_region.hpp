@@ -7,6 +7,23 @@
 
 namespace astia::proc {
 
+    enum class map_protection : u32 { none = 0, read = 1u << 0, write = 1u << 1, exec = 1u << 2 };
+    enum class map_flags : u32 { none = 0, shared = 0x01, priv = 0x02, fixed = 0x10, anonymous = 0x20 };
+    constexpr map_protection operator|(map_protection a, map_protection b) {
+        return static_cast<map_protection>(static_cast<u32>(a) | static_cast<u32>(b));
+    }
+    constexpr map_protection operator&(map_protection a, map_protection b) {
+        return static_cast<map_protection>(static_cast<u32>(a) & static_cast<u32>(b));
+    }
+    constexpr map_flags operator|(map_flags a, map_flags b) {
+        return static_cast<map_flags>(static_cast<u32>(a) | static_cast<u32>(b));
+    }
+    constexpr map_flags operator&(map_flags a, map_flags b) {
+        return static_cast<map_flags>(static_cast<u32>(a) & static_cast<u32>(b));
+    }
+    constexpr bool has(map_protection v, map_protection f) { return (v & f) != map_protection::none; }
+    constexpr bool has(map_flags v, map_flags f) { return (v & f) != map_flags::none; }
+
     /// One contiguous user virtual range and the phys_region backing
     /// it.  An address space keeps these base-sorted; a Copy-on-Write
     /// fault will split one into neighbours (as Linux splits VMAs), so
@@ -27,7 +44,7 @@ namespace astia::proc {
         mmap_region*     next      = nullptr;
         u64              base      = 0; ///< page-aligned
         usize            pages     = 0;
-        u32              prot      = 0; ///< ABI PROT_* word
+        map_protection   prot      = map_protection::none;
         bool             shared    = false;
         bool             holds_ref = false;
         mm::phys_region* backing   = nullptr;

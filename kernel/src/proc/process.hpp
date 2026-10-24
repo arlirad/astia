@@ -159,14 +159,14 @@ namespace astia::proc {
         /// mmap: anonymous private memory; `addr` is a placement hint
         /// (0 = the kernel picks the highest hole below the mmap
         /// ceiling).  Returns the mapped base, or a negated errno.
-        u64 map_anonymous(u64 addr, usize len, u32 prot, u32 flags);
+        u64 map_anonymous(u64 addr, usize len, map_protection prot, map_flags flags);
 
         /// mmap of an open file, private (snapshot) semantics: the
         /// file's bytes are captured into fresh frames at map time,
         /// writes land on the private copy, and the mapping keeps the
         /// open file description alive across close().  `fd` resolves
         /// in this process' table; `off` must be page-aligned.
-        u64 map_file(fd_t fd, u64 addr, usize len, u32 prot, u32 flags, u64 off);
+        u64 map_file(fd_t fd, u64 addr, usize len, map_protection prot, map_flags flags, u64 off);
 
         /// munmap: drop [addr, addr + len) rounded up to pages; parts
         /// of mapped regions outside the range are kept.  Returns 0,
@@ -225,7 +225,7 @@ namespace astia::proc {
         /// + pages): `region` adopts the `pages` contiguous frames the
         /// caller mapped PTEs for, and the entry takes over its
         /// reference.
-        bool register_mapping(u64 base, usize pages, u32 prot, mm::phys_region* region);
+        bool register_mapping(u64 base, usize pages, map_protection prot, mm::phys_region* region);
         bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
         void discard_image();
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
@@ -235,7 +235,7 @@ namespace astia::proc {
         /// recorded on it, both empty for anonymous ranges).  On
         /// failure the PTEs are rolled back and `region` stays the
         /// caller's.
-        bool  install_mapping(u64 base, usize pages, u32 prot, mm::phys_region* region,
+        bool  install_mapping(u64 base, usize pages, map_protection prot, mm::phys_region* region,
                               const mm::shptr<fs::open_file>& file, u64 file_offset,
                               usize region_page = 0, bool shared = false);
         pid_t pid_;
