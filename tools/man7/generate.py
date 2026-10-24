@@ -53,10 +53,15 @@ LEGACY = {
     "thread_exit": ("long thread_exit(long result);", "Terminates the calling user thread.", "Does not return."),
     "thread_join": ("long thread_join(uint32_t tid, void *result);", "Waits for a thread and collects its result.", "-EFAULT, -EINVAL, -ESRCH."),
     "thread_detach": ("long thread_detach(uint32_t tid);", "Marks a thread as detached.", "-EINVAL, -ESRCH."),
+    "clock_gettime": ("long clock_gettime(int clock_id, timespec *out);", "Reads a kernel clock into a userspace timespec.", "-EFAULT, -EINVAL."),
+    "io_setup": ("long io_setup(uint32_t entries, uint32_t flags, ring **out);", "Creates an asynchronous I/O ring.", "-EFAULT, -EINVAL, -ENOMEM."),
+    "io_destroy": ("long io_destroy(ring *ring);", "Destroys an asynchronous I/O ring.", "-EINVAL, -ESRCH."),
+    "io_enter": ("long io_enter(ring *ring, uint32_t submit, uint32_t complete, uint32_t flags);", "Submits and reaps asynchronous I/O operations.", "-EFAULT, -EINVAL, -EAGAIN."),
+    "io_register": ("long io_register(void);", "Registers asynchronous I/O resources.", "-EINVAL, -ENOSYS."),
 }
 
 
-def legacy_pages(text: str) -> list[tuple[str, str]]:
+def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
     names = re.findall(r"\bi64\s+sys_(\w+)\s*\(", text)
     pages = []
     for name in names:
@@ -64,7 +69,7 @@ def legacy_pages(text: str) -> list[tuple[str, str]]:
             name,
             (f"long {name}(...);", f"System call handler for `{name}`.", "See the kernel error ABI."),
         )
-        pages.append((name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\nReturns a non-negative result on success. Negative values are ABI errno codes.\n\nErrors:\n{errors}\n\nABI:\nArguments enter through the direct syscall ABI; validation is performed before entering the process subsystem."))
+        pages.append((name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\nReturns a non-negative result on success. Negative values are ABI errno codes.\n\nErrors:\n{errors}\n\nABI:\nArguments enter through the direct syscall ABI; validation is performed before entering the process subsystem.", subsystem))
     return pages
 
 
@@ -122,28 +127,39 @@ def main() -> int:
     parser.add_argument("--css", type=Path, default=DEFAULT_CSS)
     args = parser.parse_args()
 
-    pages: dict[str, str] = {}
-    doc_source = args.source / "syscalls" if (args.source / "syscalls").is_dir() else args.source
-    for path in sorted(doc_source.rglob("*.hpp")):
+    pages: dict[str, tuple[str, str]] = {}
+    for path in sorted(args.source.rglob("syscalls/*.hpp")):
+        subsystem = path.parent.parent.name
         for name, body in comments(path.read_text()):
-            pages[name] = body
+            pages[name] = (body, subsystem)
     for path in sorted(args.source.rglob("*.cpp")):
         if path.name != "syscalls.cpp":
             continue
-        for name, body in legacy_pages(path.read_text()):
-            pages.setdefault(name, body)
+        subsystem = path.parent.name
+        for name, body, group in legacy_pages(path.read_text(), subsystem):
+            pages.setdefault(name, (body, group))
+    for path in sorted(args.source.glob("sys/time.cpp")):
+        for name, body, group in legacy_pages(path.read_text(), "sys"):
+            pages.setdefault(name, (body, group))
 
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "nodivia.css").write_text(args.css.read_text())
-    for name, body in sorted(pages.items()):
+    for name, (body, _) in sorted(pages.items()):
         (args.output / f"{name}.html").write_text(render(name, body))
+    groups: dict[str, list[str]] = {}
+    for name, (_, group) in pages.items():
+        groups.setdefault(group, []).append(name)
+    grouped = "".join(
+        f"<section class='surface__level__1 surface__minor'><h2>{html.escape(group)}</h2><ul>"
+        + "".join(f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}(2)</a></li>"
+                  for name in sorted(names))
+        + "</ul></section>"
+        for group, names in sorted(groups.items())
+    )
     (args.output / "index.html").write_text(
         "<!doctype html><html><head><meta charset='utf-8'><title>Astia syscalls</title>"
         "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
-        "<h1>Astia system calls</h1><ul>"
-        + "".join(f"<li><a href='{html.escape(n)}.html'>{html.escape(n)}(2)</a></li>"
-                 for n in sorted(pages))
-        + "</ul></main></body></html>\n"
+        "<h1>Astia system calls</h1>" + grouped + "</main></body></html>\n"
     )
     return 0
 
