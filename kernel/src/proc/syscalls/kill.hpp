@@ -17,8 +17,9 @@ namespace astia::proc::syscall {
     /// Return Value:
     ///     Returns zero on success.
     ///
-    /// Errors: -EINVAL for malformed identifiers/signals; -ESRCH when no
-    /// matching live process or process group exists.
+    /// Errors:
+    ///     -EINVAL: signal or target identifier is malformed.
+    ///     -ESRCH: no matching live process or process group exists.
     i64 kill(i32 pid_raw, i32 signal_raw);
 
 } // namespace astia::proc::syscall
