@@ -1,4 +1,5 @@
 #include "file_port.h"
+#include "path.h"
 #include "process_port.h"
 #include <astia/api/syscalls.h>
 #include <sys/ioctl.h>
@@ -91,7 +92,10 @@ int pipe(int fds[2]) {
     return 0;
 }
 int chdir(const char* path) {
-    long rc = astia_chdir(path);
+    char resolved[256];
+    if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
+        return -1;
+    long rc = astia_chdir(resolved);
     if (rc < 0) { errno = (int) -rc; return -1; }
     return 0;
 }

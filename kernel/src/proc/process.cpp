@@ -45,7 +45,9 @@ namespace astia::proc {
             break;
         }
         if (!directory && full[1] != '\0') return -ENOTDIR;
-        for (usize i = 0; full[i] != '\0'; ++i) cwd_[i] = full[i];
+        usize i = 0;
+        for (; full[i] != '\0'; ++i) cwd_[i] = full[i];
+        cwd_[i] = '\0';
         cwd_[fs::path_max - 1] = '\0';
         return 0;
     }

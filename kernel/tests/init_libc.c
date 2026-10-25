@@ -68,6 +68,10 @@ int main(int argc, char** argv) {
         DIR* bin = opendir("/bin");
         if (bin == NULL || readdir(bin) == NULL) return 42;
         closedir(bin);
+        if (chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
+            return 45;
+        if (chdir("bin") != 0) return 46;
+        if (getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0) return 47;
         if (chdir("/") != 0) return 43;
         DIR* root = opendir("/");
         if (root == NULL || readdir(root) == NULL) return 44;
