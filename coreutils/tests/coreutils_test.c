@@ -29,6 +29,11 @@ static int is_directory(const char* path) {
     return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
 }
 
+static int mtime_not_newer(const char* path, time_t before) {
+    struct stat info;
+    return stat(path, &info) != 0 || info.st_mtime <= before;
+}
+
 static int file_equals(const char* path, const char* expected) {
     FILE* file = fopen(path, "r");
     char buffer[512];
@@ -149,12 +154,16 @@ int main(void) {
     char* sort_stdin[] = {"sort", NULL};
     char* cut_fields[] = {"cut", "-d", ":", "-f", "2", NULL};
     char* tee_file[] = {"tee", "/tmp/coreutils_tee", NULL};
+    char* touch_files[] = {"touch", "/tmp/coreutils_touch", NULL};
+    char* touch_existing[] = {"touch", "/tmp/coreutils_a", NULL};
+    char* touch_bad[] = {"touch", "--bad", NULL};
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
     (void) unlink("/tmp/coreutils_from_stdin");
     (void) unlink("/tmp/coreutils_moved");
     (void) unlink("/tmp/coreutils_tee");
+    (void) unlink("/tmp/coreutils_touch");
     (void) rmdir("/tmp/coreutils_parent/child");
     (void) rmdir("/tmp/coreutils_parent");
     (void) rmdir("/tmp/coreutils_dir");
@@ -165,6 +174,11 @@ int main(void) {
          put_file("/tmp/coreutils_lines", "one\ntwo\nthree\n") != 0 ||
         0)
         return fail("fixture setup");
+
+    struct stat touch_before;
+    if (stat("/tmp/coreutils_a", &touch_before) != 0)
+        return fail("touch stat setup");
+    sleep(1);
 
     if (check("cat files", cat_files, NULL, 0, "alpha\nbeta\ngamma\n", 1) ||
         check("cat missing", cat_missing, NULL, 1, NULL, 0) ||
@@ -211,13 +225,18 @@ int main(void) {
          check("grep missing file", grep_missing, NULL, 2, NULL, 0) ||
          check("sort stdin", sort_stdin, "zulu\nalpha\n", 0, NULL, 0) ||
          check("cut fields", cut_fields, "one:two:three\n", 0, NULL, 0) ||
-         check("tee", tee_file, "tee input\n", 0, NULL, 0) ||
-         !file_equals("/tmp/coreutils_tee", "tee input\n"))
+          check("tee", tee_file, "tee input\n", 0, NULL, 0) ||
+          !file_equals("/tmp/coreutils_tee", "tee input\n") ||
+          check("touch create", touch_files, NULL, 0, NULL, 0) ||
+          !is_file("/tmp/coreutils_touch") ||
+          check("touch existing", touch_existing, NULL, 0, NULL, 0) ||
+          mtime_not_newer("/tmp/coreutils_a", touch_before.st_mtime) ||
+          check("touch unknown option", touch_bad, NULL, 1, NULL, 0))
         return 1;
 
     const char* help[] = {"cat", "head", "wc", "ls", "pwd", "uname", "echo", "env",
                           "true", "false", "mkdir", "rm", "cp", "mv", "grep", "sort",
-                          "cut", "tee", NULL};
+                           "cut", "tee", "touch", NULL};
     for (int i = 0; help[i] != NULL; ++i) {
         char* args[] = {(char*) help[i], "--help", NULL};
         if (check("--help", args, NULL, 0, "Usage: ", 0))

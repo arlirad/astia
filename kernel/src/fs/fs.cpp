@@ -254,6 +254,15 @@ namespace astia::fs {
         return entry->instance->chmod(relative_path(*entry, path), mode);
     }
 
+    long touch_path(const char* path, u64 sec, u64 nsec) {
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        mount_entry* entry = find_mount(path);
+        if (entry == nullptr) return -ENOENT;
+        auto object = entry->instance->open(relative_path(*entry, path), 0);
+        if (!object) return -ENOENT;
+        return object->backing()->touch(sec, nsec);
+    }
+
     bool read_batch(kernel_read* requests, usize count) {
         if (requests == nullptr)
             return false;
@@ -309,6 +318,9 @@ namespace astia::fs {
     }
 
     u32 file::mode() const { return 0100666; }
+    u64 file::mtime_sec() const { return 0; }
+    u64 file::mtime_nsec() const { return 0; }
+    long file::touch(u64, u64) { return -EROFS; }
 
     mm::phys_region* file::memory_region() {
         return nullptr;
@@ -372,5 +384,7 @@ namespace astia::fs {
     }
 
     u32 open_file::mode() const { return !_object ? 0 : _object->mode(); }
+    u64 open_file::mtime_sec() const { return !_object ? 0 : _object->mtime_sec(); }
+    u64 open_file::mtime_nsec() const { return !_object ? 0 : _object->mtime_nsec(); }
 
 } // namespace astia::fs

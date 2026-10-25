@@ -45,6 +45,18 @@ int chmod(const char* path, mode_t mode) {
     return rc < 0 ? fail(rc) : 0;
 }
 
+int utimensat(int dirfd, const char* path, const struct timespec times[2], int flags) {
+    (void) times;
+    if (dirfd != -100 || flags != 0 || path == NULL) { errno = EINVAL; return -1; }
+    long rc = __astia_fio_utime(path);
+    return rc < 0 ? fail(rc) : 0;
+}
+
+int utime(const char* path, const time_t* value) {
+    (void) value;
+    return utimensat(-100, path, NULL, 0);
+}
+
 int mkdir(const char* path, mode_t mode) {
     if (path == NULL) { errno = EFAULT; return -1; }
     long rc = __astia_fio_mkdir(path, (int)mode);

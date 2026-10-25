@@ -1,4 +1,5 @@
 #include "syscall.hpp"
+#include "time.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -61,6 +62,13 @@ namespace astia::sys {
         }
 
     } // namespace
+
+    void realtime_now(u64& sec, u64& nsec) {
+        const u64 hz = arch::timer_hz();
+        const u64 ticks = arch::timer_ticks();
+        sec = static_cast<u64>(realtime_epoch_sec + static_cast<i64>(ticks / hz));
+        nsec = (ticks % hz) * 1000000000ull / hz;
+    }
 
     bool register_time_syscalls() {
         return register_syscall<sys_clock_gettime>(syscall_id::clock_gettime);

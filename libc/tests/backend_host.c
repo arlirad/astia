@@ -215,6 +215,11 @@ long __astia_fio_chmod(const char* path, int mode) {
     return rc < 0 ? -HOST_ERRNO : 0;
 }
 
+long __astia_fio_utime(const char* path) {
+    long rc = syscall(SYS_utimensat, -100, path, 0, 0);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
+
 long __astia_fio_unlink(const char* path, int directory) {
     long rc = syscall(directory ? SYS_rmdir : SYS_unlink, path);
     return rc < 0 ? -HOST_ERRNO : 0;

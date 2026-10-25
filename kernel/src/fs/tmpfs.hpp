@@ -17,6 +17,9 @@ namespace astia::fs {
         long             write(const void* buffer, u32 length, u64 offset) override;
         long             size() const override;
         u32              mode() const override { return mode_; }
+        u64              mtime_sec() const override { return mtime_sec_; }
+        u64              mtime_nsec() const override { return mtime_nsec_; }
+        long             touch(u64 sec, u64 nsec) override;
         void             set_mode(u32 mode) { mode_ = mode; }
         mm::phys_region* memory_region() override {
             return storage_;
@@ -29,6 +32,8 @@ namespace astia::fs {
         mm::phys_region* storage_ = nullptr;
         u64              size_    = 0;
         u32              mode_    = 0100666;
+        u64              mtime_sec_ = 0;
+        u64              mtime_nsec_ = 0;
     };
 
     class tmpfs_mount final : public mount {

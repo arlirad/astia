@@ -7,7 +7,7 @@ Astia libc, and keeps its behavior small enough to test on the real kernel.
 Currently built:
 
 `cat` `cp` `cut` `echo` `env` `false` `grep` `head` `ls` `mkdir` `mv` `pwd`
-`rm` `sort` `tee` `true` `uname` `wc`
+`rm` `sort` `tee` `touch` `true` `uname` `wc`
 
 Build them with:
 
@@ -24,3 +24,6 @@ The utilities deliberately use only native Astia primitives (`read`, `write`,
 libc directory API).  The
 QEMU regression suite can be run with `coreutils/tests/run.sh`; it builds the
 utilities and checks their exit status and output on the real kernel.
+
+`touch FILE...` creates missing files and updates existing mtimes through the
+native Astia VFS/libc ABI. Unsupported options are rejected.

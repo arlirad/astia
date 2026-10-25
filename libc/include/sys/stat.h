@@ -53,6 +53,8 @@ int stat(const char* path, struct stat* result);
 int lstat(const char* path, struct stat* result);
 int fstat(int fd, struct stat* result);
 int chmod(const char* path, mode_t mode);
+int utimensat(int dirfd, const char* path, const struct timespec times[2], int flags);
+int utime(const char* path, const time_t* value);
 int mkdir(const char* path, mode_t mode);
 int mkfifo(const char* path, mode_t mode);
 int unlink(const char* path);

@@ -92,6 +92,12 @@ namespace astia::fs {
         return static_cast<long>(length);
     }
 
+    long tmpfs_file::touch(u64 sec, u64 nsec) {
+        mtime_sec_ = sec;
+        mtime_nsec_ = nsec;
+        return 0;
+    }
+
     long tmpfs_file::size() const {
         return static_cast<long>(size_);
     }

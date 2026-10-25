@@ -1,4 +1,5 @@
 #include "aio.hpp"
+#include "time.hpp"
 
 #include "../ipc/pipe.hpp"
 #include "proc.hpp"
@@ -672,7 +673,9 @@ namespace astia::sys {
                 stat_out->nlink = 1;
                 stat_out->size   = static_cast<u64>(size);
                 stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
-                stat_out->mode   = object->mode();
+                    stat_out->mode   = object->mode();
+                 stat_out->mtime_sec = object->mtime_sec();
+                 stat_out->mtime_nsec = object->mtime_nsec();
                 return cq_post_guarded(ring, s.user_data, 0);
             }
 
@@ -686,6 +689,21 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
                 return cq_post_guarded(ring, s.user_data,
                                        static_cast<i32>(fs::chmod_path(resolved, s.aux)));
+            }
+
+            case OP_UTIMENSAT: {
+                char path[256];
+                if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(s.address)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* current = proc::current_process();
+                char resolved[256];
+                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                u64 sec = 0;
+                u64 nsec = 0;
+                sys::realtime_now(sec, nsec);
+                return cq_post_guarded(ring, s.user_data,
+                                       static_cast<i32>(fs::touch_path(resolved, sec, nsec)));
             }
 
             case OP_READDIR: {

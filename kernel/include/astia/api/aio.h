@@ -283,6 +283,8 @@ enum {
     OP_IOCTL = 24,
     OP_PIPE  = 25,
     OP_CHMOD = 26,
+    /* Update pathname mtime to kernel CLOCK_REALTIME; address is pathname. */
+    OP_UTIMENSAT = 27,
 };
 
 /* OP_UNLINKAT op_flags: remove a directory instead of a non-directory. */

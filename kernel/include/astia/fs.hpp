@@ -45,6 +45,9 @@ namespace astia::fs {
         virtual long             ioctl(u64 request, void* argp);
         virtual long             size() const;
         virtual u32              mode() const;
+        virtual u64              mtime_sec() const;
+        virtual u64              mtime_nsec() const;
+        virtual long             touch(u64 sec, u64 nsec);
         virtual mm::phys_region* memory_region();
         virtual void              close(u32 flags);
     };
@@ -64,6 +67,8 @@ namespace astia::fs {
         long ioctl(u64 request, void* argp);
         long size() const;
         u32 mode() const;
+        u64 mtime_sec() const;
+        u64 mtime_nsec() const;
 
         file* backing() const {
             return _object.get();
@@ -100,6 +105,7 @@ namespace astia::fs {
     u32 node_type(const char* path);
     u32 node_mode(const char* path);
     long chmod_path(const char* path, u32 mode);
+    long touch_path(const char* path, u64 sec, u64 nsec);
 
     struct kernel_read {
         open_file* file;
