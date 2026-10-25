@@ -75,7 +75,10 @@ int waitpid(int pid, int* status, int options) {
 }
 
 int spawnve(const char* path, char* const argv[], char* const envp[]) {
-    return process_result(__astia_process_spawnve(path, argv, envp));
+    /* A null environment is the convenient inheritance form used by the
+     * shell.  The kernel ABI accepts an explicit empty vector as well, so
+     * resolve this libc-level shorthand here. */
+    return process_result(__astia_process_spawnve(path, argv, envp == NULL ? environ : envp));
 }
 
 int fork(void) {

@@ -25,56 +25,52 @@ char* getenv(const char* name) {
 }
 
 static int environment_update(const char* name, const char* value, int remove,
-                              int overwrite) {
+                              int overwrite, char* replacement) {
     size_t length = strlen(name);
     size_t count = 0;
     size_t match = (size_t) -1;
     char** item;
     char** next;
     size_t i;
+    size_t matches = 0;
+    int allocated_replacement = 0;
 
-    for (item = environ; item != NULL && *item != NULL; ++item, ++count)
-        if (match == (size_t) -1 && environment_name_matches(*item, name, length))
-            match = count;
+    for (item = environ; item != NULL && *item != NULL; ++item, ++count) {
+        if (environment_name_matches(*item, name, length)) {
+            if (match == (size_t) -1)
+                match = count;
+            ++matches;
+        }
+    }
     if (match != (size_t) -1 && !remove && !overwrite)
         return 0;
-    next = (char**) malloc((count + (remove || match != (size_t) -1 ? 1 : 2)) *
-                           sizeof(*next));
+    if (!remove && (replacement == NULL)) {
+        size_t value_length = strlen(value);
+        replacement = (char*) malloc(length + value_length + 2);
+        if (replacement == NULL) {
+            errno = ENOMEM;
+            return -1;
+        }
+        memcpy(replacement, name, length);
+        replacement[length] = '=';
+        memcpy(replacement + length + 1, value, value_length + 1);
+        allocated_replacement = 1;
+    }
+    next = (char**) malloc((count - matches + (remove ? 0 : 1) + 1) * sizeof(*next));
     if (next == NULL) {
+        if (allocated_replacement)
+            free(replacement);
         errno = ENOMEM;
         return -1;
     }
     size_t out_count = 0;
     for (i = 0; i < count; ++i) {
-        if (i == match) {
-            if (!remove) {
-                size_t value_length = strlen(value);
-                char* replacement = (char*) malloc(length + value_length + 2);
-                if (replacement == NULL) {
-                    errno = ENOMEM;
-                    return -1;
-                }
-                memcpy(replacement, name, length);
-                replacement[length] = '=';
-                memcpy(replacement + length + 1, value, value_length + 1);
-                next[out_count++] = replacement;
-            }
+        if (environment_name_matches(environ[i], name, length))
             continue;
-        }
         next[out_count++] = environ[i];
     }
-    if (match == (size_t) -1 && !remove) {
-        size_t value_length = strlen(value);
-        char* addition = (char*) malloc(length + value_length + 2);
-        if (addition == NULL) {
-            errno = ENOMEM;
-            return -1;
-        }
-        memcpy(addition, name, length);
-        addition[length] = '=';
-        memcpy(addition + length + 1, value, value_length + 1);
-        next[out_count++] = addition;
-    }
+    if (!remove)
+        next[out_count++] = replacement;
     next[out_count] = NULL;
     environ = next;
     return 0;
@@ -85,7 +81,7 @@ int setenv(const char* name, const char* value, int overwrite) {
         errno = EINVAL;
         return -1;
     }
-    return environment_update(name, value, 0, overwrite != 0);
+    return environment_update(name, value, 0, overwrite != 0, NULL);
 }
 
 int unsetenv(const char* name) {
@@ -93,7 +89,7 @@ int unsetenv(const char* name) {
         errno = EINVAL;
         return -1;
     }
-    return environment_update(name, "", 1, 1);
+    return environment_update(name, "", 1, 1, NULL);
 }
 
 int putenv(char* string) {
@@ -111,7 +107,7 @@ int putenv(char* string) {
     }
     memcpy(name, string, (size_t) (equals - string));
     name[equals - string] = '\0';
-    result = setenv(name, equals + 1, 1);
+    result = environment_update(name, equals + 1, 0, 1, string);
     free(name);
     return result;
 }
