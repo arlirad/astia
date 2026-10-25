@@ -299,6 +299,10 @@ long __astia_fio_size(int fd, uint64_t* out) {
     return 0;
 }
 
+long __astia_fio_stat(const char* path, void* out, uint32_t length) {
+    return transact(OP_STATX, -1, (uint64_t)(uintptr_t)out, path, length, 0, 0);
+}
+
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
     return transact(OP_READDIR, (int32_t) index, (uint64_t) (uintptr_t) path, out,
                     (uint32_t) sizeof *out, 0, 0);

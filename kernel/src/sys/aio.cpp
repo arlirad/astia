@@ -571,9 +571,25 @@ namespace astia::sys {
                                              sys::user_range::string(s.address))) {
                         return cq_post_guarded(ring, s.user_data, -EFAULT);
                     }
-                    object = fs::open_path(path);
+                    auto* current = proc::current_process();
+                    char resolved[256];
+                    if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                        return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    object = fs::open_path(resolved);
                     if (!object) {
-                        return cq_post_guarded(ring, s.user_data, -ENOENT);
+                        char child[256]{};
+                        u32 child_type = fs::directory_unknown;
+                        if (fs::read_directory(resolved, 0, child, sizeof child, &child_type) <= 0) {
+                            return cq_post_guarded(ring, s.user_data, -ENOENT);
+                        }
+                        __builtin_memset(reinterpret_cast<void*>(out.address()), 0,
+                                         sizeof(astia_stat));
+                        auto* directory = reinterpret_cast<astia_stat*>(out.address());
+                        directory->dev = 1;
+                        directory->ino = 1;
+                        directory->nlink = 1;
+                        directory->mode = fs::directory_dir;
+                        return cq_post_guarded(ring, s.user_data, 0);
                     }
                 }
                 else {
@@ -592,6 +608,9 @@ namespace astia::sys {
                 // range was validated above; this is the write it licensed.
                 auto* stat_out = reinterpret_cast<astia_stat*>(out.address());
                 __builtin_memset(stat_out, 0, sizeof *stat_out);
+                stat_out->dev = 1;
+                stat_out->ino = 1;
+                stat_out->nlink = 1;
                 stat_out->size   = static_cast<u64>(size);
                 stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
                 return cq_post_guarded(ring, s.user_data, 0);

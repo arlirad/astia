@@ -45,6 +45,10 @@ cd "$build"
     LDFLAGS='-nostdlib -static -no-pie -Wl,-Ttext-segment=0x40000000' \
     LIBS="$build/astia/image/crt0.o $sysroot/lib/libastia_libc.a $builtins"
 
+# Astia currently has no lstat ABI.  Do not let zsh select its lstat-based
+# link-resolution path, which would turn a working chdir into ENOSYS.
+sed -i '/^[[:space:]]*#define HAVE_LSTAT[[:space:]]/d' "$build/config.h"
+
 make -C "$build" -j "$jobs"
 mkdir -p "$build/output"
 cp "$build/Src/zsh" "$build/output/zsh"
