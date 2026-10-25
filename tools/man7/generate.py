@@ -206,6 +206,8 @@ def main() -> int:
             continue
         syscall_index = path.parts.index("syscalls")
         subsystem = path.parts[syscall_index - 1]
+        if path.parent != Path(*path.parts[:syscall_index + 1]):
+            subsystem = f"{subsystem}/{path.parent.name}"
         for name, body in comments(path.read_text()):
             pages[name] = (body, subsystem)
     for path in sorted(args.source.rglob("*.cpp")):
