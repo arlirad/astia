@@ -632,7 +632,7 @@ namespace astia::sys {
                 auto* result = reinterpret_cast<astia_dirent*>(out.address());
                 __builtin_memset(result, 0, sizeof *result);
                 long rc = fs::read_directory(resolved, s.fd < 0 ? 0 : s.fd, result->name,
-                                             sizeof result->name, &result->type);
+                                              sizeof result->name, &result->type);
                 if (rc > 0) {
                     u32 length = 0;
                     while (length < sizeof result->name && result->name[length] != '\0')
