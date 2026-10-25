@@ -29,6 +29,16 @@ static int is_directory(const char* path) {
     return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
 }
 
+static int file_equals(const char* path, const char* expected) {
+    FILE* file = fopen(path, "r");
+    char buffer[512];
+    size_t length = strlen(expected);
+    if (file == NULL || length >= sizeof buffer || fread(buffer, 1, length, file) != length)
+        return 0;
+    buffer[length] = '\0';
+    return strcmp(buffer, expected) == 0;
+}
+
 /* Run one real utility, collecting stdout and checking its exit status.  The
  * test input is a file because it also keeps the runner independent of the
  * terminal and serial-device setup used by QEMU. */
@@ -100,19 +110,26 @@ int main(void) {
     char* rm_missing[] = {"rm", "/tmp/coreutils_moved", NULL};
     char* rm_force[] = {"rm", "-f", "/tmp/coreutils_moved", NULL};
     char* rm_recursive[] = {"rm", "-r", "/tmp/coreutils_dir", NULL};
+    char* grep_match[] = {"grep", "beta", NULL};
+    char* grep_none[] = {"grep", "missing", NULL};
+    char* grep_missing[] = {"grep", "pattern", "/tmp/coreutils_missing", NULL};
+    char* sort_stdin[] = {"sort", NULL};
+    char* cut_fields[] = {"cut", "-d", ":", "-f", "2", NULL};
+    char* tee_file[] = {"tee", "/tmp/coreutils_tee", NULL};
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
     (void) unlink("/tmp/coreutils_from_stdin");
     (void) unlink("/tmp/coreutils_moved");
+    (void) unlink("/tmp/coreutils_tee");
     (void) rmdir("/tmp/coreutils_parent/child");
     (void) rmdir("/tmp/coreutils_parent");
     (void) rmdir("/tmp/coreutils_dir");
     /* The minimal initrd need not ship a /tmp directory. */
     (void) mkdir("/tmp", 0777);
     if (put_file("/tmp/coreutils_a", "alpha\n") != 0 ||
-        put_file("/tmp/coreutils_b", "beta\ngamma\n") != 0 ||
-        put_file("/tmp/coreutils_lines", "one\ntwo\nthree\n") != 0 ||
+         put_file("/tmp/coreutils_b", "beta\ngamma\n") != 0 ||
+         put_file("/tmp/coreutils_lines", "one\ntwo\nthree\n") != 0 ||
         0)
         return fail("fixture setup");
 
@@ -155,11 +172,19 @@ int main(void) {
          is_file("/tmp/coreutils_moved") ||
          check("rm missing", rm_missing, NULL, 1, NULL, 0) ||
          check("rm -f", rm_force, NULL, 0, NULL, 0) ||
-         check("rm recursive unsupported", rm_recursive, NULL, 1, NULL, 0))
+         check("rm recursive unsupported", rm_recursive, NULL, 1, NULL, 0) ||
+         check("grep match", grep_match, "alpha\nbeta\ngamma\n", 0, NULL, 0) ||
+         check("grep no match", grep_none, "alpha\nbeta\n", 1, NULL, 0) ||
+         check("grep missing file", grep_missing, NULL, 2, NULL, 0) ||
+         check("sort stdin", sort_stdin, "zulu\nalpha\n", 0, NULL, 0) ||
+         check("cut fields", cut_fields, "one:two:three\n", 0, NULL, 0) ||
+         check("tee", tee_file, "tee input\n", 0, NULL, 0) ||
+         !file_equals("/tmp/coreutils_tee", "tee input\n"))
         return 1;
 
     const char* help[] = {"cat", "head", "wc", "ls", "pwd", "uname", "echo", "env",
-                          "true", "false", "mkdir", "rm", "cp", "mv", NULL};
+                          "true", "false", "mkdir", "rm", "cp", "mv", "grep", "sort",
+                          "cut", "tee", NULL};
     for (int i = 0; help[i] != NULL; ++i) {
         char* args[] = {(char*) help[i], "--help", NULL};
         if (check("--help", args, NULL, 0, "Usage: ", 0))

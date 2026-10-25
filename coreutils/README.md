@@ -6,8 +6,8 @@ Astia libc, and keeps its behavior small enough to test on the real kernel.
 
 Currently built:
 
-`cat` `cp` `echo` `env` `false` `head` `ls` `mkdir` `mv` `pwd` `rm` `true`
-`uname` `wc`
+`cat` `cp` `cut` `echo` `env` `false` `grep` `head` `ls` `mkdir` `mv` `pwd`
+`rm` `sort` `tee` `true` `uname` `wc`
 
 Build them with:
 
