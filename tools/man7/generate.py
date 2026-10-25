@@ -68,16 +68,16 @@ LEGACY = {
     "exit": ("long exit(long status);", "Terminates the calling thread.", "Does not return."),
     "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Waits for a child process and optionally reaps it.", "-EFAULT, -ECHILD, -EINVAL, -ESRCH."),
     "spawnve": ("long spawnve(const char *path, char *const argv[], char *const envp[]);", "Creates a process from an executable path.", "-E2BIG, -EAGAIN, -EFAULT, -EIO, -ENOMEM, -ENOENT, -ENOEXEC."),
-    "execve": ("long execve(const char *path, char *const argv[], char *const envp[]);", "Replaces the current process image.", "-E2BIG, -EFAULT, -ENOENT, -ENOEXEC, -ENOMEM."),
-    "mmap": ("long mmap(void *addr, long length, uint32_t prot, uint32_t flags, int fd, long offset);", "Maps anonymous or file-backed memory into the process.", "-EBADF, -EINVAL, -ENOMEM, -ENOSYS."),
-    "munmap": ("long munmap(void *addr, long length);", "Removes a memory mapping range.", "-EINVAL, -ESRCH."),
-    "fork": ("long fork(void);", "Creates a copy-on-write child process.", "-EAGAIN, -ESRCH."),
-    "futex": ("long futex(uint32_t *address, uint32_t operation, uint32_t value);", "Waits on or wakes threads sharing a user word.", "-EAGAIN, -EFAULT, -EINVAL, -ENOSYS."),
-    "thread_create": ("long thread_create(entry, stack, argument);", "Creates a user thread in the current process.", "-EAGAIN, -EFAULT, -ESRCH."),
-    "thread_create2": ("long thread_create2(entry, stack, argument0, argument1);", "Creates a user thread with two arguments.", "-EAGAIN, -EFAULT, -ESRCH."),
-    "thread_exit": ("long thread_exit(long result);", "Terminates the calling user thread.", "Does not return."),
-    "thread_join": ("long thread_join(uint32_t tid, void *result);", "Waits for a thread and collects its result.", "-EFAULT, -EINVAL, -ESRCH."),
-    "thread_detach": ("long thread_detach(uint32_t tid);", "Marks a thread as detached.", "-EINVAL, -ESRCH."),
+    "execve": ("long execve(const char *path, char *const argv[], char *const envp[]);", "Replaces the calling process image with the executable at path. The process ID, process group, open descriptors, and working directory remain associated with the process; the new image receives the supplied argument and environment vectors.", "-E2BIG, -EFAULT, -ENOENT, -ENOEXEC, -ENOMEM."),
+    "mmap": ("long mmap(void *addr, long length, uint32_t prot, uint32_t flags, int fd, long offset);", "Maps anonymous or file-backed memory into the calling process. Anonymous mappings require fd -1 and offset 0; file mappings use the supplied descriptor and a non-negative offset. The returned address is page aligned.", "-EBADF, -EINVAL, -ENOMEM, -ENOSYS."),
+    "munmap": ("long munmap(void *addr, long length);", "Removes mappings that overlap the requested virtual range. The length must be positive; the address space may split a mapping when only part of a region is removed.", "-EINVAL, -ESRCH."),
+    "fork": ("long fork(void);", "Creates a child process using copy-on-write address-space mappings. The parent receives the child process ID and the child resumes at the return site with zero. File descriptors and the working directory are inherited.", "-EAGAIN, -ESRCH."),
+    "futex": ("long futex(uint32_t *address, uint32_t operation, uint32_t value, const timespec *timeout);", "Waits while the user word equals value or wakes waiters sharing that word. The private flag is accepted for ABI compatibility; timed waits are not implemented.", "-EAGAIN, -EFAULT, -EINVAL, -ENOSYS."),
+    "thread_create": ("long thread_create(void (*entry)(void *), void *stack_top, void *argument);", "Creates a user thread in the calling process. The entry point receives argument and the new thread uses the supplied aligned user stack. The returned value is the new thread ID.", "-EAGAIN, -EFAULT, -ESRCH."),
+    "thread_create2": ("long thread_create2(void (*entry)(void *, void *), void *stack_top, void *argument0, void *argument1);", "Creates a user thread and starts it with two arguments. The entry point and stack must be valid user addresses and the stack top must be aligned.", "-EAGAIN, -EFAULT, -ESRCH."),
+    "thread_exit": ("long thread_exit(long result);", "Terminates the calling user thread and records result for a joining thread. A process becomes waitable when its last live thread exits.", "Does not return."),
+    "thread_join": ("long thread_join(uint32_t tid, void **result);", "Waits for the selected thread to terminate and optionally copies its result pointer to result. A thread may have at most one joiner; joining releases its process-owned reference.", "-EFAULT, -EINVAL, -ESRCH."),
+    "thread_detach": ("long thread_detach(uint32_t tid);", "Marks the selected thread detached. Its resources are reclaimed after termination and no later thread_join is permitted.", "-EINVAL, -ESRCH."),
     "clock_gettime": ("long clock_gettime(int clock_id, timespec *out);", "Reads a kernel clock into a userspace timespec.", "-EFAULT, -EINVAL."),
     "io_setup": ("long io_setup(uint32_t entries, uint32_t flags, ring **out);", "Creates an asynchronous I/O ring.", "-EFAULT, -EINVAL, -ENOMEM."),
     "io_destroy": ("long io_destroy(ring *ring);", "Destroys an asynchronous I/O ring.", "-EINVAL, -ESRCH."),
@@ -110,6 +110,31 @@ ERROR_DETAILS = {
     "clock_gettime": "-EFAULT: The output timespec pointer is not writable userspace memory.\n-EINVAL: The clock ID is unsupported.",
 }
 
+LEGACY_RETURNS = {
+    "execve": "Does not return on success; on failure it returns a negative errno.",
+    "fork": "Returns the child PID in the parent and zero in the child.",
+    "mmap": "Returns the mapped base address, or a negative errno.",
+    "munmap": "Returns zero on success or a negative errno.",
+    "futex": "Wait returns zero after a wake; wake returns the number of woken waiters.",
+    "thread_create": "Returns the new thread ID or a negative errno.",
+    "thread_create2": "Returns the new thread ID or a negative errno.",
+    "thread_join": "Returns zero after the thread is reaped or a negative errno.",
+    "thread_detach": "Returns zero after detaching the thread or a negative errno.",
+    "yield": "Returns zero after giving another runnable thread an opportunity to run.",
+}
+
+LEGACY_NOTES = {
+    "execve": "The argument and environment vectors are copied before the old image is replaced. Relative paths are resolved against the caller's working directory.",
+    "fork": "Writable private mappings use copy-on-write. The child inherits the parent's descriptor table and current working directory.",
+    "mmap": "Protection and mapping flags are validated by the kernel; unsupported combinations return an error instead of being silently ignored.",
+    "munmap": "The address space owns mapping references, so physical backing is released only after the last mapping reference disappears.",
+    "futex": "A non-zero timeout is currently rejected with ENOSYS. Untimed wait and wake are the supported synchronization operations.",
+    "thread_create": "The caller retains ownership of the user stack. The new thread starts with the process TLS and descriptor context.",
+    "thread_create2": "The caller retains ownership of the user stack. Both arguments are passed directly to the entry point.",
+    "thread_join": "Passing a null result pointer discards the thread result. Joining the calling thread would deadlock and is rejected.",
+    "thread_detach": "Detached threads cannot be joined; their kernel resources are reclaimed automatically after exit.",
+}
+
 
 def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
     names = re.findall(r"\bi64\s+sys_(\w+)\s*\(", text)
@@ -120,7 +145,9 @@ def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
             (f"long {name}(...);", f"System call handler for `{name}`.", "See the kernel error ABI."),
         )
         errors = ERROR_DETAILS.get(name, errors)
-        pages.append((name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\nReturns a non-negative result on success. Negative values are ABI errno codes.\n\nErrors:\n{errors}\n\nABI:\nArguments enter through the direct syscall ABI; validation is performed before entering the process subsystem.", subsystem))
+        returns = LEGACY_RETURNS.get(name, "Returns a non-negative result on success. Negative values are ABI errno codes.")
+        notes = LEGACY_NOTES.get(name, "Arguments enter through the direct syscall ABI; validation is performed before entering the owning subsystem.")
+        pages.append((name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\n{returns}\n\nErrors:\n{errors}\n\nNotes:\n{notes}", subsystem))
     return pages
 
 
