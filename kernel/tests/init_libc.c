@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
         if (chdir("/bin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
             strcmp(cwd, "/bin") != 0)
             return 41;
-        DIR* bin = opendir("/bin");
+        DIR* bin = opendir(".");
         if (bin == NULL || readdir(bin) == NULL) return 42;
         closedir(bin);
         if (chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)

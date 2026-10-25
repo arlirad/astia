@@ -3,6 +3,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <string.h>
+#include <unistd.h>
 
 static int list_one(const char* path, int header) {
     DIR* directory = opendir(path);
@@ -30,8 +31,12 @@ static int list_one(const char* path, int header) {
 int main(int argc, char** argv) {
     int status  = 0;
     int headers = argc > 2;
-    if (argc == 1)
-        return list_one(".", 0);
+    if (argc == 1) {
+        char cwd[256];
+        if (getcwd(cwd, sizeof cwd) == NULL)
+            return cu_error("ls", ".");
+        return list_one(cwd, 0);
+    }
     for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '-' && argv[i][1] == 'a' && argv[i][2] == '\0')
             continue;
