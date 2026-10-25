@@ -110,31 +110,6 @@ ERROR_DETAILS = {
     "clock_gettime": "-EFAULT: The output timespec pointer is not writable userspace memory.\n-EINVAL: The clock ID is unsupported.",
 }
 
-API_PAGES = {
-    "pipe": (
-        "Synopsis:\n"
-        "    int pipe(int fds[2]);\n\n"
-        "Description:\n"
-        "    Creates a unidirectional kernel pipe and stores the read end in "
-        "fds[0] and the write end in fds[1]. Data written to the write end "
-        "is read in FIFO order from the read end. A read blocks while the "
-        "pipe is empty and at least one writer remains; a read returns EOF "
-        "after every writer is closed.\n\n"
-        "Return Value:\n"
-        "    Returns zero and two open descriptors on success, or -1 with "
-        "errno set on failure.\n\n"
-        "Errors:\n"
-        "    -EFAULT: The fds array is not writable userspace memory.\n"
-        "    -EMFILE: The process has no two free descriptor slots.\n"
-        "    -ESRCH: There is no current process.\n\n"
-        "Notes:\n"
-        "    pipe is a libc API, not a direct SYS_* trap. The wrapper submits "
-        "OP_PIPE through the caller's AIO ring; the operation allocates both "
-        "ends atomically and inherits through fork, spawn, and exec.\n",
-        "ipc",
-    )
-}
-
 LEGACY_RETURNS = {
     "execve": "Does not return on success; on failure it returns a negative errno.",
     "fork": "Returns the child PID in the parent and zero in the child.",
@@ -174,10 +149,6 @@ def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
         notes = LEGACY_NOTES.get(name, "Arguments enter through the direct syscall ABI; validation is performed before entering the owning subsystem.")
         pages.append((name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\n{returns}\n\nErrors:\n{errors}\n\nNotes:\n{notes}", subsystem))
     return pages
-
-
-def page_section(name: str) -> str:
-    return "3" if name in API_PAGES else "2"
 
 
 def render(name: str, body: str) -> str:
@@ -236,12 +207,11 @@ def render(name: str, body: str) -> str:
         else:
             html_body = "<p>" + escaped.replace("\n", "<br>\n") + "</p>"
         sections.append(f"<section><h2>{html.escape(heading)}</h2>{html_body}</section>")
-    title = f"{name}({page_section(name)})"
-    kind = "libc API" if name in API_PAGES else "system call"
+    title = f"{name}(2)"
     return f"""<!doctype html>
 <html lang=\"en\"><head><meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
-<title>{html.escape(title)} - Astia {kind}</title>
+<title>{html.escape(title)} - Astia system call</title>
 <link rel=\"stylesheet\" href=\"../nodivia.css\"></head>
 <body><main class=\"surface surface__flex\">
 <article class=\"surface__level__1 surface__minor\">
@@ -276,8 +246,6 @@ def main() -> int:
     for path in sorted(args.source.glob("sys/time.cpp")):
         for name, body, group in legacy_pages(path.read_text(), "sys"):
             pages.setdefault(name, (body, group))
-    for name, (body, group) in API_PAGES.items():
-        pages.setdefault(name, (body, group))
 
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "nodivia.css").write_text(args.css.read_text())
@@ -295,7 +263,7 @@ def main() -> int:
         body = ""
         if direct:
             body += "<ul>" + "".join(
-                f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}({page_section(name)})</a></li>"
+                f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}(2)</a></li>"
                 for name in sorted(direct)
             ) + "</ul>"
         for child, names in sorted(children.items()):
@@ -303,7 +271,7 @@ def main() -> int:
                 f"<section class='surface__level__2 surface__minor man-subgroup'>"
                 f"<h3>{html.escape(child)}</h3><ul>"
                 + "".join(
-                    f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}({page_section(name)})</a></li>"
+                    f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}(2)</a></li>"
                     for name in sorted(names)
                 )
                 + "</ul></section>"
