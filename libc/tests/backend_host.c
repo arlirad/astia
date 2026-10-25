@@ -118,7 +118,11 @@ long __astia_fio_open(const char* path, int flags, int mode) {
 }
 
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n) {
-    ssize_t r = syscall(SYS_pread64, fd, buf, n, (off_t) off);
+    ssize_t r;
+
+    if (off == FIO_OFF_APPEND)
+        return (r = syscall(SYS_read, fd, buf, n)) >= 0 ? (long) r : -HOST_ERRNO;
+    r = syscall(SYS_pread64, fd, buf, n, (off_t) off);
 
     if (r < 0 && HOST_ERRNO == ESPIPE) {
         /* not seekable (pipe/tty): the fd's own cursor is the only

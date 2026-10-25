@@ -281,10 +281,17 @@ namespace astia::fs {
     mm::phys_region* file::memory_region() {
         return nullptr;
     }
+    void file::close(u32) {}
+
+    open_file::~open_file() {
+        if (_object)
+            _object->close(_flags);
+    }
+
     long open_file::read(void* buf, u32 len, u64 offset) {
         if (!_object)
             return -EBADF;
-        const u64  actual = offset == offset_current ? _position : offset;
+        const u64 actual = offset == offset_current ? _position : offset;
         const long result = _object->read(buf, len, actual);
         if (result > 0)
             _position = actual + static_cast<u64>(result);
@@ -293,7 +300,13 @@ namespace astia::fs {
     long open_file::write(const void* buf, u32 len, u64 offset) {
         if (!_object)
             return -EBADF;
-        const u64  actual = offset == offset_current ? _position : offset;
+        u64 actual = offset == offset_current ? _position : offset;
+        if ((_flags & 0x0400u) != 0) {
+            const long end = _object->size();
+            if (end < 0)
+                return end;
+            actual = static_cast<u64>(end);
+        }
         const long result = _object->write(buf, len, actual);
         if (result > 0)
             _position = actual + static_cast<u64>(result);
@@ -305,8 +318,13 @@ namespace astia::fs {
         // Resolve the offset once, at submission, and write it back into
         // the request: every resume of a parked operation must land on the
         // same position the caller asked for, not on a moved _position.
-        const u64 actual =
-            request.offset() == offset_current ? _position : request.offset();
+        u64 actual = request.offset() == offset_current ? _position : request.offset();
+        if ((_flags & 0x0400u) != 0 && request.direction() == io_direction::output) {
+            const long end = _object->size();
+            if (end < 0)
+                return end;
+            actual = static_cast<u64>(end);
+        }
         request.offset(actual);
         const long result = _object->submit(request);
         if (result > 0)

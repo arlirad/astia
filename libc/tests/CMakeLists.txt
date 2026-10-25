@@ -25,6 +25,10 @@ add_executable(libc_process_test process_test.c process_host.c backend_host.c)
 target_link_libraries(libc_process_test PRIVATE astia_libc)
 add_test(NAME libc_process_test COMMAND libc_process_test)
 
+add_executable(libc_pipeline_test pipeline_test.c backend_host.c)
+target_link_libraries(libc_pipeline_test PRIVATE astia_libc)
+add_test(NAME libc_pipeline_test COMMAND libc_pipeline_test)
+
 # The FILE tests drive the whole stream layer against real files: the
 # POSIX port (backend_host.c) is an *object* of the test binary, which
 # puts its __astia_fio_* definitions in front of the archive — the ring

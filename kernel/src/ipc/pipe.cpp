@@ -7,9 +7,13 @@
 namespace astia::fs {
     namespace {
         constexpr u32 capacity = 4096;
+        constexpr u32 read_end  = 1u << 31;
+        constexpr u32 write_end = 1u << 30;
 
         class pipe_file final : public file {
             public:
+            pipe_file() : readers_(1), writers_(1) {}
+
             long read(void* buffer, u32 length, u64) override {
                 if (buffer == nullptr && length != 0)
                     return -EFAULT;
@@ -33,6 +37,8 @@ namespace astia::fs {
             long write(const void* buffer, u32 length, u64) override {
                 if (buffer == nullptr && length != 0)
                     return -EFAULT;
+                if (__atomic_load_n(&readers_, __ATOMIC_ACQUIRE) == 0)
+                    return -EPIPE;
                 const u32 head = __atomic_load_n(&head_, __ATOMIC_RELAXED);
                 const u32 tail = __atomic_load_n(&tail_, __ATOMIC_ACQUIRE);
                 const u32 free = capacity - (head - tail);
@@ -50,11 +56,20 @@ namespace astia::fs {
                 return count;
             }
 
+            void close(u32 flags) override {
+                u32* count = (flags & read_end) != 0 ? &readers_ : &writers_;
+                if (__atomic_fetch_sub(count, 1u, __ATOMIC_ACQ_REL) == 1)
+                    sys::io_device_ready_context(this);
+            }
+
             long submit(io_request& request) override {
                 const long result = request.direction() == io_direction::input
                                         ? read(request.buffer(), request.length(), 0)
                                         : write(request.buffer(), request.length(), 0);
                 if (result == 0 && request.length() == 0)
+                    request.complete(true);
+                else if (result == 0 && request.direction() == io_direction::input &&
+                         __atomic_load_n(&writers_, __ATOMIC_ACQUIRE) == 0)
                     request.complete(true);
                 else if (result == 0)
                     request.stage(1);
@@ -65,6 +80,8 @@ namespace astia::fs {
             u32 head_ = 0;
             u32 tail_ = 0;
             u8  data_[capacity]{};
+            u32 readers_;
+            u32 writers_;
         };
     }
 
@@ -72,8 +89,8 @@ namespace astia::fs {
         mm::shptr<pipe_file> object(new pipe_file{});
         if (!object)
             return -ENOMEM;
-        read_end  = mm::share<open_file>(object, 0);
-        write_end = mm::share<open_file>(object, 0);
+        read_end  = mm::share<open_file>(object, 1u << 31);
+        write_end = mm::share<open_file>(object, 1u << 30);
         return read_end && write_end ? 0 : -ENOMEM;
     }
 }

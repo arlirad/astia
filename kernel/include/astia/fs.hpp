@@ -42,6 +42,7 @@ namespace astia::fs {
         virtual long             ioctl(u64 request, void* argp);
         virtual long             size() const;
         virtual mm::phys_region* memory_region();
+        virtual void              close(u32 flags);
     };
 
     /// One open file description.  Separate opens create separate
@@ -51,6 +52,7 @@ namespace astia::fs {
         public:
         open_file(const mm::shptr<file>& object, u32 flags)
             : _object(object), _flags(flags) {}
+        ~open_file();
 
         long read(void* buf, u32 len, u64 offset = offset_current);
         long write(const void* buf, u32 len, u64 offset = offset_current);
