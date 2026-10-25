@@ -224,16 +224,35 @@ def main() -> int:
     (args.output / "nodivia.css").write_text(args.css.read_text())
     for name, (body, _) in sorted(pages.items()):
         (args.output / f"{name}.html").write_text(render(name, body))
-    groups: dict[str, list[str]] = {}
+    groups: dict[str, dict[str, list[str]]] = {}
     for name, (_, group) in pages.items():
-        groups.setdefault(group, []).append(name)
-    grouped = "".join(
-        f"<section class='surface__level__1 surface__minor'><h2>{html.escape(group)}</h2><ul>"
-        + "".join(f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}(2)</a></li>"
-                  for name in sorted(names))
-        + "</ul></section>"
-        for group, names in sorted(groups.items())
-    )
+        parts = group.split("/", 1)
+        root, child = parts[0], parts[1] if len(parts) > 1 else ""
+        groups.setdefault(root, {}).setdefault(child, []).append(name)
+
+    grouped_parts = []
+    for root, children in sorted(groups.items()):
+        direct = children.pop("", [])
+        body = ""
+        if direct:
+            body += "<ul>" + "".join(
+                f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}(2)</a></li>"
+                for name in sorted(direct)
+            ) + "</ul>"
+        for child, names in sorted(children.items()):
+            body += (
+                f"<section class='surface__level__2 surface__minor man-subgroup'>"
+                f"<h3>{html.escape(child)}</h3><ul>"
+                + "".join(
+                    f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}(2)</a></li>"
+                    for name in sorted(names)
+                )
+                + "</ul></section>"
+            )
+        grouped_parts.append(
+            f"<section class='surface__level__1 surface__minor'><h2>{html.escape(root)}</h2>{body}</section>"
+        )
+    grouped = "".join(grouped_parts)
     (args.output / "index.html").write_text(
         "<!doctype html><html><head><meta charset='utf-8'><title>Astia syscalls</title>"
         "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
