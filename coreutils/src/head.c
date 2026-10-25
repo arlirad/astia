@@ -25,8 +25,18 @@ static int copy_lines(int fd, const char* name, unsigned long wanted) {
 int main(int argc, char** argv) {
     unsigned long lines = 10;
     int           first = 1;
+    if (argc == 2 && cu_is_help(argv[1]))
+        return cu_help("head", "[-n NUMBER] [FILE]...", "Print the first 10 lines of each FILE.");
+    if (argc == 2 && cu_is_version(argv[1]))
+        return cu_version("head");
     if (first < argc && argv[first][0] == '-') {
-        lines = strtoul(argv[first] + (argv[first][1] == 'n' ? 2 : 1), 0, 10);
+        const char* option = argv[first];
+        const char* value = option[1] == 'n' ? option + 2 : option + 1;
+        if (option[1] == 'n' && option[2] == '\0' && first + 1 < argc)
+            value = argv[++first];
+        if (*value == '\0')
+            return cu_usage("head", "[-n NUMBER] [FILE]...");
+        lines = strtoul(value, 0, 10);
         first++;
     }
     if (lines == 0)

@@ -33,17 +33,30 @@ static int count_fd(int fd, const char* name) {
 }
 
 int main(int argc, char** argv) {
+    cu_args args;
+    cu_args_init(&args, argc, argv);
+    if (argc == 2 && cu_is_help(argv[1]))
+        return cu_help("wc", "[FILE]...", "Print line, word, and byte counts for each FILE.");
+    if (argc == 2 && cu_is_version(argv[1]))
+        return cu_version("wc");
     if (argc == 1)
         return count_fd(CU_STDIN, "");
     int status = 0;
-    for (int i = 1; i < argc; ++i) {
-        int fd = open(argv[i], O_RDONLY);
+    int operands = 0;
+    const char* path;
+    while ((path = cu_args_next(&args)) != 0) {
+        if (args.options && path[0] == '-')
+            return cu_error("wc", "unknown option");
+        ++operands;
+        int fd = open(path, O_RDONLY);
         if (fd < 0) {
-            status |= cu_error("wc", argv[i]);
+            status |= cu_error("wc", path);
             continue;
         }
-        status |= count_fd(fd, argv[i]);
+        status |= count_fd(fd, path);
         close(fd);
     }
+    if (operands == 0)
+        return count_fd(CU_STDIN, "");
     return status;
 }

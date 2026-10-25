@@ -28,14 +28,28 @@ static int list_one(const char* path, int header) {
 }
 
 int main(int argc, char** argv) {
+    cu_args args;
+    cu_args_init(&args, argc, argv);
     int status  = 0;
-    int headers = argc > 2;
+    int headers = 0;
+    int operands = 0;
+    const char* path;
     if (argc == 1)
         return list_one(".", 0);
-    for (int i = 1; i < argc; ++i) {
-        if (argv[i][0] == '-' && argv[i][1] == 'a' && argv[i][2] == '\0')
+    while ((path = cu_args_next(&args)) != 0) {
+        if (cu_is_help(path))
+            return cu_help("ls", "[OPTION]... [FILE]...", "List directory contents.  -a is accepted for compatibility.");
+        if (cu_is_version(path))
+            return cu_version("ls");
+        if (cu_arg_is(path, "-a", "--all"))
             continue;
-        status |= list_one(argv[i], headers);
+        if (path[0] == '-')
+            return cu_error("ls", "unknown option");
+        headers = 1;
+        ++operands;
+        status |= list_one(path, headers);
     }
+    if (operands == 0)
+        return list_one(".", 0);
     return status;
 }
