@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate static man7-style syscall pages from proc syscall sources."""
+"""Generate static Astia man pages from kernel and libc sources."""
 
 from __future__ import annotations
 
@@ -136,6 +136,33 @@ LEGACY_NOTES = {
 }
 
 
+# Native libc pages.  These describe the public wrappers, not the underlying
+# AIO opcodes; negative AIO errno values are translated to -1 and errno.
+LIBC_PAGES = {
+    "open": ("#include <fcntl.h>\n#include <sys/types.h>\n\nint open(const char *path, int flags, ...);", "Opens path and returns a new descriptor. O_RDONLY, O_WRONLY, or O_RDWR select access; O_CREAT consumes a mode argument, and O_EXCL, O_TRUNC, and O_APPEND are forwarded. O_NONBLOCK is declared but is not forwarded by this implementation.", "Returns a non-negative descriptor, or -1 and sets errno.", "-EFAULT: The pathname cannot be read by the kernel.\n-EINVAL: Path resolution fails.\n-ENOENT: The path cannot be opened and creation was not requested.\n-EACCES: The requested access is not allowed by the node's owner permission bits.\n-EMFILE: The process descriptor table has no free entry.", "The optional mode argument is read only when O_CREAT is set. Relative paths are resolved against the current working directory."),
+    "close": ("#include <unistd.h>\n\nint close(int fd);", "Closes fd. Other descriptors referring to the same open file description remain valid.", "Returns zero, or -1 and sets errno.", "-EBADF: fd does not refer to an open descriptor.", "The call waits for the underlying asynchronous close operation."),
+    "read": ("#include <unistd.h>\n\nlong read(int fd, void *buffer, unsigned long length);", "Reads up to length bytes at the descriptor's current position into buffer. The position advances by the number of bytes read; zero is a successful end-of-file or empty-pipe result.", "Returns the byte count, possibly less than length, or -1 and sets errno.", "-EBADF: fd does not refer to an open descriptor.\n-EFAULT: buffer is not accessible for length bytes.\n-EIO: The underlying file or device reports an I/O failure.", "The synchronous libc call is implemented as one OP_READ submission on the process AIO ring. Pipe reads can wait for data."),
+    "write": ("#include <unistd.h>\n\nlong write(int fd, const void *buffer, unsigned long length);", "Writes up to length bytes from buffer at the descriptor's current position. Pipe writes can be short when the 4096-byte pipe buffer has limited space.", "Returns the byte count, possibly less than length, or -1 and sets errno.", "-EBADF: fd does not refer to an open descriptor.\n-EFAULT: buffer is not accessible for length bytes.\n-EPIPE: The pipe has no readers.\n-EIO: The underlying file or device reports an I/O failure.", "The synchronous libc call is implemented as one OP_WRITE submission on the process AIO ring. O_APPEND is resolved by the kernel."),
+    "dup": ("#include <unistd.h>\n\nint dup(int fd);", "Creates the lowest-numbered available descriptor referring to the same open file description as fd.", "Returns the new descriptor, or -1 and sets errno.", "-EBADF: fd does not refer to an open descriptor.\n-EMFILE: The process descriptor table has no free entry.", "The duplicate shares the underlying file position and open status with fd."),
+    "dup2": ("#include <unistd.h>\n\nint dup2(int old_fd, int new_fd);", "Makes new_fd refer to the same open file description as old_fd. An existing target is replaced; equal numbers are left unchanged.", "Returns new_fd, or -1 and sets errno.", "-EBADF: old_fd is invalid or new_fd is outside the process descriptor table.", "The requested descriptor number is installed directly."),
+    "pipe": ("#include <unistd.h>\n\nint pipe(int fds[2]);", "Creates an anonymous pipe and stores its read end in fds[0] and write end in fds[1]. The pipe buffer is 4096 bytes.", "Returns zero, or -1 and sets errno.", "-EFAULT: fds is not writable for two descriptor values.\n-ESRCH: There is no current process.\n-ENOMEM: The pipe object or endpoint descriptors cannot be allocated.", "An empty pipe read waits while a writer remains; closing the last writer completes a waiting read with zero."),
+    "stat": ("#include <sys/stat.h>\n\nint stat(const char *path, struct stat *result);", "Obtains metadata for path and writes the Astia libc struct stat. Type, mode, size, block count, timestamps, and the VFS device/inode/link values are supplied.", "Returns zero, or -1 and sets errno.", "-EFAULT: path or result is null or inaccessible.\n-EINVAL: Path resolution fails.\n-ENOENT: The path does not name an object.", "Unsupported metadata fields remain zero rather than being inferred."),
+    "fstat": ("#include <sys/stat.h>\n\nint fstat(int fd, struct stat *result);", "Obtains metadata for the open file referred to by fd and writes result.", "Returns zero, or -1 and sets errno.", "-EFAULT: result is null or not writable.\n-EBADF: fd does not refer to an open descriptor.\n-ESPIPE: The underlying object does not provide a file size.", "fstat uses the native STATX fd form."),
+    "lstat": ("#include <sys/stat.h>\n\nint lstat(const char *path, struct stat *result);", "Obtains metadata for path. In the current libc this function is an alias of stat and has no distinct symlink behavior.", "Returns zero, or -1 and sets errno.", "-EFAULT: path or result is null or inaccessible.\n-EINVAL: Path resolution fails.\n-ENOENT: The path does not name an object.", "Astia currently has no separate lstat implementation; callers must not rely on no-follow semantics."),
+    "mkdir": ("#include <sys/stat.h>\n\nint mkdir(const char *path, mode_t mode);", "Creates a directory at path with the supplied permission bits. Parent directories must already exist.", "Returns zero, or -1 and sets errno.", "-EFAULT: path is null or cannot be read.\n-EINVAL: Path resolution fails.\n-EEXIST: The path already exists.\n-ENOENT: The parent directory does not exist.\n-ENOSPC: The filesystem has no free entry.", "Only the low permission bits in mode are retained by tmpfs."),
+    "rmdir": ("#include <unistd.h>\n\nint rmdir(const char *path);", "Removes an empty directory at path.", "Returns zero, or -1 and sets errno.", "-EFAULT: path is null or cannot be read.\n-EINVAL: Path resolution fails.\n-ENOENT: The directory does not exist.\n-ENOTDIR: path names a non-directory.\n-ENOTEMPTY: The directory contains an entry.\n-EEXIST: path is the mounted filesystem root.", "This is the native unlink operation with its remove-directory flag."),
+    "unlink": ("#include <unistd.h>\n\nint unlink(const char *path);", "Removes a non-directory filesystem entry at path.", "Returns zero, or -1 and sets errno.", "-EFAULT: path is null or cannot be read.\n-EINVAL: Path resolution fails.\n-ENOENT: The path does not exist.\n-EISDIR: path names a directory.\n-EEXIST: path is the mounted filesystem root.", "The native VFS has no separate link-count behavior exposed by this API."),
+    "rename": ("#include <unistd.h>\n\nint rename(const char *old_path, const char *new_path);", "Renames old_path to new_path within the same mounted filesystem. An existing target of the same type is replaced.", "Returns zero, or -1 and sets errno.", "-EFAULT: Either pathname cannot be read.\n-EINVAL: Path resolution fails or a directory is moved below itself.\n-ENOENT: A path or parent directory does not exist.\n-ENOTDIR: The source and target types are incompatible.\n-EISDIR: The source and target types are incompatible.\n-ENOTEMPTY: An existing target directory is not empty.\n-EXDEV: The paths are on different mounted filesystems.", "The libc API exposes no rename flags."),
+    "chmod": ("#include <sys/stat.h>\n\nint chmod(const char *path, mode_t mode);", "Changes the permission bits of the filesystem entry at path.", "Returns zero, or -1 and sets errno.", "-EFAULT: path is null or cannot be read.\n-EINVAL: Path resolution fails.\n-ENOENT: The path does not exist.", "The current permission model stores the low 07777 bits and does not claim multi-user authorization semantics."),
+    "utime": ("#include <sys/stat.h>\n\nint utime(const char *path, const time_t *value);", "Updates path's modification time to the current kernel realtime. The value argument is ignored by the current implementation.", "Returns zero, or -1 and sets errno.", "-EFAULT: path is null or cannot be read.\n-EINVAL: Path resolution fails.\n-ENOENT: The path does not exist.\n-EROFS: The filesystem does not support timestamp updates.", "Implemented as utimensat(AT_FDCWD, path, NULL, 0)."),
+    "utimensat": ("#include <sys/stat.h>\n\nint utimensat(int dirfd, const char *path, const struct timespec times[2], int flags);", "Updates path's modification time to the current kernel realtime. Only AT_FDCWD (-100) and flags equal to zero are accepted; times is ignored.", "Returns zero, or -1 and sets errno.", "-EINVAL: dirfd is not AT_FDCWD, flags is nonzero, or path resolution fails.\n-EFAULT: path cannot be read.\n-ENOENT: The path does not exist.\n-EROFS: The filesystem does not support timestamp updates.", "This is a restricted native implementation, not a general dirfd-relative or caller-specified timestamp operation."),
+}
+
+
+def libc_pages() -> list[tuple[str, str, str, int]]:
+    return [(name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\n{returns}\n\nErrors:\n{errors}\n\nNotes:\n{notes}", "libc/filesystem", 3) for name, (synopsis, description, returns, errors, notes) in LIBC_PAGES.items()]
+
+
 def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
     names = re.findall(r"\bi64\s+sys_(\w+)\s*\(", text)
     pages = []
@@ -151,7 +178,7 @@ def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
     return pages
 
 
-def render(name: str, body: str) -> str:
+def render(name: str, body: str, section: int) -> str:
     sections = []
     current = "DESCRIPTION"
     values: dict[str, list[str]] = {current: []}
@@ -207,15 +234,16 @@ def render(name: str, body: str) -> str:
         else:
             html_body = "<p>" + escaped.replace("\n", "<br>\n") + "</p>"
         sections.append(f"<section><h2>{html.escape(heading)}</h2>{html_body}</section>")
-    title = f"{name}(2)"
+    title = f"{name}({section})"
     return f"""<!doctype html>
 <html lang=\"en\"><head><meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
-<title>{html.escape(title)} - Astia system call</title>
+<title>{html.escape(title)} - Astia manual</title>
 <link rel=\"stylesheet\" href=\"../nodivia.css\"></head>
 <body><main class=\"surface surface__flex\">
 <article class=\"surface__level__1 surface__minor\">
 <h1>{html.escape(title)}</h1>
+<nav><a href="index.html">Astia manual index</a></nav>
 {''.join(sections)}
 </article></main></body></html>\n"""
 
@@ -225,9 +253,11 @@ def main() -> int:
     parser.add_argument("source", type=Path, help="syscall source directory")
     parser.add_argument("output", type=Path, help="generated site directory")
     parser.add_argument("--css", type=Path, default=DEFAULT_CSS)
+    parser.add_argument("--libc-source", type=Path, default=None,
+                        help="libc source root (defaults to the repository libc directory)")
     args = parser.parse_args()
 
-    pages: dict[str, tuple[str, str]] = {}
+    pages: dict[tuple[str, int], tuple[str, str]] = {}
     for path in sorted(args.source.rglob("*.hpp")):
         if "syscalls" not in path.parts:
             continue
@@ -236,26 +266,33 @@ def main() -> int:
         if path.parent != Path(*path.parts[:syscall_index + 1]):
             subsystem = f"{subsystem}/{path.parent.name}"
         for name, body in comments(path.read_text()):
-            pages[name] = (body, subsystem)
+            pages[(name, 2)] = (body, subsystem)
     for path in sorted(args.source.rglob("*.cpp")):
         if path.name != "syscalls.cpp":
             continue
         subsystem = path.parent.name
         for name, body, group in legacy_pages(path.read_text(), subsystem):
-            pages.setdefault(name, (body, group))
+            pages.setdefault((name, 2), (body, group))
     for path in sorted(args.source.glob("sys/time.cpp")):
         for name, body, group in legacy_pages(path.read_text(), "sys"):
-            pages.setdefault(name, (body, group))
+            pages.setdefault((name, 2), (body, group))
+    libc_root = args.libc_source
+    if libc_root is None:
+        candidate = args.source.resolve().parents[1] / "libc"
+        libc_root = candidate if candidate.exists() else None
+    if libc_root is not None and (libc_root / "include").exists():
+        for name, body, group, section in libc_pages():
+            pages.setdefault((name, section), (body, group))
 
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "nodivia.css").write_text(args.css.read_text())
-    for name, (body, _) in sorted(pages.items()):
-        (args.output / f"{name}.html").write_text(render(name, body))
+    for (name, section), (body, _) in sorted(pages.items()):
+        (args.output / f"{name}.{section}.html").write_text(render(name, body, section))
     groups: dict[str, dict[str, list[str]]] = {}
-    for name, (_, group) in pages.items():
+    for (name, section), (_, group) in pages.items():
         parts = group.split("/", 1)
         root, child = parts[0], parts[1] if len(parts) > 1 else ""
-        groups.setdefault(root, {}).setdefault(child, []).append(name)
+        groups.setdefault(root, {}).setdefault(child, []).append((name, section))
 
     grouped_parts = []
     for root, children in sorted(groups.items()):
@@ -263,16 +300,16 @@ def main() -> int:
         body = ""
         if direct:
             body += "<ul>" + "".join(
-                f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}(2)</a></li>"
-                for name in sorted(direct)
+                    f"<li><a href='{html.escape(name)}.{section}.html'>{html.escape(name)}({section})</a></li>"
+                for name, section in sorted(direct)
             ) + "</ul>"
         for child, names in sorted(children.items()):
             body += (
                 f"<section class='surface__level__2 surface__minor man-subgroup'>"
                 f"<h3>{html.escape(child)}</h3><ul>"
                 + "".join(
-                    f"<li><a href='{html.escape(name)}.html'>{html.escape(name)}(2)</a></li>"
-                    for name in sorted(names)
+                    f"<li><a href='{html.escape(name)}.{section}.html'>{html.escape(name)}({section})</a></li>"
+                    for name, section in sorted(names)
                 )
                 + "</ul></section>"
             )
@@ -281,9 +318,9 @@ def main() -> int:
         )
     grouped = "".join(grouped_parts)
     (args.output / "index.html").write_text(
-        "<!doctype html><html><head><meta charset='utf-8'><title>Astia syscalls</title>"
+        "<!doctype html><html><head><meta charset='utf-8'><title>Astia manual</title>"
         "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
-        "<h1>Astia system calls</h1>" + grouped + "</main></body></html>\n"
+        "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n"
     )
     return 0
 

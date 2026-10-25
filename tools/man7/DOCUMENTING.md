@@ -1,6 +1,7 @@
-# Astia syscall documentation
+# Astia syscall and libc documentation
 
-This file is the documentation contract for Astia syscall man pages.
+This file is the documentation contract for Astia syscall (section 2) and
+native libc filesystem/descriptor (section 3) man pages.
 
 ## Ownership and layout
 
@@ -114,8 +115,15 @@ The generator:
 - emits one HTML page per syscall;
 - copies the Nodivia-derived theme CSS;
 - supplies fallback return/error metadata for legacy handlers.
+- adds the native filesystem/descriptor APIs from the libc source root as
+  section 3 pages, grouped separately from section 2 syscall pages;
+- links each generated page back to the combined manual index.
 
 New syscall-specific documentation takes precedence over fallback metadata.
+The section 3 API metadata is intentionally maintained against
+`libc/include/{fcntl.h,unistd.h,sys/stat.h}` and `libc/src/{unistd.c,stat.c}`;
+it must not imply POSIX behavior that the current native implementation does
+not provide.
 
 ## Visual style
 
