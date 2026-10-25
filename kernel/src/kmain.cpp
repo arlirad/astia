@@ -1,7 +1,7 @@
 #include "dev/chr/tty/uart16550.hpp"
 #include "panic.hpp"
-#include "arch/x86_64/smp.hpp"
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/platform.hpp>
 #include <astia/common.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
@@ -24,7 +24,7 @@ extern "C" void kmain(void* start_info) {
     const bool ok = astia::init::run(ctx);
     astia::log::info("init result=%s", ok ? "ok" : "fail");
 
-    if (ok && !astia::arch::x86_64::smp::init_scheduler()) {
+    if (ok && !astia::arch::init_scheduler()) {
         astia::core::kpanic("SMP scheduler initialization failed");
     }
 

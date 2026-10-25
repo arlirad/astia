@@ -132,6 +132,14 @@ namespace astia::arch::x86_64 {
 
 } // namespace astia::arch::x86_64
 
+namespace astia::arch {
+
+    bool init_scheduler() {
+        return x86_64::smp::init_scheduler();
+    }
+
+} // namespace astia::arch
+
 ASTIA_INIT_STEP(memory, paging, astia::arch::x86_64::step_paging, "frames")
 ASTIA_INIT_STEP(devices, gdt_tss, astia::arch::x86_64::step_gdt_tss, "heap")
 ASTIA_INIT_STEP(devices, interrupts, astia::arch::x86_64::step_interrupts, "paging",

@@ -4,8 +4,8 @@
 #include "proc.hpp"
 #include "scheduler.hpp"
 #include "selftest.hpp"
-#include "arch/x86_64/smp.hpp"
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/platform.hpp>
 #include <astia/boot.hpp>
 #include <astia/common.hpp>
 #include <astia/init.hpp>
@@ -88,7 +88,7 @@ extern "C" void kmain(void* start_info) {
     const bool init_ok = astia::init::run(ctx);
     astia::log::info("init result=%s", init_ok ? "ok" : "fail");
 
-    if (init_ok && !astia::arch::x86_64::smp::init_scheduler()) {
+    if (init_ok && !astia::arch::init_scheduler()) {
         astia::core::kpanic("SMP scheduler initialization failed");
     }
 

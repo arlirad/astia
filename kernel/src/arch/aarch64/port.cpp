@@ -7,6 +7,8 @@
 
 namespace astia::arch {
 
+    bool init_scheduler() { return true; }
+
     struct context {
         u64 registers[16]{};
     };
