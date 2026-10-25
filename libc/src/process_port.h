@@ -6,6 +6,7 @@
  * and a named call would bind to our own definitions and recurse.
  * Every function returns >= 0 or the negated error code, matching the
  * astia ABI convention. */
+#pragma GCC visibility push(default)
 void __astia_process_exit(int status);
 long __astia_process_getpid(void);
 long __astia_process_gettid(void);
@@ -23,3 +24,4 @@ long __astia_process_thread_create2(void (*entry)(void*, void*), void* stack_top
 void __astia_process_thread_exit(void* result);
 long __astia_process_thread_join(unsigned long tid, void** result);
 long __astia_process_thread_detach(unsigned long tid);
+#pragma GCC visibility pop

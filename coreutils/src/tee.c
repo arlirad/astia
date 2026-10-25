@@ -12,8 +12,11 @@ int main(int argc, char** argv) {
         if (args.options && value[0] == '-') return cu_error("tee", "unknown option");
         first_file = args.index - 1; break;
     }
+    if (argc - first_file > 32) {
+        return cu_error("tee", "too many output files");
+    }
     int fds[32]; int count = 0; int status = 0;
-    for (int i = first_file; i < argc && count < 32; ++i) {
+    for (int i = first_file; i < argc; ++i) {
         int fd = open(argv[i], O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC), 0666);
         if (fd < 0) { cu_error("tee", argv[i]); status = 1; continue; }
         fds[count++] = fd;

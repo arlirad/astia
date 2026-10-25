@@ -36,9 +36,9 @@ static int fails;
         }                                                          \
     } while (0)
 
-#define P1 "file_test.dat"
-#define P2 "file_test_b.dat"
-#define PM "file_test_missing.dat"
+#define P1 "/tmp/astia_file_test.dat"
+#define P2 "/tmp/astia_file_test_b.dat"
+#define PM "/tmp/astia_file_test_missing.dat"
 
 /* host read of the raw file: byte count, or -1 (absent/unreadable) */
 static long probe(const char* path, void* buf, size_t cap) {

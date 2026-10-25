@@ -16,8 +16,7 @@ static size_t g_atexit_count;
  * linked.  Keep the ABI available to mixed C/C++ user images; C atexit
  * handlers retain the normal libc behavior, while destructor callbacks are
  * run at exit with their registration argument. */
-void* __dso_handle __attribute__((visibility("hidden")));
-void* __dso_handle;
+void* __dso_handle __attribute__((visibility("hidden"), weak));
 struct cxa_atexit_entry {
     void (*function)(void*);
     void* argument;

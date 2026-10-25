@@ -64,6 +64,13 @@ long __astia_process_spawnve(const char* path, char* const argv[], char* const e
     return rc == 0 ? (long) child : -(long) rc;
 }
 
+long __astia_process_execve(const char* path, char* const argv[], char* const envp[]) {
+    (void) path;
+    (void) argv;
+    (void) envp;
+    return -ENOSYS;
+}
+
 long __astia_process_fork(void) {
     /* Raw host fork, not our fork(): by libc name it would bind to the
      * process.c wrapper above and recurse through this seam. */

@@ -28,7 +28,7 @@ static void exit_second(void) {
 
 static void test_stream_helpers(void) {
     char   buf[8];
-    FILE*  f = fopen("conformance_test.dat", "w+");
+    FILE*  f = fopen("/tmp/astia_conformance_test.dat", "w+");
     fpos_t pos;
 
     CHECK(f != NULL);
@@ -49,7 +49,7 @@ static void test_stream_helpers(void) {
     CHECK(fread(buf, 1, 2, f) == 2);
     CHECK(memcmp(buf, "ab", 2) == 0);
     CHECK(fclose(f) == 0);
-    (void) unlink("conformance_test.dat");
+    (void) unlink("/tmp/astia_conformance_test.dat");
 }
 
 static void test_conversions_and_strings(void) {

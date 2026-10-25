@@ -42,10 +42,3 @@ set -e
 cat "$log"
 test "$status" -eq 1
 grep -qF 'coreutils tests ok' "$log"
-grep -qF 'alpha' "$log"
-grep -qF 'one' "$log"
-grep -qF '1 1 6 /tmp/coreutils_a' "$log"
-grep -qF 'hello Astia' "$log"
-grep -qF 'Astia astia 0.1 Astia kernel x86_64' "$log"
-grep -qF 'COREUTILS_TEST=present' "$log"
-grep -qF 'tee input' "$log"

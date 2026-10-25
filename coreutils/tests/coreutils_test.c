@@ -39,9 +39,9 @@ static int file_equals(const char* path, const char* expected) {
     return strcmp(buffer, expected) == 0;
 }
 
-/* Run one real utility, collecting stdout and checking its exit status.  The
- * test input is a file because it also keeps the runner independent of the
- * terminal and serial-device setup used by QEMU. */
+/* Run one real utility, collecting stdout and checking its exit status and
+ * output.  The test input is a file because it also keeps the runner
+ * independent of the terminal and serial-device setup used by QEMU. */
 static int run(const char* name, char* const argv[], const char* input,
                int expected_status, const char* expected_output, int exact) {
     if (input != NULL) {
@@ -52,18 +52,51 @@ static int run(const char* name, char* const argv[], const char* input,
             return -1;
         close(fd);
     }
-    (void) expected_output;
-    (void) exact;
-    char* const envp[] = {"PATH=/bin", "COREUTILS_TEST=present", NULL};
-    char path[32] = "/bin/";
-    strcat(path, argv[0]);
-    int child = spawnve(path, argv, envp);
-    if (child < 0)
+    char path[64];
+    if (strlen(argv[0]) + 6 >= sizeof path)
         return -1;
+    snprintf(path, sizeof path, "/bin/%s", argv[0]);
+
+    int saved_stdout = -1;
+    int output_fd = -1;
+    if (expected_output != NULL) {
+        saved_stdout = dup(1);
+        output_fd = open("/tmp/coreutils_stdout", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (saved_stdout < 0 || output_fd < 0 || dup2(output_fd, 1) < 0)
+            return -1;
+        close(output_fd);
+    }
+    char* const envp[] = {"PATH=/bin", "COREUTILS_TEST=present", NULL};
+    int child = spawnve(path, argv, envp);
+    if (child < 0) {
+        if (saved_stdout >= 0) (void) dup2(saved_stdout, 1);
+        if (saved_stdout >= 0) close(saved_stdout);
+        return -1;
+    }
     int status = 0;
-    if (waitpid(child, &status, 0) != child || (status >> 8 & 255) != expected_status) {
+    int ok = waitpid(child, &status, 0) == child &&
+             ((status >> 8) & 255) == expected_status;
+    if (saved_stdout >= 0) {
+        if (dup2(saved_stdout, 1) < 0) ok = 0;
+        close(saved_stdout);
+    }
+    if (!ok) {
         printf("run %s: status=%d\n", name, status >> 8 & 255);
         return -1;
+    }
+    if (expected_output != NULL && !file_equals("/tmp/coreutils_stdout", expected_output)) {
+        if (exact == 0) {
+            FILE* output = fopen("/tmp/coreutils_stdout", "r");
+            char actual[512] = {0};
+            if (output == NULL || fread(actual, 1, sizeof actual - 1, output) == 0 ||
+                strstr(actual, expected_output) == NULL) {
+                if (output != NULL) fclose(output);
+                return -1;
+            }
+            fclose(output);
+        } else {
+            return -1;
+        }
     }
     return 0;
 }

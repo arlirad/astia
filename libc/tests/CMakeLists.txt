@@ -6,6 +6,14 @@
 # itself.
 find_package(Threads REQUIRED)
 
+# astia_libc deliberately hides its internal port references.  Give the
+# host seams the same visibility so the linker resolves those references to
+# the test port instead of extracting the real syscall backend from the
+# archive (which would both bypass the host fixture and create duplicate
+# definitions).
+set_source_files_properties(backend_host.c process_host.c
+  PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden")
+
 foreach(_t string ctype stdlib malloc snprintf)
   add_executable(libc_${_t}_test ${_t}_test.c)
   target_link_libraries(libc_${_t}_test PRIVATE astia_libc)

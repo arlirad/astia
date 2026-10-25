@@ -49,6 +49,7 @@ enum { /* open flags — the subset every port can speak */
 /* one call never carries more than this (fits a cqe.result comfortably) */
 #define FIO_MAXIO ((size_t) 1u << 30)
 
+#pragma GCC visibility push(default)
 long __astia_fio_open(const char* path, int flags, int mode);
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n);
 
@@ -80,3 +81,4 @@ long __astia_fio_pipe(int fds[2]);
 long __astia_fio_dup(int fd);
 long __astia_fio_dup2(int old_fd, int new_fd);
 void __astia_fio_after_fork(void);
+#pragma GCC visibility pop

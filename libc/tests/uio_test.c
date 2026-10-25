@@ -18,16 +18,13 @@
 
 #include <sys/types.h>
 #include <sys/uio.h> /* ours: the calls under test */
+#include "../src/file_port.h" /* import ABI enums before host O_* macros */
 
 #include <errno.h>
 #include <fcntl.h> /* host O_*, open() */
 #include <stdio.h>
 #include <string.h>
-
-/* The port, for the one concrete-offset call the public API never makes
- * (the form the FILE layer would use to write its buffer and a caller's
- * remainder in one operation). */
-#include "../src/file_port.h"
+#include <unistd.h>
 
 /* <unistd.h> is ours now (getpid/gettid); the host calls these tests
  * need are declared by hand, like every other host port here.  readv
@@ -106,7 +103,8 @@ static void test_read_scatters(void) {
     CHECK(memcmp(first, "alp", 3) == 0);
     CHECK(middle == 'x'); /* zero length wrote over nothing */
     CHECK(memcmp(last, "habeta", 6) == 0);
-    CHECK(lseek(fd, 0, SEEK_CUR) == 9); /* and the position is 9 further on */
+    char tail = 0;
+    CHECK(read(fd, &tail, 1) == 1 && tail == '!'); /* cursor is 9 further on */
     CHECK(close(fd) == 0);
 }
 

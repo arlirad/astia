@@ -226,6 +226,7 @@ long __astia_fio_rename(const char* old_path, const char* new_path) {
 }
 
 void __astia_fio_prepare_exec(void) {}
+void __astia_fio_after_fork(void) {}
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
     (void)path; (void)index; (void)out; return -ENOSYS;
 }
