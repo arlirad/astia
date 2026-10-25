@@ -91,15 +91,14 @@ int pipe(int fds[2]) {
     return 0;
 }
 int chdir(const char* path) {
-    (void) path;
-    errno = ENOSYS;
-    return -1;
+    long rc = astia_chdir(path);
+    if (rc < 0) { errno = (int) -rc; return -1; }
+    return 0;
 }
 char* getcwd(char* buffer, unsigned long length) {
-    (void) buffer;
-    (void) length;
-    errno = ENOSYS;
-    return NULL;
+    long rc = astia_getcwd(buffer, length);
+    if (rc < 0) { errno = (int) -rc; return NULL; }
+    return buffer;
 }
 unsigned int umask(unsigned int mode) {
     (void) mode;

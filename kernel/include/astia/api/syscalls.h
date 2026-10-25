@@ -95,6 +95,8 @@ enum {
     SYS_SETPGID        = 27,
     SYS_SETSID         = 28,
     SYS_SIGRETURN      = 29,
+    SYS_CHDIR          = 30,
+    SYS_GETCWD         = 31,
 };
 
 /* ------------------------------------------------------------------ */
@@ -263,6 +265,13 @@ static inline long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t 
 }
 static inline long astia_waitpid(int32_t pid, int32_t* status) {
     return astia_waitpid_options(pid, status, 0);
+}
+
+static inline long astia_chdir(const char* path) {
+    return astia_raw6(SYS_CHDIR, (long) path, 0, 0, 0, 0, 0);
+}
+static inline long astia_getcwd(char* buffer, uint64_t length) {
+    return astia_raw6(SYS_GETCWD, (long) buffer, (long) length, 0, 0, 0, 0);
 }
 
 /* Create a process from the executable at `path`, materializing the

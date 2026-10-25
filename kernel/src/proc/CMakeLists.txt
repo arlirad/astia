@@ -17,6 +17,8 @@ add_library(proc STATIC
         syscalls/signal/sigsuspend.cpp
         syscalls/process/exit.cpp
         syscalls/process/waitpid.cpp
+        syscalls/process/chdir.cpp
+        syscalls/process/getcwd.cpp
         syscalls/process/argv.cpp
         syscalls/process/spawnve.cpp
         syscalls/process/execve.cpp

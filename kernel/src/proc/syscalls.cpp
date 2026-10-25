@@ -12,6 +12,8 @@
 #include "syscalls/signal/sigsuspend.hpp"
 #include "syscalls/process/exit.hpp"
 #include "syscalls/process/waitpid.hpp"
+#include "syscalls/process/chdir.hpp"
+#include "syscalls/process/getcwd.hpp"
 #include "syscalls/process/spawnve.hpp"
 #include "syscalls/process/execve.hpp"
 #include "syscalls/process/fork.hpp"
@@ -180,6 +182,8 @@ namespace astia::proc {
                sys::register_syscall<syscall::yield>(sys::syscall_id::yield) &&
                 sys::register_syscall<syscall::exit>(sys::syscall_id::exit) &&
                 sys::register_syscall<syscall::waitpid>(sys::syscall_id::waitpid) &&
+                sys::register_syscall<syscall::chdir>(sys::syscall_id::chdir) &&
+                sys::register_syscall<syscall::getcwd>(sys::syscall_id::getcwd) &&
                sys::register_syscall<syscall::spawnve>(sys::syscall_id::spawnve) &&
                sys::register_syscall<syscall::execve>(sys::syscall_id::execve) &&
                 sys::register_syscall<syscall::sigsuspend>(sys::syscall_id::sigsuspend) &&

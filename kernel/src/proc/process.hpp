@@ -52,6 +52,9 @@ namespace astia::proc {
         pid_t session() const {
             return session_;
         }
+        const char* cwd() const { return cwd_; }
+        i64 change_directory(const char* path);
+        i64 copy_cwd(char* buffer, usize length) const;
         void inherit_groups(const process& parent) {
             process_group_ = parent.process_group_;
             session_       = parent.session_;
@@ -255,6 +258,7 @@ namespace astia::proc {
         fd_table          descriptors_;
         arch::page_map*   address_space_ = nullptr;
         u64               tls_tp_        = 0;
+        char              cwd_[fs::path_max] = "/";
         mmap_region*      mmap_regions_  = nullptr; // base-sorted
         core::spinlock    mmap_lock_{};
     };

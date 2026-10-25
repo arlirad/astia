@@ -14,6 +14,51 @@ void* operator new[](astia::usize size, void* where) noexcept;
 
 namespace astia::proc {
 
+    i64 process::change_directory(const char* path) {
+        if (path == nullptr || path[0] == '\0') return -EINVAL;
+        char full[fs::path_max]{};
+        if (path[0] == '/') {
+            usize i = 0;
+            for (; path[i] != '\0' && i + 1 < fs::path_max; ++i) full[i] = path[i];
+            if (path[i] != '\0') return -ENAMETOOLONG;
+            full[i] = '\0';
+        }
+        else {
+            usize at = 0;
+            for (; cwd_[at] != '\0' && at + 1 < fs::path_max; ++at) full[at] = cwd_[at];
+            if (at > 1) full[at++] = '/';
+            usize source = 0;
+            for (; path[source] != '\0' && at + 1 < fs::path_max; ++source, ++at)
+                full[at] = path[source];
+            if (path[source] != '\0') return -ENAMETOOLONG;
+            full[at] = '\0';
+        }
+        if (full[0] == '\0') return -EINVAL;
+        if (full[0] != '/') return -EINVAL;
+        char name[fs::path_max]{};
+        u32 type = fs::directory_unknown;
+        bool directory = false;
+        for (u64 index = 0; index < 256; ++index) {
+            const long rc = fs::read_directory(full, index, name, sizeof name, &type);
+            if (rc <= 0) break;
+            directory = true;
+            break;
+        }
+        if (!directory && full[1] != '\0') return -ENOTDIR;
+        for (usize i = 0; full[i] != '\0'; ++i) cwd_[i] = full[i];
+        cwd_[fs::path_max - 1] = '\0';
+        return 0;
+    }
+
+    i64 process::copy_cwd(char* buffer, usize length) const {
+        if (buffer == nullptr || length == 0) return -EINVAL;
+        usize i = 0;
+        for (; cwd_[i] != '\0' && i + 1 < length; ++i) buffer[i] = cwd_[i];
+        if (cwd_[i] != '\0') return -ERANGE;
+        buffer[i] = '\0';
+        return static_cast<i64>(i + 1);
+    }
+
     namespace {
         core::spinlock process_lock;
 

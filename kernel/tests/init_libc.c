@@ -58,6 +58,14 @@ int main(int argc, char** argv) {
     if (pid <= 0)
         return 4;
 
+    /* 4: process working directory state through chdir/getcwd. */
+    {
+        char cwd[64];
+        if (chdir("/bin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/bin") != 0 || chdir("/") != 0)
+            return 40;
+    }
+
     /* 5-8: anonymous mmap through the kernel — fresh memory that is
        zeroed, writable, and removable again */
     {
