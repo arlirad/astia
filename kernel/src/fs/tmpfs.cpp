@@ -299,6 +299,8 @@ namespace astia::fs {
             if (entries_[i].used && equal(entries_[i].path, path)) return entries_[i].mode;
         return 0;
     }
+    u32 tmpfs_mount::node_uid(const char* path) const { for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) return entries_[i].uid; return 0; }
+    u32 tmpfs_mount::node_gid(const char* path) const { for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) return entries_[i].gid; return 0; }
 
     long tmpfs_mount::chmod(const char* path, u32 mode) {
         if (path == nullptr || path[0] != '/') return -EINVAL;

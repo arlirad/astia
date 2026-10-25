@@ -122,6 +122,10 @@ namespace astia::fs {
     long mount::rename(const char*, const char*) { return -ENOSYS; }
     u32 mount::node_type(const char*) const { return directory_unknown; }
     u32 mount::node_mode(const char*) const { return 0; }
+    u32 mount::node_uid(const char*) const { return 0; }
+    u32 mount::node_gid(const char*) const { return 0; }
+    u32 file::uid() const { return 0; }
+    u32 file::gid() const { return 0; }
     long mount::chmod(const char*, u32) { return -ENOSYS; }
 
     bool init() {
@@ -246,6 +250,8 @@ namespace astia::fs {
         mount_entry* entry = find_mount(path);
         return entry == nullptr ? 0 : entry->instance->node_mode(relative_path(*entry, path));
     }
+    u32 node_uid(const char* path) { mount_entry* e=find_mount(path); return e ? e->instance->node_uid(relative_path(*e,path)) : 0; }
+    u32 node_gid(const char* path) { mount_entry* e=find_mount(path); return e ? e->instance->node_gid(relative_path(*e,path)) : 0; }
 
     long chmod_path(const char* path, u32 mode) {
         if (path == nullptr || path[0] != '/') return -EINVAL;

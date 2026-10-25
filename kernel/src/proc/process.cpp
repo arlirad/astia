@@ -289,6 +289,35 @@ namespace astia::proc {
         name_[i] = '\0';
     }
 
+    i64 process::setuid(u32 v) {
+        if (euid_ != 0 && v != uid_ && v != euid_) return -EPERM;
+        uid_=euid_=v; return 0;
+    }
+    i64 process::seteuid(u32 v) {
+        if (euid_ != 0 && v != uid_ && v != euid_) return -EPERM;
+        euid_=v; return 0;
+    }
+    i64 process::setgid(u32 v) {
+        if (egid_ != 0 && v != gid_ && v != egid_) return -EPERM;
+        gid_=egid_=v; return 0;
+    }
+    i64 process::setegid(u32 v) {
+        if (egid_ != 0 && v != gid_ && v != egid_) return -EPERM;
+        egid_=v; return 0;
+    }
+    i64 process::setreuid(u32 r,u32 e) {
+        if (euid_ != 0 && r != uid_ && r != euid_ && e != uid_ && e != euid_) return -EPERM;
+        if (r != static_cast<u32>(-1)) uid_=r;
+        if (e != static_cast<u32>(-1)) euid_=e;
+        return 0;
+    }
+    i64 process::setregid(u32 r,u32 e) {
+        if (egid_ != 0 && r != gid_ && r != egid_ && e != gid_ && e != egid_) return -EPERM;
+        if (r != static_cast<u32>(-1)) gid_=r;
+        if (e != static_cast<u32>(-1)) egid_=e;
+        return 0;
+    }
+
     process::~process() {
         // VMA teardown releases frame references under spinlocks. Do not let
         // the timer switch this CPU while the dying process owns one: the

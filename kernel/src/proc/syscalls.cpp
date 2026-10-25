@@ -42,6 +42,10 @@
 #include <astia/mm/heap.hpp>
 
 namespace astia::proc {
+namespace syscall {
+ i64 getuid(); i64 geteuid(); i64 getgid(); i64 getegid();
+ i64 setuid(i64); i64 seteuid(i64); i64 setgid(i64); i64 setegid(i64); i64 setreuid(i64,i64); i64 setregid(i64,i64);
+}
 
     i64 futex_wait(u64 address, u32 expected);
     i64 futex_wake(u64 address, u32 count);
@@ -183,7 +187,17 @@ namespace astia::proc {
                 sys::register_syscall<syscall::exit>(sys::syscall_id::exit) &&
                 sys::register_syscall<syscall::waitpid>(sys::syscall_id::waitpid) &&
                 sys::register_syscall<syscall::chdir>(sys::syscall_id::chdir) &&
-                sys::register_syscall<syscall::getcwd>(sys::syscall_id::getcwd) &&
+                 sys::register_syscall<syscall::getcwd>(sys::syscall_id::getcwd) &&
+                 sys::register_syscall<syscall::getuid>(sys::syscall_id::getuid) &&
+                 sys::register_syscall<syscall::geteuid>(sys::syscall_id::geteuid) &&
+                 sys::register_syscall<syscall::getgid>(sys::syscall_id::getgid) &&
+                 sys::register_syscall<syscall::getegid>(sys::syscall_id::getegid) &&
+                 sys::register_syscall<syscall::setuid>(sys::syscall_id::setuid) &&
+                 sys::register_syscall<syscall::seteuid>(sys::syscall_id::seteuid) &&
+                 sys::register_syscall<syscall::setgid>(sys::syscall_id::setgid) &&
+                 sys::register_syscall<syscall::setegid>(sys::syscall_id::setegid) &&
+                 sys::register_syscall<syscall::setreuid>(sys::syscall_id::setreuid) &&
+                 sys::register_syscall<syscall::setregid>(sys::syscall_id::setregid) &&
                sys::register_syscall<syscall::spawnve>(sys::syscall_id::spawnve) &&
                sys::register_syscall<syscall::execve>(sys::syscall_id::execve) &&
                 sys::register_syscall<syscall::sigsuspend>(sys::syscall_id::sigsuspend) &&

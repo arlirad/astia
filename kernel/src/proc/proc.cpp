@@ -133,6 +133,10 @@ namespace astia::proc {
         if (parent == nullptr || path == nullptr) {
             return fail(error_t::einval);
         }
+        const u32 image_mode = fs::node_mode(path);
+        if (image_mode != 0 && !parent->can_access(image_mode, fs::node_uid(path),
+                                                     fs::node_gid(path), 1))
+            return fail(error_t::eacces);
         auto image_file = fs::open_path(path);
         if (!image_file) {
             spawn_logs::error("open failed for %s", path);

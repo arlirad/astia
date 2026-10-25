@@ -45,6 +45,8 @@ namespace astia::fs {
         virtual long             ioctl(u64 request, void* argp);
         virtual long             size() const;
         virtual u32              mode() const;
+        virtual u32              uid() const;
+        virtual u32              gid() const;
         virtual u64              mtime_sec() const;
         virtual u64              mtime_nsec() const;
         virtual long             touch(u64 sec, u64 nsec);
@@ -104,6 +106,8 @@ namespace astia::fs {
     long rename_path(const char* old_path, const char* new_path);
     u32 node_type(const char* path);
     u32 node_mode(const char* path);
+    u32 node_uid(const char* path);
+    u32 node_gid(const char* path);
     long chmod_path(const char* path, u32 mode);
     long touch_path(const char* path, u64 sec, u64 nsec);
 

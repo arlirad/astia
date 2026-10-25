@@ -19,6 +19,7 @@ add_library(proc STATIC
         syscalls/process/waitpid.cpp
         syscalls/process/chdir.cpp
         syscalls/process/getcwd.cpp
+        syscalls/process/credentials.cpp
         syscalls/process/argv.cpp
         syscalls/process/spawnve.cpp
         syscalls/process/execve.cpp

@@ -38,7 +38,7 @@ namespace astia::sys {
         setsid,
         sigreturn,
         chdir,
-        getcwd,
+        getcwd, getuid, geteuid, getgid, getegid, setuid, seteuid, setgid, setegid, setreuid, setregid,
     };
 
     /// How many registers the ABI hands every trap — and so the most

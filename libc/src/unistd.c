@@ -30,12 +30,13 @@ int access(const char* path, int mode) {
         errno = (int) -rc;
         return -1;
     }
-    /* Astia currently has one credential class (the boot/root process), so
-       permission checks use the owner bits.  This is deliberately not a
-       multi-user security claim; it does make chmod(000) meaningful. */
-    if ((mode & R_OK) && !(value.mode & 0400)) { errno = EACCES; return -1; }
-    if ((mode & W_OK) && !(value.mode & 0200)) { errno = EACCES; return -1; }
-    if ((mode & X_OK) && !(value.mode & 0100)) { errno = EACCES; return -1; }
+    unsigned int uid = getuid(), gid = getgid();
+    unsigned int bits = uid == value.uid ? ((value.mode >> 6) & 7) :
+                         (gid == value.gid ? ((value.mode >> 3) & 7) : (value.mode & 7));
+    if (uid == 0) bits = (mode & X_OK) ? ((value.mode & 0111) ? 7 : 0) : 7;
+    if ((mode & R_OK) && !(bits & 4)) { errno = EACCES; return -1; }
+    if ((mode & W_OK) && !(bits & 2)) { errno = EACCES; return -1; }
+    if ((mode & X_OK) && !(bits & 1)) { errno = EACCES; return -1; }
     return 0;
 }
 int open(const char* path, int flags, ...) {
@@ -159,11 +160,41 @@ int getgroups(int count, gid_t groups[]) {
     return 0;
 }
 int fcntl(int fd, int command, ...) {
+    va_list ap;
     if (fd < 0) {
         errno = EBADF;
         return -1;
     }
     switch (command) {
+    case F_DUPFD: {
+        int minimum = 0;
+        int copy;
+        int temporary[64];
+        int count = 0;
+        va_start(ap, command);
+        minimum = va_arg(ap, int);
+        va_end(ap);
+        if (minimum < 0) {
+            errno = EINVAL;
+            return -1;
+        }
+        /* The kernel's native dup allocates the lowest free descriptor.
+           Repeat it until the requested lower bound is reached, closing
+           each temporary alias immediately. */
+        copy = dup(fd);
+        while (copy >= 0 && copy < minimum) {
+            if (count == (int)(sizeof temporary / sizeof temporary[0])) {
+                (void) close(copy);
+                copy = -1;
+                break;
+            }
+            temporary[count++] = copy;
+            copy = dup(fd);
+        }
+        for (int i = 0; i < count; ++i)
+            (void) close(temporary[i]);
+        return copy;
+    }
     case 1: /* F_GETFD */
         return 0;
     case 2: /* F_SETFD */

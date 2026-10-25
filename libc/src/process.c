@@ -1,5 +1,6 @@
 #include "file_port.h"
 #include "process_port.h"
+#include <astia/api/syscalls.h>
 #include <sys/wait.h>
 
 #include <errno.h>
@@ -92,48 +93,34 @@ int fork(void) {
 }
 
 int setuid(unsigned int uid) {
-    (void) uid;
-    errno = ENOSYS;
-    return -1;
+    return process_result(astia_setuid(uid));
 }
 unsigned int getuid(void) {
-    return 0;
+    return (unsigned int) process_result(astia_getuid());
 }
 unsigned int geteuid(void) {
-    return 0;
+    return (unsigned int) process_result(astia_geteuid());
 }
 int seteuid(unsigned int uid) {
-    (void) uid;
-    errno = ENOSYS;
-    return -1;
+    return process_result(astia_seteuid(uid));
 }
 int setgid(unsigned int gid) {
-    (void) gid;
-    errno = ENOSYS;
-    return -1;
+    return process_result(astia_setgid(gid));
 }
 unsigned int getgid(void) {
-    return 0;
+    return (unsigned int) process_result(astia_getgid());
 }
 unsigned int getegid(void) {
-    return 0;
+    return (unsigned int) process_result(astia_getegid());
 }
 int setegid(unsigned int gid) {
-    (void) gid;
-    errno = ENOSYS;
-    return -1;
+    return process_result(astia_setegid(gid));
 }
 int setreuid(unsigned int real_uid, unsigned int effective_uid) {
-    (void) real_uid;
-    (void) effective_uid;
-    errno = ENOSYS;
-    return -1;
+    return process_result(astia_setreuid(real_uid,effective_uid));
 }
 int setregid(unsigned int real_gid, unsigned int effective_gid) {
-    (void) real_gid;
-    (void) effective_gid;
-    errno = ENOSYS;
-    return -1;
+    return process_result(astia_setregid(real_gid,effective_gid));
 }
 
 int atexit(void (*function)(void)) {

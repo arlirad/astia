@@ -97,6 +97,16 @@ enum {
     SYS_SIGRETURN      = 29,
     SYS_CHDIR          = 30,
     SYS_GETCWD         = 31,
+    SYS_GETUID         = 32,
+    SYS_GETEUID        = 33,
+    SYS_GETGID         = 34,
+    SYS_GETEGID        = 35,
+    SYS_SETUID         = 36,
+    SYS_SETEUID        = 37,
+    SYS_SETGID         = 38,
+    SYS_SETEGID        = 39,
+    SYS_SETREUID       = 40,
+    SYS_SETREGID       = 41,
 };
 
 /* ------------------------------------------------------------------ */
@@ -230,6 +240,16 @@ static inline long astia_getpid(void) {
 static inline long astia_gettid(void) {
     return astia_raw6(SYS_GETTID, 0, 0, 0, 0, 0, 0);
 }
+static inline long astia_getuid(void) { return astia_raw6(SYS_GETUID,0,0,0,0,0,0); }
+static inline long astia_geteuid(void) { return astia_raw6(SYS_GETEUID,0,0,0,0,0,0); }
+static inline long astia_getgid(void) { return astia_raw6(SYS_GETGID,0,0,0,0,0,0); }
+static inline long astia_getegid(void) { return astia_raw6(SYS_GETEGID,0,0,0,0,0,0); }
+static inline long astia_setuid(uint32_t v) { return astia_raw6(SYS_SETUID,v,0,0,0,0,0); }
+static inline long astia_seteuid(uint32_t v) { return astia_raw6(SYS_SETEUID,v,0,0,0,0,0); }
+static inline long astia_setgid(uint32_t v) { return astia_raw6(SYS_SETGID,v,0,0,0,0,0); }
+static inline long astia_setegid(uint32_t v) { return astia_raw6(SYS_SETEGID,v,0,0,0,0,0); }
+static inline long astia_setreuid(uint32_t r,uint32_t e) { return astia_raw6(SYS_SETREUID,r,e,0,0,0,0); }
+static inline long astia_setregid(uint32_t r,uint32_t e) { return astia_raw6(SYS_SETREGID,r,e,0,0,0,0); }
 
 static inline long astia_getpgrp(void) {
     return astia_raw6(SYS_GETPGRP, 0, 0, 0, 0, 0, 0);

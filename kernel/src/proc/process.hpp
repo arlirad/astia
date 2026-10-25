@@ -52,6 +52,15 @@ namespace astia::proc {
         pid_t session() const {
             return session_;
         }
+        u32 uid() const { return uid_; } u32 euid() const { return euid_; }
+        u32 gid() const { return gid_; } u32 egid() const { return egid_; }
+        i64 setuid(u32); i64 seteuid(u32); i64 setgid(u32); i64 setegid(u32);
+        i64 setreuid(u32,u32); i64 setregid(u32,u32);
+        bool can_access(u32 mode, u32 owner, u32 group, u32 want) const {
+            if (euid_ == 0) return want == 1 ? (mode & 0111) != 0 : true;
+            u32 bits = euid_ == owner ? ((mode >> 6) & 7) : (egid_ == group ? ((mode >> 3) & 7) : (mode & 7));
+            return (bits & want) == want;
+        }
         const char* cwd() const { return cwd_; }
         i64 change_directory(const char* path);
         i64 copy_cwd(char* buffer, usize length) const;
@@ -63,6 +72,7 @@ namespace astia::proc {
                 cwd_[i] = parent.cwd_[i];
                 if (cwd_[i] == '\0') break;
             }
+            uid_=parent.uid_; euid_=parent.euid_; gid_=parent.gid_; egid_=parent.egid_;
         }
         void process_group(pid_t value) {
             process_group_ = value;
@@ -250,6 +260,7 @@ namespace astia::proc {
         pid_t parent_pid_;
         pid_t process_group_;
         pid_t session_;
+        u32 uid_=0, euid_=0, gid_=0, egid_=0;
         char  name_[32]{};
         process_state state_              = process_state::fresh;
         i32           exit_status_        = 0;

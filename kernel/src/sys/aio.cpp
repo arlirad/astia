@@ -500,9 +500,11 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
                 const u32 existing_mode = fs::node_mode(resolved);
                 if (existing_mode != 0) {
-                    if ((s.op_flags & 2u) != 0 && !(existing_mode & 0200))
+                    auto* cred = proc::current_process();
+                    const u32 owner = fs::node_uid(resolved), group = fs::node_gid(resolved);
+                    if ((s.op_flags & 2u) != 0 && !cred->can_access(existing_mode, owner, group, 2))
                         return cq_post_guarded(ring, s.user_data, -EACCES);
-                    if ((s.op_flags & 1u) == 0 && !(existing_mode & 0400))
+                    if ((s.op_flags & 1u) == 0 && !cred->can_access(existing_mode, owner, group, 4))
                         return cq_post_guarded(ring, s.user_data, -EACCES);
                 }
                 // op_flags carries O_*; aux is the creation mode.  The
@@ -634,6 +636,7 @@ namespace astia::sys {
                         directory->ino = 1;
                         directory->nlink = 1;
                         directory->mode = fs::node_mode(resolved);
+                        directory->uid = fs::node_uid(resolved); directory->gid = fs::node_gid(resolved);
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                     if (!object) {
@@ -673,7 +676,8 @@ namespace astia::sys {
                 stat_out->nlink = 1;
                 stat_out->size   = static_cast<u64>(size);
                 stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
-                    stat_out->mode   = object->mode();
+                 stat_out->mode   = object->mode();
+                 stat_out->uid = object->backing()->uid(); stat_out->gid = object->backing()->gid();
                  stat_out->mtime_sec = object->mtime_sec();
                  stat_out->mtime_nsec = object->mtime_nsec();
                 return cq_post_guarded(ring, s.user_data, 0);
@@ -687,6 +691,8 @@ namespace astia::sys {
                 char resolved[256];
                 if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
+                if (current->euid() != 0 && current->euid() != fs::node_uid(resolved))
+                    return cq_post_guarded(ring, s.user_data, -EPERM);
                 return cq_post_guarded(ring, s.user_data,
                                        static_cast<i32>(fs::chmod_path(resolved, s.aux)));
             }
