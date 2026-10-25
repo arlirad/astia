@@ -39,6 +39,8 @@ namespace astia::fs {
     class tmpfs_mount final : public mount {
         public:
         mm::shptr<open_file> open(const char* path, u32 flags) override;
+        long read_directory(const char* path, u64 index, char* name, u32 capacity,
+                            u32* type) override;
         long mkdir(const char* path, u32 mode) override;
         long unlink(const char* path, bool directory) override;
         long rename(const char* old_path, const char* new_path) override;

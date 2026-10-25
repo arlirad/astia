@@ -168,6 +168,56 @@ namespace astia::fs {
         return -ENOSPC;
     }
 
+    long tmpfs_mount::read_directory(const char* path, u64 index, char* name,
+                                     u32 capacity, u32* type) {
+        if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
+            return -EINVAL;
+        if (node_type(path) != directory_dir) return -ENOTDIR;
+        u32 path_len = 0;
+        while (path[path_len] != '\0') ++path_len;
+        u64 ordinal = 0;
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+            if (!entries_[i].used) continue;
+            const char* full = entries_[i].path;
+            u32 start = path_len == 1 ? 1 : path_len + 1;
+            if (path_len != 1) {
+                bool prefix = true;
+                for (u32 j = 0; j < path_len; ++j)
+                    if (full[j] != path[j]) prefix = false;
+                if (!prefix || full[path_len] != '/') continue;
+            }
+            u32 end = start;
+            while (full[end] != '\0' && full[end] != '/') ++end;
+            if (end == start || end >= capacity) continue;
+            bool duplicate = false;
+            for (u32 p = 0; p < i && !duplicate; ++p) {
+                if (!entries_[p].used) continue;
+                const char* prior = entries_[p].path;
+                u32 prior_start = path_len == 1 ? 1 : path_len + 1;
+                if (path_len != 1) {
+                    bool prior_prefix = true;
+                    for (u32 j = 0; j < path_len; ++j)
+                        if (prior[j] != path[j]) prior_prefix = false;
+                    if (!prior_prefix || prior[path_len] != '/') continue;
+                }
+                u32 prior_end = prior_start;
+                while (prior[prior_end] != '\0' && prior[prior_end] != '/') ++prior_end;
+                if (prior_end - prior_start == end - start) {
+                    duplicate = true;
+                    for (u32 j = 0; j < end - start; ++j)
+                        if (prior[prior_start + j] != full[start + j]) duplicate = false;
+                }
+            }
+            if (duplicate || ordinal++ != index) continue;
+            for (u32 j = 0; j < end - start; ++j) name[j] = full[start + j];
+            name[end - start] = '\0';
+            *type = end < path_max && full[end] != '\0' ? directory_dir :
+                    (entries_[i].directory ? directory_dir : directory_reg);
+            return 1;
+        }
+        return 0;
+    }
+
     long tmpfs_mount::unlink(const char* path, bool directory) {
         // The mount root already exists.  Report EEXIST so `mkdir -p` can
         // walk through a mounted directory such as /tmp.

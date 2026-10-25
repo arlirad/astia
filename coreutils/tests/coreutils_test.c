@@ -140,6 +140,8 @@ int main(void) {
     char* mkdir_parents[] = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
     char* mkdir_bad[] = {"mkdir", "/tmp/coreutils_parent/missing/child", NULL};
     char* cp_file[] = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_copy", NULL};
+    char* cp_directory[] = {"cp", "-r", "/tmp/coreutils_tree", "/tmp/coreutils_tree_copy", NULL};
+    char* cp_directory_bad[] = {"cp", "/tmp/coreutils_tree", "/tmp/coreutils_tree_bad", NULL};
     char* cp_stdin[] = {"cp", "-", "/tmp/coreutils_from_stdin", NULL};
     char* mv_file[] = {"mv", "/tmp/coreutils_copy", "/tmp/coreutils_moved", NULL};
     char* mv_replace[] = {"mv", "/tmp/coreutils_a", "/tmp/coreutils_moved", NULL};
@@ -148,6 +150,10 @@ int main(void) {
     char* rm_missing[] = {"rm", "/tmp/coreutils_moved", NULL};
     char* rm_force[] = {"rm", "-f", "/tmp/coreutils_moved", NULL};
     char* rm_recursive[] = {"rm", "-r", "/tmp/coreutils_dir", NULL};
+    char* rm_tree[] = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
+    char* rm_tree_bad[] = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
+    char* find_tree[] = {"find", "/tmp/coreutils_tree", NULL};
+    char* ls_tree[] = {"ls", "/tmp/coreutils_tree", NULL};
     char* grep_match[] = {"grep", "beta", NULL};
     char* grep_none[] = {"grep", "missing", NULL};
     char* grep_missing[] = {"grep", "pattern", "/tmp/coreutils_missing", NULL};
@@ -167,6 +173,13 @@ int main(void) {
     (void) rmdir("/tmp/coreutils_parent/child");
     (void) rmdir("/tmp/coreutils_parent");
     (void) rmdir("/tmp/coreutils_dir");
+    (void) unlink("/tmp/coreutils_tree_copy/nested/file");
+    (void) rmdir("/tmp/coreutils_tree_copy/nested");
+    (void) rmdir("/tmp/coreutils_tree_copy");
+    (void) unlink("/tmp/coreutils_tree/nested/file");
+    (void) rmdir("/tmp/coreutils_tree/nested");
+    (void) rmdir("/tmp/coreutils_tree");
+    (void) rmdir("/tmp/coreutils_tree_bad");
     /* The minimal initrd need not ship a /tmp directory. */
     (void) mkdir("/tmp", 0777);
     if (put_file("/tmp/coreutils_a", "alpha\n") != 0 ||
@@ -179,6 +192,11 @@ int main(void) {
     if (stat("/tmp/coreutils_a", &touch_before) != 0)
         return fail("touch stat setup");
     sleep(1);
+
+    if (mkdir("/tmp/coreutils_tree", 0777) != 0 ||
+        mkdir("/tmp/coreutils_tree/nested", 0777) != 0 ||
+        put_file("/tmp/coreutils_tree/nested/file", "tree\n") != 0)
+        return fail("recursive fixture setup");
 
     if (check("cat files", cat_files, NULL, 0, "alpha\nbeta\ngamma\n", 1) ||
         check("cat missing", cat_missing, NULL, 1, NULL, 0) ||
@@ -206,8 +224,14 @@ int main(void) {
          check("mkdir -p", mkdir_parents, NULL, 0, NULL, 0) ||
          !is_directory("/tmp/coreutils_parent/child") ||
          check("mkdir missing parent", mkdir_bad, NULL, 1, NULL, 0) ||
-         check("cp", cp_file, NULL, 0, NULL, 0) ||
-          !is_file("/tmp/coreutils_copy") ||
+          check("cp", cp_file, NULL, 0, NULL, 0) ||
+           !is_file("/tmp/coreutils_copy") ||
+          check("cp directory without -r", cp_directory_bad, NULL, 1, NULL, 0) ||
+          check("ls recursive fixture", ls_tree, NULL, 0, "nested\n", 0) ||
+          check("cp -r directory", cp_directory, NULL, 0, NULL, 0) ||
+          (!is_directory("/tmp/coreutils_tree_copy/nested") && fail("cp -r nested directory")) ||
+          (!file_equals("/tmp/coreutils_tree_copy/nested/file", "tree\n") && fail("cp -r nested file")) ||
+          check("find directory", find_tree, NULL, 0, "/tmp/coreutils_tree/nested/file\n", 0) ||
          check("cp stdin", cp_stdin, "from stdin\n", 0, NULL, 0) ||
          !is_file("/tmp/coreutils_from_stdin") ||
          check("mv", mv_file, NULL, 0, NULL, 0) ||
@@ -219,7 +243,9 @@ int main(void) {
          is_file("/tmp/coreutils_moved") ||
          check("rm missing", rm_missing, NULL, 1, NULL, 0) ||
          check("rm -f", rm_force, NULL, 0, NULL, 0) ||
-         check("rm recursive unsupported", rm_recursive, NULL, 1, NULL, 0) ||
+          check("rm recursive", rm_recursive, NULL, 0, NULL, 0) ||
+          check("rm -r tree", rm_tree, NULL, 0, NULL, 0) ||
+          check("rm -r missing", rm_tree_bad, NULL, 1, NULL, 0) ||
          check("grep match", grep_match, "alpha\nbeta\ngamma\n", 0, NULL, 0) ||
          check("grep no match", grep_none, "alpha\nbeta\n", 1, NULL, 0) ||
          check("grep missing file", grep_missing, NULL, 2, NULL, 0) ||
@@ -234,7 +260,7 @@ int main(void) {
           check("touch unknown option", touch_bad, NULL, 1, NULL, 0))
         return 1;
 
-    const char* help[] = {"cat", "head", "wc", "ls", "pwd", "uname", "echo", "env",
+    const char* help[] = {"cat", "head", "wc", "ls", "find", "pwd", "uname", "echo", "env",
                           "true", "false", "mkdir", "rm", "cp", "mv", "grep", "sort",
                            "cut", "tee", "touch", NULL};
     for (int i = 0; help[i] != NULL; ++i) {
