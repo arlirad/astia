@@ -1,4 +1,5 @@
 #include "file_port.h"
+#include "path.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -351,7 +352,12 @@ FILE* fopen(const char* path, const char* mode) {
         return NULL;
     }
 
-    fd = __astia_fio_open(path, flags, 0666);
+    {
+        char resolved[256];
+        if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
+            return NULL;
+        fd = __astia_fio_open(resolved, flags, 0666);
+    }
     if (fd < 0) {
         errno = (int) -fd;
         return NULL;

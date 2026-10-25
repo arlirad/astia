@@ -1,4 +1,5 @@
 #include "file_port.h"
+#include "path.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -21,7 +22,14 @@ DIR* opendir(const char* path) {
         errno = ENOMEM;
         return 0;
     }
-    directory->path = strdup(path);
+    {
+        char resolved[256];
+        if (__astia_resolve_path(path, resolved, sizeof resolved) != 0) {
+            free(directory);
+            return 0;
+        }
+        directory->path = strdup(resolved);
+    }
     if (directory->path == 0) {
         free(directory);
         errno = ENOMEM;

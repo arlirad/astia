@@ -287,6 +287,7 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_SOURCE_DIR}/../libc/src/mman.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/process.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/process_aio.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/path.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/prctl.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/pthread.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/printf.c

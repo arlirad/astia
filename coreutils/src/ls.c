@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
     int status  = 0;
     int headers = argc > 2;
     if (argc == 1)
-        return list_one("/", 0);
+        return list_one(".", 0);
     for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '-' && argv[i][1] == 'a' && argv[i][2] == '\0')
             continue;

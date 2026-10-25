@@ -12,6 +12,7 @@
 #include <sys/wait.h>
 
 #include <errno.h>
+#include <dirent.h>
 #include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
@@ -62,8 +63,15 @@ int main(int argc, char** argv) {
     {
         char cwd[64];
         if (chdir("/bin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
-            strcmp(cwd, "/bin") != 0 || chdir("/") != 0)
-            return 40;
+            strcmp(cwd, "/bin") != 0)
+            return 41;
+        DIR* bin = opendir("/bin");
+        if (bin == NULL || readdir(bin) == NULL) return 42;
+        closedir(bin);
+        if (chdir("/") != 0) return 43;
+        DIR* root = opendir("/");
+        if (root == NULL || readdir(root) == NULL) return 44;
+        closedir(root);
     }
 
     /* 5-8: anonymous mmap through the kernel — fresh memory that is
