@@ -12,6 +12,7 @@ namespace astia::fs {
         bool                 attach(const initrd::archive& archive);
         bool                 add(const char* path, const void* data, usize size);
         mm::shptr<open_file> open(const char* path, u32 flags) override;
+        u32 node_mode(const char* path) const override;
         long read_directory(const char* path, u64 index, char* name, u32 capacity,
                             u32* type) override;
 

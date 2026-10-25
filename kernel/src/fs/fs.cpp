@@ -121,6 +121,8 @@ namespace astia::fs {
     long mount::unlink(const char*, bool) { return -ENOSYS; }
     long mount::rename(const char*, const char*) { return -ENOSYS; }
     u32 mount::node_type(const char*) const { return directory_unknown; }
+    u32 mount::node_mode(const char*) const { return 0; }
+    long mount::chmod(const char*, u32) { return -ENOSYS; }
 
     bool init() {
         for (u32 i = 0; i < max_types; ++i)
@@ -239,6 +241,19 @@ namespace astia::fs {
         return entry->instance->node_type(relative_path(*entry, path));
     }
 
+    u32 node_mode(const char* path) {
+        if (path == nullptr || path[0] != '/') return 0;
+        mount_entry* entry = find_mount(path);
+        return entry == nullptr ? 0 : entry->instance->node_mode(relative_path(*entry, path));
+    }
+
+    long chmod_path(const char* path, u32 mode) {
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        mount_entry* entry = find_mount(path);
+        if (entry == nullptr) return -ENOENT;
+        return entry->instance->chmod(relative_path(*entry, path), mode);
+    }
+
     bool read_batch(kernel_read* requests, usize count) {
         if (requests == nullptr)
             return false;
@@ -292,6 +307,8 @@ namespace astia::fs {
     long file::size() const {
         return -ESPIPE;
     }
+
+    u32 file::mode() const { return 0100666; }
 
     mm::phys_region* file::memory_region() {
         return nullptr;
@@ -353,5 +370,7 @@ namespace astia::fs {
     long open_file::size() const {
         return !_object ? -EBADF : _object->size();
     }
+
+    u32 open_file::mode() const { return !_object ? 0 : _object->mode(); }
 
 } // namespace astia::fs

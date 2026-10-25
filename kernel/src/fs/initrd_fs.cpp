@@ -28,6 +28,7 @@ namespace astia::fs {
             long size() const override {
                 return static_cast<long>(size_);
             }
+            u32 mode() const override { return 0100755; }
 
             private:
             const void* data_;
@@ -130,6 +131,28 @@ namespace astia::fs {
             }
         }
         return {};
+    }
+
+    u32 initrd_mount::node_mode(const char* path) const {
+        if (path != nullptr && path[0] == '/') {
+            if (path[1] == '\0') return 0040755;
+            for (u32 i = 0; i < initrd_max_entries; ++i)
+                if (entries_[i].used && equal(entries_[i].path, path)) return 0100755;
+            /* Directories are implicit in the archive namespace. */
+            for (u32 i = 0; i < initrd_max_entries; ++i)
+                if (entries_[i].used) {
+                    u32 n = 0;
+                    while (path[n] != '\0') ++n;
+                    bool prefix = n == 1;
+                    if (!prefix) {
+                        prefix = true;
+                        for (u32 j = 0; j < n; ++j)
+                            if (entries_[i].path[j] != path[j]) prefix = false;
+                    }
+                    if (prefix && entries_[i].path[n] == '/') return 0040755;
+                }
+        }
+        return 0;
     }
 
     long initrd_mount::read_directory(const char* path, u64 index, char* name,

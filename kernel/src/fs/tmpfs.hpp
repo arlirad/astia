@@ -10,12 +10,14 @@ namespace astia::fs {
 
     class tmpfs_file final : public file {
         public:
-        explicit tmpfs_file(usize pages = tmpfs_max_pages);
+        explicit tmpfs_file(usize pages = tmpfs_max_pages, u32 mode = 0100666);
         ~tmpfs_file();
 
         long             read(void* buffer, u32 length, u64 offset) override;
         long             write(const void* buffer, u32 length, u64 offset) override;
         long             size() const override;
+        u32              mode() const override { return mode_; }
+        void             set_mode(u32 mode) { mode_ = mode; }
         mm::phys_region* memory_region() override {
             return storage_;
         }
@@ -26,6 +28,7 @@ namespace astia::fs {
         private:
         mm::phys_region* storage_ = nullptr;
         u64              size_    = 0;
+        u32              mode_    = 0100666;
     };
 
     class tmpfs_mount final : public mount {
@@ -35,11 +38,14 @@ namespace astia::fs {
         long unlink(const char* path, bool directory) override;
         long rename(const char* old_path, const char* new_path) override;
         u32 node_type(const char* path) const override;
+        u32 node_mode(const char* path) const override;
+        long chmod(const char* path, u32 mode) override;
 
         private:
         struct entry {
             bool                  used = false;
             bool                  directory = false;
+            u32                   mode = 0;
             char                  path[path_max]{};
             mm::shptr<tmpfs_file> object;
         };

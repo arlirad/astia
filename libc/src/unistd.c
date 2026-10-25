@@ -30,10 +30,12 @@ int access(const char* path, int mode) {
         errno = (int) -rc;
         return -1;
     }
-    /* Astia has no permission-bit enforcement yet.  Existence is therefore
-       the native answer for R_OK/W_OK/X_OK; this is what lets zsh's command
-       hash and PATH search use the real filesystem instead of ENOSYS. */
-    (void) value;
+    /* Astia currently has one credential class (the boot/root process), so
+       permission checks use the owner bits.  This is deliberately not a
+       multi-user security claim; it does make chmod(000) meaningful. */
+    if ((mode & R_OK) && !(value.mode & 0400)) { errno = EACCES; return -1; }
+    if ((mode & W_OK) && !(value.mode & 0200)) { errno = EACCES; return -1; }
+    if ((mode & X_OK) && !(value.mode & 0100)) { errno = EACCES; return -1; }
     return 0;
 }
 int open(const char* path, int flags, ...) {

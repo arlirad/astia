@@ -282,6 +282,7 @@ enum {
        the control request; later SQEs are ordered after its completion. */
     OP_IOCTL = 24,
     OP_PIPE  = 25,
+    OP_CHMOD = 26,
 };
 
 /* OP_UNLINKAT op_flags: remove a directory instead of a non-directory. */

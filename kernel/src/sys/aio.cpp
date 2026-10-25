@@ -497,6 +497,13 @@ namespace astia::sys {
                 char resolved[256];
                 if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
+                const u32 existing_mode = fs::node_mode(resolved);
+                if (existing_mode != 0) {
+                    if ((s.op_flags & 2u) != 0 && !(existing_mode & 0200))
+                        return cq_post_guarded(ring, s.user_data, -EACCES);
+                    if ((s.op_flags & 1u) == 0 && !(existing_mode & 0400))
+                        return cq_post_guarded(ring, s.user_data, -EACCES);
+                }
                 // op_flags carries O_*; aux is the creation mode.  The
                 // VFS needs the former to implement O_CREAT/O_TRUNC on
                 // writable filesystems, while mode remains metadata for
@@ -505,6 +512,11 @@ namespace astia::sys {
                 if (!object) {
                     return cq_post_guarded(ring, s.user_data, -ENOENT);
                 }
+                /* The VFS open seam predates creation metadata.  Apply the
+                   requested mode only when this OPENAT created a new node;
+                   an O_CREAT open of an existing node must not chmod it. */
+                if ((s.op_flags & 0x04u) != 0 && existing_mode == 0)
+                    (void)fs::chmod_path(resolved, s.aux == 0 ? 0666u : s.aux);
                 current = proc::current_process();
                 if (current == nullptr) {
                     return cq_post_guarded(ring, s.user_data, -ESRCH);
@@ -620,7 +632,7 @@ namespace astia::sys {
                         directory->dev = 1;
                         directory->ino = 1;
                         directory->nlink = 1;
-                        directory->mode = fs::directory_dir;
+                        directory->mode = fs::node_mode(resolved);
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                     if (!object) {
@@ -635,7 +647,7 @@ namespace astia::sys {
                         directory->dev = 1;
                         directory->ino = 1;
                         directory->nlink = 1;
-                        directory->mode = fs::directory_dir;
+                        directory->mode = fs::node_mode(resolved);
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                 }
@@ -660,8 +672,20 @@ namespace astia::sys {
                 stat_out->nlink = 1;
                 stat_out->size   = static_cast<u64>(size);
                 stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
-                stat_out->mode   = fs::directory_reg;
+                stat_out->mode   = object->mode();
                 return cq_post_guarded(ring, s.user_data, 0);
+            }
+
+            case OP_CHMOD: {
+                char path[256];
+                if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(s.address)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* current = proc::current_process();
+                char resolved[256];
+                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                return cq_post_guarded(ring, s.user_data,
+                                       static_cast<i32>(fs::chmod_path(resolved, s.aux)));
             }
 
             case OP_READDIR: {

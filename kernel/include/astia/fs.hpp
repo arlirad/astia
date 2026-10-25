@@ -5,7 +5,10 @@
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/shptr.hpp>
 
-// Minimal kernel VFS foundation.  This is deliberately fixed-storage:
+    // Minimal kernel VFS foundation.  This is deliberately fixed-storage:
+    // Permission metadata is enforced against owner bits.  Astia does not yet
+    // have per-process uid/gid credentials, so chmod authorization and
+    // group/other selection are intentionally deferred rather than faked.
 // it runs before the general heap and gives device drivers a stable
 // path -> file -> operation seam.  The async ring owns submission,
 // parking, and completion; the VFS owns names and shared polymorphic
@@ -41,6 +44,7 @@ namespace astia::fs {
         virtual long             submit(io_request& request);
         virtual long             ioctl(u64 request, void* argp);
         virtual long             size() const;
+        virtual u32              mode() const;
         virtual mm::phys_region* memory_region();
         virtual void              close(u32 flags);
     };
@@ -59,6 +63,7 @@ namespace astia::fs {
         long submit(io_request& request);
         long ioctl(u64 request, void* argp);
         long size() const;
+        u32 mode() const;
 
         file* backing() const {
             return _object.get();
@@ -93,6 +98,8 @@ namespace astia::fs {
     /// are rejected with -EXDEV; the filesystem owns replacement rules.
     long rename_path(const char* old_path, const char* new_path);
     u32 node_type(const char* path);
+    u32 node_mode(const char* path);
+    long chmod_path(const char* path, u32 mode);
 
     struct kernel_read {
         open_file* file;

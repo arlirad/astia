@@ -10,8 +10,7 @@ static int finish(const astia_stat* value, struct stat* result) {
     result->st_dev = value->dev;
     result->st_ino = value->ino;
     result->st_size = (off_t)value->size;
-    result->st_mode = (mode_t)(value->mode == 4 ? S_IFDIR :
-                               value->mode == 2 ? S_IFCHR : S_IFREG);
+    result->st_mode = (mode_t)value->mode;
     result->st_nlink = value->nlink;
     result->st_uid = value->uid;
     result->st_gid = value->gid;
@@ -41,9 +40,9 @@ int fstat(int fd, struct stat* result) {
 }
 
 int chmod(const char* path, mode_t mode) {
-    (void) path;
-    (void) mode;
-    errno = ENOSYS; return -1;
+    if (path == NULL) { errno = EFAULT; return -1; }
+    long rc = __astia_fio_chmod(path, (int)mode);
+    return rc < 0 ? fail(rc) : 0;
 }
 
 int mkdir(const char* path, mode_t mode) {

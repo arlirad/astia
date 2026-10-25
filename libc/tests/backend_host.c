@@ -187,8 +187,7 @@ long __astia_fio_stat(const char* path, void* out, uint32_t length) {
     rc = syscall(SYS_newfstatat, -100, path, &hs, 0);
     if (rc < 0) return -HOST_ERRNO;
     *st = (astia_stat){(uint64_t)hs.dev, (uint64_t)hs.ino, (uint64_t)hs.size,
-                       (uint64_t)hs.blocks, (hs.mode & 0170000) == 0040000 ? 4 :
-                       ((hs.mode & 0170000) == 0020000 ? 2 : 8), (uint32_t)hs.nlink,
+                       (uint64_t)hs.blocks, (uint32_t)hs.mode, (uint32_t)hs.nlink,
                        hs.uid, hs.gid, hs.atime, hs.atime_nsec, hs.mtime,
                        hs.mtime_nsec, hs.ctime, hs.ctime_nsec, {0, 0, 0, 0}};
     return 0;
@@ -200,8 +199,7 @@ long __astia_fio_fstat(int fd, void* out, uint32_t length) {
     if (length != sizeof *st) return -EINVAL;
     if (syscall(SYS_fstat, fd, &hs) < 0) return -HOST_ERRNO;
     *st = (astia_stat){(uint64_t)hs.dev, (uint64_t)hs.ino, (uint64_t)hs.size,
-                       (uint64_t)hs.blocks, (hs.mode & 0170000) == 0040000 ? 4 :
-                       ((hs.mode & 0170000) == 0020000 ? 2 : 8), (uint32_t)hs.nlink,
+                       (uint64_t)hs.blocks, (uint32_t)hs.mode, (uint32_t)hs.nlink,
                        hs.uid, hs.gid, hs.atime, hs.atime_nsec, hs.mtime,
                        hs.mtime_nsec, hs.ctime, hs.ctime_nsec, {0, 0, 0, 0}};
     return 0;
@@ -209,6 +207,11 @@ long __astia_fio_fstat(int fd, void* out, uint32_t length) {
 
 long __astia_fio_mkdir(const char* path, int mode) {
     long rc = syscall(SYS_mkdir, path, mode);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
+
+long __astia_fio_chmod(const char* path, int mode) {
+    long rc = syscall(SYS_chmod, path, mode);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
 

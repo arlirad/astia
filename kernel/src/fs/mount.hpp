@@ -16,6 +16,8 @@ namespace astia::fs {
         virtual long unlink(const char* path, bool directory);
         virtual long rename(const char* old_path, const char* new_path);
         virtual u32 node_type(const char* path) const;
+        virtual u32 node_mode(const char* path) const;
+        virtual long chmod(const char* path, u32 mode);
     };
 
 } // namespace astia::fs

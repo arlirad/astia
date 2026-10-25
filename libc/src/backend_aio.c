@@ -311,6 +311,10 @@ long __astia_fio_mkdir(const char* path, int mode) {
     return transact(OP_MKDIRAT, -1, 0, path, 0, 0, (uint32_t)mode);
 }
 
+long __astia_fio_chmod(const char* path, int mode) {
+    return transact(OP_CHMOD, -1, 0, path, 0, 0, (uint32_t) mode);
+}
+
 long __astia_fio_unlink(const char* path, int directory) {
     return transact(OP_UNLINKAT, -1, 0, path, 0,
                     directory ? UNLINKAT_REMOVEDIR : 0, 0);

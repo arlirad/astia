@@ -48,8 +48,8 @@ namespace astia::fs {
         }
     } // namespace
 
-    tmpfs_file::tmpfs_file(usize pages)
-        : storage_(mm::phys_region::create(pages, true)) {}
+    tmpfs_file::tmpfs_file(usize pages, u32 mode)
+        : storage_(mm::phys_region::create(pages, true)), mode_(mode) {}
 
     tmpfs_file::~tmpfs_file() {
         if (storage_ != nullptr) {
@@ -105,6 +105,8 @@ namespace astia::fs {
                 continue;
             }
             if (entries_[i].directory) return {};
+            if ((flags & (oflag_write | oflag_rdwr)) != 0 && !(entries_[i].mode & 0200)) return {};
+            if ((flags & oflag_write) == 0 && !(entries_[i].mode & 0400)) return {};
             if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0) {
                 return {};
             }
@@ -126,13 +128,14 @@ namespace astia::fs {
             }
             entries_[i].used   = true;
             entries_[i].directory = false;
+            entries_[i].mode = 0100000 | (0666u & 07777u);
             entries_[i].object = object;
             return mm::share<open_file>(object, flags);
         }
         return {};
     }
 
-    long tmpfs_mount::mkdir(const char* path, u32) {
+    long tmpfs_mount::mkdir(const char* path, u32 mode) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
         // The mount point is the tmpfs root.  From the VFS this is the
         // existing directory /tmp, so mkdir(/tmp) must have normal mkdir
@@ -151,6 +154,7 @@ namespace astia::fs {
             if (!entries_[i].used) {
                 entries_[i].used = true;
                 entries_[i].directory = true;
+                entries_[i].mode = 0040000 | (mode & 07777u);
                 if (!copy_path(entries_[i].path, path)) return -ENAMETOOLONG;
                 return 0;
             }
@@ -230,6 +234,27 @@ namespace astia::fs {
             if (entries_[i].used && equal(entries_[i].path, path))
                 return entries_[i].directory ? directory_dir : directory_reg;
         return directory_unknown;
+    }
+
+    u32 tmpfs_mount::node_mode(const char* path) const {
+        if (path == nullptr || path[0] != '/') return 0;
+        if (equal(path, "/")) return 0040755;
+        for (u32 i = 0; i < tmpfs_max_entries; ++i)
+            if (entries_[i].used && equal(entries_[i].path, path)) return entries_[i].mode;
+        return 0;
+    }
+
+    long tmpfs_mount::chmod(const char* path, u32 mode) {
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        if (equal(path, "/")) return 0; /* mount root is not an entry */
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+            if (entries_[i].used && equal(entries_[i].path, path)) {
+                entries_[i].mode = (entries_[i].mode & 0170000u) | (mode & 07777u);
+                if (entries_[i].object) entries_[i].object->set_mode(entries_[i].mode);
+                return 0;
+            }
+        }
+        return -ENOENT;
     }
 
     fs::mount* tmpfs::mount(const char* source) const {
