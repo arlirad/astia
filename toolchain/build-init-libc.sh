@@ -19,7 +19,7 @@ cmake -S "$root/libc" -B "$build/libc" \
     -DASTIA_BUILD_TESTS=OFF \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$sysroot"
-cmake --build "$build/libc" -j "${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}"
+cmake --build "$build/libc" --clean-first -j "${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}"
 cmake --install "$build/libc"
 
 mkdir -p "$build/image"
