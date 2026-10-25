@@ -163,7 +163,13 @@ namespace astia::proc {
             return fail(error_t::enomem);
         }
         child->inherit_groups(*parent);
-        child->install_standard_streams();
+        // exec-style spawn inherits redirected descriptors.  Replacing them
+        // with fresh console streams would make a child read forever from the
+        // terminal after the parent dup2'ed a file onto stdin.
+        if (!child->copy_descriptors_from(*parent)) {
+            mm::heap::free(image.value);
+            return fail(error_t::enomem);
+        }
         u64        entry = 0;
         const bool loaded_image =
             child->load_user_image(image.value, static_cast<usize>(image_size), &entry);

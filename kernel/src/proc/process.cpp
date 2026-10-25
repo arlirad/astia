@@ -76,9 +76,10 @@ namespace astia::proc {
         usize at = 0;
         for (; cwd_[at] != '\0' && at + 1 < length; ++at) buffer[at] = cwd_[at];
         if (at > 1 && at + 1 < length) buffer[at++] = '/';
-        for (usize source = 0; path[source] != '\0' && at + 1 < length; ++source, ++at)
+        usize source = 0;
+        for (; path[source] != '\0' && at + 1 < length; ++source, ++at)
             buffer[at] = path[source];
-        if (at == length - 1 && path[at] != '\0') return -ENAMETOOLONG;
+        if (path[source] != '\0') return -ENAMETOOLONG;
         buffer[at] = '\0';
         return 0;
     }

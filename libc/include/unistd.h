@@ -16,6 +16,7 @@ extern "C" {
 int   getpid(void);
 int   getppid(void);
 int   gettid(void);
+extern char** environ;
 char* ttyname(int fd);
 
 /* Create a process from the executable at `path` with the given
@@ -49,6 +50,8 @@ long         write(int fd, const void* buffer, unsigned long length);
 long         lseek(int fd, long offset, int whence);
 int          pipe(int fds[2]);
 int          execve(const char* path, char* const argv[], char* const envp[]);
+int          execv(const char* path, char* const argv[]);
+int          execvp(const char* file, char* const argv[]);
 pid_t        getpgrp(void);
 int          setpgid(int pid, int process_group);
 int          setsid(void);
@@ -56,6 +59,7 @@ int          setpgrp(int pid, int process_group);
 pid_t        tcgetpgrp(int fd);
 int          tcsetpgrp(int fd, int pgrp);
 int          link(const char* old_path, const char* new_path);
+int          unlink(const char* path);
 int          getgroups(int count, gid_t groups[]);
 int          rename(const char* old_path, const char* new_path);
 int          waitpid(int pid, int* status, int options);

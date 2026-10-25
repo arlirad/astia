@@ -6,6 +6,116 @@
 #include <stdlib.h>
 #include <string.h>
 
+extern char** environ;
+
+static int environment_name_matches(const char* entry, const char* name, size_t length) {
+    return strncmp(entry, name, length) == 0 && entry[length] == '=';
+}
+
+char* getenv(const char* name) {
+    size_t length;
+    char** item;
+    if (name == NULL || *name == '\0' || strchr(name, '=') != NULL)
+        return NULL;
+    length = strlen(name);
+    for (item = environ; item != NULL && *item != NULL; ++item)
+        if (environment_name_matches(*item, name, length))
+            return *item + length + 1;
+    return NULL;
+}
+
+static int environment_update(const char* name, const char* value, int remove,
+                              int overwrite) {
+    size_t length = strlen(name);
+    size_t count = 0;
+    size_t match = (size_t) -1;
+    char** item;
+    char** next;
+    size_t i;
+
+    for (item = environ; item != NULL && *item != NULL; ++item, ++count)
+        if (match == (size_t) -1 && environment_name_matches(*item, name, length))
+            match = count;
+    if (match != (size_t) -1 && !remove && !overwrite)
+        return 0;
+    next = (char**) malloc((count + (remove || match != (size_t) -1 ? 1 : 2)) *
+                           sizeof(*next));
+    if (next == NULL) {
+        errno = ENOMEM;
+        return -1;
+    }
+    size_t out_count = 0;
+    for (i = 0; i < count; ++i) {
+        if (i == match) {
+            if (!remove) {
+                size_t value_length = strlen(value);
+                char* replacement = (char*) malloc(length + value_length + 2);
+                if (replacement == NULL) {
+                    errno = ENOMEM;
+                    return -1;
+                }
+                memcpy(replacement, name, length);
+                replacement[length] = '=';
+                memcpy(replacement + length + 1, value, value_length + 1);
+                next[out_count++] = replacement;
+            }
+            continue;
+        }
+        next[out_count++] = environ[i];
+    }
+    if (match == (size_t) -1 && !remove) {
+        size_t value_length = strlen(value);
+        char* addition = (char*) malloc(length + value_length + 2);
+        if (addition == NULL) {
+            errno = ENOMEM;
+            return -1;
+        }
+        memcpy(addition, name, length);
+        addition[length] = '=';
+        memcpy(addition + length + 1, value, value_length + 1);
+        next[out_count++] = addition;
+    }
+    next[out_count] = NULL;
+    environ = next;
+    return 0;
+}
+
+int setenv(const char* name, const char* value, int overwrite) {
+    if (name == NULL || *name == '\0' || strchr(name, '=') != NULL || value == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    return environment_update(name, value, 0, overwrite != 0);
+}
+
+int unsetenv(const char* name) {
+    if (name == NULL || *name == '\0' || strchr(name, '=') != NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    return environment_update(name, "", 1, 1);
+}
+
+int putenv(char* string) {
+    char* equals;
+    char* name;
+    int result;
+    if (string == NULL || (equals = strchr(string, '=')) == NULL || equals == string) {
+        errno = EINVAL;
+        return -1;
+    }
+    name = (char*) malloc((size_t) (equals - string) + 1);
+    if (name == NULL) {
+        errno = ENOMEM;
+        return -1;
+    }
+    memcpy(name, string, (size_t) (equals - string));
+    name[equals - string] = '\0';
+    result = setenv(name, equals + 1, 1);
+    free(name);
+    return result;
+}
+
 /*
  * Everything here is either pure (conversions, abs, bsearch) or has
  * state that is *defined* to be shared: see the rand/strtol notes below.

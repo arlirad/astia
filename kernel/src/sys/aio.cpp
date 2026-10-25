@@ -526,6 +526,23 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, 0);
             }
 
+            case OP_MKDIRAT:
+            case OP_UNLINKAT: {
+                char path[256];
+                if (!sys::copy_in_string(path, sizeof path,
+                                         sys::user_range::string(s.address)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* current = proc::current_process();
+                char resolved[256];
+                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                const long rc = s.op == OP_MKDIRAT
+                                    ? fs::make_directory(resolved, s.aux)
+                                    : fs::remove_path(resolved,
+                                                      (s.op_flags & UNLINKAT_REMOVEDIR) != 0);
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+            }
+
             case OP_DUP: {
                 proc::process*           current = proc::current_process();
                 mm::shptr<fs::open_file> source  = file_for(s.fd);
@@ -575,7 +592,18 @@ namespace astia::sys {
                     char resolved[256];
                     if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
                         return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    const u32 type = fs::node_type(resolved);
                     object = fs::open_path(resolved);
+                    if (type == fs::directory_dir) {
+                        __builtin_memset(reinterpret_cast<void*>(out.address()), 0,
+                                         sizeof(astia_stat));
+                        auto* directory = reinterpret_cast<astia_stat*>(out.address());
+                        directory->dev = 1;
+                        directory->ino = 1;
+                        directory->nlink = 1;
+                        directory->mode = fs::directory_dir;
+                        return cq_post_guarded(ring, s.user_data, 0);
+                    }
                     if (!object) {
                         char child[256]{};
                         u32 child_type = fs::directory_unknown;
@@ -613,6 +641,7 @@ namespace astia::sys {
                 stat_out->nlink = 1;
                 stat_out->size   = static_cast<u64>(size);
                 stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
+                stat_out->mode   = fs::directory_reg;
                 return cq_post_guarded(ring, s.user_data, 0);
             }
 

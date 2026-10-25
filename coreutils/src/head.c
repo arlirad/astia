@@ -31,12 +31,19 @@ int main(int argc, char** argv) {
         return cu_version("head");
     if (first < argc && argv[first][0] == '-') {
         const char* option = argv[first];
-        const char* value = option[1] == 'n' ? option + 2 : option + 1;
-        if (option[1] == 'n' && option[2] == '\0' && first + 1 < argc)
-            value = argv[++first];
-        if (*value == '\0')
+        const char* value;
+        if (option[1] != 'n')
             return cu_usage("head", "[-n NUMBER] [FILE]...");
-        lines = strtoul(value, 0, 10);
+        value = option + 2;
+        if (option[2] == '\0' && first + 1 < argc)
+            value = argv[++first];
+        if (*value == '\0' || value[0] == '-')
+            return cu_usage("head", "[-n NUMBER] [FILE]...");
+        errno = 0;
+        char* end;
+        lines = strtoul(value, &end, 10);
+        if (errno == ERANGE || *end != '\0')
+            return cu_usage("head", "[-n NUMBER] [FILE]...");
         first++;
     }
     if (lines == 0)

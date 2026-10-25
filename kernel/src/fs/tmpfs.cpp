@@ -38,6 +38,14 @@ namespace astia::fs {
             dst[i] = '\0';
             return true;
         }
+
+        bool parent_of(const char* parent, const char* path) {
+            u32 n = 0;
+            while (parent[n] != '\0') ++n;
+            if (n == 1) return path[0] == '/';
+            for (u32 i = 0; i < n; ++i) if (parent[i] != path[i]) return false;
+            return path[n] == '/';
+        }
     } // namespace
 
     tmpfs_file::tmpfs_file(usize pages)
@@ -96,6 +104,7 @@ namespace astia::fs {
             if (!entries_[i].used || !equal(entries_[i].path, path)) {
                 continue;
             }
+            if (entries_[i].directory) return {};
             if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0) {
                 return {};
             }
@@ -116,10 +125,64 @@ namespace astia::fs {
                 return {};
             }
             entries_[i].used   = true;
+            entries_[i].directory = false;
             entries_[i].object = object;
             return mm::share<open_file>(object, flags);
         }
         return {};
+    }
+
+    long tmpfs_mount::mkdir(const char* path, u32) {
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        // The mount point is the tmpfs root.  From the VFS this is the
+        // existing directory /tmp, so mkdir(/tmp) must have normal mkdir
+        // semantics rather than looking like an invalid tmpfs pathname.
+        if (equal(path, "/")) return -EEXIST;
+        for (u32 i = 0; i < tmpfs_max_entries; ++i)
+            if (entries_[i].used && equal(entries_[i].path, path)) return -EEXIST;
+        char parent[path_max]{};
+        copy_path(parent, path);
+        u32 end = 0;
+        while (parent[end] != '\0') ++end;
+        while (end > 1 && parent[end - 1] != '/') --end;
+        parent[end > 1 ? end - 1 : 1] = '\0';
+        if (node_type(parent) != directory_dir) return -ENOENT;
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+            if (!entries_[i].used) {
+                entries_[i].used = true;
+                entries_[i].directory = true;
+                if (!copy_path(entries_[i].path, path)) return -ENAMETOOLONG;
+                return 0;
+            }
+        }
+        return -ENOSPC;
+    }
+
+    long tmpfs_mount::unlink(const char* path, bool directory) {
+        // The mount root already exists.  Report EEXIST so `mkdir -p` can
+        // walk through a mounted directory such as /tmp.
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        if (equal(path, "/")) return -EEXIST;
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+            if (!entries_[i].used || !equal(entries_[i].path, path)) continue;
+            if (entries_[i].directory != directory) return directory ? -ENOTDIR : -EISDIR;
+            if (directory) {
+                for (u32 j = 0; j < tmpfs_max_entries; ++j)
+                    if (entries_[j].used && parent_of(path, entries_[j].path)) return -ENOTEMPTY;
+            }
+            entries_[i] = entry{};
+            return 0;
+        }
+        return -ENOENT;
+    }
+
+    u32 tmpfs_mount::node_type(const char* path) const {
+        if (path == nullptr || path[0] != '/') return directory_unknown;
+        if (equal(path, "/")) return directory_dir;
+        for (u32 i = 0; i < tmpfs_max_entries; ++i)
+            if (entries_[i].used && equal(entries_[i].path, path))
+                return entries_[i].directory ? directory_dir : directory_reg;
+        return directory_unknown;
     }
 
     fs::mount* tmpfs::mount(const char* source) const {

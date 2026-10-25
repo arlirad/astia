@@ -17,6 +17,12 @@
 
 namespace {
 
+    // The lifecycle worker runs after the scheduler switches away from the
+    // bootstrap page table.  Keep its completion word in kernel image storage
+    // rather than passing it a pointer into kmain's low boot stack, which is
+    // not mapped by the normal kernel page map.
+    volatile astia::u32 lifecycle_status = 0;
+
     /// Spawn one userspace image and wait for it out.  `spawned` tells
     /// spawn failure apart from a bad exit status.
     bool run_image(const char* path, char* const argv[], char* const envp[],
@@ -97,15 +103,15 @@ extern "C" void kmain(void* start_info) {
     }
 
     if (ctx.info != nullptr && ctx.info->initrd.paddr != 0) {
-        volatile astia::u32 spawn_status = 0;
+        lifecycle_status = 0;
         auto                worker       = astia::proc::scheduler::create_kernel(
-            spawn_init_worker, const_cast<astia::u32*>(&spawn_status));
+            spawn_init_worker, const_cast<astia::u32*>(&lifecycle_status));
         // The worker blocks in waitpid until user init exits, and this
         // bootstrap thread blocks in join() until the worker exits;
         // timer preemption drives the whole chain.
         astia::arch::cpu::interrupts();
         if (!worker || worker->join() != 0 ||
-            __atomic_load_n(&spawn_status, __ATOMIC_ACQUIRE) != 1) {
+            __atomic_load_n(&lifecycle_status, __ATOMIC_ACQUIRE) != 1) {
             astia::core::kpanic("unable to spawn/reap userspace images");
         }
         astia::arch::cpu::nointerrupts();

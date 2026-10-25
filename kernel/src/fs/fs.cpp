@@ -117,6 +117,9 @@ namespace astia::fs {
     long mount::read_directory(const char*, u64, char*, u32, u32*) {
         return -ENOSYS;
     }
+    long mount::mkdir(const char*, u32) { return -ENOSYS; }
+    long mount::unlink(const char*, bool) { return -ENOSYS; }
+    u32 mount::node_type(const char*) const { return directory_unknown; }
 
     bool init() {
         for (u32 i = 0; i < max_types; ++i)
@@ -198,6 +201,27 @@ namespace astia::fs {
             return -ENOENT;
         return entry->instance->read_directory(relative_path(*entry, path), index, name,
                                                capacity, type);
+    }
+
+    long make_directory(const char* path, u32 mode) {
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        mount_entry* entry = find_mount(path);
+        if (entry == nullptr) return -ENOENT;
+        return entry->instance->mkdir(relative_path(*entry, path), mode);
+    }
+
+    long remove_path(const char* path, bool directory) {
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        mount_entry* entry = find_mount(path);
+        if (entry == nullptr) return -ENOENT;
+        return entry->instance->unlink(relative_path(*entry, path), directory);
+    }
+
+    u32 node_type(const char* path) {
+        if (path == nullptr || path[0] != '/') return directory_unknown;
+        mount_entry* entry = find_mount(path);
+        if (entry == nullptr) return directory_unknown;
+        return entry->instance->node_type(relative_path(*entry, path));
     }
 
     bool read_batch(kernel_read* requests, usize count) {

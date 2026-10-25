@@ -85,6 +85,9 @@ namespace astia::fs {
     mm::shptr<open_file> open(const char* path, u32 flags = 0);
 
     long read_directory(const char* path, u64 index, char* name, u32 capacity, u32* type);
+    long make_directory(const char* path, u32 mode);
+    long remove_path(const char* path, bool directory);
+    u32 node_type(const char* path);
 
     struct kernel_read {
         open_file* file;

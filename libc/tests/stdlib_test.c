@@ -216,12 +216,29 @@ static void test_rand(void) {
     CHECK(rand() != seq[0]);
 }
 
+static void test_environment(void) {
+    char assignment[] = "ASTIA_TEST_PUTENV=three";
+
+    CHECK(setenv("ASTIA_TEST_ENV", "one", 1) == 0);
+    CHECK(getenv("ASTIA_TEST_ENV") != NULL &&
+          strcmp(getenv("ASTIA_TEST_ENV"), "one") == 0);
+    CHECK(setenv("ASTIA_TEST_ENV", "two", 0) == 0);
+    CHECK(strcmp(getenv("ASTIA_TEST_ENV"), "one") == 0);
+    CHECK(setenv("ASTIA_TEST_ENV", "two", 1) == 0);
+    CHECK(strcmp(getenv("ASTIA_TEST_ENV"), "two") == 0);
+    CHECK(putenv(assignment) == 0);
+    CHECK(strcmp(getenv("ASTIA_TEST_PUTENV"), "three") == 0);
+    CHECK(unsetenv("ASTIA_TEST_ENV") == 0 && getenv("ASTIA_TEST_ENV") == NULL);
+    CHECK(setenv("bad=name", "x", 1) == -1);
+}
+
 int main(void) {
     test_strtol();
     test_strtoul();
     test_atoi();
     test_qsort_bsearch();
     test_rand();
+    test_environment();
 
     if (fails)
         printf("stdlib_test: %d failure(s)\n", fails);

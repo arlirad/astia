@@ -3,21 +3,54 @@
 #include "process_port.h"
 #include <astia/api/syscalls.h>
 #include <sys/ioctl.h>
+#include <fcntl.h>
 
 #include <errno.h>
+#include <stdlib.h>
 #include <stddef.h>
+#include <stdarg.h>
+#include <string.h>
 #include <unistd.h>
 
 char** environ;
 
 int access(const char* path, int mode) {
-    (void) path;
-    (void) mode;
-    errno = ENOSYS;
-    return -1;
+    char       resolved[256];
+    astia_stat value;
+    long       rc;
+
+    if (path == NULL || (mode & ~(F_OK | X_OK | W_OK | R_OK)) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
+        return -1;
+    rc = __astia_fio_stat(resolved, &value, sizeof value);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    /* Astia has no permission-bit enforcement yet.  Existence is therefore
+       the native answer for R_OK/W_OK/X_OK; this is what lets zsh's command
+       hash and PATH search use the real filesystem instead of ENOSYS. */
+    (void) value;
+    return 0;
 }
 int open(const char* path, int flags, ...) {
-    long rc = __astia_fio_open(path, flags, 0);
+    va_list ap;
+    int      mode = 0;
+    int fio = (flags & O_RDWR) == O_RDWR ? FIO_READ | FIO_WRITE :
+              (flags & O_WRONLY) ? FIO_WRITE : FIO_READ;
+    if (flags & O_CREAT) {
+        va_start(ap, flags);
+        mode = va_arg(ap, int);
+        va_end(ap);
+    }
+    if (flags & O_CREAT) fio |= FIO_CREAT;
+    if (flags & O_EXCL) fio |= FIO_EXCL;
+    if (flags & O_TRUNC) fio |= FIO_TRUNC;
+    if (flags & O_APPEND) fio |= FIO_APPEND;
+    long rc = __astia_fio_open(path, fio, mode);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
@@ -27,10 +60,6 @@ int open(const char* path, int flags, ...) {
 char* ttyname(int fd) {
     (void) fd;
     errno = ENOSYS;
-    return NULL;
-}
-char* getenv(const char* name) {
-    (void) name;
     return NULL;
 }
 int close(int fd) {
@@ -205,12 +234,68 @@ int rename(const char* old_path, const char* new_path) {
     return -1;
 }
 int execve(const char* path, char* const argv[], char* const envp[]) {
-    long rc = __astia_process_execve(path, argv, envp);
+    char resolved[256];
+    long rc;
+    if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
+        return -1;
+    rc = __astia_process_execve(resolved, argv, envp);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
     }
     __builtin_unreachable();
+}
+int execv(const char* path, char* const argv[]) {
+    return execve(path, argv, environ);
+}
+
+int execvp(const char* file, char* const argv[]) {
+    const char* path;
+    char         candidate[256];
+
+    if (file == NULL || *file == '\0') {
+        errno = ENOENT;
+        return -1;
+    }
+    if (strchr(file, '/') != NULL)
+        return execve(file, argv, environ);
+    path = getenv("PATH");
+    if (path == NULL)
+        path = "/bin";
+    for (;;) {
+        const char* end = strchr(path, ':');
+        unsigned long dir_len = end ? (unsigned long) (end - path) : strlen(path);
+        unsigned long at = 0;
+        unsigned long i;
+
+        if (dir_len == 0) {
+            if (__astia_resolve_path(file, candidate, sizeof candidate) != 0)
+                return -1;
+        }
+        else {
+            if (dir_len + 1 + strlen(file) + 1 > sizeof candidate) {
+                errno = ENAMETOOLONG;
+                return -1;
+            }
+            for (i = 0; i < dir_len; ++i) candidate[at++] = path[i];
+            if (at == 0 || candidate[at - 1] != '/') candidate[at++] = '/';
+            strcpy(candidate + at, file);
+        }
+        (void) execve(candidate, argv, environ);
+        if (errno != ENOENT && errno != ENOTDIR)
+            return -1;
+        if (end == NULL)
+            break;
+        path = end + 1;
+        if (*path == '\0') {
+            /* A trailing empty PATH component denotes the current directory. */
+            if (__astia_resolve_path(file, candidate, sizeof candidate) == 0)
+                (void) execve(candidate, argv, environ);
+            break;
+        }
+    }
+    errno = ENOENT;
+    return -1;
 }
 void _exit(int status) {
     (void) status;

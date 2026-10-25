@@ -75,8 +75,10 @@ static int cu_is_version(const char* value) {
 static int cu_usage(const char* name, const char* synopsis) {
     cu_puts_fd(CU_STDERR, "usage: ");
     cu_puts_fd(CU_STDERR, name);
-    cu_puts_fd(CU_STDERR, " ");
-    cu_puts_fd(CU_STDERR, synopsis);
+    if (synopsis[0] != '\0') {
+        cu_puts_fd(CU_STDERR, " ");
+        cu_puts_fd(CU_STDERR, synopsis);
+    }
     cu_puts_fd(CU_STDERR, "\n");
     return 2;
 }
@@ -84,8 +86,10 @@ static int cu_usage(const char* name, const char* synopsis) {
 static int cu_help(const char* name, const char* synopsis, const char* details) {
     cu_puts_fd(CU_STDOUT, "Usage: ");
     cu_puts_fd(CU_STDOUT, name);
-    cu_puts_fd(CU_STDOUT, " ");
-    cu_puts_fd(CU_STDOUT, synopsis);
+    if (synopsis[0] != '\0') {
+        cu_puts_fd(CU_STDOUT, " ");
+        cu_puts_fd(CU_STDOUT, synopsis);
+    }
     cu_puts_fd(CU_STDOUT, "\n\n");
     cu_puts_fd(CU_STDOUT, details);
     cu_puts_fd(CU_STDOUT, "\n");

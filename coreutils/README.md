@@ -6,7 +6,8 @@ Astia libc, and keeps its behavior small enough to test on the real kernel.
 
 Currently built:
 
-`cat` `echo` `env` `false` `head` `ls` `pwd` `true` `uname` `wc`
+`cat` `cp` `echo` `env` `false` `head` `ls` `mkdir` `mv` `pwd` `rm` `true`
+`uname` `wc`
 
 Build them with:
 
@@ -18,6 +19,8 @@ ASTIA_SYSROOT=/tmp/astia-zsh-build/sysroot \
 The resulting executables are placed in `coreutils/build/bin/`.  The zsh QEMU
 launcher builds and installs them into `/bin` automatically.
 
-The first batch deliberately uses only working Astia primitives (`read`,
-`write`, `open`, `close`, `environ`, and process exit).  Directory traversal
-will land with `ls` once the libc directory API is backed by the kernel.
+The utilities deliberately use only native Astia primitives (`read`, `write`,
+`open`, `close`, `mkdir`, `unlink`, `rmdir`, `environ`, process exit, and the
+libc directory API).  The
+QEMU regression suite can be run with `coreutils/tests/run.sh`; it builds the
+utilities and checks their exit status and output on the real kernel.

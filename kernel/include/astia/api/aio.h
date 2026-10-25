@@ -284,6 +284,9 @@ enum {
     OP_PIPE  = 25,
 };
 
+/* OP_UNLINKAT op_flags: remove a directory instead of a non-directory. */
+enum { UNLINKAT_REMOVEDIR = 1u << 0 };
+
 /* astia_sqe.flags */
 enum {
     SQF_FIXED_FILE  = 1u << 0, /* fd = index into registered files */

@@ -69,6 +69,9 @@ long __astia_fio_writev(int fd, uint64_t off, const struct iovec* iov, uint32_t 
 long __astia_fio_close(int fd);
 long __astia_fio_size(int fd, uint64_t* out); /* file length, for SEEK_END */
 long __astia_fio_stat(const char* path, void* out, uint32_t length);
+long __astia_fio_fstat(int fd, void* out, uint32_t length);
+long __astia_fio_mkdir(const char* path, int mode);
+long __astia_fio_unlink(const char* path, int directory);
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out);
 long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length);
 long __astia_fio_pipe(int fds[2]);

@@ -1,16 +1,19 @@
 #pragma once
 
 char* getenv(const char* name);
+int   setenv(const char* name, const char* value, int overwrite);
+int   unsetenv(const char* name);
+int   putenv(char* string);
 
 /*
  * astia libc — <stdlib.h>
  *
  * Program control, conversions, searching/sorting, pseudo-random numbers.
  *
- * Deliberately absent for now: exit()/atexit() and the environment calls
- * (getenv/...).  They need the process runtime, which does not exist yet —
- * this libc cannot exit a process by itself.  abort() is the exception: a
- * trap instruction is meaningful on every target, so it ships now.
+ * Environment storage is kept in the process image (the CRT supplies the
+ * initial environ vector); the mutators copy that vector when it first needs
+ * to grow.  This is enough for shell exports without a kernel environment
+ * syscall.
  * Floating parsing (atof/strtod) waits for the float formatting layer.
  */
 

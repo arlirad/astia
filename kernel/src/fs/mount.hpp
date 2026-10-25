@@ -12,6 +12,9 @@ namespace astia::fs {
         virtual long register_file(const char* path, const mm::shptr<file>& object);
         virtual long read_directory(const char* path, u64 index, char* name, u32 capacity,
                                     u32* type);
+        virtual long mkdir(const char* path, u32 mode);
+        virtual long unlink(const char* path, bool directory);
+        virtual u32 node_type(const char* path) const;
     };
 
 } // namespace astia::fs
