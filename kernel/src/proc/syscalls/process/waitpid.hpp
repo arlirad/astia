@@ -18,5 +18,5 @@ namespace astia::proc::syscall {
     ///     -ECHILD: The caller has no matching child process.
     ///     -EINVAL: The PID or option mask is invalid.
     ///     -ESRCH: There is no current process or thread.
-    i64 waitpid(i32 pid, u64 status, u32 options);
+    i64 waitpid(i32 pid, u64 status_ptr, u32 options);
 }

@@ -10,5 +10,5 @@ namespace astia::proc::syscall {
     ///     -EFAULT: The mask pointer is inaccessible.
     ///     -EINTR: A signal interrupted the suspended thread.
     ///     -ESRCH: There is no current process or thread.
-    i64 sigsuspend(u64 mask);
+    i64 sigsuspend(u64 mask_ptr);
 }

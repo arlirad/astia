@@ -17,6 +17,19 @@ add_library(proc STATIC
         syscalls/signal/sigsuspend.cpp
         syscalls/process/exit.cpp
         syscalls/process/waitpid.cpp
+        syscalls/process/argv.cpp
+        syscalls/process/spawnve.cpp
+        syscalls/process/execve.cpp
+        syscalls/process/fork.cpp
+        syscalls/memory/mmap.cpp
+        syscalls/memory/munmap.cpp
+        syscalls/ipc/futex.cpp
+        syscalls/thread/yield.cpp
+        syscalls/thread/thread_create.cpp
+        syscalls/thread/thread_create2.cpp
+        syscalls/thread/thread_exit.cpp
+        syscalls/thread/thread_join.cpp
+        syscalls/thread/thread_detach.cpp
         thread.cpp
         fd_table.cpp
         scheduler.cpp
