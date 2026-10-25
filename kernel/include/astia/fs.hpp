@@ -89,6 +89,9 @@ namespace astia::fs {
     long read_directory(const char* path, u64 index, char* name, u32 capacity, u32* type);
     long make_directory(const char* path, u32 mode);
     long remove_path(const char* path, bool directory);
+    /// Atomically rename within one mounted filesystem.  Different mounts
+    /// are rejected with -EXDEV; the filesystem owns replacement rules.
+    long rename_path(const char* old_path, const char* new_path);
     u32 node_type(const char* path);
 
     struct kernel_read {

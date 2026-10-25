@@ -217,6 +217,11 @@ long __astia_fio_unlink(const char* path, int directory) {
     return rc < 0 ? -HOST_ERRNO : 0;
 }
 
+long __astia_fio_rename(const char* old_path, const char* new_path) {
+    long rc = syscall(SYS_rename, old_path, new_path);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
+
 void __astia_fio_prepare_exec(void) {}
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
     (void)path; (void)index; (void)out; return -ENOSYS;

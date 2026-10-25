@@ -176,6 +176,53 @@ namespace astia::fs {
         return -ENOENT;
     }
 
+    long tmpfs_mount::rename(const char* old_path, const char* new_path) {
+        if (old_path == nullptr || new_path == nullptr || old_path[0] != '/' ||
+            new_path[0] != '/')
+            return -EINVAL;
+        if (equal(old_path, "/")) return -EBUSY;
+        if (equal(old_path, new_path)) return 0;
+
+        char old_parent[path_max]{};
+        char new_parent[path_max]{};
+        if (!copy_path(old_parent, old_path) || !copy_path(new_parent, new_path))
+            return -ENAMETOOLONG;
+        u32 end = 0;
+        while (old_parent[end] != '\0') ++end;
+        while (end > 1 && old_parent[end - 1] != '/') --end;
+        old_parent[end > 1 ? end - 1 : 1] = '\0';
+        end = 0;
+        while (new_parent[end] != '\0') ++end;
+        while (end > 1 && new_parent[end - 1] != '/') --end;
+        new_parent[end > 1 ? end - 1 : 1] = '\0';
+        if (node_type(old_parent) != directory_dir || node_type(new_parent) != directory_dir)
+            return -ENOENT;
+
+        u32 source = tmpfs_max_entries;
+        u32 target = tmpfs_max_entries;
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+            if (entries_[i].used && equal(entries_[i].path, old_path)) source = i;
+            if (entries_[i].used && equal(entries_[i].path, new_path)) target = i;
+        }
+        if (source == tmpfs_max_entries) return -ENOENT;
+        if (target != tmpfs_max_entries) {
+            if (entries_[source].directory != entries_[target].directory)
+                return entries_[source].directory ? -ENOTDIR : -EISDIR;
+            if (entries_[target].directory) {
+                for (u32 i = 0; i < tmpfs_max_entries; ++i)
+                    if (entries_[i].used && parent_of(new_path, entries_[i].path))
+                        return -ENOTEMPTY;
+            }
+            entries_[target] = entries_[source];
+            if (!copy_path(entries_[target].path, new_path)) return -ENAMETOOLONG;
+            entries_[source] = entry{};
+            return 0;
+        }
+        if (entries_[source].directory && parent_of(old_path, new_path)) return -EINVAL;
+        if (!copy_path(entries_[source].path, new_path)) return -ENAMETOOLONG;
+        return 0;
+    }
+
     u32 tmpfs_mount::node_type(const char* path) const {
         if (path == nullptr || path[0] != '/') return directory_unknown;
         if (equal(path, "/")) return directory_dir;

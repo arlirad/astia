@@ -543,6 +543,25 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
             }
 
+            case OP_RENAMEAT: {
+                char old_path[256];
+                char new_path[256];
+                if (!sys::copy_in_string(old_path, sizeof old_path,
+                                         sys::user_range::string(s.address)) ||
+                    !sys::copy_in_string(new_path, sizeof new_path,
+                                         sys::user_range::string(s.offset)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* current = proc::current_process();
+                char old_resolved[256];
+                char new_resolved[256];
+                if (current == nullptr || current->resolve_path(old_path, old_resolved,
+                                                                  sizeof old_resolved) < 0 ||
+                    current->resolve_path(new_path, new_resolved, sizeof new_resolved) < 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                const long rc = fs::rename_path(old_resolved, new_resolved);
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+            }
+
             case OP_DUP: {
                 proc::process*           current = proc::current_process();
                 mm::shptr<fs::open_file> source  = file_for(s.fd);

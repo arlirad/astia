@@ -119,6 +119,7 @@ namespace astia::fs {
     }
     long mount::mkdir(const char*, u32) { return -ENOSYS; }
     long mount::unlink(const char*, bool) { return -ENOSYS; }
+    long mount::rename(const char*, const char*) { return -ENOSYS; }
     u32 mount::node_type(const char*) const { return directory_unknown; }
 
     bool init() {
@@ -215,6 +216,20 @@ namespace astia::fs {
         mount_entry* entry = find_mount(path);
         if (entry == nullptr) return -ENOENT;
         return entry->instance->unlink(relative_path(*entry, path), directory);
+    }
+
+    long rename_path(const char* old_path, const char* new_path) {
+        if (old_path == nullptr || new_path == nullptr || old_path[0] != '/' ||
+            new_path[0] != '/')
+            return -EINVAL;
+        mount_entry* old_entry = find_mount(old_path);
+        mount_entry* new_entry = find_mount(new_path);
+        if (old_entry == nullptr || new_entry == nullptr)
+            return -ENOENT;
+        if (old_entry->instance != new_entry->instance)
+            return -EXDEV;
+        return old_entry->instance->rename(relative_path(*old_entry, old_path),
+                                            relative_path(*new_entry, new_path));
     }
 
     u32 node_type(const char* path) {

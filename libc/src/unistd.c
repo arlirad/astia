@@ -228,10 +228,14 @@ int link(const char* old_path, const char* new_path) {
     return -1;
 }
 int rename(const char* old_path, const char* new_path) {
-    (void) old_path;
-    (void) new_path;
-    errno = ENOSYS;
-    return -1;
+    char old_resolved[256];
+    char new_resolved[256];
+    if (__astia_resolve_path(old_path, old_resolved, sizeof old_resolved) != 0 ||
+        __astia_resolve_path(new_path, new_resolved, sizeof new_resolved) != 0)
+        return -1;
+    long rc = __astia_fio_rename(old_resolved, new_resolved);
+    if (rc < 0) { errno = (int) -rc; return -1; }
+    return 0;
 }
 int execve(const char* path, char* const argv[], char* const envp[]) {
     char resolved[256];

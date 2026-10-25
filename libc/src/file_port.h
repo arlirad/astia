@@ -3,7 +3,7 @@
 /*
  * src/file_port.h — the file I/O port (private to the libc).
  *
- * Seven primitives: one per blocking file operation of the userspace
+ * Blocking file primitives: one per blocking file operation of the userspace
  * ABI, and the scatter/gather pair beside the single-buffer one.  This
  * is a platform seam like the kernel's arch layer — the build picks
  * which translation unit defines these, they are not injected anywhere:
@@ -72,6 +72,7 @@ long __astia_fio_stat(const char* path, void* out, uint32_t length);
 long __astia_fio_fstat(int fd, void* out, uint32_t length);
 long __astia_fio_mkdir(const char* path, int mode);
 long __astia_fio_unlink(const char* path, int directory);
+long __astia_fio_rename(const char* old_path, const char* new_path);
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out);
 long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length);
 long __astia_fio_pipe(int fds[2]);

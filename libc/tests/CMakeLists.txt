@@ -48,6 +48,10 @@ add_executable(libc_stat_test stat_test.c backend_host.c)
 target_link_libraries(libc_stat_test PRIVATE astia_libc)
 add_test(NAME libc_stat_test COMMAND libc_stat_test)
 
+add_executable(libc_rename_test rename_test.c backend_host.c)
+target_link_libraries(libc_rename_test PRIVATE astia_libc)
+add_test(NAME libc_rename_test COMMAND libc_rename_test)
+
 # errno's thread-locality is a design contract, so it gets a real second
 # thread: host pthreads as a thread source only, the object under test
 # is ours.

@@ -316,6 +316,10 @@ long __astia_fio_unlink(const char* path, int directory) {
                     directory ? UNLINKAT_REMOVEDIR : 0, 0);
 }
 
+long __astia_fio_rename(const char* old_path, const char* new_path) {
+    return transact(OP_RENAMEAT, -1, (uint64_t)(uintptr_t)new_path, old_path, 0, 0, 0);
+}
+
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
     return transact(OP_READDIR, (int32_t) index, (uint64_t) (uintptr_t) path, out,
                     (uint32_t) sizeof *out, 0, 0);

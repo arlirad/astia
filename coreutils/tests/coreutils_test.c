@@ -94,6 +94,8 @@ int main(void) {
     char* cp_file[] = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_copy", NULL};
     char* cp_stdin[] = {"cp", "-", "/tmp/coreutils_from_stdin", NULL};
     char* mv_file[] = {"mv", "/tmp/coreutils_copy", "/tmp/coreutils_moved", NULL};
+    char* mv_replace[] = {"mv", "/tmp/coreutils_a", "/tmp/coreutils_moved", NULL};
+    char* mv_missing[] = {"mv", "/tmp/coreutils_missing", "/tmp/coreutils_moved", NULL};
     char* rm_file[] = {"rm", "/tmp/coreutils_moved", NULL};
     char* rm_missing[] = {"rm", "/tmp/coreutils_moved", NULL};
     char* rm_force[] = {"rm", "-f", "/tmp/coreutils_moved", NULL};
@@ -146,7 +148,10 @@ int main(void) {
          !is_file("/tmp/coreutils_from_stdin") ||
          check("mv", mv_file, NULL, 0, NULL, 0) ||
          !is_file("/tmp/coreutils_moved") ||
-         check("rm", rm_file, NULL, 0, NULL, 0) ||
+          check("mv replacement", mv_replace, NULL, 0, NULL, 0) ||
+          is_file("/tmp/coreutils_a") || !is_file("/tmp/coreutils_moved") ||
+          check("mv missing", mv_missing, NULL, 1, NULL, 0) ||
+          check("rm", rm_file, NULL, 0, NULL, 0) ||
          is_file("/tmp/coreutils_moved") ||
          check("rm missing", rm_missing, NULL, 1, NULL, 0) ||
          check("rm -f", rm_force, NULL, 0, NULL, 0) ||

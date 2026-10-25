@@ -3,6 +3,11 @@
 #include <fcntl.h>
 
 static int move_file(const char* source, const char* destination) {
+    if (rename(source, destination) == 0) return 0;
+    if (errno != EXDEV) return cu_error("mv", source);
+
+    /* Cross-filesystem moves cannot be atomic; retain the traditional
+       copy-and-unlink fallback, but never hide native rename errors. */
     int input = open(source, O_RDONLY);
     if (input < 0) return cu_error("mv", source);
     int output = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0666);

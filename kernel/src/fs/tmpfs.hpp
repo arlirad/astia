@@ -33,6 +33,7 @@ namespace astia::fs {
         mm::shptr<open_file> open(const char* path, u32 flags) override;
         long mkdir(const char* path, u32 mode) override;
         long unlink(const char* path, bool directory) override;
+        long rename(const char* old_path, const char* new_path) override;
         u32 node_type(const char* path) const override;
 
         private:
