@@ -493,15 +493,19 @@ namespace astia::sys {
                                          sys::user_range::string(s.address))) {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 }
+                auto* current = proc::current_process();
+                char resolved[256];
+                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
                 // op_flags carries O_*; aux is the creation mode.  The
                 // VFS needs the former to implement O_CREAT/O_TRUNC on
                 // writable filesystems, while mode remains metadata for
                 // a future permission layer.
-                mm::shptr<fs::open_file> object = fs::open(path, s.op_flags);
+                mm::shptr<fs::open_file> object = fs::open(resolved, s.op_flags);
                 if (!object) {
                     return cq_post_guarded(ring, s.user_data, -ENOENT);
                 }
-                proc::process* current = proc::current_process();
+                current = proc::current_process();
                 if (current == nullptr) {
                     return cq_post_guarded(ring, s.user_data, -ESRCH);
                 }
@@ -598,13 +602,17 @@ namespace astia::sys {
                 if (!sys::copy_in_string(path, sizeof path,
                                          sys::user_range::string(s.offset)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* current = proc::current_process();
+                char resolved[256];
+                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
                 const sys::user_range out =
                     sys::user_range::bytes(s.address, sizeof(astia_dirent));
                 if (!sys::user_range_ok(out))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* result = reinterpret_cast<astia_dirent*>(out.address());
                 __builtin_memset(result, 0, sizeof *result);
-                long rc = fs::read_directory(path, s.fd < 0 ? 0 : s.fd, result->name,
+                long rc = fs::read_directory(resolved, s.fd < 0 ? 0 : s.fd, result->name,
                                              sizeof result->name, &result->type);
                 if (rc > 0) {
                     u32 length = 0;
