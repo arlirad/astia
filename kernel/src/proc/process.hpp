@@ -59,6 +59,10 @@ namespace astia::proc {
         void inherit_groups(const process& parent) {
             process_group_ = parent.process_group_;
             session_       = parent.session_;
+            for (usize i = 0; i < fs::path_max; ++i) {
+                cwd_[i] = parent.cwd_[i];
+                if (cwd_[i] == '\0') break;
+            }
         }
         void process_group(pid_t value) {
             process_group_ = value;
