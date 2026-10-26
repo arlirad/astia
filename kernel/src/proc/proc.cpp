@@ -220,7 +220,7 @@ namespace astia::proc {
         return find_group_locked(group, session) != nullptr;
     }
 
-    i64 terminal_signal_foreground(pgrp_t foreground, signal_t signal) {
+    i64 terminal_signal_foreground(pgrp_t foreground, signal_number signal) {
         if (foreground == pgrp_t{}) return -ESRCH;
         return signal_process_group(foreground, signal);
     }
@@ -310,8 +310,8 @@ namespace astia::proc {
         return static_cast<i64>(static_cast<u32>(owner->session()));
     }
 
-    i64 signal_process_group(pgrp_t group, signal_t value) {
-        if (!valid_signal(value) && value != signal_t{})
+    i64 signal_process_group(pgrp_t group, signal_number value) {
+        if (!valid_signal(value) && value != signal_number{})
             return -EINVAL;
         bool                 found = false;
         process* targets[registry_capacity]{};
@@ -328,7 +328,7 @@ namespace astia::proc {
                 targets[count++] = target;
             }
         }
-        if (value != static_cast<signal_t>(0)) {
+        if (value != signal_number{}) {
             for (u32 i = 0; i < count; ++i) {
                 if (!targets[i]->signals().send(value)) return -EINVAL;
                 if (is_uncatchable(value) ||

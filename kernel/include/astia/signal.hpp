@@ -38,8 +38,6 @@ namespace astia {
         sys    = 31,
     };
 
-    using signal_t = signal_number;
-
     inline constexpr u32 signal_count = 32;
     using signal_mask                 = u32;
     using signal_handler              = void (*)(int);
@@ -73,7 +71,7 @@ namespace astia {
 
     constexpr bool valid_signal(signal_number signal) {
         const u8 value = static_cast<u8>(signal);
-        return value > 0 && value < signal_count;
+        return value > 0 && value < signal_count && value != 16;
     }
 
     constexpr signal_mask signal_bit(signal_number signal) {

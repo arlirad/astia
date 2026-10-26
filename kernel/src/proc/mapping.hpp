@@ -6,11 +6,12 @@
 namespace astia {
 
     template <>
-    struct mapper<signal_t> {
-        static optional<signal_t> from(i64 raw) {
-            if (raw < 0 || raw >= static_cast<i64>(signal_count))
-                return optional<signal_t>(error_t::einval);
-            return optional<signal_t>(static_cast<signal_t>(raw));
+    struct mapper<signal_number> {
+        static optional<signal_number> from(i64 raw) {
+            if (raw < 0 || raw >= static_cast<i64>(signal_count) ||
+                !valid_signal(static_cast<signal_number>(raw)))
+                return optional<signal_number>(error_t::einval);
+            return optional<signal_number>(static_cast<signal_number>(raw));
         }
     };
 

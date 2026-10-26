@@ -7,7 +7,9 @@
 namespace astia::proc::syscall {
 
     i64 kill(i32 pid_raw, i32 signal_raw) {
-        auto mapped_signal = mapper<signal_t>::from(signal_raw);
+        auto mapped_signal = signal_raw == 0
+            ? optional<signal_number>(signal_number{})
+            : mapper<signal_number>::from(signal_raw);
         if (!mapped_signal) return -EINVAL;
 
         if (pid_raw <= 0) {

@@ -62,17 +62,29 @@ ASTIA_TEST(permission_bits_require_all_requested_bits) {
 ASTIA_TEST(process_domain_mappers_reject_invalid_values) {
     const auto pid = astia::mapper<astia::pid_t>::from(0);
     const auto group = astia::mapper<astia::pgrp_t>::from(-1);
-    const auto signal = astia::mapper<astia::signal_t>::from(32);
+    const auto signal = astia::mapper<astia::signal_number>::from(32);
     ASTIA_CHECK(!pid.has_value && pid.error == astia::error_t::einval);
     ASTIA_CHECK(!group.has_value && group.error == astia::error_t::einval);
     ASTIA_CHECK(!signal.has_value && signal.error == astia::error_t::einval);
+}
+
+ASTIA_TEST(process_domain_mappers_reject_undefined_values) {
+    ASTIA_CHECK(!astia::mapper<astia::signal_number>::from(-1).has_value);
+    ASTIA_CHECK(!astia::mapper<astia::signal_number>::from(16).has_value);
+    ASTIA_CHECK(!astia::mapper<astia::signal_number>::from(0).has_value);
+    ASTIA_CHECK(!astia::mapper<astia::pid_t>::from(-1).has_value);
+    ASTIA_CHECK(!astia::mapper<astia::pid_t>::from(0x100000000ll).has_value);
+    ASTIA_CHECK(!astia::mapper<astia::pgrp_t>::from(0).has_value);
+    ASTIA_CHECK(!astia::mapper<astia::pgrp_t>::from(0x100000000ll).has_value);
 }
 
 ASTIA_TEST(descriptor_mapper_keeps_abi_integer_at_boundary) {
     const auto valid = astia::mapper<astia::fd_t>::from(7);
     const auto negative = astia::mapper<astia::fd_t>::from(-1);
     const auto too_large = astia::mapper<astia::fd_t>::from(64);
+    const auto last = astia::mapper<astia::fd_t>::from(astia::proc::max_process_fds - 1);
     ASTIA_CHECK(valid.has_value && valid.value.value == 7);
     ASTIA_CHECK(!negative.has_value && negative.error == astia::error_t::ebadf);
     ASTIA_CHECK(!too_large.has_value && too_large.error == astia::error_t::ebadf);
+    ASTIA_CHECK(last.has_value && last.value.value == astia::proc::max_process_fds - 1);
 }

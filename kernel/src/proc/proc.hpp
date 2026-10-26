@@ -50,7 +50,7 @@ namespace astia::proc {
     bool   process_group_exists(pgrp_t group, pid_t session);
     /// Terminal line-discipline hooks.  These deliberately operate on the
     /// caller's native process group rather than manufacturing IDs in tty.
-    i64    terminal_signal_foreground(pgrp_t foreground, signal_t signal);
+    i64    terminal_signal_foreground(pgrp_t foreground, signal_number signal);
     bool   terminal_read_allowed(pgrp_t foreground);
     bool   terminal_write_allowed(pgrp_t foreground, bool tostop);
     bool   terminal_set_foreground_allowed(pgrp_t foreground);
@@ -60,7 +60,7 @@ namespace astia::proc {
     i64   setsid();
     /// Send a signal to every live member of a process group.  Signal zero
     /// only checks that the group has a live member.
-    i64 signal_process_group(pgrp_t group, signal_t signal);
+    i64 signal_process_group(pgrp_t group, signal_number signal);
 
     /// Wait for a child of the current process to exit and reap it.
     /// pid > 0 waits for that child, pid == -1 for any child.  Returns

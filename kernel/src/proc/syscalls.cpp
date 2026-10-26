@@ -117,7 +117,7 @@ namespace syscall {
             }
             if (default_action(signal) == signal_default::terminate ||
                 default_action(signal) == signal_default::core) {
-                owner->signal_termination(static_cast<i32>(signal));
+                owner->signal_termination(signal);
                 self->exit(reinterpret_cast<void*>(128u + static_cast<u8>(signal)));
                 __builtin_unreachable();
             }
@@ -137,7 +137,7 @@ namespace syscall {
             owner->signals().send(signal);
             return;
         fatal_signal:
-            owner->signal_termination(static_cast<i32>(signal));
+            owner->signal_termination(signal);
             self->exit(reinterpret_cast<void*>(128u + static_cast<u8>(signal)));
             __builtin_unreachable();
         }

@@ -15,7 +15,6 @@ namespace astia {
 
     using usize = __SIZE_TYPE__;
     using isize = __PTRDIFF_TYPE__;
-    using raw_fd_t = i32;
     struct fd_t {
         i32 value = -1;
         constexpr fd_t() = default;

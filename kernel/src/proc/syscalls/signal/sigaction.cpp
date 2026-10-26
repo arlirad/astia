@@ -14,7 +14,7 @@ namespace astia::proc::syscall {
 
 
         i64 sigaction(i32 value, u64 next_ptr, u64 old_ptr) {
-            auto mapped_signal = mapper<signal_t>::from(value);
+            auto mapped_signal = mapper<signal_number>::from(value);
             if (!mapped_signal || !valid_signal(mapped_signal.value)) return -EINVAL;
             const auto signal = mapped_signal.value;
             auto*      owner  = current_process();

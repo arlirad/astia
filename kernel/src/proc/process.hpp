@@ -111,8 +111,8 @@ namespace astia::proc {
         void clear_stop_event() { stop_event_ = false; }
         void clear_continued_event() { continued_event_ = false; }
         void signal_state_change(signal_number signal);
-        void signal_termination(i32 signal) {
-            termination_signal_ = signal;
+        void signal_termination(signal_number signal) {
+            termination_signal_ = static_cast<i32>(signal);
         }
 
         signal_state& signals() {

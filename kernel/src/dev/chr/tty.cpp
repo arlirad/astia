@@ -13,7 +13,7 @@ namespace astia::proc {
     bool terminal_read_allowed(pgrp_t) __attribute__((weak));
     bool terminal_write_allowed(pgrp_t, bool) __attribute__((weak));
     bool terminal_set_foreground_allowed(pgrp_t) __attribute__((weak));
-    i64 terminal_signal_foreground(pgrp_t, signal_t) __attribute__((weak));
+    i64 terminal_signal_foreground(pgrp_t, signal_number) __attribute__((weak));
 }
 
 namespace astia::dev {
