@@ -315,7 +315,9 @@ namespace astia::fs {
                 rlen = 1; result[0]='/';
             }
         }
-        if (rlen > capacity) return -ENAMETOOLONG;
+        // rlen excludes the terminating NUL; leave room for it in the
+        // caller's buffer before copying the complete string below.
+        if (rlen + 1 > capacity) return -ENAMETOOLONG;
         for (u32 i=0;i<=rlen;++i) buffer[i]=result[i];
         return 0;
     }

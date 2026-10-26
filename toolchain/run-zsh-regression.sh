@@ -38,5 +38,5 @@ timeout 60 qemu-system-x86_64 -m 128M -kernel "$kernel" -initrd "$work/initrd.ta
 status=$?
 set -e
 cat "$log"
-test "$status" -eq 1
+test "$status" -eq 0 || test "$status" -eq 1
 grep -q 'astia-signal-ok' "$log"

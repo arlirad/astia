@@ -158,10 +158,10 @@ namespace astia::fs {
         if (node_type(parent) != directory_dir) return -ENOENT;
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (!entries_[i].used) {
+                if (!copy_path(entries_[i].path, path)) return -ENAMETOOLONG;
                 entries_[i].used = true;
                 entries_[i].directory = true;
                 entries_[i].mode = 0040000 | (mode & 07777u);
-                if (!copy_path(entries_[i].path, path)) return -ENAMETOOLONG;
                 return 0;
             }
         }

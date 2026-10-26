@@ -158,6 +158,7 @@ int main(void) {
     char* grep_match[] = {"grep", "beta", NULL};
     char* grep_numbered[] = {"grep", "-n", "beta", NULL};
     char* grep_insensitive[] = {"grep", "-i", "BETA", NULL};
+    char* grep_empty_insensitive[] = {"grep", "-i", "", NULL};
     char* grep_inverted[] = {"grep", "-v", "beta", NULL};
     char* grep_none[] = {"grep", "missing", NULL};
     char* grep_missing[] = {"grep", "pattern", "/tmp/coreutils_missing", NULL};
@@ -267,6 +268,7 @@ int main(void) {
           check("grep match", grep_match, "alpha\nbeta\ngamma\n", 0, NULL, 0) ||
           check("grep -n", grep_numbered, "alpha\nbeta\n", 0, "2:beta\n", 1) ||
           check("grep -i", grep_insensitive, "alpha\nBeta\ngamma\n", 0, NULL, 0) ||
+          check("grep -i empty", grep_empty_insensitive, "\n", 0, "\n", 1) ||
           check("grep -v", grep_inverted, "alpha\nbeta\n", 0, NULL, 0) ||
          check("grep no match", grep_none, "alpha\nbeta\n", 1, NULL, 0) ||
          check("grep missing file", grep_missing, NULL, 2, NULL, 0) ||

@@ -30,6 +30,7 @@ static int grep_fd(int fd, const char* name, const char* pattern, int invert, in
             found = strstr(line, pattern) != 0;
         } else {
             size_t pattern_length = strlen(pattern);
+            if (pattern_length == 0) found = 1;
             for (size_t start = 0; line[start] != '\0' && !found; ++start) {
                 size_t i = 0;
                 while (i < pattern_length && line[start + i] != '\0' &&
