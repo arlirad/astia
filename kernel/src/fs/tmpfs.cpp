@@ -343,7 +343,9 @@ namespace astia::fs {
     long tmpfs_mount::chown(const char* path, uid_t uid, gid_t gid) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
         for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) {
-            entries_[i].uid=uid; entries_[i].gid=gid; return 0;
+            entries_[i].uid=uid; entries_[i].gid=gid;
+            if (entries_[i].object) (void)entries_[i].object->chown(uid, gid);
+            return 0;
         }
         return -ENOENT;
     }

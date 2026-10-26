@@ -5,9 +5,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 static int fails;
+extern long syscall(long number, ...);
+static unsigned int host_uid(void) { return (unsigned int)syscall(SYS_getuid); }
+static unsigned int host_gid(void) { return (unsigned int)syscall(SYS_getgid); }
 #define CHECK(x) do { if (!(x)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); ++fails; } } while (0)
 
 int main(void) {
@@ -31,11 +35,21 @@ int main(void) {
         CHECK(fstat(fd, &fst) == 0 && S_ISREG(fst.st_mode) && fst.st_size == 3);
         CHECK(stat(file, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 3);
         CHECK((st.st_mode & 0777) == 0644);
-        CHECK(chmod(file, 0600) == 0);
-        CHECK(stat(file, &st) == 0 && (st.st_mode & 0777) == 0600);
+    CHECK(chmod(file, 0600) == 0);
+    CHECK(stat(file, &st) == 0 && (st.st_mode & 0777) == 0600);
+        CHECK(chown(file, host_uid(), host_gid()) == 0);
+        CHECK(stat(file, &st) == 0 && st.st_uid == host_uid() && st.st_gid == host_gid());
         CHECK(close(fd) == 0);
     }
     CHECK(symlink("file", link) == 0);
+    CHECK(lchown(link, host_uid(), host_gid()) == 0);
+    CHECK(lstat(link, &st) == 0 && st.st_uid == host_uid() && st.st_gid == host_gid());
+    fd = open(file, O_RDONLY, 0);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        CHECK(fchown(fd, host_uid(), host_gid()) == 0);
+        CHECK(close(fd) == 0);
+    }
     CHECK(stat(link, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 3);
     CHECK(lstat(link, &st) == 0 && S_ISLNK(st.st_mode));
     { char target[16] = {0}; CHECK(readlink(link, target, sizeof target) == 4 && strcmp(target, "file") == 0); }

@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -6,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
 
 static int fail(const char* what) {
     printf("coreutils test failed: %s\n", what);
@@ -42,6 +44,31 @@ static int file_equals(const char* path, const char* expected) {
         return 0;
     buffer[length] = '\0';
     return strcmp(buffer, expected) == 0;
+}
+
+static int credential_checks(void) {
+    const char* file = "/tmp/coreutils_owner";
+    const char* link = "/tmp/coreutils_owner_link";
+    struct stat st;
+    gid_t groups[16];
+    int count = getgroups(0, NULL);
+    if (count < 0 || count > 16 || setgroups(-1, groups) != -1 || errno != EINVAL)
+        return fail("groups validation");
+    if (count != 0 && getgroups(count, groups) != count)
+        return fail("getgroups");
+    (void) unlink(file);
+    (void) unlink(link);
+    int fd = open(file, O_CREAT | O_RDWR, 0640);
+    if (fd < 0 || fstat(fd, &st) != 0 || st.st_uid != getuid() || st.st_gid != getgid())
+        return fail("ownership inheritance");
+    if (chown(file, getuid(), getgid()) != 0 ||
+        symlink(file, link) != 0 || lchown(link, getuid(), getgid()) != 0 ||
+        lstat(link, &st) != 0 || !S_ISLNK(st.st_mode))
+        return fail("ownership APIs");
+    close(fd);
+    unlink(link);
+    unlink(file);
+    return 0;
 }
 
 /* Run one real utility, collecting stdout and checking its exit status and
@@ -112,6 +139,8 @@ static int check(const char* name, char* const argv[], const char* input,
 }
 
 int main(void) {
+    if (credential_checks() != 0)
+        return 1;
     if (chdir("/bin") != 0)
         return fail("runner chdir");
     char* cat_stdin[] = {"cat", NULL};

@@ -734,23 +734,34 @@ namespace astia::sys {
             }
 
             case OP_CHOWN: {
-                char path[256];
-                if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(s.address)))
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
-                char resolved[256];
-                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                /* Only root may change ownership.  A non-root owner may
-                   change group to one of its supplementary groups; this
-                   implementation intentionally keeps chown authorization
-                   conservative until setgroups is wired below. */
-                if (current->euid() != 0)
-                    return cq_post_guarded(ring, s.user_data, -EPERM);
                 auto owner = mapper<uid_t>::from(static_cast<i64>(s.aux));
                 auto group = mapper<gid_t>::from(static_cast<i64>(s.offset));
                 if (!owner.has_value || !group.has_value)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
+                if (current == nullptr) return cq_post_guarded(ring, s.user_data, -ESRCH);
+                if (s.fd >= 0) {
+                    auto object = current->descriptor(fd_t{s.fd});
+                    if (!object) return cq_post_guarded(ring, s.user_data, -EBADF);
+                    if (current->euid() != 0 &&
+                        (current->euid() != static_cast<u32>(object->backing()->uid()) ||
+                         owner.value != object->backing()->uid() ||
+                         !current->in_group(group.value)))
+                        return cq_post_guarded(ring, s.user_data, -EPERM);
+                    return cq_post_guarded(ring, s.user_data,
+                        static_cast<i32>(object->backing()->chown(owner.value, group.value)));
+                }
+                char path[256];
+                if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(s.address)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                char resolved[256];
+                if (current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                const uid_t existing_uid = fs::node_uid(resolved);
+                if (current->euid() != 0 &&
+                    (current->euid() != static_cast<u32>(existing_uid) ||
+                     owner.value != existing_uid || !current->in_group(group.value)))
+                    return cq_post_guarded(ring, s.user_data, -EPERM);
                 return cq_post_guarded(ring, s.user_data,
                     static_cast<i32>(fs::chown_path(resolved, owner.value, group.value,
                                                     (s.op_flags & STATX_NOFOLLOW) == 0)));

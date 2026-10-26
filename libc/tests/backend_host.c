@@ -224,6 +224,10 @@ long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid, int
     long rc = syscall(nofollow ? SYS_lchown : SYS_chown, path, uid, gid);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
+long __astia_fio_fchown(int fd, unsigned int uid, unsigned int gid) {
+    long rc = syscall(SYS_fchown, fd, uid, gid);
+    return rc < 0 ? -HOST_ERRNO : rc;
+}
 
 long __astia_fio_utime(const char* path) {
     long rc = syscall(SYS_utimensat, -100, path, 0, 0);

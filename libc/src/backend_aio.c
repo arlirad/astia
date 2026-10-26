@@ -321,6 +321,9 @@ long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid, int
     return transact(OP_CHOWN, -1, gid, path, 0,
                     nofollow ? STATX_NOFOLLOW : 0, uid);
 }
+long __astia_fio_fchown(int fd, unsigned int uid, unsigned int gid) {
+    return transact(OP_CHOWN, fd, gid, NULL, 0, 0, uid);
+}
 
 long __astia_fio_utime(const char* path) {
     return transact(OP_UTIMENSAT, AT_FDCWD, 0, path, 0, 0, 0);

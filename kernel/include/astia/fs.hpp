@@ -88,6 +88,7 @@ namespace astia::fs {
         virtual file_mode        mode() const;
         virtual uid_t            uid() const;
         virtual gid_t            gid() const;
+        virtual long             chown(uid_t owner, gid_t group);
         virtual u64              mtime_sec() const;
         virtual u64              mtime_nsec() const;
         virtual long             touch(u64 sec, u64 nsec);

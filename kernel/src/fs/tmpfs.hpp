@@ -19,6 +19,7 @@ namespace astia::fs {
         file_mode        mode() const override { return mode_; }
         uid_t            uid() const override { return uid_; }
         gid_t            gid() const override { return gid_; }
+        long             chown(uid_t owner, gid_t group) override { uid_ = owner; gid_ = group; return 0; }
         u64              mtime_sec() const override { return mtime_sec_; }
         u64              mtime_nsec() const override { return mtime_nsec_; }
         long             touch(u64 sec, u64 nsec) override;

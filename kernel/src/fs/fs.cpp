@@ -130,6 +130,7 @@ namespace astia::fs {
     gid_t mount::node_gid(const char*) const { return {}; }
     uid_t file::uid() const { return {}; }
     gid_t file::gid() const { return {}; }
+    long file::chown(uid_t, gid_t) { return -ENOSYS; }
     long mount::chmod(const char*, file_permissions) { return -ENOSYS; }
     long mount::chown(const char*, uid_t, gid_t) { return -ENOSYS; }
     long mount::symlink(const char*, const char*) { return -ENOSYS; }

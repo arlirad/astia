@@ -47,3 +47,13 @@ ASTIA_TEST(file_mode_permission_decisions_and_chmod_mask) {
     ASTIA_CHECK(!mode.other_allows(astia::fs::permission_bits::read));
     ASTIA_CHECK(mode.chmod(astia::fs::file_permissions(0777)).permissions().raw() == 0777);
 }
+
+ASTIA_TEST(permission_bits_require_all_requested_bits) {
+    const astia::fs::file_mode mode(astia::fs::file_type::regular,
+                                    astia::fs::file_permissions(0644));
+    ASTIA_CHECK(mode.owner_allows(astia::fs::permission_bits::read));
+    ASTIA_CHECK(!mode.owner_allows(static_cast<astia::fs::permission_bits>(5)));
+    ASTIA_CHECK(mode.group_allows(astia::fs::permission_bits::read));
+    ASTIA_CHECK(!mode.group_allows(astia::fs::permission_bits::write));
+    ASTIA_CHECK(mode.other_allows(astia::fs::permission_bits::read));
+}
