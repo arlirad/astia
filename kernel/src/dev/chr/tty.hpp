@@ -89,7 +89,7 @@ namespace astia::dev {
 
         struct termios           _termios;
         u32                      _column = 0; // cursor column, for OPOST work later
-        i32                      _foreground_pgrp  = 0;
+        pgrp_t                   _foreground_pgrp{};
         static constexpr bytes_t rx_capacity_bytes = 1_kib;
         u8                       _rx[rx_capacity_bytes]{};
         u8                       _line[rx_capacity_bytes]{};

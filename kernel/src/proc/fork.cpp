@@ -35,7 +35,7 @@ namespace astia::proc {
             return -EAGAIN;
         }
         child->state(process_state::runnable);
-        return static_cast<i64>(child->pid());
+        return static_cast<i64>(static_cast<u32>(child->pid()));
     }
 
 } // namespace astia::proc

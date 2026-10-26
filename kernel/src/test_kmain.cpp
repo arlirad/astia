@@ -34,7 +34,7 @@ namespace {
             return false;
         }
         spawned                    = true;
-        const astia::i32 child_pid = static_cast<astia::i32>(process->pid());
+        const astia::i32 child_pid = static_cast<astia::i32>(static_cast<astia::u32>(process->pid()));
         astia::i32       status    = -1;
         const astia::i64 reaped    = astia::proc::waitpid(child_pid, &status);
         // waitpid re-enables IRQs before returning. Keep process teardown on

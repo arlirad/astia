@@ -41,7 +41,7 @@ namespace astia::proc::syscall {
                 result = copy_in_vector(envp_vec, pool + vec_max * arg_cap, envp_ptr);
             if (result == 0) {
                 exec_logs::info("request pid=%d path=%s argv0=%s argv1=%s",
-                                exec_owner ? static_cast<int>(exec_owner->pid()) : -1,
+                                exec_owner ? static_cast<int>(static_cast<u32>(exec_owner->pid())) : -1,
                                 path, argv_vec[0] ? argv_vec[0] : "(null)",
                                 argv_vec[1] ? argv_vec[1] : "(null)");
             }

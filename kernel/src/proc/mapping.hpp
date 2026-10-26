@@ -32,11 +32,20 @@ namespace astia {
                              static_cast<u64>(proc::wait_options::continued)> {};
 
     template <>
-    struct mapper<proc::pid_t> {
-        static optional<proc::pid_t> from(i64 raw) {
+    struct mapper<pid_t> {
+        static optional<pid_t> from(i64 raw) {
             if (raw <= 0 || raw > 0xffffffffll)
-                return optional<proc::pid_t>(error_t::einval);
-            return optional<proc::pid_t>(static_cast<proc::pid_t>(raw));
+                return optional<pid_t>(error_t::einval);
+            return optional<pid_t>(pid_t{static_cast<u32>(raw)});
+        }
+    };
+
+    template <>
+    struct mapper<pgrp_t> {
+        static optional<pgrp_t> from(i64 raw) {
+            if (raw <= 0 || raw > 0xffffffffll)
+                return optional<pgrp_t>(error_t::einval);
+            return optional<pgrp_t>(pgrp_t{static_cast<u32>(raw)});
         }
     };
 

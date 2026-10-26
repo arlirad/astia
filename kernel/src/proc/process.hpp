@@ -12,9 +12,6 @@
 
 namespace astia::proc {
 
-    using pid_t  = u32;
-    using pgrp_t = pid_t;
-
     inline constexpr u32 max_process_threads        = 16;
     inline constexpr u32 max_process_waiters        = 4;
     inline constexpr u32 max_process_signal_waiters = max_process_threads;
@@ -47,7 +44,7 @@ namespace astia::proc {
         pid_t parent_pid() const {
             return parent_pid_;
         }
-        pid_t process_group() const {
+        pgrp_t process_group() const {
             return process_group_;
         }
         pid_t session() const {
@@ -84,7 +81,7 @@ namespace astia::proc {
             uid_=parent.uid_; euid_=parent.euid_; gid_=parent.gid_; egid_=parent.egid_;
             group_count_=parent.group_count_; for (u32 i=0;i<group_count_;++i) groups_[i]=parent.groups_[i];
         }
-        void process_group(pid_t value) {
+        void process_group(pgrp_t value) {
             process_group_ = value;
         }
         void session(pid_t value) {
@@ -276,7 +273,7 @@ namespace astia::proc {
                               usize region_page = 0, bool shared = false);
         pid_t pid_;
         pid_t parent_pid_;
-        pid_t process_group_;
+        pgrp_t process_group_;
         pid_t session_;
         fs::file* controlling_terminal_ = nullptr;
         u32 uid_=0, euid_=0, gid_=0, egid_=0;

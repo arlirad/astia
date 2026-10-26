@@ -3,6 +3,7 @@
 #include <astia/fs.hpp>
 
 #include "../src/fs/mapping.hpp"
+#include "../src/proc/mapping.hpp"
 #include "test.hpp"
 
 namespace {
@@ -56,4 +57,22 @@ ASTIA_TEST(permission_bits_require_all_requested_bits) {
     ASTIA_CHECK(mode.group_allows(astia::fs::permission_bits::read));
     ASTIA_CHECK(!mode.group_allows(astia::fs::permission_bits::write));
     ASTIA_CHECK(mode.other_allows(astia::fs::permission_bits::read));
+}
+
+ASTIA_TEST(process_domain_mappers_reject_invalid_values) {
+    const auto pid = astia::mapper<astia::pid_t>::from(0);
+    const auto group = astia::mapper<astia::pgrp_t>::from(-1);
+    const auto signal = astia::mapper<astia::signal_t>::from(32);
+    ASTIA_CHECK(!pid.has_value && pid.error == astia::error_t::einval);
+    ASTIA_CHECK(!group.has_value && group.error == astia::error_t::einval);
+    ASTIA_CHECK(!signal.has_value && signal.error == astia::error_t::einval);
+}
+
+ASTIA_TEST(descriptor_mapper_keeps_abi_integer_at_boundary) {
+    const auto valid = astia::mapper<astia::fd_t>::from(7);
+    const auto negative = astia::mapper<astia::fd_t>::from(-1);
+    const auto too_large = astia::mapper<astia::fd_t>::from(64);
+    ASTIA_CHECK(valid.has_value && valid.value.value == 7);
+    ASTIA_CHECK(!negative.has_value && negative.error == astia::error_t::ebadf);
+    ASTIA_CHECK(!too_large.has_value && too_large.error == astia::error_t::ebadf);
 }

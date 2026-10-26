@@ -232,8 +232,10 @@ namespace astia::sys {
 
         mm::shptr<fs::open_file> file_for(i32 fd) {
             proc::process* current = proc::current_process();
+            auto mapped = mapper<fd_t>::from(fd);
+            if (!mapped.has_value) return {};
             return current == nullptr ? mm::shptr<fs::open_file>{}
-                                       : current->descriptor(fd_t{fd});
+                                       : current->descriptor(mapped.value);
         }
 
         /// What one pump() did with an operation.  The two cannot share a
@@ -548,10 +550,11 @@ namespace astia::sys {
 
             case OP_CLOSE: {
                 proc::process* current = proc::current_process();
-                if (current == nullptr || !current->descriptor(fd_t{s.fd})) {
+                auto mapped = mapper<fd_t>::from(s.fd);
+                if (current == nullptr || !mapped.has_value || !current->descriptor(mapped.value)) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                current->clear_descriptor(fd_t{s.fd});
+                current->clear_descriptor(mapped.value);
                 return cq_post_guarded(ring, s.user_data, 0);
             }
 
@@ -602,7 +605,7 @@ namespace astia::sys {
                 if (current == nullptr || !source) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                const auto fd = current->duplicate_descriptor(fd_t{s.fd});
+                const auto fd = current->duplicate_descriptor(mapper<fd_t>::from(s.fd).value);
                 return cq_post_guarded(ring, s.user_data,
                                        fd ? static_cast<i64>(fd.value.value) : -EMFILE);
             }
@@ -610,12 +613,14 @@ namespace astia::sys {
             case OP_DUP2: {
                 proc::process*           current = proc::current_process();
                 mm::shptr<fs::open_file> source  = file_for(s.fd);
-                if (current == nullptr || !source || s.offset >= proc::max_process_fds) {
+                auto old_fd = mapper<fd_t>::from(s.fd);
+                auto new_fd = mapper<fd_t>::from(static_cast<i64>(s.offset));
+                if (current == nullptr || !source || !old_fd.has_value || !new_fd.has_value) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                const i32 target = static_cast<i32>(s.offset);
+                const i32 target = new_fd.value.value;
                 if (target != s.fd) {
-                    current->set_descriptor(fd_t{target}, source);
+                    current->set_descriptor(new_fd.value, source);
                 }
                 return cq_post_guarded(ring, s.user_data, target);
             }
@@ -741,7 +746,10 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
                 if (current == nullptr) return cq_post_guarded(ring, s.user_data, -ESRCH);
                 if (s.fd >= 0) {
-                    auto object = current->descriptor(fd_t{s.fd});
+                    auto mapped_fd = mapper<fd_t>::from(s.fd);
+                    if (!mapped_fd.has_value)
+                        return cq_post_guarded(ring, s.user_data, -EBADF);
+                    auto object = current->descriptor(mapped_fd.value);
                     if (!object) return cq_post_guarded(ring, s.user_data, -EBADF);
                     if (current->euid() != 0 &&
                         (current->euid() != static_cast<u32>(object->backing()->uid()) ||

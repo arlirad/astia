@@ -280,7 +280,7 @@ namespace astia::proc {
     } // namespace
 
     process::process(pid_t id, pid_t parent, const char* name)
-        : pid_(id), parent_pid_(parent), process_group_(id), session_(id) {
+        : pid_(id), parent_pid_(parent), process_group_(pgrp_t{static_cast<u32>(id)}), session_(id) {
         u32 i = 0;
         while (name != nullptr && name[i] != '\0' && i + 1 < sizeof(name_)) {
             name_[i] = name[i];
@@ -599,7 +599,7 @@ namespace astia::proc {
             auto tty = descriptor(fd_t{STDIN});
             if (tty) {
                 controlling_terminal(tty->backing());
-                i32 group = static_cast<i32>(process_group_);
+                i32 group = static_cast<i32>(static_cast<u32>(process_group_));
                 (void) tty->ioctl(TIOCSPGRP, &group);
             }
         }

@@ -305,7 +305,7 @@ namespace astia::dev {
         if (request == TIOCGPGRP) {
             if (argp == nullptr)
                 return -EINVAL;
-            *static_cast<i32*>(argp) = _foreground_pgrp;
+            *static_cast<i32*>(argp) = static_cast<i32>(static_cast<u32>(_foreground_pgrp));
             return 0;
         }
         if (request == TIOCSPGRP) {
@@ -313,9 +313,10 @@ namespace astia::dev {
                 return -EINVAL;
             const i32 group = *static_cast<const i32*>(argp);
             if (group <= 0 || (proc::terminal_set_foreground_allowed != nullptr &&
-                               !proc::terminal_set_foreground_allowed(group)))
+                               !proc::terminal_set_foreground_allowed(
+                                   pgrp_t{static_cast<u32>(group)})))
                 return -EPERM;
-            _foreground_pgrp = group;
+            _foreground_pgrp = pgrp_t{static_cast<u32>(group)};
             return 0;
         }
         return -ENOTTY;
