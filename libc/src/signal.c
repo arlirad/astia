@@ -94,11 +94,6 @@ int sigprocmask(int how, const sigset_t* set, sigset_t* old_set) {
 }
 
 int kill(int pid, int signal_number) {
-    /* Keep zsh's job-control probes and stop/continue notifications
-       non-fatal in this minimal libc. SIGCHLD/reaping uses the kernel wait
-       path separately. */
-    if (pid <= 0 || signal_number == SIGCONT || signal_number == SIGTSTP)
-        return 0;
     const long rc = astia_kill(pid, signal_number);
     if (rc < 0) {
         errno = (int) -rc;

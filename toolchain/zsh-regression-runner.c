@@ -4,6 +4,7 @@
 
 int main(void) {
     char* argv[] = {"/bin/zsh", "-f", "-c",
+                    "trap 'echo astia-signal-ok' INT; kill -INT $$; "
                     "echo hi | wc -l",
                     NULL};
     if (setenv("ASTIA_INHERITED", "parent", 1) != 0 ||

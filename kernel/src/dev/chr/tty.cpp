@@ -1,9 +1,20 @@
 #include "tty.hpp"
 
+#include "../../proc/proc.hpp"
 #include "../../sys/aio.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/log.hpp>
+
+// Host-side tty unit tests link this device in isolation.  The real kernel
+// supplies these from proc.cpp; weak declarations preserve that small test
+// seam without making tty invent process identities.
+namespace astia::proc {
+    bool terminal_read_allowed(pgrp_t) __attribute__((weak));
+    bool terminal_write_allowed(pgrp_t, bool) __attribute__((weak));
+    bool terminal_set_foreground_allowed(pgrp_t) __attribute__((weak));
+    i64 terminal_signal_foreground(pgrp_t, signal_t) __attribute__((weak));
+}
 
 namespace astia::dev {
 
@@ -29,6 +40,9 @@ namespace astia::dev {
 
     long tty::read(void* buf, u32 len, u64 off) {
         (void) off;
+        if (proc::terminal_read_allowed != nullptr &&
+            !proc::terminal_read_allowed(_foreground_pgrp))
+            return -EIO;
         arch::interrupt_guard gate;
         auto*                 dst   = static_cast<u8*>(buf);
         const u32             head  = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
@@ -51,6 +65,10 @@ namespace astia::dev {
 
     long tty::write(const void* buf, u32 len, u64 off) {
         (void) off;
+        if (proc::terminal_write_allowed != nullptr &&
+            !proc::terminal_write_allowed(_foreground_pgrp,
+                                          (_termios.c_lflag & TOSTOP) != 0))
+            return -EIO;
         if (_output_stopped) {
             return 0;
         }
@@ -293,7 +311,11 @@ namespace astia::dev {
         if (request == TIOCSPGRP) {
             if (argp == nullptr)
                 return -EINVAL;
-            _foreground_pgrp = *static_cast<const i32*>(argp);
+            const i32 group = *static_cast<const i32*>(argp);
+            if (group <= 0 || (proc::terminal_set_foreground_allowed != nullptr &&
+                               !proc::terminal_set_foreground_allowed(group)))
+                return -EPERM;
+            _foreground_pgrp = group;
             return 0;
         }
         return -ENOTTY;
@@ -322,7 +344,11 @@ namespace astia::dev {
     void tty::tty_ready() {}
 
     void tty::tty_signal(u8 byte) {
-        (void) byte;
+        signal_number signal = signal_number::int_;
+        if (byte == _termios.c_cc[VQUIT]) signal = signal_number::quit;
+        else if (byte == _termios.c_cc[VSUSP]) signal = signal_number::tstp;
+        if (proc::terminal_signal_foreground != nullptr)
+            (void) proc::terminal_signal_foreground(_foreground_pgrp, signal);
     }
 
     long tty::tty_speed(speed_t speed) {

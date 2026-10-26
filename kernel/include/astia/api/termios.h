@@ -78,6 +78,7 @@ struct termios {
 #define ECHOE 0x000010
 #define ECHOK 0x000020
 #define ECHONL 0x000040
+#define TOSTOP 0x000100
 
 /* baud rate indices (glibc numbering; each device maps them onto its
    own line rate) */

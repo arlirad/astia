@@ -45,6 +45,15 @@ namespace astia::proc {
 
     /// Process-group/session operations for the calling process.
     pgrp_t getpgrp();
+    pid_t  getsid();
+    /// True when a live process in `group` belongs to `session`.
+    bool   process_group_exists(pgrp_t group, pid_t session);
+    /// Terminal line-discipline hooks.  These deliberately operate on the
+    /// caller's native process group rather than manufacturing IDs in tty.
+    i64    terminal_signal_foreground(pgrp_t foreground, signal_t signal);
+    bool   terminal_read_allowed(pgrp_t foreground);
+    bool   terminal_write_allowed(pgrp_t foreground, bool tostop);
+    bool   terminal_set_foreground_allowed(pgrp_t foreground);
     i64    setpgid(pid_t pid, pgrp_t pgid);
     i64   setsid();
     /// Send a signal to every live member of a process group.  Signal zero

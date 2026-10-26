@@ -74,7 +74,7 @@ text = text.replace(old, new, 1)
 old = """\tif (!do_exec &&
 \t    (((is_builtin || is_shfunc) && output) ||
 \t     (!is_cursh && (last1 != 1 || nsigtrapped || havefiles() ||
-\t\t\t    fdtable_flocks)))) {"""
+\t\t\t    fdtable_flocks))) {"""
 new = """\tif (!do_exec &&
 #ifndef ASTIA /* ASTIA synchronous builtin pipeline stage */
 \t    (((is_builtin || is_shfunc) && output) ||

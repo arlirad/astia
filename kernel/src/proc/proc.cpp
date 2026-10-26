@@ -201,6 +201,49 @@ namespace astia::proc {
         return owner == nullptr ? 0 : owner->process_group();
     }
 
+    pid_t getsid() {
+        process* owner = current_process();
+        return owner == nullptr ? 0 : owner->session();
+    }
+
+    bool process_group_exists(pgrp_t group, pid_t session) {
+        core::spinlock_guard guard(registry_lock);
+        return find_group_locked(group, session) != nullptr;
+    }
+
+    i64 terminal_signal_foreground(pgrp_t foreground, signal_t signal) {
+        if (foreground == 0) return -ESRCH;
+        return signal_process_group(foreground, signal);
+    }
+
+    bool terminal_read_allowed(pgrp_t foreground) {
+        process* owner = current_process();
+        if (owner == nullptr || foreground == 0 ||
+            owner->process_group() == foreground)
+            return true;
+        // A real terminal stops the background group.  The scheduler does not
+        // yet expose stopped-child state to waitpid, so report the POSIX
+        // fallback error after queuing SIGTTIN rather than allowing a read
+        // from the wrong job.
+        (void) signal_process_group(owner->process_group(), signal_number::ttin);
+        return false;
+    }
+
+    bool terminal_write_allowed(pgrp_t foreground, bool tostop) {
+        process* owner = current_process();
+        if (owner == nullptr || foreground == 0 ||
+            owner->process_group() == foreground || !tostop)
+            return true;
+        (void) signal_process_group(owner->process_group(), signal_number::ttou);
+        return false;
+    }
+
+    bool terminal_set_foreground_allowed(pgrp_t foreground) {
+        process* owner = current_process();
+        if (owner == nullptr) return false;
+        return process_group_exists(foreground, owner->session());
+    }
+
     i64 setpgid(pid_t pid, pgrp_t pgid) {
         process* caller = current_process();
         if (caller == nullptr)

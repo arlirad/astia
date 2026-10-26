@@ -39,3 +39,4 @@ status=$?
 set -e
 cat "$log"
 test "$status" -eq 1
+grep -q 'astia-signal-ok' "$log"
