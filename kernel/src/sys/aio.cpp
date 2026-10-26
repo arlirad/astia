@@ -1,4 +1,5 @@
 #include "aio.hpp"
+#include "../fs/mapping.hpp"
 #include "time.hpp"
 
 #include "../ipc/pipe.hpp"
@@ -506,13 +507,13 @@ namespace astia::sys {
                     resolved[6] == 't' && resolved[7] == 'y' && resolved[8] == '\0' &&
                     !proc::has_controlling_terminal())
                     return cq_post_guarded(ring, s.user_data, -ENXIO);
-                const u32 existing_mode = fs::node_mode(resolved);
-                if (existing_mode != 0) {
+                const fs::file_mode existing_mode = fs::node_mode(resolved);
+                if (existing_mode.exists()) {
                     auto* cred = proc::current_process();
                     const u32 owner = fs::node_uid(resolved), group = fs::node_gid(resolved);
-                    if ((s.op_flags & 2u) != 0 && !cred->can_access(existing_mode, owner, group, 2))
+                    if ((s.op_flags & 2u) != 0 && !cred->can_access(existing_mode, owner, group, fs::permission_bits::write))
                         return cq_post_guarded(ring, s.user_data, -EACCES);
-                    if ((s.op_flags & 1u) == 0 && !cred->can_access(existing_mode, owner, group, 4))
+                    if ((s.op_flags & 1u) == 0 && !cred->can_access(existing_mode, owner, group, fs::permission_bits::read))
                         return cq_post_guarded(ring, s.user_data, -EACCES);
                 }
                 // op_flags carries O_*; aux is the creation mode.  The
@@ -526,8 +527,11 @@ namespace astia::sys {
                 /* The VFS open seam predates creation metadata.  Apply the
                    requested mode only when this OPENAT created a new node;
                    an O_CREAT open of an existing node must not chmod it. */
-                if ((s.op_flags & 0x04u) != 0 && existing_mode == 0)
-                    (void)fs::chmod_path(resolved, s.aux == 0 ? 0666u : s.aux);
+                if ((s.op_flags & 0x04u) != 0 && !existing_mode.exists()) {
+                    auto requested = mapper<fs::file_permissions>::from(s.aux == 0 ? 0666 : s.aux);
+                    if (!requested.has_value) return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    (void)fs::chmod_path(resolved, requested.value);
+                }
                 current = proc::current_process();
                 if (current == nullptr) {
                     return cq_post_guarded(ring, s.user_data, -ESRCH);
@@ -560,10 +564,13 @@ namespace astia::sys {
                 if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0 ||
                     fs::resolve_path(resolved, resolved, sizeof resolved, s.op == OP_MKDIRAT) < 0)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
-                const long rc = s.op == OP_MKDIRAT
-                                    ? fs::make_directory(resolved, s.aux)
-                                    : fs::remove_path(resolved,
-                                                      (s.op_flags & UNLINKAT_REMOVEDIR) != 0);
+                 auto requested = mapper<fs::file_mode>::from(s.aux == 0 ? 0777 : s.aux);
+                 if (s.op == OP_MKDIRAT && !requested.has_value)
+                     return cq_post_guarded(ring, s.user_data, -EINVAL);
+                 const long rc = s.op == OP_MKDIRAT
+                                     ? fs::make_directory(resolved, requested.value)
+                                     : fs::remove_path(resolved,
+                                                       (s.op_flags & UNLINKAT_REMOVEDIR) != 0);
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
             }
 
@@ -640,7 +647,7 @@ namespace astia::sys {
                         resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
                                                       (s.op_flags & STATX_NOFOLLOW) == 0);
                     if (resolve_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
-                    const u32 type = fs::node_type(resolved);
+                     const fs::file_type type = fs::node_type(resolved);
                     if ((s.op_flags & STATX_NOFOLLOW) != 0 && type == fs::directory_lnk) {
                         __builtin_memset(reinterpret_cast<void*>(out.address()), 0, sizeof(astia_stat));
                         auto* link = reinterpret_cast<astia_stat*>(out.address());
@@ -648,7 +655,7 @@ namespace astia::sys {
                         long n = fs::read_symlink(resolved, target, sizeof target);
                         if (n < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(n));
                         link->dev=1; link->ino=1; link->nlink=1; link->size=(u64)n;
-                        link->mode=fs::node_mode(resolved); link->uid=fs::node_uid(resolved); link->gid=fs::node_gid(resolved);
+                        link->mode=mapper<fs::file_mode>::to(fs::node_mode(resolved)); link->uid=fs::node_uid(resolved); link->gid=fs::node_gid(resolved);
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                     object = fs::open_path(resolved);
@@ -659,13 +666,13 @@ namespace astia::sys {
                         directory->dev = 1;
                         directory->ino = 1;
                         directory->nlink = 1;
-                        directory->mode = fs::node_mode(resolved);
+                        directory->mode = mapper<fs::file_mode>::to(fs::node_mode(resolved));
                         directory->uid = fs::node_uid(resolved); directory->gid = fs::node_gid(resolved);
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                     if (!object) {
                         char child[256]{};
-                        u32 child_type = fs::directory_unknown;
+                        fs::file_type child_type = fs::directory_unknown;
                         if (fs::read_directory(resolved, 0, child, sizeof child, &child_type) <= 0) {
                             return cq_post_guarded(ring, s.user_data, -ENOENT);
                         }
@@ -675,7 +682,7 @@ namespace astia::sys {
                         directory->dev = 1;
                         directory->ino = 1;
                         directory->nlink = 1;
-                        directory->mode = fs::node_mode(resolved);
+                        directory->mode = mapper<fs::file_mode>::to(fs::node_mode(resolved));
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                 }
@@ -700,7 +707,7 @@ namespace astia::sys {
                 stat_out->nlink = 1;
                 stat_out->size   = static_cast<u64>(size);
                 stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
-                 stat_out->mode   = object->mode();
+                 stat_out->mode   = mapper<fs::file_mode>::to(object->mode());
                  stat_out->uid = object->backing()->uid(); stat_out->gid = object->backing()->gid();
                  stat_out->mtime_sec = object->mtime_sec();
                  stat_out->mtime_nsec = object->mtime_nsec();
@@ -717,8 +724,10 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
                 if (current->euid() != 0 && current->euid() != fs::node_uid(resolved))
                     return cq_post_guarded(ring, s.user_data, -EPERM);
+                auto requested = mapper<fs::file_permissions>::from(s.aux);
+                if (!requested.has_value) return cq_post_guarded(ring, s.user_data, -EINVAL);
                 return cq_post_guarded(ring, s.user_data,
-                                       static_cast<i32>(fs::chmod_path(resolved, s.aux)));
+                                       static_cast<i32>(fs::chmod_path(resolved, requested.value)));
             }
 
             case OP_UTIMENSAT: {
@@ -773,8 +782,10 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* result = reinterpret_cast<astia_dirent*>(out.address());
                 __builtin_memset(result, 0, sizeof *result);
-                long rc = fs::read_directory(resolved, s.fd < 0 ? 0 : s.fd, result->name,
-                                              sizeof result->name, &result->type);
+                 fs::file_type type = fs::directory_unknown;
+                 long rc = fs::read_directory(resolved, s.fd < 0 ? 0 : s.fd, result->name,
+                                               sizeof result->name, &type);
+                 result->type = static_cast<u32>(type);
                 if (rc > 0) {
                     u32 length = 0;
                     while (length < sizeof result->name && result->name[length] != '\0')

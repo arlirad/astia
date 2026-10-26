@@ -55,19 +55,19 @@ namespace astia::fs {
         }
         for (u32 i = 0; i < devfs_max_entries; ++i) {
             if (entries_[i].used && equal(entries_[i].path, path)) {
-                const u32 mode = entries_[i].object->mode();
+                const file_mode mode = entries_[i].object->mode();
                 // OPENAT uses bit 0 for write-only and bit 1 for read/write.
-                if ((flags & 2u) != 0 && ((mode & 0006) != 0006)) return {};
-                if ((flags & 2u) == 0 && (flags & 1u) != 0 && (mode & 0002) == 0)
+                if ((flags & 2u) != 0 && (!mode.other_allows(permission_bits::read) || !mode.other_allows(permission_bits::write))) return {};
+                if ((flags & 2u) == 0 && (flags & 1u) != 0 && !mode.other_allows(permission_bits::write))
                     return {};
-                if ((flags & 3u) == 0 && (mode & 0004) == 0) return {};
+                if ((flags & 3u) == 0 && !mode.other_allows(permission_bits::read)) return {};
                 return mm::share<open_file>(entries_[i].object, flags);
             }
         }
         return {};
     }
 
-    u32 devfs_mount::node_type(const char* path) const {
+    file_type devfs_mount::node_type(const char* path) const {
         // The node exists independently of whether the caller has a ctty;
         // only opening it requires a controlling terminal.
         if (equal(path, "/tty")) return directory_chr;
@@ -76,11 +76,11 @@ namespace astia::fs {
         return directory_unknown;
     }
 
-    u32 devfs_mount::node_mode(const char* path) const {
-        if (equal(path, "/tty")) return 0200666;
+    file_mode devfs_mount::node_mode(const char* path) const {
+        if (equal(path, "/tty")) return file_mode(file_type::character, file_permissions(0666));
         for (u32 i = 0; i < devfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path)) return entries_[i].object->mode();
-        return 0;
+        return {};
     }
 
     u32 devfs_mount::node_uid(const char*) const { return 0; }

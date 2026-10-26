@@ -57,10 +57,14 @@ namespace astia::proc {
         u32 gid() const { return gid_; } u32 egid() const { return egid_; }
         i64 setuid(u32); i64 seteuid(u32); i64 setgid(u32); i64 setegid(u32);
         i64 setreuid(u32,u32); i64 setregid(u32,u32);
-        bool can_access(u32 mode, u32 owner, u32 group, u32 want) const {
-            if (euid_ == 0) return want == 1 ? (mode & 0111) != 0 : true;
-            u32 bits = euid_ == owner ? ((mode >> 6) & 7) : (egid_ == group ? ((mode >> 3) & 7) : (mode & 7));
-            return (bits & want) == want;
+        bool can_access(fs::file_mode mode, u32 owner, u32 group,
+                        fs::permission_bits want) const {
+            if (euid_ == 0) return want != fs::permission_bits::execute ||
+                                      mode.owner_allows(fs::permission_bits::execute) ||
+                                      mode.group_allows(fs::permission_bits::execute) ||
+                                      mode.other_allows(fs::permission_bits::execute);
+            return euid_ == owner ? mode.owner_allows(want) :
+                   (egid_ == group ? mode.group_allows(want) : mode.other_allows(want));
         }
         const char* cwd() const { return cwd_; }
         i64 change_directory(const char* path);

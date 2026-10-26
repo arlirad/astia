@@ -36,7 +36,7 @@ namespace astia::proc {
         if (full[0] == '\0') return -EINVAL;
         if (full[0] != '/') return -EINVAL;
         char name[fs::path_max]{};
-        u32 type = fs::directory_unknown;
+        fs::file_type type = fs::directory_unknown;
         bool directory = false;
         for (u64 index = 0; index < 256; ++index) {
             const long rc = fs::read_directory(full, index, name, sizeof name, &type);

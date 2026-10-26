@@ -48,7 +48,7 @@ namespace astia::fs {
         }
     } // namespace
 
-    tmpfs_file::tmpfs_file(usize pages, u32 mode)
+    tmpfs_file::tmpfs_file(usize pages, file_mode mode)
         : storage_(mm::phys_region::create(pages, true)), mode_(mode) {}
 
     tmpfs_file::~tmpfs_file() {
@@ -111,8 +111,8 @@ namespace astia::fs {
                 continue;
             }
             if (entries_[i].directory) return {};
-            if ((flags & (oflag_write | oflag_rdwr)) != 0 && !(entries_[i].mode & 0200)) return {};
-            if ((flags & oflag_write) == 0 && !(entries_[i].mode & 0400)) return {};
+            if ((flags & (oflag_write | oflag_rdwr)) != 0 && !entries_[i].mode.owner_allows(permission_bits::write)) return {};
+            if ((flags & oflag_write) == 0 && !entries_[i].mode.owner_allows(permission_bits::read)) return {};
             if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0) {
                 return {};
             }
@@ -134,14 +134,14 @@ namespace astia::fs {
             }
             entries_[i].used   = true;
             entries_[i].directory = false;
-            entries_[i].mode = 0100000 | (0666u & 07777u);
+            entries_[i].mode = file_mode(file_type::regular, file_permissions(0666));
             entries_[i].object = object;
             return mm::share<open_file>(object, flags);
         }
         return {};
     }
 
-    long tmpfs_mount::mkdir(const char* path, u32 mode) {
+    long tmpfs_mount::mkdir(const char* path, file_mode mode) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
         // The mount point is the tmpfs root.  From the VFS this is the
         // existing directory /tmp, so mkdir(/tmp) must have normal mkdir
@@ -161,7 +161,7 @@ namespace astia::fs {
                 if (!copy_path(entries_[i].path, path)) return -ENAMETOOLONG;
                 entries_[i].used = true;
                 entries_[i].directory = true;
-                entries_[i].mode = 0040000 | (mode & 07777u);
+                entries_[i].mode = file_mode(file_type::directory, mode.permissions().chmod_mask());
                 return 0;
             }
         }
@@ -176,24 +176,24 @@ namespace astia::fs {
         if (node_type(parent) != directory_dir) return -ENOENT;
         for (u32 i=0;i<tmpfs_max_entries;++i) if (!entries_[i].used) {
             u32 n=0; while(target[n]) { if (n+1>=path_max) return -ENAMETOOLONG; ++n; }
-            auto object=mm::shptr<tmpfs_file>(new tmpfs_file{1, 0120000 | 0777});
+            auto object=mm::shptr<tmpfs_file>(new tmpfs_file{1, file_mode(file_type::symlink, file_permissions(0777))});
             if (!object || !copy_path(entries_[i].path,path)) return -ENOMEM;
             if (object->write(target,n,0) != (long)n) return -ENOSPC;
-            entries_[i].used=true; entries_[i].directory=false; entries_[i].mode=0120000|0777; entries_[i].object=object; return 0;
+            entries_[i].used=true; entries_[i].directory=false; entries_[i].mode=file_mode(file_type::symlink, file_permissions(0777)); entries_[i].object=object; return 0;
         }
         return -ENOSPC;
     }
     long tmpfs_mount::readlink(const char* path, char* buffer, u32 capacity) const {
         if (!buffer || capacity==0) return -EINVAL;
         for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) {
-            if ((entries_[i].mode & 0170000u) != 0120000u) return -EINVAL;
+            if (!entries_[i].mode.is_symlink()) return -EINVAL;
             long n=entries_[i].object->read(buffer,capacity,0); if(n<0) return n; return n;
         }
         return -ENOENT;
     }
 
     long tmpfs_mount::read_directory(const char* path, u64 index, char* name,
-                                     u32 capacity, u32* type) {
+                                     u32 capacity, file_type* type) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
         if (node_type(path) != directory_dir) return -ENOTDIR;
@@ -237,7 +237,7 @@ namespace astia::fs {
             name[end - start] = '\0';
             *type = end < path_max && full[end] != '\0' ? directory_dir :
                     (entries_[i].directory ? directory_dir :
-                     ((entries_[i].mode & 0170000u) == 0120000u ? directory_lnk : directory_reg));
+                     (entries_[i].mode.is_symlink() ? directory_lnk : directory_reg));
             return 1;
         }
         return 0;
@@ -308,31 +308,31 @@ namespace astia::fs {
         return 0;
     }
 
-    u32 tmpfs_mount::node_type(const char* path) const {
+    file_type tmpfs_mount::node_type(const char* path) const {
         if (path == nullptr || path[0] != '/') return directory_unknown;
         if (equal(path, "/")) return directory_dir;
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path))
-                return entries_[i].directory ? directory_dir : ((entries_[i].mode & 0170000u)==0120000u ? directory_lnk : directory_reg);
+                return entries_[i].directory ? directory_dir : (entries_[i].mode.is_symlink() ? directory_lnk : directory_reg);
         return directory_unknown;
     }
 
-    u32 tmpfs_mount::node_mode(const char* path) const {
-        if (path == nullptr || path[0] != '/') return 0;
-        if (equal(path, "/")) return 0040755;
+    file_mode tmpfs_mount::node_mode(const char* path) const {
+        if (path == nullptr || path[0] != '/') return {};
+        if (equal(path, "/")) return file_mode(file_type::directory, file_permissions(0755));
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path)) return entries_[i].mode;
-        return 0;
+        return {};
     }
     u32 tmpfs_mount::node_uid(const char* path) const { for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) return entries_[i].uid; return 0; }
     u32 tmpfs_mount::node_gid(const char* path) const { for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) return entries_[i].gid; return 0; }
 
-    long tmpfs_mount::chmod(const char* path, u32 mode) {
+    long tmpfs_mount::chmod(const char* path, file_permissions permissions) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
         if (equal(path, "/")) return 0; /* mount root is not an entry */
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (entries_[i].used && equal(entries_[i].path, path)) {
-                entries_[i].mode = (entries_[i].mode & 0170000u) | (mode & 07777u);
+                entries_[i].mode = entries_[i].mode.chmod(permissions);
                 if (entries_[i].object) entries_[i].object->set_mode(entries_[i].mode);
                 return 0;
             }

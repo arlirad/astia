@@ -11,15 +11,15 @@ namespace astia::fs {
         virtual mm::shptr<open_file> open(const char* path, u32 flags);
         virtual long register_file(const char* path, const mm::shptr<file>& object);
         virtual long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                    u32* type);
-        virtual long mkdir(const char* path, u32 mode);
+                                    file_type* type);
+        virtual long mkdir(const char* path, file_mode mode);
         virtual long unlink(const char* path, bool directory);
         virtual long rename(const char* old_path, const char* new_path);
-        virtual u32 node_type(const char* path) const;
-        virtual u32 node_mode(const char* path) const;
+        virtual file_type node_type(const char* path) const;
+        virtual file_mode node_mode(const char* path) const;
         virtual u32 node_uid(const char* path) const;
         virtual u32 node_gid(const char* path) const;
-        virtual long chmod(const char* path, u32 mode);
+        virtual long chmod(const char* path, file_permissions permissions);
         virtual long symlink(const char* target, const char* path);
         virtual long readlink(const char* path, char* buffer, u32 capacity) const;
     };

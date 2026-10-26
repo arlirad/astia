@@ -118,19 +118,19 @@ namespace astia::fs {
         return -ENOSYS;
     }
 
-    long mount::read_directory(const char*, u64, char*, u32, u32*) {
+    long mount::read_directory(const char*, u64, char*, u32, file_type*) {
         return -ENOSYS;
     }
-    long mount::mkdir(const char*, u32) { return -ENOSYS; }
+    long mount::mkdir(const char*, file_mode) { return -ENOSYS; }
     long mount::unlink(const char*, bool) { return -ENOSYS; }
     long mount::rename(const char*, const char*) { return -ENOSYS; }
-    u32 mount::node_type(const char*) const { return directory_unknown; }
-    u32 mount::node_mode(const char*) const { return 0; }
+    file_type mount::node_type(const char*) const { return directory_unknown; }
+    file_mode mount::node_mode(const char*) const { return {}; }
     u32 mount::node_uid(const char*) const { return 0; }
     u32 mount::node_gid(const char*) const { return 0; }
     u32 file::uid() const { return 0; }
     u32 file::gid() const { return 0; }
-    long mount::chmod(const char*, u32) { return -ENOSYS; }
+    long mount::chmod(const char*, file_permissions) { return -ENOSYS; }
     long mount::symlink(const char*, const char*) { return -ENOSYS; }
     long mount::readlink(const char*, char*, u32) const { return -ENOSYS; }
 
@@ -209,7 +209,7 @@ namespace astia::fs {
     }
 
     long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                        u32* type) {
+                         file_type* type) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
         mount_entry* entry = find_mount(path);
@@ -219,7 +219,7 @@ namespace astia::fs {
                                                capacity, type);
     }
 
-    long make_directory(const char* path, u32 mode) {
+    long make_directory(const char* path, file_mode mode) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
         mount_entry* entry = find_mount(path);
         if (entry == nullptr) return -ENOENT;
@@ -247,7 +247,7 @@ namespace astia::fs {
                                             relative_path(*new_entry, new_path));
     }
 
-    u32 node_type(const char* path) {
+    file_type node_type(const char* path) {
         if (path == nullptr || path[0] != '/') return directory_unknown;
         mount_entry* entry = find_mount(path);
         if (entry == nullptr) return directory_unknown;
@@ -331,19 +331,19 @@ namespace astia::fs {
         return e->instance->readlink(relative_path(*e,path), buffer, capacity);
     }
 
-    u32 node_mode(const char* path) {
-        if (path == nullptr || path[0] != '/') return 0;
+    file_mode node_mode(const char* path) {
+        if (path == nullptr || path[0] != '/') return {};
         mount_entry* entry = find_mount(path);
-        return entry == nullptr ? 0 : entry->instance->node_mode(relative_path(*entry, path));
+        return entry == nullptr ? file_mode{} : entry->instance->node_mode(relative_path(*entry, path));
     }
     u32 node_uid(const char* path) { mount_entry* e=find_mount(path); return e ? e->instance->node_uid(relative_path(*e,path)) : 0; }
     u32 node_gid(const char* path) { mount_entry* e=find_mount(path); return e ? e->instance->node_gid(relative_path(*e,path)) : 0; }
 
-    long chmod_path(const char* path, u32 mode) {
+    long chmod_path(const char* path, file_permissions permissions) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
         mount_entry* entry = find_mount(path);
         if (entry == nullptr) return -ENOENT;
-        return entry->instance->chmod(relative_path(*entry, path), mode);
+        return entry->instance->chmod(relative_path(*entry, path), permissions);
     }
 
     long touch_path(const char* path, u64 sec, u64 nsec) {
@@ -409,7 +409,7 @@ namespace astia::fs {
         return -ESPIPE;
     }
 
-    u32 file::mode() const { return 0100666; }
+    file_mode file::mode() const { return file_mode(file_type::regular, file_permissions(0666)); }
     u64 file::mtime_sec() const { return 0; }
     u64 file::mtime_nsec() const { return 0; }
     long file::touch(u64, u64) { return -EROFS; }
@@ -475,7 +475,7 @@ namespace astia::fs {
         return !_object ? -EBADF : _object->size();
     }
 
-    u32 open_file::mode() const { return !_object ? 0 : _object->mode(); }
+    file_mode open_file::mode() const { return !_object ? file_mode{} : _object->mode(); }
     u64 open_file::mtime_sec() const { return !_object ? 0 : _object->mtime_sec(); }
     u64 open_file::mtime_nsec() const { return !_object ? 0 : _object->mtime_nsec(); }
 

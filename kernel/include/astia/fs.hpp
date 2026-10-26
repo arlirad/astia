@@ -16,16 +16,57 @@
 
 namespace astia::fs {
 
+    enum class file_type : u32 {
+        unknown = 0, fifo = 1, character = 2, directory = 4,
+        regular = 8, symlink = 10,
+    };
+
+    enum class permission_bits : u8 { none = 0, execute = 1, write = 2, read = 4 };
+
+    class file_permissions {
+        public:
+        constexpr file_permissions(u16 value = 0) : value_(value & 07777u) {}
+        constexpr u16 raw() const { return value_; }
+        constexpr u8 owner() const { return static_cast<u8>((value_ >> 6) & 7); }
+        constexpr u8 group() const { return static_cast<u8>((value_ >> 3) & 7); }
+        constexpr u8 other() const { return static_cast<u8>(value_ & 7); }
+        constexpr bool owner_allows(permission_bits bits) const { return (owner() & static_cast<u8>(bits)) == static_cast<u8>(bits); }
+        constexpr bool group_allows(permission_bits bits) const { return (group() & static_cast<u8>(bits)) == static_cast<u8>(bits); }
+        constexpr bool other_allows(permission_bits bits) const { return (other() & static_cast<u8>(bits)) == static_cast<u8>(bits); }
+        constexpr file_permissions chmod_mask() const { return file_permissions(value_ & 07777u); }
+        constexpr file_permissions with_permissions(file_permissions value) const { return file_permissions(value.raw()); }
+        private: u16 value_;
+    };
+
+    class file_mode {
+        public:
+        constexpr file_mode(file_type type = file_type::unknown, file_permissions permissions = {})
+            : type_(type), permissions_(permissions) {}
+        constexpr file_type type() const { return type_; }
+        constexpr file_permissions permissions() const { return permissions_; }
+        constexpr bool exists() const { return type_ != file_type::unknown; }
+        constexpr bool is_fifo() const { return type_ == file_type::fifo; }
+        constexpr bool is_character_device() const { return type_ == file_type::character; }
+        constexpr bool is_directory() const { return type_ == file_type::directory; }
+        constexpr bool is_regular() const { return type_ == file_type::regular; }
+        constexpr bool is_symlink() const { return type_ == file_type::symlink; }
+        constexpr bool owner_allows(permission_bits bits) const { return permissions_.owner_allows(bits); }
+        constexpr bool group_allows(permission_bits bits) const { return permissions_.group_allows(bits); }
+        constexpr bool other_allows(permission_bits bits) const { return permissions_.other_allows(bits); }
+        constexpr file_mode chmod(file_permissions permissions) const { return file_mode(type_, permissions.chmod_mask()); }
+        private: file_type type_; file_permissions permissions_;
+    };
+
     inline constexpr u32 max_nodes      = 32;
     inline constexpr u32 path_max       = 64;
     inline constexpr u64 offset_current = ~u64{0};
 
-    inline constexpr u32 directory_unknown = 0;
-    inline constexpr u32 directory_fifo    = 1;
-    inline constexpr u32 directory_chr     = 2;
-    inline constexpr u32 directory_dir     = 4;
-    inline constexpr u32 directory_reg     = 8;
-    inline constexpr u32 directory_lnk     = 10;
+    inline constexpr file_type directory_unknown = file_type::unknown;
+    inline constexpr file_type directory_fifo    = file_type::fifo;
+    inline constexpr file_type directory_chr     = file_type::character;
+    inline constexpr file_type directory_dir     = file_type::directory;
+    inline constexpr file_type directory_reg     = file_type::regular;
+    inline constexpr file_type directory_lnk     = file_type::symlink;
 
     /// The polymorphic object behind a filesystem node.  Device classes
     /// derive from this interface; the kernel passes these objects
@@ -44,7 +85,7 @@ namespace astia::fs {
         virtual long             submit(io_request& request);
         virtual long             ioctl(u64 request, void* argp);
         virtual long             size() const;
-        virtual u32              mode() const;
+        virtual file_mode        mode() const;
         virtual u32              uid() const;
         virtual u32              gid() const;
         virtual u64              mtime_sec() const;
@@ -68,7 +109,7 @@ namespace astia::fs {
         long submit(io_request& request);
         long ioctl(u64 request, void* argp);
         long size() const;
-        u32 mode() const;
+        file_mode mode() const;
         u64 mtime_sec() const;
         u64 mtime_nsec() const;
 
@@ -98,17 +139,17 @@ namespace astia::fs {
     /// syscall/ring layer; the VFS returns an open file description.
     mm::shptr<open_file> open(const char* path, u32 flags = 0);
 
-    long read_directory(const char* path, u64 index, char* name, u32 capacity, u32* type);
-    long make_directory(const char* path, u32 mode);
+    long read_directory(const char* path, u64 index, char* name, u32 capacity, file_type* type);
+    long make_directory(const char* path, file_mode mode);
     long remove_path(const char* path, bool directory);
     /// Atomically rename within one mounted filesystem.  Different mounts
     /// are rejected with -EXDEV; the filesystem owns replacement rules.
     long rename_path(const char* old_path, const char* new_path);
-    u32 node_type(const char* path);
-    u32 node_mode(const char* path);
+    file_type node_type(const char* path);
+    file_mode node_mode(const char* path);
     u32 node_uid(const char* path);
     u32 node_gid(const char* path);
-    long chmod_path(const char* path, u32 mode);
+    long chmod_path(const char* path, file_permissions permissions);
     long touch_path(const char* path, u64 sec, u64 nsec);
     long make_symlink(const char* target, const char* path);
     long read_symlink(const char* path, char* buffer, u32 capacity);
