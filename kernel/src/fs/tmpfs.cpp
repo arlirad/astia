@@ -168,6 +168,30 @@ namespace astia::fs {
         return -ENOSPC;
     }
 
+    long tmpfs_mount::symlink(const char* target, const char* path) {
+        if (target == nullptr || path == nullptr || path[0] != '/' || target[0] == '\0') return -EINVAL;
+        if (node_type(path) != directory_unknown) return -EEXIST;
+        char parent[path_max]{}; if (!copy_path(parent, path)) return -ENAMETOOLONG;
+        u32 end=0; while(parent[end]) ++end; while(end>1 && parent[end-1]!='/') --end; parent[end>1?end-1:1]='\0';
+        if (node_type(parent) != directory_dir) return -ENOENT;
+        for (u32 i=0;i<tmpfs_max_entries;++i) if (!entries_[i].used) {
+            u32 n=0; while(target[n]) { if (n+1>=path_max) return -ENAMETOOLONG; ++n; }
+            auto object=mm::shptr<tmpfs_file>(new tmpfs_file{1, 0120000 | 0777});
+            if (!object || !copy_path(entries_[i].path,path)) return -ENOMEM;
+            if (object->write(target,n,0) != (long)n) return -ENOSPC;
+            entries_[i].used=true; entries_[i].directory=false; entries_[i].mode=0120000|0777; entries_[i].object=object; return 0;
+        }
+        return -ENOSPC;
+    }
+    long tmpfs_mount::readlink(const char* path, char* buffer, u32 capacity) const {
+        if (!buffer || capacity==0) return -EINVAL;
+        for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) {
+            if ((entries_[i].mode & 0170000u) != 0120000u) return -EINVAL;
+            long n=entries_[i].object->read(buffer,capacity,0); if(n<0) return n; return n;
+        }
+        return -ENOENT;
+    }
+
     long tmpfs_mount::read_directory(const char* path, u64 index, char* name,
                                      u32 capacity, u32* type) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
@@ -212,7 +236,8 @@ namespace astia::fs {
             for (u32 j = 0; j < end - start; ++j) name[j] = full[start + j];
             name[end - start] = '\0';
             *type = end < path_max && full[end] != '\0' ? directory_dir :
-                    (entries_[i].directory ? directory_dir : directory_reg);
+                    (entries_[i].directory ? directory_dir :
+                     ((entries_[i].mode & 0170000u) == 0120000u ? directory_lnk : directory_reg));
             return 1;
         }
         return 0;
@@ -288,7 +313,7 @@ namespace astia::fs {
         if (equal(path, "/")) return directory_dir;
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path))
-                return entries_[i].directory ? directory_dir : directory_reg;
+                return entries_[i].directory ? directory_dir : ((entries_[i].mode & 0170000u)==0120000u ? directory_lnk : directory_reg);
         return directory_unknown;
     }
 

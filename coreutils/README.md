@@ -6,8 +6,8 @@ Astia libc, and keeps its behavior small enough to test on the real kernel.
 
 Currently built:
 
-`cat` `cp` `cut` `echo` `env` `false` `find` `grep` `head` `ls` `mkdir` `mv`
-`pwd` `rm` `sort` `tee` `touch` `true` `uname` `wc`
+`cat` `cp` `cut` `echo` `env` `false` `find` `grep` `head` `ln` `ls` `mkdir` `mv`
+`pwd` `readlink` `rm` `sort` `tee` `touch` `true` `uname` `wc`
 
 Build them with:
 
@@ -28,7 +28,5 @@ utilities and checks their exit status and output on the real kernel.
 `touch FILE...` creates missing files and updates existing mtimes through the
 native Astia VFS/libc ABI. Unsupported options are rejected.
 
-`cp -r`, `rm -r`, and the native `find PATH...` traversal use the directory
-API. Symlinks remain deferred: the current native ABI has no symlink creation,
-readlink, or no-follow stat operation, so implementing them in a utility would
-require bypassing the VFS ABI.
+`cp -r`, `rm -r`, and the native `find PATH...` traversal use the directory API.
+`ln` and `readlink` use the native symbolic-link ABI.

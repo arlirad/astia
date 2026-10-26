@@ -302,6 +302,9 @@ long __astia_fio_size(int fd, uint64_t* out) {
 long __astia_fio_stat(const char* path, void* out, uint32_t length) {
     return transact(OP_STATX, -1, (uint64_t)(uintptr_t)out, path, length, 0, 0);
 }
+long __astia_fio_lstat(const char* path, void* out, uint32_t length) {
+    return transact(OP_STATX, -1, (uint64_t)(uintptr_t)out, path, length, STATX_NOFOLLOW, 0);
+}
 
 long __astia_fio_fstat(int fd, void* out, uint32_t length) {
     return transact(OP_STATX, fd, (uint64_t)(uintptr_t)out, NULL, length, 0, 0);
@@ -326,6 +329,12 @@ long __astia_fio_unlink(const char* path, int directory) {
 
 long __astia_fio_rename(const char* old_path, const char* new_path) {
     return transact(OP_RENAMEAT, -1, (uint64_t)(uintptr_t)new_path, old_path, 0, 0, 0);
+}
+long __astia_fio_symlink(const char* target, const char* path) {
+    return transact(OP_SYMLINKAT, -1, (uint64_t)(uintptr_t)path, target, (uint32_t)strlen(target), 0, 0);
+}
+long __astia_fio_readlink(const char* path, char* buffer, size_t capacity) {
+    return transact(OP_READLINKAT, -1, (uint64_t)(uintptr_t)buffer, path, (uint32_t)capacity, 0, 0);
 }
 
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {

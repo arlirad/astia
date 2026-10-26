@@ -285,7 +285,12 @@ enum {
     OP_CHMOD = 26,
     /* Update pathname mtime to kernel CLOCK_REALTIME; address is pathname. */
     OP_UTIMENSAT = 27,
+    OP_SYMLINKAT = 28,
+    OP_READLINKAT = 29,
 };
+
+/* OP_STATX: preserve the final directory entry instead of following it. */
+enum { STATX_NOFOLLOW = 1u << 0 };
 
 /* OP_UNLINKAT op_flags: remove a directory instead of a non-directory. */
 enum { UNLINKAT_REMOVEDIR = 1u << 0 };

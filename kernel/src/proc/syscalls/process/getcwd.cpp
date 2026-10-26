@@ -7,11 +7,11 @@ namespace astia::proc::syscall {
         auto* owner = current_process();
         if (owner == nullptr) return -ESRCH;
         if (length == 0) return -ERANGE;
-        const auto range = sys::user_range::bytes(buffer, length);
-        if (!sys::user_range_ok(range)) return -EFAULT;
         char copy[fs::path_max]{};
         const i64 rc = owner->copy_cwd(copy, length);
         if (rc < 0) return rc;
-        return sys::copy_out(range, copy) ? rc : -EFAULT;
+        return sys::copy_out(sys::user_range::bytes(buffer, static_cast<usize>(rc)), copy)
+                   ? rc
+                   : -EFAULT;
     }
 }

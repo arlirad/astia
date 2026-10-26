@@ -13,10 +13,12 @@ static int fails;
 int main(void) {
     const char* dir = "astia_stat_test_dir";
     const char* file = "astia_stat_test_dir/file";
+    const char* link = "astia_stat_test_dir/link";
     struct stat st, fst;
     int fd;
 
     (void)unlink(file);
+    (void)unlink(link);
     (void)rmdir(dir);
     CHECK(mkdir(dir, 0755) == 0);
     CHECK(stat(dir, &st) == 0 && S_ISDIR(st.st_mode));
@@ -33,6 +35,13 @@ int main(void) {
         CHECK(stat(file, &st) == 0 && (st.st_mode & 0777) == 0600);
         CHECK(close(fd) == 0);
     }
+    CHECK(symlink("file", link) == 0);
+    CHECK(stat(link, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 3);
+    CHECK(lstat(link, &st) == 0 && S_ISLNK(st.st_mode));
+    { char target[16] = {0}; CHECK(readlink(link, target, sizeof target) == 4 && strcmp(target, "file") == 0); }
+    CHECK(symlink("missing", "astia_stat_test_dir/dangling") == 0);
+    errno = 0; CHECK(stat("astia_stat_test_dir/dangling", &st) == -1 && errno == ENOENT);
+    CHECK(lstat("astia_stat_test_dir/dangling", &st) == 0 && S_ISLNK(st.st_mode));
     errno = 0;
     CHECK(stat("astia_stat_test_dir/missing", &st) == -1 && errno == ENOENT);
     time_t before = st.st_mtime;
@@ -40,6 +49,8 @@ int main(void) {
     errno = 0;
     CHECK(unlink(dir) == -1 && errno == EISDIR);
     CHECK(unlink(file) == 0);
+    CHECK(unlink(link) == 0);
+    CHECK(unlink("astia_stat_test_dir/dangling") == 0);
     CHECK(rmdir(dir) == 0);
     errno = 0;
     CHECK(rmdir(dir) == -1 && errno == ENOENT);

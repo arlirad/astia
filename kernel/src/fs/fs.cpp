@@ -37,6 +37,10 @@ namespace astia::fs {
             return *lhs == *rhs;
         }
 
+        u32 length_of(const char* value) {
+            u32 n = 0; while (value != nullptr && value[n] != '\0') ++n; return n;
+        }
+
         bool copy_path(char* dst, const char* src) {
             if (src == nullptr || src[0] != '/')
                 return false;
@@ -127,6 +131,8 @@ namespace astia::fs {
     u32 file::uid() const { return 0; }
     u32 file::gid() const { return 0; }
     long mount::chmod(const char*, u32) { return -ENOSYS; }
+    long mount::symlink(const char*, const char*) { return -ENOSYS; }
+    long mount::readlink(const char*, char*, u32) const { return -ENOSYS; }
 
     bool init() {
         for (u32 i = 0; i < max_types; ++i)
@@ -189,10 +195,13 @@ namespace astia::fs {
     }
 
     mm::shptr<open_file> open_path(const char* path, u32 flags) {
-        mount_entry* entry = find_mount(path);
+        char resolved[path_max]{};
+        if (resolve_path(path, resolved, sizeof resolved, true) < 0)
+            return {};
+        mount_entry* entry = find_mount(resolved);
         if (entry == nullptr)
             return {};
-        return entry->instance->open(relative_path(*entry, path), flags);
+        return entry->instance->open(relative_path(*entry, resolved), flags);
     }
 
     mm::shptr<open_file> open(const char* path, u32 flags) {
@@ -243,6 +252,81 @@ namespace astia::fs {
         mount_entry* entry = find_mount(path);
         if (entry == nullptr) return directory_unknown;
         return entry->instance->node_type(relative_path(*entry, path));
+    }
+
+    long resolve_path(const char* path, char* buffer, u32 capacity, bool follow_final) {
+        if (path == nullptr || buffer == nullptr || capacity == 0 || path[0] != '/')
+            return -EINVAL;
+        char pending[path_max * 2]{};
+        char result[path_max]{};
+        u32 plen = 0, rlen = 1, links = 0;
+        result[0] = '/';
+        for (u32 i = 0; path[i] != '\0'; ++i) {
+            if (plen + 1 >= sizeof pending) return -ENAMETOOLONG;
+            pending[plen++] = path[i];
+        }
+        pending[plen] = '\0';
+        for (;;) {
+            u32 start = 0;
+            while (start < plen && pending[start] == '/') ++start;
+            if (start == plen) break;
+            u32 end = start;
+            while (end < plen && pending[end] != '/') ++end;
+            char component[path_max]{};
+            u32 clen = end - start;
+            if (clen >= path_max) return -ENAMETOOLONG;
+            for (u32 i = 0; i < clen; ++i) component[i] = pending[start + i];
+            component[clen] = '\0';
+            for (u32 i = end; i <= plen; ++i) pending[i - end] = pending[i];
+            plen -= end;
+            while (plen != 0 && pending[0] == '/') { for (u32 i=0;i<plen;++i) pending[i]=pending[i+1]; --plen; }
+            if (equal(component, ".")) continue;
+            if (equal(component, "..")) {
+                if (rlen > 1) { --rlen; while (rlen > 1 && result[rlen-1] != '/') --rlen; }
+                continue;
+            }
+            if (rlen > 1) result[rlen++] = '/';
+            if (rlen + clen >= sizeof result) return -ENAMETOOLONG;
+            for (u32 i=0;i<clen;++i) result[rlen++]=component[i];
+            result[rlen]='\0';
+            const bool last = plen == 0;
+            if ((!last || follow_final) && node_type(result) == directory_lnk) {
+                if (++links > 16) return -ELOOP;
+                char target[path_max]{};
+                long n = read_symlink(result, target, sizeof target);
+                if (n < 0) return n;
+                char combined[path_max * 2]{};
+                u32 at = 0;
+                if (target[0] != '/') {
+                    at = rlen;
+                    while (at > 1 && result[at-1] != '/') --at;
+                    for (u32 i=0;i<at;++i) combined[i]=result[i];
+                }
+                for (u32 i=0; target[i] != '\0'; ++i) {
+                    if (at + i + 1 >= sizeof combined) return -ENAMETOOLONG;
+                    combined[at+i]=target[i];
+                }
+                u32 tail = 0;
+                while (pending[tail] != '\0') ++tail;
+                const u32 target_len = length_of(target);
+                if (tail != 0) { combined[at + target_len]='/'; for (u32 i=0;i<=tail;++i) combined[at+target_len+1+i]=pending[i]; }
+                plen = at + target_len + (tail ? tail + 1 : 0);
+                for (u32 i=0;i<=plen;++i) pending[i]=combined[i];
+                rlen = 1; result[0]='/';
+            }
+        }
+        if (rlen > capacity) return -ENAMETOOLONG;
+        for (u32 i=0;i<=rlen;++i) buffer[i]=result[i];
+        return 0;
+    }
+
+    long make_symlink(const char* target, const char* path) {
+        mount_entry* e=find_mount(path); if (!e) return -ENOENT;
+        return e->instance->symlink(target, relative_path(*e,path));
+    }
+    long read_symlink(const char* path, char* buffer, u32 capacity) {
+        mount_entry* e=find_mount(path); if (!e) return -ENOENT;
+        return e->instance->readlink(relative_path(*e,path), buffer, capacity);
     }
 
     u32 node_mode(const char* path) {

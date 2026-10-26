@@ -192,6 +192,12 @@ long __astia_fio_stat(const char* path, void* out, uint32_t length) {
                        hs.mtime_nsec, hs.ctime, hs.ctime_nsec, {0, 0, 0, 0}};
     return 0;
 }
+long __astia_fio_lstat(const char* path, void* out, uint32_t length) {
+    struct host_stat hs; astia_stat* st=(astia_stat*)out;
+    if (length != sizeof *st) return -EINVAL;
+    if (syscall(SYS_newfstatat, -100, path, &hs, 0x100) < 0) return -HOST_ERRNO;
+    *st=(astia_stat){(uint64_t)hs.dev,(uint64_t)hs.ino,(uint64_t)hs.size,(uint64_t)hs.blocks,(uint32_t)hs.mode,(uint32_t)hs.nlink,hs.uid,hs.gid,hs.atime,hs.atime_nsec,hs.mtime,hs.mtime_nsec,hs.ctime,hs.ctime_nsec,{0,0,0,0}}; return 0;
+}
 
 long __astia_fio_fstat(int fd, void* out, uint32_t length) {
     struct host_stat hs;
@@ -229,6 +235,8 @@ long __astia_fio_rename(const char* old_path, const char* new_path) {
     long rc = syscall(SYS_rename, old_path, new_path);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
+long __astia_fio_symlink(const char* target, const char* path) { long rc=syscall(SYS_symlink,target,path); return rc<0?-HOST_ERRNO:0; }
+long __astia_fio_readlink(const char* path, char* buffer, size_t capacity) { long rc=syscall(SYS_readlink,path,buffer,capacity); return rc<0?-HOST_ERRNO:rc; }
 
 void __astia_fio_prepare_exec(void) {}
 void __astia_fio_after_fork(void) {}

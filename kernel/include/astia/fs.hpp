@@ -110,6 +110,10 @@ namespace astia::fs {
     u32 node_gid(const char* path);
     long chmod_path(const char* path, u32 mode);
     long touch_path(const char* path, u64 sec, u64 nsec);
+    long make_symlink(const char* target, const char* path);
+    long read_symlink(const char* path, char* buffer, u32 capacity);
+    long resolve_path(const char* path, char* buffer, u32 capacity,
+                      bool follow_final = true);
 
     struct kernel_read {
         open_file* file;

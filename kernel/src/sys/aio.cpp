@@ -496,8 +496,11 @@ namespace astia::sys {
                 }
                 auto* current = proc::current_process();
                 char resolved[256];
-                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                if (current == nullptr)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
+                long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                if (resolve_rc >= 0) resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
+                if (resolve_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
                 const u32 existing_mode = fs::node_mode(resolved);
                 if (existing_mode != 0) {
                     auto* cred = proc::current_process();
@@ -549,7 +552,8 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
                 char resolved[256];
-                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0 ||
+                    fs::resolve_path(resolved, resolved, sizeof resolved, s.op == OP_MKDIRAT) < 0)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
                 const long rc = s.op == OP_MKDIRAT
                                     ? fs::make_directory(resolved, s.aux)
@@ -624,9 +628,24 @@ namespace astia::sys {
                     }
                     auto* current = proc::current_process();
                     char resolved[256];
-                    if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    if (current == nullptr)
                         return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                    if (resolve_rc >= 0)
+                        resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
+                                                      (s.op_flags & STATX_NOFOLLOW) == 0);
+                    if (resolve_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
                     const u32 type = fs::node_type(resolved);
+                    if ((s.op_flags & STATX_NOFOLLOW) != 0 && type == fs::directory_lnk) {
+                        __builtin_memset(reinterpret_cast<void*>(out.address()), 0, sizeof(astia_stat));
+                        auto* link = reinterpret_cast<astia_stat*>(out.address());
+                        char target[256]{};
+                        long n = fs::read_symlink(resolved, target, sizeof target);
+                        if (n < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(n));
+                        link->dev=1; link->ino=1; link->nlink=1; link->size=(u64)n;
+                        link->mode=fs::node_mode(resolved); link->uid=fs::node_uid(resolved); link->gid=fs::node_gid(resolved);
+                        return cq_post_guarded(ring, s.user_data, 0);
+                    }
                     object = fs::open_path(resolved);
                     if (type == fs::directory_dir) {
                         __builtin_memset(reinterpret_cast<void*>(out.address()), 0,
@@ -710,6 +729,28 @@ namespace astia::sys {
                 sys::realtime_now(sec, nsec);
                 return cq_post_guarded(ring, s.user_data,
                                        static_cast<i32>(fs::touch_path(resolved, sec, nsec)));
+            }
+
+            case OP_SYMLINKAT: {
+                char target[256], path[256];
+                if (!sys::copy_in_string(target, sizeof target, sys::user_range::string(s.address)) ||
+                    !sys::copy_in_string(path, sizeof path, sys::user_range::string(s.offset)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* current=proc::current_process(); char resolved[256];
+                if (!current || current->resolve_path(path,resolved,sizeof resolved)<0)
+                    return cq_post_guarded(ring,s.user_data,-EINVAL);
+                return cq_post_guarded(ring,s.user_data,(i32)fs::make_symlink(target,resolved));
+            }
+            case OP_READLINKAT: {
+                char path[256];
+                if (!sys::copy_in_string(path,sizeof path,sys::user_range::string(s.address)))
+                    return cq_post_guarded(ring,s.user_data,-EFAULT);
+                auto* current=proc::current_process(); char resolved[256];
+                if (!current || current->resolve_path(path,resolved,sizeof resolved)<0)
+                    return cq_post_guarded(ring,s.user_data,-EINVAL);
+                auto out=sys::user_range::bytes(s.offset,s.length);
+                if (!sys::user_range_ok(out)) return cq_post_guarded(ring,s.user_data,-EFAULT);
+                return cq_post_guarded(ring,s.user_data,(i32)fs::read_symlink(resolved,(char*)out.address(),s.length));
             }
 
             case OP_READDIR: {

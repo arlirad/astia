@@ -131,10 +131,14 @@ int chdir(const char* path) {
     if (rc < 0) { errno = (int) -rc; return -1; }
     return 0;
 }
+__attribute__((noinline)) static long __astia_getcwd_call(char* buffer, unsigned long length) {
+    return astia_getcwd(buffer, length);
+}
 char* getcwd(char* buffer, unsigned long length) {
-    long rc = astia_getcwd(buffer, length);
+    char* result = buffer;
+    long rc = __astia_getcwd_call(buffer, length);
     if (rc < 0) { errno = (int) -rc; return NULL; }
-    return buffer;
+    return result;
 }
 unsigned int umask(unsigned int mode) {
     (void) mode;
@@ -259,6 +263,16 @@ int link(const char* old_path, const char* new_path) {
     (void) new_path;
     errno = ENOSYS;
     return -1;
+}
+int symlink(const char* target, const char* link_path) {
+    long rc = __astia_fio_symlink(target, link_path);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return 0;
+}
+long readlink(const char* path, char* buffer, unsigned long capacity) {
+    long rc = __astia_fio_readlink(path, buffer, capacity);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return rc;
 }
 int rename(const char* old_path, const char* new_path) {
     char old_resolved[256];

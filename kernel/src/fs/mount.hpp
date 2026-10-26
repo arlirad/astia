@@ -20,6 +20,8 @@ namespace astia::fs {
         virtual u32 node_uid(const char* path) const;
         virtual u32 node_gid(const char* path) const;
         virtual long chmod(const char* path, u32 mode);
+        virtual long symlink(const char* target, const char* path);
+        virtual long readlink(const char* path, char* buffer, u32 capacity) const;
     };
 
 } // namespace astia::fs

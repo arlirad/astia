@@ -52,6 +52,8 @@ namespace astia::fs {
         u32 node_uid(const char* path) const override;
         u32 node_gid(const char* path) const override;
         long chmod(const char* path, u32 mode) override;
+        long symlink(const char* target, const char* path) override;
+        long readlink(const char* path, char* buffer, u32 capacity) const override;
 
         private:
         struct entry {

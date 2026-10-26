@@ -29,7 +29,10 @@ int stat(const char* path, struct stat* result) {
 }
 
 int lstat(const char* path, struct stat* result) {
-    return stat(path, result);
+    if (path == NULL || result == NULL) { errno = EFAULT; return -1; }
+    astia_stat value;
+    long rc = __astia_fio_lstat(path, &value, sizeof value);
+    return rc < 0 ? fail(rc) : finish(&value, result);
 }
 
 int fstat(int fd, struct stat* result) {

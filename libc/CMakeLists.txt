@@ -84,7 +84,7 @@ target_include_directories(astia_libc PUBLIC
 # its internals could reach our malloc/fwrite with glibc objects.
 # Hidden visibility keeps the two libcs in one process strictly
 # disjoint; static links inside the executable are unaffected.
-target_compile_options(astia_libc PRIVATE -fvisibility=hidden)
+target_compile_options(astia_libc PRIVATE -fvisibility=hidden -fno-stack-protector)
 
 # string.c *defines* the functions the optimizer likes to replace byte
 # loops with; -fno-builtin keeps a loop from ever becoming a call to the

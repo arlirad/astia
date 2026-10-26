@@ -163,6 +163,8 @@ int main(void) {
     char* touch_files[] = {"touch", "/tmp/coreutils_touch", NULL};
     char* touch_existing[] = {"touch", "/tmp/coreutils_a", NULL};
     char* touch_bad[] = {"touch", "--bad", NULL};
+    char* ln_link[] = {"ln", "coreutils_a", "/tmp/coreutils_link", NULL};
+    char* readlink_link[] = {"readlink", "/tmp/coreutils_link", NULL};
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
@@ -170,6 +172,8 @@ int main(void) {
     (void) unlink("/tmp/coreutils_moved");
     (void) unlink("/tmp/coreutils_tee");
     (void) unlink("/tmp/coreutils_touch");
+    (void) unlink("/tmp/coreutils_link");
+    (void) unlink("/tmp/coreutils_dangling");
     (void) rmdir("/tmp/coreutils_parent/child");
     (void) rmdir("/tmp/coreutils_parent");
     (void) rmdir("/tmp/coreutils_dir");
@@ -205,10 +209,17 @@ int main(void) {
         check("head invalid number", head_bad_text, NULL, 2, NULL, 0) ||
         check("wc files", wc_files, NULL, 0, "/tmp/coreutils_a\n", 0) ||
         check("wc invalid", wc_bad, NULL, 1, NULL, 0) ||
-        check("ls directory", ls_dir, NULL, 0, "cat\n", 0) ||
-        check("ls multiple", ls_multi, NULL, 0, "/bin:\n", 0) ||
-        check("ls invalid", ls_bad, NULL, 1, NULL, 0) ||
-        check("pwd", pwd, NULL, 1, NULL, 0) ||
+         check("ls directory", ls_dir, NULL, 0, "cat\n", 0) ||
+         check("ls multiple", ls_multi, NULL, 0, "/bin:\n", 0) ||
+         check("ls invalid", ls_bad, NULL, 1, NULL, 0) ||
+         check("ln relative", ln_link, NULL, 0, NULL, 0) ||
+         !is_file("/tmp/coreutils_link") ||
+         check("readlink", readlink_link, NULL, 0, "coreutils_a\n", 1) ||
+         symlink("missing", "/tmp/coreutils_dangling") != 0 ||
+         lstat("/tmp/coreutils_dangling", &touch_before) != 0 ||
+         !S_ISLNK(touch_before.st_mode) ||
+         stat("/tmp/coreutils_dangling", &touch_before) == 0 ||
+         check("pwd", pwd, NULL, 0, "/bin\n", 1) ||
         check("pwd invalid", pwd_bad, NULL, 2, NULL, 0) ||
         check("echo", echo, NULL, 0, "hello Astia\n", 1) ||
         check("echo -n", echo_n, NULL, 0, "hello", 1) ||
@@ -257,7 +268,7 @@ int main(void) {
           !is_file("/tmp/coreutils_touch") ||
           check("touch existing", touch_existing, NULL, 0, NULL, 0) ||
           mtime_not_newer("/tmp/coreutils_a", touch_before.st_mtime) ||
-          check("touch unknown option", touch_bad, NULL, 1, NULL, 0))
+           check("touch unknown option", touch_bad, NULL, 1, NULL, 0))
         return 1;
 
     const char* help[] = {"cat", "head", "wc", "ls", "find", "pwd", "uname", "echo", "env",
