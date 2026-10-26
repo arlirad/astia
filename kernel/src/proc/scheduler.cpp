@@ -98,6 +98,7 @@ namespace astia::proc::scheduler {
             for (u32 i = 0; i < state.queue_count; ++i) {
                 thread* value = state.queue[i];
                 if (value->state() != thread_state::runnable ||
+                    value->owner()->state() == process_state::stopped ||
                     value->sched_class() != scheduling_class::realtime) {
                     continue;
                 }
@@ -122,7 +123,8 @@ namespace astia::proc::scheduler {
             u64 lowest       = ~u64{0};
             for (u32 i = 0; i < state.queue_count; ++i) {
                 thread* value = state.queue[i];
-                if (value->state() != thread_state::runnable) {
+                if (value->state() != thread_state::runnable ||
+                    value->owner()->state() == process_state::stopped) {
                     continue;
                 }
                 if (normal_index < 0 || value->vruntime() < lowest) {

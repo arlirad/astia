@@ -410,6 +410,58 @@ namespace astia::proc {
         }
     }
 
+    void process::signal_state_change(signal_number signal) {
+        if (signal == signal_number::cont || signal == signal_number::kill) {
+            thread* wake_list[max_process_threads];
+            u32 count = 0;
+            {
+                core::spinlock_guard guard(process_lock);
+                if (state_ != process_state::stopped)
+                    return;
+                state_ = process_state::runnable;
+                if (signal == signal_number::cont)
+                    continued_event_ = true;
+                for (u32 i = 0; i < max_process_threads; ++i) {
+                    thread* value = threads_[i].get();
+                    if (value != nullptr && value->state() == thread_state::blocked)
+                        wake_list[count++] = value;
+                }
+            }
+            for (u32 i = 0; i < count; ++i)
+                scheduler::wake(wake_list[i]);
+            process* parent = find_process(parent_pid_);
+            if (parent != nullptr) {
+                (void) parent->signals().send(signal_number::chld);
+                parent->wake_signal_waiters();
+                parent->wake_waiters();
+            }
+            return;
+        }
+        if (signal != signal_number::stop && signal != signal_number::tstp &&
+            signal != signal_number::ttin && signal != signal_number::ttou)
+            return;
+        {
+            core::spinlock_guard guard(process_lock);
+            if (state_ == process_state::zombie || state_ == process_state::dead ||
+                state_ == process_state::stopped)
+                return;
+            stop_signal_ = static_cast<i32>(signal);
+            stop_event_ = true;
+            state_ = process_state::stopped;
+            for (u32 i = 0; i < max_process_threads; ++i) {
+                thread* value = threads_[i].get();
+                if (value != nullptr && value->state() != thread_state::dead)
+                    value->state(thread_state::blocked);
+            }
+        }
+        process* parent = find_process(parent_pid_);
+        if (parent != nullptr) {
+            (void) parent->signals().send(signal_number::chld);
+            parent->wake_signal_waiters();
+            parent->wake_waiters();
+        }
+    }
+
     mm::shptr<thread> process::take_thread(thread* value) {
         core::spinlock_guard guard(process_lock);
         for (u32 i = 0; i < max_process_threads; ++i) {

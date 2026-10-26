@@ -28,6 +28,7 @@ namespace astia::proc {
         fresh,
         runnable,
         stopping,
+        stopped,
         zombie,
         dead,
     };
@@ -99,6 +100,12 @@ namespace astia::proc {
             return termination_signal_ != 0 ? (termination_signal_ & 0x7f)
                                             : ((exit_status_ & 0xff) << 8);
         }
+        i32 stop_status() const { return (stop_signal_ << 8) | 0x7f; }
+        bool stop_event_pending() const { return stop_event_; }
+        bool continued_event_pending() const { return continued_event_; }
+        void clear_stop_event() { stop_event_ = false; }
+        void clear_continued_event() { continued_event_ = false; }
+        void signal_state_change(signal_number signal);
         void signal_termination(i32 signal) {
             termination_signal_ = signal;
         }
@@ -269,6 +276,9 @@ namespace astia::proc {
         process_state state_              = process_state::fresh;
         i32           exit_status_        = 0;
         i32           termination_signal_ = 0;
+        i32           stop_signal_        = 0;
+        bool          stop_event_         = false;
+        bool          continued_event_    = false;
         signal_state  signals_{};
 
         mm::shptr<thread> threads_[max_process_threads];

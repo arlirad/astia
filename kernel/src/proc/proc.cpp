@@ -312,20 +312,27 @@ namespace astia::proc {
         if (static_cast<u8>(value) >= signal_count)
             return -EINVAL;
         bool                 found = false;
-        core::spinlock_guard guard(registry_lock);
-        for (u32 i = 0; i < registry_capacity; ++i) {
-            process* target = registry[i].get();
-            if (target == nullptr || target->process_group() != group ||
-                target->state() == process_state::zombie ||
-                target->state() == process_state::dead)
-                continue;
-            found = true;
-            if (value != static_cast<signal_t>(0)) {
-                if (!target->signals().send(value))
-                    return -EINVAL;
-                // Process-group signals must wake sigsuspend() just like
-                // direct kill() and child exit do.
-                target->wake_signal_waiters();
+        process* targets[registry_capacity]{};
+        u32 count = 0;
+        {
+            core::spinlock_guard guard(registry_lock);
+            for (u32 i = 0; i < registry_capacity; ++i) {
+                process* target = registry[i].get();
+                if (target == nullptr || target->process_group() != group ||
+                    target->state() == process_state::zombie ||
+                    target->state() == process_state::dead)
+                    continue;
+                found = true;
+                targets[count++] = target;
+            }
+        }
+        if (value != static_cast<signal_t>(0)) {
+            for (u32 i = 0; i < count; ++i) {
+                if (!targets[i]->signals().send(value)) return -EINVAL;
+                if (is_uncatchable(value) ||
+                    targets[i]->signals().disposition(value).action != signal_action::ignore)
+                    targets[i]->signal_state_change(value);
+                targets[i]->wake_signal_waiters();
             }
         }
         return found ? 0 : -ESRCH;
@@ -337,9 +344,9 @@ namespace astia::proc {
         if (parent == nullptr || self == nullptr) {
             return -ESRCH;
         }
-        if (pid < -1 || pid == 0) {
-            return -EINVAL;
-        }
+        const bool group_wait = pid < -1;
+        const pgrp_t requested_group = group_wait ? static_cast<pgrp_t>(-pid) :
+            (pid == 0 ? parent->process_group() : 0);
         constexpr u32 valid_wait_options =
             static_cast<u32>(wait_options::nohang) |
             static_cast<u32>(wait_options::untraced) |
@@ -368,11 +375,29 @@ namespace astia::proc {
                     if (pid > 0 && child->pid() != static_cast<pid_t>(pid)) {
                         continue;
                     }
+                    if ((group_wait || pid == 0) &&
+                        child->process_group() != requested_group) {
+                        continue;
+                    }
                     has_children = true;
                     if (child->state() == process_state::zombie) {
                         taken        = registry[i];
                         registry[i]  = {};
                         zombie_child = child;
+                        break;
+                    }
+                    if ((static_cast<u32>(options) & static_cast<u32>(wait_options::untraced)) &&
+                        child->stop_event_pending()) {
+                        if (status != nullptr) *status = child->stop_status();
+                        child->clear_stop_event();
+                        result = static_cast<i64>(child->pid());
+                        break;
+                    }
+                    if ((static_cast<u32>(options) & static_cast<u32>(wait_options::continued)) &&
+                        child->continued_event_pending()) {
+                        if (status != nullptr) *status = 0xffff;
+                        child->clear_continued_event();
+                        result = static_cast<i64>(child->pid());
                         break;
                     }
                 }
@@ -390,6 +415,10 @@ namespace astia::proc {
                 result = static_cast<i64>(child_pid);
                 parent->remove_waiter(self);
                 taken = {};
+                break;
+            }
+            if (result != 0) {
+                parent->remove_waiter(self);
                 break;
             }
             if (!has_children) {

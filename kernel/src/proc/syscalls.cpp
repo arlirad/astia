@@ -120,6 +120,14 @@ namespace syscall {
                 self->exit(reinterpret_cast<void*>(128u + static_cast<u8>(signal)));
                 __builtin_unreachable();
             }
+            if (default_action(signal) == signal_default::stop ||
+                default_action(signal) == signal_default::continue_) {
+                // Stop/continue transitions are applied synchronously by
+                // kill/terminal group delivery.  Consuming the pending bit
+                // here must not requeue SIGTSTP forever (or turn SIGCONT
+                // into an ordinary ignored signal).
+                return;
+            }
             // A default-ignored signal is consumed here.  Re-queueing it
             // would make every syscall exit deliver SIGCHLD forever when a
             // shell has no explicit SIGCHLD disposition.

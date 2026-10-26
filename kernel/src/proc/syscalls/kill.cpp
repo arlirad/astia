@@ -26,6 +26,9 @@ namespace astia::proc::syscall {
         if (target == nullptr) return -ESRCH;
         if (signal_raw == 0) return 0;
         if (!target->signals().send(mapped_signal.value)) return -EINVAL;
+        if (is_uncatchable(mapped_signal.value) ||
+            target->signals().disposition(mapped_signal.value).action != signal_action::ignore)
+            target->signal_state_change(mapped_signal.value);
         target->wake_signal_waiters();
         return 0;
     }
