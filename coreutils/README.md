@@ -25,8 +25,11 @@ libc directory API).  The
 QEMU regression suite can be run with `coreutils/tests/run.sh`; it builds the
 utilities and checks their exit status and output on the real kernel.
 
-`touch FILE...` creates missing files and updates existing mtimes through the
-native Astia VFS/libc ABI. Unsupported options are rejected.
+`ls -l` prints native mode, link count, numeric owner IDs, size, timestamp, and
+symlink targets. `grep` supports `-n`, `-i`, and `-v` with the usual 0/1/2
+match/error statuses. `touch FILE...` creates missing files and updates
+timestamps through the native Astia VFS/libc ABI; `-a` and `-m` are accepted
+as the access/modify timestamp selectors supported by that ABI.
 
 `cp -r`, `rm -r`, and the native `find PATH...` traversal use the directory API.
 `ln` and `readlink` use the native symbolic-link ABI.

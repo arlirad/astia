@@ -123,6 +123,7 @@ int main(void) {
     char* wc_files[] = {"wc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
     char* wc_bad[] = {"wc", "--bad", NULL};
     char* ls_dir[] = {"ls", "/bin", NULL};
+    char* ls_long[] = {"ls", "-l", "/tmp/coreutils_link", NULL};
     char* ls_multi[] = {"ls", "/bin", "/sbin", NULL};
     char* ls_bad[] = {"ls", "--bad", NULL};
     char* pwd[] = {"pwd", NULL};
@@ -155,6 +156,9 @@ int main(void) {
     char* find_tree[] = {"find", "/tmp/coreutils_tree", NULL};
     char* ls_tree[] = {"ls", "/tmp/coreutils_tree", NULL};
     char* grep_match[] = {"grep", "beta", NULL};
+    char* grep_numbered[] = {"grep", "-n", "beta", NULL};
+    char* grep_insensitive[] = {"grep", "-i", "BETA", NULL};
+    char* grep_inverted[] = {"grep", "-v", "beta", NULL};
     char* grep_none[] = {"grep", "missing", NULL};
     char* grep_missing[] = {"grep", "pattern", "/tmp/coreutils_missing", NULL};
     char* sort_stdin[] = {"sort", NULL};
@@ -162,6 +166,8 @@ int main(void) {
     char* tee_file[] = {"tee", "/tmp/coreutils_tee", NULL};
     char* touch_files[] = {"touch", "/tmp/coreutils_touch", NULL};
     char* touch_existing[] = {"touch", "/tmp/coreutils_a", NULL};
+    char* touch_access[] = {"touch", "-a", "/tmp/coreutils_b", NULL};
+    char* touch_modify[] = {"touch", "-m", "/tmp/coreutils_b", NULL};
     char* touch_bad[] = {"touch", "--bad", NULL};
     char* ln_link[] = {"ln", "coreutils_a", "/tmp/coreutils_link", NULL};
     char* readlink_link[] = {"readlink", "/tmp/coreutils_link", NULL};
@@ -215,6 +221,7 @@ int main(void) {
          check("ln relative", ln_link, NULL, 0, NULL, 0) ||
          !is_file("/tmp/coreutils_link") ||
          check("readlink", readlink_link, NULL, 0, "coreutils_a\n", 1) ||
+         check("ls -l symlink", ls_long, NULL, 0, " -> coreutils_a\n", 0) ||
          symlink("missing", "/tmp/coreutils_dangling") != 0 ||
          lstat("/tmp/coreutils_dangling", &touch_before) != 0 ||
          !S_ISLNK(touch_before.st_mode) ||
@@ -257,7 +264,10 @@ int main(void) {
           check("rm recursive", rm_recursive, NULL, 0, NULL, 0) ||
           check("rm -r tree", rm_tree, NULL, 0, NULL, 0) ||
           check("rm -r missing", rm_tree_bad, NULL, 1, NULL, 0) ||
-         check("grep match", grep_match, "alpha\nbeta\ngamma\n", 0, NULL, 0) ||
+          check("grep match", grep_match, "alpha\nbeta\ngamma\n", 0, NULL, 0) ||
+          check("grep -n", grep_numbered, "alpha\nbeta\n", 0, "2:beta\n", 1) ||
+          check("grep -i", grep_insensitive, "alpha\nBeta\ngamma\n", 0, NULL, 0) ||
+          check("grep -v", grep_inverted, "alpha\nbeta\n", 0, NULL, 0) ||
          check("grep no match", grep_none, "alpha\nbeta\n", 1, NULL, 0) ||
          check("grep missing file", grep_missing, NULL, 2, NULL, 0) ||
          check("sort stdin", sort_stdin, "zulu\nalpha\n", 0, NULL, 0) ||
@@ -267,6 +277,8 @@ int main(void) {
           check("touch create", touch_files, NULL, 0, NULL, 0) ||
           !is_file("/tmp/coreutils_touch") ||
           check("touch existing", touch_existing, NULL, 0, NULL, 0) ||
+          check("touch -a", touch_access, NULL, 0, NULL, 0) ||
+          check("touch -m", touch_modify, NULL, 0, NULL, 0) ||
           mtime_not_newer("/tmp/coreutils_a", touch_before.st_mtime) ||
            check("touch unknown option", touch_bad, NULL, 1, NULL, 0))
         return 1;
