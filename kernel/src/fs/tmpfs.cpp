@@ -111,8 +111,9 @@ namespace astia::fs {
                 continue;
             }
             if (entries_[i].directory) return {};
-            if ((flags & (oflag_write | oflag_rdwr)) != 0 && !entries_[i].mode.owner_allows(permission_bits::write)) return {};
-            if ((flags & oflag_write) == 0 && !entries_[i].mode.owner_allows(permission_bits::read)) return {};
+            /* Permission selection is performed by the process/VFS ABI
+               boundary, where real/effective and supplementary credentials
+               are available.  Do not accidentally re-apply owner bits here. */
             if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0) {
                 return {};
             }
@@ -324,8 +325,8 @@ namespace astia::fs {
             if (entries_[i].used && equal(entries_[i].path, path)) return entries_[i].mode;
         return {};
     }
-    u32 tmpfs_mount::node_uid(const char* path) const { for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) return entries_[i].uid; return 0; }
-    u32 tmpfs_mount::node_gid(const char* path) const { for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) return entries_[i].gid; return 0; }
+    uid_t tmpfs_mount::node_uid(const char* path) const { for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) return entries_[i].uid; return {}; }
+    gid_t tmpfs_mount::node_gid(const char* path) const { for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) return entries_[i].gid; return {}; }
 
     long tmpfs_mount::chmod(const char* path, file_permissions permissions) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
@@ -336,6 +337,13 @@ namespace astia::fs {
                 if (entries_[i].object) entries_[i].object->set_mode(entries_[i].mode);
                 return 0;
             }
+        }
+        return -ENOENT;
+    }
+    long tmpfs_mount::chown(const char* path, uid_t uid, gid_t gid) {
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) {
+            entries_[i].uid=uid; entries_[i].gid=gid; return 0;
         }
         return -ENOENT;
     }

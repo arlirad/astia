@@ -107,6 +107,8 @@ enum {
     SYS_SETEGID        = 39,
     SYS_SETREUID       = 40,
     SYS_SETREGID       = 41,
+    SYS_GETGROUPS      = 42,
+    SYS_SETGROUPS      = 43,
 };
 
 /* ------------------------------------------------------------------ */
@@ -250,6 +252,8 @@ static inline long astia_setgid(uint32_t v) { return astia_raw6(SYS_SETGID,v,0,0
 static inline long astia_setegid(uint32_t v) { return astia_raw6(SYS_SETEGID,v,0,0,0,0,0); }
 static inline long astia_setreuid(uint32_t r,uint32_t e) { return astia_raw6(SYS_SETREUID,r,e,0,0,0,0); }
 static inline long astia_setregid(uint32_t r,uint32_t e) { return astia_raw6(SYS_SETREGID,r,e,0,0,0,0); }
+static inline long astia_getgroups(int32_t n, uint32_t* g) { return astia_raw6(SYS_GETGROUPS,n,(long)g,0,0,0,0); }
+static inline long astia_setgroups(int32_t n, const uint32_t* g) { return astia_raw6(SYS_SETGROUPS,n,(long)g,0,0,0,0); }
 
 static inline long astia_getpgrp(void) {
     return astia_raw6(SYS_GETPGRP, 0, 0, 0, 0, 0, 0);

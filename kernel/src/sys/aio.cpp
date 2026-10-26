@@ -4,6 +4,7 @@
 
 #include "../ipc/pipe.hpp"
 #include "proc.hpp"
+#include "../proc/mapping.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/termios.h>
@@ -510,7 +511,7 @@ namespace astia::sys {
                 const fs::file_mode existing_mode = fs::node_mode(resolved);
                 if (existing_mode.exists()) {
                     auto* cred = proc::current_process();
-                    const u32 owner = fs::node_uid(resolved), group = fs::node_gid(resolved);
+                    const uid_t owner = fs::node_uid(resolved); const gid_t group = fs::node_gid(resolved);
                     if ((s.op_flags & 2u) != 0 && !cred->can_access(existing_mode, owner, group, fs::permission_bits::write))
                         return cq_post_guarded(ring, s.user_data, -EACCES);
                     if ((s.op_flags & 1u) == 0 && !cred->can_access(existing_mode, owner, group, fs::permission_bits::read))
@@ -531,6 +532,7 @@ namespace astia::sys {
                     auto requested = mapper<fs::file_permissions>::from(s.aux == 0 ? 0666 : s.aux);
                     if (!requested.has_value) return cq_post_guarded(ring, s.user_data, -EINVAL);
                     (void)fs::chmod_path(resolved, requested.value);
+                    (void)fs::chown_path(resolved, uid_t{current->uid()}, gid_t{current->gid()});
                 }
                 current = proc::current_process();
                 if (current == nullptr) {
@@ -568,10 +570,11 @@ namespace astia::sys {
                  if (s.op == OP_MKDIRAT && !requested.has_value)
                      return cq_post_guarded(ring, s.user_data, -EINVAL);
                  const long rc = s.op == OP_MKDIRAT
-                                     ? fs::make_directory(resolved, requested.value)
+                                      ? fs::make_directory(resolved, requested.value)
                                      : fs::remove_path(resolved,
                                                        (s.op_flags & UNLINKAT_REMOVEDIR) != 0);
-                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+                 if (rc >= 0 && s.op == OP_MKDIRAT) (void)fs::chown_path(resolved, uid_t{current->uid()}, gid_t{current->gid()});
+                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
             }
 
             case OP_RENAMEAT: {
@@ -655,7 +658,7 @@ namespace astia::sys {
                         long n = fs::read_symlink(resolved, target, sizeof target);
                         if (n < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(n));
                         link->dev=1; link->ino=1; link->nlink=1; link->size=(u64)n;
-                        link->mode=mapper<fs::file_mode>::to(fs::node_mode(resolved)); link->uid=fs::node_uid(resolved); link->gid=fs::node_gid(resolved);
+                         link->mode=mapper<fs::file_mode>::to(fs::node_mode(resolved)); link->uid=static_cast<u32>(fs::node_uid(resolved)); link->gid=static_cast<u32>(fs::node_gid(resolved));
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                     object = fs::open_path(resolved);
@@ -667,7 +670,7 @@ namespace astia::sys {
                         directory->ino = 1;
                         directory->nlink = 1;
                         directory->mode = mapper<fs::file_mode>::to(fs::node_mode(resolved));
-                        directory->uid = fs::node_uid(resolved); directory->gid = fs::node_gid(resolved);
+                         directory->uid = static_cast<u32>(fs::node_uid(resolved)); directory->gid = static_cast<u32>(fs::node_gid(resolved));
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                     if (!object) {
@@ -708,7 +711,7 @@ namespace astia::sys {
                 stat_out->size   = static_cast<u64>(size);
                 stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
                  stat_out->mode   = mapper<fs::file_mode>::to(object->mode());
-                 stat_out->uid = object->backing()->uid(); stat_out->gid = object->backing()->gid();
+                  stat_out->uid = static_cast<u32>(object->backing()->uid()); stat_out->gid = static_cast<u32>(object->backing()->gid());
                  stat_out->mtime_sec = object->mtime_sec();
                  stat_out->mtime_nsec = object->mtime_nsec();
                 return cq_post_guarded(ring, s.user_data, 0);
@@ -722,12 +725,35 @@ namespace astia::sys {
                 char resolved[256];
                 if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
-                if (current->euid() != 0 && current->euid() != fs::node_uid(resolved))
+                 if (current->euid() != 0 && current->euid() != static_cast<u32>(fs::node_uid(resolved)))
                     return cq_post_guarded(ring, s.user_data, -EPERM);
                 auto requested = mapper<fs::file_permissions>::from(s.aux);
                 if (!requested.has_value) return cq_post_guarded(ring, s.user_data, -EINVAL);
                 return cq_post_guarded(ring, s.user_data,
                                        static_cast<i32>(fs::chmod_path(resolved, requested.value)));
+            }
+
+            case OP_CHOWN: {
+                char path[256];
+                if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(s.address)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* current = proc::current_process();
+                char resolved[256];
+                if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                /* Only root may change ownership.  A non-root owner may
+                   change group to one of its supplementary groups; this
+                   implementation intentionally keeps chown authorization
+                   conservative until setgroups is wired below. */
+                if (current->euid() != 0)
+                    return cq_post_guarded(ring, s.user_data, -EPERM);
+                auto owner = mapper<uid_t>::from(static_cast<i64>(s.aux));
+                auto group = mapper<gid_t>::from(static_cast<i64>(s.offset));
+                if (!owner.has_value || !group.has_value)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                return cq_post_guarded(ring, s.user_data,
+                    static_cast<i32>(fs::chown_path(resolved, owner.value, group.value,
+                                                    (s.op_flags & STATX_NOFOLLOW) == 0)));
             }
 
             case OP_UTIMENSAT: {
@@ -753,7 +779,9 @@ namespace astia::sys {
                 auto* current=proc::current_process(); char resolved[256];
                 if (!current || current->resolve_path(path,resolved,sizeof resolved)<0)
                     return cq_post_guarded(ring,s.user_data,-EINVAL);
-                return cq_post_guarded(ring,s.user_data,(i32)fs::make_symlink(target,resolved));
+                 long link_rc = fs::make_symlink(target,resolved);
+                 if (link_rc >= 0) (void)fs::chown_path(resolved, uid_t{current->uid()}, gid_t{current->gid()}, false);
+                 return cq_post_guarded(ring,s.user_data,(i32)link_rc);
             }
             case OP_READLINKAT: {
                 char path[256];

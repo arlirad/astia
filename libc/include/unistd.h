@@ -63,6 +63,7 @@ int          symlink(const char* target, const char* link_path);
 long         readlink(const char* path, char* buffer, unsigned long capacity);
 int          unlink(const char* path);
 int          getgroups(int count, gid_t groups[]);
+int          setgroups(int count, const gid_t groups[]);
 int          rename(const char* old_path, const char* new_path);
 int          waitpid(int pid, int* status, int options);
 #define WNOHANG 1

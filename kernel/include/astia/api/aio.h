@@ -287,6 +287,7 @@ enum {
     OP_UTIMENSAT = 27,
     OP_SYMLINKAT = 28,
     OP_READLINKAT = 29,
+    OP_CHOWN = 30,
 };
 
 /* OP_STATX: preserve the final directory entry instead of following it. */

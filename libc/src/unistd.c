@@ -159,8 +159,13 @@ char* mktemp(char* template_name) {
     return NULL;
 }
 int getgroups(int count, gid_t groups[]) {
-    (void) count;
-    (void) groups;
+    long rc = astia_getgroups(count, (uint32_t*)groups);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return (int)rc;
+}
+int setgroups(int count, const gid_t groups[]) {
+    long rc = astia_setgroups(count, (const uint32_t*)groups);
+    if (rc < 0) { errno = (int)-rc; return -1; }
     return 0;
 }
 int fcntl(int fd, int command, ...) {

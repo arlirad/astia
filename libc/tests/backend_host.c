@@ -220,6 +220,10 @@ long __astia_fio_chmod(const char* path, int mode) {
     long rc = syscall(SYS_chmod, path, mode);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
+long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid, int nofollow) {
+    long rc = syscall(nofollow ? SYS_lchown : SYS_chown, path, uid, gid);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
 
 long __astia_fio_utime(const char* path) {
     long rc = syscall(SYS_utimensat, -100, path, 0, 0);

@@ -17,9 +17,10 @@ namespace astia::fs {
         virtual long rename(const char* old_path, const char* new_path);
         virtual file_type node_type(const char* path) const;
         virtual file_mode node_mode(const char* path) const;
-        virtual u32 node_uid(const char* path) const;
-        virtual u32 node_gid(const char* path) const;
+        virtual uid_t node_uid(const char* path) const;
+        virtual gid_t node_gid(const char* path) const;
         virtual long chmod(const char* path, file_permissions permissions);
+        virtual long chown(const char* path, uid_t uid, gid_t gid);
         virtual long symlink(const char* target, const char* path);
         virtual long readlink(const char* path, char* buffer, u32 capacity) const;
     };

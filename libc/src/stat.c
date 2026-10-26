@@ -47,6 +47,16 @@ int chmod(const char* path, mode_t mode) {
     long rc = __astia_fio_chmod(path, (int)mode);
     return rc < 0 ? fail(rc) : 0;
 }
+int chown(const char* path, uid_t owner, gid_t group) {
+    if (path == NULL) { errno = EFAULT; return -1; }
+    long rc = __astia_fio_chown(path, owner, group, 0);
+    return rc < 0 ? fail(rc) : 0;
+}
+int lchown(const char* path, uid_t owner, gid_t group) {
+    if (path == NULL) { errno = EFAULT; return -1; }
+    long rc = __astia_fio_chown(path, owner, group, 1);
+    return rc < 0 ? fail(rc) : 0;
+}
 
 int utimensat(int dirfd, const char* path, const struct timespec times[2], int flags) {
     (void) times;

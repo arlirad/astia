@@ -317,6 +317,25 @@ namespace astia::proc {
         if (e != static_cast<u32>(-1)) egid_=e;
         return 0;
     }
+    bool process::in_group(gid_t group) const {
+        if (egid_ == static_cast<u32>(group)) return true;
+        for (u32 i=0;i<group_count_;++i) if (groups_[i] == group) return true;
+        return false;
+    }
+    i64 process::getgroups(i32 count, u32* out) const {
+        if (count < 0 || (count != 0 && out == nullptr)) return -EINVAL;
+        if (count == 0) return group_count_;
+        if (static_cast<u32>(count) < group_count_) return -EINVAL;
+        for (u32 i=0;i<group_count_;++i) out[i]=static_cast<u32>(groups_[i]);
+        return group_count_;
+    }
+    i64 process::setgroups(i32 count, const u32* values) {
+        if (euid_ != 0) return -EPERM;
+        if (count < 0 || static_cast<u32>(count) > max_groups || (count != 0 && values == nullptr)) return -EINVAL;
+        group_count_=static_cast<u32>(count);
+        for (u32 i=0;i<group_count_;++i) groups_[i]=gid_t{values[i]};
+        return 0;
+    }
 
     process::~process() {
         // VMA teardown releases frame references under spinlocks. Do not let

@@ -126,11 +126,12 @@ namespace astia::fs {
     long mount::rename(const char*, const char*) { return -ENOSYS; }
     file_type mount::node_type(const char*) const { return directory_unknown; }
     file_mode mount::node_mode(const char*) const { return {}; }
-    u32 mount::node_uid(const char*) const { return 0; }
-    u32 mount::node_gid(const char*) const { return 0; }
-    u32 file::uid() const { return 0; }
-    u32 file::gid() const { return 0; }
+    uid_t mount::node_uid(const char*) const { return {}; }
+    gid_t mount::node_gid(const char*) const { return {}; }
+    uid_t file::uid() const { return {}; }
+    gid_t file::gid() const { return {}; }
     long mount::chmod(const char*, file_permissions) { return -ENOSYS; }
+    long mount::chown(const char*, uid_t, gid_t) { return -ENOSYS; }
     long mount::symlink(const char*, const char*) { return -ENOSYS; }
     long mount::readlink(const char*, char*, u32) const { return -ENOSYS; }
 
@@ -336,14 +337,23 @@ namespace astia::fs {
         mount_entry* entry = find_mount(path);
         return entry == nullptr ? file_mode{} : entry->instance->node_mode(relative_path(*entry, path));
     }
-    u32 node_uid(const char* path) { mount_entry* e=find_mount(path); return e ? e->instance->node_uid(relative_path(*e,path)) : 0; }
-    u32 node_gid(const char* path) { mount_entry* e=find_mount(path); return e ? e->instance->node_gid(relative_path(*e,path)) : 0; }
+    uid_t node_uid(const char* path) { mount_entry* e=find_mount(path); return e ? e->instance->node_uid(relative_path(*e,path)) : uid_t{}; }
+    gid_t node_gid(const char* path) { mount_entry* e=find_mount(path); return e ? e->instance->node_gid(relative_path(*e,path)) : gid_t{}; }
 
     long chmod_path(const char* path, file_permissions permissions) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
         mount_entry* entry = find_mount(path);
         if (entry == nullptr) return -ENOENT;
         return entry->instance->chmod(relative_path(*entry, path), permissions);
+    }
+
+    long chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final) {
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        char resolved[path_max]{};
+        long rc = resolve_path(path, resolved, sizeof resolved, follow_final);
+        if (rc < 0) return rc;
+        mount_entry* entry = find_mount(resolved);
+        return entry == nullptr ? -ENOENT : entry->instance->chown(relative_path(*entry, resolved), uid, gid);
     }
 
     long touch_path(const char* path, u64 sec, u64 nsec) {

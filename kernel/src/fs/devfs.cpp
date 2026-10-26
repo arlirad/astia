@@ -83,8 +83,8 @@ namespace astia::fs {
         return {};
     }
 
-    u32 devfs_mount::node_uid(const char*) const { return 0; }
-    u32 devfs_mount::node_gid(const char*) const { return 0; }
+    uid_t devfs_mount::node_uid(const char*) const { return {}; }
+    gid_t devfs_mount::node_gid(const char*) const { return {}; }
 
     fs::mount* devfs::mount(const char* source) const {
         (void) source;

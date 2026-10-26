@@ -17,8 +17,8 @@ namespace astia::fs {
         long             write(const void* buffer, u32 length, u64 offset) override;
         long             size() const override;
         file_mode        mode() const override { return mode_; }
-        u32              uid() const override { return uid_; }
-        u32              gid() const override { return gid_; }
+        uid_t            uid() const override { return uid_; }
+        gid_t            gid() const override { return gid_; }
         u64              mtime_sec() const override { return mtime_sec_; }
         u64              mtime_nsec() const override { return mtime_nsec_; }
         long             touch(u64 sec, u64 nsec) override;
@@ -34,7 +34,7 @@ namespace astia::fs {
         mm::phys_region* storage_ = nullptr;
         u64              size_    = 0;
         file_mode        mode_    = file_mode(file_type::regular, file_permissions(0666));
-        u32              uid_ = 0, gid_ = 0;
+        uid_t            uid_{}; gid_t gid_{};
         u64              mtime_sec_ = 0;
         u64              mtime_nsec_ = 0;
     };
@@ -49,9 +49,10 @@ namespace astia::fs {
         long rename(const char* old_path, const char* new_path) override;
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
-        u32 node_uid(const char* path) const override;
-        u32 node_gid(const char* path) const override;
+        uid_t node_uid(const char* path) const override;
+        gid_t node_gid(const char* path) const override;
         long chmod(const char* path, file_permissions permissions) override;
+        long chown(const char* path, uid_t uid, gid_t gid) override;
         long symlink(const char* target, const char* path) override;
         long readlink(const char* path, char* buffer, u32 capacity) const override;
 
@@ -60,7 +61,7 @@ namespace astia::fs {
             bool                  used = false;
             bool                  directory = false;
             file_mode             mode{};
-            u32                   uid = 0, gid = 0;
+            uid_t                 uid{}; gid_t gid{};
             char                  path[path_max]{};
             mm::shptr<tmpfs_file> object;
         };

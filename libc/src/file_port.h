@@ -74,6 +74,7 @@ long __astia_fio_lstat(const char* path, void* out, uint32_t length);
 long __astia_fio_fstat(int fd, void* out, uint32_t length);
 long __astia_fio_mkdir(const char* path, int mode);
 long __astia_fio_chmod(const char* path, int mode);
+long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid, int nofollow);
 long __astia_fio_utime(const char* path);
 long __astia_fio_unlink(const char* path, int directory);
 long __astia_fio_rename(const char* old_path, const char* new_path);

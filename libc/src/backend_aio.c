@@ -317,6 +317,10 @@ long __astia_fio_mkdir(const char* path, int mode) {
 long __astia_fio_chmod(const char* path, int mode) {
     return transact(OP_CHMOD, -1, 0, path, 0, 0, (uint32_t) mode);
 }
+long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid, int nofollow) {
+    return transact(OP_CHOWN, -1, gid, path, 0,
+                    nofollow ? STATX_NOFOLLOW : 0, uid);
+}
 
 long __astia_fio_utime(const char* path) {
     return transact(OP_UTIMENSAT, AT_FDCWD, 0, path, 0, 0, 0);

@@ -57,14 +57,17 @@ namespace astia::proc {
         u32 gid() const { return gid_; } u32 egid() const { return egid_; }
         i64 setuid(u32); i64 seteuid(u32); i64 setgid(u32); i64 setegid(u32);
         i64 setreuid(u32,u32); i64 setregid(u32,u32);
-        bool can_access(fs::file_mode mode, u32 owner, u32 group,
+        i64 getgroups(i32 count, u32* out) const;
+        i64 setgroups(i32 count, const u32* values);
+        bool in_group(gid_t group) const;
+        bool can_access(fs::file_mode mode, uid_t owner, gid_t group,
                         fs::permission_bits want) const {
             if (euid_ == 0) return want != fs::permission_bits::execute ||
                                       mode.owner_allows(fs::permission_bits::execute) ||
                                       mode.group_allows(fs::permission_bits::execute) ||
                                       mode.other_allows(fs::permission_bits::execute);
-            return euid_ == owner ? mode.owner_allows(want) :
-                   (egid_ == group ? mode.group_allows(want) : mode.other_allows(want));
+            return euid_ == static_cast<u32>(owner) ? mode.owner_allows(want) :
+                   (in_group(group) ? mode.group_allows(want) : mode.other_allows(want));
         }
         const char* cwd() const { return cwd_; }
         i64 change_directory(const char* path);
@@ -79,6 +82,7 @@ namespace astia::proc {
                 if (cwd_[i] == '\0') break;
             }
             uid_=parent.uid_; euid_=parent.euid_; gid_=parent.gid_; egid_=parent.egid_;
+            group_count_=parent.group_count_; for (u32 i=0;i<group_count_;++i) groups_[i]=parent.groups_[i];
         }
         void process_group(pid_t value) {
             process_group_ = value;
@@ -276,6 +280,8 @@ namespace astia::proc {
         pid_t session_;
         fs::file* controlling_terminal_ = nullptr;
         u32 uid_=0, euid_=0, gid_=0, egid_=0;
+        static constexpr u32 max_groups = 16;
+        gid_t groups_[max_groups]{}; u32 group_count_ = 0;
         char  name_[32]{};
         process_state state_              = process_state::fresh;
         i32           exit_status_        = 0;
