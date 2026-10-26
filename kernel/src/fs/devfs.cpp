@@ -1,4 +1,5 @@
 #include "devfs.hpp"
+#include "../proc/proc.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
@@ -47,6 +48,11 @@ namespace astia::fs {
     }
 
     mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags) {
+        if (equal(path, "/tty")) {
+            fs::file* terminal = proc::controlling_terminal();
+            if (terminal == nullptr) return {};
+            return mm::share<open_file>(mm::shptr<file>::borrowed(terminal), flags);
+        }
         for (u32 i = 0; i < devfs_max_entries; ++i) {
             if (entries_[i].used && equal(entries_[i].path, path)) {
                 const u32 mode = entries_[i].object->mode();
@@ -62,12 +68,16 @@ namespace astia::fs {
     }
 
     u32 devfs_mount::node_type(const char* path) const {
+        // The node exists independently of whether the caller has a ctty;
+        // only opening it requires a controlling terminal.
+        if (equal(path, "/tty")) return directory_chr;
         for (u32 i = 0; i < devfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path)) return directory_chr;
         return directory_unknown;
     }
 
     u32 devfs_mount::node_mode(const char* path) const {
+        if (equal(path, "/tty")) return 0200666;
         for (u32 i = 0; i < devfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path)) return entries_[i].object->mode();
         return 0;

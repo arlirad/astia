@@ -88,7 +88,7 @@ namespace astia::fs {
 
     /// Register one exact path as a device node.  Path traversal and
     /// directories are intentionally deferred; the first useful VFS
-    /// shape is enough for /dev/uart16550 and future block nodes.
+    /// shape is enough for /dev/tts0 and future block nodes.
     long register_device(const char* path, const mm::shptr<file>& object);
 
     /// Resolve a path through the mounted filesystem namespace.

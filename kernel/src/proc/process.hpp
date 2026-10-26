@@ -68,6 +68,7 @@ namespace astia::proc {
         void inherit_groups(const process& parent) {
             process_group_ = parent.process_group_;
             session_       = parent.session_;
+            controlling_terminal_ = parent.controlling_terminal_;
             for (usize i = 0; i < fs::path_max; ++i) {
                 cwd_[i] = parent.cwd_[i];
                 if (cwd_[i] == '\0') break;
@@ -80,6 +81,8 @@ namespace astia::proc {
         void session(pid_t value) {
             session_ = value;
         }
+        fs::file* controlling_terminal() const { return controlling_terminal_; }
+        void controlling_terminal(fs::file* value) { controlling_terminal_ = value; }
         const char* name() const {
             return name_;
         }
@@ -260,6 +263,7 @@ namespace astia::proc {
         pid_t parent_pid_;
         pid_t process_group_;
         pid_t session_;
+        fs::file* controlling_terminal_ = nullptr;
         u32 uid_=0, euid_=0, gid_=0, egid_=0;
         char  name_[32]{};
         process_state state_              = process_state::fresh;

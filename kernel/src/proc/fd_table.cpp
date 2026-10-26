@@ -6,9 +6,9 @@
 namespace astia::proc {
 
     bool fd_table::install_standard_streams() {
-        entries_[STDIN]  = fs::open("/dev/uart16550");
-        entries_[STDOUT] = fs::open("/dev/uart16550");
-        entries_[STDERR] = fs::open("/dev/uart16550");
+        entries_[STDIN]  = fs::open("/dev/tts0");
+        entries_[STDOUT] = fs::open("/dev/tts0");
+        entries_[STDERR] = fs::open("/dev/tts0");
         return entries_[STDIN] && entries_[STDOUT] && entries_[STDERR];
     }
 

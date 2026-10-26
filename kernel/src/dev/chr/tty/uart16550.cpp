@@ -62,8 +62,8 @@ namespace astia::dev {
         constexpr u8   mcr_rts       = 0x02;
         constexpr u8   mcr_out2      = 0x08; // gates the IRQ line onto the PIC
         constexpr u8   mcr_loopback  = 0x10;
-        constexpr char device_path[] = "/dev/uart16550";
-        constexpr char tty_path[] = "/dev/tty";
+        constexpr char device_path[] = "/dev/tts0";
+        constexpr char console_path[] = "/dev/console";
 
         // QEMU answers THR instantly and real hardware shifts a byte in
         // under 100 µs at 115200; the cap fires only on a dead port,
@@ -75,7 +75,7 @@ namespace astia::dev {
         // constructor having run, which is what a kernel without
         // .init_array needs.  constinit enforces static initialization
         // while retaining writable RX state and cursors.
-        constinit uart16550   com1{"ttyS0", 0x3F8, 4};
+        constinit uart16550   com1{"tts0", 0x3F8, 4};
         constinit device_file com1_file{&com1};
 
         void uart16550_irq() {
@@ -423,7 +423,7 @@ namespace astia::dev {
             0) {
             return false;
         }
-        if (fs::register_device(tty_path, mm::shptr<fs::file>::borrowed(&com1_file)) < 0)
+        if (fs::register_device(console_path, mm::shptr<fs::file>::borrowed(&com1_file)) < 0)
             return false;
         _ports[reg_ier] = ier_rx_ready;  // data-ready interrupts on
         arch::x86_64::pic::unmask(_irq); // handler in place first

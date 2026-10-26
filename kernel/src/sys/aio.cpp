@@ -501,6 +501,11 @@ namespace astia::sys {
                 long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
                 if (resolve_rc >= 0) resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
                 if (resolve_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
+                if (resolved[0] == '/' && resolved[1] == 'd' && resolved[2] == 'e' &&
+                    resolved[3] == 'v' && resolved[4] == '/' && resolved[5] == 't' &&
+                    resolved[6] == 't' && resolved[7] == 'y' && resolved[8] == '\0' &&
+                    !proc::has_controlling_terminal())
+                    return cq_post_guarded(ring, s.user_data, -ENXIO);
                 const u32 existing_mode = fs::node_mode(resolved);
                 if (existing_mode != 0) {
                     auto* cred = proc::current_process();

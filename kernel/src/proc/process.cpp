@@ -527,6 +527,7 @@ namespace astia::proc {
         if (installed) {
             auto tty = descriptor(fd_t{STDIN});
             if (tty) {
+                controlling_terminal(tty->backing());
                 i32 group = static_cast<i32>(process_group_);
                 (void) tty->ioctl(TIOCSPGRP, &group);
             }

@@ -54,6 +54,8 @@ namespace astia::proc {
     bool   terminal_read_allowed(pgrp_t foreground);
     bool   terminal_write_allowed(pgrp_t foreground, bool tostop);
     bool   terminal_set_foreground_allowed(pgrp_t foreground);
+    fs::file* controlling_terminal();
+    bool has_controlling_terminal();
     i64    setpgid(pid_t pid, pgrp_t pgid);
     i64   setsid();
     /// Send a signal to every live member of a process group.  Signal zero

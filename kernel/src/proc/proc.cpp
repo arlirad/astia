@@ -206,6 +206,13 @@ namespace astia::proc {
         return owner == nullptr ? 0 : owner->session();
     }
 
+    fs::file* controlling_terminal() {
+        process* owner = current_process();
+        return owner == nullptr ? nullptr : owner->controlling_terminal();
+    }
+
+    bool has_controlling_terminal() { return controlling_terminal() != nullptr; }
+
     bool process_group_exists(pgrp_t group, pid_t session) {
         core::spinlock_guard guard(registry_lock);
         return find_group_locked(group, session) != nullptr;
@@ -297,6 +304,7 @@ namespace astia::proc {
             return -EPERM;
         owner->session(owner->pid());
         owner->process_group(owner->pid());
+        owner->controlling_terminal(nullptr);
         return static_cast<i64>(owner->session());
     }
 
