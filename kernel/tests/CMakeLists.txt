@@ -55,6 +55,12 @@ astia_add_host_test(astia_tty_test
         ${CMAKE_SOURCE_DIR}/src/dev/device.cpp
 )
 target_include_directories(astia_tty_test PRIVATE ${CMAKE_SOURCE_DIR}/src/dev)
+astia_add_host_test(astia_pseudo_test
+        pseudo_test.cpp
+        ${CMAKE_SOURCE_DIR}/src/dev/chr/pseudo.cpp
+        ${CMAKE_SOURCE_DIR}/src/dev/device.cpp
+)
+target_include_directories(astia_pseudo_test PRIVATE ${CMAKE_SOURCE_DIR}/src/dev)
 
 find_package(Threads REQUIRED)
 astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)

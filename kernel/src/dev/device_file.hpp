@@ -17,6 +17,7 @@ namespace astia::dev {
         long submit(io_request& request) override;
         long ioctl(u64 request, void* argp) override;
         long size() const override;
+        u32 mode() const override { return 0200666; }
 
         private:
         device* _device;

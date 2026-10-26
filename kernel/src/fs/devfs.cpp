@@ -49,11 +49,32 @@ namespace astia::fs {
     mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags) {
         for (u32 i = 0; i < devfs_max_entries; ++i) {
             if (entries_[i].used && equal(entries_[i].path, path)) {
+                const u32 mode = entries_[i].object->mode();
+                // OPENAT uses bit 0 for write-only and bit 1 for read/write.
+                if ((flags & 2u) != 0 && ((mode & 0006) != 0006)) return {};
+                if ((flags & 2u) == 0 && (flags & 1u) != 0 && (mode & 0002) == 0)
+                    return {};
+                if ((flags & 3u) == 0 && (mode & 0004) == 0) return {};
                 return mm::share<open_file>(entries_[i].object, flags);
             }
         }
         return {};
     }
+
+    u32 devfs_mount::node_type(const char* path) const {
+        for (u32 i = 0; i < devfs_max_entries; ++i)
+            if (entries_[i].used && equal(entries_[i].path, path)) return directory_chr;
+        return directory_unknown;
+    }
+
+    u32 devfs_mount::node_mode(const char* path) const {
+        for (u32 i = 0; i < devfs_max_entries; ++i)
+            if (entries_[i].used && equal(entries_[i].path, path)) return entries_[i].object->mode();
+        return 0;
+    }
+
+    u32 devfs_mount::node_uid(const char*) const { return 0; }
+    u32 devfs_mount::node_gid(const char*) const { return 0; }
 
     fs::mount* devfs::mount(const char* source) const {
         (void) source;

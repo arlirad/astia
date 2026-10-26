@@ -9,6 +9,10 @@ namespace astia::fs {
     class devfs_mount final : public mount {
         public:
         mm::shptr<open_file> open(const char* path, u32 flags) override;
+        u32 node_type(const char* path) const override;
+        u32 node_mode(const char* path) const override;
+        u32 node_uid(const char* path) const override;
+        u32 node_gid(const char* path) const override;
         long register_file(const char* path, const mm::shptr<file>& object) override;
 
         private:

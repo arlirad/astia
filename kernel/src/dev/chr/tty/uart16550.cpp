@@ -63,6 +63,7 @@ namespace astia::dev {
         constexpr u8   mcr_out2      = 0x08; // gates the IRQ line onto the PIC
         constexpr u8   mcr_loopback  = 0x10;
         constexpr char device_path[] = "/dev/uart16550";
+        constexpr char tty_path[] = "/dev/tty";
 
         // QEMU answers THR instantly and real hardware shifts a byte in
         // under 100 µs at 115200; the cap fires only on a dead port,
@@ -422,6 +423,8 @@ namespace astia::dev {
             0) {
             return false;
         }
+        if (fs::register_device(tty_path, mm::shptr<fs::file>::borrowed(&com1_file)) < 0)
+            return false;
         _ports[reg_ier] = ier_rx_ready;  // data-ready interrupts on
         arch::x86_64::pic::unmask(_irq); // handler in place first
         return true;

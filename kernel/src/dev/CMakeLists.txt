@@ -4,6 +4,8 @@ add_library(dev STATIC
         driver.cpp
         pci.cpp
         chr/tty.cpp
+        chr/pseudo.cpp
+        chr/pseudo_register.cpp
         chr/tty/uart16550.cpp
         debug_exit.cpp
         init_dev.cpp
