@@ -214,45 +214,63 @@ namespace astia::fs {
                          file_type* type) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
-        mount_entry* entry = find_mount(path);
+        char resolved[path_max]{};
+        long rc = resolve_path(path, resolved, sizeof resolved, true);
+        if (rc < 0) return rc;
+        mount_entry* entry = find_mount(resolved);
         if (entry == nullptr)
             return -ENOENT;
-        return entry->instance->read_directory(relative_path(*entry, path), index, name,
+        return entry->instance->read_directory(relative_path(*entry, resolved), index, name,
                                                capacity, type);
     }
 
     long make_directory(const char* path, file_mode mode) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
-        mount_entry* entry = find_mount(path);
+        char resolved[path_max]{};
+        long rc = resolve_path(path, resolved, sizeof resolved, false);
+        if (rc < 0) return rc;
+        mount_entry* entry = find_mount(resolved);
         if (entry == nullptr) return -ENOENT;
-        return entry->instance->mkdir(relative_path(*entry, path), mode);
+        return entry->instance->mkdir(relative_path(*entry, resolved), mode);
     }
 
     long remove_path(const char* path, bool directory) {
         if (path == nullptr || path[0] != '/') return -EINVAL;
-        mount_entry* entry = find_mount(path);
+        char resolved[path_max]{};
+        long rc = resolve_path(path, resolved, sizeof resolved, false);
+        if (rc < 0) return rc;
+        mount_entry* entry = find_mount(resolved);
         if (entry == nullptr) return -ENOENT;
-        return entry->instance->unlink(relative_path(*entry, path), directory);
+        return entry->instance->unlink(relative_path(*entry, resolved), directory);
     }
 
     long rename_path(const char* old_path, const char* new_path) {
         if (old_path == nullptr || new_path == nullptr || old_path[0] != '/' ||
             new_path[0] != '/')
             return -EINVAL;
-        mount_entry* old_entry = find_mount(old_path);
-        mount_entry* new_entry = find_mount(new_path);
+        char old_resolved[path_max]{}, new_resolved[path_max]{};
+        long rc = resolve_path(old_path, old_resolved, sizeof old_resolved, false);
+        if (rc < 0) return rc;
+        rc = resolve_path(new_path, new_resolved, sizeof new_resolved, false);
+        if (rc < 0) return rc;
+        mount_entry* old_entry = find_mount(old_resolved);
+        mount_entry* new_entry = find_mount(new_resolved);
         if (old_entry == nullptr || new_entry == nullptr)
             return -ENOENT;
         if (old_entry->instance != new_entry->instance)
             return -EXDEV;
-        return old_entry->instance->rename(relative_path(*old_entry, old_path),
-                                            relative_path(*new_entry, new_path));
+        return old_entry->instance->rename(relative_path(*old_entry, old_resolved),
+                                            relative_path(*new_entry, new_resolved));
     }
 
     file_type node_type(const char* path) {
         if (path == nullptr || path[0] != '/') return directory_unknown;
         mount_entry* entry = find_mount(path);
         if (entry == nullptr) return directory_unknown;
+        // A mount point is itself a directory in the namespace.  Some
+        // filesystems (notably devfs) only expose entries below their root
+        // and therefore cannot describe the mount root through node_type().
+        if (equal(entry->target, path)) return directory_dir;
         return entry->instance->node_type(relative_path(*entry, path));
     }
 
@@ -262,6 +280,9 @@ namespace astia::fs {
         char pending[path_max * 2]{};
         char result[path_max]{};
         u32 plen = 0, rlen = 1, links = 0;
+        u32 path_length = 0;
+        while (path[path_length] != '\0') ++path_length;
+        const bool trailing_slash = path_length != 0 && path[path_length - 1] == '/';
         result[0] = '/';
         for (u32 i = 0; path[i] != '\0'; ++i) {
             if (plen + 1 >= sizeof pending) return -ENAMETOOLONG;
@@ -287,6 +308,12 @@ namespace astia::fs {
                 if (rlen > 1) { --rlen; while (rlen > 1 && result[rlen-1] != '/') --rlen; }
                 continue;
             }
+            // Every component except the root is looked up beneath a
+            // directory.  Reporting ENOTDIR here is important: treating an
+            // ordinary file as an absent path loses the caller's errno.
+            if (rlen > 1 && node_type(result) != directory_dir)
+                return node_type(result) == directory_unknown ? -ENOENT : -ENOTDIR;
+            const u32 parent_len = rlen;
             if (rlen > 1) result[rlen++] = '/';
             if (rlen + clen >= sizeof result) return -ENAMETOOLONG;
             for (u32 i=0;i<clen;++i) result[rlen++]=component[i];
@@ -300,9 +327,9 @@ namespace astia::fs {
                 char combined[path_max * 2]{};
                 u32 at = 0;
                 if (target[0] != '/') {
-                    at = rlen;
-                    while (at > 1 && result[at-1] != '/') --at;
+                    at = parent_len;
                     for (u32 i=0;i<at;++i) combined[i]=result[i];
+                    if (at > 1 && combined[at - 1] != '/') combined[at++] = '/';
                 }
                 for (u32 i=0; target[i] != '\0'; ++i) {
                     if (at + i + 1 >= sizeof combined) return -ENAMETOOLONG;
@@ -317,6 +344,11 @@ namespace astia::fs {
                 rlen = 1; result[0]='/';
             }
         }
+        if (trailing_slash) {
+            const file_type final_type = node_type(result);
+            if (final_type == directory_unknown) return -ENOENT;
+            if (final_type != directory_dir) return -ENOTDIR;
+        }
         // rlen excludes the terminating NUL; leave room for it in the
         // caller's buffer before copying the complete string below.
         if (rlen + 1 > capacity) return -ENAMETOOLONG;
@@ -325,10 +357,15 @@ namespace astia::fs {
     }
 
     long make_symlink(const char* target, const char* path) {
-        mount_entry* e=find_mount(path); if (!e) return -ENOENT;
-        return e->instance->symlink(target, relative_path(*e,path));
+        if (path == nullptr || path[0] != '/') return -EINVAL;
+        char resolved[path_max]{};
+        long rc = resolve_path(path, resolved, sizeof resolved, false);
+        if (rc < 0) return rc;
+        mount_entry* e=find_mount(resolved); if (!e) return -ENOENT;
+        return e->instance->symlink(target, relative_path(*e,resolved));
     }
     long read_symlink(const char* path, char* buffer, u32 capacity) {
+        if (path == nullptr || path[0] != '/') return -EINVAL;
         mount_entry* e=find_mount(path); if (!e) return -ENOENT;
         return e->instance->readlink(relative_path(*e,path), buffer, capacity);
     }

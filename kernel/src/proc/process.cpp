@@ -35,18 +35,13 @@ namespace astia::proc {
         }
         if (full[0] == '\0') return -EINVAL;
         if (full[0] != '/') return -EINVAL;
-        char name[fs::path_max]{};
-        fs::file_type type = fs::directory_unknown;
-        bool directory = false;
-        for (u64 index = 0; index < 256; ++index) {
-            const long rc = fs::read_directory(full, index, name, sizeof name, &type);
-            if (rc <= 0) break;
-            directory = true;
-            break;
-        }
-        if (!directory && full[1] != '\0') return -ENOTDIR;
+        char resolved[fs::path_max]{};
+        const long resolve_rc = fs::resolve_path(full, resolved, sizeof resolved, true);
+        if (resolve_rc < 0) return resolve_rc;
+        if (fs::node_type(resolved) == fs::directory_unknown) return -ENOENT;
+        if (fs::node_type(resolved) != fs::directory_dir) return -ENOTDIR;
         usize i = 0;
-        for (; full[i] != '\0'; ++i) cwd_[i] = full[i];
+        for (; resolved[i] != '\0'; ++i) cwd_[i] = resolved[i];
         cwd_[i] = '\0';
         cwd_[fs::path_max - 1] = '\0';
         return 0;

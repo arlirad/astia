@@ -125,6 +125,13 @@ namespace astia::fs {
         if ((flags & oflag_creat) == 0) {
             return {};
         }
+        char parent[path_max]{};
+        if (!copy_path(parent, path)) return {};
+        u32 end = 0;
+        while (parent[end] != '\0') ++end;
+        while (end > 1 && parent[end - 1] != '/') --end;
+        parent[end > 1 ? end - 1 : 1] = '\0';
+        if (node_type(parent) != directory_dir) return {};
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (entries_[i].used) {
                 continue;
