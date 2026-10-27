@@ -45,6 +45,8 @@ struct group* getgrent(void) {
     while (group_file != NULL && fgets(group_line, sizeof group_line, group_file) != NULL) {
         struct group* result = parse_group(group_line); if (result != NULL) return result;
     }
+    /* Keep exhausted account files out of subsequently forked children. */
+    endgrent();
     return NULL;
 }
 struct group* getgrnam(const char* name) {

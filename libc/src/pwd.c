@@ -32,6 +32,11 @@ struct passwd* getpwent(void) {
     while (passwd_file != NULL && fgets(passwd_line, sizeof passwd_line, passwd_file) != NULL) {
         struct passwd* result = parse_passwd(passwd_line); if (result != NULL) return result;
     }
+    /* Do not leave an exhausted database descriptor in the process.  Apart
+     * from leaking a descriptor, an open native FILE is copied by fork and
+     * can keep an unrelated child-side I/O object alive.  setpwent() will
+     * reopen it on the next enumeration. */
+    endpwent();
     return NULL;
 }
 struct passwd* getpwnam(const char* name) {
