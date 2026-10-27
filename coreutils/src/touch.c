@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
         ++operands;
         status |= touch_one(path);
     }
-    (void)access_only;
-    (void)modify_only;
+    (void) access_only;
+    (void) modify_only;
     return operands == 0 ? cu_usage("touch", "[-a] [-m] FILE...") : status;
 }

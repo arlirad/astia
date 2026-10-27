@@ -15,7 +15,7 @@ rm -rf "$out"
 mkdir -p "$out/bin" "$out/root/bin" "$out/root/sbin"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$crt0" COREUTILS_BUILD="$out" \
     "$root/coreutils/build.sh"
-mkdir -p "$out/root/bin" "$out/root/sbin"
+mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 common="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
 # shellcheck disable=SC2086
@@ -28,10 +28,12 @@ $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
     "$crt0" "$out/coreutils_test.o" "$sysroot/lib/libastia_libc.a" \
     "$resource/lib/linux/libclang_rt.builtins-x86_64.a"
 cp "$out/bin/"* "$out/root/bin/"
+cp "$root/init/passwd" "$out/root/etc/passwd"
+cp "$root/init/group" "$out/root/etc/group"
 if [ -f "$root/kernel/build-tests/tests/fixtures/init_libc" ]; then
     cp "$root/kernel/build-tests/tests/fixtures/init_libc" "$out/root/bin/"
 fi
-tar cf "$out/initrd.tar" -C "$out/root" sbin bin
+tar cf "$out/initrd.tar" -C "$out/root" sbin bin etc
 
 log="$out/qemu.log"
 set +e

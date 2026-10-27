@@ -10,9 +10,31 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include <string.h>
+#include <pwd.h>
 #include <unistd.h>
 
 char** environ;
+
+char* getlogin(void) {
+    static char name[256];
+    struct passwd* account = getpwuid((uid_t) geteuid());
+    if (account == NULL) { errno = ENOENT; return NULL; }
+    strncpy(name, account->pw_name, sizeof name - 1);
+    name[sizeof name - 1] = '\0';
+    return name;
+}
+
+int getlogin_r(char* name, unsigned long name_size) {
+    struct passwd* account;
+    unsigned long length;
+    if (name == NULL || name_size == 0) return EINVAL;
+    account = getpwuid((uid_t) geteuid());
+    if (account == NULL) return ENOENT;
+    length = strlen(account->pw_name);
+    if (length + 1 > name_size) return ERANGE;
+    memcpy(name, account->pw_name, length + 1);
+    return 0;
+}
 
 int access(const char* path, int mode) {
     char       resolved[256];
@@ -98,7 +120,12 @@ int dup2(int old_fd, int new_fd) {
     return (int) rc;
 }
 int isatty(int fd) {
-    return fd >= 0 && fd <= 2;
+    int process_group;
+    if (fd < 0 || ioctl(fd, TIOCGPGRP, &process_group) < 0) {
+        errno = ENOTTY;
+        return 0;
+    }
+    return 1;
 }
 long read(int fd, void* buffer, unsigned long length) {
     long rc = __astia_fio_read(fd, FIO_OFF_APPEND, buffer, length);

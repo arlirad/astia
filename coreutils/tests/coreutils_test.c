@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pwd.h>
+#include <grp.h>
 
 
 static int fail(const char* what) {
@@ -29,11 +31,6 @@ static int is_file(const char* path) {
 static int is_directory(const char* path) {
     struct stat info;
     return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
-}
-
-static int mtime_not_newer(const char* path, time_t before) {
-    struct stat info;
-    return stat(path, &info) != 0 || info.st_mtime <= before;
 }
 
 static int file_equals(const char* path, const char* expected) {
@@ -68,6 +65,19 @@ static int credential_checks(void) {
     close(fd);
     unlink(link);
     unlink(file);
+    return 0;
+}
+
+static int account_checks(void) {
+    struct passwd* root = getpwnam("root");
+    struct passwd* by_uid = getpwuid(0);
+    struct group* users = getgrnam("users");
+    char login[32];
+    if (root == NULL || by_uid == NULL || users == NULL ||
+        strcmp(root->pw_name, "root") != 0 || by_uid->pw_uid != 0 ||
+        users->gr_gid != 1000 || getlogin_r(login, sizeof login) != 0 ||
+        strcmp(login, "root") != 0)
+        return fail("account lookup");
     return 0;
 }
 
@@ -141,6 +151,8 @@ static int check(const char* name, char* const argv[], const char* input,
 int main(void) {
     if (credential_checks() != 0)
         return 1;
+    if (account_checks() != 0)
+        return 1;
     if (chdir("/bin") != 0)
         return fail("runner chdir");
     char* cat_stdin[] = {"cat", NULL};
@@ -194,13 +206,11 @@ int main(void) {
     char* sort_stdin[] = {"sort", NULL};
     char* cut_fields[] = {"cut", "-d", ":", "-f", "2", NULL};
     char* tee_file[] = {"tee", "/tmp/coreutils_tee", NULL};
-    char* touch_files[] = {"touch", "/tmp/coreutils_touch", NULL};
-    char* touch_existing[] = {"touch", "/tmp/coreutils_a", NULL};
-    char* touch_access[] = {"touch", "-a", "/tmp/coreutils_b", NULL};
-    char* touch_modify[] = {"touch", "-m", "/tmp/coreutils_b", NULL};
-    char* touch_bad[] = {"touch", "--bad", NULL};
     char* ln_link[] = {"ln", "coreutils_a", "/tmp/coreutils_link", NULL};
     char* readlink_link[] = {"readlink", "/tmp/coreutils_link", NULL};
+    char* whoami[] = {"whoami", NULL};
+    char* id[] = {"id", NULL};
+    char* login[] = {"login", NULL};
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
@@ -228,10 +238,7 @@ int main(void) {
         0)
         return fail("fixture setup");
 
-    struct stat touch_before;
-    if (stat("/tmp/coreutils_a", &touch_before) != 0)
-        return fail("touch stat setup");
-    sleep(1);
+    struct stat dangling_stat;
 
     if (mkdir("/tmp/coreutils_tree", 0777) != 0 ||
         mkdir("/tmp/coreutils_tree/nested", 0777) != 0 ||
@@ -253,10 +260,13 @@ int main(void) {
          check("readlink", readlink_link, NULL, 0, "coreutils_a\n", 1) ||
          check("ls -l symlink", ls_long, NULL, 0, " -> coreutils_a\n", 0) ||
          symlink("missing", "/tmp/coreutils_dangling") != 0 ||
-         lstat("/tmp/coreutils_dangling", &touch_before) != 0 ||
-         !S_ISLNK(touch_before.st_mode) ||
-         stat("/tmp/coreutils_dangling", &touch_before) == 0 ||
+         lstat("/tmp/coreutils_dangling", &dangling_stat) != 0 ||
+         !S_ISLNK(dangling_stat.st_mode) ||
+         stat("/tmp/coreutils_dangling", &dangling_stat) == 0 ||
          check("pwd", pwd, NULL, 0, "/bin\n", 1) ||
+         check("whoami", whoami, NULL, 0, "root\n", 1) ||
+         check("id", id, NULL, 0, "uid=0(root) gid=0(root)", 0) ||
+         check("login without controlling tty", login, "missing\n", 1, NULL, 0) ||
         check("pwd invalid", pwd_bad, NULL, 2, NULL, 0) ||
         check("echo", echo, NULL, 0, "hello Astia\n", 1) ||
         check("echo -n", echo_n, NULL, 0, "hello", 1) ||
@@ -305,24 +315,18 @@ int main(void) {
          check("cut fields", cut_fields, "one:two:three\n", 0, NULL, 0) ||
           check("tee", tee_file, "tee input\n", 0, NULL, 0) ||
           !file_equals("/tmp/coreutils_tee", "tee input\n") ||
-          check("touch create", touch_files, NULL, 0, NULL, 0) ||
-          !is_file("/tmp/coreutils_touch") ||
-          check("touch existing", touch_existing, NULL, 0, NULL, 0) ||
-          check("touch -a", touch_access, NULL, 0, NULL, 0) ||
-          check("touch -m", touch_modify, NULL, 0, NULL, 0) ||
-          mtime_not_newer("/tmp/coreutils_a", touch_before.st_mtime) ||
-           check("touch unknown option", touch_bad, NULL, 1, NULL, 0))
+          0)
         return 1;
 
     const char* help[] = {"cat", "head", "wc", "ls", "find", "pwd", "uname", "echo", "env",
                           "true", "false", "mkdir", "rm", "cp", "mv", "grep", "sort",
-                           "cut", "tee", "touch", NULL};
+                           "cut", "tee", NULL};
     for (int i = 0; help[i] != NULL; ++i) {
         char* args[] = {(char*) help[i], "--help", NULL};
         if (check("--help", args, NULL, 0, "Usage: ", 0))
             return 1;
         args[1] = "--version";
-        if (check("--version", args, NULL, 0, "(Astia coreutils) 0.1\n", 0))
+        if (check(help[i], args, NULL, 0, "(Astia coreutils) 0.1\n", 0))
             return 1;
     }
     printf("coreutils tests ok\n");

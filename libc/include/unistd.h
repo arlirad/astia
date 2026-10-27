@@ -18,6 +18,8 @@ int   getppid(void);
 int   gettid(void);
 extern char** environ;
 char* ttyname(int fd);
+char* getlogin(void);
+int   getlogin_r(char* name, unsigned long name_size);
 
 /* Create a process from the executable at `path` with the given
  * NULL-terminated argv/envp (a null vector means empty).  Returns the
