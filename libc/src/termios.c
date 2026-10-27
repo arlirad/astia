@@ -8,8 +8,15 @@ int tcgetattr(int fd, struct termios* termios_p) {
 }
 
 int tcsetattr(int fd, int actions, const struct termios* termios_p) {
-    (void) actions;
-    return ioctl(fd, TCSETS, (void*) termios_p);
+    unsigned long request;
+    if (actions == TCSANOW) request = TCSETS;
+    else if (actions == TCSADRAIN) request = TCSETSW;
+    else if (actions == TCSAFLUSH) request = TCSETSF;
+    else {
+        errno = EINVAL;
+        return -1;
+    }
+    return ioctl(fd, request, (void*) termios_p);
 }
 
 int tcsendbreak(int fd, int duration) {

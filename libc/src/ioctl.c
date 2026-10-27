@@ -14,7 +14,8 @@ int ioctl(int fd, unsigned long request, ...) {
     va_start(ap, request);
     arg = va_arg(ap, void*);
     va_end(ap);
-    if (request == TCGETS || request == TCSETS)
+    if (request == TCGETS || request == TCSETS || request == TCSETSW ||
+        request == TCSETSF)
         length = sizeof(struct termios);
     else if (request == TIOCGWINSZ || request == TIOCSWINSZ)
         length = sizeof(struct winsize);

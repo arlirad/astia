@@ -906,9 +906,10 @@ namespace astia::sys {
                 // device (which was both a TOCTOU and kernel-pointer bug).
                 usize expected = 0;
                 bool input = false, output = false;
-                if (s.offset == TCGETS || s.offset == TCSETS) {
+                if (s.offset == TCGETS || s.offset == TCSETS ||
+                    s.offset == TCSETSW || s.offset == TCSETSF) {
                     expected = sizeof(struct termios);
-                    input = s.offset == TCSETS; output = s.offset == TCGETS;
+                    input = s.offset != TCGETS; output = s.offset == TCGETS;
                 } else if (s.offset == 0x5413 || s.offset == 0x5414) {
                     expected = 8; input = s.offset == 0x5414; output = s.offset == 0x5413;
                 } else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {

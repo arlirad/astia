@@ -55,6 +55,10 @@ namespace astia::dev {
             count < _termios.c_cc[VMIN]) {
             count = 0;
         }
+        if ((_termios.c_lflag & ICANON) != 0 && count == 0 && _eof_pending) {
+            _eof_pending = false;
+            return 0;
+        }
         for (u32 i = 0; i < count; ++i) {
             dst[i] = _rx[(tail + i) & (rx_capacity_bytes - 1)];
         }
@@ -92,6 +96,14 @@ namespace astia::dev {
     long tty::submit(io_request& request) {
         if (request.direction() == io_direction::output) {
             return write(request.buffer(), request.length(), request.offset());
+        }
+        // A canonical VEOF at an empty line completes a parked read with
+        // zero.  Consume it here so the generic async engine does not
+        // interpret zero as another "park" result.
+        if ((_termios.c_lflag & ICANON) != 0 && _eof_pending) {
+            (void) read(request.buffer(), request.length(), request.offset());
+            request.complete(true);
+            return 0;
         }
         const long count = read(request.buffer(), request.length(), request.offset());
         if (count > 0) {
@@ -137,6 +149,10 @@ namespace astia::dev {
         if ((_termios.c_lflag & ISIG) != 0 &&
             (byte == _termios.c_cc[VINTR] || byte == _termios.c_cc[VQUIT] ||
              byte == _termios.c_cc[VSUSP])) {
+            // VINTR/VQUIT/VSUSP discard the current input line.  In
+            // particular, Ctrl-C must not leave the half typed command to
+            // be consumed after the foreground job handles the signal.
+            tty_discard_input();
             tty_signal(byte);
             return;
         }
@@ -173,7 +189,13 @@ namespace astia::dev {
             return;
         }
         if (byte == _termios.c_cc[VEOF]) {
-            tty_commit_line(true);
+            if (_line_length == 0 && !_line_overflow) {
+                _eof_pending = true;
+                tty_input_ready();
+            }
+            else {
+                tty_commit_line(true);
+            }
             return;
         }
         if (byte == '\n') {
@@ -216,6 +238,7 @@ namespace astia::dev {
         __atomic_store_n(&_rx_tail, head, __ATOMIC_RELEASE);
         _line_length   = 0;
         _line_overflow = false;
+        _eof_pending   = false;
     }
 
     void tty::tty_commit_line(bool eof) {
@@ -253,11 +276,17 @@ namespace astia::dev {
             *static_cast<struct termios*>(argp) = _termios;
             return 0;
         }
-        if (request == TCSETS) {
+        if (request == TCSETS || request == TCSETSW || request == TCSETSF) {
             if (argp == nullptr) {
                 return -EINVAL;
             }
             const struct termios& next = *static_cast<const struct termios*>(argp);
+
+            // c_line is part of the ABI even though this kernel currently
+            // provides only N_TTY.  Silently accepting another discipline
+            // makes a userspace ABI typo particularly difficult to diagnose.
+            if (next.c_line != 0 || next.c_ispeed != next.c_ospeed)
+                return -EINVAL;
 
             // Tell the driver about every flag that moved; the rate
             // last, so a refusal leaves the line state untouched.
@@ -287,6 +316,8 @@ namespace astia::dev {
                 return rc;
             }
             _termios = next;
+            if (request == TCSETSF)
+                tty_discard_input();
             return 0;
         }
         if (request == tiocgwinsz) {

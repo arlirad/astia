@@ -140,6 +140,42 @@ ASTIA_TEST(tty_canonical_overflow_does_not_join_next_line) {
     ASTIA_CHECK(result[0] == 'i' && result[1] == '\n');
 }
 
+ASTIA_TEST(tty_signals_discard_the_current_line) {
+    test_tty tty;
+    set_termios(tty, 0, 0, ICANON | ISIG);
+    char result[8]{};
+    tty.tty_receive('a');
+    tty.tty_receive(3); // VINTR
+    tty.tty_receive('\n');
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 1);
+    ASTIA_CHECK(result[0] == '\n');
+}
+
+ASTIA_TEST(tty_empty_eof_is_a_zero_length_read) {
+    test_tty tty;
+    set_termios(tty, 0, 0, ICANON);
+    char result[8]{};
+    tty.tty_receive(4); // VEOF
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 0);
+    tty.tty_receive('x');
+    tty.tty_receive('\n');
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 2);
+    ASTIA_CHECK(result[0] == 'x' && result[1] == '\n');
+}
+
+ASTIA_TEST(tty_tcsetsf_flushes_pending_input) {
+    test_tty tty;
+    set_termios(tty, 0, 0, ICANON);
+    struct termios value{};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value) == 0);
+    tty.tty_receive('x');
+    ASTIA_CHECK(tty.ioctl(TCSETSF, &value) == 0);
+    tty.tty_receive('\n');
+    char result[8]{};
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 1);
+    ASTIA_CHECK(result[0] == '\n');
+}
+
 ASTIA_TEST(tty_process_group_round_trip) {
     test_tty   tty;
     astia::i32 group = 42;
