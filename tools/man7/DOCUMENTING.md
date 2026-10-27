@@ -162,3 +162,22 @@ python3 tools/man7/generate.py kernel/src /tmp/astia-man7
 grep -R "<h2>" /tmp/astia-man7/index.html
 curl -fsS https://arlia.nodivia.pl/kill.html
 ```
+
+## Coverage contract
+
+The generated section 2 set includes every direct syscall exported by
+`kernel/include/astia/api/syscalls.h`, including credential and group calls
+implemented in `kernel/src/proc/syscalls/process/credentials.cpp`.  A syscall
+must have specific synopsis, return, error, and state semantics; the generic
+legacy description is not acceptable for a newly exported call.
+
+The generated section 3 set covers the native wrappers declared by
+`libc/include/unistd.h` and `libc/include/sys/stat.h` where their behavior is
+implemented in `libc/src`.  This includes `access`, `getgroups`, `setgroups`,
+`chown`, `lchown`, `fchown`, the typed `file_mode` and `file_permissions`
+kernel APIs, controlling‑terminal process‑group wrappers, and the `/dev`
+devfs pseudo‑device surface.  Pages must describe Astia behavior, including
+intentional restrictions, rather than importing a generic POSIX contract.
+
+Use a non‑breaking hyphen in prose where a compound term needs punctuation.
+The ASCII hyphen remains reserved for ABI errno spellings such as `-EINVAL`.
