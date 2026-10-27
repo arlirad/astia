@@ -10,6 +10,7 @@ namespace astia::proc {
         auto output = fs::open("/dev/tts0");
         auto error = fs::open("/dev/tts0");
         if (!input || !output || !error) return false;
+        core::spinlock_guard guard(lock_);
         entries_[STDIN].file = input;
         entries_[STDOUT].file = output;
         entries_[STDERR].file = error;
@@ -17,12 +18,14 @@ namespace astia::proc {
     }
 
     mm::shptr<fs::open_file> fd_table::get(fd_t fd) const {
+        core::spinlock_guard guard(lock_);
         return fd.value >= 0 && static_cast<u32>(fd.value) < max_process_fds
                    ? entries_[fd.value].file
                    : mm::shptr<fs::open_file>{};
     }
 
     u32 fd_table::flags(fd_t fd) const {
+        core::spinlock_guard guard(lock_);
         return fd.value >= 0 && static_cast<u32>(fd.value) < max_process_fds
                    ? entries_[fd.value].flags : 0;
     }
@@ -35,6 +38,7 @@ namespace astia::proc {
         if (fd.value < 0 || static_cast<u32>(fd.value) >= max_process_fds) {
             return false;
         }
+        core::spinlock_guard guard(lock_);
         entries_[fd.value].file = file;
         entries_[fd.value].flags = flags;
         return true;
@@ -44,12 +48,14 @@ namespace astia::proc {
         if (fd.value < 0 || static_cast<u32>(fd.value) >= max_process_fds) {
             return false;
         }
+        core::spinlock_guard guard(lock_);
         entries_[fd.value].file = {};
         entries_[fd.value].flags = 0;
         return true;
     }
 
     void fd_table::clear_all() {
+        core::spinlock_guard guard(lock_);
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
             entries_[fd].file = {};
             entries_[fd].flags = 0;
@@ -57,12 +63,18 @@ namespace astia::proc {
     }
 
     void fd_table::close_on_exec() {
+        core::spinlock_guard guard(lock_);
         for (u32 fd = 0; fd < max_process_fds; ++fd)
-            if ((entries_[fd].flags & 1u) != 0) clear(fd_t{static_cast<i32>(fd)});
+            if ((entries_[fd].flags & 1u) != 0) {
+                entries_[fd].file = {};
+                entries_[fd].flags = 0;
+            }
     }
 
     optional<fd_t> fd_table::duplicate(fd_t old_fd) {
-        auto source = get(old_fd);
+        core::spinlock_guard guard(lock_);
+        auto source = old_fd.value >= 0 && static_cast<u32>(old_fd.value) < max_process_fds
+                          ? entries_[old_fd.value].file : mm::shptr<fs::open_file>{};
         if (!source) {
             return error_t::ebadf;
         }
@@ -77,7 +89,9 @@ namespace astia::proc {
     }
 
     optional<fd_t> fd_table::duplicate_to(fd_t old_fd, fd_t new_fd) {
-        auto source = get(old_fd);
+        core::spinlock_guard guard(lock_);
+        auto source = old_fd.value >= 0 && static_cast<u32>(old_fd.value) < max_process_fds
+                          ? entries_[old_fd.value].file : mm::shptr<fs::open_file>{};
         if (!source || new_fd.value < 0 || static_cast<u32>(new_fd.value) >= max_process_fds) {
             return error_t::ebadf;
         }

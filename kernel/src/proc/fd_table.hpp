@@ -3,6 +3,7 @@
 #include <astia/common.hpp>
 #include <astia/optional.hpp>
 #include <astia/fs.hpp>
+#include <astia/core/spinlock.hpp>
 
 namespace astia::proc {
 
@@ -28,6 +29,7 @@ namespace astia::proc {
         private:
         struct entry { mm::shptr<fs::open_file> file; u32 flags = 0; };
         entry entries_[max_process_fds];
+        mutable core::spinlock lock_;
     };
 
 } // namespace astia::proc

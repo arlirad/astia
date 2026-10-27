@@ -5,6 +5,7 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/core/spinlock.hpp>
 
 namespace astia::proc {
 
@@ -18,6 +19,7 @@ namespace astia::proc {
         };
 
         futex_waiter waiters[futex_capacity]{};
+        core::spinlock  waiters_lock;
 
     } // namespace
 
@@ -36,24 +38,26 @@ namespace astia::proc {
         // section.  With interrupts disabled, a same-CPU FUTEX_WAKE
         // cannot slip between them and lose the wakeup.
         arch::cpu::nointerrupts();
-        if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
-            arch::cpu::interrupts();
-            return -EAGAIN;
-        }
-
-        u32 slot = futex_capacity;
-        for (u32 i = 0; i < futex_capacity; ++i) {
-            if (waiters[i].value == nullptr) {
-                slot = i;
-                break;
+        {
+            core::spinlock_guard lock(waiters_lock);
+            if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
+                arch::cpu::interrupts();
+                return -EAGAIN;
             }
+            u32 slot = futex_capacity;
+            for (u32 i = 0; i < futex_capacity; ++i) {
+                if (waiters[i].value == nullptr) {
+                    slot = i;
+                    break;
+                }
+            }
+            if (slot == futex_capacity) {
+                arch::cpu::interrupts();
+                return -EAGAIN;
+            }
+            waiters[slot] = futex_waiter{owner, address, self};
+            self->state(thread_state::blocked);
         }
-        if (slot == futex_capacity) {
-            arch::cpu::interrupts();
-            return -EAGAIN;
-        }
-        waiters[slot] = futex_waiter{owner, address, self};
-        self->state(thread_state::blocked);
         scheduler::yield();
         // The wake path clears the slot before making us runnable.  On
         // resume this syscall returns normally; no user pointer is held
@@ -73,15 +77,18 @@ namespace astia::proc {
         }
         arch::cpu::nointerrupts();
         u32 woken = 0;
-        for (u32 i = 0; i < futex_capacity && woken < count; ++i) {
-            if (waiters[i].value == nullptr || waiters[i].owner != owner ||
-                waiters[i].address != address) {
-                continue;
-            }
-            thread* value = waiters[i].value;
-            waiters[i]    = {};
-            if (scheduler::wake(value)) {
-                ++woken;
+        {
+            core::spinlock_guard lock(waiters_lock);
+            for (u32 i = 0; i < futex_capacity && woken < count; ++i) {
+                if (waiters[i].value == nullptr || waiters[i].owner != owner ||
+                    waiters[i].address != address) {
+                    continue;
+                }
+                thread* value = waiters[i].value;
+                waiters[i]    = {};
+                if (scheduler::wake(value)) {
+                    ++woken;
+                }
             }
         }
         arch::cpu::interrupts();

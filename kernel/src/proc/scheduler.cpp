@@ -267,8 +267,12 @@ namespace astia::proc::scheduler {
 
         arch::interrupt_guard gate;
         auto& source = cpus[source_index];
+        auto& target = cpus[cpu_index];
+        const u32 first_index = source_index < cpu_index ? source_index : cpu_index;
+        const u32 second_index = source_index < cpu_index ? cpu_index : source_index;
+        core::spinlock_guard first_guard(cpus[first_index].lock);
+        core::spinlock_guard second_guard(cpus[second_index].lock);
         {
-            core::spinlock_guard source_guard(source.lock);
             u32 position = source.queue_count;
             for (u32 i = 0; i < source.queue_count; ++i) {
                 if (source.queue[i] == value) {
@@ -283,22 +287,17 @@ namespace astia::proc::scheduler {
             --source.queue_count;
         }
 
-        auto& target = cpus[cpu_index];
-        {
-            core::spinlock_guard target_guard(target.lock);
-            if (target.queue_count == queue_capacity) {
-                // Restore the original ownership if the destination is full.
-                core::spinlock_guard source_guard(source.lock);
-                if (source.queue_count == queue_capacity) return false;
-                value->cpu_owner(source_index);
-                value->queued(true);
-                source.queue[source.queue_count++] = value;
-                return false;
-            }
-            value->cpu_owner(cpu_index);
+        if (target.queue_count == queue_capacity) {
+            // Both queues are held in index order, so restoring the source
+            // cannot deadlock with a reverse migration on another CPU.
+            value->cpu_owner(source_index);
             value->queued(true);
-            target.queue[target.queue_count++] = value;
+            source.queue[source.queue_count++] = value;
+            return false;
         }
+        value->cpu_owner(cpu_index);
+        value->queued(true);
+        target.queue[target.queue_count++] = value;
         arch::cpu::request_reschedule();
         return true;
     }
