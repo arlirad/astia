@@ -176,6 +176,7 @@ namespace astia::proc {
             mm::heap::free(image.value);
             return fail(error_t::enomem);
         }
+        child->close_on_exec_descriptors();
         u64        entry = 0;
         const bool loaded_image =
             child->load_user_image(image.value, static_cast<usize>(image_size), &entry);

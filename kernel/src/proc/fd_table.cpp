@@ -6,23 +6,37 @@
 namespace astia::proc {
 
     bool fd_table::install_standard_streams() {
-        entries_[STDIN]  = fs::open("/dev/tts0");
-        entries_[STDOUT] = fs::open("/dev/tts0");
-        entries_[STDERR] = fs::open("/dev/tts0");
-        return entries_[STDIN] && entries_[STDOUT] && entries_[STDERR];
+        auto input = fs::open("/dev/tts0");
+        auto output = fs::open("/dev/tts0");
+        auto error = fs::open("/dev/tts0");
+        if (!input || !output || !error) return false;
+        entries_[STDIN].file = input;
+        entries_[STDOUT].file = output;
+        entries_[STDERR].file = error;
+        return true;
     }
 
     mm::shptr<fs::open_file> fd_table::get(fd_t fd) const {
         return fd.value >= 0 && static_cast<u32>(fd.value) < max_process_fds
-                   ? entries_[fd.value]
+                   ? entries_[fd.value].file
                    : mm::shptr<fs::open_file>{};
     }
 
+    u32 fd_table::flags(fd_t fd) const {
+        return fd.value >= 0 && static_cast<u32>(fd.value) < max_process_fds
+                   ? entries_[fd.value].flags : 0;
+    }
+
     bool fd_table::set(fd_t fd, const mm::shptr<fs::open_file>& file) {
+        return set(fd, file, 0);
+    }
+
+    bool fd_table::set(fd_t fd, const mm::shptr<fs::open_file>& file, u32 flags) {
         if (fd.value < 0 || static_cast<u32>(fd.value) >= max_process_fds) {
             return false;
         }
-        entries_[fd.value] = file;
+        entries_[fd.value].file = file;
+        entries_[fd.value].flags = flags;
         return true;
     }
 
@@ -30,14 +44,21 @@ namespace astia::proc {
         if (fd.value < 0 || static_cast<u32>(fd.value) >= max_process_fds) {
             return false;
         }
-        entries_[fd.value] = mm::shptr<fs::open_file>{};
+        entries_[fd.value].file = {};
+        entries_[fd.value].flags = 0;
         return true;
     }
 
     void fd_table::clear_all() {
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
-            entries_[fd] = {};
+            entries_[fd].file = {};
+            entries_[fd].flags = 0;
         }
+    }
+
+    void fd_table::close_on_exec() {
+        for (u32 fd = 0; fd < max_process_fds; ++fd)
+            if ((entries_[fd].flags & 1u) != 0) clear(fd_t{static_cast<i32>(fd)});
     }
 
     optional<fd_t> fd_table::duplicate(fd_t old_fd) {
@@ -46,8 +67,9 @@ namespace astia::proc {
             return error_t::ebadf;
         }
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
-            if (!entries_[fd]) {
-                entries_[fd] = source;
+            if (!entries_[fd].file) {
+                entries_[fd].file = source;
+                entries_[fd].flags = 0;
                 return fd_t{static_cast<i32>(fd)};
             }
         }
@@ -60,7 +82,8 @@ namespace astia::proc {
             return error_t::ebadf;
         }
         if (old_fd != new_fd) {
-            entries_[new_fd.value] = source;
+            entries_[new_fd.value].file = source;
+            entries_[new_fd.value].flags = 0;
         }
         return new_fd;
     }

@@ -614,6 +614,14 @@ namespace astia::proc {
         return descriptors_.set(fd, value);
     }
 
+    bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value, u32 flags) {
+        return descriptors_.set(fd, value, flags);
+    }
+
+    void process::close_on_exec_descriptors() {
+        descriptors_.close_on_exec();
+    }
+
     bool process::clear_descriptor(fd_t fd) {
         return descriptors_.clear(fd);
     }
@@ -713,6 +721,7 @@ namespace astia::proc {
         if (!staging.load_user_file(file, length, &entry) ||
             !staging.build_user_stack(argv, envp, &stack))
             return false;
+        close_on_exec_descriptors();
         sys::io_exec_process(this);
         arch::page_map* old_map     = address_space_;
         mmap_region*    old_regions = mmap_regions_;
@@ -926,7 +935,8 @@ namespace astia::proc {
     bool process::copy_descriptors_from(const process& other) {
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
             auto entry = other.descriptors_.get(fd_t{static_cast<i32>(fd)});
-            if (entry && !descriptors_.set(fd_t{static_cast<i32>(fd)}, entry)) {
+            if (entry && !descriptors_.set(fd_t{static_cast<i32>(fd)}, entry,
+                                           other.descriptors_.flags(fd_t{static_cast<i32>(fd)}))) {
                 return false;
             }
         }

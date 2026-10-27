@@ -541,7 +541,9 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -ESRCH);
                 }
                 for (i32 i = 3; i < static_cast<i32>(proc::max_process_fds); ++i) {
-                    if (!current->descriptor(fd_t{i}) && current->set_descriptor(fd_t{i}, object)) {
+                    if (!current->descriptor(fd_t{i}) &&
+                        current->set_descriptor(fd_t{i}, object,
+                                                (s.op_flags & O_CLOEXEC) != 0 ? 1u : 0u)) {
                         return cq_post_guarded(ring, s.user_data, i);
                     }
                 }
@@ -879,13 +881,13 @@ namespace astia::sys {
                 i32 write_fd = -1;
                 for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
                     if (read_fd < 0 && !current->descriptor(fd_t{fd})) {
-                        current->set_descriptor(fd_t{fd}, read_end);
-                        read_fd = fd;
+                        if (current->set_descriptor(fd_t{fd}, read_end)) read_fd = fd;
                     }
                     else if (write_fd < 0 && !current->descriptor(fd_t{fd})) {
-                        current->set_descriptor(fd_t{fd}, write_end);
-                        write_fd = fd;
-                        break;
+                        if (current->set_descriptor(fd_t{fd}, write_end)) {
+                            write_fd = fd;
+                            break;
+                        }
                     }
                 }
                 if (read_fd < 0 || write_fd < 0) {
