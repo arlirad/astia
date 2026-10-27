@@ -40,6 +40,8 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     size_t stack_size = attr == NULL ? default_stack_size : attr->stack_size;
     if (stack_size < 16 * 1024)
         return EINVAL;
+    if (stack_size > (size_t)-1 - 4095u)
+        return EINVAL;
     stack_size  = (stack_size + 4095u) & ~(size_t) 4095u;
     void* stack = mmap(NULL, stack_size, PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);

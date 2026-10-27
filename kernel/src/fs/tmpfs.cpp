@@ -61,6 +61,8 @@ namespace astia::fs {
         if (buffer == nullptr && length != 0) {
             return -EFAULT;
         }
+        if (storage_ == nullptr)
+            return -EIO;
         if (offset >= size_) {
             return 0;
         }
@@ -77,6 +79,8 @@ namespace astia::fs {
         if (buffer == nullptr && length != 0) {
             return -EFAULT;
         }
+        if (storage_ == nullptr)
+            return -EIO;
         const u64 capacity = tmpfs_max_pages * mm::phys_region::frame_size;
         if (offset >= capacity || static_cast<u64>(length) > capacity - offset) {
             return -ENOSPC;
@@ -137,7 +141,7 @@ namespace astia::fs {
                 continue;
             }
             auto object = mm::shptr<tmpfs_file>(new tmpfs_file{});
-            if (!object || !copy_path(entries_[i].path, path)) {
+            if (!object || object->memory_region() == nullptr || !copy_path(entries_[i].path, path)) {
                 return {};
             }
             entries_[i].used   = true;

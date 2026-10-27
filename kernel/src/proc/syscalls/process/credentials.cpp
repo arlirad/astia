@@ -7,12 +7,12 @@ namespace astia::proc::syscall {
  i64 geteuid() { auto*p=current_process(); return p?p->euid():-ESRCH; }
  i64 getgid() { auto*p=current_process(); return p?p->gid():-ESRCH; }
  i64 getegid() { auto*p=current_process(); return p?p->egid():-ESRCH; }
- i64 setuid(i64 v) { auto*p=current_process(); return p?p->setuid(v):-ESRCH; }
- i64 seteuid(i64 v) { auto*p=current_process(); return p?p->seteuid(v):-ESRCH; }
- i64 setgid(i64 v) { auto*p=current_process(); return p?p->setgid(v):-ESRCH; }
- i64 setegid(i64 v) { auto*p=current_process(); return p?p->setegid(v):-ESRCH; }
- i64 setreuid(i64 r,i64 e) { auto*p=current_process(); return p?p->setreuid(r,e):-ESRCH; }
- i64 setregid(i64 r,i64 e) { auto*p=current_process(); return p?p->setregid(r,e):-ESRCH; }
+ i64 setuid(i64 v) { auto*p=current_process(); if (!p) return -ESRCH; if (v<0 || static_cast<u64>(v)>~u32{0}) return -EINVAL; return p->setuid(static_cast<u32>(v)); }
+ i64 seteuid(i64 v) { auto*p=current_process(); if (!p) return -ESRCH; if (v<0 || static_cast<u64>(v)>~u32{0}) return -EINVAL; return p->seteuid(static_cast<u32>(v)); }
+ i64 setgid(i64 v) { auto*p=current_process(); if (!p) return -ESRCH; if (v<0 || static_cast<u64>(v)>~u32{0}) return -EINVAL; return p->setgid(static_cast<u32>(v)); }
+ i64 setegid(i64 v) { auto*p=current_process(); if (!p) return -ESRCH; if (v<0 || static_cast<u64>(v)>~u32{0}) return -EINVAL; return p->setegid(static_cast<u32>(v)); }
+ i64 setreuid(i64 r,i64 e) { auto*p=current_process(); if (!p) return -ESRCH; if ((r < -1 || static_cast<u64>(r)>~u32{0}) || (e < -1 || static_cast<u64>(e)>~u32{0})) return -EINVAL; return p->setreuid(static_cast<u32>(r),static_cast<u32>(e)); }
+ i64 setregid(i64 r,i64 e) { auto*p=current_process(); if (!p) return -ESRCH; if ((r < -1 || static_cast<u64>(r)>~u32{0}) || (e < -1 || static_cast<u64>(e)>~u32{0})) return -EINVAL; return p->setregid(static_cast<u32>(r),static_cast<u32>(e)); }
  i64 getgroups(i64 n,i64 out) {
   auto*p=current_process(); if(!p) return -ESRCH; if(n<0 || n>16) return -EINVAL;
   u32 values[16]{}; i64 rc=p->getgroups(static_cast<i32>(n),values);

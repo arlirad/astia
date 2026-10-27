@@ -8,6 +8,7 @@ namespace astia::fs {
     /// factory; this object carries the mounted state and path lookup.
     class mount {
         public:
+        virtual ~mount() = default;
         virtual mm::shptr<open_file> open(const char* path, u32 flags);
         virtual long register_file(const char* path, const mm::shptr<file>& object);
         virtual long read_directory(const char* path, u64 index, char* name, u32 capacity,

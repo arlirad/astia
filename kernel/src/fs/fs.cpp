@@ -167,6 +167,9 @@ namespace astia::fs {
     long mount_type(const char* type_name, const char* target, const char* source) {
         if (!ready || target == nullptr || target[0] != '/')
             return -EINVAL;
+        char checked_target[path_max]{};
+        if (!copy_path(checked_target, target))
+            return -ENAMETOOLONG;
         const filesystem* type = find_type(type_name);
         if (type == nullptr)
             return -ENODEV;
@@ -174,19 +177,22 @@ namespace astia::fs {
             if (mounts[i].used && equal(mounts[i].target, target))
                 return -EBUSY;
         }
+        u32 free_slot = max_mounts;
+        for (u32 i = 0; i < max_mounts; ++i) {
+            if (!mounts[i].used) {
+                free_slot = i;
+                break;
+            }
+        }
+        if (free_slot == max_mounts)
+            return -ENFILE;
         mount* instance = type->mount(source);
         if (instance == nullptr)
             return -ENOMEM;
-        for (u32 i = 0; i < max_mounts; ++i) {
-            if (!mounts[i].used) {
-                if (!copy_path(mounts[i].target, target))
-                    return -ENAMETOOLONG;
-                mounts[i].used     = true;
-                mounts[i].instance = instance;
-                return 0;
-            }
-        }
-        return -ENFILE;
+        copy_path(mounts[free_slot].target, checked_target);
+        mounts[free_slot].used     = true;
+        mounts[free_slot].instance = instance;
+        return 0;
     }
 
     long register_device(const char* path, const mm::shptr<file>& object) {
@@ -338,8 +344,18 @@ namespace astia::fs {
                 u32 tail = 0;
                 while (pending[tail] != '\0') ++tail;
                 const u32 target_len = length_of(target);
-                if (tail != 0) { combined[at + target_len]='/'; for (u32 i=0;i<=tail;++i) combined[at+target_len+1+i]=pending[i]; }
-                plen = at + target_len + (tail ? tail + 1 : 0);
+                const u32 combined_len = at + target_len + (tail ? tail + 1 : 0);
+                if (combined_len >= sizeof combined)
+                    return -ENAMETOOLONG;
+                if (tail != 0) {
+                    combined[at + target_len]='/';
+                    for (u32 i=0;i<=tail;++i)
+                        combined[at+target_len+1+i]=pending[i];
+                }
+                else {
+                    combined[combined_len] = '\0';
+                }
+                plen = combined_len;
                 for (u32 i=0;i<=plen;++i) pending[i]=combined[i];
                 rlen = 1; result[0]='/';
             }
@@ -357,7 +373,7 @@ namespace astia::fs {
     }
 
     long make_symlink(const char* target, const char* path) {
-        if (path == nullptr || path[0] != '/') return -EINVAL;
+        if (target == nullptr || path == nullptr || path[0] != '/') return -EINVAL;
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, false);
         if (rc < 0) return rc;
@@ -365,7 +381,8 @@ namespace astia::fs {
         return e->instance->symlink(target, relative_path(*e,resolved));
     }
     long read_symlink(const char* path, char* buffer, u32 capacity) {
-        if (path == nullptr || path[0] != '/') return -EINVAL;
+        if (path == nullptr || path[0] != '/' || buffer == nullptr || capacity == 0)
+            return -EINVAL;
         mount_entry* e=find_mount(path); if (!e) return -ENOENT;
         return e->instance->readlink(relative_path(*e,path), buffer, capacity);
     }

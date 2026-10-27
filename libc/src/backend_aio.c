@@ -201,6 +201,8 @@ long __astia_fio_open(const char* path, int flags, int mode) {
 }
 
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n) {
+    if (n > UINT32_MAX)
+        return -EINVAL;
     return transact(OP_READ, fd, off, buf, (uint32_t) n, 0, 0);
 }
 
@@ -215,6 +217,9 @@ long __astia_fio_read_batch(struct astia_fio_batch_read* requests, size_t count)
         return -EINVAL;
     if (requests == NULL)
         return -EFAULT;
+    for (size_t i = 0; i < count; ++i)
+        if (requests[i].length > UINT32_MAX)
+            return -EINVAL;
     if (ring_ensure() < 0)
         return -EIO;
     r = g_ring;
@@ -265,6 +270,8 @@ long __astia_fio_read_batch(struct astia_fio_batch_read* requests, size_t count)
 }
 
 long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n) {
+    if (n > UINT32_MAX)
+        return -EINVAL;
     return transact(OP_WRITE, fd, off, buf, (uint32_t) n, 0, 0);
 }
 
@@ -338,9 +345,14 @@ long __astia_fio_rename(const char* old_path, const char* new_path) {
     return transact(OP_RENAMEAT, -1, (uint64_t)(uintptr_t)new_path, old_path, 0, 0, 0);
 }
 long __astia_fio_symlink(const char* target, const char* path) {
-    return transact(OP_SYMLINKAT, -1, (uint64_t)(uintptr_t)path, target, (uint32_t)strlen(target), 0, 0);
+    size_t length = strlen(target);
+    if (length > UINT32_MAX)
+        return -EINVAL;
+    return transact(OP_SYMLINKAT, -1, (uint64_t)(uintptr_t)path, target, (uint32_t)length, 0, 0);
 }
 long __astia_fio_readlink(const char* path, char* buffer, size_t capacity) {
+    if (capacity > UINT32_MAX)
+        return -EINVAL;
     return transact(OP_READLINKAT, -1, (uint64_t)(uintptr_t)buffer, path, (uint32_t)capacity, 0, 0);
 }
 
@@ -350,6 +362,8 @@ long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
 }
 
 long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
+    if (length > UINT32_MAX)
+        return -EINVAL;
     return transact(OP_IOCTL, fd, request, arg, (uint32_t) length, 0, 0);
 }
 
