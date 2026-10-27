@@ -842,9 +842,20 @@ namespace astia::sys {
                  resolve_rc = fs::resolve_path(resolved,resolved,sizeof resolved,false);
                  if (resolve_rc < 0)
                      return cq_post_guarded(ring,s.user_data,(i32)resolve_rc);
-                 auto out=sys::user_range::bytes(s.offset,s.length);
+                auto out=sys::user_range::bytes(s.offset,s.length);
                 if (!sys::user_range_ok(out)) return cq_post_guarded(ring,s.user_data,-EFAULT);
-                return cq_post_guarded(ring,s.user_data,(i32)fs::read_symlink(resolved,(char*)out.address(),s.length));
+                // read_symlink is a kernel/VFS API; never give it a raw
+                // caller address.  The fixed path limit is also the VFS's
+                // maximum link length, so an oversized user capacity is
+                // harmless and cannot become a kernel stack allocation.
+                char target[256]{};
+                const u32 capacity = s.length < sizeof target ? s.length : sizeof target;
+                const long n = fs::read_symlink(resolved, target, capacity);
+                if (n < 0) return cq_post_guarded(ring,s.user_data,(i32)n);
+                if (n != 0 && !sys::copy_out(sys::user_range::bytes(s.offset,
+                                                                      static_cast<usize>(n)), target))
+                    return cq_post_guarded(ring,s.user_data,-EFAULT);
+                return cq_post_guarded(ring,s.user_data,(i32)n);
             }
 
             case OP_READDIR: {
@@ -865,18 +876,19 @@ namespace astia::sys {
                     sys::user_range::bytes(s.address, sizeof(astia_dirent));
                 if (!sys::user_range_ok(out))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                auto* result = reinterpret_cast<astia_dirent*>(out.address());
-                __builtin_memset(result, 0, sizeof *result);
+                astia_dirent result{};
                  fs::file_type type = fs::directory_unknown;
-                 long rc = fs::read_directory(resolved, s.fd < 0 ? 0 : s.fd, result->name,
-                                               sizeof result->name, &type);
-                 result->type = static_cast<u32>(type);
+                 long rc = fs::read_directory(resolved, s.fd < 0 ? 0 : s.fd, result.name,
+                                               sizeof result.name, &type);
+                 result.type = static_cast<u32>(type);
                 if (rc > 0) {
                     u32 length = 0;
-                    while (length < sizeof result->name && result->name[length] != '\0')
+                    while (length < sizeof result.name && result.name[length] != '\0')
                         ++length;
-                    result->namelen = length;
+                    result.namelen = length;
                 }
+                if (!sys::copy_out(out, &result))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
             }
 
@@ -888,14 +900,37 @@ namespace astia::sys {
                    wake-up path retries it after the parked operation posts. */
                 if (has_parked(slot))
                     return false;
-                if (s.length == 0 ||
-                    !sys::user_range_ok(sys::user_range::bytes(s.address, s.length)))
+                // ioctl implementations expect a stable kernel object and
+                // may both read and write it.  Decode the ABI's typed
+                // requests here instead of passing a caller pointer into a
+                // device (which was both a TOCTOU and kernel-pointer bug).
+                usize expected = 0;
+                bool input = false, output = false;
+                if (s.offset == TCGETS || s.offset == TCSETS) {
+                    expected = sizeof(struct termios);
+                    input = s.offset == TCSETS; output = s.offset == TCGETS;
+                } else if (s.offset == 0x5413 || s.offset == 0x5414) {
+                    expected = 8; input = s.offset == 0x5414; output = s.offset == 0x5413;
+                } else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {
+                    expected = sizeof(i32); input = s.offset == TIOCSPGRP; output = s.offset == TIOCGPGRP;
+                } else {
+                    return cq_post_guarded(ring, s.user_data, -ENOTTY);
+                }
+                if (s.length != expected || !sys::user_range_ok(
+                        sys::user_range::bytes(s.address, expected)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 mm::shptr<fs::open_file> object = file_for(s.fd);
                 if (!object)
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 __atomic_thread_fence(__ATOMIC_SEQ_CST);
-                long rc = object->ioctl(s.offset, reinterpret_cast<void*>(s.address));
+                alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
+                if (input && !sys::copy_in(ioctl_storage,
+                                           sys::user_range::bytes(s.address, expected)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                long rc = object->ioctl(s.offset, ioctl_storage);
+                if (rc >= 0 && output && !sys::copy_out(
+                        sys::user_range::bytes(s.address, expected), ioctl_storage))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
                 __atomic_thread_fence(__ATOMIC_SEQ_CST);
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
             }
@@ -931,9 +966,12 @@ namespace astia::sys {
                         current->clear_descriptor(fd_t{read_fd});
                     return cq_post_guarded(ring, s.user_data, -EMFILE);
                 }
-                auto* result = reinterpret_cast<i32*>(out.address());
-                result[0]    = read_fd;
-                result[1]    = write_fd;
+                i32 result[2] = {read_fd, write_fd};
+                if (!sys::copy_out(out, result)) {
+                    current->clear_descriptor(fd_t{read_fd});
+                    current->clear_descriptor(fd_t{write_fd});
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                }
                 return cq_post_guarded(ring, s.user_data, 0);
             }
 

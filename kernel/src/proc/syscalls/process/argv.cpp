@@ -6,8 +6,9 @@ i64 copy_in_vector(char** vec, char* pool, u64 user_vector) {
     if (user_vector == 0) { vec[0] = nullptr; return 0; }
     for (usize i = 0; i < vec_max; ++i) {
         char* element = nullptr;
-        const u64 slot = user_vector + i * sizeof(char*);
-        if (slot < user_vector ||
+        const u64 delta = static_cast<u64>(i) * sizeof(char*);
+        const u64 slot = user_vector + delta;
+        if (slot < user_vector || delta > ~u64{0} - user_vector ||
             !sys::copy_in(&element, sys::user_range::bytes(slot, sizeof element)))
             return -EFAULT;
         if (element == nullptr) { vec[i] = nullptr; return 0; }

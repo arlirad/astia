@@ -217,6 +217,9 @@ namespace astia::proc {
         if (address_space_ == nullptr || len == 0) {
             return -EINVAL;
         }
+        if (static_cast<u64>(len) > ~u64{0} - 4095u) {
+            return -EINVAL;
+        }
         const u64 page_bytes = mm::phys_region::frame_size;
         const u64 pages      = (static_cast<u64>(len) + page_bytes - 1) / page_bytes;
         if (pages > (u64{1} << 20)) { // 4 GiB ceiling per call
@@ -262,6 +265,9 @@ namespace astia::proc {
             return -EINVAL;
         }
         if (address_space_ == nullptr || len == 0) {
+            return -EINVAL;
+        }
+        if (static_cast<u64>(len) > ~u64{0} - 4095u) {
             return -EINVAL;
         }
         const u64 page_bytes = mm::phys_region::frame_size;

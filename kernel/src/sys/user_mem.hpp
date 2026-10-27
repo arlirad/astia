@@ -107,6 +107,11 @@ namespace astia::sys {
         /// re-validates whatever it is handed, so the loop bound stays the
         /// caller's to get right.
         user_range slice(usize offset, usize length) const {
+            // Do not let a wrapped sub-range turn into an unrelated address.
+            // The consumer will still perform the page-map check, but it
+            // must never be handed arithmetic that already overflowed.
+            if (offset > ~u64{0} - address_)
+                return user_range(~u64{0}, length);
             return user_range(address_ + offset, length);
         }
 

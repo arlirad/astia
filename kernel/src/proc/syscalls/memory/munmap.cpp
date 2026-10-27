@@ -3,6 +3,7 @@
 #include "../../mapping.hpp"
 #include "../../scheduler.hpp"
 #include "user_mem.hpp"
+#include <astia/arch/layout.hpp>
 #include "syscall.hpp"
 #include "../../../ipc/futex.hpp"
 #include "../../../ipc/mapping.hpp"
@@ -23,6 +24,11 @@ namespace astia::proc::syscall {
             if (len <= 0) {
                 return -EINVAL;
             }
-            return process->unmap(addr, static_cast<usize>(len));
+            const u64 length = static_cast<u64>(len);
+            if (addr >= astia::arch::kernel_base ||
+                length > astia::arch::kernel_base - addr) {
+                return -EINVAL;
+            }
+            return process->unmap(addr, static_cast<usize>(length));
         }
 }
