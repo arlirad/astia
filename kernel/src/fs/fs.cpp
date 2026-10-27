@@ -209,11 +209,20 @@ namespace astia::fs {
         mount_entry* entry = find_mount(resolved);
         if (entry == nullptr)
             return {};
-        return entry->instance->open(relative_path(*entry, resolved), flags);
+        auto result = entry->instance->open(relative_path(*entry, resolved), flags);
+        if (result) result->set_path(resolved);
+        return result;
     }
 
     mm::shptr<open_file> open(const char* path, u32 flags) {
         return open_path(path, flags);
+    }
+
+    mm::shptr<open_file> open_directory(const char* path) {
+        char resolved[path_max]{};
+        long rc = resolve_path(path, resolved, sizeof resolved, true);
+        if (rc < 0 || node_type(resolved) != directory_dir) return {};
+        return mm::share<open_file>(resolved, node_mode(resolved));
     }
 
     long read_directory(const char* path, u64 index, char* name, u32 capacity,
@@ -540,7 +549,14 @@ namespace astia::fs {
         return !_object ? -EBADF : _object->size();
     }
 
-    file_mode open_file::mode() const { return !_object ? file_mode{} : _object->mode(); }
+    file_mode open_file::mode() const { return !_object ? _mode : _object->mode(); }
+    void open_file::set_path(const char* path) {
+        if (path == nullptr) return;
+        u32 i = 0;
+        for (; i + 1 < path_max && path[i] != '\0'; ++i) _path[i] = path[i];
+        _path[i] = '\0';
+        _has_path = true;
+    }
     u64 open_file::mtime_sec() const { return !_object ? 0 : _object->mtime_sec(); }
     u64 open_file::mtime_nsec() const { return !_object ? 0 : _object->mtime_nsec(); }
 

@@ -41,6 +41,12 @@ int fstat(int fd, struct stat* result) {
     long rc = __astia_fio_fstat(fd, &value, sizeof value);
     return rc < 0 ? fail(rc) : finish(&value, result);
 }
+int fstatat(int dirfd, const char* path, struct stat* result, int flags) {
+    if (path == NULL || result == NULL) { errno = EFAULT; return -1; }
+    astia_stat value;
+    long rc = __astia_fio_statat(dirfd, path, &value, sizeof value, flags);
+    return rc < 0 ? fail(rc) : finish(&value, result);
+}
 
 int chmod(const char* path, mode_t mode) {
     if (path == NULL) { errno = EFAULT; return -1; }
@@ -80,6 +86,11 @@ int mkdir(const char* path, mode_t mode) {
     long rc = __astia_fio_mkdir(path, (int)mode);
     return rc < 0 ? fail(rc) : 0;
 }
+int mkdirat(int dirfd, const char* path, mode_t mode) {
+    if (path == NULL) { errno = EFAULT; return -1; }
+    long rc = __astia_fio_mkdirat(dirfd, path, (int)mode);
+    return rc < 0 ? fail(rc) : 0;
+}
 
 int mkfifo(const char* path, mode_t mode) {
     (void) path;
@@ -90,6 +101,11 @@ int mkfifo(const char* path, mode_t mode) {
 int unlink(const char* path) {
     if (path == NULL) { errno = EFAULT; return -1; }
     long rc = __astia_fio_unlink(path, 0);
+    return rc < 0 ? fail(rc) : 0;
+}
+int unlinkat(int dirfd, const char* path, int flags) {
+    if (path == NULL || (flags & ~0x200) != 0) { errno = EINVAL; return -1; }
+    long rc = __astia_fio_unlinkat(dirfd, path, (flags & 0x200) != 0);
     return rc < 0 ? fail(rc) : 0;
 }
 

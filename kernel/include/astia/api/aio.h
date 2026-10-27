@@ -354,6 +354,7 @@ enum {
 /* ------------------------------------------------------------------ */
 
 /* open flags (OPENAT op_flags) */
+#ifndef O_DIRECTORY
 enum {
     O_RDONLY    = 0x00,
     O_WRONLY    = 0x01,
@@ -366,6 +367,7 @@ enum {
     O_DIRECTORY = 0x40,
     O_CLOEXEC   = 0x80,
 };
+#endif
 
 /* poll events (POLL_ADD op_flags; revents in cqe.result) */
 enum {
@@ -408,7 +410,9 @@ enum {
     AF_INET6  = 10,
 };
 
+#ifndef AT_FDCWD
 enum { AT_FDCWD = -100 };
+#endif
 
 /* file offset meaning "append" (uint64 value, hence a macro) */
 #define OFF_APPEND ((uint64_t) 0xFFFFFFFFFFFFFFFFull)

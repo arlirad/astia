@@ -103,6 +103,11 @@ namespace astia::fs {
         public:
         open_file(const mm::shptr<file>& object, u32 flags)
             : _object(object), _flags(flags) {}
+        open_file(const char* path, file_mode mode)
+            : _mode(mode), _has_path(true) {
+            for (u32 i = 0; i + 1 < path_max && path != nullptr && path[i] != '\0'; ++i)
+                _path[i] = path[i];
+        }
         ~open_file();
 
         long read(void* buf, u32 len, u64 offset = offset_current);
@@ -111,6 +116,8 @@ namespace astia::fs {
         long ioctl(u64 request, void* argp);
         long size() const;
         file_mode mode() const;
+        const char* path() const { return _has_path ? _path : nullptr; }
+        void set_path(const char* path);
         u64 mtime_sec() const;
         u64 mtime_nsec() const;
 
@@ -122,6 +129,9 @@ namespace astia::fs {
         mm::shptr<file> _object;
         u64             _position = 0;
         u32             _flags;
+        file_mode       _mode{};
+        bool            _has_path = false;
+        char            _path[path_max]{};
     };
 
     /// Reset the fixed VFS tables.  Called by the `fs` init step before
@@ -139,6 +149,7 @@ namespace astia::fs {
     /// Open a registered path.  Descriptor allocation belongs to the
     /// syscall/ring layer; the VFS returns an open file description.
     mm::shptr<open_file> open(const char* path, u32 flags = 0);
+    mm::shptr<open_file> open_directory(const char* path);
 
     long read_directory(const char* path, u64 index, char* name, u32 capacity, file_type* type);
     long make_directory(const char* path, file_mode mode);

@@ -10,6 +10,8 @@
 #define O_TRUNC 0x0200
 #define O_APPEND 0x0400
 #define O_NONBLOCK 0x0800
+#define O_DIRECTORY 0x10000
+#define AT_FDCWD (-100)
 
 #define FD_CLOEXEC 1
 #define F_DUPFD 0
@@ -31,5 +33,6 @@ struct flock {
 };
 
 int open(const char* path, int flags, ...);
+int openat(int dirfd, const char* path, int flags, ...);
 int creat(const char* path, mode_t mode);
 int fcntl(int fd, int command, ...);

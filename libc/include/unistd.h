@@ -62,9 +62,13 @@ int          link(const char* old_path, const char* new_path);
 int          symlink(const char* target, const char* link_path);
 long         readlink(const char* path, char* buffer, unsigned long capacity);
 int          unlink(const char* path);
+int          unlinkat(int dirfd, const char* path, int flags);
+#define AT_REMOVEDIR 0x200
 int          getgroups(int count, gid_t groups[]);
 int          setgroups(int count, const gid_t groups[]);
 int          rename(const char* old_path, const char* new_path);
+int          renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path);
+long         readlinkat(int dirfd, const char* path, char* buffer, unsigned long capacity);
 int          waitpid(int pid, int* status, int options);
 #define WNOHANG 1
 #define WUNTRACED 2

@@ -116,6 +116,10 @@ long __astia_fio_open(const char* path, int flags, int mode) {
     long fd = syscall(SYS_openat, -100, path, hf, mode);
     return fd >= 0 ? fd : -HOST_ERRNO;
 }
+long __astia_fio_openat(int dirfd, const char* path, int flags, int mode) {
+    long fd = syscall(SYS_openat, dirfd, path, flags, mode);
+    return fd >= 0 ? fd : -HOST_ERRNO;
+}
 
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n) {
     ssize_t r;
@@ -192,6 +196,15 @@ long __astia_fio_stat(const char* path, void* out, uint32_t length) {
                        hs.mtime_nsec, hs.ctime, hs.ctime_nsec, {0, 0, 0, 0}};
     return 0;
 }
+long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length, int flags) {
+    struct host_stat hs; astia_stat* st = (astia_stat*)out;
+    if (length != sizeof *st) return -EINVAL;
+    if (syscall(SYS_newfstatat, dirfd, path, &hs, flags) < 0) return -HOST_ERRNO;
+    *st = (astia_stat){(uint64_t)hs.dev,(uint64_t)hs.ino,(uint64_t)hs.size,(uint64_t)hs.blocks,
+                       (uint32_t)hs.mode,(uint32_t)hs.nlink,hs.uid,hs.gid,hs.atime,hs.atime_nsec,
+                       hs.mtime,hs.mtime_nsec,hs.ctime,hs.ctime_nsec,{0,0,0,0}};
+    return 0;
+}
 long __astia_fio_lstat(const char* path, void* out, uint32_t length) {
     struct host_stat hs; astia_stat* st=(astia_stat*)out;
     if (length != sizeof *st) return -EINVAL;
@@ -238,13 +251,26 @@ long __astia_fio_unlink(const char* path, int directory) {
     long rc = syscall(directory ? SYS_rmdir : SYS_unlink, path);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
+long __astia_fio_unlinkat(int dirfd, const char* path, int directory) {
+    long rc = syscall(SYS_unlinkat, dirfd, path, directory ? 0x200 : 0);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
 
 long __astia_fio_rename(const char* old_path, const char* new_path) {
     long rc = syscall(SYS_rename, old_path, new_path);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
+long __astia_fio_renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path) {
+    long rc = syscall(SYS_renameat, olddirfd, old_path, newdirfd, new_path);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
+long __astia_fio_mkdirat(int dirfd, const char* path, int mode) {
+    long rc = syscall(SYS_mkdirat, dirfd, path, mode);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
 long __astia_fio_symlink(const char* target, const char* path) { long rc=syscall(SYS_symlink,target,path); return rc<0?-HOST_ERRNO:0; }
 long __astia_fio_readlink(const char* path, char* buffer, size_t capacity) { long rc=syscall(SYS_readlink,path,buffer,capacity); return rc<0?-HOST_ERRNO:rc; }
+long __astia_fio_readlinkat(int dirfd, const char* path, char* buffer, size_t capacity) { long rc=syscall(SYS_readlinkat,dirfd,path,buffer,capacity); return rc<0?-HOST_ERRNO:rc; }
 
 void __astia_fio_prepare_exec(void) {}
 void __astia_fio_after_fork(void) {}

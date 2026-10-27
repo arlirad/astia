@@ -79,6 +79,25 @@ namespace astia::proc {
         return 0;
     }
 
+    i64 process::resolve_path_at(fd_t dirfd, const char* path, char* buffer, usize length) const {
+        if (path == nullptr || buffer == nullptr || length == 0) return -EINVAL;
+        if (path[0] == '/') return resolve_path(path, buffer, length);
+        if (dirfd.value == -100) return resolve_path(path, buffer, length);
+        auto directory = descriptor(dirfd);
+        if (!directory) return -EBADF;
+        if (!directory->path() || !directory->mode().is_directory()) return -ENOTDIR;
+        usize at = 0;
+        const char* base = directory->path();
+        for (; base[at] != '\0' && at + 1 < length; ++at) buffer[at] = base[at];
+        if (base[at] != '\0') return -ENAMETOOLONG;
+        if (at > 1 && at + 1 < length) buffer[at++] = '/';
+        usize i = 0;
+        for (; path[i] != '\0' && at + 1 < length; ++i, ++at) buffer[at] = path[i];
+        if (path[i] != '\0') return -ENAMETOOLONG;
+        buffer[at] = '\0';
+        return 0;
+    }
+
     namespace {
         core::spinlock process_lock;
 

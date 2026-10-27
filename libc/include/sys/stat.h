@@ -48,10 +48,13 @@ struct stat {
 #define S_IRWXG 0070
 #define S_IRWXO 0007
 #define S_IXUGO 0111
+#define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_REMOVEDIR 0x200
 
 int stat(const char* path, struct stat* result);
 int lstat(const char* path, struct stat* result);
 int fstat(int fd, struct stat* result);
+int fstatat(int dirfd, const char* path, struct stat* result, int flags);
 int chmod(const char* path, mode_t mode);
 int chown(const char* path, uid_t owner, gid_t group);
 int lchown(const char* path, uid_t owner, gid_t group);
@@ -59,6 +62,7 @@ int fchown(int fd, uid_t owner, gid_t group);
 int utimensat(int dirfd, const char* path, const struct timespec times[2], int flags);
 int utime(const char* path, const time_t* value);
 int mkdir(const char* path, mode_t mode);
+int mkdirat(int dirfd, const char* path, mode_t mode);
 int mkfifo(const char* path, mode_t mode);
 int unlink(const char* path);
 int rmdir(const char* path);

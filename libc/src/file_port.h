@@ -51,6 +51,7 @@ enum { /* open flags — the subset every port can speak */
 
 #pragma GCC visibility push(default)
 long __astia_fio_open(const char* path, int flags, int mode);
+long __astia_fio_openat(int dirfd, const char* path, int flags, int mode);
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n);
 
 struct astia_fio_batch_read {
@@ -70,6 +71,7 @@ long __astia_fio_writev(int fd, uint64_t off, const struct iovec* iov, uint32_t 
 long __astia_fio_close(int fd);
 long __astia_fio_size(int fd, uint64_t* out); /* file length, for SEEK_END */
 long __astia_fio_stat(const char* path, void* out, uint32_t length);
+long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length, int flags);
 long __astia_fio_lstat(const char* path, void* out, uint32_t length);
 long __astia_fio_fstat(int fd, void* out, uint32_t length);
 long __astia_fio_mkdir(const char* path, int mode);
@@ -78,9 +80,13 @@ long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid, int
 long __astia_fio_fchown(int fd, unsigned int uid, unsigned int gid);
 long __astia_fio_utime(const char* path);
 long __astia_fio_unlink(const char* path, int directory);
+long __astia_fio_unlinkat(int dirfd, const char* path, int directory);
 long __astia_fio_rename(const char* old_path, const char* new_path);
+long __astia_fio_renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path);
+long __astia_fio_mkdirat(int dirfd, const char* path, int mode);
 long __astia_fio_symlink(const char* target, const char* path);
 long __astia_fio_readlink(const char* path, char* buffer, size_t capacity);
+long __astia_fio_readlinkat(int dirfd, const char* path, char* buffer, size_t capacity);
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out);
 long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length);
 long __astia_fio_pipe(int fds[2]);

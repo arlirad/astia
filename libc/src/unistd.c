@@ -60,6 +60,14 @@ int open(const char* path, int flags, ...) {
     }
     return (int) rc;
 }
+int openat(int dirfd, const char* path, int flags, ...) {
+    va_list ap; int mode = 0;
+    if (path == NULL) { errno = EFAULT; return -1; }
+    if (flags & O_CREAT) { va_start(ap, flags); mode = va_arg(ap, int); va_end(ap); }
+    long rc = __astia_fio_openat(dirfd, path, flags, mode);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return (int)rc;
+}
 char* ttyname(int fd) {
     (void) fd;
     errno = ENOSYS;
@@ -279,6 +287,11 @@ long readlink(const char* path, char* buffer, unsigned long capacity) {
     if (rc < 0) { errno = (int)-rc; return -1; }
     return rc;
 }
+long readlinkat(int dirfd, const char* path, char* buffer, unsigned long capacity) {
+    long rc = __astia_fio_readlinkat(dirfd, path, buffer, capacity);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return rc;
+}
 int rename(const char* old_path, const char* new_path) {
     char old_resolved[256];
     char new_resolved[256];
@@ -287,6 +300,11 @@ int rename(const char* old_path, const char* new_path) {
         return -1;
     long rc = __astia_fio_rename(old_resolved, new_resolved);
     if (rc < 0) { errno = (int) -rc; return -1; }
+    return 0;
+}
+int renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path) {
+    long rc = __astia_fio_renameat(olddirfd, old_path, newdirfd, new_path);
+    if (rc < 0) { errno = (int)-rc; return -1; }
     return 0;
 }
 int execve(const char* path, char* const argv[], char* const envp[]) {

@@ -46,6 +46,18 @@ void* operator new(astia::usize size, void* where) noexcept;
 namespace astia::sys {
 
     namespace {
+        long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
+                        char* out, usize capacity) {
+            if (current == nullptr) return -ESRCH;
+            // The legacy path-only libc wrappers encode no directory fd as
+            // -1; treat it like AT_FDCWD just as the explicit *at wrappers
+            // do for AT_FDCWD.
+            if (raw_dirfd == AT_FDCWD || raw_dirfd == -1)
+                return current->resolve_path_at(fd_t{AT_FDCWD}, path, out, capacity);
+            auto dirfd = mapper<fd_t>::from(raw_dirfd);
+            if (!dirfd.has_value) return -EBADF;
+            return current->resolve_path_at(dirfd.value, path, out, capacity);
+        }
 
         // The parent keeps its ring while two forked children perform their
         // pipe handshakes.  Exiting children release their private slots.
@@ -500,9 +512,10 @@ namespace astia::sys {
                 }
                 auto* current = proc::current_process();
                 char resolved[256];
-                if (current == nullptr)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                 long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                 if (current == nullptr)
+                     return cq_post_guarded(ring, s.user_data, -EINVAL);
+                  long resolve_rc = resolve_at(current, s.fd == -1 ? AT_FDCWD : s.fd,
+                                               path, resolved, sizeof resolved);
                  if (resolve_rc >= 0) resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
                  if (resolve_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
                 if (resolved[0] == '/' && resolved[1] == 'd' && resolved[2] == 'e' &&
@@ -511,8 +524,12 @@ namespace astia::sys {
                     !proc::has_controlling_terminal())
                     return cq_post_guarded(ring, s.user_data, -ENXIO);
                  const fs::file_mode existing_mode = fs::node_mode(resolved);
-                 if (existing_mode.exists() && existing_mode.is_directory())
-                     return cq_post_guarded(ring, s.user_data, -EISDIR);
+                 if (existing_mode.exists() && existing_mode.is_directory() &&
+                     (s.op_flags & O_DIRECTORY) == 0)
+                      return cq_post_guarded(ring, s.user_data, -EISDIR);
+                 if (existing_mode.exists() && !existing_mode.is_directory() &&
+                     (s.op_flags & O_DIRECTORY) != 0)
+                      return cq_post_guarded(ring, s.user_data, -ENOTDIR);
                  if (!existing_mode.exists() && (s.op_flags & 0x04u) == 0)
                      return cq_post_guarded(ring, s.user_data, -ENOENT);
                 if (existing_mode.exists()) {
@@ -527,7 +544,9 @@ namespace astia::sys {
                 // VFS needs the former to implement O_CREAT/O_TRUNC on
                 // writable filesystems, while mode remains metadata for
                 // a future permission layer.
-                mm::shptr<fs::open_file> object = fs::open(resolved, s.op_flags);
+                 mm::shptr<fs::open_file> object = existing_mode.is_directory()
+                                                       ? fs::open_directory(resolved)
+                                                       : fs::open(resolved, s.op_flags);
                 if (!object) {
                     return cq_post_guarded(ring, s.user_data, -ENOENT);
                 }
@@ -574,7 +593,7 @@ namespace astia::sys {
                 char resolved[256];
                  if (current == nullptr)
                      return cq_post_guarded(ring, s.user_data, -ESRCH);
-                 long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                  long resolve_rc = resolve_at(current, s.fd, path, resolved, sizeof resolved);
                  if (resolve_rc >= 0)
                      resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
                                                    s.op == OP_MKDIRAT);
@@ -604,8 +623,9 @@ namespace astia::sys {
                 char new_resolved[256];
                  if (current == nullptr)
                      return cq_post_guarded(ring, s.user_data, -ESRCH);
-                 long old_rc = current->resolve_path(old_path, old_resolved, sizeof old_resolved);
-                 long new_rc = current->resolve_path(new_path, new_resolved, sizeof new_resolved);
+                  long old_rc = resolve_at(current, s.fd, old_path, old_resolved, sizeof old_resolved);
+                  i32 new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
+                  long new_rc = resolve_at(current, new_dirfd, new_path, new_resolved, sizeof new_resolved);
                  if (old_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)old_rc);
                  if (new_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)new_rc);
                 const long rc = fs::rename_path(old_resolved, new_resolved);
@@ -663,7 +683,8 @@ namespace astia::sys {
                     char resolved[256];
                     if (current == nullptr)
                         return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                     long resolve_rc = resolve_at(current, s.fd == -1 ? AT_FDCWD : s.fd,
+                                                  path, resolved, sizeof resolved);
                     if (resolve_rc >= 0)
                         resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
                                                       (s.op_flags & STATX_NOFOLLOW) == 0);
@@ -775,20 +796,22 @@ namespace astia::sys {
                 char path[256];
                 if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(s.address)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                char resolved[256];
-                 long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
-                 if (resolve_rc >= 0)
-                     resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
-                 if (resolve_rc < 0)
-                     return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
-                const uid_t existing_uid = fs::node_uid(resolved);
+                 char resolved[256];
+                  const bool follow_final = (s.op_flags & STATX_NOFOLLOW) == 0;
+                  long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                  if (resolve_rc >= 0)
+                      resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
+                                                   follow_final);
+                  if (resolve_rc < 0)
+                      return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
+                 const uid_t existing_uid = fs::node_uid(resolved);
                 if (current->euid() != 0 &&
                     (current->euid() != static_cast<u32>(existing_uid) ||
                      owner.value != existing_uid || !current->in_group(group.value)))
                     return cq_post_guarded(ring, s.user_data, -EPERM);
                 return cq_post_guarded(ring, s.user_data,
                     static_cast<i32>(fs::chown_path(resolved, owner.value, group.value,
-                                                    (s.op_flags & STATX_NOFOLLOW) == 0)));
+                     follow_final)));
             }
 
             case OP_UTIMENSAT: {
@@ -819,7 +842,7 @@ namespace astia::sys {
                  auto* current=proc::current_process(); char resolved[256];
                  if (!current)
                      return cq_post_guarded(ring,s.user_data,-ESRCH);
-                 long resolve_rc = current->resolve_path(path,resolved,sizeof resolved);
+                  long resolve_rc = resolve_at(current, s.fd, path, resolved, sizeof resolved);
                  if (resolve_rc < 0)
                      return cq_post_guarded(ring,s.user_data,(i32)resolve_rc);
                  resolve_rc = fs::resolve_path(resolved,resolved,sizeof resolved,false);
@@ -836,7 +859,7 @@ namespace astia::sys {
                  auto* current=proc::current_process(); char resolved[256];
                  if (!current)
                      return cq_post_guarded(ring,s.user_data,-ESRCH);
-                 long resolve_rc = current->resolve_path(path,resolved,sizeof resolved);
+                  long resolve_rc = resolve_at(current, s.fd, path, resolved, sizeof resolved);
                  if (resolve_rc < 0)
                      return cq_post_guarded(ring,s.user_data,(i32)resolve_rc);
                  resolve_rc = fs::resolve_path(resolved,resolved,sizeof resolved,false);
