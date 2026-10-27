@@ -111,13 +111,20 @@ The generator:
 
 - reads documented subsystem syscall headers;
 - discovers legacy handlers in `syscalls.cpp` files;
-- groups the index by subsystem;
+- groups the index first by manual section (`MAN 2 - SYSTEM CALLS` and
+  `MAN 3 - LIBC APIs`), then by subsystem and optional subgroup;
 - emits one HTML page per syscall;
 - copies the Nodivia-derived theme CSS;
 - supplies fallback return/error metadata for legacy handlers.
 - adds the native filesystem/descriptor APIs from the libc source root as
   section 3 pages, grouped separately from section 2 syscall pages;
 - links each generated page back to the combined manual index.
+
+The index must never mix section 2 and section 3 links in a top-level manual
+section or subsystem group. Every section 2 page links as `<name>.2.html` and
+is titled `<name>(2)`; every section 3 page links as `<name>.3.html` and is
+titled `<name>(3)`. Pages with the same name in both sections are distinct
+pages and must both remain present.
 
 New syscall-specific documentation takes precedence over fallback metadata.
 The section 3 API metadata is intentionally maintained against

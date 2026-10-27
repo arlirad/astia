@@ -337,33 +337,42 @@ def main() -> int:
     (args.output / "nodivia.css").write_text(args.css.read_text())
     for (name, section), (body, _) in sorted(pages.items()):
         (args.output / f"{name}.{section}.html").write_text(render(name, body, section))
-    groups: dict[str, dict[str, list[str]]] = {}
+    groups_by_section: dict[int, dict[str, dict[str, list[tuple[str, int]]]]] = {}
     for (name, section), (_, group) in pages.items():
         parts = group.split("/", 1)
         root, child = parts[0], parts[1] if len(parts) > 1 else ""
-        groups.setdefault(root, {}).setdefault(child, []).append((name, section))
+        groups_by_section.setdefault(section, {}).setdefault(root, {}).setdefault(child, []).append((name, section))
 
     grouped_parts = []
-    for root, children in sorted(groups.items()):
-        direct = children.pop("", [])
-        body = ""
-        if direct:
-            body += "<ul>" + "".join(
-                    f"<li><a href='{html.escape(name)}.{section}.html'>{html.escape(name)}({section})</a></li>"
-                for name, section in sorted(direct)
-            ) + "</ul>"
-        for child, names in sorted(children.items()):
-            body += (
-                f"<section class='surface__level__2 surface__minor man-subgroup'>"
-                f"<h3>{html.escape(child)}</h3><ul>"
-                + "".join(
-                    f"<li><a href='{html.escape(name)}.{section}.html'>{html.escape(name)}({section})</a></li>"
-                    for name, section in sorted(names)
+    section_labels = {2: "MAN 2 - SYSTEM CALLS", 3: "MAN 3 - LIBC APIs"}
+    for section, groups in sorted(groups_by_section.items()):
+        section_body = []
+        for root, children in sorted(groups.items()):
+            direct = children.get("", [])
+            body = ""
+            if direct:
+                body += "<ul>" + "".join(
+                        f"<li><a href='{html.escape(name)}.{page_section}.html'>{html.escape(name)}({page_section})</a></li>"
+                    for name, page_section in sorted(direct)
+                ) + "</ul>"
+            for child, names in sorted(children.items()):
+                if not child:
+                    continue
+                body += (
+                    f"<section class='surface__level__2 surface__minor man-subgroup'>"
+                    f"<h3>{html.escape(child)}</h3><ul>"
+                    + "".join(
+                        f"<li><a href='{html.escape(name)}.{page_section}.html'>{html.escape(name)}({page_section})</a></li>"
+                        for name, page_section in sorted(names)
+                    )
+                    + "</ul></section>"
                 )
-                + "</ul></section>"
+            section_body.append(
+                f"<section class='surface__level__1 surface__minor'><h3>{html.escape(root)}</h3>{body}</section>"
             )
+        label = section_labels.get(section, f"MAN {section}")
         grouped_parts.append(
-            f"<section class='surface__level__1 surface__minor'><h2>{html.escape(root)}</h2>{body}</section>"
+            f"<section class='surface__level__0 man-section'><h2>{html.escape(label)}</h2>{''.join(section_body)}</section>"
         )
     grouped = "".join(grouped_parts)
     (args.output / "index.html").write_text(
