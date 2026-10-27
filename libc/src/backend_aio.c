@@ -400,6 +400,14 @@ long __astia_fio_pipe(int fds[2]) {
     return transact(OP_PIPE, -1, 0, fds, 2u * sizeof(int), 0, 0);
 }
 
+long __astia_fio_socket(int domain, int type, int protocol) { return transact(OP_SOCKET, domain, 0, NULL, 0, (uint32_t)type, (uint32_t)protocol); }
+long __astia_fio_bind(int fd, const void* address, uint32_t length) { return transact(OP_BIND, fd, 0, address, length, 0, 0); }
+long __astia_fio_listen(int fd, int backlog) { return transact(OP_LISTEN, fd, 0, NULL, 0, 0, (uint32_t)backlog); }
+long __astia_fio_accept(int fd, void* address, uint32_t* length) { (void)address; (void)length; return transact(OP_ACCEPT, fd, 0, NULL, 0, 0, 0); }
+long __astia_fio_connect(int fd, const void* address, uint32_t length) { return transact(OP_CONNECT, fd, 0, address, length, 0, 0); }
+long __astia_fio_send(int fd, const void* buf, size_t n, int flags) { (void)flags; if (n > UINT32_MAX) return -EINVAL; return transact(OP_SEND, fd, OFF_APPEND, buf, (uint32_t)n, 0, 0); }
+long __astia_fio_recv(int fd, void* buf, size_t n, int flags) { (void)flags; if (n > UINT32_MAX) return -EINVAL; return transact(OP_RECV, fd, OFF_APPEND, buf, (uint32_t)n, 0, 0); }
+
 long __astia_fio_dup(int fd) {
     return transact(OP_DUP, fd, 0, NULL, 0, 0, 0);
 }

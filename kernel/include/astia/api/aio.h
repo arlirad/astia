@@ -288,6 +288,9 @@ enum {
     OP_SYMLINKAT = 28,
     OP_READLINKAT = 29,
     OP_CHOWN = 30,
+    OP_SOCKET = 31,
+    OP_BIND = 32,
+    OP_LISTEN = 33,
 };
 
 /* OP_STATX: preserve the final directory entry instead of following it. */

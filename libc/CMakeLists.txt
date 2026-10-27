@@ -52,6 +52,7 @@ add_library(astia_libc STATIC
   src/times.c
   src/utsname.c
   src/unistd.c
+  src/socket.c
   src/uio.c
   src/wchar.c
 )

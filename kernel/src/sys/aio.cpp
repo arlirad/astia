@@ -3,6 +3,7 @@
 #include "time.hpp"
 
 #include "../ipc/pipe.hpp"
+#include "../ipc/unix_socket.hpp"
 #include "proc.hpp"
 #include "../proc/mapping.hpp"
 #include "user_mem.hpp"
@@ -101,6 +102,7 @@ namespace astia::sys {
             /// would deadlock.
             bool                     done     = false;
             bool                     resuming = false;
+            bool                     control  = false;
             i32                      fd;
             mm::shptr<fs::open_file> object;
             /// The caller's frames, held for the whole flight of the
@@ -276,6 +278,12 @@ namespace astia::sys {
             for (;;) {
                 const usize ask = static_cast<usize>(op.request.length());
                 const long  n   = op.object->submit(op.request);
+                if (op.control) {
+                    if (n == 0 && !op.request.complete())
+                        return io_outcome::parked;
+                    result = n;
+                    return io_outcome::completed;
+                }
                 if (n == 0 && !op.request.complete()) {
                     return io_outcome::parked; // a resume picks this request up
                 }
@@ -319,7 +327,7 @@ namespace astia::sys {
         bool submit_request(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
                             const mm::shptr<fs::open_file>& object,
                             const sys::user_range* entries, u32 count,
-                            io_direction direction) {
+                            io_direction direction, bool control = false) {
             arch::interrupt_guard gate;
             parked_op*            p = nullptr;
             for (u32 i = 0; i < park_capacity; ++i) {
@@ -339,6 +347,7 @@ namespace astia::sys {
             p->fd     = s.fd;
             p->object = object;
             p->moved  = 0;
+            p->control = control;
 
             // Snapshot every entry for as long as this operation lasts.  From
             // here the device is handed kernel windows and never the user
@@ -433,13 +442,15 @@ namespace astia::sys {
 
             case OP_READ:
             case OP_WRITE:
+            case OP_SEND:
+            case OP_RECV:
             case OP_READV:
             case OP_WRITEV: {
                 mm::shptr<fs::open_file> object = file_for(s.fd);
                 if (!object) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                const io_direction direction = (s.op == OP_READ || s.op == OP_READV)
+                const io_direction direction = (s.op == OP_READ || s.op == OP_RECV || s.op == OP_READV)
                                                    ? io_direction::input
                                                    : io_direction::output;
                 // READ/WRITE name one range, READV/WRITEV up to max_segments of
@@ -447,7 +458,7 @@ namespace astia::sys {
                 // and a device still gets one buffer per submit() either way.
                 sys::user_range ranges[mm::iovec::max_segments];
                 u32             count = 0;
-                if (s.op == OP_READ || s.op == OP_WRITE) {
+                if (s.op == OP_READ || s.op == OP_WRITE || s.op == OP_SEND || s.op == OP_RECV) {
                     ranges[0] = sys::user_range::bytes(s.address, s.length);
                     count     = 1;
                 }
@@ -997,6 +1008,36 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 }
                 return cq_post_guarded(ring, s.user_data, 0);
+            }
+
+            case OP_SOCKET: {
+                if (s.fd != AF_UNIX || s.op_flags != 1u)
+                    return cq_post_guarded(ring, s.user_data, -EAFNOSUPPORT);
+                proc::process* current = proc::current_process();
+                mm::shptr<fs::open_file> object;
+                long rc = fs::create_unix_socket(object);
+                if (rc < 0 || !current) return cq_post_guarded(ring, s.user_data, (i32)(rc < 0 ? rc : -ESRCH));
+                for (i32 fd=3; fd<(i32)proc::max_process_fds; ++fd)
+                    if (!current->descriptor(fd_t{fd}) && current->set_descriptor(fd_t{fd}, object))
+                        return cq_post_guarded(ring, s.user_data, fd);
+                return cq_post_guarded(ring, s.user_data, -EMFILE);
+            }
+            case OP_BIND:
+            case OP_CONNECT: {
+                auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
+                if(!sys::user_range_ok(sys::user_range::bytes(s.address,sizeof(astia_sockaddr)))) return cq_post_guarded(ring,s.user_data,-EFAULT);
+                astia_sockaddr a{}; if(!sys::copy_in(&a,sys::user_range::bytes(s.address,sizeof a))) return cq_post_guarded(ring,s.user_data,-EFAULT);
+                long rc=s.op==OP_BIND?fs::unix_bind(*object,a):fs::unix_connect(*object,a);
+                return cq_post_guarded(ring,s.user_data,(i32)rc);
+            }
+            case OP_LISTEN: {
+                auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
+                return cq_post_guarded(ring,s.user_data,(i32)fs::unix_listen(*object,s.aux));
+            }
+            case OP_ACCEPT: {
+                auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
+                return submit_request(slot, ring, s, object, nullptr, 0,
+                                      io_direction::input, true);
             }
 
             default:

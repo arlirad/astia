@@ -11,6 +11,7 @@ add_library(fs STATIC
         syscalls/io_register.cpp
         init_fs.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/pipe.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/unix_socket.cpp
 )
 
 target_include_directories(fs PUBLIC
