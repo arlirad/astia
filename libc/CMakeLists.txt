@@ -34,6 +34,7 @@ add_library(astia_libc STATIC
   src/mman.c
   src/process.c
   src/process_aio.c
+  src/pwd.c
   src/path.c
   src/prctl.c
   src/rlimit.c

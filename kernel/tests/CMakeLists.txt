@@ -286,6 +286,7 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_SOURCE_DIR}/../libc/src/errno.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/file.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/group.c
+                ${CMAKE_SOURCE_DIR}/../libc/src/pwd.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/ioctl.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/locale.c
                 ${CMAKE_SOURCE_DIR}/../libc/src/malloc.c
@@ -386,13 +387,17 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/init_user ${_fix_dir}/init_user.o
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/sbin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/../init/passwd ${_fix_dir}/boot_stage/etc/passwd
+                COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/../init/group ${_fix_dir}/boot_stage/etc/group
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/init_user ${_fix_dir}/boot_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_init_libc_image} ${_fix_dir}/boot_stage/bin/init_libc
-                COMMAND sh -c "tar cf ${_fix_dir}/boot_initrd.tar -C ${_fix_dir}/boot_stage hello_initrd.o sbin/init bin/init_libc"
+                COMMAND sh -c "tar cf ${_fix_dir}/boot_initrd.tar -C ${_fix_dir}/boot_stage hello_initrd.o sbin/init bin/init_libc etc/passwd etc/group"
                 DEPENDS ${_fix_dir}/hello_initrd.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
+                ${CMAKE_SOURCE_DIR}/../init/passwd ${CMAKE_SOURCE_DIR}/../init/group
                 COMMENT "Packing boot initrd boot_initrd.tar"
         )
         # Tarballs are test inputs, not sources of any target, so build them as

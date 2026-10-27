@@ -9,4 +9,8 @@ struct group {
     char** gr_mem;
 };
 
+struct group* getgrnam(const char* name);
 struct group* getgrgid(gid_t gid);
+void          setgrent(void);
+struct group* getgrent(void);
+void          endgrent(void);
