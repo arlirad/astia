@@ -1,2 +1,3 @@
-# Native service definitions.  Each non-comment line is one absolute binary.
-# This file is data, not a shell script: no arguments or expansion are parsed.
+# Native service definitions (data, never a shell script).
+# Format: executable [argv ...] [respawn[=N]]
+# A bare respawn permits three restarts; N is bounded to 0..16.
