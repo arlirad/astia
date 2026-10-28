@@ -196,6 +196,25 @@ namespace astia::sys {
         if (!user_range_ok(destination)) {
             return false;
         }
+        // A forked child's private writable mappings are read-only until the
+        // child writes them.  This copy is performed in ring 0, so hardware
+        // cannot enter the ring-3 page-fault path if the destination still
+        // carries that CoW protection.  Resolve each page explicitly before
+        // taking the user address as a writable pointer.
+        proc::process* owner = proc::current_process();
+        if (owner != nullptr && owner->address_space() != nullptr) {
+            const u64 first = destination.address() & ~u64{0xfff};
+            const u64 last = (destination.address() + destination.length() - 1) & ~u64{0xfff};
+            for (u64 page = first;; page += 4096) {
+                if (!owner->address_space()->writable(page) &&
+                    !owner->cow_fault(page, true)) {
+                    return false;
+                }
+                if (page == last) {
+                    break;
+                }
+            }
+        }
         auto*       to   = reinterpret_cast<u8*>(destination.address());
         const auto* from = static_cast<const u8*>(source);
         for (usize i = 0; i < destination.length(); ++i) {

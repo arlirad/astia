@@ -7,6 +7,7 @@
  * status and this program's step number in the serial log.
  */
 #include <sys/futex.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
@@ -139,6 +140,11 @@ int main(int argc, char** argv) {
         if (child < 0)
             return 17;
         if (child == 0) {
+            /* ioctl output must resolve the child's inherited CoW stack page
+               before the kernel copies TIOCGPGRP's result back to it. */
+            int child_group = 0;
+            if (ioctl(0, TIOCGPGRP, &child_group) < 0)
+                _Exit(42);
             /* The inherited view is intact before we write... */
             if (page[0] != 7)
                 _Exit(43);
