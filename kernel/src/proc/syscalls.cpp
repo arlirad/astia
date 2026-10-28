@@ -43,6 +43,7 @@
 
 namespace astia::proc {
 namespace syscall {
+  i64 process_snapshot(i64 output, i64 capacity) { if (output < 0 || capacity < 0 || capacity > ASTIA_PROCESS_SNAPSHOT_MAX) return -EINVAL; return proc::process_snapshot(static_cast<u64>(output), static_cast<u32>(capacity)); }
  i64 getuid(); i64 geteuid(); i64 getgid(); i64 getegid();
   i64 setuid(i64); i64 seteuid(i64); i64 setgid(i64); i64 setegid(i64); i64 setreuid(i64,i64); i64 setregid(i64,i64);
   i64 getgroups(i64,i64); i64 setgroups(i64,i64);
@@ -208,7 +209,8 @@ namespace syscall {
                  sys::register_syscall<syscall::setreuid>(sys::syscall_id::setreuid) &&
                  sys::register_syscall<syscall::setregid>(sys::syscall_id::setregid) &&
                  sys::register_syscall<syscall::getgroups>(sys::syscall_id::getgroups) &&
-                 sys::register_syscall<syscall::setgroups>(sys::syscall_id::setgroups) &&
+                  sys::register_syscall<syscall::setgroups>(sys::syscall_id::setgroups) &&
+                  sys::register_syscall<syscall::process_snapshot>(sys::syscall_id::process_snapshot) &&
                sys::register_syscall<syscall::spawnve>(sys::syscall_id::spawnve) &&
                sys::register_syscall<syscall::execve>(sys::syscall_id::execve) &&
                 sys::register_syscall<syscall::sigsuspend>(sys::syscall_id::sigsuspend) &&

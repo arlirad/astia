@@ -109,6 +109,7 @@ enum {
     SYS_SETREGID       = 41,
     SYS_GETGROUPS      = 42,
     SYS_SETGROUPS      = 43,
+    SYS_PROCESS_SNAPSHOT = 44,
 };
 
 /* ------------------------------------------------------------------ */
@@ -119,6 +120,30 @@ typedef struct astia_timespec {
     int64_t tv_sec;
     int64_t tv_nsec;
 } astia_timespec;
+
+/* One bounded, point-in-time process record.  Names are kernel-owned snapshots;
+ * callers must not assume they are paths or remain valid after the call. */
+typedef struct astia_process_info {
+    int32_t  pid;
+    int32_t  ppid;
+    int32_t  pgid;
+    uint32_t uid;
+    uint32_t gid;
+    uint32_t state;
+    uint32_t has_ctty;
+    char     ctty[32];
+    char     name[32];
+} astia_process_info;
+
+enum {
+    ASTIA_PROCESS_FRESH = 0,
+    ASTIA_PROCESS_RUNNABLE = 1,
+    ASTIA_PROCESS_STOPPING = 2,
+    ASTIA_PROCESS_STOPPED = 3,
+    ASTIA_PROCESS_ZOMBIE = 4,
+    ASTIA_PROCESS_DEAD = 5,
+};
+enum { ASTIA_PROCESS_SNAPSHOT_MAX = 64 };
 
 /* ------------------------------------------------------------------ */
 /* constants for the direct-call flag words                            */
@@ -254,6 +279,9 @@ static inline long astia_setreuid(uint32_t r,uint32_t e) { return astia_raw6(SYS
 static inline long astia_setregid(uint32_t r,uint32_t e) { return astia_raw6(SYS_SETREGID,r,e,0,0,0,0); }
 static inline long astia_getgroups(int32_t n, uint32_t* g) { return astia_raw6(SYS_GETGROUPS,n,(long)g,0,0,0,0); }
 static inline long astia_setgroups(int32_t n, const uint32_t* g) { return astia_raw6(SYS_SETGROUPS,n,(long)g,0,0,0,0); }
+static inline long astia_process_snapshot(astia_process_info* out, uint32_t capacity) {
+    return astia_raw6(SYS_PROCESS_SNAPSHOT, (long) out, (long) capacity, 0, 0, 0, 0);
+}
 
 static inline long astia_getpgrp(void) {
     return astia_raw6(SYS_GETPGRP, 0, 0, 0, 0, 0, 0);

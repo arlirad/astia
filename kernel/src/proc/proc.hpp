@@ -30,6 +30,7 @@ namespace astia::proc {
     pid_t allocate_pid();
     /// Insert a process into the registry.  Fails when it is full.
     bool register_process(const mm::shptr<process>& value);
+    i64 process_snapshot(u64 output, u32 capacity);
     void set_current_thread(thread* value);
 
     /// Spawn an executable by VFS path.  argv/envp are materialized on

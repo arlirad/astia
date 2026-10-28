@@ -22,7 +22,8 @@ enum {
 struct service {
     char  line[SERVICE_LINE];
     char* argv[SERVICE_ARG_MAX + 1];
-    int   argc, pid, restart, failure_only, restarts, max_restarts, enabled;
+    int   argc, pid, pgid, restart, failure_only, restarts, max_restarts, enabled;
+    int   last_error;
 };
 enum command_kind {
     CMD_STATUS,
@@ -126,6 +127,12 @@ static int start_service(struct service* s) {
     if (s->pid >= 0)
         return 0;
     s->pid = spawnve(s->argv[0], s->argv, 0);
+    s->pgid = s->pid;
+    s->last_error = s->pid < 0 ? errno : 0;
+    if (s->pid >= 0 && setpgid(s->pid, s->pid) < 0) {
+        s->pgid = -1;
+        s->last_error = errno;
+    }
     return s->pid >= 0 ? 0 : -1;
 }
 static void report(const char* what, const struct service* s) {
@@ -291,10 +298,12 @@ int astia_daemon_run(const char* rc_path) {
                     snprintf(line, sizeof line, "OK services=%d\n", count);
                     append_text(reply, &used, line);
                     for (int i = 0; i < count; ++i) {
-                        snprintf(line, sizeof line, "%s pid=%d %s\n", services[i].argv[0],
-                                 services[i].pid,
-                                 services[i].pid >= 0 && services[i].enabled ? "running"
-                                                                             : "stopped");
+                        snprintf(line, sizeof line,
+                                 "service=%s state=%s restart=%d pid=%d pgid=%d error=%d\n",
+                                 services[i].argv[0],
+                                 services[i].pid >= 0 && services[i].enabled ? "running" : "stopped",
+                                 services[i].restarts, services[i].pid, services[i].pgid,
+                                 services[i].last_error);
                         append_text(reply, &used, line);
                     }
                 }
@@ -334,6 +343,7 @@ int astia_daemon_run(const char* rc_path) {
             for (int i = 0; i < count; ++i)
                 if (services[i].pid == pid) {
                     services[i].pid = -1;
+                    services[i].pgid = -1;
                     --active;
                     if (services[i].enabled && services[i].restart &&
                         services[i].restarts < services[i].max_restarts) {

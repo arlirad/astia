@@ -1,6 +1,7 @@
 #include "proc.hpp"
 
 #include "scheduler.hpp"
+#include "../sys/user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
@@ -197,6 +198,33 @@ namespace astia::proc {
         core::spinlock_guard guard(registry_lock);
         const i32            slot = find_slot_locked(id);
         return slot < 0 ? nullptr : registry[slot].get();
+    }
+
+    i64 process_snapshot(u64 output, u32 capacity) {
+        if (capacity > ASTIA_PROCESS_SNAPSHOT_MAX || (capacity != 0 && output == 0))
+            return -EINVAL;
+        astia_process_info records[ASTIA_PROCESS_SNAPSHOT_MAX]{};
+        u32 count = 0;
+        {
+            core::spinlock_guard guard(registry_lock);
+            for (u32 i = 0; i < registry_capacity && count < capacity; ++i) {
+                process* value = registry[i].get();
+                if (value == nullptr) continue;
+                auto& record = records[count++];
+                record.pid = static_cast<i32>(static_cast<u32>(value->pid()));
+                record.ppid = static_cast<i32>(static_cast<u32>(value->parent_pid()));
+                record.pgid = static_cast<i32>(static_cast<u32>(value->process_group()));
+                record.uid = value->uid(); record.gid = value->gid();
+                record.state = static_cast<u32>(value->state());
+                record.has_ctty = value->controlling_terminal() != nullptr ? 1u : 0u;
+                const char* name = value->name();
+                for (u32 n = 0; name != nullptr && n + 1 < sizeof(record.name) && name[n]; ++n)
+                    record.name[n] = name[n];
+            }
+        }
+        if (count != 0 && !sys::copy_out(sys::user_range::bytes(output, count * sizeof(records[0])), records))
+            return -EFAULT;
+        return count;
     }
 
     pgrp_t getpgrp() {

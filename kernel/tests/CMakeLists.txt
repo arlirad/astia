@@ -420,7 +420,7 @@ if (ARCH STREQUAL "x86_64")
         # the fixed-capacity, non-shell rc file.  Keep this as a separate image
         # from init_user, whose purpose is the raw syscall ABI regression.
         add_custom_command(
-                OUTPUT ${_fix_dir}/native_init ${_fix_dir}/native_daemon ${_fix_dir}/native_daemonctl
+                OUTPUT ${_fix_dir}/native_init ${_fix_dir}/native_daemon ${_fix_dir}/native_daemonctl ${_fix_dir}/native_ps
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                 -fno-builtin -I${CMAKE_SOURCE_DIR}/../libc/include -I${CMAKE_SOURCE_DIR}/include
@@ -434,6 +434,11 @@ if (ARCH STREQUAL "x86_64")
                 -fno-builtin -I${CMAKE_SOURCE_DIR}/../libc/include -I${CMAKE_SOURCE_DIR}/include
                 -I${CMAKE_SOURCE_DIR}/../coreutils/src
                 -o ${_fix_dir}/native_daemonctl.o ${CMAKE_SOURCE_DIR}/../coreutils/src/daemonctl.c
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                -fno-builtin -I${CMAKE_SOURCE_DIR}/../libc/include -I${CMAKE_SOURCE_DIR}/include
+                -I${CMAKE_SOURCE_DIR}/../coreutils/src
+                -o ${_fix_dir}/native_ps.o ${CMAKE_SOURCE_DIR}/../coreutils/src/ps.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/native_init ${_fix_dir}/crt0.o ${_fix_dir}/native_init.o
@@ -446,10 +451,15 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/native_daemonctl ${_fix_dir}/crt0.o ${_fix_dir}/native_daemonctl.o
                 $<TARGET_FILE:astia_userspace_libc> -lgcc
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                -o ${_fix_dir}/native_ps ${_fix_dir}/crt0.o ${_fix_dir}/native_ps.o
+                $<TARGET_FILE:astia_userspace_libc> -lgcc
                 DEPENDS ${CMAKE_SOURCE_DIR}/../init/init.c
                 ${CMAKE_SOURCE_DIR}/../init/daemon.c
                 ${CMAKE_SOURCE_DIR}/../init/daemon.h ${CMAKE_SOURCE_DIR}/../libc/include/daemon_protocol.h
-                ${CMAKE_SOURCE_DIR}/../coreutils/src/daemonctl.c ${CMAKE_SOURCE_DIR}/../coreutils/src/common.h ${_fix_dir}/crt0.o
+                ${CMAKE_SOURCE_DIR}/../coreutils/src/daemonctl.c ${CMAKE_SOURCE_DIR}/../coreutils/src/ps.c
+                ${CMAKE_SOURCE_DIR}/../coreutils/src/common.h ${_fix_dir}/crt0.o
                 astia_userspace_libc
                 COMMENT "Building native init and daemon images")
         add_custom_command(
@@ -460,10 +470,11 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemon ${_fix_dir}/native_stage/sbin/daemon
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemonctl ${_fix_dir}/native_stage/bin/daemonctl
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_ps ${_fix_dir}/native_stage/bin/ps
                 COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/../init/rc ${_fix_dir}/native_stage/etc/rc
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_stage/bin/init_libc
-                COMMAND sh -c "tar cf ${_fix_dir}/native_boot_initrd.tar -C ${_fix_dir}/native_stage sbin/init sbin/daemon bin/daemonctl bin/init_libc etc/rc"
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemon ${_fix_dir}/native_daemonctl ${_init_libc_image} ${CMAKE_SOURCE_DIR}/../init/rc
+                COMMAND sh -c "tar cf ${_fix_dir}/native_boot_initrd.tar -C ${_fix_dir}/native_stage sbin/init sbin/daemon bin/daemonctl bin/ps bin/init_libc etc/rc"
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemon ${_fix_dir}/native_daemonctl ${_fix_dir}/native_ps ${_init_libc_image} ${CMAKE_SOURCE_DIR}/../init/rc
                 COMMENT "Packing native init/daemon initrd")
         add_custom_target(astia_native_boot_initrd ALL DEPENDS ${_fix_dir}/native_boot_initrd.tar)
         add_test(NAME astia_native_daemon_boot
