@@ -574,7 +574,11 @@ namespace astia::sys {
                 if (current == nullptr) {
                     return cq_post_guarded(ring, s.user_data, -ESRCH);
                 }
-                for (i32 i = 3; i < static_cast<i32>(proc::max_process_fds); ++i) {
+                // open(2) returns the lowest available descriptor.  The
+                // standard streams normally occupy 0..2, but callers may
+                // close one before opening a replacement (zsh does this
+                // for an asynchronous child and expects /dev/null at fd 0).
+                for (i32 i = 0; i < static_cast<i32>(proc::max_process_fds); ++i) {
                     if (!current->descriptor(fd_t{i}) &&
                         current->set_descriptor(fd_t{i}, object,
                                                 (s.op_flags & O_CLOEXEC) != 0 ? 1u : 0u)) {
