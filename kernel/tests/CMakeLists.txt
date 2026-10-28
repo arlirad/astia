@@ -415,6 +415,53 @@ if (ARCH STREQUAL "x86_64")
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
 
+        # Native PID-1 split: init only bootstraps/waits for daemon; daemon owns
+        # the fixed-capacity, non-shell rc file.  Keep this as a separate image
+        # from init_user, whose purpose is the raw syscall ABI regression.
+        add_custom_command(
+                OUTPUT ${_fix_dir}/native_init ${_fix_dir}/native_daemon
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                -fno-builtin -I${CMAKE_SOURCE_DIR}/../libc/include -I${CMAKE_SOURCE_DIR}/include
+                -o ${_fix_dir}/native_init.o ${CMAKE_SOURCE_DIR}/../init/init.c
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                -fno-builtin -I${CMAKE_SOURCE_DIR}/../libc/include -I${CMAKE_SOURCE_DIR}/include
+                -o ${_fix_dir}/native_daemon.o ${CMAKE_SOURCE_DIR}/../init/daemon.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                -o ${_fix_dir}/native_init ${_fix_dir}/crt0.o ${_fix_dir}/native_init.o
+                $<TARGET_FILE:astia_userspace_libc> -lgcc
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                -o ${_fix_dir}/native_daemon ${_fix_dir}/crt0.o ${_fix_dir}/native_daemon.o
+                $<TARGET_FILE:astia_userspace_libc> -lgcc
+                DEPENDS ${CMAKE_SOURCE_DIR}/../init/init.c
+                ${CMAKE_SOURCE_DIR}/../init/daemon.c
+                ${CMAKE_SOURCE_DIR}/../init/daemon.h ${_fix_dir}/crt0.o
+                astia_userspace_libc
+                COMMENT "Building native init and daemon images")
+        add_custom_command(
+                OUTPUT ${_fix_dir}/native_boot_initrd.tar
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/sbin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/bin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemon ${_fix_dir}/native_stage/sbin/daemon
+                COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/../init/rc ${_fix_dir}/native_stage/etc/rc
+                COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_stage/bin/init_libc
+                COMMAND sh -c "tar cf ${_fix_dir}/native_boot_initrd.tar -C ${_fix_dir}/native_stage sbin/init sbin/daemon bin/init_libc etc/rc"
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemon ${_init_libc_image} ${CMAKE_SOURCE_DIR}/../init/rc
+                COMMENT "Packing native init/daemon initrd")
+        add_custom_target(astia_native_boot_initrd ALL DEPENDS ${_fix_dir}/native_boot_initrd.tar)
+        add_test(NAME astia_native_daemon_boot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/native_boot_initrd.tar
+                "init: daemon started"
+                "daemon: clean shutdown")
+        set_tests_properties(astia_native_daemon_boot PROPERTIES TIMEOUT 60)
+
         if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
             add_custom_target(astia_grub_iso ALL
                     COMMAND BUILD=${CMAKE_BINARY_DIR}/grub ISO=${CMAKE_BINARY_DIR}/astia-grub.iso
