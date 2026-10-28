@@ -134,18 +134,34 @@ namespace astia::arch {
         image.r13    = frame.r13;
         image.r14    = frame.r14;
         image.r15    = frame.r15;
+        image.rdi    = frame.a0;
+        image.rsi    = frame.a1;
+        image.rdx    = frame.a2;
+        image.r10    = frame.a3;
+        image.r8     = frame.a4;
+        image.r9     = frame.a5;
         return image;
     }
 
     bool context_prepare_fork(context* value, u64 kernel_stack_top,
                               const user_context* image) {
-        if (value == nullptr || image == nullptr || kernel_stack_top < 5 * sizeof(u64)) {
+        if (value == nullptr || image == nullptr || kernel_stack_top < 11 * sizeof(u64)) {
             return false;
         }
         // The iretq frame the resume trampoline pops: the parent's
         // return point, flags, and stack — the child continues the
         // fork() caller as if nothing had happened, with rax = 0.
         u64* frame = reinterpret_cast<u64*>(kernel_stack_top) - 5;
+        // Keep the syscall-preserved argument registers alongside the iret
+        // frame.  They cannot live in the context object: the raw switch
+        // deliberately exposes only the fixed callee-saved ABI, and the
+        // trampoline has no context pointer after the switch.
+        frame[-6] = image->rdi;
+        frame[-5] = image->rsi;
+        frame[-4] = image->rdx;
+        frame[-3] = image->r10;
+        frame[-2] = image->r8;
+        frame[-1] = image->r9;
         frame[0]   = image->rip;
         frame[1]   = x86_64::user_code_selector;
         frame[2]   = image->rflags;

@@ -27,9 +27,8 @@ namespace astia::arch {
     /// Register image of a ring-3 caller at syscall time.  The arch
     /// syscall entry packs it from its frame; fork hands the copy to
     /// context_prepare_fork so the child resumes exactly where the
-    /// parent sat.  Callee-saved registers plus the ring-3 control
-    /// state are the full contract — the remaining caller-saved
-    /// registers follow the syscall ABI (clobbered, zeroed on resume).
+    /// parent sat.  Callee-saved registers plus the ring-3 control state are
+    /// the full contract; syscall-preserved argument registers are retained.
     struct user_context {
         u64 rip     = 0;
         u64 rflags  = 0;
@@ -40,6 +39,14 @@ namespace astia::arch {
         u64 r13     = 0;
         u64 r14     = 0;
         u64 r15     = 0;
+        // Registers preserved by the syscall ABI and needed by the caller
+        // immediately after fork returns.
+        u64 rdi     = 0;
+        u64 rsi     = 0;
+        u64 rdx     = 0;
+        u64 r10     = 0;
+        u64 r8      = 0;
+        u64 r9      = 0;
         u64 fs_base = 0; ///< thread pointer the resume loads into %fs
     };
 

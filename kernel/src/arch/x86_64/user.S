@@ -13,17 +13,16 @@ context_user_iret:
    the callee-saved registers from the context (the parent's image,
    prepared by context_prepare_fork) and left RSP on the synthetic
    iretq frame: parent RIP, ring-3 CS/SS, parent RFLAGS, parent RSP.
-   rax is fork's child-side zero; the remaining caller-saved
-   registers are zeroed rather than left holding kernel values. */
+   rax is fork's child-side zero.  The other syscall-preserved argument
+   registers sit immediately below the iret frame. */
 astia_fork_iret:
     xorl %eax, %eax
-    xorl %edi, %edi
-    xorl %esi, %esi
-    xorl %edx, %edx
-    xorl %ecx, %ecx
-    xorl %r8d, %r8d
-    xorl %r9d, %r9d
-    xorl %r10d, %r10d
+    movq -48(%rsp), %rdi
+    movq -40(%rsp), %rsi
+    movq -32(%rsp), %rdx
+    movq -24(%rsp), %r10
+    movq -16(%rsp), %r8
+    movq -8(%rsp), %r9
     xorl %r11d, %r11d
     iretq
 .size astia_fork_iret, .-astia_fork_iret
