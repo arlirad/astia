@@ -59,6 +59,23 @@ import sys
 
 path = sys.argv[1]
 text = open(path).read()
+if "ASTIA /dev/null fd-zero fix" not in text:
+    old = '\t\tif (open("/dev/null", O_RDWR | O_NOCTTY)) {'
+    new = '''#ifdef ASTIA /* ASTIA /dev/null fd-zero fix */
+\t\tif (open("/dev/null", O_RDWR | O_NOCTTY) < 0) {
+#else
+\t\tif (open("/dev/null", O_RDWR | O_NOCTTY)) {
+#endif'''
+    if old not in text:
+        raise SystemExit("zsh async /dev/null open check not found")
+    text = text.replace(old, new, 1)
+open(path, "w").write(text)
+PY
+python3 - "$source/Src/exec.c" <<'PY'
+import sys
+
+path = sys.argv[1]
+text = open(path).read()
 if "ASTIA synchronous builtin pipeline stage" in text:
     raise SystemExit(0)
 old = """    if ((how & Z_ASYNC) || output ||
@@ -91,18 +108,24 @@ import sys
 
 path = sys.argv[1]
 text = open(path).read()
-if "ASTIA child owns no inherited zsh jobs" in text:
-    raise SystemExit(0)
-old = """\tif (thisjob != -1)
-\t    waitjobs();
-\t_realexit();"""
-new = """#ifndef ASTIA /* ASTIA child owns no inherited zsh jobs */
+old = """#ifndef ASTIA /* ASTIA child owns no inherited zsh jobs */
 \tif (thisjob != -1)
 \t    waitjobs();
 #endif
 \t_realexit();"""
-if old not in text:
-    raise SystemExit("zsh forked-child cleanup wait not found")
-text = text.replace(old, new, 1)
+if old in text:
+    pass
+else:
+    old = """\tif (thisjob != -1)
+\t    waitjobs();
+\t_realexit();"""
+    new = """#ifndef ASTIA /* ASTIA child owns no inherited zsh jobs */
+\tif (thisjob != -1)
+\t    waitjobs();
+#endif
+\t_realexit();"""
+    if old not in text:
+        raise SystemExit("zsh forked-child cleanup wait not found")
+    text = text.replace(old, new, 1)
 open(path, "w").write(text)
 PY
