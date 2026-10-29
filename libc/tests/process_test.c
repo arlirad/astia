@@ -30,6 +30,8 @@ int main(int argc, char** argv) {
        any check — the parent waits for exactly this exit status. */
     if (argc > 1 && strcmp(argv[1], "--child") == 0)
         _Exit(5);
+    if (argc > 1 && strcmp(argv[1], "--exec-child") == 0)
+        _Exit(9);
 
     CHECK(getpid() > 0);
     CHECK(gettid() > 0);
@@ -55,6 +57,17 @@ int main(int argc, char** argv) {
     int reaped = waitpid(-1, &status, 0);
     CHECK(reaped == child);
     CHECK((status >> 8) == 7); /* host-encoded: WEXITSTATUS(status) */
+
+    child = fork();
+    CHECK(child >= 0);
+    if (child == 0) {
+        char* exec_argv[] = {argv[0], (char*) "--exec-child", NULL};
+        execv(argv[0], exec_argv);
+        _Exit(127);
+    }
+    status = -1;
+    CHECK(wait(&status) == child);
+    CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 9);
 
     /* no children left: the blocking wait must report ECHILD */
     errno = 0;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sys/types.h>
+
 #define WNOHANG 1
 #define WUNTRACED 2
 #define WCONTINUED 8
@@ -13,6 +15,7 @@
 #define WIFCONTINUED(status) ((status) == 0xffff)
 
 int waitpid(int pid, int* status, int options);
+int wait(int* status);
 
 /*
  * astia libc — <sys/wait.h>
@@ -26,6 +29,7 @@ extern "C" {
 #endif
 
 int waitpid(int pid, int* status, int options);
+int wait(int* status);
 
 #ifdef __cplusplus
 }

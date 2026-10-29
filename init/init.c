@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <errno.h>
 
 /* PID 1 is deliberately boring: kernel bootstrap has already mounted devfs
  * and installed the inherited console streams.  The daemon is the sole owner
@@ -14,9 +15,18 @@ int main(void) {
         return 1;
     }
     fprintf(stderr, "init: daemon started\n");
-    if (waitpid(daemon, &status, 0) != daemon) {
-        fprintf(stderr, "init: daemon wait failed\n");
-        return 1;
+    for (;;) {
+        int child = waitpid(-1, &status, 0);
+        if (child == daemon)
+            break;
+        if (child < 0 && errno == EINTR)
+            continue;
+        if (child < 0) {
+            fprintf(stderr, "init: daemon wait failed\n");
+            return 1;
+        }
+        /* PID 1 must collect unrelated orphaned descendants too; only the
+         * daemon's status determines the result of the bootstrap. */
     }
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         fprintf(stderr, "init: daemon failed\n");

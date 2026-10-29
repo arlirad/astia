@@ -75,6 +75,10 @@ int waitpid(int pid, int* status, int options) {
     return result;
 }
 
+int wait(int* status) {
+    return waitpid(-1, status, 0);
+}
+
 int spawnve(const char* path, char* const argv[], char* const envp[]) {
     /* A null environment is the convenient inheritance form used by the
      * shell.  The kernel ABI accepts an explicit empty vector as well, so

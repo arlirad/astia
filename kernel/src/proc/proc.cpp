@@ -3,6 +3,7 @@
 #include "scheduler.hpp"
 #include "../sys/user_mem.hpp"
 #include <astia/api/errno.h>
+#include <astia/api/termios.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/core/spinlock.hpp>
@@ -239,6 +240,23 @@ namespace astia::proc {
         process* owner = current_process();
         return owner == nullptr ? pid_t{} : owner->session();
     }
+
+    i64 acquire_controlling_terminal(fs::file* terminal) {
+        process* owner = current_process();
+        if (owner == nullptr || terminal == nullptr)
+            return -ENXIO;
+        if (owner->pid() != owner->session() || owner->controlling_terminal() != nullptr)
+            return -EPERM;
+        owner->controlling_terminal(terminal);
+        i32 group = static_cast<i32>(static_cast<u32>(owner->process_group()));
+        const long rc = terminal->ioctl(TIOCSPGRP, &group);
+        if (rc < 0) {
+            owner->controlling_terminal(nullptr);
+            return rc;
+        }
+        return 0;
+    }
+
 
     fs::file* controlling_terminal() {
         process* owner = current_process();

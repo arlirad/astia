@@ -47,6 +47,8 @@ namespace astia::proc {
     /// Process-group/session operations for the calling process.
     pgrp_t getpgrp();
     pid_t  getsid();
+    /// Attach the supplied tty to the current session leader.
+    i64    acquire_controlling_terminal(fs::file* terminal);
     /// True when a live process in `group` belongs to `session`.
     bool   process_group_exists(pgrp_t group, pid_t session);
     /// Terminal line-discipline hooks.  These deliberately operate on the

@@ -11,9 +11,13 @@ int ioctl(int fd, unsigned long request, ...) {
     size_t  length = 0;
     long    rc;
 
-    va_start(ap, request);
-    arg = va_arg(ap, void*);
-    va_end(ap);
+    if (request == TIOCSCTTY) {
+        arg = NULL;
+    } else {
+        va_start(ap, request);
+        arg = va_arg(ap, void*);
+        va_end(ap);
+    }
     if (request == TCGETS || request == TCSETS || request == TCSETSW ||
         request == TCSETSF)
         length = sizeof(struct termios);
@@ -21,6 +25,8 @@ int ioctl(int fd, unsigned long request, ...) {
         length = sizeof(struct winsize);
     else if (request == TIOCGPGRP || request == TIOCSPGRP)
         length = sizeof(int);
+    else if (request == TIOCSCTTY)
+        length = 0;
     else {
         errno = ENOTTY;
         return -1;

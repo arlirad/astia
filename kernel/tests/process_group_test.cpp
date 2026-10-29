@@ -7,4 +7,5 @@ ASTIA_TEST(process_group_syscalls_are_append_only) {
     ASTIA_CHECK(SYS_GETPGRP == 26);
     ASTIA_CHECK(SYS_SETPGID == 27);
     ASTIA_CHECK(SYS_SETSID == 28);
+    ASTIA_CHECK(SYS_GETSID == 45);
 }

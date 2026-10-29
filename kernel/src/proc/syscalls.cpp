@@ -43,6 +43,7 @@
 
 namespace astia::proc {
 namespace syscall {
+  i64 getsid() { return static_cast<i64>(static_cast<u32>(proc::getsid())); }
   i64 process_snapshot(i64 output, i64 capacity) { if (output < 0 || capacity < 0 || capacity > ASTIA_PROCESS_SNAPSHOT_MAX) return -EINVAL; return proc::process_snapshot(static_cast<u64>(output), static_cast<u32>(capacity)); }
  i64 getuid(); i64 geteuid(); i64 getgid(); i64 getegid();
   i64 setuid(i64); i64 seteuid(i64); i64 setgid(i64); i64 setegid(i64); i64 setreuid(i64,i64); i64 setregid(i64,i64);
@@ -228,7 +229,8 @@ namespace syscall {
                 sys::register_syscall<syscall::sigsuspend>(sys::syscall_id::sigsuspend) &&
                 sys::register_syscall<syscall::getpgrp>(sys::syscall_id::getpgrp) &&
                 sys::register_syscall<syscall::setpgid>(sys::syscall_id::setpgid) &&
-                sys::register_syscall<syscall::setsid>(sys::syscall_id::setsid) &&
+                 sys::register_syscall<syscall::setsid>(sys::syscall_id::setsid) &&
+                 sys::register_syscall<syscall::getsid>(sys::syscall_id::getsid) &&
                sys::register_syscall<syscall::mmap>(sys::syscall_id::mmap) &&
                sys::register_syscall<syscall::munmap>(sys::syscall_id::munmap) &&
                sys::register_syscall<syscall::fork>(sys::syscall_id::fork) &&

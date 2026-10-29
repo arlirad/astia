@@ -108,6 +108,7 @@ struct termios {
 #define TCSETSF 0x5404
 #define TIOCSPGRP 0x5410
 #define TIOCGPGRP 0x540f
+#define TIOCSCTTY 0x540e
 
 #ifdef __cplusplus
 }

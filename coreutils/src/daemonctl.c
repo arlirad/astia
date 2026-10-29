@@ -18,17 +18,39 @@ static int command(const char* name, const char* request) {
     address.sun_family = AF_UNIX;
     __builtin_strcpy(address.sun_path, DAEMON_SOCKET_PATH);
     if (connect(fd, (struct sockaddr*) &address, sizeof address) < 0) {
+        __builtin_memset(&address, 0, sizeof address);
+        address.sun_family = AF_UNIX;
         __builtin_strcpy(address.sun_path, DAEMON_SOCKET_FALLBACK);
         if (connect(fd, (struct sockaddr*) &address, sizeof address) < 0) {
             close(fd);
             return cu_error(name, "daemon unavailable");
         }
     }
-    if (write(fd, request, (unsigned long) length) != (long) length) {
-        close(fd);
-        return cu_error(name, "daemon request failed");
+    {
+        const char* cursor = request;
+        size_t      remaining = length;
+        while (remaining) {
+            long written = write(fd, cursor, (unsigned long) remaining);
+            if (written <= 0) {
+                close(fd);
+                return cu_error(name, "daemon request failed");
+            }
+            cursor += written;
+            remaining -= (size_t) written;
+        }
     }
-    n = recv(fd, response, sizeof response - 1, 0);
+    n = 0;
+    while (n < (long) sizeof response - 1) {
+        long received = recv(fd, response + n,
+                             sizeof response - 1 - (unsigned long) n, 0);
+        if (received < 0) {
+            close(fd);
+            return cu_error(name, "daemon response failed");
+        }
+        if (received == 0)
+            break;
+        n += received;
+    }
     close(fd);
     if (n <= 0)
         return cu_error(name, "daemon response failed");

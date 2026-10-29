@@ -420,6 +420,14 @@ namespace astia::proc {
             exit_status_ = status;
             state_       = process_state::zombie;
         }
+        // Closing a session leader's terminal hangs up its foreground job.
+        // Do this before dropping descriptors so the terminal's foreground
+        // process group is still available to the signal fan-out.
+        if (controlling_terminal_ != nullptr && session_ == pid_) {
+            (void) signal_process_group(
+                pgrp_t{static_cast<u32>(process_group_)}, signal_number::hup);
+            controlling_terminal_ = nullptr;
+        }
         // Release a child's private ring at exit rather than waiting for
         // waitpid: the parent and subsequent children may still need slots.
         sys::io_exit_process(this);

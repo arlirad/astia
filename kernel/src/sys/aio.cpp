@@ -953,23 +953,27 @@ namespace astia::sys {
                     input = s.offset != TCGETS; output = s.offset == TCGETS;
                 } else if (s.offset == 0x5413 || s.offset == 0x5414) {
                     expected = 8; input = s.offset == 0x5414; output = s.offset == 0x5413;
-                } else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {
-                    expected = sizeof(i32); input = s.offset == TIOCSPGRP; output = s.offset == TIOCGPGRP;
-                } else {
+                 } else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {
+                     expected = sizeof(i32); input = s.offset == TIOCSPGRP; output = s.offset == TIOCGPGRP;
+                 } else if (s.offset == TIOCSCTTY) {
+                     expected = 0;
+                 } else {
                     return cq_post_guarded(ring, s.user_data, -ENOTTY);
                 }
                 if (s.length != expected || !sys::user_range_ok(
                         sys::user_range::bytes(s.address, expected)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                mm::shptr<fs::open_file> object = file_for(s.fd);
-                if (!object)
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                 mm::shptr<fs::open_file> object = file_for(s.fd);
+                 if (!object)
+                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 __atomic_thread_fence(__ATOMIC_SEQ_CST);
                 alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
                 if (input && !sys::copy_in(ioctl_storage,
                                            sys::user_range::bytes(s.address, expected)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                long rc = object->ioctl(s.offset, ioctl_storage);
+                 long rc = object->ioctl(s.offset, ioctl_storage);
+                 if (rc >= 0 && s.offset == TIOCSCTTY)
+                     rc = proc::acquire_controlling_terminal(object->backing());
                 if (rc >= 0 && output && !sys::copy_out(
                         sys::user_range::bytes(s.address, expected), ioctl_storage))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);

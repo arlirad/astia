@@ -110,6 +110,7 @@ enum {
     SYS_GETGROUPS      = 42,
     SYS_SETGROUPS      = 43,
     SYS_PROCESS_SNAPSHOT = 44,
+    SYS_GETSID         = 45,
 };
 
 /* ------------------------------------------------------------------ */
@@ -293,6 +294,9 @@ static inline long astia_setpgid(int32_t pid, int32_t pgid) {
 
 static inline long astia_setsid(void) {
     return astia_raw6(SYS_SETSID, 0, 0, 0, 0, 0, 0);
+}
+static inline long astia_getsid(void) {
+    return astia_raw6(SYS_GETSID, 0, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_kill(int32_t pid, int32_t signal) {

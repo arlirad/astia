@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <dirent.h>
 #include <pthread.h>
 #include <sched.h>
@@ -59,6 +60,34 @@ int main(int argc, char** argv) {
     const int pid = getpid();
     if (pid <= 0)
         return 4;
+
+    /* A login/session boundary is real kernel state, not a shell convention:
+       a forked session leader detaches, cannot open /tty, then acquires the
+       inherited UART explicitly and becomes its foreground group. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 48;
+        if (child == 0) {
+            const pid_t session = setsid();
+            int group = 0;
+            if (session != getpid() || getsid(0) != getpid() || tcgetpgrp(0) < 0)
+                _Exit(49);
+            errno = 0;
+            if (open("/dev/tty", O_RDWR) >= 0 || errno != ENXIO)
+                _Exit(50);
+            if (ioctl(0, TIOCSCTTY, NULL) != 0 ||
+                tcgetpgrp(0) != getpgrp())
+                _Exit(51);
+            group = (int)getpgrp();
+            if (ioctl(0, TIOCSPGRP, &group) != 0)
+                _Exit(52);
+            _Exit(0);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 53;
+    }
 
     /* 4: process working directory state through chdir/getcwd. */
     {

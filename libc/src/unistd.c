@@ -278,6 +278,15 @@ int setsid(void) {
     }
     return (int) rc;
 }
+pid_t getsid(pid_t pid) {
+    if (pid != 0 && pid != (pid_t)getpid()) {
+        errno = ENOSYS;
+        return -1;
+    }
+    long rc = astia_getsid();
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return (pid_t)rc;
+}
 int setpgrp(int pid, int process_group) {
     return setpgid(pid, process_group);
 }
@@ -397,6 +406,83 @@ int execvp(const char* file, char* const argv[]) {
     }
     errno = ENOENT;
     return -1;
+}
+
+/* Build the argv vector required by execve(2) from the varargs forms.  The
+ * vector remains live until execve either replaces the image or returns, so
+ * it is safe to keep it on the heap and free it only on failure. */
+static char** exec_list(const char* path, const char* arg0, va_list ap, int search_path,
+                        char* const envp[]) {
+    size_t capacity = 8;
+    size_t count = 0;
+    char** argv = malloc(capacity * sizeof(*argv));
+    char* arg;
+    int saved_errno;
+
+    if (argv == NULL) {
+        errno = ENOMEM;
+        return NULL;
+    }
+    argv[count++] = (char*) arg0;
+    while ((arg = va_arg(ap, char*)) != NULL) {
+        if (count + 1 == capacity) {
+            char** grown;
+            capacity *= 2;
+            grown = realloc(argv, capacity * sizeof(*argv));
+            if (grown == NULL) {
+                free(argv);
+                errno = ENOMEM;
+                return NULL;
+            }
+            argv = grown;
+        }
+        argv[count++] = (char*) arg;
+    }
+    argv[count] = NULL;
+    if (search_path)
+        execvp(path, argv);
+    else
+        execve(path, argv, envp);
+    saved_errno = errno;
+    free(argv);
+    errno = saved_errno;
+    return NULL;
+}
+
+int execl(const char* path, const char* arg0, ...) {
+    va_list ap;
+    char** result;
+    va_start(ap, arg0);
+    result = exec_list(path, arg0, ap, 0, environ);
+    va_end(ap);
+    return result == NULL ? -1 : 0;
+}
+
+int execle(const char* path, const char* arg0, ...) {
+    va_list ap;
+    va_list scan;
+    char* arg;
+    char** envp;
+    char** result;
+
+    va_start(ap, arg0);
+    va_copy(scan, ap);
+    while ((arg = va_arg(scan, char*)) != NULL)
+        (void) arg;
+    envp = va_arg(scan, char**);
+    va_end(scan);
+    result = exec_list(path, arg0, ap, 0, envp);
+    va_end(ap);
+    return result == NULL ? -1 : 0;
+}
+
+int execlp(const char* file, const char* arg0, ...) {
+    va_list ap;
+    char** result;
+    va_start(ap, arg0);
+    result = exec_list(file, arg0, ap, 1, environ);
+    va_end(ap);
+    return result == NULL ? -1 : 0;
 }
 void _exit(int status) {
     __astia_process_exit(status);

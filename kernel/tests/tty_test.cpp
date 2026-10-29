@@ -29,6 +29,7 @@ namespace {
         using tty::tty_receive;
 
         std::string output;
+        astia::u8 last_signal = 0;
 
         protected:
         bool tty_putc(astia::u8 byte) override {
@@ -37,6 +38,9 @@ namespace {
         }
         long tty_speed(speed_t) override {
             return 0;
+        }
+        void tty_signal(astia::u8 byte) override {
+            last_signal = byte;
         }
     };
 
@@ -183,4 +187,21 @@ ASTIA_TEST(tty_process_group_round_trip) {
     group = 0;
     ASTIA_CHECK(tty.ioctl(TIOCGPGRP, &group) == 0);
     ASTIA_CHECK(group == 42);
+}
+
+ASTIA_TEST(tty_job_control_controls_and_signals_foreground_group) {
+    test_tty tty;
+    set_termios(tty, 0, 0, ICANON | ISIG);
+    astia::i32 group = 7;
+    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group) == 0);
+    ASTIA_CHECK(tty.ioctl(TIOCSCTTY, nullptr) == 0);
+    tty.tty_receive('x');
+    tty.tty_receive(astia::dev::tty_defaults::ctrl_z);
+    char result[4]{};
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 0);
+    ASTIA_CHECK(tty.last_signal == astia::dev::tty_defaults::ctrl_z);
+
+    tty.tty_receive('y');
+    tty.tty_receive(astia::dev::tty_defaults::ctrl_c);
+    ASTIA_CHECK(tty.last_signal == astia::dev::tty_defaults::ctrl_c);
 }

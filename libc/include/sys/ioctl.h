@@ -13,6 +13,7 @@ struct winsize {
 #define TIOCSWINSZ 0x5414
 #define TIOCSPGRP 0x5410
 #define TIOCGPGRP 0x540f
+#define TIOCSCTTY 0x540e
 #define TCGETS 0x5401
 #define TCSETS 0x5402
 #define TCSETSW 0x5403

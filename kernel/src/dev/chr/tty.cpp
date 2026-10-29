@@ -350,6 +350,8 @@ namespace astia::dev {
             _foreground_pgrp = pgrp_t{static_cast<u32>(group)};
             return 0;
         }
+        if (request == TIOCSCTTY)
+            return 0;
         return -ENOTTY;
     }
 
