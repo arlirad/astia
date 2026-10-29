@@ -72,35 +72,21 @@ if "ASTIA /dev/null fd-zero fix" not in text:
 open(path, "w").write(text)
 PY
 python3 - "$source/Src/exec.c" <<'PY'
+import re
 import sys
 
 path = sys.argv[1]
 text = open(path).read()
-if "ASTIA synchronous builtin pipeline stage" in text:
-    raise SystemExit(0)
-old = """    if ((how & Z_ASYNC) || output ||
-\t(last1 == 2 && input && EMULATION(EMULATE_SH))) {"""
-new = """    if ((how & Z_ASYNC)
-#ifndef ASTIA /* ASTIA synchronous builtin pipeline stage */
-        || output
-#endif
-        || (last1 == 2 && input && EMULATION(EMULATE_SH))) {"""
-if old not in text:
-    raise SystemExit("zsh early pipeline fork condition not found")
-text = text.replace(old, new, 1)
-old = """\tif (!do_exec &&
-\t    (((is_builtin || is_shfunc) && output) ||
-\t     (!is_cursh && (last1 != 1 || nsigtrapped || havefiles() ||
-\t\t\t    fdtable_flocks))) {"""
-new = """\tif (!do_exec &&
-#ifndef ASTIA /* ASTIA synchronous builtin pipeline stage */
-\t    (((is_builtin || is_shfunc) && output) ||
-#endif
-\t     (!is_cursh && (last1 != 1 || nsigtrapped || havefiles() ||
-\t\t\t    fdtable_flocks)))) {"""
-if old not in text:
-    raise SystemExit("zsh builtin pipeline fork condition not found")
-text = text.replace(old, new, 1)
+# Remove legacy ASTIA wrappers around zsh's native builtin pipeline logic.
+text, count = re.subn(
+    r"\n#ifndef ASTIA /\* ASTIA synchronous builtin pipeline stage \*/\n(.*?)\n#endif",
+    r"\n\1",
+    text,
+    flags=re.S,
+)
+text = text.replace("fdtable_flocks))) {", "fdtable_flocks)))) {")
+if count == 0 and "ASTIA synchronous builtin pipeline stage" in text:
+    raise SystemExit("malformed zsh builtin pipeline guard")
 open(path, "w").write(text)
 PY
 python3 - "$source/Src/exec.c" <<'PY'

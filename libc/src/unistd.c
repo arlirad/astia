@@ -399,6 +399,6 @@ int execvp(const char* file, char* const argv[]) {
     return -1;
 }
 void _exit(int status) {
-    (void) status;
+    __astia_process_exit(status);
     __builtin_unreachable();
 }
