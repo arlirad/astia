@@ -207,6 +207,10 @@ long __astia_fio_open(const char* path, int flags, int mode) {
         of |= O_TRUNC;
     if (flags & FIO_APPEND)
         of |= O_APPEND;
+    if (flags & FIO_NONBLOCK)
+        of |= 0x100u;
+    if (flags & FIO_CLOEXEC)
+        of |= O_CLOEXEC;
 
     return transact(OP_OPENAT, AT_FDCWD, 0, path, 0, of, (uint32_t) mode);
 }
@@ -217,6 +221,8 @@ long __astia_fio_openat(int dirfd, const char* path, int flags, int mode) {
     if (flags & 0x80) of |= O_EXCL;
     if (flags & 0x200) of |= O_TRUNC;
     if (flags & 0x400) of |= O_APPEND;
+    if (flags & 0x800) of |= 0x100u;
+    if (flags & 0x080000) of |= O_CLOEXEC;
     if (flags & 0x10000) of |= O_DIRECTORY;
     return transact(OP_OPENAT, dirfd, 0, path, 0, of, (uint32_t)mode);
 }
@@ -420,6 +426,8 @@ long __astia_fio_accept(int fd, void* address, uint32_t* length) { (void)address
 long __astia_fio_connect(int fd, const void* address, uint32_t length) { return transact(OP_CONNECT, fd, 0, address, length, 0, 0); }
 long __astia_fio_send(int fd, const void* buf, size_t n, int flags) { (void)flags; if (n > UINT32_MAX) return -EINVAL; return transact(OP_SEND, fd, OFF_APPEND, buf, (uint32_t)n, 0, 0); }
 long __astia_fio_recv(int fd, void* buf, size_t n, int flags) { (void)flags; if (n > UINT32_MAX) return -EINVAL; return transact(OP_RECV, fd, OFF_APPEND, buf, (uint32_t)n, 0, 0); }
+long __astia_fio_sendto(int fd, const void* buf, size_t n, int flags, const void* addr, uint32_t alen) { (void)flags; if(n>UINT32_MAX||alen!=sizeof(astia_sockaddr))return -EINVAL; return transact(OP_SENDTO,fd,(uint64_t)(uintptr_t)addr,buf,(uint32_t)n,0,0); }
+long __astia_fio_recvfrom(int fd, void* buf, size_t n, int flags, void* addr, uint32_t* alen) { (void)flags; if(n>UINT32_MAX||!addr||!alen)return -EINVAL; return transact(OP_RECVFROM,fd,(uint64_t)(uintptr_t)addr,buf,(uint32_t)n,0,0); }
 
 long __astia_fio_dup(int fd) {
     return transact(OP_DUP, fd, 0, NULL, 0, 0, 0);
@@ -427,6 +435,10 @@ long __astia_fio_dup(int fd) {
 
 long __astia_fio_dup2(int old_fd, int new_fd) {
     return transact(OP_DUP2, old_fd, (uint64_t) (uint32_t) new_fd, NULL, 0, 0, 0);
+}
+
+long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
+    return transact(OP_FCNTL, fd, 0, NULL, 0, (uint32_t)command, argument);
 }
 
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {

@@ -657,6 +657,17 @@ namespace astia::proc {
         return descriptors_.duplicate(old_fd);
     }
 
+    optional<fd_t> process::duplicate_descriptor(fd_t old_fd, fd_t minimum, u32 flags) {
+        return descriptors_.duplicate(old_fd, minimum, flags);
+    }
+
+    u32 process::descriptor_flags(fd_t fd) const { return descriptors_.flags(fd); }
+
+    bool process::set_descriptor_flags(fd_t fd, u32 flags) {
+        auto object = descriptors_.get(fd);
+        return object && descriptors_.set(fd, object, flags);
+    }
+
     optional<fd_t> process::duplicate_descriptor_to(fd_t old_fd, fd_t new_fd) {
         return descriptors_.duplicate_to(old_fd, new_fd);
     }

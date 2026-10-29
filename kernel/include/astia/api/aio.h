@@ -153,6 +153,8 @@ typedef struct astia_cq_ring {
  *   ACCEPT        sock        -                  astia_sockaddr*    -             -
  *   CONNECT       sock        -                  astia_sockaddr*    -             -
  *   SEND/RECV     sock        -                  buffer             byte count    -
+ *   SENDTO        sock        sockaddr*         buffer             byte count    -
+ *   RECVFROM      sock        sockaddr*         buffer             byte count    -
  *
  *   * FIXED_BUF: address ignored, aux selects an astia_reg_buf slot.
  *   † default relative; SLEEP_ABSOLUTE makes offset a monotonic absolute
@@ -293,6 +295,25 @@ enum {
     OP_LISTEN = 33,
     OP_SOCKETPAIR = 34,
     OP_SHUTDOWN = 35,
+    OP_FCNTL = 36,
+    OP_SENDTO   = 37,
+    OP_RECVFROM = 38,
+};
+
+/* OP_FCNTL commands.  The argument is in SQE::aux. */
+enum {
+    ASTIA_F_DUPFD = 0,
+    ASTIA_F_GETFD = 1,
+    ASTIA_F_SETFD = 2,
+    ASTIA_F_GETFL = 3,
+    ASTIA_F_SETFL = 4,
+    ASTIA_F_DUPFD_CLOEXEC = 1030,
+};
+
+enum {
+    ASTIA_FD_CLOEXEC = 1,
+    ASTIA_O_APPEND = 0x0400,
+    ASTIA_O_NONBLOCK = 0x0800,
 };
 
 /* OP_SOCKETPAIR op_flags / OP_SHUTDOWN op_flags. */

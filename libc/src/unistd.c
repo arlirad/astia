@@ -75,6 +75,8 @@ int open(const char* path, int flags, ...) {
     if (flags & O_EXCL) fio |= FIO_EXCL;
     if (flags & O_TRUNC) fio |= FIO_TRUNC;
     if (flags & O_APPEND) fio |= FIO_APPEND;
+    if (flags & O_NONBLOCK) fio |= FIO_NONBLOCK;
+    if (flags & O_CLOEXEC) fio |= FIO_CLOEXEC;
     long rc = __astia_fio_open(path, fio, mode);
     if (rc < 0) {
         errno = (int) -rc;
@@ -105,6 +107,11 @@ int close(int fd) {
 }
 int umount(const char* target) {
     long rc = astia_unmount(target);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return 0;
+}
+int mount(const char* type, const char* target, const char* source) {
+    long rc = astia_mount(type, target, source);
     if (rc < 0) { errno = (int)-rc; return -1; }
     return 0;
 }
@@ -215,45 +222,25 @@ int fcntl(int fd, int command, ...) {
         return -1;
     }
     switch (command) {
-    case F_DUPFD: {
-        int minimum = 0;
-        int copy;
-        int temporary[64];
-        int count = 0;
+    case F_DUPFD:
+    case F_DUPFD_CLOEXEC:
+    case F_SETFD:
+    case F_SETFL: {
+        int argument;
         va_start(ap, command);
-        minimum = va_arg(ap, int);
+        argument = va_arg(ap, int);
         va_end(ap);
-        if (minimum < 0) {
-            errno = EINVAL;
-            return -1;
-        }
-        /* The kernel's native dup allocates the lowest free descriptor.
-           Repeat it until the requested lower bound is reached, closing
-           each temporary alias immediately. */
-        copy = dup(fd);
-        while (copy >= 0 && copy < minimum) {
-            if (count == (int)(sizeof temporary / sizeof temporary[0])) {
-                (void) close(copy);
-                copy = -1;
-                break;
-            }
-            temporary[count++] = copy;
-            copy = dup(fd);
-        }
-        for (int i = 0; i < count; ++i)
-            (void) close(temporary[i]);
-        return copy;
+        if (argument < 0) { errno = EINVAL; return -1; }
+        long rc = __astia_fio_fcntl(fd, command, (unsigned int)argument);
+        if (rc < 0) { errno = (int)-rc; return -1; }
+        return (int)rc;
     }
-    case 1: /* F_GETFD */
-        return 0;
-    case 2: /* F_SETFD */
-        return 0;
-    case 3: /* F_GETFL */
-        /* Astia descriptors currently have no userspace-visible status
-           flags.  Console descriptors are read/write streams. */
-        return 2; /* O_RDWR */
-    case 4:       /* F_SETFL */
-        return 0;
+    case F_GETFD:
+    case F_GETFL: {
+        long rc = __astia_fio_fcntl(fd, command, 0);
+        if (rc < 0) { errno = (int)-rc; return -1; }
+        return (int)rc;
+    }
     default:
         errno = ENOSYS;
         return -1;

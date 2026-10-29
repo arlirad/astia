@@ -293,3 +293,7 @@ long __astia_fio_dup2(int old_fd, int new_fd) {
     long rc = syscall(SYS_dup2, old_fd, new_fd);
     return rc < 0 ? -HOST_ERRNO : rc;
 }
+long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
+    long rc = syscall(SYS_fcntl, fd, command, argument);
+    return rc < 0 ? -HOST_ERRNO : rc;
+}

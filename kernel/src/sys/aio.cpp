@@ -105,6 +105,8 @@ namespace astia::sys {
             bool                     control  = false;
             bool                     readiness = false;
             u32                      poll_events = 0;
+            bool                     recvfrom_address = false;
+            u64                      recvfrom_address_user = 0;
             i32                      fd;
             mm::shptr<fs::open_file> object;
             /// The caller's frames, held for the whole flight of the
@@ -350,6 +352,8 @@ namespace astia::sys {
             p->object = object;
             p->moved  = 0;
             p->control = control;
+            p->recvfrom_address = s.op == OP_RECVFROM;
+            p->recvfrom_address_user = p->recvfrom_address ? s.offset : 0;
 
             // Snapshot every entry for as long as this operation lasts.  From
             // here the device is handed kernel windows and never the user
@@ -381,6 +385,13 @@ namespace astia::sys {
             const auto outcome = pump(*p, result);
             if (outcome == io_outcome::parked) {
                 return true; // parked: a device resume completes it
+            }
+            if (p->recvfrom_address && result >= 0) {
+                astia_sockaddr address{};
+                if (!fs::unix_recvfrom_address(*object, address) ||
+                    !sys::copy_out(sys::user_range::bytes(p->recvfrom_address_user,
+                                                          sizeof address), &address))
+                    result = -EFAULT;
             }
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
@@ -417,6 +428,13 @@ namespace astia::sys {
             if (pump(op, result) == io_outcome::parked) {
                 op.resuming = false;
                 return;
+            }
+            if (op.recvfrom_address && result >= 0) {
+                astia_sockaddr address{};
+                if (!fs::unix_recvfrom_address(*op.object, address) ||
+                    !sys::copy_out(sys::user_range::bytes(op.recvfrom_address_user,
+                                                          sizeof address), &address))
+                    result = -EFAULT;
             }
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.
@@ -526,6 +544,30 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, 0);
                 }
                 return submit_request(slot, ring, s, object, ranges, count, direction);
+            }
+
+            case OP_SENDTO:
+            case OP_RECVFROM: {
+                mm::shptr<fs::open_file> object = file_for(s.fd);
+                if (!object || !sys::user_range_ok(sys::user_range::bytes(s.address, s.length)) ||
+                    !sys::user_range_ok(sys::user_range::bytes(s.offset, sizeof(astia_sockaddr))))
+                    return cq_post_guarded(ring, s.user_data, object ? -EFAULT : -EBADF);
+                astia_sockaddr a{};
+                if (s.op == OP_SENDTO) {
+                    if (!sys::copy_in(&a, sys::user_range::bytes(s.offset, sizeof a)))
+                        return cq_post_guarded(ring, s.user_data, -EFAULT);
+                    long rc = fs::unix_sendto(*object, &a);
+                    if (rc < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+                } else {
+                    if (s.length == 0) return cq_post_guarded(ring, s.user_data, 0);
+                    long rc = fs::unix_recvfrom(*object);
+                    if (rc < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+                }
+                sys::user_range range = sys::user_range::bytes(s.address, s.length);
+                if (!sys::user_range_ok(range) || s.length > max_operation_bytes)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                return submit_request(slot, ring, s, object, &range, 1,
+                                      s.op == OP_RECVFROM ? io_direction::input : io_direction::output);
             }
 
             case OP_OPENAT: {
@@ -689,6 +731,50 @@ namespace astia::sys {
                         return cq_post_guarded(ring, s.user_data, -EMFILE);
                 }
                 return cq_post_guarded(ring, s.user_data, target);
+            }
+
+            case OP_FCNTL: {
+                proc::process* current = proc::current_process();
+                auto mapped = mapper<fd_t>::from(s.fd);
+                if (current == nullptr || !mapped.has_value || !current->descriptor(mapped.value))
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                const u32 argument = s.aux;
+                switch (s.op_flags) {
+                case ASTIA_F_DUPFD:
+                case ASTIA_F_DUPFD_CLOEXEC: {
+                    if (static_cast<i32>(argument) < 0)
+                        return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    const u32 flags = s.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
+                    const auto result = current->duplicate_descriptor(mapped.value,
+                                                                       fd_t{static_cast<i32>(argument)}, flags);
+                    return cq_post_guarded(ring, s.user_data,
+                                           result ? result.value.value : -EMFILE);
+                }
+                case ASTIA_F_GETFD:
+                    return cq_post_guarded(ring, s.user_data,
+                                           static_cast<i32>(current->descriptor_flags(mapped.value)));
+                case ASTIA_F_SETFD:
+                    if ((argument & ~ASTIA_FD_CLOEXEC) != 0)
+                        return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    if (!current->set_descriptor_flags(mapped.value, argument))
+                        return cq_post_guarded(ring, s.user_data, -EBADF);
+                    return cq_post_guarded(ring, s.user_data, 0);
+                case ASTIA_F_GETFL: {
+                    const u32 flags = current->descriptor(mapped.value)->flags();
+                    u32 result = (flags & 3u) == 2u ? 2u : ((flags & 1u) ? 1u : 0u);
+                    if (flags & 0x20u) result |= ASTIA_O_APPEND;
+                    if (flags & 0x100u) result |= ASTIA_O_NONBLOCK;
+                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(result));
+                }
+                case ASTIA_F_SETFL: {
+                    auto object = current->descriptor(mapped.value);
+                    object->set_status_flags((argument & ASTIA_O_APPEND ? 0x20u : 0u) |
+                                             (argument & ASTIA_O_NONBLOCK ? 0x100u : 0u));
+                    return cq_post_guarded(ring, s.user_data, 0);
+                }
+                default:
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                }
             }
 
             case OP_STATX: {
@@ -1037,11 +1123,11 @@ namespace astia::sys {
             }
 
             case OP_SOCKET: {
-                if (s.fd != AF_UNIX || s.op_flags != 1u)
+                if (s.fd != AF_UNIX || (s.op_flags != SOCK_STREAM && s.op_flags != SOCK_DGRAM) || s.aux != 0)
                     return cq_post_guarded(ring, s.user_data, -EAFNOSUPPORT);
                 proc::process* current = proc::current_process();
                 mm::shptr<fs::open_file> object;
-                long rc = fs::create_unix_socket(object);
+                long rc = fs::create_unix_socket(object, s.op_flags);
                 if (rc < 0 || !current) return cq_post_guarded(ring, s.user_data, (i32)(rc < 0 ? rc : -ESRCH));
                 for (i32 fd=3; fd<(i32)proc::max_process_fds; ++fd)
                     if (!current->descriptor(fd_t{fd}) && current->set_descriptor(fd_t{fd}, object))

@@ -10,6 +10,7 @@
 #define O_TRUNC 0x0200
 #define O_APPEND 0x0400
 #define O_NONBLOCK 0x0800
+#define O_CLOEXEC 0x080000
 #define O_DIRECTORY 0x10000
 #define AT_FDCWD (-100)
 
@@ -20,6 +21,7 @@
 #define F_GETFL 3
 #define F_SETFL 4
 #define F_SETLKW 7
+#define F_DUPFD_CLOEXEC 1030
 #define F_RDLCK 0
 #define F_WRLCK 1
 #define F_UNLCK 2

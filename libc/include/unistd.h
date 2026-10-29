@@ -45,6 +45,7 @@ int          setregid(unsigned int real_gid, unsigned int effective_gid);
 int          access(const char* path, int mode);
 int          close(int fd);
 int          umount(const char* target);
+int          mount(const char* type, const char* target, const char* source);
 int          dup(int fd);
 int          dup2(int old_fd, int new_fd);
 int          isatty(int fd);

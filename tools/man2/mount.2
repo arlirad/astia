@@ -1,0 +1,36 @@
+.TH MOUNT 2
+.SH NAME
+mount - install a registered native filesystem mount
+.SH SYNOPSIS
+.B #include <astia/api/syscalls.h>
+.PP
+.B long astia_mount(const char *type, const char *target, const char *source);
+.SH DESCRIPTION
+Installs the registered filesystem type at target.  Target is normalized and
+must name an existing directory; source is an opaque filesystem-specific name
+and may be null.  This interface changes only the in-memory Astia VFS and does
+not access or persist a host filesystem.
+.SH RETURN VALUE
+Returns zero on success or a negative Astia errno.
+.SH ERRORS
+.TP
+.B EFAULT
+A supplied string is not readable userspace memory.
+.TP
+.B EINVAL
+An argument is null (except source), or target is not an absolute path.
+.TP
+.B EEXIST
+Target is already a mount point.
+.TP
+.B ENOENT
+Target does not exist.
+.TP
+.B EBUSY
+The fixed mount table has no available slot or the operation conflicts with a mount.
+.TP
+.B EPERM
+The effective UID is not zero.
+.TP
+.B ENODEV
+Type is not registered.

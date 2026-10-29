@@ -8,21 +8,23 @@
 
 namespace astia::fs {
 namespace {
-constexpr u32 cap = 4096, max_names = 32, max_backlog = 16;
-struct channel {
+    constexpr u32 cap = 4096, max_names = 32, max_backlog = 16, max_dgrams = 32, dgram_cap = 2048;
+    struct datagram { u32 len{}; astia_sockaddr from{}; u8 data[dgram_cap]{}; };
+    struct channel {
     u8 data[2][cap]{}; u32 head[2]{}, tail[2]{};
     bool closed[2]{}, shut_rd[2]{}, shut_wr[2]{};
 };
 class unix_file;
-struct name_entry { bool used{}; char name[path_max]{}; unix_file* listener{}; };
+struct name_entry { bool used{}; char name[path_max]{}; unix_file* listener{}; open_file* owner{}; };
 name_entry names[max_names];
 core::spinlock names_lock;
 
     class unix_file final : public file {
 public:
-    enum class state : u8 { fresh, listener, connected };
+    enum class state : u8 { fresh, listener, connected, dgram };
     unix_file() = default;
     long read(void* b, u32 n, u64) override {
+        if (state_ == state::dgram) return recv_dgram(static_cast<u8*>(b), n);
         if (state_ != state::connected) return -ENOTCONN;
         if (!ch_) return -ENOTCONN;
         if (ch_->shut_rd[side_]) return 0;
@@ -35,6 +37,7 @@ public:
         sys::io_device_ready_context(this); return count;
     }
     long write(const void* b, u32 n, u64) override {
+        if (state_ == state::dgram) return send_dgram(static_cast<const u8*>(b), n);
         if (state_ != state::connected) return -ENOTCONN;
         if (!ch_) return -ENOTCONN;
         const u32 side = side_, peer = side_^1u;
@@ -48,6 +51,9 @@ public:
         u32 result = 0;
         if (state_ == state::listener) {
             if (queue_count_) result |= POLLIN;
+        } else if (state_ == state::dgram) {
+            if (dgram_count_) result |= POLLIN;
+            if (dgram_target_ && dgram_target_->dgram_count_ < max_dgrams) result |= POLLOUT;
         } else if (state_ == state::connected && ch_) {
             const u32 peer = side_ ^ 1u;
             if (__atomic_load_n(&ch_->head[peer], __ATOMIC_ACQUIRE) !=
@@ -61,7 +67,13 @@ public:
         }
         return result & (events | POLLERR | POLLHUP);
     }
-        long submit(io_request& r) override {
+    long submit(io_request& r) override {
+            if (state_ == state::dgram) {
+                long n = r.direction() == io_direction::input ? recv_dgram(static_cast<u8*>(r.buffer()), r.length())
+                                                               : send_dgram(static_cast<const u8*>(r.buffer()), r.length());
+                if (n == 0 && !r.complete()) r.stage(1);
+                return n;
+            }
             if (state_ == state::listener) {
                 auto accepted = dequeue();
                 if (!accepted) {
@@ -96,11 +108,50 @@ public:
                  peer_file_ = nullptr;
                  if(peer){ peer->peer_file_ = nullptr; sys::io_device_ready_context(peer); } }
     }
+    void make_dgram() { state_ = state::dgram; }
+    void set_bound_address(const astia_sockaddr& a) { bound_addr_ = a; }
+    void set_dgram_target(const mm::shptr<open_file>& owner) {
+        dgram_target_owner_ = owner;
+        dgram_target_ = owner ? static_cast<unix_file*>(owner->backing()) : nullptr;
+    }
+    void set_dgram_address() { dgram_out_pending_ = true; }
+    bool take_dgram_address(astia_sockaddr& out) {
+        if (dgram_out_pending_) return false;
+        out = dgram_out_value_;
+        return true;
+    }
+    long send_dgram(const u8* b, u32 n) {
+        unix_file* target = dgram_target_;
+        if (!target || target->state_ != state::dgram) return -ENOTCONN;
+        if (n > dgram_cap) return -EINVAL;
+        if (target->dgram_count_ == max_dgrams) return 0;
+        datagram& m = target->dgrams_[target->dgram_tail_]; m.len=n;
+        m.from = bound_addr_; for(u32 i=0;i<n;++i)m.data[i]=b[i];
+        target->dgram_tail_=(target->dgram_tail_+1)%max_dgrams; ++target->dgram_count_;
+        sys::io_device_ready_context(target); return n;
+    }
+    long recv_dgram(u8* b, u32 n) {
+        if (!dgram_count_) return shut_rd_ ? 0 : 0;
+        datagram& m=dgrams_[dgram_head_]; u32 count=n<m.len?n:m.len;
+        for(u32 i=0;i<count;++i)b[i]=m.data[i];
+        if (dgram_out_pending_) { dgram_out_value_ = m.from; dgram_out_pending_ = false; }
+        dgram_head_=(dgram_head_+1)%max_dgrams;--dgram_count_;
+        if (dgram_target_)
+            sys::io_device_ready_context(dgram_target_);
+        return count;
+    }
     void attach(const mm::shptr<channel>& c, u32 s, unix_file* peer) { ch_=c; side_=s; peer_file_=peer; state_=state::connected; }
     state kind() const { return state_; }
     void make_listener(u32 b) { state_=state::listener; backlog_=b; }
     void mark_bound() { bound_=true; }
     long shutdown(u32 how) {
+        if (state_ == state::dgram) {
+            if (how > SHUT_RDWR) return -EINVAL;
+            if (how == SHUT_RD || how == SHUT_RDWR) shut_rd_ = true;
+            if (dgram_target_) sys::io_device_ready_context(dgram_target_);
+            sys::io_device_ready_context(this);
+            return 0;
+        }
         if (!ch_ || state_ != state::connected || how > SHUT_RDWR) return -EINVAL;
         if (how == SHUT_RD || how == SHUT_RDWR) ch_->shut_rd[side_] = true;
         if (how == SHUT_WR || how == SHUT_RDWR) ch_->shut_wr[side_] = true;
@@ -111,6 +162,10 @@ public:
     mm::shptr<open_file> dequeue() { if(!queue_count_) return {}; auto x=queue_[queue_head_]; queue_[queue_head_]={}; queue_head_=(queue_head_+1)%max_backlog; --queue_count_; return x; }
 private:
     mm::shptr<channel> ch_; u32 side_{}; unix_file* peer_file_{}; state state_{state::fresh}; u32 backlog_{}; bool bound_{};
+    mm::shptr<open_file> dgram_target_owner_;
+    unix_file* dgram_target_{}; astia_sockaddr dgram_out_value_{}; bool dgram_out_pending_{};
+    datagram dgrams_[max_dgrams]{};
+    u32 dgram_head_{}, dgram_tail_{}, dgram_count_{}; bool shut_rd_{}; astia_sockaddr bound_addr_{};
     mm::shptr<open_file> queue_[max_backlog]{}; u32 queue_head_{},queue_tail_{},queue_count_{};
     u32 opens_{1};
 };
@@ -118,10 +173,10 @@ bool path(const astia_sockaddr& a,char* out){ if(a.family!=AF_UNIX||a.len<3||a.l
 bool same(const char*a,const char*b){if(!a||!b)return false;while(*a&&*a==*b){++a;++b;}return *a==*b;}
 unix_file* find(const char* n){for(auto& e:names)if(e.used&&e.listener&&same(e.name,n))return e.listener;return nullptr;}
 }
-long create_unix_socket(mm::shptr<open_file>& out){auto f=mm::share<unix_file>(); if(!f)return -ENOMEM; out=mm::share<open_file>(f,0); return out?-0:-ENOMEM;}
-long unix_bind(open_file& o,const astia_sockaddr& a){auto* f=static_cast<unix_file*>(o.backing());char n[path_max];if(!f||!path(a,n))return -EINVAL;core::spinlock_guard g(names_lock);if(find(n))return -EADDRINUSE;for(auto&e:names)if(!e.used){e.used=true;e.listener=f;for(u32 i=0;i<path_max;++i){e.name[i]=n[i];if(!n[i])break;}f->mark_bound();return 0;}return -ENFILE;}
+ long create_unix_socket(mm::shptr<open_file>& out, u32 type){if(type!=SOCK_STREAM&&type!=SOCK_DGRAM)return -EAFNOSUPPORT;auto f=mm::share<unix_file>(); if(!f)return -ENOMEM;if(type==SOCK_DGRAM)f->make_dgram();out=mm::share<open_file>(f,0); return out?0:-ENOMEM;}
+ long unix_bind(open_file& o,const astia_sockaddr& a){auto* f=static_cast<unix_file*>(o.backing());char n[path_max];if(!f||!path(a,n))return -EINVAL;core::spinlock_guard g(names_lock);if(find(n))return -EADDRINUSE;for(auto&e:names)if(!e.used){e.used=true;e.listener=f;e.owner=&o;for(u32 i=0;i<path_max;++i){e.name[i]=n[i];if(!n[i])break;}f->set_bound_address(a);f->mark_bound();return 0;}return -ENFILE;}
 long unix_listen(open_file& o,u32 b){auto*f=static_cast<unix_file*>(o.backing());if(!f||f->kind()!=unix_file::state::fresh)return -EINVAL;f->make_listener(b>max_backlog?max_backlog:b?b:1);return 0;}
-long unix_connect(open_file& o,const astia_sockaddr&a){auto*c=static_cast<unix_file*>(o.backing());char n[path_max];if(!c||!path(a,n))return -EINVAL;core::spinlock_guard g(names_lock);auto*l=find(n);if(!l||l->kind()!=unix_file::state::listener)return -ECONNREFUSED;auto ch=mm::share<channel>();auto s=mm::share<unix_file>();if(!ch||!s)return -ENOMEM;/* peer objects are kept alive by their open descriptions */c->attach(ch,0,s.get());s->attach(ch,1,c);auto so=mm::share<open_file>(s,0);if(!so||!l->enqueue(so))return -ECONNREFUSED;return 0;}
+  long unix_connect(open_file& o,const astia_sockaddr&a){auto*c=static_cast<unix_file*>(o.backing());char n[path_max];if(!c||!path(a,n))return -EINVAL;core::spinlock_guard g(names_lock);auto*l=find(n);if(!l)return -ECONNREFUSED;if(c->kind()==unix_file::state::dgram){if(l->kind()!=unix_file::state::dgram)return -ENOTSUP;for(auto&e:names)if(e.listener==l&&e.owner){auto owner=mm::share<open_file>(*e.owner);if(!owner)return -ENOMEM;c->set_dgram_target(owner);return 0;}return -ECONNREFUSED;}if(l->kind()!=unix_file::state::listener)return -ECONNREFUSED;auto ch=mm::share<channel>();auto s=mm::share<unix_file>();if(!ch||!s)return -ENOMEM;c->attach(ch,0,s.get());s->attach(ch,1,c);auto so=mm::share<open_file>(s,0);if(!so||!l->enqueue(so))return -ECONNREFUSED;return 0;}
 long unix_accept(open_file&o,mm::shptr<open_file>&out){auto*l=static_cast<unix_file*>(o.backing());if(!l||l->kind()!=unix_file::state::listener)return -EINVAL;out=l->dequeue();return out?0:0;}
 long unix_socketpair(mm::shptr<open_file>& left, mm::shptr<open_file>& right, u32 type) {
     if (type != SOCK_STREAM) return -EAFNOSUPPORT;
@@ -131,5 +186,8 @@ long unix_socketpair(mm::shptr<open_file>& left, mm::shptr<open_file>& right, u3
     left=mm::share<open_file>(a,0); right=mm::share<open_file>(b,0);
     return left && right ? 0 : -ENOMEM;
 }
-long unix_shutdown(open_file& o, u32 how) { auto* f=static_cast<unix_file*>(o.backing()); return f ? f->shutdown(how) : -EBADF; }
+ long unix_shutdown(open_file& o, u32 how) { auto* f=static_cast<unix_file*>(o.backing()); return f ? f->shutdown(how) : -EBADF; }
+ long unix_sendto(open_file& o,const astia_sockaddr* a){auto*f=static_cast<unix_file*>(o.backing());if(!f||f->kind()!=unix_file::state::dgram)return -EOPNOTSUPP;char n[path_max];if(!a||!path(*a,n))return -EINVAL;auto*t=find(n);if(!t||t->kind()!=unix_file::state::dgram)return -ECONNREFUSED;for(auto&e:names)if(e.listener==t&&e.owner){auto owner=mm::share<open_file>(*e.owner);if(!owner)return -ENOMEM;f->set_dgram_target(owner);return 0;}return -ECONNREFUSED;}
+ long unix_recvfrom(open_file& o){auto*f=static_cast<unix_file*>(o.backing());if(!f||f->kind()!=unix_file::state::dgram)return -EOPNOTSUPP;f->set_dgram_address();return 0;}
+ bool unix_recvfrom_address(open_file& o,astia_sockaddr& out){auto*f=static_cast<unix_file*>(o.backing());if(!f||f->kind()!=unix_file::state::dgram)return false;return f->take_dgram_address(out);}
 }

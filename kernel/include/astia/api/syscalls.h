@@ -112,6 +112,7 @@ enum {
     SYS_PROCESS_SNAPSHOT = 44,
     SYS_GETSID         = 45,
     SYS_UNMOUNT        = 46,
+    SYS_MOUNT          = 47,
 };
 
 /* ------------------------------------------------------------------ */
@@ -271,6 +272,9 @@ static inline long astia_gettid(void) {
 }
 static inline long astia_unmount(const char* target) {
     return astia_raw6(SYS_UNMOUNT, (long) target, 0, 0, 0, 0, 0);
+}
+static inline long astia_mount(const char* type, const char* target, const char* source) {
+    return astia_raw6(SYS_MOUNT, (long) type, (long) target, (long) source, 0, 0, 0);
 }
 static inline long astia_getuid(void) { return astia_raw6(SYS_GETUID,0,0,0,0,0,0); }
 static inline long astia_geteuid(void) { return astia_raw6(SYS_GETEUID,0,0,0,0,0,0); }

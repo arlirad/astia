@@ -1,0 +1,7 @@
+.TH BIND 2
+.SH NAME
+bind \- assign a local socket pathname
+.SH DESCRIPTION
+bind() assigns an absolute AF_UNIX pathname. Pathnames are kernel socket names,
+not VFS entries; a name remains available after close and rebinding is rejected
+while its socket is open.

@@ -156,6 +156,9 @@ namespace astia::proc {
         bool clear_descriptor(fd_t fd);
         void close_on_exec_descriptors();
         optional<fd_t> duplicate_descriptor(fd_t old_fd);
+        optional<fd_t> duplicate_descriptor(fd_t old_fd, fd_t minimum, u32 flags);
+        u32 descriptor_flags(fd_t fd) const;
+        bool set_descriptor_flags(fd_t fd, u32 flags);
         optional<fd_t> duplicate_descriptor_to(fd_t old_fd, fd_t new_fd);
 
         /// Load an ET_EXEC/ET_DYN image with the shared ELF loader into

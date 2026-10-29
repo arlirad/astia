@@ -12,6 +12,8 @@ int socketpair(int,int,int,int[2]);
 int shutdown(int,int);
 long send(int,const void*,unsigned long,int);
 long recv(int,void*,unsigned long,int);
+long sendto(int,const void*,unsigned long,int,const struct sockaddr*,unsigned int);
+long recvfrom(int,void*,unsigned long,int,struct sockaddr*,unsigned int*);
 #ifdef __cplusplus
 }
 #endif

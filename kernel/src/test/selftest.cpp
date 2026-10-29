@@ -431,6 +431,21 @@ namespace astia::test {
                 logs::error("mount lifecycle fail (teardown/remount)");
                 return false;
             }
+            if (fs::mount_type("tmpfs", "/tmp/.") != -EEXIST ||
+                fs::mount_type("tmpfs", "/does-not-exist") != -ENOENT ||
+                fs::mount_type("tmpfs", "tmpfs") != -EINVAL ||
+                fs::make_directory("/tmp/nested", fs::file_mode(fs::directory_dir,
+                                                                  fs::file_permissions(0755))) != 0 ||
+                fs::mount_type("tmpfs", "/tmp/nested/") != 0 ||
+                fs::unmount_type("/tmp/nested/.") != 0 ||
+                fs::unmount_type("/tmp") != 0) {
+                logs::error("mount lifecycle fail (normalization/nesting)");
+                return false;
+            }
+            if (fs::mount_type("tmpfs", "/tmp") != 0) {
+                logs::error("mount lifecycle fail (final remount)");
+                return false;
+            }
             logs::info("mount lifecycle ok");
             return true;
         }

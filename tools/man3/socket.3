@@ -1,0 +1,7 @@
+.TH SOCKET 3
+.SH NAME
+socket \- libc wrapper for a local socket
+.SH DESCRIPTION
+The libc wrapper submits the native AF_UNIX socket operation and translates
+negative ABI results to -1 with errno. SOCK_DGRAM is supported without host
+networking.

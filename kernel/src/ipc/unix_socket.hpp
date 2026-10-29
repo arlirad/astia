@@ -3,7 +3,7 @@
 #include <astia/api/aio.h>
 
 namespace astia::fs {
-long create_unix_socket(mm::shptr<open_file>& out);
+long create_unix_socket(mm::shptr<open_file>& out, u32 type);
 long unix_bind(open_file&, const astia_sockaddr&);
 long unix_listen(open_file&, u32 backlog);
 long unix_connect(open_file&, const astia_sockaddr&);
@@ -11,4 +11,7 @@ long unix_accept(open_file&, mm::shptr<open_file>& out);
 long unix_socketpair(mm::shptr<open_file>& left, mm::shptr<open_file>& right,
                      u32 type);
 long unix_shutdown(open_file&, u32 how);
+long unix_sendto(open_file&, const astia_sockaddr*);
+long unix_recvfrom(open_file&);
+bool unix_recvfrom_address(open_file&, astia_sockaddr&);
 }

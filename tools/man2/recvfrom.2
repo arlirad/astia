@@ -1,0 +1,13 @@
+.TH RECVFROM 2
+.SH NAME
+recvfrom \- receive one local datagram
+.SH SYNOPSIS
+.B #include <sys/socket.h>
+.PP
+.B long recvfrom(int fd, void *buf, unsigned long len, int flags, struct sockaddr *addr, unsigned int *addrlen);
+.SH DESCRIPTION
+Receives one queued AF_UNIX SOCK_DGRAM message. The message boundary is
+preserved and a short buffer truncates the returned message. An empty queue
+parks on the native AIO ring; close and shutdown wake parked operations.
+.SH ERRORS
+EFAULT denotes malformed user buffers or address storage.

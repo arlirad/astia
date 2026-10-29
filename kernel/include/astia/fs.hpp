@@ -131,6 +131,8 @@ namespace astia::fs {
         long write(const void* buf, u32 len, u64 offset = offset_current);
         long submit(io_request& request);
         u32 poll(u32 events) const;
+        u32 flags() const { return _flags; }
+        void set_status_flags(u32 flags) { _flags = (_flags & ~0x120u) | (flags & 0x120u); }
         long ioctl(u64 request, void* argp);
         long size() const;
         file_mode mode() const;

@@ -26,6 +26,7 @@ namespace astia::fs {
         type_entry  types[max_types];
         mount_entry mounts[max_mounts];
         bool        ready;
+        bool        bootstrapping;
 
         bool equal(const char* lhs, const char* rhs) {
             if (lhs == nullptr || rhs == nullptr)
@@ -143,12 +144,15 @@ namespace astia::fs {
         for (u32 i = 0; i < max_mounts; ++i)
             mounts[i] = mount_entry{};
         ready = true;
+        bootstrapping = true;
 
         devfs_instance = ::new (devfs_storage) devfs_mount{};
         devfs_type.attach(devfs_instance);
-        return register_type(&devfs_type) == 0 && register_type(&initrd_type()) == 0 &&
-               register_type(&tmpfs_type_instance) == 0 &&
-               mount_type("devfs", "/dev") == 0 && mount_type("tmpfs", "/tmp") == 0;
+        const bool ok = register_type(&devfs_type) == 0 && register_type(&initrd_type()) == 0 &&
+                        register_type(&tmpfs_type_instance) == 0 &&
+                        mount_type("devfs", "/dev") == 0 && mount_type("tmpfs", "/tmp") == 0;
+        bootstrapping = false;
+        return ok;
     }
 
     long register_type(const filesystem* type) {
@@ -166,17 +170,36 @@ namespace astia::fs {
     }
 
     long mount_type(const char* type_name, const char* target, const char* source) {
-        if (!ready || target == nullptr || target[0] != '/')
+        if (!ready || type_name == nullptr || target == nullptr || target[0] != '/')
             return -EINVAL;
         char checked_target[path_max]{};
-        if (!copy_path(checked_target, target))
-            return -ENAMETOOLONG;
+        if (bootstrapping) {
+            if (!copy_path(checked_target, target)) return -ENAMETOOLONG;
+        } else if (equal(target, "/")) {
+            checked_target[0] = '/';
+            checked_target[1] = '\0';
+        } else {
+            long rc = resolve_path(target, checked_target, sizeof checked_target, false);
+            if (rc < 0) {
+                if (!copy_path(checked_target, target)) return rc;
+                bool known_mountpoint = false;
+                for (u32 i = 0; i < max_mounts; ++i)
+                    if (equal(mounts[i].target, checked_target)) known_mountpoint = true;
+                if (!known_mountpoint) return rc;
+            } else if (node_type(checked_target) != directory_dir) {
+                bool known_mountpoint = false;
+                for (u32 i = 0; i < max_mounts; ++i)
+                    if (equal(mounts[i].target, checked_target)) known_mountpoint = true;
+                if (!known_mountpoint)
+                    return node_type(checked_target) == directory_unknown ? -ENOENT : -ENOTDIR;
+            }
+        }
         const filesystem* type = find_type(type_name);
         if (type == nullptr)
             return -ENODEV;
         for (u32 i = 0; i < max_mounts; ++i) {
-            if (mounts[i].used && equal(mounts[i].target, target))
-                return -EBUSY;
+            if (mounts[i].used && equal(mounts[i].target, checked_target))
+                return -EEXIST;
         }
         u32 free_slot = max_mounts;
         for (u32 i = 0; i < max_mounts; ++i) {
@@ -198,8 +221,11 @@ namespace astia::fs {
 
     long unmount_type(const char* target) {
         char checked_target[path_max]{};
-        if (!copy_path(checked_target, target))
-            return target == nullptr ? -EFAULT : -EINVAL;
+        if (target == nullptr) return -EFAULT;
+        if (equal(target, "/")) return -EBUSY;
+        long resolve_result = resolve_path(target, checked_target, sizeof checked_target, false);
+        if (resolve_result < 0)
+            return resolve_result;
         if (equal(checked_target, "/"))
             return -EBUSY;
         mount_entry* selected = nullptr;
@@ -220,7 +246,6 @@ namespace astia::fs {
                 return -EBUSY;
         }
         selected->used = false;
-        selected->target[0] = '\0';
         selected->instance = nullptr;
         return 0;
     }
