@@ -60,6 +60,14 @@ int main(int argc, char** argv) {
     const int pid = getpid();
     if (pid <= 0)
         return 4;
+    if (getsid(pid) != getsid(0))
+        return 54;
+    errno = 0;
+    if (getsid(-1) != (pid_t)-1 || errno != ESRCH)
+        return 55;
+    errno = 0;
+    if (getsid(0x7fffffff) != (pid_t)-1 || errno != ESRCH)
+        return 56;
 
     /* A login/session boundary is real kernel state, not a shell convention:
        a forked session leader detaches, cannot open /tty, then acquires the
@@ -71,7 +79,8 @@ int main(int argc, char** argv) {
         if (child == 0) {
             const pid_t session = setsid();
             int group = 0;
-            if (session != getpid() || getsid(0) != getpid() || tcgetpgrp(0) < 0)
+            if (session != getpid() || getsid(0) != getpid() ||
+                getsid(getpid()) != getpid() || tcgetpgrp(0) < 0)
                 _Exit(49);
             errno = 0;
             if (open("/dev/tty", O_RDWR) >= 0 || errno != ENXIO)
@@ -87,6 +96,9 @@ int main(int argc, char** argv) {
         int status = 0;
         if (waitpid(child, &status, 0) != child || status != 0)
             return 53;
+        errno = 0;
+        if (getsid(child) != (pid_t)-1 || errno != ESRCH)
+            return 57;
     }
 
     /* 4: process working directory state through chdir/getcwd. */

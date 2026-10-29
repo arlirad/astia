@@ -5,6 +5,13 @@
 
 namespace astia::proc {
 
+    /// getsid's POSIX selector: zero means the caller, otherwise a positive
+    /// process ID.  This is deliberately distinct from the generic pid
+    /// mapper, whose zero value is invalid for other process syscalls.
+    struct getsid_target {
+        pid_t pid;
+    };
+
     enum class wait_options : u32 {
         none      = 0,
         nohang    = 1u << 0,
@@ -46,7 +53,7 @@ namespace astia::proc {
 
     /// Process-group/session operations for the calling process.
     pgrp_t getpgrp();
-    pid_t  getsid();
+    i64    getsid(pid_t target);
     /// Attach the supplied tty to the current session leader.
     i64    acquire_controlling_terminal(fs::file* terminal);
     /// True when a live process in `group` belongs to `session`.

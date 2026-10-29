@@ -236,9 +236,21 @@ namespace astia::proc {
         return owner == nullptr ? pgrp_t{} : owner->process_group();
     }
 
-    pid_t getsid() {
+    i64 getsid(pid_t target) {
         process* owner = current_process();
-        return owner == nullptr ? pid_t{} : owner->session();
+        if (owner == nullptr)
+            return -ESRCH;
+        if (target == pid_t{})
+            return static_cast<i64>(static_cast<u32>(owner->session()));
+
+        // Hold the registry reference while reading the selected process.
+        // Zombies remain registered until their parent reaps them, matching
+        // native process lifetime; reaping removes the PID atomically.
+        core::spinlock_guard guard(registry_lock);
+        const i32 slot = find_slot_locked(target);
+        if (slot < 0 || !registry[slot])
+            return -ESRCH;
+        return static_cast<i64>(static_cast<u32>(registry[slot]->session()));
     }
 
     i64 acquire_controlling_terminal(fs::file* terminal) {

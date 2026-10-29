@@ -78,6 +78,20 @@ ASTIA_TEST(process_domain_mappers_reject_undefined_values) {
     ASTIA_CHECK(!astia::mapper<astia::pgrp_t>::from(0x100000000ll).has_value);
 }
 
+ASTIA_TEST(getsid_selector_mapping_accepts_zero_and_positive_pid) {
+    const auto caller = astia::mapper<astia::proc::getsid_target>::from(0);
+    const auto target = astia::mapper<astia::proc::getsid_target>::from(42);
+    ASTIA_CHECK(caller.has_value && static_cast<astia::u32>(caller.value.pid) == 0);
+    ASTIA_CHECK(target.has_value && static_cast<astia::u32>(target.value.pid) == 42);
+}
+
+ASTIA_TEST(getsid_selector_mapping_uses_esrch_for_bad_signed_or_overflow_values) {
+    const auto negative = astia::mapper<astia::proc::getsid_target>::from(-1);
+    const auto overflow = astia::mapper<astia::proc::getsid_target>::from(0x100000000ll);
+    ASTIA_CHECK(!negative.has_value && negative.error == astia::error_t::einval);
+    ASTIA_CHECK(!overflow.has_value && overflow.error == astia::error_t::einval);
+}
+
 ASTIA_TEST(descriptor_mapper_keeps_abi_integer_at_boundary) {
     const auto valid = astia::mapper<astia::fd_t>::from(7);
     const auto negative = astia::mapper<astia::fd_t>::from(-1);

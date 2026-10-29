@@ -43,7 +43,10 @@
 
 namespace astia::proc {
 namespace syscall {
-  i64 getsid() { return static_cast<i64>(static_cast<u32>(proc::getsid())); }
+  i64 getsid(i64 raw_target) {
+    auto target = mapper<proc::getsid_target>::from(raw_target);
+    return target ? proc::getsid(target.value.pid) : -ESRCH;
+  }
   i64 process_snapshot(i64 output, i64 capacity) { if (output < 0 || capacity < 0 || capacity > ASTIA_PROCESS_SNAPSHOT_MAX) return -EINVAL; return proc::process_snapshot(static_cast<u64>(output), static_cast<u32>(capacity)); }
  i64 getuid(); i64 geteuid(); i64 getgid(); i64 getegid();
   i64 setuid(i64); i64 seteuid(i64); i64 setgid(i64); i64 setegid(i64); i64 setreuid(i64,i64); i64 setregid(i64,i64);

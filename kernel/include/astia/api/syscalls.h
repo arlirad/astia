@@ -295,8 +295,9 @@ static inline long astia_setpgid(int32_t pid, int32_t pgid) {
 static inline long astia_setsid(void) {
     return astia_raw6(SYS_SETSID, 0, 0, 0, 0, 0, 0);
 }
-static inline long astia_getsid(void) {
-    return astia_raw6(SYS_GETSID, 0, 0, 0, 0, 0, 0);
+/* pid == 0 selects the caller; a positive PID selects that process. */
+static inline long astia_getsid(int32_t pid) {
+    return astia_raw6(SYS_GETSID, (long) pid, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_kill(int32_t pid, int32_t signal) {

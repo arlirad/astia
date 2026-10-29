@@ -6,6 +6,19 @@
 namespace astia {
 
     template <>
+    struct mapper<proc::getsid_target> {
+        static optional<proc::getsid_target> from(i64 raw) {
+            // The subsystem handler translates this rejected selector to
+            // native ESRCH; the generic kernel error vocabulary has no
+            // separate lookup-miss value.
+            if (raw < 0 || raw > 0xffffffffll)
+                return optional<proc::getsid_target>(error_t::einval);
+            return optional<proc::getsid_target>(
+                proc::getsid_target{pid_t{static_cast<u32>(raw)}});
+        }
+    };
+
+    template <>
     struct mapper<signal_number> {
         static optional<signal_number> from(i64 raw) {
             if (raw < 0 || raw >= static_cast<i64>(signal_count) ||

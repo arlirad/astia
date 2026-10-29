@@ -279,11 +279,7 @@ int setsid(void) {
     return (int) rc;
 }
 pid_t getsid(pid_t pid) {
-    if (pid != 0 && pid != (pid_t)getpid()) {
-        errno = ENOSYS;
-        return -1;
-    }
-    long rc = astia_getsid();
+    long rc = astia_getsid((int32_t)pid);
     if (rc < 0) { errno = (int)-rc; return -1; }
     return (pid_t)rc;
 }
