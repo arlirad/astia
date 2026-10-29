@@ -20,7 +20,8 @@ if [ ! -x "$zsh_source/configure" ]; then
     (cd "$zsh_source" && ./Util/preconfig)
 fi
 
-# Kept as a source-tree validation hook; the hook is intentionally a no-op.
+# Native Astia process and signal semantics require the source-level hooks
+# applied by this idempotent build-time patch.
 "$root/toolchain/patch-zsh-astia.sh" "$zsh_source"
 
 ASTIA_CROSS_BUILD="$build/astia" ASTIA_SYSROOT="$sysroot" CLANG="$clang" \
@@ -42,12 +43,9 @@ cd "$build"
     --build=x86_64-pc-linux-gnu \
     CC="$build/astia-cc" \
     CFLAGS='-O0 -DASTIA' \
+    ac_cv_func_lstat=no \
     LDFLAGS='-nostdlib -static -no-pie -Wl,-Ttext-segment=0x40000000' \
     LIBS="$build/astia/image/crt0.o $sysroot/lib/libastia_libc.a $builtins"
-
-# Astia currently has no lstat ABI.  Do not let zsh select its lstat-based
-# link-resolution path, which would turn a working chdir into ENOSYS.
-sed -i '/^[[:space:]]*#define HAVE_LSTAT[[:space:]]/d' "$build/config.h"
 
 make -C "$build" -j "$jobs"
 mkdir -p "$build/output"
