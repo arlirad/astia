@@ -12,6 +12,8 @@
 #define O_NONBLOCK 0x0800
 #define O_CLOEXEC 0x080000
 #define O_DIRECTORY 0x10000
+#define EFD_NONBLOCK 0x0001
+#define EFD_CLOEXEC  0x0002
 #define AT_FDCWD (-100)
 
 #define FD_CLOEXEC 1

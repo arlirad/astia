@@ -131,6 +131,11 @@ int dup2(int old_fd, int new_fd) {
     }
     return (int) rc;
 }
+int eventfd(unsigned int initial_value, int flags) {
+    long rc = __astia_fio_eventfd(initial_value, flags);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return (int)rc;
+}
 int isatty(int fd) {
     int process_group;
     if (fd < 0 || ioctl(fd, TIOCGPGRP, &process_group) < 0) {
@@ -296,10 +301,15 @@ int tcsetpgrp(int fd, int pgrp) {
     return 0;
 }
 int link(const char* old_path, const char* new_path) {
-    (void) old_path;
-    (void) new_path;
-    errno = ENOSYS;
-    return -1;
+    long rc = __astia_fio_link(old_path, new_path);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return 0;
+}
+int linkat(int olddirfd, const char* old_path, int newdirfd, const char* new_path, int flags) {
+    if (flags != 0) { errno = EINVAL; return -1; }
+    long rc = __astia_fio_linkat(olddirfd, old_path, newdirfd, new_path);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return 0;
 }
 int symlink(const char* target, const char* link_path) {
     long rc = __astia_fio_symlink(target, link_path);

@@ -113,6 +113,8 @@ enum {
     SYS_GETSID         = 45,
     SYS_UNMOUNT        = 46,
     SYS_MOUNT          = 47,
+    SYS_GETRLIMIT      = 48,
+    SYS_SETRLIMIT      = 49,
 };
 
 /* ------------------------------------------------------------------ */
@@ -123,6 +125,16 @@ typedef struct astia_timespec {
     int64_t tv_sec;
     int64_t tv_nsec;
 } astia_timespec;
+
+typedef struct astia_rlimit {
+    uint64_t current;
+    uint64_t maximum;
+} astia_rlimit;
+
+enum {
+    RLIMIT_AS = 9,
+    RLIMIT_NOFILE = 7,
+};
 
 /* One bounded, point-in-time process record.  Names are kernel-owned snapshots;
  * callers must not assume they are paths or remain valid after the call. */
@@ -248,6 +260,14 @@ static inline long astia_munmap(void* addr, uint64_t len) {
 
 static inline long astia_mprotect(void* addr, uint64_t len, uint32_t prot) {
     return astia_raw6(SYS_MPROTECT, (long) addr, (long) len, (long) prot, 0, 0, 0);
+}
+
+static inline long astia_getrlimit(int32_t resource, astia_rlimit* limit) {
+    return astia_raw6(SYS_GETRLIMIT, (long) resource, (long) limit, 0, 0, 0, 0);
+}
+
+static inline long astia_setrlimit(int32_t resource, const astia_rlimit* limit) {
+    return astia_raw6(SYS_SETRLIMIT, (long) resource, (long) limit, 0, 0, 0, 0);
 }
 
 static inline long astia_clock_gettime(uint32_t clock_id, astia_timespec* out) {

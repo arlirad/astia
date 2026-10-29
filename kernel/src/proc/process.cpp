@@ -379,6 +379,7 @@ namespace astia::proc {
         delete address_space_;
         address_space_ = nullptr;
         tls_tp_        = 0;
+        mapped_bytes_  = 0;
     }
 
     bool process::add_thread(const mm::shptr<thread>& value) {
@@ -638,10 +639,12 @@ namespace astia::proc {
     }
 
     bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value) {
+        if (fd.value < 0 || static_cast<u64>(fd.value) >= rlimit_nofile_.current) return false;
         return descriptors_.set(fd, value);
     }
 
     bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value, u32 flags) {
+        if (fd.value < 0 || static_cast<u64>(fd.value) >= rlimit_nofile_.current) return false;
         return descriptors_.set(fd, value, flags);
     }
 
@@ -654,11 +657,13 @@ namespace astia::proc {
     }
 
     optional<fd_t> process::duplicate_descriptor(fd_t old_fd) {
-        return descriptors_.duplicate(old_fd);
+        return descriptors_.duplicate(old_fd, fd_t{0}, 0,
+                                      static_cast<u32>(rlimit_nofile_.current));
     }
 
     optional<fd_t> process::duplicate_descriptor(fd_t old_fd, fd_t minimum, u32 flags) {
-        return descriptors_.duplicate(old_fd, minimum, flags);
+        const u32 limit = static_cast<u32>(rlimit_nofile_.current);
+        return descriptors_.duplicate(old_fd, minimum, flags, limit);
     }
 
     u32 process::descriptor_flags(fd_t fd) const { return descriptors_.flags(fd); }
@@ -669,7 +674,34 @@ namespace astia::proc {
     }
 
     optional<fd_t> process::duplicate_descriptor_to(fd_t old_fd, fd_t new_fd) {
+        if (new_fd.value < 0 || static_cast<u64>(new_fd.value) >= rlimit_nofile_.current)
+            return error_t::emfile;
         return descriptors_.duplicate_to(old_fd, new_fd);
+    }
+
+    i64 process::get_rlimit(i32 resource, astia_rlimit* out) const {
+        if (out == nullptr) return -EFAULT;
+        if (resource == RLIMIT_NOFILE) *out = rlimit_nofile_;
+        else if (resource == RLIMIT_AS) *out = rlimit_as_;
+        else return -EINVAL;
+        return 0;
+    }
+
+    i64 process::set_rlimit(i32 resource, const astia_rlimit& value) {
+        if (value.current > value.maximum) return -EINVAL;
+        if (resource == RLIMIT_NOFILE) {
+            if (value.maximum > max_process_fds) return -EINVAL;
+            if (value.maximum > rlimit_nofile_.maximum) return -EPERM;
+            rlimit_nofile_ = value;
+            return 0;
+        }
+        if (resource == RLIMIT_AS) {
+            if (value.maximum > rlimit_as_.maximum || value.current < mapped_bytes_)
+                return value.maximum > rlimit_as_.maximum ? -EPERM : -EINVAL;
+            rlimit_as_ = value;
+            return 0;
+        }
+        return -EINVAL;
     }
 
     bool process::build_user_stack(char* const argv[], char* const envp[], u64* rsp_out) {

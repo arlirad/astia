@@ -25,6 +25,8 @@ namespace astia::proc {
         void                     close_on_exec();
         optional<fd_t>            duplicate(fd_t old_fd);
         optional<fd_t>            duplicate(fd_t old_fd, fd_t minimum, u32 flags);
+        optional<fd_t>            duplicate(fd_t old_fd, fd_t minimum, u32 flags,
+                                            u32 maximum);
         optional<fd_t>            duplicate_to(fd_t old_fd, fd_t new_fd);
 
         private:

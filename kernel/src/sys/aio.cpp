@@ -15,6 +15,7 @@
 #include <astia/log.hpp>
 #include <astia/memory.hpp>
 #include <astia/mm/iovec.hpp>
+#include <astia/mm/share.hpp>
 
 void* operator new(astia::usize size, void* where) noexcept;
 
@@ -47,6 +48,56 @@ void* operator new(astia::usize size, void* where) noexcept;
 namespace astia::sys {
 
     namespace {
+        class eventfd_file final : public fs::file {
+            public:
+            eventfd_file(u64 value, bool nonblock) : value_(value), nonblock_(nonblock) {}
+
+            long read(void* buffer, u32 length, u64) override {
+                if (buffer == nullptr || length != sizeof(u64)) return -EINVAL;
+                u64 value = __atomic_exchange_n(&value_, 0, __ATOMIC_ACQ_REL);
+                if (value == 0) return 0;
+                *static_cast<u64*>(buffer) = value;
+                sys::io_device_ready_context(this);
+                return sizeof(u64);
+            }
+
+            long write(const void* buffer, u32 length, u64) override {
+                if (buffer == nullptr || length != sizeof(u64)) return -EINVAL;
+                u64 add = *static_cast<const u64*>(buffer);
+                if (add == UINT64_MAX) return -EINVAL;
+                u64 old = __atomic_load_n(&value_, __ATOMIC_RELAXED);
+                for (;;) {
+                    if (UINT64_MAX - old < add) return nonblock_ ? -EAGAIN : 0;
+                    if (__atomic_compare_exchange_n(&value_, &old, old + add, false,
+                                                    __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+                        sys::io_device_ready_context(this);
+                        return sizeof(u64);
+                    }
+                }
+            }
+
+            u32 poll(u32 events, u32) override {
+                u32 ready = 0;
+                if (__atomic_load_n(&value_, __ATOMIC_ACQUIRE) != 0) ready |= POLLIN;
+                if (__atomic_load_n(&value_, __ATOMIC_ACQUIRE) != UINT64_MAX) ready |= POLLOUT;
+                return ready & events;
+            }
+
+            long submit(io_request& request) override {
+                if (request.length() != sizeof(u64)) return -EINVAL;
+                const long result = request.direction() == io_direction::input
+                                        ? read(request.buffer(), request.length(), 0)
+                                        : write(request.buffer(), request.length(), 0);
+                if (result == 0 && nonblock_) return -EAGAIN;
+                if (result == 0) request.stage(1);
+                return result;
+            }
+
+            private:
+            u64 value_;
+            bool nonblock_;
+        };
+
         long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
                         char* out, usize capacity) {
             if (current == nullptr) return -ESRCH;
@@ -58,6 +109,21 @@ namespace astia::sys {
             auto dirfd = mapper<fd_t>::from(raw_dirfd);
             if (!dirfd.has_value) return -EBADF;
             return current->resolve_path_at(dirfd.value, path, out, capacity);
+        }
+
+        bool parent_writable(proc::process* current, const char* path) {
+            if (current == nullptr || path == nullptr) return false;
+            char parent[256]{};
+            u32 n = 0; while (path[n]) ++n;
+            while (n > 1 && path[n - 1] != '/') --n;
+            for (u32 i = 0; i < (n > 1 ? n - 1 : 1); ++i) parent[i] = path[i];
+            parent[n > 1 ? n - 1 : 1] = '\0';
+            const fs::file_mode mode = fs::node_mode(parent);
+            if (!mode.is_directory()) return false;
+            if (current->euid() == 0) return true;
+            if (current->euid() != static_cast<u32>(fs::node_uid(parent))) return false;
+            return mode.owner_allows(fs::permission_bits::write) &&
+                   mode.owner_allows(fs::permission_bits::execute);
         }
 
         // The parent keeps its ring while two forked children perform their
@@ -698,10 +764,35 @@ namespace astia::sys {
                   long old_rc = resolve_at(current, s.fd, old_path, old_resolved, sizeof old_resolved);
                   i32 new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
                   long new_rc = resolve_at(current, new_dirfd, new_path, new_resolved, sizeof new_resolved);
-                 if (old_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)old_rc);
-                 if (new_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)new_rc);
+                if (old_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)old_rc);
+                if (new_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)new_rc);
+                if (!parent_writable(current, old_resolved) || !parent_writable(current, new_resolved))
+                    return cq_post_guarded(ring, s.user_data, -EACCES);
                 const long rc = fs::rename_path(old_resolved, new_resolved);
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+            }
+
+            case OP_LINKAT: {
+                char old_path[256], new_path[256];
+                if (!sys::copy_in_string(old_path, sizeof old_path, sys::user_range::string(s.address)) ||
+                    !sys::copy_in_string(new_path, sizeof new_path, sys::user_range::string(s.offset)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* current = proc::current_process();
+                if (current == nullptr) return cq_post_guarded(ring, s.user_data, -ESRCH);
+                char old_resolved[256], new_resolved[256];
+                long old_rc = resolve_at(current, s.fd, old_path, old_resolved, sizeof old_resolved);
+                i32 new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
+                long new_rc = resolve_at(current, new_dirfd, new_path, new_resolved, sizeof new_resolved);
+                if (old_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)old_rc);
+                if (new_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)new_rc);
+                old_rc = fs::resolve_path(old_resolved, old_resolved, sizeof old_resolved, true);
+                new_rc = fs::resolve_path(new_resolved, new_resolved, sizeof new_resolved, false);
+                if (old_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)old_rc);
+                if (new_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)new_rc);
+                if (!parent_writable(current, old_resolved) || !parent_writable(current, new_resolved))
+                    return cq_post_guarded(ring, s.user_data, -EACCES);
+                return cq_post_guarded(ring, s.user_data,
+                                       (i32)fs::link_path(old_resolved, new_resolved));
             }
 
             case OP_DUP: {
@@ -864,8 +955,8 @@ namespace astia::sys {
                 auto* stat_out = reinterpret_cast<astia_stat*>(out.address());
                 __builtin_memset(stat_out, 0, sizeof *stat_out);
                 stat_out->dev = 1;
-                stat_out->ino = 1;
-                stat_out->nlink = 1;
+                stat_out->ino = object->backing()->inode();
+                stat_out->nlink = object->backing()->nlink();
                 stat_out->size   = static_cast<u64>(size);
                 stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
                  stat_out->mode   = mapper<fs::file_mode>::to(object->mode());
@@ -1170,6 +1261,24 @@ namespace astia::sys {
                 p->fd = s.fd; p->object = object;
                 p->request = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
                 return true;
+            }
+
+            case OP_EVENTFD_CREATE: {
+                if ((s.op_flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0 ||
+                    s.offset == UINT64_MAX)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                proc::process* current = proc::current_process();
+                if (!current) return cq_post_guarded(ring, s.user_data, -ESRCH);
+                mm::shptr<eventfd_file> event(new eventfd_file(
+                    s.offset, (s.op_flags & ASTIA_EFD_NONBLOCK) != 0));
+                if (!event) return cq_post_guarded(ring, s.user_data, -ENOMEM);
+                const u32 fd_flags = (s.op_flags & ASTIA_EFD_CLOEXEC ? 0x1u : 0u) |
+                                     (s.op_flags & ASTIA_EFD_NONBLOCK ? 0x800u : 0u);
+                auto object = mm::share<fs::open_file>(event, fd_flags);
+                for (i32 fd = 3; fd < (i32)proc::max_process_fds; ++fd)
+                    if (!current->descriptor(fd_t{fd}) && current->set_descriptor(fd_t{fd}, object))
+                        return cq_post_guarded(ring, s.user_data, fd);
+                return cq_post_guarded(ring, s.user_data, -EMFILE);
             }
 
             case OP_CANCEL: {

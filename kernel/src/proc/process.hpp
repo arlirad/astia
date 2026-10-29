@@ -6,6 +6,7 @@
 #include "thread.hpp"
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
+#include <astia/api/syscalls.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
@@ -81,6 +82,8 @@ namespace astia::proc {
             }
             uid_=parent.uid_; euid_=parent.euid_; gid_=parent.gid_; egid_=parent.egid_;
             group_count_=parent.group_count_; for (u32 i=0;i<group_count_;++i) groups_[i]=parent.groups_[i];
+            rlimit_nofile_ = parent.rlimit_nofile_;
+            rlimit_as_ = parent.rlimit_as_;
         }
         void process_group(pgrp_t value) {
             process_group_ = value;
@@ -241,6 +244,9 @@ namespace astia::proc {
         /// (POSIX — file offsets move together).
         bool copy_descriptors_from(const process& other);
 
+        i64 get_rlimit(i32 resource, astia_rlimit* out) const;
+        i64 set_rlimit(i32 resource, const astia_rlimit& value);
+
         bool exec_user_image(const void* bytes, usize length, char* const argv[],
                              char* const envp[], u64* entry_out, u64* stack_out);
         bool exec_user_file(const mm::shptr<fs::open_file>& file, usize length,
@@ -301,6 +307,9 @@ namespace astia::proc {
         fd_table          descriptors_;
         arch::page_map*   address_space_ = nullptr;
         u64               tls_tp_        = 0;
+        astia_rlimit      rlimit_nofile_{max_process_fds, max_process_fds};
+        astia_rlimit      rlimit_as_{~u64{0}, ~u64{0}};
+        u64               mapped_bytes_ = 0;
         char              cwd_[fs::path_max] = "/";
         mmap_region*      mmap_regions_  = nullptr; // base-sorted
         core::spinlock    mmap_lock_{};

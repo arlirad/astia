@@ -298,6 +298,14 @@ enum {
     OP_FCNTL = 36,
     OP_SENDTO   = 37,
     OP_RECVFROM = 38,
+    OP_EVENTFD_CREATE = 39,
+    OP_LINKAT = 40,
+};
+
+/* OP_EVENTFD_CREATE flags.  The initial counter is in SQE::offset. */
+enum {
+    ASTIA_EFD_NONBLOCK = 1u << 0,
+    ASTIA_EFD_CLOEXEC  = 1u << 1,
 };
 
 /* OP_FCNTL commands.  The argument is in SQE::aux. */

@@ -190,6 +190,7 @@ namespace astia::proc {
         entry->region_page = region_page;
         entry->file        = file;
         entry->file_offset = file_offset;
+        mapped_bytes_ += pages * page_bytes;
         mmap_region** link = &mmap_regions_;
         while (*link != nullptr && (*link)->base < base) {
             link = &(*link)->next;
@@ -226,6 +227,8 @@ namespace astia::proc {
             return -ENOMEM;
         }
         const u64 want = pages * page_bytes;
+        if (want > rlimit_as_.current || mapped_bytes_ > rlimit_as_.current - want)
+            return -ENOMEM;
 
         core::spinlock_guard guard(mmap_lock_);
         const u64            base = place(mmap_regions_, addr, want);
@@ -279,6 +282,8 @@ namespace astia::proc {
             return -ENOMEM;
         }
         const u64 want = pages * page_bytes;
+        if (want > rlimit_as_.current || mapped_bytes_ > rlimit_as_.current - want)
+            return -ENOMEM;
         if (off + want < off) {
             return -EINVAL;
         }
@@ -399,6 +404,7 @@ namespace astia::proc {
             it->backing->unmap_range(
                 it->region_page + (drop_from - old_base) / page_bytes,
                 static_cast<usize>((drop_to - drop_from) / page_bytes));
+            mapped_bytes_ -= drop_to - drop_from;
 
             if (old_end > last) { // right remainder becomes its own entry
                 tail->next        = it->next;
@@ -453,6 +459,12 @@ namespace astia::proc {
         entry->prot        = prot;
         entry->holds_ref   = true;
         entry->backing     = region;
+        const u64 bytes = pages * mm::phys_region::frame_size;
+        if (bytes > rlimit_as_.current || mapped_bytes_ > rlimit_as_.current - bytes) {
+            delete entry;
+            return false;
+        }
+        mapped_bytes_ += bytes;
         mmap_region** link = &mmap_regions_;
         while (*link != nullptr && (*link)->base < base) {
             link = &(*link)->next;
@@ -523,6 +535,9 @@ namespace astia::proc {
             }
         }
         child->address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
+        child->mapped_bytes_  = mapped_bytes_;
+        child->rlimit_nofile_ = rlimit_nofile_;
+        child->rlimit_as_     = rlimit_as_;
         child->tls_tp_        = tls_tp_;
         return child->address_space_ != nullptr;
     }

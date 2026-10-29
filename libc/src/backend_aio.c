@@ -382,6 +382,13 @@ long __astia_fio_renameat(int olddirfd, const char* old_path, int newdirfd, cons
     return transact(OP_RENAMEAT, olddirfd, (uint64_t)(uintptr_t)new_path,
                     old_path, (uint32_t)newdirfd, 0, 0);
 }
+long __astia_fio_link(const char* old_path, const char* new_path) {
+    return transact(OP_LINKAT, -1, (uint64_t)(uintptr_t)new_path, old_path, 0, 0, 0);
+}
+long __astia_fio_linkat(int olddirfd, const char* old_path, int newdirfd, const char* new_path) {
+    return transact(OP_LINKAT, olddirfd, (uint64_t)(uintptr_t)new_path, old_path,
+                    (uint32_t)newdirfd, 0, 0);
+}
 long __astia_fio_mkdirat(int dirfd, const char* path, int mode) {
     return transact(OP_MKDIRAT, dirfd, 0, path, 0, 0, (uint32_t)mode);
 }
@@ -506,6 +513,12 @@ cancel:
     }
     if (rc < 0 && rc != -ETIMEDOUT) return rc;
     return (long)ready_count;
+}
+
+long __astia_fio_eventfd(unsigned int initial_value, int flags) {
+    if ((flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0) return -EINVAL;
+    return transact(OP_EVENTFD_CREATE, -1, (uint64_t)initial_value, NULL, 0,
+                    (uint32_t)flags, 0);
 }
 
 void __astia_fio_after_fork(void) {

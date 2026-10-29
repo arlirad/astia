@@ -5,7 +5,8 @@
 
 namespace astia::fs {
 
-    namespace {
+namespace {
+        u64 next_inode = 2;
         // The async open ABI forwards the platform's O_* word.
         inline constexpr u32 oflag_write = 1;
         inline constexpr u32 oflag_rdwr  = 2;
@@ -49,7 +50,7 @@ namespace astia::fs {
     } // namespace
 
     tmpfs_file::tmpfs_file(usize pages, file_mode mode)
-        : storage_(mm::phys_region::create(pages, true)), mode_(mode) {}
+        : storage_(mm::phys_region::create(pages, true)), mode_(mode), inode_(next_inode++) {}
 
     tmpfs_file::~tmpfs_file() {
         if (storage_ != nullptr) {
@@ -267,6 +268,7 @@ namespace astia::fs {
                 for (u32 j = 0; j < tmpfs_max_entries; ++j)
                     if (entries_[j].used && parent_of(path, entries_[j].path)) return -ENOTEMPTY;
             }
+            if (entries_[i].object) entries_[i].object->drop_link();
             entries_[i] = entry{};
             return 0;
         }
@@ -302,6 +304,7 @@ namespace astia::fs {
             if (entries_[i].used && equal(entries_[i].path, new_path)) target = i;
         }
         if (source == tmpfs_max_entries) return -ENOENT;
+        if (entries_[source].directory && parent_of(old_path, new_path)) return -EINVAL;
         if (target != tmpfs_max_entries) {
             if (entries_[source].directory != entries_[target].directory)
                 return entries_[source].directory ? -ENOTDIR : -EISDIR;
@@ -310,14 +313,59 @@ namespace astia::fs {
                     if (entries_[i].used && parent_of(new_path, entries_[i].path))
                         return -ENOTEMPTY;
             }
-            entries_[target] = entries_[source];
-            if (!copy_path(entries_[target].path, new_path)) return -ENAMETOOLONG;
-            entries_[source] = entry{};
+            if (entries_[target].object) entries_[target].object->drop_link();
+            entries_[target] = entry{};
+        }
+        const u32 old_len = [&] { u32 n = 0; while (old_path[n]) ++n; return n; }();
+        const u32 new_len = [&] { u32 n = 0; while (new_path[n]) ++n; return n; }();
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+            if (!entries_[i].used) continue;
+            bool match = equal(entries_[i].path, old_path);
+            if (!match && entries_[source].directory) match = parent_of(old_path, entries_[i].path);
+            if (!match) continue;
+            u32 suffix = equal(entries_[i].path, old_path) ? old_len : old_len;
+            const u32 suffix_len = [&] { u32 n = 0; while (entries_[i].path[suffix + n]) ++n; return n; }();
+            if (new_len + suffix_len >= path_max) return -ENAMETOOLONG;
+        }
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+            if (!entries_[i].used) continue;
+            bool match = equal(entries_[i].path, old_path);
+            if (!match && entries_[source].directory) match = parent_of(old_path, entries_[i].path);
+            if (!match) continue;
+            char renamed[path_max]{};
+            for (u32 j = 0; j < new_len; ++j) renamed[j] = new_path[j];
+            u32 suffix = old_len;
+            u32 at = new_len;
+            while (entries_[i].path[suffix]) renamed[at++] = entries_[i].path[suffix++];
+            renamed[at] = '\0';
+            copy_path(entries_[i].path, renamed);
+        }
+        return 0;
+    }
+
+    long tmpfs_mount::link(const char* old_path, const char* new_path) {
+        if (old_path == nullptr || new_path == nullptr) return -EINVAL;
+        if (node_type(old_path) != directory_reg) return node_type(old_path) == directory_dir ? -EPERM : -ENOENT;
+        if (node_type(new_path) != directory_unknown) return -EEXIST;
+        char parent[path_max]{};
+        if (!copy_path(parent, new_path)) return -ENAMETOOLONG;
+        u32 end = 0; while (parent[end]) ++end;
+        while (end > 1 && parent[end - 1] != '/') --end;
+        parent[end > 1 ? end - 1 : 1] = '\0';
+        if (node_type(parent) != directory_dir) return -ENOENT;
+        u32 source = tmpfs_max_entries;
+        for (u32 i = 0; i < tmpfs_max_entries; ++i)
+            if (entries_[i].used && equal(entries_[i].path, old_path)) source = i;
+        if (source == tmpfs_max_entries) return -ENOENT;
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) if (!entries_[i].used) {
+            if (!copy_path(entries_[i].path, new_path)) return -ENAMETOOLONG;
+            entries_[i] = entry{true, false, entries_[source].mode, entries_[source].uid,
+                                 entries_[source].gid, {}, entries_[source].object};
+            copy_path(entries_[i].path, new_path);
+            entries_[source].object->add_link();
             return 0;
         }
-        if (entries_[source].directory && parent_of(old_path, new_path)) return -EINVAL;
-        if (!copy_path(entries_[source].path, new_path)) return -ENAMETOOLONG;
-        return 0;
+        return -ENOSPC;
     }
 
     file_type tmpfs_mount::node_type(const char* path) const {

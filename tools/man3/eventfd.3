@@ -1,0 +1,14 @@
+.TH EVENTFD 3
+.SH NAME
+eventfd \- libc wrapper for a native event counter
+.SH SYNOPSIS
+.B #include <unistd.h>
+.sp
+.BI "int eventfd(unsigned int initial_value, int flags);"
+.SH DESCRIPTION
+The Astia libc wrapper submits the native event-counter operation to the
+process I/O ring and translates negative kernel errors to -1 and errno.
+The returned descriptor follows normal close, dup, fork, exec, read, write,
+and poll lifetime rules.
+.SH RETURN VALUE
+Returns a descriptor on success, or -1 with errno on failure.

@@ -17,6 +17,7 @@
 #include "syscalls/process/spawnve.hpp"
 #include "syscalls/process/execve.hpp"
 #include "syscalls/process/fork.hpp"
+#include "syscalls/process/rlimit.hpp"
 #include "syscalls/memory/mmap.hpp"
 #include "syscalls/memory/munmap.hpp"
 #include "syscalls/ipc/futex.hpp"
@@ -234,7 +235,9 @@ namespace syscall {
                 sys::register_syscall<syscall::setpgid>(sys::syscall_id::setpgid) &&
                  sys::register_syscall<syscall::setsid>(sys::syscall_id::setsid) &&
                  sys::register_syscall<syscall::getsid>(sys::syscall_id::getsid) &&
-               sys::register_syscall<syscall::mmap>(sys::syscall_id::mmap) &&
+                sys::register_syscall<syscall::getrlimit>(sys::syscall_id::getrlimit) &&
+                sys::register_syscall<syscall::setrlimit>(sys::syscall_id::setrlimit) &&
+                sys::register_syscall<syscall::mmap>(sys::syscall_id::mmap) &&
                sys::register_syscall<syscall::munmap>(sys::syscall_id::munmap) &&
                sys::register_syscall<syscall::fork>(sys::syscall_id::fork) &&
                sys::register_syscall<syscall::futex>(sys::syscall_id::futex) &&

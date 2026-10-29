@@ -87,6 +87,8 @@ long __astia_fio_unlink(const char* path, int directory);
 long __astia_fio_unlinkat(int dirfd, const char* path, int directory);
 long __astia_fio_rename(const char* old_path, const char* new_path);
 long __astia_fio_renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path);
+long __astia_fio_link(const char* old_path, const char* new_path);
+long __astia_fio_linkat(int olddirfd, const char* old_path, int newdirfd, const char* new_path);
 long __astia_fio_mkdirat(int dirfd, const char* path, int mode);
 long __astia_fio_symlink(const char* target, const char* path);
 long __astia_fio_readlink(const char* path, char* buffer, size_t capacity);
@@ -98,5 +100,6 @@ long __astia_fio_dup(int fd);
 long __astia_fio_dup2(int old_fd, int new_fd);
 long __astia_fio_fcntl(int fd, int command, unsigned int argument);
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms);
+long __astia_fio_eventfd(unsigned int initial_value, int flags);
 void __astia_fio_after_fork(void);
 #pragma GCC visibility pop

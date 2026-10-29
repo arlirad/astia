@@ -40,7 +40,7 @@ namespace astia::sys {
         chdir,
         getcwd, getuid, geteuid, getgid, getegid, setuid, seteuid, setgid, setegid, setreuid, setregid, getgroups, setgroups,
          process_snapshot, getsid,
-          unmount, mount,
+           unmount, mount, getrlimit, setrlimit,
     };
 
     /// How many registers the ABI hands every trap — and so the most

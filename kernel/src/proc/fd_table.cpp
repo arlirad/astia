@@ -77,6 +77,10 @@ namespace astia::proc {
     }
 
     optional<fd_t> fd_table::duplicate(fd_t old_fd, fd_t minimum, u32 flags) {
+        return duplicate(old_fd, minimum, flags, max_process_fds);
+    }
+
+    optional<fd_t> fd_table::duplicate(fd_t old_fd, fd_t minimum, u32 flags, u32 maximum) {
         core::spinlock_guard guard(lock_);
         auto source = old_fd.value >= 0 && static_cast<u32>(old_fd.value) < max_process_fds
                           ? entries_[old_fd.value].file : mm::shptr<fs::open_file>{};
@@ -86,9 +90,10 @@ namespace astia::proc {
         auto copy = mm::share<fs::open_file>(*source);
         if (!copy)
             return error_t::emfile;
-        if (minimum.value < 0 || static_cast<u32>(minimum.value) >= max_process_fds)
+        if (minimum.value < 0 || static_cast<u32>(minimum.value) >= maximum ||
+            maximum > max_process_fds)
             return error_t::emfile;
-        for (u32 fd = static_cast<u32>(minimum.value); fd < max_process_fds; ++fd) {
+        for (u32 fd = static_cast<u32>(minimum.value); fd < maximum; ++fd) {
             if (!entries_[fd].file) {
                 entries_[fd].file = copy;
                 entries_[fd].flags = flags;

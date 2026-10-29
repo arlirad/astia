@@ -24,6 +24,7 @@ add_library(proc STATIC
         syscalls/process/spawnve.cpp
         syscalls/process/execve.cpp
         syscalls/process/fork.cpp
+        syscalls/process/rlimit.cpp
         syscalls/memory/mmap.cpp
         syscalls/memory/munmap.cpp
         syscalls/ipc/futex.cpp

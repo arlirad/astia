@@ -1,0 +1,16 @@
+.TH GETRLIMIT 3
+.SH NAME
+getrlimit, setrlimit \- libc wrappers for native process limits
+.SH SYNOPSIS
+.B #include <sys/resource.h>
+.PP
+.BI "int getrlimit(int " resource ", struct rlimit *" limit ");"
+.br
+.BI "int setrlimit(int " resource ", const struct rlimit *" limit ");"
+.SH DESCRIPTION
+The wrappers invoke Astia's native resource-limit ABI and translate its
+negative errno return into the standard libc -1/errno convention.  The
+rlimit fields are 64-bit values.  RLIM_INFINITY is UINT64_MAX.
+.SH NOTES
+The implementation provides RLIMIT_NOFILE and RLIMIT_AS.  It never delegates
+to the host operating system's resource-limit API.

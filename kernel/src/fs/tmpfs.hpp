@@ -16,6 +16,10 @@ namespace astia::fs {
         long             read(void* buffer, u32 length, u64 offset) override;
         long             write(const void* buffer, u32 length, u64 offset) override;
         long             size() const override;
+        u64              inode() const override { return inode_; }
+        u32              nlink() const override { return nlink_; }
+        void             add_link() { ++nlink_; }
+        void             drop_link() { if (nlink_ != 0) --nlink_; }
         file_mode        mode() const override { return mode_; }
         uid_t            uid() const override { return uid_; }
         gid_t            gid() const override { return gid_; }
@@ -38,6 +42,8 @@ namespace astia::fs {
         uid_t            uid_{}; gid_t gid_{};
         u64              mtime_sec_ = 0;
         u64              mtime_nsec_ = 0;
+        u64              inode_ = 0;
+        u32              nlink_ = 1;
     };
 
     class tmpfs_mount final : public mount {
@@ -48,6 +54,7 @@ namespace astia::fs {
         long mkdir(const char* path, file_mode mode) override;
         long unlink(const char* path, bool directory) override;
         long rename(const char* old_path, const char* new_path) override;
+        long link(const char* old_path, const char* new_path) override;
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
         uid_t node_uid(const char* path) const override;

@@ -125,6 +125,7 @@ namespace astia::fs {
     long mount::mkdir(const char*, file_mode) { return -ENOSYS; }
     long mount::unlink(const char*, bool) { return -ENOSYS; }
     long mount::rename(const char*, const char*) { return -ENOSYS; }
+    long mount::link(const char*, const char*) { return -ENOSYS; }
     file_type mount::node_type(const char*) const { return directory_unknown; }
     file_mode mount::node_mode(const char*) const { return {}; }
     uid_t mount::node_uid(const char*) const { return {}; }
@@ -132,6 +133,8 @@ namespace astia::fs {
     uid_t file::uid() const { return {}; }
     gid_t file::gid() const { return {}; }
     long file::chown(uid_t, gid_t) { return -ENOSYS; }
+    u64 file::inode() const { return 0; }
+    u32 file::nlink() const { return 1; }
     u32 file::poll(u32 events, u32) { return events & (POLLIN | POLLOUT); }
     long mount::chmod(const char*, file_permissions) { return -ENOSYS; }
     long mount::chown(const char*, uid_t, gid_t) { return -ENOSYS; }
@@ -338,6 +341,22 @@ namespace astia::fs {
             return -EXDEV;
         return old_entry->instance->rename(relative_path(*old_entry, old_resolved),
                                             relative_path(*new_entry, new_resolved));
+    }
+
+    long link_path(const char* old_path, const char* new_path) {
+        if (old_path == nullptr || new_path == nullptr || old_path[0] != '/' || new_path[0] != '/')
+            return -EINVAL;
+        char old_resolved[path_max]{}, new_resolved[path_max]{};
+        long rc = resolve_path(old_path, old_resolved, sizeof old_resolved, true);
+        if (rc < 0) return rc;
+        rc = resolve_path(new_path, new_resolved, sizeof new_resolved, false);
+        if (rc < 0) return rc;
+        mount_entry* old_entry = find_mount(old_resolved);
+        mount_entry* new_entry = find_mount(new_resolved);
+        if (old_entry == nullptr || new_entry == nullptr) return -ENOENT;
+        if (old_entry->instance != new_entry->instance) return -EXDEV;
+        return old_entry->instance->link(relative_path(*old_entry, old_resolved),
+                                         relative_path(*new_entry, new_resolved));
     }
 
     file_type node_type(const char* path) {

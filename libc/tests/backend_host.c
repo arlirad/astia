@@ -264,6 +264,8 @@ long __astia_fio_renameat(int olddirfd, const char* old_path, int newdirfd, cons
     long rc = syscall(SYS_renameat, olddirfd, old_path, newdirfd, new_path);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
+long __astia_fio_link(const char* old_path, const char* new_path) { long rc=syscall(SYS_link,old_path,new_path); return rc<0?-HOST_ERRNO:0; }
+long __astia_fio_linkat(int olddirfd, const char* old_path, int newdirfd, const char* new_path) { long rc=syscall(SYS_linkat,olddirfd,old_path,newdirfd,new_path,0); return rc<0?-HOST_ERRNO:0; }
 long __astia_fio_mkdirat(int dirfd, const char* path, int mode) {
     long rc = syscall(SYS_mkdirat, dirfd, path, mode);
     return rc < 0 ? -HOST_ERRNO : 0;
@@ -295,5 +297,31 @@ long __astia_fio_dup2(int old_fd, int new_fd) {
 }
 long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
     long rc = syscall(SYS_fcntl, fd, command, argument);
+    return rc < 0 ? -HOST_ERRNO : rc;
+}
+
+long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
+    long rc;
+
+    /* Keep the host fixture's contract aligned with the ring backend.  The
+       pollfd layout and event bits are the same on Linux, so the raw host
+       syscall can update the caller's array directly. */
+    if (count > IO_MAX_ENTRIES || (count != 0 && fds == NULL) || timeout_ms < -1)
+        return -EINVAL;
+    rc = syscall(SYS_poll, fds, count, timeout_ms);
+    return rc < 0 ? -HOST_ERRNO : rc;
+}
+
+long __astia_fio_eventfd(unsigned int initial_value, int flags) {
+    unsigned int host_flags = 0;
+    long         rc;
+
+    if (flags & ~((int)(EFD_NONBLOCK | EFD_CLOEXEC)))
+        return -EINVAL;
+    if (flags & EFD_NONBLOCK)
+        host_flags |= 0x800u;   /* Linux EFD_NONBLOCK */
+    if (flags & EFD_CLOEXEC)
+        host_flags |= 0x80000u; /* Linux EFD_CLOEXEC */
+    rc = syscall(SYS_eventfd2, initial_value, host_flags);
     return rc < 0 ? -HOST_ERRNO : rc;
 }

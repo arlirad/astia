@@ -89,6 +89,8 @@ namespace astia::fs {
         virtual u32              poll(u32 events, u32 flags);
         virtual long             ioctl(u64 request, void* argp);
         virtual long             size() const;
+        virtual u64              inode() const;
+        virtual u32              nlink() const;
         virtual file_mode        mode() const;
         virtual uid_t            uid() const;
         virtual gid_t            gid() const;
@@ -179,6 +181,7 @@ namespace astia::fs {
     /// Atomically rename within one mounted filesystem.  Different mounts
     /// are rejected with -EXDEV; the filesystem owns replacement rules.
     long rename_path(const char* old_path, const char* new_path);
+    long link_path(const char* old_path, const char* new_path);
     file_type node_type(const char* path);
     file_mode node_mode(const char* path);
     uid_t node_uid(const char* path);

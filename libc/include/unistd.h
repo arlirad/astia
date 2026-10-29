@@ -67,6 +67,7 @@ int          setpgrp(int pid, int process_group);
 pid_t        tcgetpgrp(int fd);
 int          tcsetpgrp(int fd, int pgrp);
 int          link(const char* old_path, const char* new_path);
+int          linkat(int olddirfd, const char* old_path, int newdirfd, const char* new_path, int flags);
 int          symlink(const char* target, const char* link_path);
 long         readlink(const char* path, char* buffer, unsigned long capacity);
 int          unlink(const char* path);
