@@ -52,6 +52,14 @@ toolchain/package-zsh-initrd.sh \
   /tmp/astia-zsh-initrd.tar
 ```
 
+`build-zsh.sh` never edits the zsh checkout.  It supplies configure answers
+through `config.site` and uses only the Astia sysroot and startup object.  In
+particular, do not run the historical `patch-zsh-astia.sh` or
+`patch-zsh-signals.py` helpers: they target an older zsh source layout and
+their ASTIA branches bypass zsh's native fork handshake and signal wait
+protocol.  Native zsh expects the libc/kernel `fork`, `waitpid`, `sigsuspend`,
+process-group, and signal-restorer ABI directly.
+
 For an interactive serial session:
 
 ```sh

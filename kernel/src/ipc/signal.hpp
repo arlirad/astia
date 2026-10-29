@@ -10,7 +10,11 @@ namespace astia {
         bool send(signal_number signal) {
             if (!valid_signal(signal))
                 return false;
-            if (!is_uncatchable(signal) &&
+            // SIGCHLD's default disposition is "ignore", but its pending
+            // notification is still required to interrupt sigsuspend and
+            // let a parent drain waitpid().  Ignoring the bit here leaves a
+            // shell asleep after a child exits.
+            if (signal != signal_number::chld && !is_uncatchable(signal) &&
                 dispositions_[static_cast<u8>(signal)].action == signal_action::ignore)
                 return true;
             pending_ |= signal_bit(signal);

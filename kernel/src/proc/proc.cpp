@@ -170,6 +170,10 @@ namespace astia::proc {
             return fail(error_t::enomem);
         }
         child->inherit_groups(*parent);
+        // The thread is queued before registration.  Publish the runnable
+        // process state first so a fast child exit cannot be overwritten as
+        // runnable after it has become a zombie.
+        child->state(process_state::runnable);
         // exec-style spawn inherits redirected descriptors.  Replacing them
         // with fresh console streams would make a child read forever from the
         // terminal after the parent dup2'ed a file onto stdin.
@@ -190,7 +194,6 @@ namespace astia::proc {
             spawn_logs::error("process registry full");
             return fail(error_t::eagain);
         }
-        child->state(process_state::runnable);
         return optional<mm::shptr<process>>(child);
     }
 

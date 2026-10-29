@@ -41,7 +41,7 @@ namespace astia::proc::syscall {
             // POSIX sigsuspend changes the mask only for the sleep.  Leaving
             // the temporary mask installed loses SIGCHLD after zsh returns
             // from its native signal wait and makes the next job reap hang.
-            owner->signals().set_blocked(previous_mask);
+            self->signal_restore_mask(previous_mask);
             arch::cpu::interrupts();
             return -EINTR;
         }

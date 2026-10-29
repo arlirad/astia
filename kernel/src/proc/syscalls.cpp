@@ -71,6 +71,9 @@ namespace syscall {
                 return;
             }
             const signal_disposition disposition = owner->signals().disposition(signal);
+            const bool suspended = self->has_signal_restore_mask();
+            const u32 restore_mask = suspended ? self->signal_restore_mask()
+                                               : owner->signals().blocked();
             if (disposition.action == signal_action::handler) {
                 auto&           frame = raw_frame;
                 constexpr usize bytes = sizeof(astia_x86_64_signal_context_t) + 8;
@@ -100,7 +103,7 @@ namespace syscall {
                                                     frame.rip,
                                                     frame.rsp,
                                                     frame.rflags,
-                                                    owner->signals().blocked(),
+                                                    restore_mask,
                                                     0};
                 if (!sys::copy_out(sys::user_range::bytes(context, sizeof saved),
                                    &saved) ||
@@ -128,13 +131,22 @@ namespace syscall {
                 // kill/terminal group delivery.  Consuming the pending bit
                 // here must not requeue SIGTSTP forever (or turn SIGCONT
                 // into an ordinary ignored signal).
+                if (suspended) {
+                    owner->signals().set_blocked(restore_mask);
+                    self->clear_signal_restore_mask();
+                }
                 return;
             }
             // A default-ignored signal is consumed here.  Re-queueing it
             // would make every syscall exit deliver SIGCHLD forever when a
             // shell has no explicit SIGCHLD disposition.
-            if (default_action(signal) == signal_default::ignore)
+            if (default_action(signal) == signal_default::ignore) {
+                if (suspended) {
+                    owner->signals().set_blocked(restore_mask);
+                    self->clear_signal_restore_mask();
+                }
                 return;
+            }
             owner->signals().send(signal);
             return;
         fatal_signal:

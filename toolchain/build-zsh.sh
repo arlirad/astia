@@ -20,10 +20,6 @@ if [ ! -x "$zsh_source/configure" ]; then
     (cd "$zsh_source" && ./Util/preconfig)
 fi
 
-# Native Astia process and signal semantics require the source-level hooks
-# applied by this idempotent build-time patch.
-"$root/toolchain/patch-zsh-astia.sh" "$zsh_source"
-
 ASTIA_CROSS_BUILD="$build/astia" ASTIA_SYSROOT="$sysroot" CLANG="$clang" \
     "$root/toolchain/build-init-libc.sh"
 
@@ -38,12 +34,25 @@ EOF
 chmod +x "$build/astia-cc"
 
 cd "$build"
+cat > "$build/config.site" <<'EOF'
+# Astia supplies the freestanding libc/kernel ABI.  These answers prevent
+# configure's cross-build probes from selecting host-only implementations.
+ac_cv_func_lstat=no
+ac_cv_func_wait3=no
+ac_cv_func_waitpid=yes
+ac_cv_func_sigsuspend=yes
+ac_cv_func_sigaction=yes
+ac_cv_func_fork=yes
+ac_cv_func_setpgid=yes
+ac_cv_func_setsid=yes
+ac_cv_func_kill=yes
+EOF
+CONFIG_SITE="$build/config.site" \
 "$zsh_source/configure" \
     --host=x86_64-unknown-elf \
     --build=x86_64-pc-linux-gnu \
     CC="$build/astia-cc" \
-    CFLAGS='-O0 -DASTIA' \
-    ac_cv_func_lstat=no \
+    CFLAGS='-O0' \
     LDFLAGS='-nostdlib -static -no-pie -Wl,-Ttext-segment=0x40000000' \
     LIBS="$build/astia/image/crt0.o $sysroot/lib/libastia_libc.a $builtins"
 

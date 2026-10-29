@@ -13,14 +13,15 @@
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/fs.hpp>
-#include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
 namespace astia::proc::syscall {
     using namespace detail;
 
         i64 execve(const arch::syscall_frame& frame) {
-            using exec_logs      = astia::log::context<"execve">;
-            auto*     exec_owner = current_process();
+            // The syscall frame is the return context of this thread.  Exec
+            // replaces the address space and rewrites that frame; do not let
+            // the scheduler snapshot the half-replaced context in between.
+            arch::interrupt_guard gate;
             const u64 path_ptr   = frame.a0;
             const u64 argv_ptr   = frame.a1;
             const u64 envp_ptr   = frame.a2;
@@ -40,12 +41,6 @@ namespace astia::proc::syscall {
             if (result == 0)
                 result = copy_in_vector(envp_vec, pool + vec_max * arg_cap, envp_ptr);
             if (result == 0) {
-                exec_logs::info("request pid=%d path=%s argv0=%s argv1=%s",
-                                exec_owner ? static_cast<int>(static_cast<u32>(exec_owner->pid())) : -1,
-                                path, argv_vec[0] ? argv_vec[0] : "(null)",
-                                argv_vec[1] ? argv_vec[1] : "(null)");
-            }
-            if (result == 0) {
                 auto* owner = current_process();
                 auto  file  = fs::open_path(path);
                 if (owner == nullptr || !file)
@@ -56,20 +51,26 @@ namespace astia::proc::syscall {
                     if (size <= 0 ||
                         !owner->exec_user_file(file, static_cast<usize>(size), argv_vec,
                                                envp_vec, &entry, &stack)) {
-                        exec_logs::error("load failed path=%s size=%ld", path, size);
                         result = -ENOEXEC;
                     }
                     else {
-                        exec_logs::info("loaded path=%s entry=%llx stack=%llx tls=%llx",
-                                        path, static_cast<unsigned long long>(entry),
-                                        static_cast<unsigned long long>(stack),
-                                        static_cast<unsigned long long>(owner->tls_tp()));
-                        auto& next  = const_cast<arch::syscall_frame&>(frame);
-                        next.rip    = entry;
-                        next.rsp    = stack;
-                        next.rflags = 0x202;
+                        // This is the existing thread, not a freshly
+                        // prepared spawn thread.  Update both halves of the
+                        // ABI state: the syscall iret image and the thread
+                        // bookkeeping consumed by a subsequent fork or
+                        // context hand-off.
+                        current_thread()->user_stack_top(stack);
                         arch::context_set_fs_base(current_thread()->context(),
                                                   owner->tls_tp());
+                        // Write the live syscall iret image last.  The exec
+                        // loader may run with interrupts enabled and a
+                        // context hand-off can otherwise leave the return
+                        // image stale while the thread bookkeeping is being
+                        // updated.
+                        auto& next = const_cast<arch::syscall_frame&>(frame);
+                        next.rip       = entry;
+                        next.rsp       = stack;
+                        next.rflags    = 0x202;
                         result = 0;
                     }
                 }

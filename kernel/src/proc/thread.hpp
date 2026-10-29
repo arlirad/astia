@@ -114,6 +114,7 @@ namespace astia::proc {
         u64 user_stack_top() const {
             return user_stack_top_;
         }
+
         u64 tls_mapping_base() const {
             return tls_mapping_base_;
         }
@@ -145,6 +146,13 @@ namespace astia::proc {
         void idle(bool value) {
             idle_ = value;
         }
+        bool has_signal_restore_mask() const { return signal_restore_armed_; }
+        u32 signal_restore_mask() const { return signal_restore_mask_; }
+        void signal_restore_mask(u32 value) {
+            signal_restore_mask_ = value;
+            signal_restore_armed_ = true;
+        }
+        void clear_signal_restore_mask() { signal_restore_armed_ = false; }
 
         void entry(u64 value) {
             entry_ = value;
@@ -186,6 +194,8 @@ namespace astia::proc {
         bool             queued_            = false;
         bool             migratable_        = false;
         u32              cpu_owner_        = 0;
+        u32              signal_restore_mask_ = 0;
+        bool             signal_restore_armed_ = false;
     };
 
 } // namespace astia::proc
