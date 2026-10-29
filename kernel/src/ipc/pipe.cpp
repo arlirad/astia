@@ -62,6 +62,11 @@ namespace astia::fs {
                     sys::io_device_ready_context(this);
             }
 
+            void duplicate(u32 flags) override {
+                u32* count = (flags & read_end) != 0 ? &readers_ : &writers_;
+                __atomic_fetch_add(count, 1u, __ATOMIC_ACQ_REL);
+            }
+
             long submit(io_request& request) override {
                 const long result = request.direction() == io_direction::input
                                         ? read(request.buffer(), request.length(), 0)

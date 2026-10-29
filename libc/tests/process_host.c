@@ -65,10 +65,7 @@ long __astia_process_spawnve(const char* path, char* const argv[], char* const e
 }
 
 long __astia_process_execve(const char* path, char* const argv[], char* const envp[]) {
-    (void) path;
-    (void) argv;
-    (void) envp;
-    return -ENOSYS;
+    return host_trap(SYS_execve, (long) path, (long) argv, (long) envp, 0);
 }
 
 long __astia_process_fork(void) {

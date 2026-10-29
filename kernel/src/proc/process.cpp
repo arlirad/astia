@@ -422,6 +422,10 @@ namespace astia::proc {
         // Release a child's private ring at exit rather than waiting for
         // waitpid: the parent and subsequent children may still need slots.
         sys::io_exit_process(this);
+        // A dead process no longer owns any descriptors.  Release them after
+        // its ring is quiesced: a pipe writer left in a zombie would otherwise
+        // keep readers blocked until the parent reaps it.
+        descriptors_.clear_all();
         // A dynamically-created thread owns a private static-TLS VMA.
         // It is safe to remove after the thread has entered the kernel
         // through pthread_exit: no user instruction will touch %fs
@@ -949,8 +953,11 @@ namespace astia::proc {
     bool process::copy_descriptors_from(const process& other) {
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
             auto entry = other.descriptors_.get(fd_t{static_cast<i32>(fd)});
-            if (entry && !descriptors_.set(fd_t{static_cast<i32>(fd)}, entry,
-                                           other.descriptors_.flags(fd_t{static_cast<i32>(fd)}))) {
+            auto copy = entry ? mm::share<fs::open_file>(*entry)
+                              : mm::shptr<fs::open_file>{};
+            if (entry && (!copy || !descriptors_.set(
+                                      fd_t{static_cast<i32>(fd)}, copy,
+                                      other.descriptors_.flags(fd_t{static_cast<i32>(fd)})))) {
                 return false;
             }
         }

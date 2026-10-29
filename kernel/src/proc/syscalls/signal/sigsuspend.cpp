@@ -28,6 +28,7 @@ namespace astia::proc::syscall {
             // is blocked, so delivery cannot fall between the check and the
             // waiter registration.
             arch::cpu::nointerrupts();
+            const u32 previous_mask = owner->signals().blocked();
             owner->signals().set_blocked(mask);
             owner->add_signal_waiter(self);
             while (!owner->signals().has_unblocked_pending()) {
@@ -37,6 +38,10 @@ namespace astia::proc::syscall {
                 scheduler::yield();
             }
             owner->remove_signal_waiter(self);
+            // POSIX sigsuspend changes the mask only for the sleep.  Leaving
+            // the temporary mask installed loses SIGCHLD after zsh returns
+            // from its native signal wait and makes the next job reap hang.
+            owner->signals().set_blocked(previous_mask);
             arch::cpu::interrupts();
             return -EINTR;
         }

@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/mm/share.hpp>
 
 namespace astia::proc {
 
@@ -78,9 +79,12 @@ namespace astia::proc {
         if (!source) {
             return error_t::ebadf;
         }
+        auto copy = mm::share<fs::open_file>(*source);
+        if (!copy)
+            return error_t::emfile;
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
             if (!entries_[fd].file) {
-                entries_[fd].file = source;
+                entries_[fd].file = copy;
                 entries_[fd].flags = 0;
                 return fd_t{static_cast<i32>(fd)};
             }
@@ -96,7 +100,10 @@ namespace astia::proc {
             return error_t::ebadf;
         }
         if (old_fd != new_fd) {
-            entries_[new_fd.value].file = source;
+            auto copy = mm::share<fs::open_file>(*source);
+            if (!copy)
+                return error_t::emfile;
+            entries_[new_fd.value].file = copy;
             entries_[new_fd.value].flags = 0;
         }
         return new_fd;

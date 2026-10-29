@@ -93,6 +93,7 @@ namespace astia::fs {
         virtual u64              mtime_nsec() const;
         virtual long             touch(u64 sec, u64 nsec);
         virtual mm::phys_region* memory_region();
+        virtual void              duplicate(u32 flags);
         virtual void              close(u32 flags);
     };
 
@@ -103,6 +104,16 @@ namespace astia::fs {
         public:
         open_file(const mm::shptr<file>& object, u32 flags)
             : _object(object), _flags(flags) {}
+        /* Each descriptor copy owns a lifetime hook.  The backing file is
+           shared, but every fd must release one pipe endpoint on close. */
+        open_file(const open_file& other)
+            : _object(other._object), _position(other._position), _flags(other._flags),
+              _mode(other._mode), _has_path(other._has_path) {
+            for (u32 i = 0; i < path_max; ++i)
+                _path[i] = other._path[i];
+            if (_object)
+                _object->duplicate(_flags);
+        }
         open_file(const char* path, file_mode mode)
             : _mode(mode), _has_path(true) {
             for (u32 i = 0; i + 1 < path_max && path != nullptr && path[i] != '\0'; ++i)

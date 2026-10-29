@@ -65,6 +65,7 @@ struct astia_fio_batch_read {
 /* Submit all reads as one ring batch and wait for all CQEs. */
 long __astia_fio_read_batch(struct astia_fio_batch_read* requests, size_t count);
 void __astia_fio_prepare_exec(void);
+void __astia_fio_prepare_fork(void);
 long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n);
 long __astia_fio_readv(int fd, uint64_t off, const struct iovec* iov, uint32_t count);
 long __astia_fio_writev(int fd, uint64_t off, const struct iovec* iov, uint32_t count);

@@ -491,6 +491,7 @@ namespace astia::fs {
     mm::phys_region* file::memory_region() {
         return nullptr;
     }
+    void file::duplicate(u32) {}
     void file::close(u32) {}
 
     open_file::~open_file() {

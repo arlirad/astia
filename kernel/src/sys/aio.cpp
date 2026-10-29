@@ -660,15 +660,18 @@ namespace astia::sys {
 
             case OP_DUP2: {
                 proc::process*           current = proc::current_process();
-                mm::shptr<fs::open_file> source  = file_for(s.fd);
                 auto old_fd = mapper<fd_t>::from(s.fd);
                 auto new_fd = mapper<fd_t>::from(static_cast<i64>(s.offset));
-                if (current == nullptr || !source || !old_fd.has_value || !new_fd.has_value) {
+                if (current == nullptr || !old_fd.has_value || !new_fd.has_value ||
+                    !current->descriptor(old_fd.value)) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
                 const i32 target = new_fd.value.value;
                 if (target != s.fd) {
-                    current->set_descriptor(new_fd.value, source);
+                    const auto result = current->duplicate_descriptor_to(old_fd.value,
+                                                                          new_fd.value);
+                    if (!result)
+                        return cq_post_guarded(ring, s.user_data, -EMFILE);
                 }
                 return cq_post_guarded(ring, s.user_data, target);
             }
@@ -1291,15 +1294,22 @@ namespace astia::sys {
             if (slot == nullptr || !slot->used || slot->owner != owner)
                 continue;
             reap_completed(*slot);
-            bool busy = false;
-            for (u32 p = 0; p < park_capacity; ++p) {
-                if (slot->park[p].used) {
-                    busy = true;
-                    break;
+            // No operation may outlive its process.  In particular, a parked
+            // pipe read holds an open_file reference; leaving the ring slot
+            // behind until waitpid would keep that endpoint alive and prevent
+            // EOF from reaching the other end.  The process is gone, so cancel
+            // all parked operations while the slot is still owned by it.
+            {
+                arch::interrupt_guard gate;
+                for (u32 p = 0; p < park_capacity; ++p) {
+                    parked_op& op = slot->park[p];
+                    if (!op.used)
+                        continue;
+                    op.entries.release();
+                    op.object = mm::shptr<fs::open_file>{};
+                    op = parked_op{};
                 }
             }
-            if (busy)
-                continue;
             unmap_ring_user(*slot, owner);
             clear_slot(*slot);
             g_slots[i] = nullptr;

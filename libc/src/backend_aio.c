@@ -178,6 +178,17 @@ void __astia_fio_prepare_exec(void) {
     g_tag      = 0;
 }
 
+void __astia_fio_prepare_fork(void) {
+    /* The ring mapping and its kernel slot are process-owned.  Do not carry
+       either side of that ownership across fork: both continuations lazily
+       acquire a private ring before their next file operation. */
+    if (g_ring != NULL)
+        (void) astia_io_destroy(g_ring);
+    g_ring     = NULL;
+    g_inflight = 0;
+    g_tag      = 0;
+}
+
 long __astia_fio_open(const char* path, int flags, int mode) {
     uint32_t of;
 

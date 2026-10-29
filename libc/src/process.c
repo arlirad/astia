@@ -87,8 +87,15 @@ int fork(void) {
      * seam's success value — so the standard child/parent split falls
      * out of the raw result. */
     int result = process_result(__astia_process_fork());
-    if (result == 0)
+    if (result == 0) {
         __astia_fio_after_fork();
+    } else if (result > 0) {
+        /* The child inherited the ring alias as part of its address space,
+           but cannot use the parent's process-owned slot.  Reset its lazy
+           handle without destroying the parent's slot; the parent can drop
+           its own ring only after the fork has cloned the address space. */
+        __astia_fio_prepare_fork();
+    }
     return result;
 }
 

@@ -273,6 +273,7 @@ long __astia_fio_readlink(const char* path, char* buffer, size_t capacity) { lon
 long __astia_fio_readlinkat(int dirfd, const char* path, char* buffer, size_t capacity) { long rc=syscall(SYS_readlinkat,dirfd,path,buffer,capacity); return rc<0?-HOST_ERRNO:rc; }
 
 void __astia_fio_prepare_exec(void) {}
+void __astia_fio_prepare_fork(void) {}
 void __astia_fio_after_fork(void) {}
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
     (void)path; (void)index; (void)out; return -ENOSYS;
