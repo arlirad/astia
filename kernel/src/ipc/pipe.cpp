@@ -56,6 +56,22 @@ namespace astia::fs {
                 return count;
             }
 
+            u32 poll(u32 events, u32 flags) override {
+                u32 result = 0;
+                if ((flags & read_end) != 0) {
+                    if (__atomic_load_n(&head_, __ATOMIC_ACQUIRE) !=
+                        __atomic_load_n(&tail_, __ATOMIC_RELAXED)) result |= POLLIN;
+                    if (__atomic_load_n(&writers_, __ATOMIC_ACQUIRE) == 0)
+                        result |= POLLIN | POLLHUP;
+                } else if (__atomic_load_n(&readers_, __ATOMIC_ACQUIRE) == 0) {
+                    result |= POLLERR;
+                } else if (capacity - (__atomic_load_n(&head_, __ATOMIC_RELAXED) -
+                                       __atomic_load_n(&tail_, __ATOMIC_ACQUIRE)) != 0) {
+                    result |= POLLOUT;
+                }
+                return result & (events | POLLERR | POLLHUP);
+            }
+
             void close(u32 flags) override {
                 u32* count = (flags & read_end) != 0 ? &readers_ : &writers_;
                 if (__atomic_fetch_sub(count, 1u, __ATOMIC_ACQ_REL) == 1)

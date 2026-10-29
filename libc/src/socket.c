@@ -3,13 +3,16 @@
 #include <stdint.h>
 #include <string.h>
 long __astia_fio_socket(int,int,int); long __astia_fio_bind(int,const void*,uint32_t);
+long __astia_fio_socketpair(int,int,int,int[2]); long __astia_fio_shutdown(int,int);
 long __astia_fio_listen(int,int); long __astia_fio_accept(int,void*,uint32_t*); long __astia_fio_connect(int,const void*,uint32_t);
 long __astia_fio_send(int,const void*,unsigned long,int); long __astia_fio_recv(int,void*,unsigned long,int);
 static int r(long v){if(v<0){errno=(int)-v;return -1;}return (int)v;}
 typedef struct { uint32_t len; uint32_t family; unsigned char data[120]; } astia_sockaddr;
 int socket(int d,int t,int p){return r(__astia_fio_socket(d,t,p));}
+int socketpair(int d,int t,int p,int fds[2]){return r(__astia_fio_socketpair(d,t,p,fds));}
+int shutdown(int f,int how){return r(__astia_fio_shutdown(f,how));}
 static int addr(const struct sockaddr *in, unsigned int n, astia_sockaddr *out) {
-    if (!in || n < 2 || n > 110 || in->sa_family != AF_UNIX) { errno = EINVAL; return -1; }
+    if (!in || n < 3 || n > 110 || in->sa_family != AF_UNIX) { errno = EINVAL; return -1; }
     memset(out, 0, sizeof *out); out->family = AF_UNIX; out->len = n;
     memcpy(out->data, ((const unsigned char*)in) + 2, n - 2); return 0;
 }

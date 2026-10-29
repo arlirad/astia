@@ -103,6 +103,11 @@ int close(int fd) {
     }
     return (int) rc;
 }
+int umount(const char* target) {
+    long rc = astia_unmount(target);
+    if (rc < 0) { errno = (int)-rc; return -1; }
+    return 0;
+}
 int dup(int fd) {
     long rc = __astia_fio_dup(fd);
     if (rc < 0) {

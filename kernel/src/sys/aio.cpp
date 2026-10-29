@@ -103,6 +103,8 @@ namespace astia::sys {
             bool                     done     = false;
             bool                     resuming = false;
             bool                     control  = false;
+            bool                     readiness = false;
+            u32                      poll_events = 0;
             i32                      fd;
             mm::shptr<fs::open_file> object;
             /// The caller's frames, held for the whole flight of the
@@ -395,9 +397,22 @@ namespace astia::sys {
         /// operation on to the next entry.  A device that is still not ready
         /// returns 0 and stays parked.
         void resume_parked(astia_rings* ring, parked_op& op) {
-            if (op.resuming)
+            // Cancellation posts the target CQE and marks the operation done,
+            // but the readiness nudge that was already in flight may still
+            // reach this slot before task context reaps it.  Never post a
+            // second completion for a canceled operation.
+            if (op.resuming || op.done)
                 return;
             op.resuming = true;
+            if (op.readiness) {
+                const u32 ready = op.object ? op.object->poll(op.poll_events)
+                                             : static_cast<u32>(POLLNVAL);
+                if (ready == 0) { op.resuming = false; return; }
+                if (cq_post(ring, op.request.user_data(), static_cast<i32>(ready)))
+                    op.done = true;
+                op.resuming = false;
+                return;
+            }
             long result = 0;
             if (pump(op, result) == io_outcome::parked) {
                 op.resuming = false;
@@ -1048,7 +1063,61 @@ namespace astia::sys {
             case OP_ACCEPT: {
                 auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
                 return submit_request(slot, ring, s, object, nullptr, 0,
-                                      io_direction::input, true);
+                                       io_direction::input, true);
+            }
+
+            case OP_POLL_ADD: {
+                auto object = file_for(s.fd);
+                if (!object)
+                    return cq_post_guarded(ring, s.user_data, POLLNVAL);
+                const u32 ready = object->poll(s.aux);
+                if (ready != 0)
+                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(ready));
+                arch::interrupt_guard gate;
+                parked_op* p = nullptr;
+                for (u32 i = 0; i < park_capacity; ++i)
+                    if (!slot.park[i].used) { p = &slot.park[i]; break; }
+                if (p == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -EBUSY);
+                p->used = true; p->done = false; p->resuming = false;
+                p->control = true; p->readiness = true; p->poll_events = s.aux;
+                p->fd = s.fd; p->object = object;
+                p->request = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
+                return true;
+            }
+
+            case OP_CANCEL: {
+                const u64 target = s.offset;
+                for (u32 i = 0; i < park_capacity; ++i) {
+                    parked_op& p = slot.park[i];
+                    if (p.used && !p.done && p.request.user_data() == target) {
+                        p.done = cq_post_guarded(ring, target, -ECANCELED);
+                        return cq_post_guarded(ring, s.user_data, 0);
+                    }
+                }
+                return cq_post_guarded(ring, s.user_data, -ENOENT);
+            }
+            case OP_SOCKETPAIR: {
+                if (s.fd != AF_UNIX || s.op_flags != SOCK_STREAM || s.aux != 0 ||
+                    s.length != 2 * sizeof(i32) ||
+                    !sys::user_range_ok(sys::user_range::bytes(s.address, s.length)))
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                proc::process* current = proc::current_process();
+                if (!current) return cq_post_guarded(ring, s.user_data, -ESRCH);
+                mm::shptr<fs::open_file> a,b; long rc=fs::unix_socketpair(a,b,s.op_flags);
+                if (rc < 0) return cq_post_guarded(ring,s.user_data,(i32)rc);
+                i32 fds[2]={-1,-1};
+                for(i32 fd=3;fd<(i32)proc::max_process_fds && fds[1]<0;++fd) {
+                    if (fds[0]<0 && !current->descriptor(fd_t{fd}) && current->set_descriptor(fd_t{fd},a)) fds[0]=fd;
+                    else if (fds[0]>=0 && !current->descriptor(fd_t{fd}) && current->set_descriptor(fd_t{fd},b)) fds[1]=fd;
+                }
+                if(fds[1]<0){if(fds[0]>=0)current->clear_descriptor(fd_t{fds[0]});return cq_post_guarded(ring,s.user_data,-EMFILE);}
+                if(!sys::copy_out(sys::user_range::bytes(s.address,s.length),fds)){current->clear_descriptor(fd_t{fds[0]});current->clear_descriptor(fd_t{fds[1]});return cq_post_guarded(ring,s.user_data,-EFAULT);}
+                return cq_post_guarded(ring,s.user_data,0);
+            }
+            case OP_SHUTDOWN: {
+                auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
+                return cq_post_guarded(ring,s.user_data,(i32)fs::unix_shutdown(*object,s.op_flags));
             }
 
             default:

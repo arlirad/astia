@@ -44,6 +44,7 @@ int          setreuid(unsigned int real_uid, unsigned int effective_uid);
 int          setregid(unsigned int real_gid, unsigned int effective_gid);
 int          access(const char* path, int mode);
 int          close(int fd);
+int          umount(const char* target);
 int          dup(int fd);
 int          dup2(int old_fd, int new_fd);
 int          isatty(int fd);

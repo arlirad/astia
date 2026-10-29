@@ -4,6 +4,8 @@
 
 namespace astia::dev {
 
+    u32 device::poll(u32 events, u32) { return events & (POLLIN | POLLOUT); }
+
     long device::ioctl(u64 request, void* argp) {
         (void) request;
         (void) argp;

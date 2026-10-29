@@ -15,6 +15,10 @@ namespace astia::dev {
     long device_file::submit(io_request& request) {
         return _device == nullptr ? -EINVAL : _device->submit(request);
     }
+    u32 device_file::poll(u32 events, u32 flags) {
+        return _device == nullptr ? static_cast<u32>(POLLNVAL)
+                                  : _device->poll(events, flags);
+    }
 
     long device_file::ioctl(u64 request, void* argp) {
         return _device == nullptr ? -EINVAL : _device->ioctl(request, argp);

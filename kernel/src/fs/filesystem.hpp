@@ -15,5 +15,7 @@ namespace astia::fs {
 
     long register_type(const filesystem* type);
     long mount_type(const char* type, const char* target, const char* source = nullptr);
+    /// Remove a non-root mount after all handles and child mounts are gone.
+    long unmount_type(const char* target);
 
 } // namespace astia::fs

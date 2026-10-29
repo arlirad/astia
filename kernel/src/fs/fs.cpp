@@ -131,6 +131,7 @@ namespace astia::fs {
     uid_t file::uid() const { return {}; }
     gid_t file::gid() const { return {}; }
     long file::chown(uid_t, gid_t) { return -ENOSYS; }
+    u32 file::poll(u32 events, u32) { return events & (POLLIN | POLLOUT); }
     long mount::chmod(const char*, file_permissions) { return -ENOSYS; }
     long mount::chown(const char*, uid_t, gid_t) { return -ENOSYS; }
     long mount::symlink(const char*, const char*) { return -ENOSYS; }
@@ -195,6 +196,35 @@ namespace astia::fs {
         return 0;
     }
 
+    long unmount_type(const char* target) {
+        char checked_target[path_max]{};
+        if (!copy_path(checked_target, target))
+            return target == nullptr ? -EFAULT : -EINVAL;
+        if (equal(checked_target, "/"))
+            return -EBUSY;
+        mount_entry* selected = nullptr;
+        for (u32 i = 0; i < max_mounts; ++i) {
+            if (mounts[i].used && equal(mounts[i].target, checked_target)) {
+                selected = &mounts[i];
+                break;
+            }
+        }
+        if (selected == nullptr)
+            return -ENOENT;
+        if (selected->instance->open_count() != 0)
+            return -EBUSY;
+        for (u32 i = 0; i < max_mounts; ++i) {
+            if (!mounts[i].used || &mounts[i] == selected)
+                continue;
+            if (path_matches(checked_target, mounts[i].target))
+                return -EBUSY;
+        }
+        selected->used = false;
+        selected->target[0] = '\0';
+        selected->instance = nullptr;
+        return 0;
+    }
+
     long register_device(const char* path, const mm::shptr<file>& object) {
         mount_entry* entry = find_mount(path);
         if (entry == nullptr)
@@ -210,7 +240,10 @@ namespace astia::fs {
         if (entry == nullptr)
             return {};
         auto result = entry->instance->open(relative_path(*entry, resolved), flags);
-        if (result) result->set_path(resolved);
+        if (result) {
+            result->set_path(resolved);
+            result->attach_mount(entry->instance);
+        }
         return result;
     }
 
@@ -222,7 +255,11 @@ namespace astia::fs {
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, true);
         if (rc < 0 || node_type(resolved) != directory_dir) return {};
-        return mm::share<open_file>(resolved, node_mode(resolved));
+        mount_entry* entry = find_mount(resolved);
+        if (entry == nullptr) return {};
+        auto result = mm::share<open_file>(resolved, node_mode(resolved));
+        if (result) result->attach_mount(entry->instance);
+        return result;
     }
 
     long read_directory(const char* path, u64 index, char* name, u32 capacity,
@@ -495,8 +532,20 @@ namespace astia::fs {
     void file::close(u32) {}
 
     open_file::~open_file() {
+        if (_mount)
+            _mount->release_open();
         if (_object)
             _object->close(_flags);
+    }
+
+    void open_file::attach_mount(mount* owner) {
+        if (_mount == owner)
+            return;
+        if (_mount)
+            _mount->release_open();
+        _mount = owner;
+        if (_mount)
+            _mount->retain_open();
     }
 
     long open_file::read(void* buf, u32 len, u64 offset) {
@@ -541,6 +590,9 @@ namespace astia::fs {
         if (result > 0)
             _position = actual + static_cast<u64>(result);
         return result;
+    }
+    u32 open_file::poll(u32 events) const {
+        return _object ? _object->poll(events, _flags) : static_cast<u32>(POLLNVAL);
     }
     long open_file::ioctl(u64 request, void* argp) {
         return !_object ? -EBADF : _object->ioctl(request, argp);

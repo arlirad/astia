@@ -111,6 +111,7 @@ enum {
     SYS_SETGROUPS      = 43,
     SYS_PROCESS_SNAPSHOT = 44,
     SYS_GETSID         = 45,
+    SYS_UNMOUNT        = 46,
 };
 
 /* ------------------------------------------------------------------ */
@@ -267,6 +268,9 @@ static inline long astia_getpid(void) {
 
 static inline long astia_gettid(void) {
     return astia_raw6(SYS_GETTID, 0, 0, 0, 0, 0, 0);
+}
+static inline long astia_unmount(const char* target) {
+    return astia_raw6(SYS_UNMOUNT, (long) target, 0, 0, 0, 0, 0);
 }
 static inline long astia_getuid(void) { return astia_raw6(SYS_GETUID,0,0,0,0,0,0); }
 static inline long astia_geteuid(void) { return astia_raw6(SYS_GETEUID,0,0,0,0,0,0); }

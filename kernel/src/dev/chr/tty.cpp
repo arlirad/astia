@@ -117,6 +117,15 @@ namespace astia::dev {
         return 0;
     }
 
+    u32 tty::poll(u32 events, u32) {
+        const u32 head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
+        const u32 tail = __atomic_load_n(&_rx_tail, __ATOMIC_RELAXED);
+        const bool readable = ((head - tail) & (rx_capacity_bytes - 1)) != 0 || _eof_pending;
+        u32 result = POLLOUT;
+        if (readable) result |= POLLIN;
+        return result & (events | POLLERR | POLLHUP);
+    }
+
     void tty::tty_receive(u8 byte) {
         if ((_termios.c_iflag & IXON) != 0) {
             if (byte == _termios.c_cc[VSTOP]) {

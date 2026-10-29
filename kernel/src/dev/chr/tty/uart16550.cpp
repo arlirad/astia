@@ -53,6 +53,7 @@ namespace astia::dev {
         constexpr u8 lsr_thre       = 0x20;
 
         constexpr u8 ier_rx_ready = 0x01; // ERBFI: data-ready interrupt
+        constexpr u8 ier_tx_empty = 0x02; // ETBEI: transmitter-empty interrupt
 
         constexpr u8 fcr_enable = 0x07; // FIFOs on, both cleared, 1-byte trigger
         constexpr u8 lcr_dlab   = 0x80;
@@ -312,9 +313,13 @@ namespace astia::dev {
         for (u32 i = 0; i < thre_spins; ++i) {
             if ((_ports[reg_lsr] & lsr_thre) != 0) {
                 _ports[reg_data] = c;
+                _ports[reg_ier] = ier_rx_ready;
                 return true;
             }
         }
+        // tty::submit parks a write that cannot make progress. RX interrupts
+        // cannot wake it when the transmitter becomes empty.
+        _ports[reg_ier] = static_cast<u8>(ier_rx_ready | ier_tx_empty);
         return false;
     }
 

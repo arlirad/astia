@@ -291,6 +291,17 @@ enum {
     OP_SOCKET = 31,
     OP_BIND = 32,
     OP_LISTEN = 33,
+    OP_SOCKETPAIR = 34,
+    OP_SHUTDOWN = 35,
+};
+
+/* OP_SOCKETPAIR op_flags / OP_SHUTDOWN op_flags. */
+enum {
+    SOCK_STREAM = 1,
+    SOCK_DGRAM = 2,
+    SHUT_RD = 0,
+    SHUT_WR = 1,
+    SHUT_RDWR = 2,
 };
 
 /* OP_STATX: preserve the final directory entry instead of following it. */
@@ -372,7 +383,10 @@ enum {
 };
 #endif
 
-/* poll events (POLL_ADD op_flags; revents in cqe.result) */
+/* poll events (POLL_ADD op_flags; revents in cqe.result).  libc's poll.h
+   exposes these as macros, so do not redeclare identifiers when included
+   after that header. */
+#ifndef POLLIN
 enum {
     POLLIN   = 0x001,
     POLLPRI  = 0x002,
@@ -381,6 +395,7 @@ enum {
     POLLHUP  = 0x010,
     POLLNVAL = 0x020,
 };
+#endif
 
 /* wait options (WAIT op_flags) */
 enum {

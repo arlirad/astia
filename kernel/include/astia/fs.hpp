@@ -2,6 +2,7 @@
 
 #include <astia/common.hpp>
 #include <astia/io.hpp>
+#include <astia/api/aio.h>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/shptr.hpp>
 
@@ -15,6 +16,8 @@
 // file instances.  Descriptor allocation remains an ABI/ring concern.
 
 namespace astia::fs {
+
+    class mount;
 
     enum class file_type : u32 {
         unknown = 0, fifo = 1, character = 2, directory = 4,
@@ -83,6 +86,7 @@ namespace astia::fs {
         virtual long             read(void* buf, u32 len, u64 offset);
         virtual long             write(const void* buf, u32 len, u64 offset);
         virtual long             submit(io_request& request);
+        virtual u32              poll(u32 events, u32 flags);
         virtual long             ioctl(u64 request, void* argp);
         virtual long             size() const;
         virtual file_mode        mode() const;
@@ -108,11 +112,13 @@ namespace astia::fs {
            shared, but every fd must release one pipe endpoint on close. */
         open_file(const open_file& other)
             : _object(other._object), _position(other._position), _flags(other._flags),
-              _mode(other._mode), _has_path(other._has_path) {
+              _mode(other._mode), _has_path(other._has_path), _mount(nullptr) {
             for (u32 i = 0; i < path_max; ++i)
                 _path[i] = other._path[i];
             if (_object)
                 _object->duplicate(_flags);
+            if (other._mount)
+                attach_mount(other._mount);
         }
         open_file(const char* path, file_mode mode)
             : _mode(mode), _has_path(true) {
@@ -124,11 +130,13 @@ namespace astia::fs {
         long read(void* buf, u32 len, u64 offset = offset_current);
         long write(const void* buf, u32 len, u64 offset = offset_current);
         long submit(io_request& request);
+        u32 poll(u32 events) const;
         long ioctl(u64 request, void* argp);
         long size() const;
         file_mode mode() const;
         const char* path() const { return _has_path ? _path : nullptr; }
         void set_path(const char* path);
+        void attach_mount(mount* owner);
         u64 mtime_sec() const;
         u64 mtime_nsec() const;
 
@@ -143,6 +151,7 @@ namespace astia::fs {
         file_mode       _mode{};
         bool            _has_path = false;
         char            _path[path_max]{};
+        mount*          _mount = nullptr;
     };
 
     /// Reset the fixed VFS tables.  Called by the `fs` init step before

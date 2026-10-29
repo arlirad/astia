@@ -412,6 +412,8 @@ long __astia_fio_pipe(int fds[2]) {
 }
 
 long __astia_fio_socket(int domain, int type, int protocol) { return transact(OP_SOCKET, domain, 0, NULL, 0, (uint32_t)type, (uint32_t)protocol); }
+long __astia_fio_socketpair(int domain, int type, int protocol, int fds[2]) { return transact(OP_SOCKETPAIR, domain, 0, fds, 2*sizeof(int), (uint32_t)type, (uint32_t)protocol); }
+long __astia_fio_shutdown(int fd, int how) { return transact(OP_SHUTDOWN, fd, 0, NULL, 0, (uint32_t)how, 0); }
 long __astia_fio_bind(int fd, const void* address, uint32_t length) { return transact(OP_BIND, fd, 0, address, length, 0, 0); }
 long __astia_fio_listen(int fd, int backlog) { return transact(OP_LISTEN, fd, 0, NULL, 0, 0, (uint32_t)backlog); }
 long __astia_fio_accept(int fd, void* address, uint32_t* length) { (void)address; (void)length; return transact(OP_ACCEPT, fd, 0, NULL, 0, 0, 0); }
@@ -425,6 +427,73 @@ long __astia_fio_dup(int fd) {
 
 long __astia_fio_dup2(int old_fd, int new_fd) {
     return transact(OP_DUP2, old_fd, (uint64_t) (uint32_t) new_fd, NULL, 0, 0, 0);
+}
+
+long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
+    astia_rings* r;
+    uint64_t tags[IO_MAX_ENTRIES];
+    unsigned char pending[IO_MAX_ENTRIES] = {0};
+    size_t submitted = 0, ready_count = 0;
+    long rc;
+    if (count > IO_MAX_ENTRIES || (count != 0 && fds == NULL) || timeout_ms < -1)
+        return -EINVAL;
+    rc = ring_ensure();
+    if (rc < 0) return rc;
+    if (g_inflight != 0) { rc = settle(); if (rc < 0) return rc; }
+    r = g_ring;
+    for (size_t i = 0; i < count; ++i) {
+        astia_sqe* s = astia_sqe_slot(r);
+        if (s == NULL) return -EBUSY;
+        tags[i] = ++g_tag; pending[i] = 1;
+        memset(s, 0, sizeof *s);
+        s->op = OP_POLL_ADD; s->fd = fds[i].fd;
+        s->aux = (uint32_t)(unsigned short)fds[i].events;
+        s->user_data = tags[i];
+        astia_sq_publish(r, 1); ++submitted;
+    }
+    astia_timespec ts;
+    astia_timespec* tsp = NULL;
+    if (timeout_ms >= 0) {
+        ts.tv_sec = timeout_ms / 1000;
+        ts.tv_nsec = (timeout_ms % 1000) * 1000000;
+        tsp = &ts;
+    }
+    rc = astia_io_enter(r, (uint32_t)submitted, timeout_ms == 0 ? 0 : 1,
+                        timeout_ms == 0 ? 0 : ENTER_GETEVENTS, tsp);
+    if (rc < 0 && rc != -ETIMEDOUT) goto cancel;
+    for (;;) {
+        astia_cqe* c = astia_cq_peek(r);
+        if (c == NULL) break;
+        for (size_t i = 0; i < count; ++i) if (pending[i] && tags[i] == c->user_data) {
+            pending[i] = 0;
+            if (c->result >= 0) { fds[i].revents = (short)c->result; if (c->result) ++ready_count; }
+            break;
+        }
+        astia_cq_consume(r, 1);
+    }
+cancel:
+    {
+        size_t left = 0;
+        for (size_t i = 0; i < count; ++i) if (pending[i]) {
+            astia_sqe* s = astia_sqe_slot(r);
+            if (s == NULL) break;
+            memset(s, 0, sizeof *s); s->op = OP_CANCEL; s->offset = tags[i];
+            s->user_data = ++g_tag; astia_sq_publish(r, 1); ++left;
+            pending[i] = 0;
+        }
+        if (left) (void) astia_io_enter(r, (uint32_t)left, 0, 0, NULL);
+        while (astia_cq_peek(r) != NULL) {
+            astia_cqe* c = astia_cq_peek(r);
+            for (size_t i = 0; i < count; ++i) if (tags[i] == c->user_data && c->result >= 0) {
+                fds[i].revents = (short)c->result;
+                if (c->result) ++ready_count;
+                break;
+            }
+            astia_cq_consume(r, 1);
+        }
+    }
+    if (rc < 0 && rc != -ETIMEDOUT) return rc;
+    return (long)ready_count;
 }
 
 void __astia_fio_after_fork(void) {

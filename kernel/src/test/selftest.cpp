@@ -13,6 +13,7 @@
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
+#include "../fs/filesystem.hpp"
 #include "../arch/x86_64/smp.hpp"
 
 namespace astia::test {
@@ -413,6 +414,27 @@ namespace astia::test {
             return true;
         }
 
+        bool mount_lifecycle_checks() {
+            if (fs::unmount_type("/") != -EBUSY ||
+                fs::unmount_type("/missing") != -ENOENT) {
+                logs::error("mount lifecycle fail (validation)");
+                return false;
+            }
+            auto open = fs::open("/tmp/lifecycle", 0x04);
+            if (!open || fs::unmount_type("/tmp") != -EBUSY) {
+                logs::error("mount lifecycle fail (open handle)");
+                return false;
+            }
+            open = {};
+            if (fs::unmount_type("/tmp") != 0 || fs::node_type("/tmp") != fs::directory_unknown ||
+                fs::mount_type("tmpfs", "/tmp") != 0) {
+                logs::error("mount lifecycle fail (teardown/remount)");
+                return false;
+            }
+            logs::info("mount lifecycle ok");
+            return true;
+        }
+
     } // namespace
 
     bool run() {
@@ -435,6 +457,9 @@ namespace astia::test {
             return false;
         }
         if (!statx_checks()) {
+            return false;
+        }
+        if (!mount_lifecycle_checks()) {
             return false;
         }
 

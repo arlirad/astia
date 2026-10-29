@@ -1,0 +1,13 @@
+.TH SOCKETPAIR 3
+.SH NAME
+socketpair \- libc wrapper for a connected local socket pair
+.SH SYNOPSIS
+.B #include <sys/socket.h>
+.PP
+.B int socketpair(int domain, int type, int protocol, int sv[2]);
+.SH DESCRIPTION
+The libc wrapper submits the native socketpair operation and translates a
+negative Astia ABI result into -1 with errno. Only AF_UNIX SOCK_STREAM pairs
+are currently provided.
+.SH RETURN VALUE
+Returns zero on success and fills sv[0] and sv[1], or returns -1 on error.

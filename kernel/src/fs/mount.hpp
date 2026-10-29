@@ -24,6 +24,13 @@ namespace astia::fs {
         virtual long chown(const char* path, uid_t uid, gid_t gid);
         virtual long symlink(const char* target, const char* path);
         virtual long readlink(const char* path, char* buffer, u32 capacity) const;
+
+        void retain_open() { ++open_count_; }
+        void release_open() { if (open_count_ != 0) --open_count_; }
+        u32 open_count() const { return open_count_; }
+
+        private:
+        u32 open_count_ = 0;
     };
 
 } // namespace astia::fs

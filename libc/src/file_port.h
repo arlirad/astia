@@ -30,6 +30,7 @@
 
 #include <astia/api/aio.h>
 #include <sys/uio.h>
+#include <poll.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -93,5 +94,6 @@ long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length);
 long __astia_fio_pipe(int fds[2]);
 long __astia_fio_dup(int fd);
 long __astia_fio_dup2(int old_fd, int new_fd);
+long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms);
 void __astia_fio_after_fork(void);
 #pragma GCC visibility pop
