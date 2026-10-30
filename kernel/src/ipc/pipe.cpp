@@ -7,9 +7,7 @@
 
 namespace astia::fs {
     namespace {
-        constexpr u32 capacity  = 4096;
-        constexpr u32 read_end  = 1u << 31;
-        constexpr u32 write_end = 1u << 30;
+        constexpr u32 pipe_capacity_bytes = 4096;
 
         class pipe_file final : public file {
             public:
@@ -29,7 +27,7 @@ namespace astia::fs {
                     count     = available < length ? available : length;
                     auto* out = static_cast<u8*>(buffer);
                     for (u32 i = 0; i < count; ++i)
-                        out[i] = data_[(tail + i) & (capacity - 1)];
+                        out[i] = data_[(tail + i) & (pipe_capacity_bytes - 1)];
                     tail_ = tail + count;
                 }
                 // A reader creates space for a parked writer.  Wake by
@@ -49,13 +47,13 @@ namespace astia::fs {
                     core::spinlock_guard guard(lock_);
                     const u32            head = head_;
                     const u32            tail = tail_;
-                    const u32            free = capacity - (head - tail);
+                    const u32            free = pipe_capacity_bytes - (head - tail);
                     if (free == 0)
                         return 0;
                     count          = free < length ? free : length;
                     const auto* in = static_cast<const u8*>(buffer);
                     for (u32 i = 0; i < count; ++i)
-                        data_[(head + i) & (capacity - 1)] = in[i];
+                        data_[(head + i) & (pipe_capacity_bytes - 1)] = in[i];
                     head_ = head + count;
                 }
                 // A writer makes data available to parked readers.  The
@@ -68,7 +66,7 @@ namespace astia::fs {
             u32 poll(u32 events, u32 flags) override {
                 core::spinlock_guard guard(lock_);
                 u32                  result = 0;
-                if ((flags & read_end) != 0) {
+                if ((flags & pipe_read_endpoint_flag) != 0) {
                     if (head_ != tail_)
                         result |= POLLIN;
                     if (__atomic_load_n(&writers_, __ATOMIC_ACQUIRE) == 0)
@@ -77,20 +75,20 @@ namespace astia::fs {
                 else if (__atomic_load_n(&readers_, __ATOMIC_ACQUIRE) == 0) {
                     result |= POLLERR;
                 }
-                else if (capacity - (head_ - tail_) != 0) {
+                else if (pipe_capacity_bytes - (head_ - tail_) != 0) {
                     result |= POLLOUT;
                 }
                 return result & (events | POLLERR | POLLHUP);
             }
 
             void close(u32 flags) override {
-                u32* count = (flags & read_end) != 0 ? &readers_ : &writers_;
+                u32* count = (flags & pipe_read_endpoint_flag) != 0 ? &readers_ : &writers_;
                 if (__atomic_fetch_sub(count, 1u, __ATOMIC_ACQ_REL) == 1)
                     sys::io_device_ready_context(this);
             }
 
             void duplicate(u32 flags) override {
-                u32* count = (flags & read_end) != 0 ? &readers_ : &writers_;
+                u32* count = (flags & pipe_read_endpoint_flag) != 0 ? &readers_ : &writers_;
                 __atomic_fetch_add(count, 1u, __ATOMIC_ACQ_REL);
             }
 
@@ -112,7 +110,7 @@ namespace astia::fs {
             u32            head_ = 0;
             u32            tail_ = 0;
             core::spinlock lock_;
-            u8             data_[capacity]{};
+            u8             data_[pipe_capacity_bytes]{};
             u32            readers_;
             u32            writers_;
         };
@@ -123,8 +121,8 @@ namespace astia::fs {
         mm::shptr<pipe_file> object(new pipe_file{});
         if (!object)
             return -ENOMEM;
-        read_end  = mm::share<open_file>(object, 1u << 31);
-        write_end = mm::share<open_file>(object, 1u << 30);
+        read_end  = mm::share<open_file>(object, pipe_read_endpoint_flag);
+        write_end = mm::share<open_file>(object, pipe_write_endpoint_flag);
         if (read_end && write_end)
             return 0;
         // Do not leave callers with a usable-looking half of a pipe after

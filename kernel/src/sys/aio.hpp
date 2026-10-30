@@ -38,18 +38,20 @@ namespace astia::proc {
 
 namespace astia::sys {
 
-    /// Pool geometry for kernel-owned rings (v1).  The ABI allows 4096
+    /// Pool geometry for kernel-owned rings (v1).  The ABI allows
     /// entries; the static pool serves 64, which is more than any
     /// in-kernel client submits — userspace rings will move to
     /// heap-backed mappings when the syscall layer lands.
-    inline constexpr u32 io_ring_max_entries = 64;
+    inline constexpr u32 kernel_ring_max_entries = 64;
+    static_assert(kernel_ring_max_entries <= IO_MAX_ENTRIES,
+                  "kernel ring cap must fit the AIO ABI cap");
 
     /// The object the engine invokes for a descriptor.  Device classes
     /// derive from this through fs::file.
     using io_device = fs::file;
 
     /// Carve a ring out of the kernel pool: entries rounded up to a
-    /// power of two within [1, io_ring_max_entries], CQ sized
+    /// power of two within [1, kernel_ring_max_entries], CQ sized
     /// max(64, 2 * sq) per the ABI.  flags takes the SETUP_* set; none
     /// are implemented yet, so 0 only.  Returns >= 0, or -errno:
     /// -EINVAL (bad flags/entries), -ENFILE (pool exhausted), and — for a

@@ -69,7 +69,7 @@ extern "C" {
 /* version and capacities                                              */
 /* ------------------------------------------------------------------ */
 
-/* Ring capacities: power of two, 1 .. IO_MAX_ENTRIES.  The kernel rounds
+/* ABI ring capacities: power of two, 1 .. IO_MAX_ENTRIES.  The kernel rounds
    the request up; the actual sizes land in astia_rings.  The CQ is sized
    to max(64, 2 * sq_entries) so completions never lag submissions. */
 enum { IO_MAX_ENTRIES = 4096 };

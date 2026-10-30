@@ -66,17 +66,36 @@ namespace astia::dev {
         constexpr char device_path[]  = "/dev/tts0";
         constexpr char console_path[] = "/dev/console";
 
+        constexpr u16 com1_base = 0x3F8;
+        constexpr u8  com1_irq  = 4;
+
+        // Tags are private to this boot selftest; completion order is not fixed.
+        enum : u64 {
+            ring_tag_open = 0xC0DE00,
+            ring_tag_read = 0xC0DE01,
+            ring_tag_write = 0xC0DE02,
+            ring_tag_collect = 0xC0DE03,
+            ring_tag_close = 0xC0DE04,
+            ring_tag_dup = 0xC0DE05,
+            ring_tag_dup2 = 0xC0DE06,
+            ring_tag_alias_close = 0xC0DE07,
+        };
+
+        constexpr char ring_payload[] = "ping";
+        constexpr u32 ring_payload_len = sizeof(ring_payload) - 1;
+
         // QEMU answers THR instantly and real hardware shifts a byte in
         // under 100 µs at 115200; the cap fires only on a dead port,
         // where losing a console byte beats wedging the boot.
-        constexpr u32 thre_spins = 1u << 22;
+        // Bounded polling policy so a broken UART cannot hang the caller.
+        constexpr u32 transmitter_ready_spin_limit = 1u << 22;
 
         // Constant-initialized, mutable, and placed in writable data:
         // the polled console works before (and without) any
         // constructor having run, which is what a kernel without
         // .init_array needs.  constinit enforces static initialization
         // while retaining writable RX state and cursors.
-        constinit uart16550   com1{"tts0", 0x3F8, 4};
+        constinit uart16550   com1{"tts0", com1_base, com1_irq};
         constinit device_file com1_file{&com1};
 
         void uart16550_irq() {
@@ -98,9 +117,6 @@ namespace astia::dev {
         // while the loop is closed every console byte goes back into
         // the receive FIFO instead of out the port.
         const char* ring_selftest_body(astia_rings* ring, char* got) {
-            constexpr char payload[]   = "ping";
-            constexpr u32  payload_len = sizeof(payload) - 1;
-
             // Open the device through the VFS first.  The rest of this
             // test deliberately uses the returned descriptor rather
             // than the standard descriptors installed at init time.
@@ -113,13 +129,13 @@ namespace astia::dev {
             s->fd        = -1; // current VFS has one exact-path namespace
             s->address   = reinterpret_cast<u64>(device_path);
             s->aux       = 0;
-            s->user_data = 0xC0DE00;
+            s->user_data = ring_tag_open;
             astia_sq_publish(ring, 1);
             if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
                 return "open kick failed";
             }
             astia_cqe* open_cqe = astia_cq_peek(ring);
-            if (open_cqe == nullptr || open_cqe->user_data != 0xC0DE00 ||
+            if (open_cqe == nullptr || open_cqe->user_data != ring_tag_open ||
                 open_cqe->result < 0) {
                 return "open mismatch";
             }
@@ -135,13 +151,13 @@ namespace astia::dev {
             *s           = astia_sqe{};
             s->op        = OP_DUP;
             s->fd        = fd;
-            s->user_data = 0xC0DE05;
+            s->user_data = ring_tag_dup;
             astia_sq_publish(ring, 1);
             if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
                 return "dup kick failed";
             }
             astia_cqe* dup_cqe = astia_cq_peek(ring);
-            if (dup_cqe == nullptr || dup_cqe->user_data != 0xC0DE05 ||
+            if (dup_cqe == nullptr || dup_cqe->user_data != ring_tag_dup ||
                 dup_cqe->result < 0) {
                 return "dup mismatch";
             }
@@ -156,13 +172,13 @@ namespace astia::dev {
             s->op        = OP_DUP2;
             s->fd        = dup_fd;
             s->offset    = 5;
-            s->user_data = 0xC0DE06;
+            s->user_data = ring_tag_dup2;
             astia_sq_publish(ring, 1);
             if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
                 return "dup2 kick failed";
             }
             astia_cqe* dup2_cqe = astia_cq_peek(ring);
-            if (dup2_cqe == nullptr || dup2_cqe->user_data != 0xC0DE06 ||
+            if (dup2_cqe == nullptr || dup2_cqe->user_data != ring_tag_dup2 ||
                 dup2_cqe->result != 5) {
                 return "dup2 mismatch";
             }
@@ -181,7 +197,7 @@ namespace astia::dev {
                 *s           = astia_sqe{};
                 s->op        = OP_CLOSE;
                 s->fd        = close_fd;
-                s->user_data = 0xC0DE07 + static_cast<u64>(close_fd == dup_fd);
+                s->user_data = ring_tag_alias_close + static_cast<u64>(close_fd == dup_fd);
                 astia_sq_publish(ring, 1);
                 if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
                     return "alias close kick failed";
@@ -206,8 +222,8 @@ namespace astia::dev {
             s->op        = OP_READ;
             s->fd        = fd;
             s->address   = reinterpret_cast<u64>(got);
-            s->length    = payload_len;
-            s->user_data = 0xC0DE01;
+            s->length    = ring_payload_len;
+            s->user_data = ring_tag_read;
             astia_sq_publish(ring, 1);
 
             s = astia_sqe_slot(ring);
@@ -217,9 +233,9 @@ namespace astia::dev {
             *s           = astia_sqe{};
             s->op        = OP_WRITE;
             s->fd        = fd;
-            s->address   = reinterpret_cast<u64>(payload);
-            s->length    = payload_len;
-            s->user_data = 0xC0DE02;
+            s->address   = reinterpret_cast<u64>(ring_payload);
+            s->length    = ring_payload_len;
+            s->user_data = ring_tag_write;
             astia_sq_publish(ring, 1);
 
             // One kick submits both and waits for both completions; the
@@ -234,15 +250,15 @@ namespace astia::dev {
             long read_count  = -1;
             long write_count = -1;
             while (astia_cqe* c = astia_cq_peek(ring)) {
-                if (c->user_data == 0xC0DE01) {
+                if (c->user_data == ring_tag_read) {
                     read_count = c->result;
                 }
-                else if (c->user_data == 0xC0DE02) {
+                else if (c->user_data == ring_tag_write) {
                     write_count = c->result;
                 }
                 astia_cq_consume(ring, 1);
             }
-            if (write_count != static_cast<long>(payload_len) || read_count < 1) {
+            if (write_count != static_cast<long>(ring_payload_len) || read_count < 1) {
                 return "first pass mismatch";
             }
             u32 have = static_cast<u32>(read_count);
@@ -251,7 +267,7 @@ namespace astia::dev {
             // looped-back byte, so the tail of the payload arrives
             // through follow-up reads — park, wake, repeat until the
             // string is whole.
-            for (u32 round = 0; have < payload_len && round < 8; ++round) {
+            for (u32 round = 0; have < ring_payload_len && round < 8; ++round) {
                 s = astia_sqe_slot(ring);
                 if (s == nullptr) {
                     return "sq full (collect)";
@@ -260,8 +276,8 @@ namespace astia::dev {
                 s->op        = OP_READ;
                 s->fd        = fd;
                 s->address   = reinterpret_cast<u64>(got + have);
-                s->length    = payload_len - have;
-                s->user_data = 0xC0DE03 + round;
+                s->length    = ring_payload_len - have;
+                s->user_data = ring_tag_collect + round;
                 astia_sq_publish(ring, 1);
 
                 const long r2 = sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100);
@@ -269,17 +285,17 @@ namespace astia::dev {
                     return "collect kick failed";
                 }
                 astia_cqe* c = astia_cq_peek(ring);
-                if (c == nullptr || c->user_data != 0xC0DE03 + round || c->result < 1) {
+                if (c == nullptr || c->user_data != ring_tag_collect + round || c->result < 1) {
                     return "collect mismatch";
                 }
                 have += static_cast<u32>(c->result);
                 astia_cq_consume(ring, 1);
             }
 
-            if (have != payload_len) {
+            if (have != ring_payload_len) {
                 return "short read";
             }
-            if (memcmp(got, payload, payload_len) != 0) {
+            if (memcmp(got, ring_payload, ring_payload_len) != 0) {
                 return "payload mismatch";
             }
 
@@ -293,13 +309,13 @@ namespace astia::dev {
             *s           = astia_sqe{};
             s->op        = OP_CLOSE;
             s->fd        = fd;
-            s->user_data = 0xC0DE04;
+            s->user_data = ring_tag_close;
             astia_sq_publish(ring, 1);
             if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
                 return "close kick failed";
             }
             astia_cqe* close_cqe = astia_cq_peek(ring);
-            if (close_cqe == nullptr || close_cqe->user_data != 0xC0DE04 ||
+            if (close_cqe == nullptr || close_cqe->user_data != ring_tag_close ||
                 close_cqe->result != 0) {
                 return "close mismatch";
             }
@@ -310,7 +326,7 @@ namespace astia::dev {
     } // namespace
 
     bool uart16550::tx_byte(u8 c) {
-        for (u32 i = 0; i < thre_spins; ++i) {
+        for (u32 i = 0; i < transmitter_ready_spin_limit; ++i) {
             if ((_ports[reg_lsr] & lsr_thre) != 0) {
                 _ports[reg_data] = c;
                 _ports[reg_ier]  = ier_rx_ready;
@@ -446,9 +462,6 @@ namespace astia::dev {
     }
 
     bool uart16550_ring_selftest() {
-        constexpr char payload[]   = "ping";
-        constexpr u32  payload_len = sizeof(payload) - 1;
-
         console_puts("astia: uart16550 ring: start\n");
 
         astia_rings* ring = nullptr;
@@ -461,13 +474,13 @@ namespace astia::dev {
         com1.drain_rx();
         com1.loopback(true);
 
-        char        got[payload_len] = {};
+        char        got[ring_payload_len] = {};
         const char* why              = ring_selftest_body(ring, got);
 
         // Close the loop before reporting: while it is open, console
         // output feeds the receive FIFO instead of leaving the port.
         com1.loopback(false);
-        // The ring selftest consumes its own payload through a separate
+        // The ring selftest consumes its own ring_payload through a separate
         // descriptor, but the tty line discipline is shared with stdin.
         // Discard any residual loopback bytes before userspace inherits the
         // console, otherwise zsh starts with a phantom `ping` command.

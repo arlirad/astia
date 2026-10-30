@@ -31,7 +31,10 @@ namespace astia::fs {
     // Pipe endpoints use private high bits in open_file::_flags so that the
     // backing pipe can account readers and writers independently.  They are
     // not part of either the AIO OPENAT word or userspace fcntl status.
-    constexpr u32 open_file_private_mask = (1u << 31) | (1u << 30);
+    inline constexpr u32 pipe_read_endpoint_flag  = 1u << 31;
+    inline constexpr u32 pipe_write_endpoint_flag = 1u << 30;
+    inline constexpr u32 open_file_private_mask =
+        pipe_read_endpoint_flag | pipe_write_endpoint_flag;
     constexpr u32 open_file_status_mask =
         static_cast<u32>(open_file_status_flags::append) |
         static_cast<u32>(open_file_status_flags::nonblock);

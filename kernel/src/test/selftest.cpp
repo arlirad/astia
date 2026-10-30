@@ -361,6 +361,7 @@ namespace astia::test {
         bool statx_checks() {
             static const char probe_path[]   = "/dev/statx_probe";
             static const char missing_path[] = "/dev/astia_no_such_node";
+            constexpr u64 statx_tag = 0xC0DE57;
 
             if (fs::register_device(probe_path,
                                     mm::shptr<fs::file>::borrowed(&probe_node)) < 0) {
@@ -385,13 +386,13 @@ namespace astia::test {
                 s->address   = path == nullptr ? 0 : reinterpret_cast<u64>(path);
                 s->offset    = reinterpret_cast<u64>(out);
                 s->length    = static_cast<u32>(sizeof(astia_stat));
-                s->user_data = 0xC0DE57;
+                s->user_data = statx_tag;
                 astia_sq_publish(ring, 1);
                 if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
                     return -EIO;
                 }
                 astia_cqe* c = astia_cq_peek(ring);
-                if (c == nullptr || c->user_data != 0xC0DE57) {
+                if (c == nullptr || c->user_data != statx_tag) {
                     return -EIO;
                 }
                 const long result = c->result;

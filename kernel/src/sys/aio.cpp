@@ -157,20 +157,24 @@ namespace astia::sys {
         // actually moved.  Linux draws the same line at MAX_RW_COUNT.
         constexpr usize max_operation_bytes = 0x7ffff000;
 
-        constexpr usize map_bytes = sizeof(astia_rings) + sizeof(astia_sq_ring) +
-                                    sizeof(astia_cq_ring) +
-                                    sizeof(astia_sqe) * io_ring_max_entries +
-                                    sizeof(astia_cqe) * (2 * io_ring_max_entries);
+        // This is a kernel resource policy, so size the backing map for the
+        // kernel cap rather than the larger ABI cap in aio.h.
+        constexpr usize ring_mapping_bytes = sizeof(astia_rings) +
+                                              sizeof(astia_sq_ring) +
+                                              sizeof(astia_cq_ring) +
+                                              sizeof(astia_sqe) * kernel_ring_max_entries +
+                                              sizeof(astia_cqe) * (2 * kernel_ring_max_entries);
+        constexpr usize ring_mapping_pages =
+            align_up(ring_mapping_bytes, mm::page_size) / mm::page_size;
 
         // User-half window a ring is aliased into when a *process* sets one
         // up: the ring frames live in kernel .bss (higher half, supervisor
         // only), so an userspace producer needs its own user-accessible
-        // view of the same pages. 64 KiB per slot covers map_bytes (two
+        // view of the same pages. 64 KiB per slot covers ring_mapping_bytes
         // 4 KiB pages at today's geometry) with room to grow, and the window
         // sits well above the user image (0x40000000) and below the user
         // stack (0x7ffffff000).
-        constexpr u32 user_ring_pages =
-            static_cast<u32>((map_bytes + mm::page_mask) / mm::page_size);
+        constexpr u32 user_ring_pages = static_cast<u32>(ring_mapping_pages);
 
         // One in-flight operation.  The request lives here, in its final
         // address, rather than on the submitting stack: a device that parks
@@ -220,7 +224,7 @@ namespace astia::sys {
             // address translate() hands map_4k() — must fall on a page
             // boundary. 64 bytes is not enough.  Park state deliberately
             // sits in front of it, outside the two pages userspace sees.
-            alignas(mm::page_size) u8 map[map_bytes];
+            alignas(mm::page_size) u8 map[ring_mapping_pages * mm::page_size];
         };
 
         // Raw pointers keep the pre-heap global state trivial.  A ring
@@ -231,7 +235,7 @@ namespace astia::sys {
 
         static_assert(alignof(ring_slot) >= mm::page_size,
                       "ring slots must be page-granular (see ring_slot::map)");
-        static_assert(map_bytes <= sizeof(ring_slot::map),
+        static_assert(ring_mapping_bytes <= sizeof(ring_slot::map),
                       "ring geometry exceeds the ring_slot backing array");
 
         astia_rings* rings_of(const ring_slot& slot) {
@@ -303,7 +307,7 @@ namespace astia::sys {
             if (space == nullptr || kernel == nullptr) {
                 return -ESRCH;
             }
-            const u64 base  = proc::user_ring_base + proc::user_ring_span * index;
+            const u64 base  = proc::user_ring_base + proc::user_ring_slot_span * index;
             const u64 first = reinterpret_cast<u64>(rings_of(slot));
             for (u32 page = 0; page < user_ring_pages; ++page) {
                 const u64 offset = static_cast<u64>(page) * mm::page_size;
@@ -1733,7 +1737,7 @@ namespace astia::sys {
 
     long io_setup(u32 entries, u32 flags, astia_rings** out) {
         if (out == nullptr || flags != 0 || entries == 0 ||
-            entries > io_ring_max_entries) {
+                entries > kernel_ring_max_entries) {
             return -EINVAL;
         }
 
@@ -1894,10 +1898,11 @@ namespace astia::sys {
             }
             // Clamp before multiplying: a caller may hand any timespec, and
             // anything beyond a year of waiting is the same as "very long".
-            constexpr u64 max_ns    = nanoseconds_per_second * 60 * 60 * 24 * 365;
+            constexpr u64 max_timeout_seconds = 365ull * 24 * 60 * 60;
+            constexpr u64 max_timeout_ns = max_timeout_seconds * nanoseconds_per_second;
             const u64     ns_wanted = static_cast<u64>(timeout->tv_sec) * nanoseconds_per_second +
                                       static_cast<u64>(timeout->tv_nsec);
-            const u64     ns        = ns_wanted > max_ns ? max_ns : ns_wanted;
+            const u64     ns        = ns_wanted > max_timeout_ns ? max_timeout_ns : ns_wanted;
             // Split so no intermediate can overflow for any sane tick rate:
             // whole seconds first, then the sub-second remainder rounded up.
             ticks = (ns / nanoseconds_per_second) * hz +

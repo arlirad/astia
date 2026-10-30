@@ -95,7 +95,7 @@ namespace astia::arch::x86_64 {
         // time (the image is not 2 MiB aligned).
         const u64 phys_start = reinterpret_cast<u64>(__kernel_start);
         const u64 phys_end   = reinterpret_cast<u64>(__kernel_end);
-        for (u64 p = phys_start; p < phys_end; p += 4096) {
+        for (u64 p = phys_start; p < phys_end; p += mm::page_size) {
             if (!map.map_4k(image_base + p, p, rw)) {
                 return false;
             }
@@ -103,7 +103,7 @@ namespace astia::arch::x86_64 {
 
         // Publish the heap window: it starts right after the image in the
         // image window and gets its frames + mappings in the heap step.
-        const u64 heap_base = image_base + align_up(phys_end, 4096);
+        const u64 heap_base = image_base + align_up(phys_end, mm::page_size);
         mm::heap::configure(reinterpret_cast<void*>(heap_base), mm::heap::region_bytes,
                             map_heap_page);
 
