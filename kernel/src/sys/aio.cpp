@@ -380,13 +380,16 @@ namespace astia::sys {
             return cq_post(ring, user_data, result);
         }
 
-        mm::shptr<fs::open_file> file_for(i32 fd) {
-            proc::process* current = proc::current_process();
+        mm::shptr<fs::open_file> file_for(proc::process* current, i32 fd) {
             auto           mapped  = mapper<fd_t>::from(fd);
             if (!mapped.has_value)
                 return {};
             return current == nullptr ? mm::shptr<fs::open_file>{}
                                       : current->descriptor(mapped.value);
+        }
+
+        mm::shptr<fs::open_file> file_for(i32 fd) {
+            return file_for(proc::current_process(), fd);
         }
 
         /// What one pump() did with an operation.  The two cannot share a
@@ -490,11 +493,14 @@ namespace astia::sys {
             }
             p->used                  = true;
             p->done                  = false;
+            p->resuming              = false;
             p->fd                    = s.fd;
             p->object                = object;
             p->moved                 = 0;
             p->control               = control;
             p->socket_accept         = socket_accept;
+            p->readiness              = false;
+            p->poll_events            = 0;
             p->recvfrom_address      = s.op == OP_RECVFROM;
             p->recvfrom_address_user = p->recvfrom_address ? s.offset : 0;
 
@@ -618,6 +624,89 @@ namespace astia::sys {
             return false;
         }
 
+        struct dispatch_context {
+            ring_slot&          slot;
+            astia_rings*        ring;
+            const astia_sqe&    sqe;
+            proc::process*      current;
+
+            bool complete(i32 result) const {
+                return cq_post_guarded(ring, sqe.user_data, result);
+            }
+        };
+
+        bool dispatch_io(dispatch_context& context) {
+            const astia_sqe& s = context.sqe;
+            mm::shptr<fs::open_file> object = file_for(context.current, s.fd);
+            if (!object) {
+                return context.complete(-EBADF);
+            }
+            const io_direction direction =
+                (s.op == OP_READ || s.op == OP_RECV || s.op == OP_READV)
+                    ? io_direction::input
+                    : io_direction::output;
+            // READ/WRITE name one range, READV/WRITEV up to max_segments of
+            // them.  Both become the same list, so the engine has one path
+            // and a device still gets one buffer per submit() either way.
+            sys::user_range ranges[mm::iovec::max_segments];
+            u32             count = 0;
+            if (s.op == OP_READ || s.op == OP_WRITE || s.op == OP_SEND ||
+                s.op == OP_RECV) {
+                ranges[0] = sys::user_range::bytes(s.address, s.length);
+                count     = 1;
+            }
+            else {
+                // For READV/WRITEV, `length` counts entries, not bytes.
+                // Bound the count before copying, so a bad one cannot ask
+                // the kernel to write past its own array.
+                if (s.length > mm::iovec::max_segments) {
+                    return context.complete(-EINVAL);
+                }
+                astia_iovec raw[mm::iovec::max_segments];
+                if (s.length != 0 &&
+                    !sys::copy_in(raw, sys::user_range::bytes(
+                                           s.address, static_cast<usize>(s.length) *
+                                                          sizeof(astia_iovec)))) {
+                    return context.complete(-EFAULT);
+                }
+                // The ABI spells each entry's address as a pointer; decode
+                // it into the kernel's own range type here, at the one line
+                // that reads the caller's array, so nothing below this sees
+                // a raw pointer out of user memory.
+                for (u64 i = 0; i < s.length; ++i) {
+                    ranges[i] =
+                        sys::user_range::bytes(reinterpret_cast<u64>(raw[i].base),
+                                               static_cast<usize>(raw[i].len));
+                }
+                count = static_cast<u32>(s.length);
+            }
+            // Validated at submission, before anything is pinned, so a bad
+            // list is refused whole; the ranges are then held for the
+            // flight of the operation (see submit_request), so another
+            // thread of the process unmapping one cannot pull a buffer out
+            // from under the device.
+            usize total = 0;
+            for (u32 i = 0; i < count; ++i) {
+                if (!sys::user_range_ok(ranges[i])) {
+                    return context.complete(-EFAULT);
+                }
+                if (ranges[i].length() > max_operation_bytes ||
+                    total > max_operation_bytes - ranges[i].length()) {
+                    return context.complete(-EINVAL);
+                }
+                total += ranges[i].length();
+            }
+            // Zero bytes is satisfied, not parked: 0 is submit()'s "in
+            // flight", so a zero-length op must never reach it — a
+            // parked zero-length read would wait for a wake that can
+            // never come.
+            if (total == 0) {
+                return context.complete(0);
+            }
+            return submit_request(context.slot, context.ring, s, object, ranges, count,
+                                  direction);
+        }
+
         bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             switch (s.op) {
             case OP_NOP:
@@ -629,73 +718,8 @@ namespace astia::sys {
             case OP_RECV:
             case OP_READV:
             case OP_WRITEV: {
-                mm::shptr<fs::open_file> object = file_for(s.fd);
-                if (!object) {
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                }
-                const io_direction direction =
-                    (s.op == OP_READ || s.op == OP_RECV || s.op == OP_READV)
-                        ? io_direction::input
-                        : io_direction::output;
-                // READ/WRITE name one range, READV/WRITEV up to max_segments of
-                // them.  Both become the same list, so the engine has one path
-                // and a device still gets one buffer per submit() either way.
-                sys::user_range ranges[mm::iovec::max_segments];
-                u32             count = 0;
-                if (s.op == OP_READ || s.op == OP_WRITE || s.op == OP_SEND ||
-                    s.op == OP_RECV) {
-                    ranges[0] = sys::user_range::bytes(s.address, s.length);
-                    count     = 1;
-                }
-                else {
-                    // For READV/WRITEV, `length` counts entries, not bytes.
-                    // Bound the count before copying, so a bad one cannot ask
-                    // the kernel to write past its own array.
-                    if (s.length > mm::iovec::max_segments) {
-                        return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    }
-                    astia_iovec raw[mm::iovec::max_segments];
-                    if (s.length != 0 &&
-                        !sys::copy_in(raw, sys::user_range::bytes(
-                                               s.address, static_cast<usize>(s.length) *
-                                                              sizeof(astia_iovec)))) {
-                        return cq_post_guarded(ring, s.user_data, -EFAULT);
-                    }
-                    // The ABI spells each entry's address as a pointer; decode
-                    // it into the kernel's own range type here, at the one line
-                    // that reads the caller's array, so nothing below this sees
-                    // a raw pointer out of user memory.
-                    for (u64 i = 0; i < s.length; ++i) {
-                        ranges[i] =
-                            sys::user_range::bytes(reinterpret_cast<u64>(raw[i].base),
-                                                   static_cast<usize>(raw[i].len));
-                    }
-                    count = static_cast<u32>(s.length);
-                }
-                // Validated at submission, before anything is pinned, so a bad
-                // list is refused whole; the ranges are then held for the
-                // flight of the operation (see submit_request), so another
-                // thread of the process unmapping one cannot pull a buffer out
-                // from under the device.
-                usize total = 0;
-                for (u32 i = 0; i < count; ++i) {
-                    if (!sys::user_range_ok(ranges[i])) {
-                        return cq_post_guarded(ring, s.user_data, -EFAULT);
-                    }
-                    if (ranges[i].length() > max_operation_bytes ||
-                        total > max_operation_bytes - ranges[i].length()) {
-                        return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    }
-                    total += ranges[i].length();
-                }
-                // Zero bytes is satisfied, not parked: 0 is submit()'s "in
-                // flight", so a zero-length op must never reach it — a
-                // parked zero-length read would wait for a wake that can
-                // never come.
-                if (total == 0) {
-                    return cq_post_guarded(ring, s.user_data, 0);
-                }
-                return submit_request(slot, ring, s, object, ranges, count, direction);
+                dispatch_context context{slot, ring, s, proc::current_process()};
+                return dispatch_io(context);
             }
 
             case OP_SENDTO:
