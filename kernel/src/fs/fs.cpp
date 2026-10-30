@@ -21,6 +21,7 @@ namespace astia::fs {
             bool   used;
             char   target[path_max];
             mount* instance;
+            void (*destroy)(mount*);
         };
 
         type_entry  types[max_types];
@@ -105,6 +106,10 @@ namespace astia::fs {
         tmpfs tmpfs_type_instance;
         alignas(devfs_mount) u8 devfs_storage[sizeof(devfs_mount)];
         devfs_mount* devfs_instance;
+
+        void destroy_tmpfs_mount(mount* instance) {
+            delete static_cast<tmpfs_mount*>(instance);
+        }
     } // namespace
 
     mm::shptr<open_file> mount::open(const char* path, u32 flags) {
@@ -216,9 +221,19 @@ namespace astia::fs {
         mount* instance = type->mount(source);
         if (instance == nullptr)
             return -ENOMEM;
-        copy_path(mounts[free_slot].target, checked_target);
+
+        // The filesystem() ABI deliberately returns only a mount pointer.  The
+        // registry keeps the ownership policy private: tmpfs factories create
+        // one instance per mount, while devfs and initrd return cached objects.
+        void (*destroy)(mount*) = type == &tmpfs_type_instance ? destroy_tmpfs_mount : nullptr;
+        if (!copy_path(mounts[free_slot].target, checked_target)) {
+            if (destroy != nullptr)
+                destroy(instance);
+            return -ENAMETOOLONG;
+        }
         mounts[free_slot].used     = true;
         mounts[free_slot].instance = instance;
+        mounts[free_slot].destroy  = destroy;
         return 0;
     }
 
@@ -248,8 +263,13 @@ namespace astia::fs {
             if (path_matches(checked_target, mounts[i].target))
                 return -EBUSY;
         }
+        mount* instance = selected->instance;
+        void (*destroy)(mount*) = selected->destroy;
         selected->used = false;
         selected->instance = nullptr;
+        selected->destroy = nullptr;
+        if (destroy != nullptr)
+            destroy(instance);
         return 0;
     }
 
