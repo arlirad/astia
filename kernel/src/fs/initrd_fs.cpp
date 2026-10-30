@@ -116,7 +116,7 @@ namespace astia::fs {
     }
 
     bool initrd_mount::add(const char* path, const void* data, usize size) {
-        if (path == nullptr || data == nullptr || size == 0)
+        if (attached_ || path == nullptr || data == nullptr || size == 0)
             return false;
         char normalized[path_max]{};
         normalized[0] = '/';
@@ -139,8 +139,18 @@ namespace astia::fs {
     }
 
     bool initrd_mount::attach(const initrd::archive& archive) {
-        *this = initrd_mount{};
-        return initrd::each(archive, add_file, this);
+        if (attached_)
+            return false;
+        if (!initrd::each(archive, add_file, this)) {
+            // A failed parse never publishes this namespace.  Clear the
+            // candidate so a caller may retry it, while attached instances
+            // remain protected by the guard above.
+            for (u32 i = 0; i < initrd_max_entries; ++i)
+                entries_[i] = entry{};
+            return false;
+        }
+        attached_ = true;
+        return true;
     }
 
     mm::shptr<open_file> initrd_mount::open(const char* path, u32 flags) {
@@ -235,10 +245,20 @@ namespace astia::fs {
     }
 
     bool initrd_filesystem::attach(const initrd::archive& archive) {
-        if (instance_ == nullptr) {
-            instance_ = new initrd_mount{};
+        // Publish only a completely parsed archive.  Once published, the
+        // instance is immutable: replacing it would leave open_file mount
+        // pointers referring to a reset or freed namespace.
+        if (instance_ != nullptr)
+            return false;
+        initrd_mount* candidate = new initrd_mount{};
+        if (candidate == nullptr)
+            return false;
+        if (!candidate->attach(archive)) {
+            delete candidate;
+            return false;
         }
-        return instance_ != nullptr && instance_->attach(archive);
+        instance_ = candidate;
+        return true;
     }
 
     fs::mount* initrd_filesystem::mount(const char*) const {

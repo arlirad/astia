@@ -26,6 +26,10 @@ namespace astia::fs {
         };
 
         entry entries_[initrd_max_entries]{};
+        // An attached initrd is immutable for the lifetime of the cached
+        // instance.  In particular, attach() must never clear this object
+        // while open_file objects can still retain its mount pointer.
+        bool attached_ = false;
     };
 
     class initrd_filesystem final : public filesystem {

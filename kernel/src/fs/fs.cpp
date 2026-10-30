@@ -18,10 +18,19 @@ namespace astia::fs {
             const filesystem* type;
         };
 
+        // This policy is deliberately private to the registry.  The public
+        // filesystem::mount ABI returns only a raw mount pointer, so cached
+        // boot filesystems must not be mistaken for registry-owned objects.
+        enum class mount_ownership : u8 {
+            static_instance,
+            registry_owned,
+        };
+
         struct mount_entry {
             bool   used;
             char   target[path_max];
             mount* instance;
+            mount_ownership ownership;
             void (*destroy)(mount*);
             u32    active_operations;
         };
@@ -143,6 +152,7 @@ namespace astia::fs {
         void destroy_tmpfs_mount(mount* instance) {
             delete static_cast<tmpfs_mount*>(instance);
         }
+
     } // namespace
 
     mm::shptr<open_file> mount::open(const char* path, u32 flags) {
@@ -263,9 +273,19 @@ namespace astia::fs {
             return -ENOMEM;
 
         // The filesystem() ABI deliberately returns only a mount pointer.  The
-        // registry keeps the ownership policy private: tmpfs factories create
-        // one instance per mount, while devfs and initrd return cached objects.
-        void (*destroy)(mount*) = type == &tmpfs_type_instance ? destroy_tmpfs_mount : nullptr;
+        // registry keeps the ownership policy private: tmpfs mounts are
+        // registry-owned, while initrd and devfs are cached for the lifetime
+        // of their filesystem
+        // type.  They therefore use the explicit static marker too: the
+        // registry cannot destroy an initrd without first clearing the
+        // filesystem's cached pointer, and the public ABI has no teardown
+        // hook for doing that safely.
+        const mount_ownership ownership =
+            type == &tmpfs_type_instance ? mount_ownership::registry_owned
+                                          : mount_ownership::static_instance;
+        void (*destroy)(mount*) = nullptr;
+        if (type == &tmpfs_type_instance)
+            destroy = destroy_tmpfs_mount;
         if (!copy_path(mounts[free_slot].target, checked_target)) {
             if (destroy != nullptr)
                 destroy(instance);
@@ -273,7 +293,8 @@ namespace astia::fs {
         }
         mounts[free_slot].used     = true;
         mounts[free_slot].instance = instance;
-        mounts[free_slot].destroy  = destroy;
+        mounts[free_slot].ownership = ownership;
+        mounts[free_slot].destroy = destroy;
         return 0;
     }
 
@@ -305,11 +326,15 @@ namespace astia::fs {
                 return -EBUSY;
         }
         mount* instance = selected->instance;
+        const mount_ownership ownership = selected->ownership;
         void (*destroy)(mount*) = selected->destroy;
         selected->used = false;
         selected->instance = nullptr;
+        selected->ownership = mount_ownership::static_instance;
         selected->destroy = nullptr;
-        if (destroy != nullptr)
+        // Only registry-owned factories may be destroyed here.  Cached devfs
+        // has a null callback and remains in its static storage.
+        if (ownership == mount_ownership::registry_owned && destroy != nullptr)
             destroy(instance);
         return 0;
     }
