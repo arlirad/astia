@@ -84,8 +84,6 @@ namespace astia::fs {
         }
         fs::mount* mount(const char* source) const override;
 
-        private:
-        mutable tmpfs_mount* instance_ = nullptr;
     };
 
 } // namespace astia::fs

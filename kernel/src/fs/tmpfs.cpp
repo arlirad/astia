@@ -443,10 +443,7 @@ namespace {
 
     fs::mount* tmpfs::mount(const char* source) const {
         (void) source;
-        if (instance_ == nullptr) {
-            instance_ = new tmpfs_mount{};
-        }
-        return instance_;
+        return new tmpfs_mount{};
     }
 
 } // namespace astia::fs
