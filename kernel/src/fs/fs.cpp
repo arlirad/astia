@@ -606,20 +606,6 @@ namespace astia::fs {
         const file_size_capability legacy_size_capability{legacy_size};
         const file_mapping_capability legacy_mapping_capability{legacy_mapping};
 
-        long dispatch_read(file* object, void* buffer, u32 length, u64 offset) {
-            const auto* capability = static_cast<const file_read_capability*>(
-                object->capability(file_capability::read));
-            return capability != nullptr ? capability->read(object, buffer, length, offset)
-                                         : object->read(buffer, length, offset);
-        }
-
-        long dispatch_write(file* object, const void* buffer, u32 length, u64 offset) {
-            const auto* capability = static_cast<const file_write_capability*>(
-                object->capability(file_capability::write));
-            return capability != nullptr ? capability->write(object, buffer, length, offset)
-                                         : object->write(buffer, length, offset);
-        }
-
         long dispatch_submit(file* object, io_request& request) {
             const auto* capability = static_cast<const file_submit_capability*>(
                 object->capability(file_capability::submit));
@@ -634,18 +620,40 @@ namespace astia::fs {
                                          : const_cast<file*>(object)->poll(events, flags);
         }
 
-        long dispatch_ioctl(file* object, u64 request, void* argp) {
-            const auto* capability = static_cast<const file_ioctl_capability*>(
-                object->capability(file_capability::ioctl));
-            return capability != nullptr ? capability->ioctl(object, request, argp)
-                                         : object->ioctl(request, argp);
-        }
-
         long dispatch_size(const file* object) {
             const auto* capability = static_cast<const file_size_capability*>(
                 object->capability(file_capability::size));
             return capability != nullptr ? capability->size(object) : object->size();
         }
+
+    }
+
+    long dispatch_read(file* object, void* buffer, u32 length, u64 offset) {
+        const auto* capability = static_cast<const file_read_capability*>(
+            object->capability(file_capability::read));
+        return capability != nullptr ? capability->read(object, buffer, length, offset)
+                                     : object->read(buffer, length, offset);
+    }
+
+    long dispatch_write(file* object, const void* buffer, u32 length, u64 offset) {
+        const auto* capability = static_cast<const file_write_capability*>(
+            object->capability(file_capability::write));
+        return capability != nullptr ? capability->write(object, buffer, length, offset)
+                                     : object->write(buffer, length, offset);
+    }
+
+    long dispatch_ioctl(file* object, u64 request, void* argp) {
+        const auto* capability = static_cast<const file_ioctl_capability*>(
+            object->capability(file_capability::ioctl));
+        return capability != nullptr ? capability->ioctl(object, request, argp)
+                                     : object->ioctl(request, argp);
+    }
+
+    mm::phys_region* dispatch_mapping(const file* object) {
+        const auto* capability = static_cast<const file_mapping_capability*>(
+            object->capability(file_capability::mapping));
+        return capability != nullptr ? capability->mapping(object)
+                                     : const_cast<file*>(object)->memory_region();
     }
 
     const void* file::capability(file_capability kind) const {
@@ -736,6 +744,9 @@ namespace astia::fs {
         if (!_object)
             return -EBADF;
         return dispatch_size(_object.get());
+    }
+    mm::phys_region* open_file::mapping() const {
+        return _object ? dispatch_mapping(_object.get()) : nullptr;
     }
 
     file_mode open_file::mode() const { return !_object ? _mode : _object->mode(); }

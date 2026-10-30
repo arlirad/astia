@@ -144,6 +144,13 @@ namespace astia::fs {
         virtual const void*       capability(file_capability kind) const;
     };
 
+    // Kernel-internal capability dispatch.  These are deliberately separate
+    // from the userspace ABI: callers pass an already-resolved file object.
+    long dispatch_read(file* object, void* buffer, u32 length, u64 offset);
+    long dispatch_write(file* object, const void* buffer, u32 length, u64 offset);
+    long dispatch_ioctl(file* object, u64 request, void* argp);
+    mm::phys_region* dispatch_mapping(const file* object);
+
     /// One open file description.  Separate opens create separate
     /// instances; dup/dup2 in the ABI layer share this object.  The
     /// underlying node/device file remains shared by all opens.
@@ -178,6 +185,7 @@ namespace astia::fs {
         void set_status_flags(u32 flags) { _flags = (_flags & ~0x120u) | (flags & 0x120u); }
         long ioctl(u64 request, void* argp);
         long size() const;
+        mm::phys_region* mapping() const;
         file_mode mode() const;
         const char* path() const { return _has_path ? _path : nullptr; }
         void set_path(const char* path);

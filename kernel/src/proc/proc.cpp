@@ -279,7 +279,7 @@ namespace astia::proc {
             return -EPERM;
         owner->controlling_terminal(terminal);
         i32 group = static_cast<i32>(static_cast<u32>(owner->process_group()));
-        const long rc = terminal->ioctl(TIOCSPGRP, &group);
+        const long rc = fs::dispatch_ioctl(terminal, TIOCSPGRP, &group);
         if (rc < 0) {
             owner->controlling_terminal(nullptr);
             return rc;

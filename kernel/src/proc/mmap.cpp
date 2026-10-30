@@ -303,15 +303,7 @@ namespace astia::proc {
             return -ENOMEM;
         }
         if (has(flags, map_flags::shared)) {
-            auto* object = file->backing();
-            const auto* mapping = object == nullptr ? nullptr :
-                static_cast<const fs::file_mapping_capability*>(
-                    object->capability(fs::file_capability::mapping));
-            // Keep the legacy virtual hook as the fallback for file types
-            // that have not migrated their mapping contract yet.
-            auto* shared_region = object == nullptr ? nullptr : object->memory_region();
-            if (mapping != nullptr)
-                shared_region = mapping->mapping(object);
+            auto* shared_region = file->mapping();
             if (shared_region == nullptr || off + want < off ||
                 off >= static_cast<u64>(file_size) ||
                 off / page_bytes + pages > shared_region->pages()) {

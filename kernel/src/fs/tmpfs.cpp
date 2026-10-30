@@ -170,7 +170,8 @@ namespace {
                 continue;
             }
             auto object = mm::shptr<tmpfs_file>(new tmpfs_file{});
-            if (!object || object->memory_region() == nullptr || !copy_path(entries_[i].path, path)) {
+            if (!object || dispatch_mapping(object.get()) == nullptr ||
+                !copy_path(entries_[i].path, path)) {
                 return {};
             }
             entries_[i].used   = true;
@@ -219,7 +220,7 @@ namespace {
             u32 n=0; while(target[n]) { if (n+1>=path_max) return -ENAMETOOLONG; ++n; }
             auto object=mm::shptr<tmpfs_file>(new tmpfs_file{1, file_mode(file_type::symlink, file_permissions(0777))});
             if (!object || !copy_path(entries_[i].path,path)) return -ENOMEM;
-            if (object->write(target,n,0) != (long)n) return -ENOSPC;
+            if (dispatch_write(object.get(), target, n, 0) != (long)n) return -ENOSPC;
             entries_[i].used=true; entries_[i].directory=false; entries_[i].mode=file_mode(file_type::symlink, file_permissions(0777)); entries_[i].object=object; return 0;
         }
         return -ENOSPC;
@@ -228,7 +229,10 @@ namespace {
         if (!buffer || capacity==0) return -EINVAL;
         for (u32 i=0;i<tmpfs_max_entries;++i) if(entries_[i].used&&equal(entries_[i].path,path)) {
             if (!entries_[i].mode.is_symlink()) return -EINVAL;
-            long n=entries_[i].object->read(buffer,capacity,0); if(n<0) return n; return n;
+            long n = dispatch_read(entries_[i].object.get(), buffer, capacity, 0);
+            if (n < 0)
+                return n;
+            return n;
         }
         return -ENOENT;
     }
