@@ -396,19 +396,31 @@ enum {
 /* constants for the op flag words                                     */
 /* ------------------------------------------------------------------ */
 
-/* open flags (OPENAT op_flags) */
+/* open flags (OPENAT op_flags).  These are the ring wire values; they are
+   deliberately not the native libc fcntl.h values. */
+enum {
+    ASTIA_AIO_O_RDONLY    = 0x00,
+    ASTIA_AIO_O_WRONLY    = 0x01,
+    ASTIA_AIO_O_RDWR      = 0x02,
+    ASTIA_AIO_O_ACCMODE   = 0x03,
+    ASTIA_AIO_O_CREAT     = 0x04,
+    ASTIA_AIO_O_EXCL      = 0x08,
+    ASTIA_AIO_O_TRUNC     = 0x10,
+    ASTIA_AIO_O_APPEND    = 0x20,
+    ASTIA_AIO_O_DIRECTORY = 0x40,
+    ASTIA_AIO_O_CLOEXEC   = 0x80,
+    ASTIA_AIO_O_NONBLOCK  = 0x100,
+};
+
+/* Compatibility spellings for freestanding kernel users which do not have
+   a libc fcntl.h in scope. */
 #ifndef O_DIRECTORY
 enum {
-    O_RDONLY    = 0x00,
-    O_WRONLY    = 0x01,
-    O_RDWR      = 0x02,
-    O_ACCMODE   = 0x03,
-    O_CREAT     = 0x04,
-    O_EXCL      = 0x08,
-    O_TRUNC     = 0x10,
-    O_APPEND    = 0x20,
-    O_DIRECTORY = 0x40,
-    O_CLOEXEC   = 0x80,
+    O_RDONLY = ASTIA_AIO_O_RDONLY, O_WRONLY = ASTIA_AIO_O_WRONLY,
+    O_RDWR = ASTIA_AIO_O_RDWR, O_ACCMODE = ASTIA_AIO_O_ACCMODE,
+    O_CREAT = ASTIA_AIO_O_CREAT, O_EXCL = ASTIA_AIO_O_EXCL,
+    O_TRUNC = ASTIA_AIO_O_TRUNC, O_APPEND = ASTIA_AIO_O_APPEND,
+    O_DIRECTORY = ASTIA_AIO_O_DIRECTORY, O_CLOEXEC = ASTIA_AIO_O_CLOEXEC,
 };
 #endif
 

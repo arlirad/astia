@@ -17,6 +17,36 @@
 
 namespace astia::fs {
 
+    // Native status bits stored in an open_file.  They intentionally differ
+    // from both the AIO OPENAT wire word and libc's creation flags.
+    enum class open_file_status_flags : u32 {
+        none      = 0,
+        write     = 0x0001,
+        readwrite = 0x0002,
+        append    = 0x0400,
+        nonblock  = 0x0800,
+    };
+
+    constexpr u32 open_file_access_mask = 0x0003;
+    // Pipe endpoints use private high bits in open_file::_flags so that the
+    // backing pipe can account readers and writers independently.  They are
+    // not part of either the AIO OPENAT word or userspace fcntl status.
+    constexpr u32 open_file_private_mask = (1u << 31) | (1u << 30);
+    constexpr u32 open_file_status_mask =
+        static_cast<u32>(open_file_status_flags::append) |
+        static_cast<u32>(open_file_status_flags::nonblock);
+
+    constexpr u32 open_file_status_from_aio(u32 flags) {
+        return (flags & open_file_private_mask) |
+               (flags & ASTIA_AIO_O_ACCMODE) |
+               (flags & ASTIA_AIO_O_APPEND
+                    ? static_cast<u32>(open_file_status_flags::append)
+                    : 0u) |
+               (flags & ASTIA_AIO_O_NONBLOCK
+                    ? static_cast<u32>(open_file_status_flags::nonblock)
+                    : 0u);
+    }
+
     class mount;
     class file;
     struct unix_socket_operations;
@@ -213,7 +243,9 @@ namespace astia::fs {
     class open_file {
         public:
         open_file(const mm::shptr<file>& object, u32 flags)
-            : _object(object), _flags(flags) {}
+            : _object(object), _flags(open_file_status_from_aio(flags)) {}
+        open_file(const mm::shptr<file>& object, open_file_status_flags flags)
+            : _object(object), _flags(static_cast<u32>(flags)) {}
         /* Each descriptor copy owns a lifetime hook.  The backing file is
            shared, but every fd must release one pipe endpoint on close. */
         open_file(const open_file& other)
@@ -226,7 +258,8 @@ namespace astia::fs {
             if (other._mount)
                 attach_mount(other._mount);
         }
-        open_file(const char* path, file_mode mode) : _mode(mode), _has_path(true) {
+        open_file(const char* path, file_mode mode)
+            : _flags(0), _mode(mode), _has_path(true) {
             for (u32 i = 0; i + 1 < path_max && path != nullptr && path[i] != '\0'; ++i)
                 _path[i] = path[i];
         }
@@ -240,7 +273,7 @@ namespace astia::fs {
             return _flags;
         }
         void set_status_flags(u32 flags) {
-            _flags = (_flags & ~0x120u) | (flags & 0x120u);
+            _flags = (_flags & ~open_file_status_mask) | (flags & open_file_status_mask);
         }
         long             ioctl(u64 request, void* argp);
         long             size() const;

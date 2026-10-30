@@ -1,6 +1,7 @@
 #include "file_port.h"
 #include <astia/api/aio.h>
 
+#include <fcntl.h>
 #include <string.h>
 
 /*
@@ -30,8 +31,35 @@
 
 enum { RING_ENTRIES = 64 };
 
+/* Translate libc's native open word to the AIO OPENAT wire word.  Keeping
+ * this table explicit prevents native values (notably O_CREAT/O_TRUNC and
+ * O_DIRECTORY) from leaking into the ABI. */
+static uint32_t aio_open_flags_from_native(int flags) {
+    uint32_t wire = (flags & O_RDWR) == O_RDWR ? ASTIA_AIO_O_RDWR
+                    : (flags & O_WRONLY) ? ASTIA_AIO_O_WRONLY
+                                         : ASTIA_AIO_O_RDONLY;
+    if (flags & O_CREAT)
+        wire |= ASTIA_AIO_O_CREAT;
+    if (flags & O_EXCL)
+        wire |= ASTIA_AIO_O_EXCL;
+    if (flags & O_TRUNC)
+        wire |= ASTIA_AIO_O_TRUNC;
+    if (flags & O_APPEND)
+        wire |= ASTIA_AIO_O_APPEND;
+    if (flags & O_NONBLOCK)
+        wire |= ASTIA_AIO_O_NONBLOCK;
+    if (flags & O_CLOEXEC)
+        wire |= ASTIA_AIO_O_CLOEXEC;
+    if (flags & O_DIRECTORY)
+        wire |= ASTIA_AIO_O_DIRECTORY;
+    return wire;
+}
+
 ASTIA_STATIC_ASSERT(FIO_OFF_APPEND == OFF_APPEND,
                     "port append offset must equal ABI OFF_APPEND");
+ASTIA_STATIC_ASSERT(ASTIA_AIO_O_CREAT == 0x04 && ASTIA_AIO_O_TRUNC == 0x10 &&
+                        ASTIA_AIO_O_APPEND == 0x20 && ASTIA_AIO_O_NONBLOCK == 0x100,
+                    "AIO open flag wire values changed");
 ASTIA_STATIC_ASSERT(sizeof(struct iovec) == sizeof(astia_iovec) &&
                         offsetof(struct iovec, iov_base) == offsetof(astia_iovec, base) &&
                         offsetof(struct iovec, iov_len) == offsetof(astia_iovec, len),
@@ -193,44 +221,30 @@ long __astia_fio_open(const char* path, int flags, int mode) {
     uint32_t of;
 
     if ((flags & FIO_READ) && (flags & FIO_WRITE))
-        of = O_RDWR;
+        of = ASTIA_AIO_O_RDWR;
     else if (flags & FIO_WRITE)
-        of = O_WRONLY;
+        of = ASTIA_AIO_O_WRONLY;
     else
-        of = O_RDONLY;
+        of = ASTIA_AIO_O_RDONLY;
 
     if (flags & FIO_CREAT)
-        of |= O_CREAT;
+        of |= ASTIA_AIO_O_CREAT;
     if (flags & FIO_EXCL)
-        of |= O_EXCL;
+        of |= ASTIA_AIO_O_EXCL;
     if (flags & FIO_TRUNC)
-        of |= O_TRUNC;
+        of |= ASTIA_AIO_O_TRUNC;
     if (flags & FIO_APPEND)
-        of |= O_APPEND;
+        of |= ASTIA_AIO_O_APPEND;
     if (flags & FIO_NONBLOCK)
-        of |= 0x100u;
+        of |= ASTIA_AIO_O_NONBLOCK;
     if (flags & FIO_CLOEXEC)
-        of |= O_CLOEXEC;
+        of |= ASTIA_AIO_O_CLOEXEC;
 
     return transact(OP_OPENAT, AT_FDCWD, 0, path, 0, of, (uint32_t) mode);
 }
 
 long __astia_fio_openat(int dirfd, const char* path, int flags, int mode) {
-    uint32_t of = (flags & 3) == 2 ? O_RDWR : ((flags & 3) == 1 ? O_WRONLY : O_RDONLY);
-    if (flags & 0x40)
-        of |= O_CREAT;
-    if (flags & 0x80)
-        of |= O_EXCL;
-    if (flags & 0x200)
-        of |= O_TRUNC;
-    if (flags & 0x400)
-        of |= O_APPEND;
-    if (flags & 0x800)
-        of |= 0x100u;
-    if (flags & 0x080000)
-        of |= O_CLOEXEC;
-    if (flags & 0x10000)
-        of |= O_DIRECTORY;
+    uint32_t of = aio_open_flags_from_native(flags);
     return transact(OP_OPENAT, dirfd, 0, path, 0, of, (uint32_t) mode);
 }
 

@@ -75,7 +75,7 @@ namespace astia::proc {
     void fd_table::close_on_exec() {
         core::spinlock_guard guard(lock_);
         for (u32 fd = 0; fd < max_process_fds; ++fd)
-            if ((entries_[fd].flags & 1u) != 0) {
+            if ((entries_[fd].flags & ASTIA_FD_CLOEXEC) != 0) {
                 entries_[fd].file  = {};
                 entries_[fd].flags = 0;
             }

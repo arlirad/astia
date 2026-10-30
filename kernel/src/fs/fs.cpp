@@ -953,7 +953,7 @@ namespace astia::fs {
         if (!_object)
             return -EBADF;
         u64 actual = offset == offset_current ? _position : offset;
-        if ((_flags & 0x0400u) != 0) {
+        if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0) {
             const long end = dispatch_size(_object.get());
             if (end < 0)
                 return end;
@@ -971,7 +971,8 @@ namespace astia::fs {
         // the request: every resume of a parked operation must land on the
         // same position the caller asked for, not on a moved _position.
         u64 actual = request.offset() == offset_current ? _position : request.offset();
-        if ((_flags & 0x0400u) != 0 && request.direction() == io_direction::output) {
+        if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0 &&
+            request.direction() == io_direction::output) {
             const long end = dispatch_size(_object.get());
             if (end < 0)
                 return end;

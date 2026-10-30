@@ -8,11 +8,11 @@ namespace astia::fs {
     namespace {
         u64 next_inode = 2;
         // The async open ABI forwards the platform's O_* word.
-        inline constexpr u32 oflag_write = 1;
-        inline constexpr u32 oflag_rdwr  = 2;
-        inline constexpr u32 oflag_creat = 0x04;
-        inline constexpr u32 oflag_excl  = 0x08;
-        inline constexpr u32 oflag_trunc = 0x10;
+        inline constexpr u32 oflag_write = ASTIA_AIO_O_WRONLY;
+        inline constexpr u32 oflag_rdwr  = ASTIA_AIO_O_RDWR;
+        inline constexpr u32 oflag_creat = ASTIA_AIO_O_CREAT;
+        inline constexpr u32 oflag_excl  = ASTIA_AIO_O_EXCL;
+        inline constexpr u32 oflag_trunc = ASTIA_AIO_O_TRUNC;
 
         bool equal(const char* lhs, const char* rhs) {
             if (lhs == nullptr || rhs == nullptr) {

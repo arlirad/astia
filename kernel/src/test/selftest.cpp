@@ -424,7 +424,7 @@ namespace astia::test {
                 logs::error("mount lifecycle fail (validation)");
                 return false;
             }
-            auto open = fs::open("/tmp/lifecycle", 0x04);
+            auto open = fs::open("/tmp/lifecycle", ASTIA_AIO_O_CREAT);
             if (!open || fs::unmount_type("/tmp") != -EBUSY) {
                 logs::error("mount lifecycle fail (open handle)");
                 return false;
@@ -449,7 +449,7 @@ namespace astia::test {
                 logs::error("mount lifecycle fail (normalization/nesting)");
                 return false;
             }
-            auto outer = fs::open("/tmp/nested/outer", 0x04);
+            auto outer = fs::open("/tmp/nested/outer", ASTIA_AIO_O_CREAT);
             if (!outer) {
                 logs::error("mount lifecycle fail (outer content)");
                 return false;
@@ -459,7 +459,7 @@ namespace astia::test {
                 logs::error("mount lifecycle fail (nested mount)");
                 return false;
             }
-            auto inner = fs::open("/tmp/nested/inner", 0x04);
+            auto inner = fs::open("/tmp/nested/inner", ASTIA_AIO_O_CREAT);
             if (!inner) {
                 logs::error("mount lifecycle fail (inner content)");
                 return false;

@@ -727,22 +727,22 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, -ENXIO);
             const fs::file_mode existing_mode = fs::node_mode(resolved);
             if (existing_mode.exists() && existing_mode.is_directory() &&
-                (s.op_flags & O_DIRECTORY) == 0)
+                (s.op_flags & ASTIA_AIO_O_DIRECTORY) == 0)
                 return cq_post_guarded(ring, s.user_data, -EISDIR);
             if (existing_mode.exists() && !existing_mode.is_directory() &&
-                (s.op_flags & O_DIRECTORY) != 0)
+                (s.op_flags & ASTIA_AIO_O_DIRECTORY) != 0)
                 return cq_post_guarded(ring, s.user_data, -ENOTDIR);
-            if (!existing_mode.exists() && (s.op_flags & 0x04u) == 0)
+            if (!existing_mode.exists() && (s.op_flags & ASTIA_AIO_O_CREAT) == 0)
                 return cq_post_guarded(ring, s.user_data, -ENOENT);
             if (existing_mode.exists()) {
                 auto*       cred  = proc::current_process();
                 const uid_t owner = fs::node_uid(resolved);
                 const gid_t group = fs::node_gid(resolved);
-                if ((s.op_flags & 2u) != 0 &&
+                if ((s.op_flags & ASTIA_AIO_O_RDWR) != 0 &&
                     !cred->can_access(existing_mode, owner, group,
                                       fs::permission_bits::write))
                     return cq_post_guarded(ring, s.user_data, -EACCES);
-                if ((s.op_flags & 1u) == 0 &&
+                if ((s.op_flags & ASTIA_AIO_O_WRONLY) == 0 &&
                     !cred->can_access(existing_mode, owner, group,
                                       fs::permission_bits::read))
                     return cq_post_guarded(ring, s.user_data, -EACCES);
@@ -752,7 +752,7 @@ namespace astia::sys {
                                                   : fs::open(resolved, s.op_flags);
             if (!object)
                 return cq_post_guarded(ring, s.user_data, -ENOENT);
-            if ((s.op_flags & 0x04u) != 0 && !existing_mode.exists()) {
+            if ((s.op_flags & ASTIA_AIO_O_CREAT) != 0 && !existing_mode.exists()) {
                 auto requested =
                     mapper<fs::file_permissions>::from(s.aux == 0 ? 0666 : s.aux);
                 if (!requested.has_value)
@@ -767,7 +767,9 @@ namespace astia::sys {
             for (i32 i = 0; i < static_cast<i32>(proc::max_process_fds); ++i) {
                 if (!current->descriptor(fd_t{i}) &&
                     current->set_descriptor(fd_t{i}, object,
-                                            (s.op_flags & O_CLOEXEC) != 0 ? 1u : 0u))
+                                            (s.op_flags & ASTIA_AIO_O_CLOEXEC) != 0
+                                                ? static_cast<u32>(ASTIA_FD_CLOEXEC)
+                                                : 0u))
                     return cq_post_guarded(ring, s.user_data, i);
             }
             return cq_post_guarded(ring, s.user_data, -EMFILE);
@@ -1252,17 +1254,25 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, 0);
             case ASTIA_F_GETFL: {
                 const u32 flags  = current->descriptor(mapped.value)->flags();
-                u32       result = (flags & 3u) == 2u ? 2u : ((flags & 1u) ? 1u : 0u);
-                if (flags & 0x20u)
+                u32       result = (flags & ASTIA_AIO_O_ACCMODE) == ASTIA_AIO_O_RDWR
+                                      ? ASTIA_AIO_O_RDWR
+                                      : ((flags & ASTIA_AIO_O_WRONLY) ? ASTIA_AIO_O_WRONLY
+                                                                      : ASTIA_AIO_O_RDONLY);
+                if (flags & static_cast<u32>(fs::open_file_status_flags::append))
                     result |= ASTIA_O_APPEND;
-                if (flags & 0x100u)
+                if (flags & static_cast<u32>(fs::open_file_status_flags::nonblock))
                     result |= ASTIA_O_NONBLOCK;
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(result));
             }
             case ASTIA_F_SETFL: {
                 auto object = current->descriptor(mapped.value);
-                object->set_status_flags((argument & ASTIA_O_APPEND ? 0x20u : 0u) |
-                                         (argument & ASTIA_O_NONBLOCK ? 0x100u : 0u));
+                object->set_status_flags(
+                    (argument & ASTIA_O_APPEND
+                         ? static_cast<u32>(fs::open_file_status_flags::append)
+                         : 0u) |
+                    (argument & ASTIA_O_NONBLOCK
+                         ? static_cast<u32>(fs::open_file_status_flags::nonblock)
+                         : 0u));
                 return cq_post_guarded(ring, s.user_data, 0);
             }
             default:
@@ -1371,12 +1381,17 @@ namespace astia::sys {
                 new eventfd_file(s.offset, (s.op_flags & ASTIA_EFD_NONBLOCK) != 0));
             if (!event)
                 return cq_post_guarded(ring, s.user_data, -ENOMEM);
-            const u32 fd_flags = (s.op_flags & ASTIA_EFD_CLOEXEC ? 0x1u : 0u) |
-                                 (s.op_flags & ASTIA_EFD_NONBLOCK ? 0x800u : 0u);
-            auto object = mm::share<fs::open_file>(event, fd_flags);
+            const u32 status_flags =
+                s.op_flags & ASTIA_EFD_NONBLOCK
+                    ? static_cast<u32>(fs::open_file_status_flags::nonblock)
+                    : 0u;
+            const u32 descriptor_flags =
+                s.op_flags & ASTIA_EFD_CLOEXEC ? static_cast<u32>(ASTIA_FD_CLOEXEC) : 0u;
+            auto object = mm::share<fs::open_file>(
+                event, static_cast<fs::open_file_status_flags>(status_flags));
             for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
                 if (!current->descriptor(fd_t{fd}) &&
-                    current->set_descriptor(fd_t{fd}, object))
+                    current->set_descriptor(fd_t{fd}, object, descriptor_flags))
                     return cq_post_guarded(ring, s.user_data, fd);
             return cq_post_guarded(ring, s.user_data, -EMFILE);
         }

@@ -58,13 +58,16 @@ namespace astia::fs {
             if (entries_[i].used && equal(entries_[i].path, path)) {
                 const file_mode mode = entries_[i].object->mode();
                 // OPENAT uses bit 0 for write-only and bit 1 for read/write.
-                if ((flags & 2u) != 0 && (!mode.other_allows(permission_bits::read) ||
+                if ((flags & ASTIA_AIO_O_RDWR) == ASTIA_AIO_O_RDWR &&
+                    (!mode.other_allows(permission_bits::read) ||
                                           !mode.other_allows(permission_bits::write)))
                     return {};
-                if ((flags & 2u) == 0 && (flags & 1u) != 0 &&
+                if ((flags & ASTIA_AIO_O_RDWR) != ASTIA_AIO_O_RDWR &&
+                    (flags & ASTIA_AIO_O_WRONLY) != 0 &&
                     !mode.other_allows(permission_bits::write))
                     return {};
-                if ((flags & 3u) == 0 && !mode.other_allows(permission_bits::read))
+                if ((flags & ASTIA_AIO_O_ACCMODE) == ASTIA_AIO_O_RDONLY &&
+                    !mode.other_allows(permission_bits::read))
                     return {};
                 return mm::share<open_file>(entries_[i].object, flags);
             }
