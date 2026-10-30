@@ -1527,6 +1527,56 @@ namespace astia::sys {
             return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
         }
 
+        bool handle_poll_add(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
+            auto object = file_for(s.fd);
+            if (!object)
+                return cq_post_guarded(ring, s.user_data, POLLNVAL);
+            const u32 ready = object->poll(s.aux);
+            if (ready != 0)
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(ready));
+            arch::interrupt_guard gate;
+            parked_op*            p = nullptr;
+            for (u32 i = 0; i < park_capacity; ++i)
+                if (!slot.park[i].used) {
+                    p = &slot.park[i];
+                    break;
+                }
+            if (p == nullptr)
+                return cq_post_guarded(ring, s.user_data, -EBUSY);
+            p->used        = true;
+            p->done        = false;
+            p->resuming    = false;
+            p->control     = true;
+            p->readiness   = true;
+            p->poll_events = s.aux;
+            p->fd          = s.fd;
+            p->object      = object;
+            p->request = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
+            return true;
+        }
+
+        bool handle_cancel(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
+            const u64 target = s.offset;
+            for (u32 i = 0; i < park_capacity; ++i) {
+                parked_op& p = slot.park[i];
+                if (p.used && !p.done && p.request.user_data() == target) {
+                    // Cancellation needs two CQ slots.  Do not consume the
+                    // SQE if either completion could be lost.
+                    arch::interrupt_guard gate;
+                    astia_cq_ring*        cq = astia_rings_cq(ring);
+                    const u32 head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
+                    const u32 tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+                    if (tail - head > cq->entries - 2)
+                        return false;
+                    if (!cq_post(ring, target, -ECANCELED))
+                        return false;
+                    p.done = true;
+                    return cq_post(ring, s.user_data, 0);
+                }
+            }
+            return cq_post_guarded(ring, s.user_data, -ENOENT);
+        }
+
         bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             switch (s.op) {
             case OP_NOP:
@@ -1611,58 +1661,14 @@ namespace astia::sys {
             case OP_ACCEPT:
                 return handle_accept(slot, ring, s);
 
-            case OP_POLL_ADD: {
-                auto object = file_for(s.fd);
-                if (!object)
-                    return cq_post_guarded(ring, s.user_data, POLLNVAL);
-                const u32 ready = object->poll(s.aux);
-                if (ready != 0)
-                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(ready));
-                arch::interrupt_guard gate;
-                parked_op*            p = nullptr;
-                for (u32 i = 0; i < park_capacity; ++i)
-                    if (!slot.park[i].used) {
-                        p = &slot.park[i];
-                        break;
-                    }
-                if (p == nullptr)
-                    return cq_post_guarded(ring, s.user_data, -EBUSY);
-                p->used        = true;
-                p->done        = false;
-                p->resuming    = false;
-                p->control     = true;
-                p->readiness   = true;
-                p->poll_events = s.aux;
-                p->fd          = s.fd;
-                p->object      = object;
-                p->request = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
-                return true;
-            }
+            case OP_POLL_ADD:
+                return handle_poll_add(slot, ring, s);
 
             case OP_EVENTFD_CREATE:
                 return handle_eventfd_create(ring, s);
 
-            case OP_CANCEL: {
-                const u64 target = s.offset;
-                for (u32 i = 0; i < park_capacity; ++i) {
-                    parked_op& p = slot.park[i];
-                    if (p.used && !p.done && p.request.user_data() == target) {
-                        // Cancellation needs two CQ slots.  Do not consume the
-                        // SQE if either completion could be lost.
-                        arch::interrupt_guard gate;
-                        astia_cq_ring*        cq = astia_rings_cq(ring);
-                        const u32 head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
-                        const u32 tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
-                        if (tail - head > cq->entries - 2)
-                            return false;
-                        if (!cq_post(ring, target, -ECANCELED))
-                            return false;
-                        p.done = true;
-                        return cq_post(ring, s.user_data, 0);
-                    }
-                }
-                return cq_post_guarded(ring, s.user_data, -ENOENT);
-            }
+            case OP_CANCEL:
+                return handle_cancel(slot, ring, s);
             case OP_SOCKETPAIR:
                 return handle_socketpair(ring, s);
             case OP_SHUTDOWN:
