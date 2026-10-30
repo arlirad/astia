@@ -71,7 +71,7 @@ namespace astia::proc {
         return static_cast<i64>(i + 1);
     }
 
-    i64 process::resolve_path(const char* path, char* buffer, usize length) const {
+    i64 process::compose_path(const char* path, char* buffer, usize length) const {
         if (path == nullptr || buffer == nullptr || length == 0)
             return -EINVAL;
         if (path[0] == '/') {
@@ -100,14 +100,14 @@ namespace astia::proc {
         return 0;
     }
 
-    i64 process::resolve_path_at(fd_t dirfd, const char* path, char* buffer,
+    i64 process::compose_path_at(fd_t dirfd, const char* path, char* buffer,
                                  usize length) const {
         if (path == nullptr || buffer == nullptr || length == 0)
             return -EINVAL;
         if (path[0] == '/')
-            return resolve_path(path, buffer, length);
+            return compose_path(path, buffer, length);
         if (dirfd.value == -100)
-            return resolve_path(path, buffer, length);
+            return compose_path(path, buffer, length);
         auto directory = descriptor(dirfd);
         if (!directory)
             return -EBADF;

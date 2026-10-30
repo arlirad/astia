@@ -116,11 +116,11 @@ namespace astia::sys {
             // -1; treat it like AT_FDCWD just as the explicit *at wrappers
             // do for AT_FDCWD.
             if (raw_dirfd == AT_FDCWD || raw_dirfd == -1)
-                return current->resolve_path_at(fd_t{AT_FDCWD}, path, out, capacity);
+                return current->compose_path_at(fd_t{AT_FDCWD}, path, out, capacity);
             auto dirfd = mapper<fd_t>::from(raw_dirfd);
             if (!dirfd.has_value)
                 return -EBADF;
-            return current->resolve_path_at(dirfd.value, path, out, capacity);
+            return current->compose_path_at(dirfd.value, path, out, capacity);
         }
 
         bool parent_writable(proc::process* current, const char* path) {
@@ -1124,7 +1124,7 @@ namespace astia::sys {
                 auto* current = proc::current_process();
                 char  resolved[256];
                 if (current == nullptr ||
-                    current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    current->compose_path(path, resolved, sizeof resolved) < 0)
                     return cq_post_guarded(ring, s.user_data, -ESRCH);
                 if (current->euid() != 0 &&
                     current->euid() != static_cast<u32>(fs::node_uid(resolved)))
@@ -1167,7 +1167,7 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 char       resolved[256];
                 const bool follow_final = (s.op_flags & STATX_NOFOLLOW) == 0;
-                long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                long resolve_rc = current->compose_path(path, resolved, sizeof resolved);
                 if (resolve_rc >= 0)
                     resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
                                                   follow_final);
@@ -1193,7 +1193,7 @@ namespace astia::sys {
                 char  resolved[256];
                 if (current == nullptr)
                     return cq_post_guarded(ring, s.user_data, -ESRCH);
-                long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                long resolve_rc = current->compose_path(path, resolved, sizeof resolved);
                 if (resolve_rc >= 0)
                     resolve_rc =
                         fs::resolve_path(resolved, resolved, sizeof resolved, true);
@@ -1275,7 +1275,7 @@ namespace astia::sys {
                 char  resolved[256];
                 if (current == nullptr)
                     return cq_post_guarded(ring, s.user_data, -ESRCH);
-                long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                long resolve_rc = current->compose_path(path, resolved, sizeof resolved);
                 if (resolve_rc >= 0)
                     resolve_rc =
                         fs::resolve_path(resolved, resolved, sizeof resolved, true);

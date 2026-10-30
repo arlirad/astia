@@ -89,8 +89,10 @@ namespace astia::proc {
         }
         i64  change_directory(const char* path);
         i64  copy_cwd(char* buffer, usize length) const;
-        i64  resolve_path(const char* path, char* buffer, usize length) const;
-        i64  resolve_path_at(fd_t dirfd, const char* path, char* buffer,
+        // Process helpers compose cwd/dirfd-relative paths; fs::resolve_path()
+        // performs canonical VFS resolution as the second layer.
+        i64  compose_path(const char* path, char* buffer, usize length) const;
+        i64  compose_path_at(fd_t dirfd, const char* path, char* buffer,
                              usize length) const;
         void inherit_groups(const process& parent) {
             process_group_        = parent.process_group_;
