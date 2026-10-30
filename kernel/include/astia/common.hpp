@@ -61,6 +61,13 @@ namespace astia {
     using paddr_t  = u64;
     using vaddr_t  = u64;
 
+    /// Time conversion factors used by kernel clocks and deadlines. These are
+    /// constants rather than converting duration types so existing raw-count
+    /// arithmetic and ABI representations remain unchanged.
+    inline constexpr u64 nanoseconds_per_microsecond = 1000ull;
+    inline constexpr u64 microseconds_per_second     = 1000000ull;
+    inline constexpr u64 nanoseconds_per_second      = 1000000000ull;
+
     consteval bytes_t operator""_b(unsigned long long value) {
         return static_cast<bytes_t>(value);
     }

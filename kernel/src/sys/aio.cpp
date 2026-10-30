@@ -1311,13 +1311,45 @@ namespace astia::sys {
             return cq_post_guarded(ring, s.user_data, 0);
         }
 
+        // Keep the userspace SQE as an integer-only ABI, but do not let the
+        // socket policy below operate on unrelated raw fields.  These types
+        // are deliberately private: the filesystem socket API still takes
+        // the public u32 socket type.
+        enum class socket_domain : u32 {
+            unix_domain = AF_UNIX,
+        };
+        enum class socket_type : u32 {
+            stream   = SOCK_STREAM,
+            datagram = SOCK_DGRAM,
+        };
+        struct socket_request {
+            socket_domain domain;
+            socket_type   type;
+            u32           aux;
+
+            static constexpr socket_request from_sqe(const astia_sqe& s) {
+                return {static_cast<socket_domain>(static_cast<u32>(s.fd)),
+                        static_cast<socket_type>(s.op_flags), s.aux};
+            }
+
+            constexpr bool supported() const {
+                return domain == socket_domain::unix_domain &&
+                       (type == socket_type::stream || type == socket_type::datagram) &&
+                       aux == 0;
+            }
+        };
+
+        static_assert(static_cast<u32>(socket_domain::unix_domain) == AF_UNIX);
+        static_assert(static_cast<u32>(socket_type::stream) == SOCK_STREAM);
+        static_assert(static_cast<u32>(socket_type::datagram) == SOCK_DGRAM);
+
         bool handle_socket(astia_rings* ring, const astia_sqe& s) {
-            if (s.fd != AF_UNIX ||
-                (s.op_flags != SOCK_STREAM && s.op_flags != SOCK_DGRAM) || s.aux != 0)
+            const socket_request request = socket_request::from_sqe(s);
+            if (!request.supported())
                 return cq_post_guarded(ring, s.user_data, -EAFNOSUPPORT);
             proc::process*           current = proc::current_process();
             mm::shptr<fs::open_file> object;
-            long                     rc = fs::create_unix_socket(object, s.op_flags);
+            long                     rc = fs::create_unix_socket(object, static_cast<u32>(request.type));
             if (rc < 0 || !current)
                 return cq_post_guarded(ring, s.user_data,
                                        (i32) (rc < 0 ? rc : -ESRCH));
@@ -1839,19 +1871,20 @@ namespace astia::sys {
                 return -EIO;
             }
             if (timeout->tv_sec < 0 || timeout->tv_nsec < 0 ||
-                timeout->tv_nsec >= 1000000000) {
+                timeout->tv_nsec >= static_cast<i64>(nanoseconds_per_second)) {
                 return -EINVAL;
             }
             // Clamp before multiplying: a caller may hand any timespec, and
             // anything beyond a year of waiting is the same as "very long".
-            constexpr u64 max_ns    = 1000000000ull * 60 * 60 * 24 * 365;
-            const u64     ns_wanted = static_cast<u64>(timeout->tv_sec) * 1000000000ull +
+            constexpr u64 max_ns    = nanoseconds_per_second * 60 * 60 * 24 * 365;
+            const u64     ns_wanted = static_cast<u64>(timeout->tv_sec) * nanoseconds_per_second +
                                       static_cast<u64>(timeout->tv_nsec);
             const u64     ns        = ns_wanted > max_ns ? max_ns : ns_wanted;
             // Split so no intermediate can overflow for any sane tick rate:
             // whole seconds first, then the sub-second remainder rounded up.
-            ticks = (ns / 1000000000ull) * hz +
-                    ((ns % 1000000000ull) * hz + 999999999ull) / 1000000000ull;
+            ticks = (ns / nanoseconds_per_second) * hz +
+                    ((ns % nanoseconds_per_second) * hz + nanoseconds_per_second - 1) /
+                    nanoseconds_per_second;
             if (ticks == 0) {
                 ticks = 1; // a non-zero request must not mean "unbounded"
             }

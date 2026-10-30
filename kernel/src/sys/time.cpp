@@ -42,7 +42,7 @@ namespace astia::sys {
 
             const u64 ticks = arch::timer_ticks();
             i64       sec   = static_cast<i64>(ticks / hz);
-            const i64 nsec = static_cast<i64>((ticks % hz) * 1000000000ull / hz); // < 1e9
+            const i64 nsec = static_cast<i64>((ticks % hz) * nanoseconds_per_second / hz);
 
             switch (clock_id) {
             case CLOCK_MONOTONIC:
@@ -68,7 +68,7 @@ namespace astia::sys {
         const u64 hz    = arch::timer_hz();
         const u64 ticks = arch::timer_ticks();
         sec  = static_cast<u64>(realtime_epoch_sec + static_cast<i64>(ticks / hz));
-        nsec = (ticks % hz) * 1000000000ull / hz;
+        nsec = (ticks % hz) * nanoseconds_per_second / hz;
     }
 
     bool register_time_syscalls() {

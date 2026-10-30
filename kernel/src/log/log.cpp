@@ -61,10 +61,10 @@ namespace astia::log::detail {
         void time_field(level severity) {
             const u64 hz     = arch::timer_hz();
             const u64 ticks  = arch::timer_ticks();
-            const u64 micros = hz == 0 ? 0 : ticks * 1000000 / hz;
-            field(severity, micros / 1000000, 5, ' ');
+            const u64 micros = hz == 0 ? 0 : ticks * microseconds_per_second / hz;
+            field(severity, micros / microseconds_per_second, 5, ' ');
             put(severity, '.');
-            field(severity, micros % 1000000, 6, '0');
+            field(severity, micros % microseconds_per_second, 6, '0');
         }
 
         /// The severity, right-aligned in five columns: ` INFO`, `ERROR`.

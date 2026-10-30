@@ -133,9 +133,6 @@ namespace astia::proc {
     namespace {
         core::spinlock process_lock;
 
-        inline constexpr u64 thread_tls_first  = 0x00007fffef000000ull;
-        inline constexpr u64 thread_tls_stride = 0x00100000ull;
-
         inline constexpr u32 dead_capacity = 16;
         // Placement-constructed like the process registry: keeps the
         // global trivially destructible in freestanding code.
@@ -1046,8 +1043,8 @@ namespace astia::proc {
             return false;
         }
 
-        u64  base = thread_tls_first -
-                    (static_cast<u64>(id % max_process_threads) * thread_tls_stride);
+        u64  base = process_tls_first -
+                    (static_cast<u64>(id % max_process_threads) * process_tls_stride);
         bool free = false;
         for (u32 attempt = 0; attempt < max_process_threads; ++attempt) {
             free = true;
@@ -1060,7 +1057,7 @@ namespace astia::proc {
             if (free) {
                 break;
             }
-            base -= thread_tls_stride;
+            base -= process_tls_stride;
         }
         if (!free) {
             return false;
