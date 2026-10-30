@@ -31,32 +31,11 @@ namespace astia::fs {
                 return static_cast<long>(size_);
             }
             file_mode mode() const override { return file_mode(file_type::regular, file_permissions(0755)); }
-            const void* capability(file_capability kind) const override;
 
             private:
             const void* data_;
             usize       size_;
         };
-
-        long initrd_read(file* object, void* buffer, u32 length, u64 offset) {
-            return static_cast<initrd_file*>(object)->read(buffer, length, offset);
-        }
-        long initrd_size(const file* object) {
-            return static_cast<const initrd_file*>(object)->size();
-        }
-
-        const file_read_capability initrd_read_capability{initrd_read};
-        const file_size_capability initrd_size_capability{initrd_size};
-
-        const void* initrd_file::capability(file_capability kind) const {
-            switch (kind) {
-                case file_capability::read:  return &initrd_read_capability;
-                case file_capability::write: return nullptr;
-                case file_capability::size:  return &initrd_size_capability;
-                case file_capability::mapping: return nullptr;
-                default: return file::capability(kind);
-            }
-        }
 
         bool equal(const char* lhs, const char* rhs) {
             while (*lhs != '\0' && *lhs == *rhs) {
