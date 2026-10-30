@@ -98,6 +98,7 @@ public:
         else if(n==0) r.stage(1);
         return n;
     }
+    const void* capability(file_capability kind) const override;
     void duplicate(u32) override { __atomic_fetch_add(&opens_, 1u, __ATOMIC_ACQ_REL); }
     void close(u32) override {
         if (__atomic_fetch_sub(&opens_, 1u, __ATOMIC_ACQ_REL) != 1)
@@ -170,6 +171,35 @@ private:
     mm::shptr<open_file> queue_[max_backlog]{}; u32 queue_head_{},queue_tail_{},queue_count_{};
     u32 opens_{1};
 };
+
+long unix_read(file* object, void* buffer, u32 length, u64 offset) {
+    return static_cast<unix_file*>(object)->read(buffer, length, offset);
+}
+long unix_write(file* object, const void* buffer, u32 length, u64 offset) {
+    return static_cast<unix_file*>(object)->write(buffer, length, offset);
+}
+long unix_submit(file* object, io_request& request) {
+    return static_cast<unix_file*>(object)->submit(request);
+}
+u32 unix_poll(const file* object, u32 events, u32 flags) {
+    return const_cast<unix_file*>(static_cast<const unix_file*>(object))->poll(events, flags);
+}
+
+const file_read_capability unix_read_capability{unix_read};
+const file_write_capability unix_write_capability{unix_write};
+const file_submit_capability unix_submit_capability{unix_submit};
+const file_poll_capability unix_poll_capability{unix_poll};
+
+const void* unix_file::capability(file_capability kind) const {
+    switch (kind) {
+        case file_capability::read:   return &unix_read_capability;
+        case file_capability::write:  return &unix_write_capability;
+        case file_capability::submit: return &unix_submit_capability;
+        case file_capability::poll:   return &unix_poll_capability;
+        default:                      return file::capability(kind);
+    }
+}
+
 bool path(const astia_sockaddr& a,char* out){ if(a.family!=AF_UNIX||a.len<3||a.len>sizeof(a.data)+2) return false; u32 n=a.len-2; if(n>=path_max) return false; for(u32 i=0;i<n;++i) out[i]=static_cast<char>(a.data[i]); out[n]='\0'; return out[0]=='/'; }
 bool same(const char*a,const char*b){if(!a||!b)return false;while(*a&&*a==*b){++a;++b;}return *a==*b;}
 unix_file* find(const char* n){for(auto& e:names)if(e.used&&e.listener&&same(e.name,n))return e.listener;return nullptr;}

@@ -93,10 +93,40 @@ namespace astia::sys {
                 return result;
             }
 
+            const void* capability(fs::file_capability kind) const override;
+
             private:
             u64 value_;
             bool nonblock_;
         };
+
+        long eventfd_read(fs::file* object, void* buffer, u32 length, u64 offset) {
+            return static_cast<eventfd_file*>(object)->read(buffer, length, offset);
+        }
+        long eventfd_write(fs::file* object, const void* buffer, u32 length, u64 offset) {
+            return static_cast<eventfd_file*>(object)->write(buffer, length, offset);
+        }
+        long eventfd_submit(fs::file* object, io_request& request) {
+            return static_cast<eventfd_file*>(object)->submit(request);
+        }
+        u32 eventfd_poll(const fs::file* object, u32 events, u32 flags) {
+            return const_cast<eventfd_file*>(static_cast<const eventfd_file*>(object))->poll(events, flags);
+        }
+
+        const fs::file_read_capability eventfd_read_capability{eventfd_read};
+        const fs::file_write_capability eventfd_write_capability{eventfd_write};
+        const fs::file_submit_capability eventfd_submit_capability{eventfd_submit};
+        const fs::file_poll_capability eventfd_poll_capability{eventfd_poll};
+
+        const void* eventfd_file::capability(fs::file_capability kind) const {
+            switch (kind) {
+                case fs::file_capability::read:   return &eventfd_read_capability;
+                case fs::file_capability::write:  return &eventfd_write_capability;
+                case fs::file_capability::submit: return &eventfd_submit_capability;
+                case fs::file_capability::poll:   return &eventfd_poll_capability;
+                default:                           return fs::file::capability(kind);
+            }
+        }
 
         long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
                         char* out, usize capacity) {
