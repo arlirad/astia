@@ -159,19 +159,29 @@ namespace astia::mm::heap {
         if (ptr == nullptr) {
             return;
         }
-        auto* raw = static_cast<u8*>(ptr) - sizeof(block);
 
         core::spinlock_guard guard(lock_);
-        if (!ready_ || raw < base_ || raw >= base_ + bytes_) {
+        if (!ready_) {
             return; // foreign pointer: ignore rather than corrupt
         }
-        auto* b = reinterpret_cast<block*>(raw);
-        if (b->free) {
-            return; // double free: ignore
+
+        // Do not subtract from an arbitrary pointer before proving that it
+        // belongs to this heap.  Apart from accepting interior pointers, that
+        // would make a foreign pointer invoke undefined pointer arithmetic.
+        const usize address = reinterpret_cast<usize>(ptr);
+        for (block* b = head_; b != nullptr; b = b->next) {
+            const usize payload = reinterpret_cast<usize>(b) + sizeof(block);
+            if (payload != address) {
+                continue;
+            }
+            if (b->free) {
+                return; // double free: ignore
+            }
+            used_ -= b->size;
+            b->free = true;
+            coalesce(b);
+            return;
         }
-        used_ -= b->size;
-        b->free = true;
-        coalesce(b);
     }
 
     usize used() {

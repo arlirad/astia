@@ -15,6 +15,10 @@ clang=${CLANG:-clang}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
 resource_dir=$($clang --target=x86_64-unknown-elf -print-resource-dir)
 builtins=$(find "$resource_dir" -name "libclang_rt.builtins-x86_64.a" -print -quit)
+if [ -z "$builtins" ]; then
+    echo "clang compiler builtins not found below $resource_dir" >&2
+    exit 1
+fi
 
 if [ ! -x "$zsh_source/configure" ]; then
     (cd "$zsh_source" && ./Util/preconfig)

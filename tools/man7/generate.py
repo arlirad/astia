@@ -195,6 +195,10 @@ LIBC_PAGES = {
 
 
 SYSCALL_PAGES = {
+    "mprotect": ("long mprotect(void *addr, long length, uint32_t prot);", "Validates a requested protection change for a mapped virtual range. Astia does not currently implement page-permission changes.", "Returns a negative errno.", "-EINVAL: The address, length, or protection value is invalid.\n-ENOSYS: Protection changes are not implemented.", "The syscall number is reserved in the public ABI; mappings retain their creation-time permissions."),
+    "process_snapshot": ("long process_snapshot(astia_process_info *output, uint32_t capacity);", "Copies a bounded snapshot of registered processes into output. Each record contains process IDs, credentials, state, controlling-terminal presence, and bounded names.", "Returns the number of records copied, or a negative errno.", "-EINVAL: capacity exceeds ASTIA_PROCESS_SNAPSHOT_MAX, or output is null with a non-zero capacity.\n-EFAULT: The output range is not writable userspace memory.", "A zero capacity returns zero without writing output. The snapshot is point-in-time and records are not handles."),
+    "getrlimit": ("long getrlimit(int resource, astia_rlimit *output);", "Reads the calling process's native resource limit into output. Astia supports RLIMIT_NOFILE and RLIMIT_AS.", "Returns zero, or a negative errno.", "-EFAULT: output is null or not writable userspace memory.\n-EINVAL: resource is not supported.\n-ESRCH: There is no current process.", "The limits are process-local and are inherited by fork."),
+    "setrlimit": ("long setrlimit(int resource, const astia_rlimit *input);", "Changes a supported native resource limit from input. Astia supports RLIMIT_NOFILE and RLIMIT_AS.", "Returns zero, or a negative errno.", "-EFAULT: input is null or not readable userspace memory.\n-EINVAL: resource or the requested limit is invalid.\n-EPERM: The requested hard-limit change is not permitted.\n-ESRCH: There is no current process.", "A process may lower its limits but cannot raise a hard limit."),
     "unmount": ("long unmount(uintptr_t target);", "Removes the native in-memory filesystem mount at target. Only a process with effective UID zero may request teardown. The root mount is permanent; a mount with open file descriptions or child mounts remains busy.", "Returns zero, or a negative errno.", "-EFAULT: target is not a readable userspace string.\n-EPERM: The caller's effective UID is not zero.\n-ENOENT: target is not a mounted target.\n-EBUSY: target is the root mount, has open handles, or contains another mount.", "The kernel copies target before authorization and lookup. Unmounting does not flush, persist, or access a host filesystem. The filesystem type remains registered so kernel code may mount another native instance."),
     "getsid": ("long getsid(int64_t pid);", "Returns the session ID of the selected process. Zero selects the caller; a positive PID selects that process.", "Returns the session ID, or a negative errno.", "-ESRCH: The selector is negative, overflows the PID domain, names no registered process, or there is no current process.", "Zombie processes remain selectable until reaped. The native query does not impose an additional permission check."),
     "getuid": ("long getuid(void);", "Returns the calling process's real user ID.", "Returns the real UID, or -ESRCH when no current process exists.", "-ESRCH: There is no current process.", "The value is the process credential inherited across fork and spawn."),
@@ -349,6 +353,12 @@ def main() -> int:
         pages[(name, 2)] = (body, group)
 
     args.output.mkdir(parents=True, exist_ok=True)
+    # A deployment directory is commonly reused.  Remove only generated
+    # section pages so a renamed or removed syscall cannot remain stale.
+    expected_pages = {f"{name}.{section}.html" for name, section in pages}
+    for old_page in args.output.glob("*.[23].html"):
+        if old_page.name not in expected_pages:
+            old_page.unlink()
     (args.output / "nodivia.css").write_text(args.css.read_text())
     for (name, section), (body, _) in sorted(pages.items()):
         (args.output / f"{name}.{section}.html").write_text(render(name, body, section))

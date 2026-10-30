@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+if [ "$#" -ne 1 ]; then
+    echo "usage: $0 ZSH_SOURCE" >&2
+    exit 2
+fi
 source=$1
 test -d "$source/Src"
 python3 "$(dirname "$0")/patch-zsh-signals.py" "$source/Src/signals.c"

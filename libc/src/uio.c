@@ -2,6 +2,7 @@
 #include <sys/uio.h>
 
 #include <errno.h>
+#include <stdint.h>
 
 /*
  * astia libc — <sys/uio.h> over the file port.
@@ -28,7 +29,7 @@ static ssize_t vector_call(long (*port)(int, uint64_t, const struct iovec*, uint
                            int fd, const struct iovec* iov, int iovcnt) {
     long rc;
 
-    if (iovcnt < 0) {
+    if (iovcnt < 0 || (uintmax_t) iovcnt > UINT32_MAX) {
         errno = EINVAL;
         return -1;
     }

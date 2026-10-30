@@ -11,6 +11,8 @@ namespace astia::fs {
             initrd_file(const void* data, usize size) : data_(data), size_(size) {}
 
             long read(void* buffer, u32 length, u64 offset) override {
+                if (buffer == nullptr && length != 0)
+                    return -EFAULT;
                 if (offset >= size_)
                     return 0;
                 const usize available = size_ - static_cast<usize>(offset);
@@ -122,6 +124,8 @@ namespace astia::fs {
 
     mm::shptr<open_file> initrd_mount::open(const char* path, u32 flags) {
         (void) flags;
+        if (path == nullptr)
+            return {};
         for (u32 i = 0; i < initrd_max_entries; ++i) {
             if (entries_[i].used && equal(entries_[i].path, path)) {
                 mm::shptr<initrd_file> object = mm::shptr<initrd_file>(

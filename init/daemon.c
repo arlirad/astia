@@ -351,6 +351,7 @@ int astia_daemon_run(const char* rc_path) {
     if (pipe(commands) < 0 || pipe(replies) < 0) {
         close(control);
         if (commands[0] >= 0) { close(commands[0]); close(commands[1]); }
+        if (replies[0] >= 0) { close(replies[0]); close(replies[1]); }
         return -1;
     }
     signal(SIGUSR1, work_signal);

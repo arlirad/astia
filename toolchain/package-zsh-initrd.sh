@@ -12,6 +12,7 @@ output=$3
 stage=$(mktemp -d /tmp/astia-zsh-initrd.XXXXXX)
 trap 'rm -rf "$stage"' EXIT INT TERM
 
+mkdir -p "$(dirname -- "$output")"
 tar xf "$base" -C "$stage"
 mkdir -p "$stage/bin"
 cp "$zsh_binary" "$stage/bin/zsh"

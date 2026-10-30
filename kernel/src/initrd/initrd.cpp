@@ -123,6 +123,9 @@ namespace astia::initrd {
     }
 
     bool each(const archive& a, visit_fn visit, void* ctx) {
+        if (a.base == nullptr || a.len < block_size) {
+            return false;
+        }
         usize off = 0;
         while (off < a.len) {
             // A zero block here is the clean end-of-archive marker; anything
@@ -200,6 +203,9 @@ namespace astia::initrd {
     } // namespace
 
     bool find(const archive& a, const char* name, file& out) {
+        if (name == nullptr) {
+            return false;
+        }
         find_ctx c{name, &out, false};
         each(a, find_visit, &c);
         return c.found;
