@@ -27,7 +27,7 @@ static int command(const char* name, const char* request) {
         }
     }
     {
-        const char* cursor = request;
+        const char* cursor    = request;
         size_t      remaining = length;
         while (remaining) {
             long written = write(fd, cursor, (unsigned long) remaining);
@@ -41,8 +41,8 @@ static int command(const char* name, const char* request) {
     }
     n = 0;
     while (n < (long) sizeof response - 1) {
-        long received = recv(fd, response + n,
-                             sizeof response - 1 - (unsigned long) n, 0);
+        long received =
+            recv(fd, response + n, sizeof response - 1 - (unsigned long) n, 0);
         if (received < 0) {
             close(fd);
             return cu_error(name, "daemon response failed");

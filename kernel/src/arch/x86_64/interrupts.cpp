@@ -135,8 +135,12 @@ namespace astia::arch {
         // handlers only raise a request; the scheduler is never entered from
         // this function while the ISR register image is live.
         struct interrupt_scope {
-            interrupt_scope() { cpu::interrupt_enter(); }
-            ~interrupt_scope() { cpu::interrupt_exit(); }
+            interrupt_scope() {
+                cpu::interrupt_enter();
+            }
+            ~interrupt_scope() {
+                cpu::interrupt_exit();
+            }
         } scope;
 
         const u64 vector = frame->vector;

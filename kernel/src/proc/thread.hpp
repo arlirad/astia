@@ -146,13 +146,19 @@ namespace astia::proc {
         void idle(bool value) {
             idle_ = value;
         }
-        bool has_signal_restore_mask() const { return signal_restore_armed_; }
-        u32 signal_restore_mask() const { return signal_restore_mask_; }
+        bool has_signal_restore_mask() const {
+            return signal_restore_armed_;
+        }
+        u32 signal_restore_mask() const {
+            return signal_restore_mask_;
+        }
         void signal_restore_mask(u32 value) {
-            signal_restore_mask_ = value;
+            signal_restore_mask_  = value;
             signal_restore_armed_ = true;
         }
-        void clear_signal_restore_mask() { signal_restore_armed_ = false; }
+        void clear_signal_restore_mask() {
+            signal_restore_armed_ = false;
+        }
 
         void entry(u64 value) {
             entry_ = value;
@@ -171,30 +177,30 @@ namespace astia::proc {
         private:
         process*         owner_;
         tid_t            tid_;
-        thread_state     state_             = thread_state::fresh;
-        scheduling_class sched_class_       = scheduling_class::normal;
-        i32              nice_              = 0;
-        u8               rt_priority_       = 0;
-        u64              vruntime_          = 0;
-        u64              entry_             = 0;
-        u64              kernel_stack_top_  = 0;
-        u64              user_stack_top_    = 0;
-        u64              tls_mapping_base_  = 0;
-        usize            tls_mapping_pages_ = 0;
-        arch::context*   context_           = nullptr;
-        kernel_entry     entry_function_    = nullptr;
-        void*            entry_argument_    = nullptr;
-        void*            kernel_stack_      = nullptr;
-        usize            kernel_stack_size_ = 0;
-        thread*          joiner_            = nullptr;
-        void*            result_            = nullptr;
-        bool             detached_          = false;
-        bool             idle_              = false;
-        bool             gate_open_         = true;
-        bool             queued_            = false;
-        bool             migratable_        = false;
-        u32              cpu_owner_        = 0;
-        u32              signal_restore_mask_ = 0;
+        thread_state     state_                = thread_state::fresh;
+        scheduling_class sched_class_          = scheduling_class::normal;
+        i32              nice_                 = 0;
+        u8               rt_priority_          = 0;
+        u64              vruntime_             = 0;
+        u64              entry_                = 0;
+        u64              kernel_stack_top_     = 0;
+        u64              user_stack_top_       = 0;
+        u64              tls_mapping_base_     = 0;
+        usize            tls_mapping_pages_    = 0;
+        arch::context*   context_              = nullptr;
+        kernel_entry     entry_function_       = nullptr;
+        void*            entry_argument_       = nullptr;
+        void*            kernel_stack_         = nullptr;
+        usize            kernel_stack_size_    = 0;
+        thread*          joiner_               = nullptr;
+        void*            result_               = nullptr;
+        bool             detached_             = false;
+        bool             idle_                 = false;
+        bool             gate_open_            = true;
+        bool             queued_               = false;
+        bool             migratable_           = false;
+        u32              cpu_owner_            = 0;
+        u32              signal_restore_mask_  = 0;
         bool             signal_restore_armed_ = false;
     };
 

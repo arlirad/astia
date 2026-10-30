@@ -1,6 +1,6 @@
 #include "devfs.hpp"
-#include "../proc/proc.hpp"
 
+#include "../proc/proc.hpp"
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
 
@@ -50,17 +50,22 @@ namespace astia::fs {
     mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags) {
         if (equal(path, "/tty")) {
             fs::file* terminal = proc::controlling_terminal();
-            if (terminal == nullptr) return {};
+            if (terminal == nullptr)
+                return {};
             return mm::share<open_file>(mm::shptr<file>::borrowed(terminal), flags);
         }
         for (u32 i = 0; i < devfs_max_entries; ++i) {
             if (entries_[i].used && equal(entries_[i].path, path)) {
                 const file_mode mode = entries_[i].object->mode();
                 // OPENAT uses bit 0 for write-only and bit 1 for read/write.
-                if ((flags & 2u) != 0 && (!mode.other_allows(permission_bits::read) || !mode.other_allows(permission_bits::write))) return {};
-                if ((flags & 2u) == 0 && (flags & 1u) != 0 && !mode.other_allows(permission_bits::write))
+                if ((flags & 2u) != 0 && (!mode.other_allows(permission_bits::read) ||
+                                          !mode.other_allows(permission_bits::write)))
                     return {};
-                if ((flags & 3u) == 0 && !mode.other_allows(permission_bits::read)) return {};
+                if ((flags & 2u) == 0 && (flags & 1u) != 0 &&
+                    !mode.other_allows(permission_bits::write))
+                    return {};
+                if ((flags & 3u) == 0 && !mode.other_allows(permission_bits::read))
+                    return {};
                 return mm::share<open_file>(entries_[i].object, flags);
             }
         }
@@ -70,21 +75,29 @@ namespace astia::fs {
     file_type devfs_mount::node_type(const char* path) const {
         // The node exists independently of whether the caller has a ctty;
         // only opening it requires a controlling terminal.
-        if (equal(path, "/tty")) return directory_chr;
+        if (equal(path, "/tty"))
+            return directory_chr;
         for (u32 i = 0; i < devfs_max_entries; ++i)
-            if (entries_[i].used && equal(entries_[i].path, path)) return directory_chr;
+            if (entries_[i].used && equal(entries_[i].path, path))
+                return directory_chr;
         return directory_unknown;
     }
 
     file_mode devfs_mount::node_mode(const char* path) const {
-        if (equal(path, "/tty")) return file_mode(file_type::character, file_permissions(0666));
+        if (equal(path, "/tty"))
+            return file_mode(file_type::character, file_permissions(0666));
         for (u32 i = 0; i < devfs_max_entries; ++i)
-            if (entries_[i].used && equal(entries_[i].path, path)) return entries_[i].object->mode();
+            if (entries_[i].used && equal(entries_[i].path, path))
+                return entries_[i].object->mode();
         return {};
     }
 
-    uid_t devfs_mount::node_uid(const char*) const { return {}; }
-    gid_t devfs_mount::node_gid(const char*) const { return {}; }
+    uid_t devfs_mount::node_uid(const char*) const {
+        return {};
+    }
+    gid_t devfs_mount::node_gid(const char*) const {
+        return {};
+    }
 
     fs::mount* devfs::mount(const char* source) const {
         (void) source;

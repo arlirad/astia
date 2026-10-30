@@ -27,16 +27,17 @@ namespace {
     /// spawn failure apart from a bad exit status.
     bool run_image(const char* path, char* const argv[], char* const envp[],
                    bool& spawned) {
-        spawned      = false;
+        spawned             = false;
         auto spawned_result = astia::proc::spawnve(path, argv, envp);
-        auto process = spawned_result.value;
+        auto process        = spawned_result.value;
         if (!process) {
             return false;
         }
-        spawned                    = true;
-        const astia::i32 child_pid = static_cast<astia::i32>(static_cast<astia::u32>(process->pid()));
-        astia::i32       status    = -1;
-        const astia::i64 reaped    = astia::proc::waitpid(child_pid, &status);
+        spawned = true;
+        const astia::i32 child_pid =
+            static_cast<astia::i32>(static_cast<astia::u32>(process->pid()));
+        astia::i32       status = -1;
+        const astia::i64 reaped = astia::proc::waitpid(child_pid, &status);
         // waitpid re-enables IRQs before returning. Keep process teardown on
         // this lifecycle stack non-preemptible.
         astia::arch::cpu::nointerrupts();
@@ -104,7 +105,7 @@ extern "C" void kmain(void* start_info) {
 
     if (ctx.info != nullptr && ctx.info->initrd.paddr != 0) {
         lifecycle_status = 0;
-        auto                worker       = astia::proc::scheduler::create_kernel(
+        auto worker      = astia::proc::scheduler::create_kernel(
             spawn_init_worker, const_cast<astia::u32*>(&lifecycle_status));
         // The worker blocks in waitpid until user init exits, and this
         // bootstrap thread blocks in join() until the worker exits;

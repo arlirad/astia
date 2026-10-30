@@ -1,11 +1,11 @@
 #include "aio.hpp"
-#include "../fs/mapping.hpp"
-#include "time.hpp"
 
+#include "../fs/mapping.hpp"
 #include "../ipc/pipe.hpp"
 #include "../ipc/unix_socket.hpp"
-#include "proc.hpp"
 #include "../proc/mapping.hpp"
+#include "proc.hpp"
+#include "time.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/termios.h>
@@ -53,21 +53,26 @@ namespace astia::sys {
             eventfd_file(u64 value, bool nonblock) : value_(value), nonblock_(nonblock) {}
 
             long read(void* buffer, u32 length, u64) override {
-                if (buffer == nullptr || length != sizeof(u64)) return -EINVAL;
+                if (buffer == nullptr || length != sizeof(u64))
+                    return -EINVAL;
                 u64 value = __atomic_exchange_n(&value_, 0, __ATOMIC_ACQ_REL);
-                if (value == 0) return 0;
+                if (value == 0)
+                    return 0;
                 *static_cast<u64*>(buffer) = value;
                 sys::io_device_ready_context(this);
                 return sizeof(u64);
             }
 
             long write(const void* buffer, u32 length, u64) override {
-                if (buffer == nullptr || length != sizeof(u64)) return -EINVAL;
+                if (buffer == nullptr || length != sizeof(u64))
+                    return -EINVAL;
                 u64 add = *static_cast<const u64*>(buffer);
-                if (add == UINT64_MAX) return -EINVAL;
+                if (add == UINT64_MAX)
+                    return -EINVAL;
                 u64 old = __atomic_load_n(&value_, __ATOMIC_RELAXED);
                 for (;;) {
-                    if (UINT64_MAX - old < add) return nonblock_ ? -EAGAIN : 0;
+                    if (UINT64_MAX - old < add)
+                        return nonblock_ ? -EAGAIN : 0;
                     if (__atomic_compare_exchange_n(&value_, &old, old + add, false,
                                                     __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
                         sys::io_device_ready_context(this);
@@ -78,50 +83,65 @@ namespace astia::sys {
 
             u32 poll(u32 events, u32) override {
                 u32 ready = 0;
-                if (__atomic_load_n(&value_, __ATOMIC_ACQUIRE) != 0) ready |= POLLIN;
-                if (__atomic_load_n(&value_, __ATOMIC_ACQUIRE) != UINT64_MAX) ready |= POLLOUT;
+                if (__atomic_load_n(&value_, __ATOMIC_ACQUIRE) != 0)
+                    ready |= POLLIN;
+                if (__atomic_load_n(&value_, __ATOMIC_ACQUIRE) != UINT64_MAX)
+                    ready |= POLLOUT;
                 return ready & events;
             }
 
             long submit(io_request& request) override {
-                if (request.length() != sizeof(u64)) return -EINVAL;
+                if (request.length() != sizeof(u64))
+                    return -EINVAL;
                 const long result = request.direction() == io_direction::input
                                         ? read(request.buffer(), request.length(), 0)
                                         : write(request.buffer(), request.length(), 0);
-                if (result == 0 && nonblock_) return -EAGAIN;
-                if (result == 0) request.stage(1);
+                if (result == 0 && nonblock_)
+                    return -EAGAIN;
+                if (result == 0)
+                    request.stage(1);
                 return result;
             }
 
             private:
-            u64 value_;
+            u64  value_;
             bool nonblock_;
         };
 
         long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
                         char* out, usize capacity) {
-            if (current == nullptr) return -ESRCH;
+            if (current == nullptr)
+                return -ESRCH;
             // The legacy path-only libc wrappers encode no directory fd as
             // -1; treat it like AT_FDCWD just as the explicit *at wrappers
             // do for AT_FDCWD.
             if (raw_dirfd == AT_FDCWD || raw_dirfd == -1)
                 return current->resolve_path_at(fd_t{AT_FDCWD}, path, out, capacity);
             auto dirfd = mapper<fd_t>::from(raw_dirfd);
-            if (!dirfd.has_value) return -EBADF;
+            if (!dirfd.has_value)
+                return -EBADF;
             return current->resolve_path_at(dirfd.value, path, out, capacity);
         }
 
         bool parent_writable(proc::process* current, const char* path) {
-            if (current == nullptr || path == nullptr) return false;
+            if (current == nullptr || path == nullptr)
+                return false;
             char parent[256]{};
-            u32 n = 0; while (path[n]) ++n;
-            while (n > 1 && path[n - 1] != '/') --n;
-            for (u32 i = 0; i < (n > 1 ? n - 1 : 1); ++i) parent[i] = path[i];
+            u32  n = 0;
+            while (path[n])
+                ++n;
+            while (n > 1 && path[n - 1] != '/')
+                --n;
+            for (u32 i = 0; i < (n > 1 ? n - 1 : 1); ++i)
+                parent[i] = path[i];
             parent[n > 1 ? n - 1 : 1] = '\0';
-            const fs::file_mode mode = fs::node_mode(parent);
-            if (!mode.is_directory()) return false;
-            if (current->euid() == 0) return true;
-            if (current->euid() != static_cast<u32>(fs::node_uid(parent))) return false;
+            const fs::file_mode mode  = fs::node_mode(parent);
+            if (!mode.is_directory())
+                return false;
+            if (current->euid() == 0)
+                return true;
+            if (current->euid() != static_cast<u32>(fs::node_uid(parent)))
+                return false;
             return mode.owner_allows(fs::permission_bits::write) &&
                    mode.owner_allows(fs::permission_bits::execute);
         }
@@ -166,13 +186,13 @@ namespace astia::sys {
             /// an IRQ may have landed inside exactly such a critical
             /// section on this CPU.  Letting the handler take those locks
             /// would deadlock.
-            bool                     done     = false;
-            bool                     resuming = false;
-            bool                     control  = false;
-            bool                     socket_accept = false;
-            bool                     readiness = false;
-            u32                      poll_events = 0;
-            bool                     recvfrom_address = false;
+            bool                     done                  = false;
+            bool                     resuming              = false;
+            bool                     control               = false;
+            bool                     socket_accept         = false;
+            bool                     readiness             = false;
+            u32                      poll_events           = 0;
+            bool                     recvfrom_address      = false;
             u64                      recvfrom_address_user = 0;
             i32                      fd;
             mm::shptr<fs::open_file> object;
@@ -229,8 +249,9 @@ namespace astia::sys {
                     (((caller == nullptr || caller->address_space() == nullptr) &&
                       reinterpret_cast<u64>(rings_of(*g_slots[i])) == address) ||
                      (g_slots[i]->owner == caller && g_slots[i]->user_base != 0 &&
-                      address == g_slots[i]->user_base +
-                                     (reinterpret_cast<u64>(rings_of(*g_slots[i])) & 0xfff)))) {
+                      address ==
+                          g_slots[i]->user_base +
+                              (reinterpret_cast<u64>(rings_of(*g_slots[i])) & 0xfff)))) {
                     return g_slots[i];
                 }
             }
@@ -242,22 +263,23 @@ namespace astia::sys {
                 slot.park[i] = parked_op{};
             }
             __builtin_memset(slot.map, 0, sizeof slot.map);
-            slot.user_base = 0;
+            slot.user_base  = 0;
             slot.sq_entries = 0;
             slot.cq_entries = 0;
-            slot.owner     = nullptr;
-            slot.used      = false;
+            slot.owner      = nullptr;
+            slot.used       = false;
         }
 
         bool ring_layout_ok(const ring_slot& slot, const astia_rings* ring) {
             if (ring == nullptr || ring->magic != RINGS_MAGIC ||
                 ring->version != API_VERSION || ring->features != FEAT_SINGLE_MMAP ||
-                ring->sq_entries != slot.sq_entries || ring->cq_entries != slot.cq_entries ||
+                ring->sq_entries != slot.sq_entries ||
+                ring->cq_entries != slot.cq_entries ||
                 ring->sq_off != sizeof(astia_rings) ||
                 ring->cq_off != ring->sq_off + sizeof(astia_sq_ring) ||
                 ring->sqes_off != ring->cq_off + sizeof(astia_cq_ring) ||
-                ring->cqes_off != ring->sqes_off +
-                                      static_cast<u32>(sizeof(astia_sqe)) * slot.sq_entries)
+                ring->cqes_off != ring->sqes_off + static_cast<u32>(sizeof(astia_sqe)) *
+                                                       slot.sq_entries)
                 return false;
             const astia_sq_ring* sq = astia_rings_sq(const_cast<astia_rings*>(ring));
             const astia_cq_ring* cq = astia_rings_cq(const_cast<astia_rings*>(ring));
@@ -338,10 +360,10 @@ namespace astia::sys {
                 storage = slot_of(ring);
             if (storage == nullptr)
                 return false;
-            astia_rings* storage_ring = rings_of(*storage);
-            astia_cq_ring* cq = astia_rings_cq(storage_ring);
-            const u32      head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
-            const u32      tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+            astia_rings*   storage_ring = rings_of(*storage);
+            astia_cq_ring* cq           = astia_rings_cq(storage_ring);
+            const u32      head         = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
+            const u32      tail         = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
             if (tail - head >= cq->entries) {
                 return false;
             }
@@ -360,10 +382,11 @@ namespace astia::sys {
 
         mm::shptr<fs::open_file> file_for(i32 fd) {
             proc::process* current = proc::current_process();
-            auto mapped = mapper<fd_t>::from(fd);
-            if (!mapped.has_value) return {};
+            auto           mapped  = mapper<fd_t>::from(fd);
+            if (!mapped.has_value)
+                return {};
             return current == nullptr ? mm::shptr<fs::open_file>{}
-                                       : current->descriptor(mapped.value);
+                                      : current->descriptor(mapped.value);
         }
 
         /// What one pump() did with an operation.  The two cannot share a
@@ -391,12 +414,13 @@ namespace astia::sys {
         io_outcome pump(parked_op& op, long& result) {
             for (;;) {
                 const usize ask = static_cast<usize>(op.request.length());
-                long n = 0;
+                long        n   = 0;
                 if (op.socket_accept) {
                     const auto* socket = op.object->backing()->unix_socket_capability();
                     n = socket == nullptr ? -EOPNOTSUPP
                                           : socket->accept(*op.object, op.request);
-                } else {
+                }
+                else {
                     n = op.object->submit(op.request);
                 }
                 if (op.control) {
@@ -464,14 +488,14 @@ namespace astia::sys {
                 (void) cq_post(ring, s.user_data, -EBUSY);
                 return true;
             }
-            p->used   = true;
-            p->done   = false;
-            p->fd     = s.fd;
-            p->object = object;
-            p->moved  = 0;
-            p->control = control;
-            p->socket_accept = socket_accept;
-            p->recvfrom_address = s.op == OP_RECVFROM;
+            p->used                  = true;
+            p->done                  = false;
+            p->fd                    = s.fd;
+            p->object                = object;
+            p->moved                 = 0;
+            p->control               = control;
+            p->socket_accept         = socket_accept;
+            p->recvfrom_address      = s.op == OP_RECVFROM;
             p->recvfrom_address_user = p->recvfrom_address ? s.offset : 0;
 
             // Snapshot every entry for as long as this operation lasts.  From
@@ -507,10 +531,11 @@ namespace astia::sys {
             }
             if (p->recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
-                const auto* socket = object->backing()->unix_socket_capability();
+                const auto*    socket = object->backing()->unix_socket_capability();
                 if (socket == nullptr || !socket->recvfrom_address(*object, address) ||
-                    !sys::copy_out(sys::user_range::bytes(p->recvfrom_address_user,
-                                                          sizeof address), &address))
+                    !sys::copy_out(
+                        sys::user_range::bytes(p->recvfrom_address_user, sizeof address),
+                        &address))
                     result = -EFAULT;
             }
             // Satisfied inline.  The operation has already happened, so a
@@ -537,8 +562,11 @@ namespace astia::sys {
             op.resuming = true;
             if (op.readiness) {
                 const u32 ready = op.object ? op.object->poll(op.poll_events)
-                                             : static_cast<u32>(POLLNVAL);
-                if (ready == 0) { op.resuming = false; return; }
+                                            : static_cast<u32>(POLLNVAL);
+                if (ready == 0) {
+                    op.resuming = false;
+                    return;
+                }
                 if (cq_post(ring, op.request.user_data(), static_cast<i32>(ready)))
                     op.done = true;
                 op.resuming = false;
@@ -551,10 +579,11 @@ namespace astia::sys {
             }
             if (op.recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
-                const auto* socket = op.object->backing()->unix_socket_capability();
+                const auto*    socket = op.object->backing()->unix_socket_capability();
                 if (socket == nullptr || !socket->recvfrom_address(*op.object, address) ||
-                    !sys::copy_out(sys::user_range::bytes(op.recvfrom_address_user,
-                                                          sizeof address), &address))
+                    !sys::copy_out(
+                        sys::user_range::bytes(op.recvfrom_address_user, sizeof address),
+                        &address))
                     result = -EFAULT;
             }
             // A full CQ leaves the operation and its shared file
@@ -604,15 +633,17 @@ namespace astia::sys {
                 if (!object) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                const io_direction direction = (s.op == OP_READ || s.op == OP_RECV || s.op == OP_READV)
-                                                   ? io_direction::input
-                                                   : io_direction::output;
+                const io_direction direction =
+                    (s.op == OP_READ || s.op == OP_RECV || s.op == OP_READV)
+                        ? io_direction::input
+                        : io_direction::output;
                 // READ/WRITE name one range, READV/WRITEV up to max_segments of
                 // them.  Both become the same list, so the engine has one path
                 // and a device still gets one buffer per submit() either way.
                 sys::user_range ranges[mm::iovec::max_segments];
                 u32             count = 0;
-                if (s.op == OP_READ || s.op == OP_WRITE || s.op == OP_SEND || s.op == OP_RECV) {
+                if (s.op == OP_READ || s.op == OP_WRITE || s.op == OP_SEND ||
+                    s.op == OP_RECV) {
                     ranges[0] = sys::user_range::bytes(s.address, s.length);
                     count     = 1;
                 }
@@ -673,7 +704,8 @@ namespace astia::sys {
                 if (!object)
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 if (!sys::user_range_ok(sys::user_range::bytes(s.address, s.length)) ||
-                    !sys::user_range_ok(sys::user_range::bytes(s.offset, sizeof(astia_sockaddr))))
+                    !sys::user_range_ok(
+                        sys::user_range::bytes(s.offset, sizeof(astia_sockaddr))))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 if (s.length > max_operation_bytes)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
@@ -682,17 +714,23 @@ namespace astia::sys {
                     if (!sys::copy_in(&a, sys::user_range::bytes(s.offset, sizeof a)))
                         return cq_post_guarded(ring, s.user_data, -EFAULT);
                     const auto* socket = object->backing()->unix_socket_capability();
-                    long rc = socket == nullptr ? -EOPNOTSUPP : socket->sendto(*object, &a);
-                    if (rc < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-                } else {
-                    if (s.length == 0) return cq_post_guarded(ring, s.user_data, 0);
+                    long        rc =
+                        socket == nullptr ? -EOPNOTSUPP : socket->sendto(*object, &a);
+                    if (rc < 0)
+                        return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+                }
+                else {
+                    if (s.length == 0)
+                        return cq_post_guarded(ring, s.user_data, 0);
                     const auto* socket = object->backing()->unix_socket_capability();
                     long rc = socket == nullptr ? -EOPNOTSUPP : socket->recvfrom(*object);
-                    if (rc < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+                    if (rc < 0)
+                        return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
                 }
                 sys::user_range range = sys::user_range::bytes(s.address, s.length);
                 return submit_request(slot, ring, s, object, &range, 1,
-                                      s.op == OP_RECVFROM ? io_direction::input : io_direction::output);
+                                      s.op == OP_RECVFROM ? io_direction::input
+                                                          : io_direction::output);
             }
 
             case OP_OPENAT: {
@@ -704,42 +742,50 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 }
                 auto* current = proc::current_process();
-                char resolved[256];
-                 if (current == nullptr)
-                     return cq_post_guarded(ring, s.user_data, -EINVAL);
-                  long resolve_rc = resolve_at(current, s.fd == -1 ? AT_FDCWD : s.fd,
-                                               path, resolved, sizeof resolved);
-                 if (resolve_rc >= 0) resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
-                 if (resolve_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
+                char  resolved[256];
+                if (current == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                long resolve_rc = resolve_at(current, s.fd == -1 ? AT_FDCWD : s.fd, path,
+                                             resolved, sizeof resolved);
+                if (resolve_rc >= 0)
+                    resolve_rc =
+                        fs::resolve_path(resolved, resolved, sizeof resolved, true);
+                if (resolve_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
                 if (resolved[0] == '/' && resolved[1] == 'd' && resolved[2] == 'e' &&
                     resolved[3] == 'v' && resolved[4] == '/' && resolved[5] == 't' &&
                     resolved[6] == 't' && resolved[7] == 'y' && resolved[8] == '\0' &&
                     !proc::has_controlling_terminal())
                     return cq_post_guarded(ring, s.user_data, -ENXIO);
-                 const fs::file_mode existing_mode = fs::node_mode(resolved);
-                 if (existing_mode.exists() && existing_mode.is_directory() &&
-                     (s.op_flags & O_DIRECTORY) == 0)
-                      return cq_post_guarded(ring, s.user_data, -EISDIR);
-                 if (existing_mode.exists() && !existing_mode.is_directory() &&
-                     (s.op_flags & O_DIRECTORY) != 0)
-                      return cq_post_guarded(ring, s.user_data, -ENOTDIR);
-                 if (!existing_mode.exists() && (s.op_flags & 0x04u) == 0)
-                     return cq_post_guarded(ring, s.user_data, -ENOENT);
+                const fs::file_mode existing_mode = fs::node_mode(resolved);
+                if (existing_mode.exists() && existing_mode.is_directory() &&
+                    (s.op_flags & O_DIRECTORY) == 0)
+                    return cq_post_guarded(ring, s.user_data, -EISDIR);
+                if (existing_mode.exists() && !existing_mode.is_directory() &&
+                    (s.op_flags & O_DIRECTORY) != 0)
+                    return cq_post_guarded(ring, s.user_data, -ENOTDIR);
+                if (!existing_mode.exists() && (s.op_flags & 0x04u) == 0)
+                    return cq_post_guarded(ring, s.user_data, -ENOENT);
                 if (existing_mode.exists()) {
-                    auto* cred = proc::current_process();
-                    const uid_t owner = fs::node_uid(resolved); const gid_t group = fs::node_gid(resolved);
-                    if ((s.op_flags & 2u) != 0 && !cred->can_access(existing_mode, owner, group, fs::permission_bits::write))
+                    auto*       cred  = proc::current_process();
+                    const uid_t owner = fs::node_uid(resolved);
+                    const gid_t group = fs::node_gid(resolved);
+                    if ((s.op_flags & 2u) != 0 &&
+                        !cred->can_access(existing_mode, owner, group,
+                                          fs::permission_bits::write))
                         return cq_post_guarded(ring, s.user_data, -EACCES);
-                    if ((s.op_flags & 1u) == 0 && !cred->can_access(existing_mode, owner, group, fs::permission_bits::read))
+                    if ((s.op_flags & 1u) == 0 &&
+                        !cred->can_access(existing_mode, owner, group,
+                                          fs::permission_bits::read))
                         return cq_post_guarded(ring, s.user_data, -EACCES);
                 }
                 // op_flags carries O_*; aux is the creation mode.  The
                 // VFS needs the former to implement O_CREAT/O_TRUNC on
                 // writable filesystems, while mode remains metadata for
                 // a future permission layer.
-                 mm::shptr<fs::open_file> object = existing_mode.is_directory()
-                                                       ? fs::open_directory(resolved)
-                                                       : fs::open(resolved, s.op_flags);
+                mm::shptr<fs::open_file> object = existing_mode.is_directory()
+                                                      ? fs::open_directory(resolved)
+                                                      : fs::open(resolved, s.op_flags);
                 if (!object) {
                     return cq_post_guarded(ring, s.user_data, -ENOENT);
                 }
@@ -747,10 +793,13 @@ namespace astia::sys {
                    requested mode only when this OPENAT created a new node;
                    an O_CREAT open of an existing node must not chmod it. */
                 if ((s.op_flags & 0x04u) != 0 && !existing_mode.exists()) {
-                    auto requested = mapper<fs::file_permissions>::from(s.aux == 0 ? 0666 : s.aux);
-                    if (!requested.has_value) return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    (void)fs::chmod_path(resolved, requested.value);
-                    (void)fs::chown_path(resolved, uid_t{current->uid()}, gid_t{current->gid()});
+                    auto requested =
+                        mapper<fs::file_permissions>::from(s.aux == 0 ? 0666 : s.aux);
+                    if (!requested.has_value)
+                        return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    (void) fs::chmod_path(resolved, requested.value);
+                    (void) fs::chown_path(resolved, uid_t{current->uid()},
+                                          gid_t{current->gid()});
                 }
                 current = proc::current_process();
                 if (current == nullptr) {
@@ -762,8 +811,8 @@ namespace astia::sys {
                 // for an asynchronous child and expects /dev/null at fd 0).
                 for (i32 i = 0; i < static_cast<i32>(proc::max_process_fds); ++i) {
                     if (!current->descriptor(fd_t{i}) &&
-                        current->set_descriptor(fd_t{i}, object,
-                                                (s.op_flags & O_CLOEXEC) != 0 ? 1u : 0u)) {
+                        current->set_descriptor(
+                            fd_t{i}, object, (s.op_flags & O_CLOEXEC) != 0 ? 1u : 0u)) {
                         return cq_post_guarded(ring, s.user_data, i);
                     }
                 }
@@ -772,8 +821,9 @@ namespace astia::sys {
 
             case OP_CLOSE: {
                 proc::process* current = proc::current_process();
-                auto mapped = mapper<fd_t>::from(s.fd);
-                if (current == nullptr || !mapped.has_value || !current->descriptor(mapped.value)) {
+                auto           mapped  = mapper<fd_t>::from(s.fd);
+                if (current == nullptr || !mapped.has_value ||
+                    !current->descriptor(mapped.value)) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
                 current->clear_descriptor(mapped.value);
@@ -787,24 +837,28 @@ namespace astia::sys {
                                          sys::user_range::string(s.address)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
-                char resolved[256];
-                 if (current == nullptr)
-                     return cq_post_guarded(ring, s.user_data, -ESRCH);
-                  long resolve_rc = resolve_at(current, s.fd, path, resolved, sizeof resolved);
-                 if (resolve_rc >= 0)
-                     resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
-                                                   s.op == OP_MKDIRAT);
-                 if (resolve_rc < 0)
-                     return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
-                 auto requested = mapper<fs::file_mode>::from(s.aux == 0 ? 0777 : s.aux);
-                 if (s.op == OP_MKDIRAT && !requested.has_value)
-                     return cq_post_guarded(ring, s.user_data, -EINVAL);
-                 const long rc = s.op == OP_MKDIRAT
-                                      ? fs::make_directory(resolved, requested.value)
-                                     : fs::remove_path(resolved,
-                                                       (s.op_flags & UNLINKAT_REMOVEDIR) != 0);
-                 if (rc >= 0 && s.op == OP_MKDIRAT) (void)fs::chown_path(resolved, uid_t{current->uid()}, gid_t{current->gid()});
-                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+                char  resolved[256];
+                if (current == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                long resolve_rc =
+                    resolve_at(current, s.fd, path, resolved, sizeof resolved);
+                if (resolve_rc >= 0)
+                    resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
+                                                  s.op == OP_MKDIRAT);
+                if (resolve_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+                auto requested = mapper<fs::file_mode>::from(s.aux == 0 ? 0777 : s.aux);
+                if (s.op == OP_MKDIRAT && !requested.has_value)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                const long rc =
+                    s.op == OP_MKDIRAT
+                        ? fs::make_directory(resolved, requested.value)
+                        : fs::remove_path(resolved,
+                                          (s.op_flags & UNLINKAT_REMOVEDIR) != 0);
+                if (rc >= 0 && s.op == OP_MKDIRAT)
+                    (void) fs::chown_path(resolved, uid_t{current->uid()},
+                                          gid_t{current->gid()});
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
             }
 
             case OP_RENAMEAT: {
@@ -816,16 +870,21 @@ namespace astia::sys {
                                          sys::user_range::string(s.offset)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
-                char old_resolved[256];
-                char new_resolved[256];
-                 if (current == nullptr)
-                     return cq_post_guarded(ring, s.user_data, -ESRCH);
-                  long old_rc = resolve_at(current, s.fd, old_path, old_resolved, sizeof old_resolved);
-                  i32 new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
-                  long new_rc = resolve_at(current, new_dirfd, new_path, new_resolved, sizeof new_resolved);
-                if (old_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)old_rc);
-                if (new_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)new_rc);
-                if (!parent_writable(current, old_resolved) || !parent_writable(current, new_resolved))
+                char  old_resolved[256];
+                char  new_resolved[256];
+                if (current == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                long old_rc    = resolve_at(current, s.fd, old_path, old_resolved,
+                                            sizeof old_resolved);
+                i32  new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
+                long new_rc    = resolve_at(current, new_dirfd, new_path, new_resolved,
+                                            sizeof new_resolved);
+                if (old_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) old_rc);
+                if (new_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) new_rc);
+                if (!parent_writable(current, old_resolved) ||
+                    !parent_writable(current, new_resolved))
                     return cq_post_guarded(ring, s.user_data, -EACCES);
                 const long rc = fs::rename_path(old_resolved, new_resolved);
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
@@ -833,25 +892,37 @@ namespace astia::sys {
 
             case OP_LINKAT: {
                 char old_path[256], new_path[256];
-                if (!sys::copy_in_string(old_path, sizeof old_path, sys::user_range::string(s.address)) ||
-                    !sys::copy_in_string(new_path, sizeof new_path, sys::user_range::string(s.offset)))
+                if (!sys::copy_in_string(old_path, sizeof old_path,
+                                         sys::user_range::string(s.address)) ||
+                    !sys::copy_in_string(new_path, sizeof new_path,
+                                         sys::user_range::string(s.offset)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
-                if (current == nullptr) return cq_post_guarded(ring, s.user_data, -ESRCH);
+                if (current == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
                 char old_resolved[256], new_resolved[256];
-                long old_rc = resolve_at(current, s.fd, old_path, old_resolved, sizeof old_resolved);
-                i32 new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
-                long new_rc = resolve_at(current, new_dirfd, new_path, new_resolved, sizeof new_resolved);
-                if (old_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)old_rc);
-                if (new_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)new_rc);
-                old_rc = fs::resolve_path(old_resolved, old_resolved, sizeof old_resolved, true);
-                new_rc = fs::resolve_path(new_resolved, new_resolved, sizeof new_resolved, false);
-                if (old_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)old_rc);
-                if (new_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)new_rc);
-                if (!parent_writable(current, old_resolved) || !parent_writable(current, new_resolved))
+                long old_rc    = resolve_at(current, s.fd, old_path, old_resolved,
+                                            sizeof old_resolved);
+                i32  new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
+                long new_rc    = resolve_at(current, new_dirfd, new_path, new_resolved,
+                                            sizeof new_resolved);
+                if (old_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) old_rc);
+                if (new_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) new_rc);
+                old_rc = fs::resolve_path(old_resolved, old_resolved, sizeof old_resolved,
+                                          true);
+                new_rc = fs::resolve_path(new_resolved, new_resolved, sizeof new_resolved,
+                                          false);
+                if (old_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) old_rc);
+                if (new_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) new_rc);
+                if (!parent_writable(current, old_resolved) ||
+                    !parent_writable(current, new_resolved))
                     return cq_post_guarded(ring, s.user_data, -EACCES);
                 return cq_post_guarded(ring, s.user_data,
-                                       (i32)fs::link_path(old_resolved, new_resolved));
+                                       (i32) fs::link_path(old_resolved, new_resolved));
             }
 
             case OP_DUP: {
@@ -860,23 +931,24 @@ namespace astia::sys {
                 if (current == nullptr || !source) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
-                const auto fd = current->duplicate_descriptor(mapper<fd_t>::from(s.fd).value);
+                const auto fd =
+                    current->duplicate_descriptor(mapper<fd_t>::from(s.fd).value);
                 return cq_post_guarded(ring, s.user_data,
                                        fd ? static_cast<i64>(fd.value.value) : -EMFILE);
             }
 
             case OP_DUP2: {
-                proc::process*           current = proc::current_process();
-                auto old_fd = mapper<fd_t>::from(s.fd);
-                auto new_fd = mapper<fd_t>::from(static_cast<i64>(s.offset));
+                proc::process* current = proc::current_process();
+                auto           old_fd  = mapper<fd_t>::from(s.fd);
+                auto           new_fd  = mapper<fd_t>::from(static_cast<i64>(s.offset));
                 if (current == nullptr || !old_fd.has_value || !new_fd.has_value ||
                     !current->descriptor(old_fd.value)) {
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 }
                 const i32 target = new_fd.value.value;
                 if (target != s.fd) {
-                    const auto result = current->duplicate_descriptor_to(old_fd.value,
-                                                                          new_fd.value);
+                    const auto result =
+                        current->duplicate_descriptor_to(old_fd.value, new_fd.value);
                     if (!result)
                         return cq_post_guarded(ring, s.user_data, -EMFILE);
                 }
@@ -885,8 +957,9 @@ namespace astia::sys {
 
             case OP_FCNTL: {
                 proc::process* current = proc::current_process();
-                auto mapped = mapper<fd_t>::from(s.fd);
-                if (current == nullptr || !mapped.has_value || !current->descriptor(mapped.value))
+                auto           mapped  = mapper<fd_t>::from(s.fd);
+                if (current == nullptr || !mapped.has_value ||
+                    !current->descriptor(mapped.value))
                     return cq_post_guarded(ring, s.user_data, -EBADF);
                 const u32 argument = s.aux;
                 switch (s.op_flags) {
@@ -894,15 +967,17 @@ namespace astia::sys {
                 case ASTIA_F_DUPFD_CLOEXEC: {
                     if (static_cast<i32>(argument) < 0)
                         return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    const u32 flags = s.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
-                    const auto result = current->duplicate_descriptor(mapped.value,
-                                                                       fd_t{static_cast<i32>(argument)}, flags);
+                    const u32 flags =
+                        s.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
+                    const auto result = current->duplicate_descriptor(
+                        mapped.value, fd_t{static_cast<i32>(argument)}, flags);
                     return cq_post_guarded(ring, s.user_data,
                                            result ? result.value.value : -EMFILE);
                 }
                 case ASTIA_F_GETFD:
-                    return cq_post_guarded(ring, s.user_data,
-                                           static_cast<i32>(current->descriptor_flags(mapped.value)));
+                    return cq_post_guarded(
+                        ring, s.user_data,
+                        static_cast<i32>(current->descriptor_flags(mapped.value)));
                 case ASTIA_F_SETFD:
                     if ((argument & ~ASTIA_FD_CLOEXEC) != 0)
                         return cq_post_guarded(ring, s.user_data, -EINVAL);
@@ -910,10 +985,12 @@ namespace astia::sys {
                         return cq_post_guarded(ring, s.user_data, -EBADF);
                     return cq_post_guarded(ring, s.user_data, 0);
                 case ASTIA_F_GETFL: {
-                    const u32 flags = current->descriptor(mapped.value)->flags();
-                    u32 result = (flags & 3u) == 2u ? 2u : ((flags & 1u) ? 1u : 0u);
-                    if (flags & 0x20u) result |= ASTIA_O_APPEND;
-                    if (flags & 0x100u) result |= ASTIA_O_NONBLOCK;
+                    const u32 flags  = current->descriptor(mapped.value)->flags();
+                    u32       result = (flags & 3u) == 2u ? 2u : ((flags & 1u) ? 1u : 0u);
+                    if (flags & 0x20u)
+                        result |= ASTIA_O_APPEND;
+                    if (flags & 0x100u)
+                        result |= ASTIA_O_NONBLOCK;
                     return cq_post_guarded(ring, s.user_data, static_cast<i32>(result));
                 }
                 case ASTIA_F_SETFL: {
@@ -949,51 +1026,64 @@ namespace astia::sys {
                         return cq_post_guarded(ring, s.user_data, -EFAULT);
                     }
                     auto* current = proc::current_process();
-                    char resolved[256];
+                    char  resolved[256];
                     if (current == nullptr)
                         return cq_post_guarded(ring, s.user_data, -EINVAL);
-                     long resolve_rc = resolve_at(current, s.fd == -1 ? AT_FDCWD : s.fd,
-                                                  path, resolved, sizeof resolved);
+                    long resolve_rc = resolve_at(current, s.fd == -1 ? AT_FDCWD : s.fd,
+                                                 path, resolved, sizeof resolved);
                     if (resolve_rc >= 0)
                         resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
                                                       (s.op_flags & STATX_NOFOLLOW) == 0);
-                    if (resolve_rc < 0) return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
-                     const fs::file_type type = fs::node_type(resolved);
+                    if (resolve_rc < 0)
+                        return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+                    const fs::file_type type = fs::node_type(resolved);
                     if ((s.op_flags & STATX_NOFOLLOW) != 0 && type == fs::directory_lnk) {
-                        __builtin_memset(reinterpret_cast<void*>(out.address()), 0, sizeof(astia_stat));
+                        __builtin_memset(reinterpret_cast<void*>(out.address()), 0,
+                                         sizeof(astia_stat));
                         auto* link = reinterpret_cast<astia_stat*>(out.address());
-                        char target[256]{};
-                        long n = fs::read_symlink(resolved, target, sizeof target);
-                        if (n < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(n));
-                        link->dev=1; link->ino=1; link->nlink=1; link->size=(u64)n;
-                         link->mode=mapper<fs::file_mode>::to(fs::node_mode(resolved)); link->uid=static_cast<u32>(fs::node_uid(resolved)); link->gid=static_cast<u32>(fs::node_gid(resolved));
+                        char  target[256]{};
+                        long  n = fs::read_symlink(resolved, target, sizeof target);
+                        if (n < 0)
+                            return cq_post_guarded(ring, s.user_data,
+                                                   static_cast<i32>(n));
+                        link->dev   = 1;
+                        link->ino   = 1;
+                        link->nlink = 1;
+                        link->size  = (u64) n;
+                        link->mode  = mapper<fs::file_mode>::to(fs::node_mode(resolved));
+                        link->uid   = static_cast<u32>(fs::node_uid(resolved));
+                        link->gid   = static_cast<u32>(fs::node_gid(resolved));
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                     object = fs::open_path(resolved);
                     if (type == fs::directory_dir) {
                         __builtin_memset(reinterpret_cast<void*>(out.address()), 0,
                                          sizeof(astia_stat));
-                        auto* directory = reinterpret_cast<astia_stat*>(out.address());
-                        directory->dev = 1;
-                        directory->ino = 1;
+                        auto* directory  = reinterpret_cast<astia_stat*>(out.address());
+                        directory->dev   = 1;
+                        directory->ino   = 1;
                         directory->nlink = 1;
-                        directory->mode = mapper<fs::file_mode>::to(fs::node_mode(resolved));
-                         directory->uid = static_cast<u32>(fs::node_uid(resolved)); directory->gid = static_cast<u32>(fs::node_gid(resolved));
+                        directory->mode =
+                            mapper<fs::file_mode>::to(fs::node_mode(resolved));
+                        directory->uid = static_cast<u32>(fs::node_uid(resolved));
+                        directory->gid = static_cast<u32>(fs::node_gid(resolved));
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                     if (!object) {
-                        char child[256]{};
+                        char          child[256]{};
                         fs::file_type child_type = fs::directory_unknown;
-                        if (fs::read_directory(resolved, 0, child, sizeof child, &child_type) <= 0) {
+                        if (fs::read_directory(resolved, 0, child, sizeof child,
+                                               &child_type) <= 0) {
                             return cq_post_guarded(ring, s.user_data, -ENOENT);
                         }
                         __builtin_memset(reinterpret_cast<void*>(out.address()), 0,
                                          sizeof(astia_stat));
-                        auto* directory = reinterpret_cast<astia_stat*>(out.address());
-                        directory->dev = 1;
-                        directory->ino = 1;
+                        auto* directory  = reinterpret_cast<astia_stat*>(out.address());
+                        directory->dev   = 1;
+                        directory->ino   = 1;
                         directory->nlink = 1;
-                        directory->mode = mapper<fs::file_mode>::to(fs::node_mode(resolved));
+                        directory->mode =
+                            mapper<fs::file_mode>::to(fs::node_mode(resolved));
                         return cq_post_guarded(ring, s.user_data, 0);
                     }
                 }
@@ -1013,141 +1103,167 @@ namespace astia::sys {
                 // range was validated above; this is the write it licensed.
                 auto* stat_out = reinterpret_cast<astia_stat*>(out.address());
                 __builtin_memset(stat_out, 0, sizeof *stat_out);
-                stat_out->dev = 1;
-                stat_out->ino = object->backing()->inode();
-                stat_out->nlink = object->backing()->nlink();
-                stat_out->size   = static_cast<u64>(size);
-                stat_out->blocks = (static_cast<u64>(size) + 511u) / 512u;
-                 stat_out->mode   = mapper<fs::file_mode>::to(object->mode());
-                  stat_out->uid = static_cast<u32>(object->backing()->uid()); stat_out->gid = static_cast<u32>(object->backing()->gid());
-                 stat_out->mtime_sec = object->mtime_sec();
-                 stat_out->mtime_nsec = object->mtime_nsec();
+                stat_out->dev        = 1;
+                stat_out->ino        = object->backing()->inode();
+                stat_out->nlink      = object->backing()->nlink();
+                stat_out->size       = static_cast<u64>(size);
+                stat_out->blocks     = (static_cast<u64>(size) + 511u) / 512u;
+                stat_out->mode       = mapper<fs::file_mode>::to(object->mode());
+                stat_out->uid        = static_cast<u32>(object->backing()->uid());
+                stat_out->gid        = static_cast<u32>(object->backing()->gid());
+                stat_out->mtime_sec  = object->mtime_sec();
+                stat_out->mtime_nsec = object->mtime_nsec();
                 return cq_post_guarded(ring, s.user_data, 0);
             }
 
             case OP_CHMOD: {
                 char path[256];
-                if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(s.address)))
+                if (!sys::copy_in_string(path, sizeof path,
+                                         sys::user_range::string(s.address)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
-                char resolved[256];
-                 if (current == nullptr || current->resolve_path(path, resolved, sizeof resolved) < 0)
-                     return cq_post_guarded(ring, s.user_data, -ESRCH);
-                 if (current->euid() != 0 && current->euid() != static_cast<u32>(fs::node_uid(resolved)))
+                char  resolved[256];
+                if (current == nullptr ||
+                    current->resolve_path(path, resolved, sizeof resolved) < 0)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                if (current->euid() != 0 &&
+                    current->euid() != static_cast<u32>(fs::node_uid(resolved)))
                     return cq_post_guarded(ring, s.user_data, -EPERM);
                 auto requested = mapper<fs::file_permissions>::from(s.aux);
-                if (!requested.has_value) return cq_post_guarded(ring, s.user_data, -EINVAL);
-                return cq_post_guarded(ring, s.user_data,
-                                       static_cast<i32>(fs::chmod_path(resolved, requested.value)));
+                if (!requested.has_value)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                return cq_post_guarded(
+                    ring, s.user_data,
+                    static_cast<i32>(fs::chmod_path(resolved, requested.value)));
             }
 
             case OP_CHOWN: {
                 auto* current = proc::current_process();
-                auto owner = mapper<uid_t>::from(static_cast<i64>(s.aux));
-                auto group = mapper<gid_t>::from(static_cast<i64>(s.offset));
+                auto  owner   = mapper<uid_t>::from(static_cast<i64>(s.aux));
+                auto  group   = mapper<gid_t>::from(static_cast<i64>(s.offset));
                 if (!owner.has_value || !group.has_value)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
-                if (current == nullptr) return cq_post_guarded(ring, s.user_data, -ESRCH);
+                if (current == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
                 if (s.fd >= 0) {
                     auto mapped_fd = mapper<fd_t>::from(s.fd);
                     if (!mapped_fd.has_value)
                         return cq_post_guarded(ring, s.user_data, -EBADF);
                     auto object = current->descriptor(mapped_fd.value);
-                    if (!object) return cq_post_guarded(ring, s.user_data, -EBADF);
+                    if (!object)
+                        return cq_post_guarded(ring, s.user_data, -EBADF);
                     if (current->euid() != 0 &&
                         (current->euid() != static_cast<u32>(object->backing()->uid()) ||
                          owner.value != object->backing()->uid() ||
                          !current->in_group(group.value)))
                         return cq_post_guarded(ring, s.user_data, -EPERM);
                     return cq_post_guarded(ring, s.user_data,
-                        static_cast<i32>(object->backing()->chown(owner.value, group.value)));
+                                           static_cast<i32>(object->backing()->chown(
+                                               owner.value, group.value)));
                 }
                 char path[256];
-                if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(s.address)))
+                if (!sys::copy_in_string(path, sizeof path,
+                                         sys::user_range::string(s.address)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                 char resolved[256];
-                  const bool follow_final = (s.op_flags & STATX_NOFOLLOW) == 0;
-                  long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
-                  if (resolve_rc >= 0)
-                      resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
-                                                   follow_final);
-                  if (resolve_rc < 0)
-                      return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
-                 const uid_t existing_uid = fs::node_uid(resolved);
+                char       resolved[256];
+                const bool follow_final = (s.op_flags & STATX_NOFOLLOW) == 0;
+                long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                if (resolve_rc >= 0)
+                    resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
+                                                  follow_final);
+                if (resolve_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+                const uid_t existing_uid = fs::node_uid(resolved);
                 if (current->euid() != 0 &&
                     (current->euid() != static_cast<u32>(existing_uid) ||
                      owner.value != existing_uid || !current->in_group(group.value)))
                     return cq_post_guarded(ring, s.user_data, -EPERM);
-                return cq_post_guarded(ring, s.user_data,
+                return cq_post_guarded(
+                    ring, s.user_data,
                     static_cast<i32>(fs::chown_path(resolved, owner.value, group.value,
-                     follow_final)));
+                                                    follow_final)));
             }
 
             case OP_UTIMENSAT: {
                 char path[256];
-                if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(s.address)))
+                if (!sys::copy_in_string(path, sizeof path,
+                                         sys::user_range::string(s.address)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                 auto* current = proc::current_process();
-                 char resolved[256];
-                 if (current == nullptr)
-                     return cq_post_guarded(ring, s.user_data, -ESRCH);
-                 long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
-                 if (resolve_rc >= 0)
-                     resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
-                 if (resolve_rc < 0)
-                     return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
-                u64 sec = 0;
+                auto* current = proc::current_process();
+                char  resolved[256];
+                if (current == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                if (resolve_rc >= 0)
+                    resolve_rc =
+                        fs::resolve_path(resolved, resolved, sizeof resolved, true);
+                if (resolve_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+                u64 sec  = 0;
                 u64 nsec = 0;
                 sys::realtime_now(sec, nsec);
-                return cq_post_guarded(ring, s.user_data,
-                                       static_cast<i32>(fs::touch_path(resolved, sec, nsec)));
+                return cq_post_guarded(
+                    ring, s.user_data,
+                    static_cast<i32>(fs::touch_path(resolved, sec, nsec)));
             }
 
             case OP_SYMLINKAT: {
                 char target[256], path[256];
-                if (!sys::copy_in_string(target, sizeof target, sys::user_range::string(s.address)) ||
-                    !sys::copy_in_string(path, sizeof path, sys::user_range::string(s.offset)))
+                if (!sys::copy_in_string(target, sizeof target,
+                                         sys::user_range::string(s.address)) ||
+                    !sys::copy_in_string(path, sizeof path,
+                                         sys::user_range::string(s.offset)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                 auto* current=proc::current_process(); char resolved[256];
-                 if (!current)
-                     return cq_post_guarded(ring,s.user_data,-ESRCH);
-                  long resolve_rc = resolve_at(current, s.fd, path, resolved, sizeof resolved);
-                 if (resolve_rc < 0)
-                     return cq_post_guarded(ring,s.user_data,(i32)resolve_rc);
-                 resolve_rc = fs::resolve_path(resolved,resolved,sizeof resolved,false);
-                 if (resolve_rc < 0)
-                     return cq_post_guarded(ring,s.user_data,(i32)resolve_rc);
-                 long link_rc = fs::make_symlink(target,resolved);
-                 if (link_rc >= 0) (void)fs::chown_path(resolved, uid_t{current->uid()}, gid_t{current->gid()}, false);
-                 return cq_post_guarded(ring,s.user_data,(i32)link_rc);
+                auto* current = proc::current_process();
+                char  resolved[256];
+                if (!current)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                long resolve_rc =
+                    resolve_at(current, s.fd, path, resolved, sizeof resolved);
+                if (resolve_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+                resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, false);
+                if (resolve_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+                long link_rc = fs::make_symlink(target, resolved);
+                if (link_rc >= 0)
+                    (void) fs::chown_path(resolved, uid_t{current->uid()},
+                                          gid_t{current->gid()}, false);
+                return cq_post_guarded(ring, s.user_data, (i32) link_rc);
             }
             case OP_READLINKAT: {
                 char path[256];
-                if (!sys::copy_in_string(path,sizeof path,sys::user_range::string(s.address)))
-                    return cq_post_guarded(ring,s.user_data,-EFAULT);
-                 auto* current=proc::current_process(); char resolved[256];
-                 if (!current)
-                     return cq_post_guarded(ring,s.user_data,-ESRCH);
-                  long resolve_rc = resolve_at(current, s.fd, path, resolved, sizeof resolved);
-                 if (resolve_rc < 0)
-                     return cq_post_guarded(ring,s.user_data,(i32)resolve_rc);
-                 resolve_rc = fs::resolve_path(resolved,resolved,sizeof resolved,false);
-                 if (resolve_rc < 0)
-                     return cq_post_guarded(ring,s.user_data,(i32)resolve_rc);
-                auto out=sys::user_range::bytes(s.offset,s.length);
-                if (!sys::user_range_ok(out)) return cq_post_guarded(ring,s.user_data,-EFAULT);
+                if (!sys::copy_in_string(path, sizeof path,
+                                         sys::user_range::string(s.address)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                auto* current = proc::current_process();
+                char  resolved[256];
+                if (!current)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                long resolve_rc =
+                    resolve_at(current, s.fd, path, resolved, sizeof resolved);
+                if (resolve_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+                resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, false);
+                if (resolve_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+                auto out = sys::user_range::bytes(s.offset, s.length);
+                if (!sys::user_range_ok(out))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
                 // read_symlink is a kernel/VFS API; never give it a raw
                 // caller address.  The fixed path limit is also the VFS's
                 // maximum link length, so an oversized user capacity is
                 // harmless and cannot become a kernel stack allocation.
-                char target[256]{};
-                const u32 capacity = s.length < sizeof target ? s.length : sizeof target;
-                const long n = fs::read_symlink(resolved, target, capacity);
-                if (n < 0) return cq_post_guarded(ring,s.user_data,(i32)n);
-                if (n != 0 && !sys::copy_out(sys::user_range::bytes(s.offset,
-                                                                      static_cast<usize>(n)), target))
-                    return cq_post_guarded(ring,s.user_data,-EFAULT);
-                return cq_post_guarded(ring,s.user_data,(i32)n);
+                char       target[256]{};
+                const u32  capacity = s.length < sizeof target ? s.length : sizeof target;
+                const long n        = fs::read_symlink(resolved, target, capacity);
+                if (n < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) n);
+                if (n != 0 &&
+                    !sys::copy_out(
+                        sys::user_range::bytes(s.offset, static_cast<usize>(n)), target))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                return cq_post_guarded(ring, s.user_data, (i32) n);
             }
 
             case OP_READDIR: {
@@ -1156,23 +1272,24 @@ namespace astia::sys {
                                          sys::user_range::string(s.offset)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
-                char resolved[256];
-                 if (current == nullptr)
-                     return cq_post_guarded(ring, s.user_data, -ESRCH);
-                 long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
-                 if (resolve_rc >= 0)
-                     resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
-                 if (resolve_rc < 0)
-                     return cq_post_guarded(ring, s.user_data, (i32)resolve_rc);
+                char  resolved[256];
+                if (current == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                long resolve_rc = current->resolve_path(path, resolved, sizeof resolved);
+                if (resolve_rc >= 0)
+                    resolve_rc =
+                        fs::resolve_path(resolved, resolved, sizeof resolved, true);
+                if (resolve_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
                 const sys::user_range out =
                     sys::user_range::bytes(s.address, sizeof(astia_dirent));
                 if (!sys::user_range_ok(out))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                astia_dirent result{};
-                 fs::file_type type = fs::directory_unknown;
-                 long rc = fs::read_directory(resolved, s.fd < 0 ? 0 : s.fd, result.name,
-                                               sizeof result.name, &type);
-                 result.type = static_cast<u32>(type);
+                astia_dirent  result{};
+                fs::file_type type = fs::directory_unknown;
+                long rc = fs::read_directory(resolved, s.fd < 0 ? 0 : s.fd, result.name,
+                                             sizeof result.name, &type);
+                result.type = static_cast<u32>(type);
                 if (rc > 0) {
                     u32 length = 0;
                     while (length < sizeof result.name && result.name[length] != '\0')
@@ -1197,36 +1314,46 @@ namespace astia::sys {
                 // requests here instead of passing a caller pointer into a
                 // device (which was both a TOCTOU and kernel-pointer bug).
                 usize expected = 0;
-                bool input = false, output = false;
-                if (s.offset == TCGETS || s.offset == TCSETS ||
-                    s.offset == TCSETSW || s.offset == TCSETSF) {
+                bool  input = false, output = false;
+                if (s.offset == TCGETS || s.offset == TCSETS || s.offset == TCSETSW ||
+                    s.offset == TCSETSF) {
                     expected = sizeof(struct termios);
-                    input = s.offset != TCGETS; output = s.offset == TCGETS;
-                } else if (s.offset == 0x5413 || s.offset == 0x5414) {
-                    expected = 8; input = s.offset == 0x5414; output = s.offset == 0x5413;
-                 } else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {
-                     expected = sizeof(i32); input = s.offset == TIOCSPGRP; output = s.offset == TIOCGPGRP;
-                 } else if (s.offset == TIOCSCTTY) {
-                     expected = 0;
-                 } else {
+                    input    = s.offset != TCGETS;
+                    output   = s.offset == TCGETS;
+                }
+                else if (s.offset == 0x5413 || s.offset == 0x5414) {
+                    expected = 8;
+                    input    = s.offset == 0x5414;
+                    output   = s.offset == 0x5413;
+                }
+                else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {
+                    expected = sizeof(i32);
+                    input    = s.offset == TIOCSPGRP;
+                    output   = s.offset == TIOCGPGRP;
+                }
+                else if (s.offset == TIOCSCTTY) {
+                    expected = 0;
+                }
+                else {
                     return cq_post_guarded(ring, s.user_data, -ENOTTY);
                 }
-                if (s.length != expected || !sys::user_range_ok(
-                        sys::user_range::bytes(s.address, expected)))
+                if (s.length != expected ||
+                    !sys::user_range_ok(sys::user_range::bytes(s.address, expected)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                 mm::shptr<fs::open_file> object = file_for(s.fd);
-                 if (!object)
-                     return cq_post_guarded(ring, s.user_data, -EBADF);
+                mm::shptr<fs::open_file> object = file_for(s.fd);
+                if (!object)
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
                 __atomic_thread_fence(__ATOMIC_SEQ_CST);
                 alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
                 if (input && !sys::copy_in(ioctl_storage,
                                            sys::user_range::bytes(s.address, expected)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
-                 long rc = object->ioctl(s.offset, ioctl_storage);
-                 if (rc >= 0 && s.offset == TIOCSCTTY)
-                     rc = proc::acquire_controlling_terminal(object->backing());
-                if (rc >= 0 && output && !sys::copy_out(
-                        sys::user_range::bytes(s.address, expected), ioctl_storage))
+                long rc = object->ioctl(s.offset, ioctl_storage);
+                if (rc >= 0 && s.offset == TIOCSCTTY)
+                    rc = proc::acquire_controlling_terminal(object->backing());
+                if (rc >= 0 && output &&
+                    !sys::copy_out(sys::user_range::bytes(s.address, expected),
+                                   ioctl_storage))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 __atomic_thread_fence(__ATOMIC_SEQ_CST);
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
@@ -1249,7 +1376,8 @@ namespace astia::sys {
                 i32 write_fd = -1;
                 for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
                     if (read_fd < 0 && !current->descriptor(fd_t{fd})) {
-                        if (current->set_descriptor(fd_t{fd}, read_end)) read_fd = fd;
+                        if (current->set_descriptor(fd_t{fd}, read_end))
+                            read_fd = fd;
                     }
                     else if (write_fd < 0 && !current->descriptor(fd_t{fd})) {
                         if (current->set_descriptor(fd_t{fd}, write_end)) {
@@ -1273,42 +1401,57 @@ namespace astia::sys {
             }
 
             case OP_SOCKET: {
-                if (s.fd != AF_UNIX || (s.op_flags != SOCK_STREAM && s.op_flags != SOCK_DGRAM) || s.aux != 0)
+                if (s.fd != AF_UNIX ||
+                    (s.op_flags != SOCK_STREAM && s.op_flags != SOCK_DGRAM) || s.aux != 0)
                     return cq_post_guarded(ring, s.user_data, -EAFNOSUPPORT);
-                proc::process* current = proc::current_process();
+                proc::process*           current = proc::current_process();
                 mm::shptr<fs::open_file> object;
-                long rc = fs::create_unix_socket(object, s.op_flags);
-                if (rc < 0 || !current) return cq_post_guarded(ring, s.user_data, (i32)(rc < 0 ? rc : -ESRCH));
-                for (i32 fd=3; fd<(i32)proc::max_process_fds; ++fd)
-                    if (!current->descriptor(fd_t{fd}) && current->set_descriptor(fd_t{fd}, object))
+                long                     rc = fs::create_unix_socket(object, s.op_flags);
+                if (rc < 0 || !current)
+                    return cq_post_guarded(ring, s.user_data,
+                                           (i32) (rc < 0 ? rc : -ESRCH));
+                for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
+                    if (!current->descriptor(fd_t{fd}) &&
+                        current->set_descriptor(fd_t{fd}, object))
                         return cq_post_guarded(ring, s.user_data, fd);
                 return cq_post_guarded(ring, s.user_data, -EMFILE);
             }
             case OP_BIND:
             case OP_CONNECT: {
-                auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
-                if(!sys::user_range_ok(sys::user_range::bytes(s.address,sizeof(astia_sockaddr)))) return cq_post_guarded(ring,s.user_data,-EFAULT);
-                astia_sockaddr a{}; if(!sys::copy_in(&a,sys::user_range::bytes(s.address,sizeof a))) return cq_post_guarded(ring,s.user_data,-EFAULT);
-                 const auto* socket = object->backing()->unix_socket_capability();
-                 long rc = socket == nullptr ? -EOPNOTSUPP
-                                             : (s.op == OP_BIND ? socket->bind(*object, a)
-                                                                 : socket->connect(*object, a));
-                return cq_post_guarded(ring,s.user_data,(i32)rc);
+                auto object = file_for(s.fd);
+                if (!object)
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                if (!sys::user_range_ok(
+                        sys::user_range::bytes(s.address, sizeof(astia_sockaddr))))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                astia_sockaddr a{};
+                if (!sys::copy_in(&a, sys::user_range::bytes(s.address, sizeof a)))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                const auto* socket = object->backing()->unix_socket_capability();
+                long        rc = socket == nullptr
+                                     ? -EOPNOTSUPP
+                                     : (s.op == OP_BIND ? socket->bind(*object, a)
+                                                        : socket->connect(*object, a));
+                return cq_post_guarded(ring, s.user_data, (i32) rc);
             }
             case OP_LISTEN: {
-                auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
-                 const auto* socket = object->backing()->unix_socket_capability();
-                 return cq_post_guarded(ring, s.user_data,
-                                        static_cast<i32>(socket == nullptr
-                                                             ? -EOPNOTSUPP
-                                                             : socket->listen(*object, s.aux)));
+                auto object = file_for(s.fd);
+                if (!object)
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                const auto* socket = object->backing()->unix_socket_capability();
+                return cq_post_guarded(
+                    ring, s.user_data,
+                    static_cast<i32>(socket == nullptr ? -EOPNOTSUPP
+                                                       : socket->listen(*object, s.aux)));
             }
             case OP_ACCEPT: {
-                auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
+                auto object = file_for(s.fd);
+                if (!object)
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
                 if (object->backing()->unix_socket_capability() == nullptr)
                     return cq_post_guarded(ring, s.user_data, -EOPNOTSUPP);
                 return submit_request(slot, ring, s, object, nullptr, 0,
-                                       io_direction::input, true, true);
+                                      io_direction::input, true, true);
             }
 
             case OP_POLL_ADD: {
@@ -1319,14 +1462,22 @@ namespace astia::sys {
                 if (ready != 0)
                     return cq_post_guarded(ring, s.user_data, static_cast<i32>(ready));
                 arch::interrupt_guard gate;
-                parked_op* p = nullptr;
+                parked_op*            p = nullptr;
                 for (u32 i = 0; i < park_capacity; ++i)
-                    if (!slot.park[i].used) { p = &slot.park[i]; break; }
+                    if (!slot.park[i].used) {
+                        p = &slot.park[i];
+                        break;
+                    }
                 if (p == nullptr)
                     return cq_post_guarded(ring, s.user_data, -EBUSY);
-                p->used = true; p->done = false; p->resuming = false;
-                p->control = true; p->readiness = true; p->poll_events = s.aux;
-                p->fd = s.fd; p->object = object;
+                p->used        = true;
+                p->done        = false;
+                p->resuming    = false;
+                p->control     = true;
+                p->readiness   = true;
+                p->poll_events = s.aux;
+                p->fd          = s.fd;
+                p->object      = object;
                 p->request = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
                 return true;
             }
@@ -1336,15 +1487,18 @@ namespace astia::sys {
                     s.offset == UINT64_MAX)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
                 proc::process* current = proc::current_process();
-                if (!current) return cq_post_guarded(ring, s.user_data, -ESRCH);
-                mm::shptr<eventfd_file> event(new eventfd_file(
-                    s.offset, (s.op_flags & ASTIA_EFD_NONBLOCK) != 0));
-                if (!event) return cq_post_guarded(ring, s.user_data, -ENOMEM);
+                if (!current)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                mm::shptr<eventfd_file> event(
+                    new eventfd_file(s.offset, (s.op_flags & ASTIA_EFD_NONBLOCK) != 0));
+                if (!event)
+                    return cq_post_guarded(ring, s.user_data, -ENOMEM);
                 const u32 fd_flags = (s.op_flags & ASTIA_EFD_CLOEXEC ? 0x1u : 0u) |
                                      (s.op_flags & ASTIA_EFD_NONBLOCK ? 0x800u : 0u);
-                auto object = mm::share<fs::open_file>(event, fd_flags);
-                for (i32 fd = 3; fd < (i32)proc::max_process_fds; ++fd)
-                    if (!current->descriptor(fd_t{fd}) && current->set_descriptor(fd_t{fd}, object))
+                auto      object   = mm::share<fs::open_file>(event, fd_flags);
+                for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
+                    if (!current->descriptor(fd_t{fd}) &&
+                        current->set_descriptor(fd_t{fd}, object))
                         return cq_post_guarded(ring, s.user_data, fd);
                 return cq_post_guarded(ring, s.user_data, -EMFILE);
             }
@@ -1357,7 +1511,7 @@ namespace astia::sys {
                         // Cancellation needs two CQ slots.  Do not consume the
                         // SQE if either completion could be lost.
                         arch::interrupt_guard gate;
-                        astia_cq_ring* cq = astia_rings_cq(ring);
+                        astia_cq_ring*        cq = astia_rings_cq(ring);
                         const u32 head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
                         const u32 tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
                         if (tail - head > cq->entries - 2)
@@ -1376,25 +1530,43 @@ namespace astia::sys {
                     !sys::user_range_ok(sys::user_range::bytes(s.address, s.length)))
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
                 proc::process* current = proc::current_process();
-                if (!current) return cq_post_guarded(ring, s.user_data, -ESRCH);
-                mm::shptr<fs::open_file> a,b; long rc=fs::unix_socketpair(a,b,s.op_flags);
-                if (rc < 0) return cq_post_guarded(ring,s.user_data,(i32)rc);
-                i32 fds[2]={-1,-1};
-                for(i32 fd=3;fd<(i32)proc::max_process_fds && fds[1]<0;++fd) {
-                    if (fds[0]<0 && !current->descriptor(fd_t{fd}) && current->set_descriptor(fd_t{fd},a)) fds[0]=fd;
-                    else if (fds[0]>=0 && !current->descriptor(fd_t{fd}) && current->set_descriptor(fd_t{fd},b)) fds[1]=fd;
+                if (!current)
+                    return cq_post_guarded(ring, s.user_data, -ESRCH);
+                mm::shptr<fs::open_file> a, b;
+                long                     rc = fs::unix_socketpair(a, b, s.op_flags);
+                if (rc < 0)
+                    return cq_post_guarded(ring, s.user_data, (i32) rc);
+                i32 fds[2] = {-1, -1};
+                for (i32 fd = 3; fd < (i32) proc::max_process_fds && fds[1] < 0; ++fd) {
+                    if (fds[0] < 0 && !current->descriptor(fd_t{fd}) &&
+                        current->set_descriptor(fd_t{fd}, a))
+                        fds[0] = fd;
+                    else if (fds[0] >= 0 && !current->descriptor(fd_t{fd}) &&
+                             current->set_descriptor(fd_t{fd}, b))
+                        fds[1] = fd;
                 }
-                if(fds[1]<0){if(fds[0]>=0)current->clear_descriptor(fd_t{fds[0]});return cq_post_guarded(ring,s.user_data,-EMFILE);}
-                if(!sys::copy_out(sys::user_range::bytes(s.address,s.length),fds)){current->clear_descriptor(fd_t{fds[0]});current->clear_descriptor(fd_t{fds[1]});return cq_post_guarded(ring,s.user_data,-EFAULT);}
-                return cq_post_guarded(ring,s.user_data,0);
+                if (fds[1] < 0) {
+                    if (fds[0] >= 0)
+                        current->clear_descriptor(fd_t{fds[0]});
+                    return cq_post_guarded(ring, s.user_data, -EMFILE);
+                }
+                if (!sys::copy_out(sys::user_range::bytes(s.address, s.length), fds)) {
+                    current->clear_descriptor(fd_t{fds[0]});
+                    current->clear_descriptor(fd_t{fds[1]});
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                }
+                return cq_post_guarded(ring, s.user_data, 0);
             }
             case OP_SHUTDOWN: {
-                auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
-                 const auto* socket = object->backing()->unix_socket_capability();
-                 return cq_post_guarded(ring, s.user_data,
-                                        static_cast<i32>(socket == nullptr
-                                                             ? -EOPNOTSUPP
-                                                             : socket->shutdown(*object, s.op_flags)));
+                auto object = file_for(s.fd);
+                if (!object)
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                const auto* socket = object->backing()->unix_socket_capability();
+                return cq_post_guarded(
+                    ring, s.user_data,
+                    static_cast<i32>(socket == nullptr
+                                         ? -EOPNOTSUPP
+                                         : socket->shutdown(*object, s.op_flags)));
             }
 
             default:
@@ -1430,16 +1602,16 @@ namespace astia::sys {
             slot.used  = true;
             slot.owner = proc::current_process();
 
-            astia_rings* r = rings_of(slot);
-            r->magic       = RINGS_MAGIC;
-            r->version     = API_VERSION;
-            r->features    = FEAT_SINGLE_MMAP;
-            r->sq_entries  = sq;
-            r->cq_entries  = cq;
-            r->sq_off      = sizeof(astia_rings);
-            r->cq_off      = r->sq_off + sizeof(astia_sq_ring);
-            r->sqes_off    = r->cq_off + sizeof(astia_cq_ring);
-            r->cqes_off    = r->sqes_off + static_cast<u32>(sizeof(astia_sqe)) * sq;
+            astia_rings* r  = rings_of(slot);
+            r->magic        = RINGS_MAGIC;
+            r->version      = API_VERSION;
+            r->features     = FEAT_SINGLE_MMAP;
+            r->sq_entries   = sq;
+            r->cq_entries   = cq;
+            r->sq_off       = sizeof(astia_rings);
+            r->cq_off       = r->sq_off + sizeof(astia_sq_ring);
+            r->sqes_off     = r->cq_off + sizeof(astia_cq_ring);
+            r->cqes_off     = r->sqes_off + static_cast<u32>(sizeof(astia_sqe)) * sq;
             slot.sq_entries = sq;
             slot.cq_entries = cq;
 
@@ -1464,8 +1636,9 @@ namespace astia::sys {
                 visible = reinterpret_cast<astia_rings*>(user_address);
             }
 
-            if (!sys::copy_out(sys::user_range::bytes(reinterpret_cast<u64>(out),
-                                                       sizeof visible), &visible)) {
+            if (!sys::copy_out(
+                    sys::user_range::bytes(reinterpret_cast<u64>(out), sizeof visible),
+                    &visible)) {
                 unmap_ring_user(slot, owner);
                 clear_slot(slot);
                 return -EFAULT;
@@ -1583,8 +1756,8 @@ namespace astia::sys {
 
     void io_device_ready(i32 fd) {
         proc::process* current = proc::current_process();
-        auto current_object = current == nullptr ? mm::shptr<fs::open_file>{}
-                                                  : current->descriptor(fd_t{fd});
+        auto current_object    = current == nullptr ? mm::shptr<fs::open_file>{}
+                                                    : current->descriptor(fd_t{fd});
         if (!current_object) {
             return;
         }
@@ -1667,7 +1840,7 @@ namespace astia::sys {
                         continue;
                     op.entries.release();
                     op.object = mm::shptr<fs::open_file>{};
-                    op = parked_op{};
+                    op        = parked_op{};
                 }
             }
             unmap_ring_user(*slot, owner);

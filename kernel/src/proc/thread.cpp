@@ -41,7 +41,8 @@ namespace astia::proc {
     bool thread::prepare_kernel(kernel_entry entry, void* argument) {
         auto stack = mm::heap::alloc(kernel_stack_size);
         if (!stack || context_ == nullptr) {
-            if (stack) mm::heap::free(stack.value);
+            if (stack)
+                mm::heap::free(stack.value);
             return false;
         }
         kernel_stack_      = stack.value;
@@ -52,7 +53,7 @@ namespace astia::proc {
         const u64 top =
             static_cast<u64>(reinterpret_cast<usize>(kernel_stack_)) + kernel_stack_size_;
         if (!arch::context_prepare_kernel(context_, top & ~u64{15},
-                                           reinterpret_cast<u64>(&thread_trampoline))) {
+                                          reinterpret_cast<u64>(&thread_trampoline))) {
             mm::heap::free(kernel_stack_);
             kernel_stack_      = nullptr;
             kernel_stack_size_ = 0;
@@ -64,7 +65,8 @@ namespace astia::proc {
     bool thread::prepare_user(u64 entry, u64 user_stack_top, u64 fs_base) {
         auto stack = mm::heap::alloc(kernel_stack_size);
         if (!stack || context_ == nullptr) {
-            if (stack) mm::heap::free(stack.value);
+            if (stack)
+                mm::heap::free(stack.value);
             return false;
         }
         kernel_stack_      = stack.value;
@@ -72,8 +74,8 @@ namespace astia::proc {
         kernel_stack_top_ =
             static_cast<u64>(reinterpret_cast<usize>(kernel_stack_)) + kernel_stack_size_;
         user_stack_top_ = user_stack_top;
-        if (!arch::context_prepare_user(context_, kernel_stack_top_, user_stack_top_, entry,
-                                        fs_base)) {
+        if (!arch::context_prepare_user(context_, kernel_stack_top_, user_stack_top_,
+                                        entry, fs_base)) {
             mm::heap::free(kernel_stack_);
             kernel_stack_      = nullptr;
             kernel_stack_size_ = 0;
@@ -86,7 +88,8 @@ namespace astia::proc {
                                     u64 argument0, u64 argument1) {
         auto stack = mm::heap::alloc(kernel_stack_size);
         if (!stack || context_ == nullptr) {
-            if (stack) mm::heap::free(stack.value);
+            if (stack)
+                mm::heap::free(stack.value);
             return false;
         }
         kernel_stack_      = stack.value;
@@ -94,8 +97,9 @@ namespace astia::proc {
         kernel_stack_top_ =
             static_cast<u64>(reinterpret_cast<usize>(kernel_stack_)) + kernel_stack_size_;
         user_stack_top_ = user_stack_top;
-        if (!arch::context_prepare_user_start(context_, kernel_stack_top_, user_stack_top_,
-                                              entry, fs_base, argument0, argument1)) {
+        if (!arch::context_prepare_user_start(context_, kernel_stack_top_,
+                                              user_stack_top_, entry, fs_base, argument0,
+                                              argument1)) {
             mm::heap::free(kernel_stack_);
             kernel_stack_      = nullptr;
             kernel_stack_size_ = 0;
@@ -107,7 +111,8 @@ namespace astia::proc {
     bool thread::prepare_fork_user(const arch::user_context& uctx) {
         auto stack = mm::heap::alloc(kernel_stack_size);
         if (!stack || context_ == nullptr) {
-            if (stack) mm::heap::free(stack.value);
+            if (stack)
+                mm::heap::free(stack.value);
             return false;
         }
         kernel_stack_      = stack.value;

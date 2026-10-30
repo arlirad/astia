@@ -217,14 +217,21 @@ long __astia_fio_open(const char* path, int flags, int mode) {
 
 long __astia_fio_openat(int dirfd, const char* path, int flags, int mode) {
     uint32_t of = (flags & 3) == 2 ? O_RDWR : ((flags & 3) == 1 ? O_WRONLY : O_RDONLY);
-    if (flags & 0x40) of |= O_CREAT;
-    if (flags & 0x80) of |= O_EXCL;
-    if (flags & 0x200) of |= O_TRUNC;
-    if (flags & 0x400) of |= O_APPEND;
-    if (flags & 0x800) of |= 0x100u;
-    if (flags & 0x080000) of |= O_CLOEXEC;
-    if (flags & 0x10000) of |= O_DIRECTORY;
-    return transact(OP_OPENAT, dirfd, 0, path, 0, of, (uint32_t)mode);
+    if (flags & 0x40)
+        of |= O_CREAT;
+    if (flags & 0x80)
+        of |= O_EXCL;
+    if (flags & 0x200)
+        of |= O_TRUNC;
+    if (flags & 0x400)
+        of |= O_APPEND;
+    if (flags & 0x800)
+        of |= 0x100u;
+    if (flags & 0x080000)
+        of |= O_CLOEXEC;
+    if (flags & 0x10000)
+        of |= O_DIRECTORY;
+    return transact(OP_OPENAT, dirfd, 0, path, 0, of, (uint32_t) mode);
 }
 
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n) {
@@ -334,30 +341,32 @@ long __astia_fio_size(int fd, uint64_t* out) {
 }
 
 long __astia_fio_stat(const char* path, void* out, uint32_t length) {
-    return transact(OP_STATX, -1, (uint64_t)(uintptr_t)out, path, length, 0, 0);
+    return transact(OP_STATX, -1, (uint64_t) (uintptr_t) out, path, length, 0, 0);
 }
-long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length, int flags) {
-    return transact(OP_STATX, dirfd, (uint64_t)(uintptr_t)out, path, length,
+long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length,
+                        int flags) {
+    return transact(OP_STATX, dirfd, (uint64_t) (uintptr_t) out, path, length,
                     flags & 0x100 ? STATX_NOFOLLOW : 0, 0);
 }
 long __astia_fio_lstat(const char* path, void* out, uint32_t length) {
-    return transact(OP_STATX, -1, (uint64_t)(uintptr_t)out, path, length, STATX_NOFOLLOW, 0);
+    return transact(OP_STATX, -1, (uint64_t) (uintptr_t) out, path, length,
+                    STATX_NOFOLLOW, 0);
 }
 
 long __astia_fio_fstat(int fd, void* out, uint32_t length) {
-    return transact(OP_STATX, fd, (uint64_t)(uintptr_t)out, NULL, length, 0, 0);
+    return transact(OP_STATX, fd, (uint64_t) (uintptr_t) out, NULL, length, 0, 0);
 }
 
 long __astia_fio_mkdir(const char* path, int mode) {
-    return transact(OP_MKDIRAT, -1, 0, path, 0, 0, (uint32_t)mode);
+    return transact(OP_MKDIRAT, -1, 0, path, 0, 0, (uint32_t) mode);
 }
 
 long __astia_fio_chmod(const char* path, int mode) {
     return transact(OP_CHMOD, -1, 0, path, 0, 0, (uint32_t) mode);
 }
-long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid, int nofollow) {
-    return transact(OP_CHOWN, -1, gid, path, 0,
-                    nofollow ? STATX_NOFOLLOW : 0, uid);
+long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid,
+                       int nofollow) {
+    return transact(OP_CHOWN, -1, gid, path, 0, nofollow ? STATX_NOFOLLOW : 0, uid);
 }
 long __astia_fio_fchown(int fd, unsigned int uid, unsigned int gid) {
     return transact(OP_CHOWN, fd, gid, NULL, 0, 0, uid);
@@ -368,45 +377,50 @@ long __astia_fio_utime(const char* path) {
 }
 
 long __astia_fio_unlink(const char* path, int directory) {
-    return transact(OP_UNLINKAT, -1, 0, path, 0,
-                    directory ? UNLINKAT_REMOVEDIR : 0, 0);
+    return transact(OP_UNLINKAT, -1, 0, path, 0, directory ? UNLINKAT_REMOVEDIR : 0, 0);
 }
 long __astia_fio_unlinkat(int dirfd, const char* path, int directory) {
-    return transact(OP_UNLINKAT, dirfd, 0, path, 0, directory ? UNLINKAT_REMOVEDIR : 0, 0);
+    return transact(OP_UNLINKAT, dirfd, 0, path, 0, directory ? UNLINKAT_REMOVEDIR : 0,
+                    0);
 }
 
 long __astia_fio_rename(const char* old_path, const char* new_path) {
-    return transact(OP_RENAMEAT, -1, (uint64_t)(uintptr_t)new_path, old_path, 0, 0, 0);
+    return transact(OP_RENAMEAT, -1, (uint64_t) (uintptr_t) new_path, old_path, 0, 0, 0);
 }
-long __astia_fio_renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path) {
-    return transact(OP_RENAMEAT, olddirfd, (uint64_t)(uintptr_t)new_path,
-                    old_path, (uint32_t)newdirfd, 0, 0);
+long __astia_fio_renameat(int olddirfd, const char* old_path, int newdirfd,
+                          const char* new_path) {
+    return transact(OP_RENAMEAT, olddirfd, (uint64_t) (uintptr_t) new_path, old_path,
+                    (uint32_t) newdirfd, 0, 0);
 }
 long __astia_fio_link(const char* old_path, const char* new_path) {
-    return transact(OP_LINKAT, -1, (uint64_t)(uintptr_t)new_path, old_path, 0, 0, 0);
+    return transact(OP_LINKAT, -1, (uint64_t) (uintptr_t) new_path, old_path, 0, 0, 0);
 }
-long __astia_fio_linkat(int olddirfd, const char* old_path, int newdirfd, const char* new_path) {
-    return transact(OP_LINKAT, olddirfd, (uint64_t)(uintptr_t)new_path, old_path,
-                    (uint32_t)newdirfd, 0, 0);
+long __astia_fio_linkat(int olddirfd, const char* old_path, int newdirfd,
+                        const char* new_path) {
+    return transact(OP_LINKAT, olddirfd, (uint64_t) (uintptr_t) new_path, old_path,
+                    (uint32_t) newdirfd, 0, 0);
 }
 long __astia_fio_mkdirat(int dirfd, const char* path, int mode) {
-    return transact(OP_MKDIRAT, dirfd, 0, path, 0, 0, (uint32_t)mode);
+    return transact(OP_MKDIRAT, dirfd, 0, path, 0, 0, (uint32_t) mode);
 }
 long __astia_fio_symlink(const char* target, const char* path) {
     size_t length = strlen(target);
     if (length > UINT32_MAX)
         return -EINVAL;
-    return transact(OP_SYMLINKAT, -1, (uint64_t)(uintptr_t)path, target, (uint32_t)length, 0, 0);
+    return transact(OP_SYMLINKAT, -1, (uint64_t) (uintptr_t) path, target,
+                    (uint32_t) length, 0, 0);
 }
 long __astia_fio_readlink(const char* path, char* buffer, size_t capacity) {
     if (capacity > UINT32_MAX)
         return -EINVAL;
-    return transact(OP_READLINKAT, -1, (uint64_t)(uintptr_t)buffer, path, (uint32_t)capacity, 0, 0);
+    return transact(OP_READLINKAT, -1, (uint64_t) (uintptr_t) buffer, path,
+                    (uint32_t) capacity, 0, 0);
 }
 long __astia_fio_readlinkat(int dirfd, const char* path, char* buffer, size_t capacity) {
-    if (capacity > UINT32_MAX) return -EINVAL;
-    return transact(OP_READLINKAT, dirfd, (uint64_t)(uintptr_t)buffer, path,
-                    (uint32_t)capacity, 0, 0);
+    if (capacity > UINT32_MAX)
+        return -EINVAL;
+    return transact(OP_READLINKAT, dirfd, (uint64_t) (uintptr_t) buffer, path,
+                    (uint32_t) capacity, 0, 0);
 }
 
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
@@ -424,17 +438,57 @@ long __astia_fio_pipe(int fds[2]) {
     return transact(OP_PIPE, -1, 0, fds, 2u * sizeof(int), 0, 0);
 }
 
-long __astia_fio_socket(int domain, int type, int protocol) { return transact(OP_SOCKET, domain, 0, NULL, 0, (uint32_t)type, (uint32_t)protocol); }
-long __astia_fio_socketpair(int domain, int type, int protocol, int fds[2]) { return transact(OP_SOCKETPAIR, domain, 0, fds, 2*sizeof(int), (uint32_t)type, (uint32_t)protocol); }
-long __astia_fio_shutdown(int fd, int how) { return transact(OP_SHUTDOWN, fd, 0, NULL, 0, (uint32_t)how, 0); }
-long __astia_fio_bind(int fd, const void* address, uint32_t length) { return transact(OP_BIND, fd, 0, address, length, 0, 0); }
-long __astia_fio_listen(int fd, int backlog) { return transact(OP_LISTEN, fd, 0, NULL, 0, 0, (uint32_t)backlog); }
-long __astia_fio_accept(int fd, void* address, uint32_t* length) { (void)address; (void)length; return transact(OP_ACCEPT, fd, 0, NULL, 0, 0, 0); }
-long __astia_fio_connect(int fd, const void* address, uint32_t length) { return transact(OP_CONNECT, fd, 0, address, length, 0, 0); }
-long __astia_fio_send(int fd, const void* buf, size_t n, int flags) { (void)flags; if (n > UINT32_MAX) return -EINVAL; return transact(OP_SEND, fd, OFF_APPEND, buf, (uint32_t)n, 0, 0); }
-long __astia_fio_recv(int fd, void* buf, size_t n, int flags) { (void)flags; if (n > UINT32_MAX) return -EINVAL; return transact(OP_RECV, fd, OFF_APPEND, buf, (uint32_t)n, 0, 0); }
-long __astia_fio_sendto(int fd, const void* buf, size_t n, int flags, const void* addr, uint32_t alen) { (void)flags; if(n>UINT32_MAX||alen!=sizeof(astia_sockaddr))return -EINVAL; return transact(OP_SENDTO,fd,(uint64_t)(uintptr_t)addr,buf,(uint32_t)n,0,0); }
-long __astia_fio_recvfrom(int fd, void* buf, size_t n, int flags, void* addr, uint32_t* alen) { (void)flags; if(n>UINT32_MAX||!addr||!alen)return -EINVAL; return transact(OP_RECVFROM,fd,(uint64_t)(uintptr_t)addr,buf,(uint32_t)n,0,0); }
+long __astia_fio_socket(int domain, int type, int protocol) {
+    return transact(OP_SOCKET, domain, 0, NULL, 0, (uint32_t) type, (uint32_t) protocol);
+}
+long __astia_fio_socketpair(int domain, int type, int protocol, int fds[2]) {
+    return transact(OP_SOCKETPAIR, domain, 0, fds, 2 * sizeof(int), (uint32_t) type,
+                    (uint32_t) protocol);
+}
+long __astia_fio_shutdown(int fd, int how) {
+    return transact(OP_SHUTDOWN, fd, 0, NULL, 0, (uint32_t) how, 0);
+}
+long __astia_fio_bind(int fd, const void* address, uint32_t length) {
+    return transact(OP_BIND, fd, 0, address, length, 0, 0);
+}
+long __astia_fio_listen(int fd, int backlog) {
+    return transact(OP_LISTEN, fd, 0, NULL, 0, 0, (uint32_t) backlog);
+}
+long __astia_fio_accept(int fd, void* address, uint32_t* length) {
+    (void) address;
+    (void) length;
+    return transact(OP_ACCEPT, fd, 0, NULL, 0, 0, 0);
+}
+long __astia_fio_connect(int fd, const void* address, uint32_t length) {
+    return transact(OP_CONNECT, fd, 0, address, length, 0, 0);
+}
+long __astia_fio_send(int fd, const void* buf, size_t n, int flags) {
+    (void) flags;
+    if (n > UINT32_MAX)
+        return -EINVAL;
+    return transact(OP_SEND, fd, OFF_APPEND, buf, (uint32_t) n, 0, 0);
+}
+long __astia_fio_recv(int fd, void* buf, size_t n, int flags) {
+    (void) flags;
+    if (n > UINT32_MAX)
+        return -EINVAL;
+    return transact(OP_RECV, fd, OFF_APPEND, buf, (uint32_t) n, 0, 0);
+}
+long __astia_fio_sendto(int fd, const void* buf, size_t n, int flags, const void* addr,
+                        uint32_t alen) {
+    (void) flags;
+    if (n > UINT32_MAX || alen != sizeof(astia_sockaddr))
+        return -EINVAL;
+    return transact(OP_SENDTO, fd, (uint64_t) (uintptr_t) addr, buf, (uint32_t) n, 0, 0);
+}
+long __astia_fio_recvfrom(int fd, void* buf, size_t n, int flags, void* addr,
+                          uint32_t* alen) {
+    (void) flags;
+    if (n > UINT32_MAX || !addr || !alen)
+        return -EINVAL;
+    return transact(OP_RECVFROM, fd, (uint64_t) (uintptr_t) addr, buf, (uint32_t) n, 0,
+                    0);
+}
 
 long __astia_fio_dup(int fd) {
     return transact(OP_DUP, fd, 0, NULL, 0, 0, 0);
@@ -445,80 +499,107 @@ long __astia_fio_dup2(int old_fd, int new_fd) {
 }
 
 long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
-    return transact(OP_FCNTL, fd, 0, NULL, 0, (uint32_t)command, argument);
+    return transact(OP_FCNTL, fd, 0, NULL, 0, (uint32_t) command, argument);
 }
 
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
-    astia_rings* r;
-    uint64_t tags[IO_MAX_ENTRIES];
+    astia_rings*  r;
+    uint64_t      tags[IO_MAX_ENTRIES];
     unsigned char pending[IO_MAX_ENTRIES] = {0};
-    size_t submitted = 0, ready_count = 0;
-    long rc;
+    size_t        submitted = 0, ready_count = 0;
+    long          rc;
     if (count > IO_MAX_ENTRIES || (count != 0 && fds == NULL) || timeout_ms < -1)
         return -EINVAL;
     rc = ring_ensure();
-    if (rc < 0) return rc;
-    if (g_inflight != 0) { rc = settle(); if (rc < 0) return rc; }
+    if (rc < 0)
+        return rc;
+    if (g_inflight != 0) {
+        rc = settle();
+        if (rc < 0)
+            return rc;
+    }
     r = g_ring;
     for (size_t i = 0; i < count; ++i) {
         astia_sqe* s = astia_sqe_slot(r);
-        if (s == NULL) return -EBUSY;
-        tags[i] = ++g_tag; pending[i] = 1;
+        if (s == NULL)
+            return -EBUSY;
+        tags[i]    = ++g_tag;
+        pending[i] = 1;
         memset(s, 0, sizeof *s);
-        s->op = OP_POLL_ADD; s->fd = fds[i].fd;
-        s->aux = (uint32_t)(unsigned short)fds[i].events;
+        s->op        = OP_POLL_ADD;
+        s->fd        = fds[i].fd;
+        s->aux       = (uint32_t) (unsigned short) fds[i].events;
         s->user_data = tags[i];
-        astia_sq_publish(r, 1); ++submitted;
+        astia_sq_publish(r, 1);
+        ++submitted;
     }
-    astia_timespec ts;
+    astia_timespec  ts;
     astia_timespec* tsp = NULL;
     if (timeout_ms >= 0) {
-        ts.tv_sec = timeout_ms / 1000;
+        ts.tv_sec  = timeout_ms / 1000;
         ts.tv_nsec = (timeout_ms % 1000) * 1000000;
-        tsp = &ts;
+        tsp        = &ts;
     }
-    rc = astia_io_enter(r, (uint32_t)submitted, timeout_ms == 0 ? 0 : 1,
+    rc = astia_io_enter(r, (uint32_t) submitted, timeout_ms == 0 ? 0 : 1,
                         timeout_ms == 0 ? 0 : ENTER_GETEVENTS, tsp);
-    if (rc < 0 && rc != -ETIMEDOUT) goto cancel;
+    if (rc < 0 && rc != -ETIMEDOUT)
+        goto cancel;
     for (;;) {
         astia_cqe* c = astia_cq_peek(r);
-        if (c == NULL) break;
-        for (size_t i = 0; i < count; ++i) if (pending[i] && tags[i] == c->user_data) {
-            pending[i] = 0;
-            if (c->result >= 0) { fds[i].revents = (short)c->result; if (c->result) ++ready_count; }
+        if (c == NULL)
             break;
-        }
+        for (size_t i = 0; i < count; ++i)
+            if (pending[i] && tags[i] == c->user_data) {
+                pending[i] = 0;
+                if (c->result >= 0) {
+                    fds[i].revents = (short) c->result;
+                    if (c->result)
+                        ++ready_count;
+                }
+                break;
+            }
         astia_cq_consume(r, 1);
     }
 cancel:
     {
         size_t left = 0;
-        for (size_t i = 0; i < count; ++i) if (pending[i]) {
-            astia_sqe* s = astia_sqe_slot(r);
-            if (s == NULL) break;
-            memset(s, 0, sizeof *s); s->op = OP_CANCEL; s->offset = tags[i];
-            s->user_data = ++g_tag; astia_sq_publish(r, 1); ++left;
-            pending[i] = 0;
-        }
-        if (left) (void) astia_io_enter(r, (uint32_t)left, 0, 0, NULL);
+        for (size_t i = 0; i < count; ++i)
+            if (pending[i]) {
+                astia_sqe* s = astia_sqe_slot(r);
+                if (s == NULL)
+                    break;
+                memset(s, 0, sizeof *s);
+                s->op        = OP_CANCEL;
+                s->offset    = tags[i];
+                s->user_data = ++g_tag;
+                astia_sq_publish(r, 1);
+                ++left;
+                pending[i] = 0;
+            }
+        if (left)
+            (void) astia_io_enter(r, (uint32_t) left, 0, 0, NULL);
         while (astia_cq_peek(r) != NULL) {
             astia_cqe* c = astia_cq_peek(r);
-            for (size_t i = 0; i < count; ++i) if (tags[i] == c->user_data && c->result >= 0) {
-                fds[i].revents = (short)c->result;
-                if (c->result) ++ready_count;
-                break;
-            }
+            for (size_t i = 0; i < count; ++i)
+                if (tags[i] == c->user_data && c->result >= 0) {
+                    fds[i].revents = (short) c->result;
+                    if (c->result)
+                        ++ready_count;
+                    break;
+                }
             astia_cq_consume(r, 1);
         }
     }
-    if (rc < 0 && rc != -ETIMEDOUT) return rc;
-    return (long)ready_count;
+    if (rc < 0 && rc != -ETIMEDOUT)
+        return rc;
+    return (long) ready_count;
 }
 
 long __astia_fio_eventfd(unsigned int initial_value, int flags) {
-    if ((flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0) return -EINVAL;
-    return transact(OP_EVENTFD_CREATE, -1, (uint64_t)initial_value, NULL, 0,
-                    (uint32_t)flags, 0);
+    if ((flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0)
+        return -EINVAL;
+    return transact(OP_EVENTFD_CREATE, -1, (uint64_t) initial_value, NULL, 0,
+                    (uint32_t) flags, 0);
 }
 
 void __astia_fio_after_fork(void) {

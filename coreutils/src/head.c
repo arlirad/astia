@@ -26,7 +26,8 @@ int main(int argc, char** argv) {
     unsigned long lines = 10;
     int           first = 1;
     if (argc == 2 && cu_is_help(argv[1]))
-        return cu_help("head", "[-n NUMBER] [FILE]...", "Print the first 10 lines of each FILE.");
+        return cu_help("head", "[-n NUMBER] [FILE]...",
+                       "Print the first 10 lines of each FILE.");
     if (argc == 2 && cu_is_version(argv[1]))
         return cu_version("head");
     if (first < argc && argv[first][0] == '-') {

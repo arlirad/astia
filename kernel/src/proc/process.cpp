@@ -14,55 +14,72 @@ void* operator new[](astia::usize size, void* where) noexcept;
 
 namespace astia::proc {
 
-
     i64 process::change_directory(const char* path) {
-        if (path == nullptr || path[0] == '\0') return -EINVAL;
+        if (path == nullptr || path[0] == '\0')
+            return -EINVAL;
         char full[fs::path_max]{};
         if (path[0] == '/') {
             usize i = 0;
-            for (; path[i] != '\0' && i + 1 < fs::path_max; ++i) full[i] = path[i];
-            if (path[i] != '\0') return -ENAMETOOLONG;
+            for (; path[i] != '\0' && i + 1 < fs::path_max; ++i)
+                full[i] = path[i];
+            if (path[i] != '\0')
+                return -ENAMETOOLONG;
             full[i] = '\0';
         }
         else {
             usize at = 0;
-            for (; cwd_[at] != '\0' && at + 1 < fs::path_max; ++at) full[at] = cwd_[at];
-            if (at > 1) full[at++] = '/';
+            for (; cwd_[at] != '\0' && at + 1 < fs::path_max; ++at)
+                full[at] = cwd_[at];
+            if (at > 1)
+                full[at++] = '/';
             usize source = 0;
             for (; path[source] != '\0' && at + 1 < fs::path_max; ++source, ++at)
                 full[at] = path[source];
-            if (path[source] != '\0') return -ENAMETOOLONG;
+            if (path[source] != '\0')
+                return -ENAMETOOLONG;
             full[at] = '\0';
         }
-        if (full[0] == '\0') return -EINVAL;
-        if (full[0] != '/') return -EINVAL;
-        char resolved[fs::path_max]{};
+        if (full[0] == '\0')
+            return -EINVAL;
+        if (full[0] != '/')
+            return -EINVAL;
+        char       resolved[fs::path_max]{};
         const long resolve_rc = fs::resolve_path(full, resolved, sizeof resolved, true);
-        if (resolve_rc < 0) return resolve_rc;
-        if (fs::node_type(resolved) == fs::directory_unknown) return -ENOENT;
-        if (fs::node_type(resolved) != fs::directory_dir) return -ENOTDIR;
+        if (resolve_rc < 0)
+            return resolve_rc;
+        if (fs::node_type(resolved) == fs::directory_unknown)
+            return -ENOENT;
+        if (fs::node_type(resolved) != fs::directory_dir)
+            return -ENOTDIR;
         usize i = 0;
-        for (; resolved[i] != '\0'; ++i) cwd_[i] = resolved[i];
-        cwd_[i] = '\0';
+        for (; resolved[i] != '\0'; ++i)
+            cwd_[i] = resolved[i];
+        cwd_[i]                = '\0';
         cwd_[fs::path_max - 1] = '\0';
         return 0;
     }
 
     i64 process::copy_cwd(char* buffer, usize length) const {
-        if (buffer == nullptr || length == 0) return -EINVAL;
+        if (buffer == nullptr || length == 0)
+            return -EINVAL;
         usize i = 0;
-        for (; cwd_[i] != '\0' && i + 1 < length; ++i) buffer[i] = cwd_[i];
-        if (cwd_[i] != '\0') return -ERANGE;
+        for (; cwd_[i] != '\0' && i + 1 < length; ++i)
+            buffer[i] = cwd_[i];
+        if (cwd_[i] != '\0')
+            return -ERANGE;
         buffer[i] = '\0';
         return static_cast<i64>(i + 1);
     }
 
     i64 process::resolve_path(const char* path, char* buffer, usize length) const {
-        if (path == nullptr || buffer == nullptr || length == 0) return -EINVAL;
+        if (path == nullptr || buffer == nullptr || length == 0)
+            return -EINVAL;
         if (path[0] == '/') {
             usize i = 0;
-            for (; path[i] != '\0' && i + 1 < length; ++i) buffer[i] = path[i];
-            if (path[i] != '\0') return -ENAMETOOLONG;
+            for (; path[i] != '\0' && i + 1 < length; ++i)
+                buffer[i] = path[i];
+            if (path[i] != '\0')
+                return -ENAMETOOLONG;
             buffer[i] = '\0';
             return 0;
         }
@@ -70,31 +87,45 @@ namespace astia::proc {
             return copy_cwd(buffer, length) < 0 ? -ERANGE : 0;
         }
         usize at = 0;
-        for (; cwd_[at] != '\0' && at + 1 < length; ++at) buffer[at] = cwd_[at];
-        if (at > 1 && at + 1 < length) buffer[at++] = '/';
+        for (; cwd_[at] != '\0' && at + 1 < length; ++at)
+            buffer[at] = cwd_[at];
+        if (at > 1 && at + 1 < length)
+            buffer[at++] = '/';
         usize source = 0;
         for (; path[source] != '\0' && at + 1 < length; ++source, ++at)
             buffer[at] = path[source];
-        if (path[source] != '\0') return -ENAMETOOLONG;
+        if (path[source] != '\0')
+            return -ENAMETOOLONG;
         buffer[at] = '\0';
         return 0;
     }
 
-    i64 process::resolve_path_at(fd_t dirfd, const char* path, char* buffer, usize length) const {
-        if (path == nullptr || buffer == nullptr || length == 0) return -EINVAL;
-        if (path[0] == '/') return resolve_path(path, buffer, length);
-        if (dirfd.value == -100) return resolve_path(path, buffer, length);
+    i64 process::resolve_path_at(fd_t dirfd, const char* path, char* buffer,
+                                 usize length) const {
+        if (path == nullptr || buffer == nullptr || length == 0)
+            return -EINVAL;
+        if (path[0] == '/')
+            return resolve_path(path, buffer, length);
+        if (dirfd.value == -100)
+            return resolve_path(path, buffer, length);
         auto directory = descriptor(dirfd);
-        if (!directory) return -EBADF;
-        if (!directory->path() || !directory->mode().is_directory()) return -ENOTDIR;
-        usize at = 0;
+        if (!directory)
+            return -EBADF;
+        if (!directory->path() || !directory->mode().is_directory())
+            return -ENOTDIR;
+        usize       at   = 0;
         const char* base = directory->path();
-        for (; base[at] != '\0' && at + 1 < length; ++at) buffer[at] = base[at];
-        if (base[at] != '\0') return -ENAMETOOLONG;
-        if (at > 1 && at + 1 < length) buffer[at++] = '/';
+        for (; base[at] != '\0' && at + 1 < length; ++at)
+            buffer[at] = base[at];
+        if (base[at] != '\0')
+            return -ENAMETOOLONG;
+        if (at > 1 && at + 1 < length)
+            buffer[at++] = '/';
         usize i = 0;
-        for (; path[i] != '\0' && at + 1 < length; ++i, ++at) buffer[at] = path[i];
-        if (path[i] != '\0') return -ENAMETOOLONG;
+        for (; path[i] != '\0' && at + 1 < length; ++i, ++at)
+            buffer[at] = path[i];
+        if (path[i] != '\0')
+            return -ENAMETOOLONG;
         buffer[at] = '\0';
         return 0;
     }
@@ -295,7 +326,8 @@ namespace astia::proc {
     } // namespace
 
     process::process(pid_t id, pid_t parent, const char* name)
-        : pid_(id), parent_pid_(parent), process_group_(pgrp_t{static_cast<u32>(id)}), session_(id) {
+        : pid_(id), parent_pid_(parent), process_group_(pgrp_t{static_cast<u32>(id)}),
+          session_(id) {
         u32 i = 0;
         while (name != nullptr && name[i] != '\0' && i + 1 < sizeof(name_)) {
             name_[i] = name[i];
@@ -305,50 +337,75 @@ namespace astia::proc {
     }
 
     i64 process::setuid(u32 v) {
-        if (euid_ != 0 && v != uid_ && v != euid_) return -EPERM;
-        uid_=euid_=v; return 0;
-    }
-    i64 process::seteuid(u32 v) {
-        if (euid_ != 0 && v != uid_ && v != euid_) return -EPERM;
-        euid_=v; return 0;
-    }
-    i64 process::setgid(u32 v) {
-        if (egid_ != 0 && v != gid_ && v != egid_) return -EPERM;
-        gid_=egid_=v; return 0;
-    }
-    i64 process::setegid(u32 v) {
-        if (egid_ != 0 && v != gid_ && v != egid_) return -EPERM;
-        egid_=v; return 0;
-    }
-    i64 process::setreuid(u32 r,u32 e) {
-        if (euid_ != 0 && r != uid_ && r != euid_ && e != uid_ && e != euid_) return -EPERM;
-        if (r != static_cast<u32>(-1)) uid_=r;
-        if (e != static_cast<u32>(-1)) euid_=e;
+        if (euid_ != 0 && v != uid_ && v != euid_)
+            return -EPERM;
+        uid_ = euid_ = v;
         return 0;
     }
-    i64 process::setregid(u32 r,u32 e) {
-        if (egid_ != 0 && r != gid_ && r != egid_ && e != gid_ && e != egid_) return -EPERM;
-        if (r != static_cast<u32>(-1)) gid_=r;
-        if (e != static_cast<u32>(-1)) egid_=e;
+    i64 process::seteuid(u32 v) {
+        if (euid_ != 0 && v != uid_ && v != euid_)
+            return -EPERM;
+        euid_ = v;
+        return 0;
+    }
+    i64 process::setgid(u32 v) {
+        if (egid_ != 0 && v != gid_ && v != egid_)
+            return -EPERM;
+        gid_ = egid_ = v;
+        return 0;
+    }
+    i64 process::setegid(u32 v) {
+        if (egid_ != 0 && v != gid_ && v != egid_)
+            return -EPERM;
+        egid_ = v;
+        return 0;
+    }
+    i64 process::setreuid(u32 r, u32 e) {
+        if (euid_ != 0 && r != uid_ && r != euid_ && e != uid_ && e != euid_)
+            return -EPERM;
+        if (r != static_cast<u32>(-1))
+            uid_ = r;
+        if (e != static_cast<u32>(-1))
+            euid_ = e;
+        return 0;
+    }
+    i64 process::setregid(u32 r, u32 e) {
+        if (egid_ != 0 && r != gid_ && r != egid_ && e != gid_ && e != egid_)
+            return -EPERM;
+        if (r != static_cast<u32>(-1))
+            gid_ = r;
+        if (e != static_cast<u32>(-1))
+            egid_ = e;
         return 0;
     }
     bool process::in_group(gid_t group) const {
-        if (egid_ == static_cast<u32>(group)) return true;
-        for (u32 i=0;i<group_count_;++i) if (groups_[i] == group) return true;
+        if (egid_ == static_cast<u32>(group))
+            return true;
+        for (u32 i = 0; i < group_count_; ++i)
+            if (groups_[i] == group)
+                return true;
         return false;
     }
     i64 process::getgroups(i32 count, u32* out) const {
-        if (count < 0 || (count != 0 && out == nullptr)) return -EINVAL;
-        if (count == 0) return group_count_;
-        if (static_cast<u32>(count) < group_count_) return -EINVAL;
-        for (u32 i=0;i<group_count_;++i) out[i]=static_cast<u32>(groups_[i]);
+        if (count < 0 || (count != 0 && out == nullptr))
+            return -EINVAL;
+        if (count == 0)
+            return group_count_;
+        if (static_cast<u32>(count) < group_count_)
+            return -EINVAL;
+        for (u32 i = 0; i < group_count_; ++i)
+            out[i] = static_cast<u32>(groups_[i]);
         return group_count_;
     }
     i64 process::setgroups(i32 count, const u32* values) {
-        if (euid_ != 0) return -EPERM;
-        if (count < 0 || static_cast<u32>(count) > max_groups || (count != 0 && values == nullptr)) return -EINVAL;
-        group_count_=static_cast<u32>(count);
-        for (u32 i=0;i<group_count_;++i) groups_[i]=gid_t{values[i]};
+        if (euid_ != 0)
+            return -EPERM;
+        if (count < 0 || static_cast<u32>(count) > max_groups ||
+            (count != 0 && values == nullptr))
+            return -EINVAL;
+        group_count_ = static_cast<u32>(count);
+        for (u32 i = 0; i < group_count_; ++i)
+            groups_[i] = gid_t{values[i]};
         return 0;
     }
 
@@ -425,8 +482,8 @@ namespace astia::proc {
         // Do this before dropping descriptors so the terminal's foreground
         // process group is still available to the signal fan-out.
         if (controlling_terminal_ != nullptr && session_ == pid_) {
-            (void) signal_process_group(
-                pgrp_t{static_cast<u32>(process_group_)}, signal_number::hup);
+            (void) signal_process_group(pgrp_t{static_cast<u32>(process_group_)},
+                                        signal_number::hup);
             controlling_terminal_ = nullptr;
         }
         // Release a child's private ring at exit rather than waiting for
@@ -460,7 +517,7 @@ namespace astia::proc {
     void process::signal_state_change(signal_number signal) {
         if (signal == signal_number::cont || signal == signal_number::kill) {
             thread* wake_list[max_process_threads];
-            u32 count = 0;
+            u32     count = 0;
             {
                 core::spinlock_guard guard(process_lock);
                 if (state_ != process_state::stopped)
@@ -493,8 +550,8 @@ namespace astia::proc {
                 state_ == process_state::stopped)
                 return;
             stop_signal_ = static_cast<i32>(signal);
-            stop_event_ = true;
-            state_ = process_state::stopped;
+            stop_event_  = true;
+            state_       = process_state::stopped;
             for (u32 i = 0; i < max_process_threads; ++i) {
                 thread* value = threads_[i].get();
                 if (value != nullptr && value->state() != thread_state::dead)
@@ -639,12 +696,15 @@ namespace astia::proc {
     }
 
     bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value) {
-        if (fd.value < 0 || static_cast<u64>(fd.value) >= rlimit_nofile_.current) return false;
+        if (fd.value < 0 || static_cast<u64>(fd.value) >= rlimit_nofile_.current)
+            return false;
         return descriptors_.set(fd, value);
     }
 
-    bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value, u32 flags) {
-        if (fd.value < 0 || static_cast<u64>(fd.value) >= rlimit_nofile_.current) return false;
+    bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value,
+                                 u32 flags) {
+        if (fd.value < 0 || static_cast<u64>(fd.value) >= rlimit_nofile_.current)
+            return false;
         return descriptors_.set(fd, value, flags);
     }
 
@@ -666,7 +726,9 @@ namespace astia::proc {
         return descriptors_.duplicate(old_fd, minimum, flags, limit);
     }
 
-    u32 process::descriptor_flags(fd_t fd) const { return descriptors_.flags(fd); }
+    u32 process::descriptor_flags(fd_t fd) const {
+        return descriptors_.flags(fd);
+    }
 
     bool process::set_descriptor_flags(fd_t fd, u32 flags) {
         auto object = descriptors_.get(fd);
@@ -680,18 +742,25 @@ namespace astia::proc {
     }
 
     i64 process::get_rlimit(i32 resource, astia_rlimit* out) const {
-        if (out == nullptr) return -EFAULT;
-        if (resource == RLIMIT_NOFILE) *out = rlimit_nofile_;
-        else if (resource == RLIMIT_AS) *out = rlimit_as_;
-        else return -EINVAL;
+        if (out == nullptr)
+            return -EFAULT;
+        if (resource == RLIMIT_NOFILE)
+            *out = rlimit_nofile_;
+        else if (resource == RLIMIT_AS)
+            *out = rlimit_as_;
+        else
+            return -EINVAL;
         return 0;
     }
 
     i64 process::set_rlimit(i32 resource, const astia_rlimit& value) {
-        if (value.current > value.maximum) return -EINVAL;
+        if (value.current > value.maximum)
+            return -EINVAL;
         if (resource == RLIMIT_NOFILE) {
-            if (value.maximum > max_process_fds) return -EINVAL;
-            if (value.maximum > rlimit_nofile_.maximum) return -EPERM;
+            if (value.maximum > max_process_fds)
+                return -EINVAL;
+            if (value.maximum > rlimit_nofile_.maximum)
+                return -EPERM;
             rlimit_nofile_ = value;
             return 0;
         }
@@ -1044,11 +1113,11 @@ namespace astia::proc {
     bool process::copy_descriptors_from(const process& other) {
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
             auto entry = other.descriptors_.get(fd_t{static_cast<i32>(fd)});
-            auto copy = entry ? mm::share<fs::open_file>(*entry)
-                              : mm::shptr<fs::open_file>{};
-            if (entry && (!copy || !descriptors_.set(
-                                      fd_t{static_cast<i32>(fd)}, copy,
-                                      other.descriptors_.flags(fd_t{static_cast<i32>(fd)})))) {
+            auto copy =
+                entry ? mm::share<fs::open_file>(*entry) : mm::shptr<fs::open_file>{};
+            if (entry && (!copy || !descriptors_.set(fd_t{static_cast<i32>(fd)}, copy,
+                                                     other.descriptors_.flags(
+                                                         fd_t{static_cast<i32>(fd)})))) {
                 return false;
             }
         }

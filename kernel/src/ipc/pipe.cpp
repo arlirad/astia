@@ -7,7 +7,7 @@
 
 namespace astia::fs {
     namespace {
-        constexpr u32 capacity = 4096;
+        constexpr u32 capacity  = 4096;
         constexpr u32 read_end  = 1u << 31;
         constexpr u32 write_end = 1u << 30;
 
@@ -21,12 +21,12 @@ namespace astia::fs {
                 u32 count = 0;
                 {
                     core::spinlock_guard guard(lock_);
-                    const u32 tail      = tail_;
-                    const u32 head      = head_;
-                    const u32 available = head - tail;
+                    const u32            tail      = tail_;
+                    const u32            head      = head_;
+                    const u32            available = head - tail;
                     if (available == 0)
                         return 0;
-                    count = available < length ? available : length;
+                    count     = available < length ? available : length;
                     auto* out = static_cast<u8*>(buffer);
                     for (u32 i = 0; i < count; ++i)
                         out[i] = data_[(tail + i) & (capacity - 1)];
@@ -47,12 +47,12 @@ namespace astia::fs {
                 u32 count = 0;
                 {
                     core::spinlock_guard guard(lock_);
-                    const u32 head = head_;
-                    const u32 tail = tail_;
-                    const u32 free = capacity - (head - tail);
+                    const u32            head = head_;
+                    const u32            tail = tail_;
+                    const u32            free = capacity - (head - tail);
                     if (free == 0)
                         return 0;
-                    count = free < length ? free : length;
+                    count          = free < length ? free : length;
                     const auto* in = static_cast<const u8*>(buffer);
                     for (u32 i = 0; i < count; ++i)
                         data_[(head + i) & (capacity - 1)] = in[i];
@@ -67,14 +67,17 @@ namespace astia::fs {
 
             u32 poll(u32 events, u32 flags) override {
                 core::spinlock_guard guard(lock_);
-                u32 result = 0;
+                u32                  result = 0;
                 if ((flags & read_end) != 0) {
-                    if (head_ != tail_) result |= POLLIN;
+                    if (head_ != tail_)
+                        result |= POLLIN;
                     if (__atomic_load_n(&writers_, __ATOMIC_ACQUIRE) == 0)
                         result |= POLLIN | POLLHUP;
-                } else if (__atomic_load_n(&readers_, __ATOMIC_ACQUIRE) == 0) {
+                }
+                else if (__atomic_load_n(&readers_, __ATOMIC_ACQUIRE) == 0) {
                     result |= POLLERR;
-                } else if (capacity - (head_ - tail_) != 0) {
+                }
+                else if (capacity - (head_ - tail_) != 0) {
                     result |= POLLOUT;
                 }
                 return result & (events | POLLERR | POLLHUP);
@@ -106,12 +109,12 @@ namespace astia::fs {
             }
 
             private:
-            u32 head_ = 0;
-            u32 tail_ = 0;
+            u32            head_ = 0;
+            u32            tail_ = 0;
             core::spinlock lock_;
-            u8  data_[capacity]{};
-            u32 readers_;
-            u32 writers_;
+            u8             data_[capacity]{};
+            u32            readers_;
+            u32            writers_;
         };
 
     }

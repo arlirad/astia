@@ -1,8 +1,8 @@
 #pragma once
 
+#include <astia/api/aio.h>
 #include <astia/common.hpp>
 #include <astia/io.hpp>
-#include <astia/api/aio.h>
 
 // A logical device: the root of the blk/char/net split and the seam
 // the async ring engine binds to.  aretev-shaped — a name, a kind, and
@@ -62,16 +62,16 @@ namespace astia::dev {
         // overrides this, parks the request (returns 0), and resumes it
         // by stage from its interrupt handler.  See <astia/io.hpp>.
         virtual long submit(io_request& request);
-        virtual u32 poll(u32 events, u32 flags);
+        virtual u32  poll(u32 events, u32 flags);
 
         // Device-specific control: TCGETS/TCSETS on a tty, geometry on
         // a disk.  -ENOTTY when the request is unknown.
         virtual long ioctl(u64 request, void* argp);
 
         protected:
-        char _name[16]{}; // {} matters: an uninitialized array member
-                          // makes the type non-literal (constant
-                          // initialization rejects writes into it)
+        char     _name[16]{}; // {} matters: an uninitialized array member
+                              // makes the type non-literal (constant
+                              // initialization rejects writes into it)
         unsigned _flags;
     };
 

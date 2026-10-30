@@ -1,12 +1,13 @@
 #include <sys/wait.h>
-#include <unistd.h>
-#include <stdlib.h>
+
 #include <errno.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 static int run_zsh(const char* command) {
     char* argv[] = {"/bin/zsh", "-f", "-c", (char*) command, NULL};
-    int status = 0;
-    int child = spawnve("/bin/zsh", argv, NULL);
+    int   status = 0;
+    int   child  = spawnve("/bin/zsh", argv, NULL);
     if (child < 0)
         return 100 + errno;
     if (waitpid(child, &status, 0) != child)
@@ -15,8 +16,7 @@ static int run_zsh(const char* command) {
 }
 
 int main(void) {
-    if (setenv("ASTIA_INHERITED", "parent", 1) != 0 ||
-        setenv("PATH", "/bin", 1) != 0)
+    if (setenv("ASTIA_INHERITED", "parent", 1) != 0 || setenv("PATH", "/bin", 1) != 0)
         return 9;
     if (run_zsh("test \"$ASTIA_INHERITED\" = parent") != 0)
         return 20;

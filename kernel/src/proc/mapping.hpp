@@ -72,11 +72,21 @@ namespace astia {
         }
     };
 
-    template <> struct mapper<uid_t> {
-        static optional<uid_t> from(i64 raw) { if (raw < 0 || raw > 0xffffffffll) return optional<uid_t>(error_t::einval); return optional<uid_t>(uid_t{static_cast<u32>(raw)}); }
+    template <>
+    struct mapper<uid_t> {
+        static optional<uid_t> from(i64 raw) {
+            if (raw < 0 || raw > 0xffffffffll)
+                return optional<uid_t>(error_t::einval);
+            return optional<uid_t>(uid_t{static_cast<u32>(raw)});
+        }
     };
-    template <> struct mapper<gid_t> {
-        static optional<gid_t> from(i64 raw) { if (raw < 0 || raw > 0xffffffffll) return optional<gid_t>(error_t::einval); return optional<gid_t>(gid_t{static_cast<u32>(raw)}); }
+    template <>
+    struct mapper<gid_t> {
+        static optional<gid_t> from(i64 raw) {
+            if (raw < 0 || raw > 0xffffffffll)
+                return optional<gid_t>(error_t::einval);
+            return optional<gid_t>(gid_t{static_cast<u32>(raw)});
+        }
     };
 
     template <>

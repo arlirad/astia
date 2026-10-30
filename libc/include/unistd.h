@@ -13,13 +13,13 @@
 extern "C" {
 #endif
 
-int   getpid(void);
-int   getppid(void);
-int   gettid(void);
+int           getpid(void);
+int           getppid(void);
+int           gettid(void);
 extern char** environ;
-char* ttyname(int fd);
-char* getlogin(void);
-int   getlogin_r(char* name, unsigned long name_size);
+char*         ttyname(int fd);
+char*         getlogin(void);
+int           getlogin_r(char* name, unsigned long name_size);
 
 /* Create a process from the executable at `path` with the given
  * NULL-terminated argv/envp (a null vector means empty).  Returns the
@@ -67,18 +67,19 @@ int          setpgrp(int pid, int process_group);
 pid_t        tcgetpgrp(int fd);
 int          tcsetpgrp(int fd, int pgrp);
 int          link(const char* old_path, const char* new_path);
-int          linkat(int olddirfd, const char* old_path, int newdirfd, const char* new_path, int flags);
-int          symlink(const char* target, const char* link_path);
-long         readlink(const char* path, char* buffer, unsigned long capacity);
-int          unlink(const char* path);
-int          unlinkat(int dirfd, const char* path, int flags);
+int  linkat(int olddirfd, const char* old_path, int newdirfd, const char* new_path,
+            int flags);
+int  symlink(const char* target, const char* link_path);
+long readlink(const char* path, char* buffer, unsigned long capacity);
+int  unlink(const char* path);
+int  unlinkat(int dirfd, const char* path, int flags);
 #define AT_REMOVEDIR 0x200
-int          getgroups(int count, gid_t groups[]);
-int          setgroups(int count, const gid_t groups[]);
-int          rename(const char* old_path, const char* new_path);
-int          renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path);
-long         readlinkat(int dirfd, const char* path, char* buffer, unsigned long capacity);
-int          waitpid(int pid, int* status, int options);
+int  getgroups(int count, gid_t groups[]);
+int  setgroups(int count, const gid_t groups[]);
+int  rename(const char* old_path, const char* new_path);
+int  renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path);
+long readlinkat(int dirfd, const char* path, char* buffer, unsigned long capacity);
+int  waitpid(int pid, int* status, int options);
 #define WNOHANG 1
 #define WUNTRACED 2
 #define WCONTINUED 8

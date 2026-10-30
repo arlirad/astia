@@ -37,7 +37,6 @@ int main(int argc, char** argv) {
     CHECK(gettid() > 0);
     CHECK(sched_yield() == 0);
 
-
     CHECK(WNOHANG == 1 && WUNTRACED == 2 && WCONTINUED == 8);
     CHECK(WIFEXITED(5 << 8) && WEXITSTATUS(5 << 8) == 5);
     CHECK(WIFSIGNALED(9) && WTERMSIG(9) == 9);

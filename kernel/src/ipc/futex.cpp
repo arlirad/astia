@@ -1,4 +1,5 @@
 #include "futex.hpp"
+
 #include "../proc/proc.hpp"
 #include "scheduler.hpp"
 #include "user_mem.hpp"
@@ -18,8 +19,8 @@ namespace astia::proc {
             thread*  value   = nullptr;
         };
 
-        futex_waiter waiters[futex_capacity]{};
-        core::spinlock  waiters_lock;
+        futex_waiter   waiters[futex_capacity]{};
+        core::spinlock waiters_lock;
 
     } // namespace
 

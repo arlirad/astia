@@ -255,7 +255,7 @@ namespace astia::arch {
 #ifndef ASTIA_HOST_TEST
         interrupt_guard gate;
 #endif
-        u64*            root = root_table(*this);
+        u64* root = root_table(*this);
         for (usize i = 0; i < kernel_slot; ++i) {
             const u64 entry = root[i];
             if ((entry & entry_present) != 0 && (entry & entry_huge) == 0) {
@@ -445,16 +445,22 @@ namespace astia::arch {
     }
 
     bool page_map::writable(vaddr_t virt) const {
-        if (!valid() || !is_canonical(virt)) return false;
+        if (!valid() || !is_canonical(virt))
+            return false;
         const u64 pml4e = root_table(*this)[pml4_index(virt)];
         if ((pml4e & entry_present) == 0)
             return parent_ != nullptr && parent_->writable(virt);
-        const u64 pdpe = next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
-        if ((pdpe & entry_present) == 0) return false;
-        if ((pdpe & entry_huge) != 0) return (pdpe & entry_writable) != 0;
+        const u64 pdpe =
+            next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
+        if ((pdpe & entry_present) == 0)
+            return false;
+        if ((pdpe & entry_huge) != 0)
+            return (pdpe & entry_writable) != 0;
         const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
-        if ((pde & entry_present) == 0) return false;
-        if ((pde & entry_huge) != 0) return (pde & entry_writable) != 0;
+        if ((pde & entry_present) == 0)
+            return false;
+        if ((pde & entry_huge) != 0)
+            return (pde & entry_writable) != 0;
         const u64 pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
         return (pte & (entry_present | entry_writable)) ==
                (entry_present | entry_writable);

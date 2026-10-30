@@ -200,7 +200,8 @@ namespace astia::proc {
         return true;
     }
 
-    u64 process::map_anonymous(u64 addr, usize len, map_protection prot, map_flags flags) {
+    u64 process::map_anonymous(u64 addr, usize len, map_protection prot,
+                               map_flags flags) {
         // v1: private anonymous memory; shared mappings come with the
         // page cache and IPC.
         if (!has(flags, map_flags::priv)) {
@@ -246,8 +247,8 @@ namespace astia::proc {
         return base;
     }
 
-    u64 process::map_file(fd_t fd, u64 addr, usize len, map_protection prot, map_flags flags,
-                          u64 off) {
+    u64 process::map_file(fd_t fd, u64 addr, usize len, map_protection prot,
+                          map_flags flags, u64 off) {
         // File mappings: private mappings capture bytes into
         // fresh frames at map time — snapshot semantics, the same
         // kernel-side read the ELF loader trusts.  Writes land on the
@@ -453,12 +454,12 @@ namespace astia::proc {
         if (entry == nullptr) {
             return false;
         }
-        entry->base        = base;
-        entry->pages       = pages;
-        entry->prot        = prot;
-        entry->holds_ref   = true;
-        entry->backing     = region;
-        const u64 bytes = pages * mm::phys_region::frame_size;
+        entry->base      = base;
+        entry->pages     = pages;
+        entry->prot      = prot;
+        entry->holds_ref = true;
+        entry->backing   = region;
+        const u64 bytes  = pages * mm::phys_region::frame_size;
         if (bytes > rlimit_as_.current || mapped_bytes_ > rlimit_as_.current - bytes) {
             delete entry;
             return false;
@@ -509,10 +510,12 @@ namespace astia::proc {
             // faults into a private copy.  Read-only ranges (text,
             // the TLS template) keep their flags and are shared as
             // they are.
-            const bool cow   = !it->shared && has(it->prot, map_protection::write);
-            const auto flags = pte_flags(cow ?
-                static_cast<map_protection>(static_cast<u32>(it->prot) &
-                                             ~static_cast<u32>(map_protection::write)) : it->prot);
+            const bool cow = !it->shared && has(it->prot, map_protection::write);
+            const auto flags =
+                pte_flags(cow ? static_cast<map_protection>(
+                                    static_cast<u32>(it->prot) &
+                                    ~static_cast<u32>(map_protection::write))
+                              : it->prot);
             for (u64 page = 0; page < it->pages; ++page) {
                 const u64 virt = it->base + page * page_bytes;
                 const u64 phys = address_space_->translate(virt);

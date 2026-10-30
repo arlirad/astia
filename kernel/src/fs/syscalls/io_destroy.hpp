@@ -17,7 +17,8 @@ namespace astia::fs::syscall {
     ///
     /// Errors:
     ///     -EINVAL: ring is null, is not a live ring, or is not the caller's ring.
-    ///     -EBUSY: At least one operation is still parked and could later post a completion.
+    ///     -EBUSY: At least one operation is still parked and could later post a
+    ///     completion.
     ///
     /// Notes:
     ///     The caller must stop submitting SQEs before destruction. CQEs already

@@ -40,7 +40,7 @@ namespace astia::proc {
     /// Remove a process that failed before its first thread could be
     /// published.  The caller must retain another reference to `value`.
     bool unregister_process(process* value);
-    i64 process_snapshot(u64 output, u32 capacity);
+    i64  process_snapshot(u64 output, u32 capacity);
     void set_current_thread(thread* value);
 
     /// Spawn an executable by VFS path.  argv/envp are materialized on
@@ -49,7 +49,7 @@ namespace astia::proc {
     /// architecture only consumes the resulting entry stack pointer.
     /// On failure the optional carries the typed kernel error.
     optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],
-                                          char* const envp[]);
+                                         char* const envp[]);
 
     /// Look up a live process by pid in the registry.
     process* find_process(pid_t id);
@@ -58,19 +58,19 @@ namespace astia::proc {
     pgrp_t getpgrp();
     i64    getsid(pid_t target);
     /// Attach the supplied tty to the current session leader.
-    i64    acquire_controlling_terminal(fs::file* terminal);
+    i64 acquire_controlling_terminal(fs::file* terminal);
     /// True when a live process in `group` belongs to `session`.
-    bool   process_group_exists(pgrp_t group, pid_t session);
+    bool process_group_exists(pgrp_t group, pid_t session);
     /// Terminal line-discipline hooks.  These deliberately operate on the
     /// caller's native process group rather than manufacturing IDs in tty.
-    i64    terminal_signal_foreground(pgrp_t foreground, signal_number signal);
-    bool   terminal_read_allowed(pgrp_t foreground);
-    bool   terminal_write_allowed(pgrp_t foreground, bool tostop);
-    bool   terminal_set_foreground_allowed(pgrp_t foreground);
+    i64       terminal_signal_foreground(pgrp_t foreground, signal_number signal);
+    bool      terminal_read_allowed(pgrp_t foreground);
+    bool      terminal_write_allowed(pgrp_t foreground, bool tostop);
+    bool      terminal_set_foreground_allowed(pgrp_t foreground);
     fs::file* controlling_terminal();
-    bool has_controlling_terminal();
-    i64    setpgid(pid_t pid, pgrp_t pgid);
-    i64   setsid();
+    bool      has_controlling_terminal();
+    i64       setpgid(pid_t pid, pgrp_t pgid);
+    i64       setsid();
     /// Send a signal to every live member of a process group.  Signal zero
     /// only checks that the group has a live member.
     i64 signal_process_group(pgrp_t group, signal_number signal);

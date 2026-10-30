@@ -1,7 +1,8 @@
 #include "mount.hpp"
-#include "../filesystem.hpp"
+
 #include "../../proc/proc.hpp"
 #include "../../sys/user_mem.hpp"
+#include "../filesystem.hpp"
 #include <astia/api/errno.h>
 
 namespace astia::fs::syscall {
@@ -9,11 +10,14 @@ namespace astia::fs::syscall {
         char type[path_max]{};
         char target[path_max]{};
         char source[path_max]{};
-        if (!sys::copy_in_string(type, sizeof type, sys::user_range::string(type_address)) ||
-            !sys::copy_in_string(target, sizeof target, sys::user_range::string(target_address)))
+        if (!sys::copy_in_string(type, sizeof type,
+                                 sys::user_range::string(type_address)) ||
+            !sys::copy_in_string(target, sizeof target,
+                                 sys::user_range::string(target_address)))
             return -EFAULT;
         if (source_address != 0 &&
-            !sys::copy_in_string(source, sizeof source, sys::user_range::string(source_address)))
+            !sys::copy_in_string(source, sizeof source,
+                                 sys::user_range::string(source_address)))
             return -EFAULT;
 
         auto* current = proc::current_process();

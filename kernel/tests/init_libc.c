@@ -12,9 +12,9 @@
 #include <sys/uio.h>
 #include <sys/wait.h>
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <dirent.h>
 #include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
@@ -63,10 +63,10 @@ int main(int argc, char** argv) {
     if (getsid(pid) != getsid(0))
         return 54;
     errno = 0;
-    if (getsid(-1) != (pid_t)-1 || errno != ESRCH)
+    if (getsid(-1) != (pid_t) -1 || errno != ESRCH)
         return 55;
     errno = 0;
-    if (getsid(0x7fffffff) != (pid_t)-1 || errno != ESRCH)
+    if (getsid(0x7fffffff) != (pid_t) -1 || errno != ESRCH)
         return 56;
 
     /* A login/session boundary is real kernel state, not a shell convention:
@@ -78,17 +78,16 @@ int main(int argc, char** argv) {
             return 48;
         if (child == 0) {
             const pid_t session = setsid();
-            int group = 0;
+            int         group   = 0;
             if (session != getpid() || getsid(0) != getpid() ||
                 getsid(getpid()) != getpid() || tcgetpgrp(0) < 0)
                 _Exit(49);
             errno = 0;
             if (open("/dev/tty", O_RDWR) >= 0 || errno != ENXIO)
                 _Exit(50);
-            if (ioctl(0, TIOCSCTTY, NULL) != 0 ||
-                tcgetpgrp(0) != getpgrp())
+            if (ioctl(0, TIOCSCTTY, NULL) != 0 || tcgetpgrp(0) != getpgrp())
                 _Exit(51);
-            group = (int)getpgrp();
+            group = (int) getpgrp();
             if (ioctl(0, TIOCSPGRP, &group) != 0)
                 _Exit(52);
             _Exit(0);
@@ -97,7 +96,7 @@ int main(int argc, char** argv) {
         if (waitpid(child, &status, 0) != child || status != 0)
             return 53;
         errno = 0;
-        if (getsid(child) != (pid_t)-1 || errno != ESRCH)
+        if (getsid(child) != (pid_t) -1 || errno != ESRCH)
             return 57;
     }
 
@@ -108,15 +107,20 @@ int main(int argc, char** argv) {
             strcmp(cwd, "/bin") != 0)
             return 41;
         DIR* bin = opendir(".");
-        if (bin == NULL || readdir(bin) == NULL) return 42;
+        if (bin == NULL || readdir(bin) == NULL)
+            return 42;
         closedir(bin);
         if (chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
             return 45;
-        if (chdir("bin") != 0) return 46;
-        if (getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0) return 47;
-        if (chdir("/") != 0) return 43;
+        if (chdir("bin") != 0)
+            return 46;
+        if (getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0)
+            return 47;
+        if (chdir("/") != 0)
+            return 43;
         DIR* root = opendir("/");
-        if (root == NULL || readdir(root) == NULL) return 44;
+        if (root == NULL || readdir(root) == NULL)
+            return 44;
         closedir(root);
     }
 

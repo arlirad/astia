@@ -1,10 +1,10 @@
 #include "common.h"
-
 #include <sys/stat.h>
+
 #include <string.h>
 
 static int make_parents(const char* path) {
-    char parent[256];
+    char   parent[256];
     size_t length = __builtin_strlen(path);
     if (length == 0 || length >= sizeof parent)
         return cu_error("mkdir", path);
@@ -35,13 +35,14 @@ static int make_parents(const char* path) {
 int main(int argc, char** argv) {
     cu_args args;
     cu_args_init(&args, argc, argv);
-    int parents = 0;
-    int status = 0;
-    int operands = 0;
+    int         parents  = 0;
+    int         status   = 0;
+    int         operands = 0;
     const char* path;
     while ((path = cu_args_next(&args)) != 0) {
         if (cu_is_help(path))
-            return cu_help("mkdir", "[-p] DIRECTORY...", "Create DIRECTORY; -p creates missing parent directories.");
+            return cu_help("mkdir", "[-p] DIRECTORY...",
+                           "Create DIRECTORY; -p creates missing parent directories.");
         if (cu_is_version(path))
             return cu_version("mkdir");
         if (args.options && cu_arg_is(path, "-p", "--parents")) {

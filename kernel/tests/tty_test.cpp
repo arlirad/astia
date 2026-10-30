@@ -29,7 +29,7 @@ namespace {
         using tty::tty_receive;
 
         std::string output;
-        astia::u8 last_signal = 0;
+        astia::u8   last_signal = 0;
 
         protected:
         bool tty_putc(astia::u8 byte) override {

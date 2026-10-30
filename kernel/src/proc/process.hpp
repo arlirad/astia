@@ -4,9 +4,9 @@
 #include "fd_table.hpp"
 #include "mmap_region.hpp"
 #include "thread.hpp"
+#include <astia/api/syscalls.h>
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
-#include <astia/api/syscalls.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
@@ -51,39 +51,65 @@ namespace astia::proc {
         pid_t session() const {
             return session_;
         }
-        u32 uid() const { return uid_; } u32 euid() const { return euid_; }
-        u32 gid() const { return gid_; } u32 egid() const { return egid_; }
-        i64 setuid(u32); i64 seteuid(u32); i64 setgid(u32); i64 setegid(u32);
-        i64 setreuid(u32,u32); i64 setregid(u32,u32);
-        i64 getgroups(i32 count, u32* out) const;
-        i64 setgroups(i32 count, const u32* values);
+        u32 uid() const {
+            return uid_;
+        }
+        u32 euid() const {
+            return euid_;
+        }
+        u32 gid() const {
+            return gid_;
+        }
+        u32 egid() const {
+            return egid_;
+        }
+        i64  setuid(u32);
+        i64  seteuid(u32);
+        i64  setgid(u32);
+        i64  setegid(u32);
+        i64  setreuid(u32, u32);
+        i64  setregid(u32, u32);
+        i64  getgroups(i32 count, u32* out) const;
+        i64  setgroups(i32 count, const u32* values);
         bool in_group(gid_t group) const;
         bool can_access(fs::file_mode mode, uid_t owner, gid_t group,
                         fs::permission_bits want) const {
-            if (euid_ == 0) return want != fs::permission_bits::execute ||
-                                      mode.owner_allows(fs::permission_bits::execute) ||
-                                      mode.group_allows(fs::permission_bits::execute) ||
-                                      mode.other_allows(fs::permission_bits::execute);
-            return euid_ == static_cast<u32>(owner) ? mode.owner_allows(want) :
-                   (in_group(group) ? mode.group_allows(want) : mode.other_allows(want));
+            if (euid_ == 0)
+                return want != fs::permission_bits::execute ||
+                       mode.owner_allows(fs::permission_bits::execute) ||
+                       mode.group_allows(fs::permission_bits::execute) ||
+                       mode.other_allows(fs::permission_bits::execute);
+            return euid_ == static_cast<u32>(owner)
+                       ? mode.owner_allows(want)
+                       : (in_group(group) ? mode.group_allows(want)
+                                          : mode.other_allows(want));
         }
-        const char* cwd() const { return cwd_; }
-        i64 change_directory(const char* path);
-        i64 copy_cwd(char* buffer, usize length) const;
-        i64 resolve_path(const char* path, char* buffer, usize length) const;
-        i64 resolve_path_at(fd_t dirfd, const char* path, char* buffer, usize length) const;
+        const char* cwd() const {
+            return cwd_;
+        }
+        i64  change_directory(const char* path);
+        i64  copy_cwd(char* buffer, usize length) const;
+        i64  resolve_path(const char* path, char* buffer, usize length) const;
+        i64  resolve_path_at(fd_t dirfd, const char* path, char* buffer,
+                             usize length) const;
         void inherit_groups(const process& parent) {
-            process_group_ = parent.process_group_;
-            session_       = parent.session_;
+            process_group_        = parent.process_group_;
+            session_              = parent.session_;
             controlling_terminal_ = parent.controlling_terminal_;
             for (usize i = 0; i < fs::path_max; ++i) {
                 cwd_[i] = parent.cwd_[i];
-                if (cwd_[i] == '\0') break;
+                if (cwd_[i] == '\0')
+                    break;
             }
-            uid_=parent.uid_; euid_=parent.euid_; gid_=parent.gid_; egid_=parent.egid_;
-            group_count_=parent.group_count_; for (u32 i=0;i<group_count_;++i) groups_[i]=parent.groups_[i];
+            uid_         = parent.uid_;
+            euid_        = parent.euid_;
+            gid_         = parent.gid_;
+            egid_        = parent.egid_;
+            group_count_ = parent.group_count_;
+            for (u32 i = 0; i < group_count_; ++i)
+                groups_[i] = parent.groups_[i];
             rlimit_nofile_ = parent.rlimit_nofile_;
-            rlimit_as_ = parent.rlimit_as_;
+            rlimit_as_     = parent.rlimit_as_;
         }
         void process_group(pgrp_t value) {
             process_group_ = value;
@@ -91,8 +117,12 @@ namespace astia::proc {
         void session(pid_t value) {
             session_ = value;
         }
-        fs::file* controlling_terminal() const { return controlling_terminal_; }
-        void controlling_terminal(fs::file* value) { controlling_terminal_ = value; }
+        fs::file* controlling_terminal() const {
+            return controlling_terminal_;
+        }
+        void controlling_terminal(fs::file* value) {
+            controlling_terminal_ = value;
+        }
         const char* name() const {
             return name_;
         }
@@ -109,11 +139,21 @@ namespace astia::proc {
             return termination_signal_ != 0 ? (termination_signal_ & 0x7f)
                                             : ((exit_status_ & 0xff) << 8);
         }
-        i32 stop_status() const { return (stop_signal_ << 8) | 0x7f; }
-        bool stop_event_pending() const { return stop_event_; }
-        bool continued_event_pending() const { return continued_event_; }
-        void clear_stop_event() { stop_event_ = false; }
-        void clear_continued_event() { continued_event_ = false; }
+        i32 stop_status() const {
+            return (stop_signal_ << 8) | 0x7f;
+        }
+        bool stop_event_pending() const {
+            return stop_event_;
+        }
+        bool continued_event_pending() const {
+            return continued_event_;
+        }
+        void clear_stop_event() {
+            stop_event_ = false;
+        }
+        void clear_continued_event() {
+            continued_event_ = false;
+        }
         void signal_state_change(signal_number signal);
         void signal_termination(signal_number signal) {
             termination_signal_ = static_cast<i32>(signal);
@@ -160,8 +200,8 @@ namespace astia::proc {
         void close_on_exec_descriptors();
         optional<fd_t> duplicate_descriptor(fd_t old_fd);
         optional<fd_t> duplicate_descriptor(fd_t old_fd, fd_t minimum, u32 flags);
-        u32 descriptor_flags(fd_t fd) const;
-        bool set_descriptor_flags(fd_t fd, u32 flags);
+        u32            descriptor_flags(fd_t fd) const;
+        bool           set_descriptor_flags(fd_t fd, u32 flags);
         optional<fd_t> duplicate_descriptor_to(fd_t old_fd, fd_t new_fd);
 
         /// Load an ET_EXEC/ET_DYN image with the shared ELF loader into
@@ -208,7 +248,8 @@ namespace astia::proc {
         /// writes land on the private copy, and the mapping keeps the
         /// open file description alive across close().  `fd` resolves
         /// in this process' table; `off` must be page-aligned.
-        u64 map_file(fd_t fd, u64 addr, usize len, map_protection prot, map_flags flags, u64 off);
+        u64 map_file(fd_t fd, u64 addr, usize len, map_protection prot, map_flags flags,
+                     u64 off);
 
         /// munmap: drop [addr, addr + len) rounded up to pages; parts
         /// of mapped regions outside the range are kept.  Returns 0,
@@ -270,7 +311,8 @@ namespace astia::proc {
         /// + pages): `region` adopts the `pages` contiguous frames the
         /// caller mapped PTEs for, and the entry takes over its
         /// reference.
-        bool register_mapping(u64 base, usize pages, map_protection prot, mm::phys_region* region);
+        bool register_mapping(u64 base, usize pages, map_protection prot,
+                              mm::phys_region* region);
         bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
         void discard_image();
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
@@ -280,25 +322,27 @@ namespace astia::proc {
         /// recorded on it, both empty for anonymous ranges).  On
         /// failure the PTEs are rolled back and `region` stays the
         /// caller's.
-        bool  install_mapping(u64 base, usize pages, map_protection prot, mm::phys_region* region,
-                              const mm::shptr<fs::open_file>& file, u64 file_offset,
-                              usize region_page = 0, bool shared = false);
-        pid_t pid_;
-        pid_t parent_pid_;
-        pgrp_t process_group_;
-        pid_t session_;
+        bool      install_mapping(u64 base, usize pages, map_protection prot,
+                                  mm::phys_region*                region,
+                                  const mm::shptr<fs::open_file>& file, u64 file_offset,
+                                  usize region_page = 0, bool shared = false);
+        pid_t     pid_;
+        pid_t     parent_pid_;
+        pgrp_t    process_group_;
+        pid_t     session_;
         fs::file* controlling_terminal_ = nullptr;
-        u32 uid_=0, euid_=0, gid_=0, egid_=0;
+        u32       uid_ = 0, euid_ = 0, gid_ = 0, egid_ = 0;
         static constexpr u32 max_groups = 16;
-        gid_t groups_[max_groups]{}; u32 group_count_ = 0;
-        char  name_[32]{};
-        process_state state_              = process_state::fresh;
-        i32           exit_status_        = 0;
-        i32           termination_signal_ = 0;
-        i32           stop_signal_        = 0;
-        bool          stop_event_         = false;
-        bool          continued_event_    = false;
-        signal_state  signals_{};
+        gid_t                groups_[max_groups]{};
+        u32                  group_count_ = 0;
+        char                 name_[32]{};
+        process_state        state_              = process_state::fresh;
+        i32                  exit_status_        = 0;
+        i32                  termination_signal_ = 0;
+        i32                  stop_signal_        = 0;
+        bool                 stop_event_         = false;
+        bool                 continued_event_    = false;
+        signal_state         signals_{};
 
         mm::shptr<thread> threads_[max_process_threads];
         u32               thread_count_ = 0;
@@ -309,9 +353,9 @@ namespace astia::proc {
         u64               tls_tp_        = 0;
         astia_rlimit      rlimit_nofile_{max_process_fds, max_process_fds};
         astia_rlimit      rlimit_as_{~u64{0}, ~u64{0}};
-        u64               mapped_bytes_ = 0;
+        u64               mapped_bytes_      = 0;
         char              cwd_[fs::path_max] = "/";
-        mmap_region*      mmap_regions_  = nullptr; // base-sorted
+        mmap_region*      mmap_regions_      = nullptr; // base-sorted
         core::spinlock    mmap_lock_{};
     };
 

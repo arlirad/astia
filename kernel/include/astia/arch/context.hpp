@@ -30,15 +30,15 @@ namespace astia::arch {
     /// parent sat.  Callee-saved registers plus the ring-3 control state are
     /// the full contract; syscall-preserved argument registers are retained.
     struct user_context {
-        u64 rip     = 0;
-        u64 rflags  = 0;
-        u64 rsp     = 0;
-        u64 rbx     = 0;
-        u64 rbp     = 0;
-        u64 r12     = 0;
-        u64 r13     = 0;
-        u64 r14     = 0;
-        u64 r15     = 0;
+        u64 rip    = 0;
+        u64 rflags = 0;
+        u64 rsp    = 0;
+        u64 rbx    = 0;
+        u64 rbp    = 0;
+        u64 r12    = 0;
+        u64 r13    = 0;
+        u64 r14    = 0;
+        u64 r15    = 0;
         // Registers preserved by the syscall ABI and needed by the caller
         // immediately after fork returns.
         u64 rdi     = 0;

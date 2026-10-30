@@ -286,20 +286,20 @@ enum {
     OP_PIPE  = 25,
     OP_CHMOD = 26,
     /* Update pathname mtime to kernel CLOCK_REALTIME; address is pathname. */
-    OP_UTIMENSAT = 27,
-    OP_SYMLINKAT = 28,
-    OP_READLINKAT = 29,
-    OP_CHOWN = 30,
-    OP_SOCKET = 31,
-    OP_BIND = 32,
-    OP_LISTEN = 33,
-    OP_SOCKETPAIR = 34,
-    OP_SHUTDOWN = 35,
-    OP_FCNTL = 36,
-    OP_SENDTO   = 37,
-    OP_RECVFROM = 38,
+    OP_UTIMENSAT      = 27,
+    OP_SYMLINKAT      = 28,
+    OP_READLINKAT     = 29,
+    OP_CHOWN          = 30,
+    OP_SOCKET         = 31,
+    OP_BIND           = 32,
+    OP_LISTEN         = 33,
+    OP_SOCKETPAIR     = 34,
+    OP_SHUTDOWN       = 35,
+    OP_FCNTL          = 36,
+    OP_SENDTO         = 37,
+    OP_RECVFROM       = 38,
     OP_EVENTFD_CREATE = 39,
-    OP_LINKAT = 40,
+    OP_LINKAT         = 40,
 };
 
 /* OP_EVENTFD_CREATE flags.  The initial counter is in SQE::offset. */
@@ -310,27 +310,27 @@ enum {
 
 /* OP_FCNTL commands.  The argument is in SQE::aux. */
 enum {
-    ASTIA_F_DUPFD = 0,
-    ASTIA_F_GETFD = 1,
-    ASTIA_F_SETFD = 2,
-    ASTIA_F_GETFL = 3,
-    ASTIA_F_SETFL = 4,
+    ASTIA_F_DUPFD         = 0,
+    ASTIA_F_GETFD         = 1,
+    ASTIA_F_SETFD         = 2,
+    ASTIA_F_GETFL         = 3,
+    ASTIA_F_SETFL         = 4,
     ASTIA_F_DUPFD_CLOEXEC = 1030,
 };
 
 enum {
     ASTIA_FD_CLOEXEC = 1,
-    ASTIA_O_APPEND = 0x0400,
+    ASTIA_O_APPEND   = 0x0400,
     ASTIA_O_NONBLOCK = 0x0800,
 };
 
 /* OP_SOCKETPAIR op_flags / OP_SHUTDOWN op_flags. */
 enum {
     SOCK_STREAM = 1,
-    SOCK_DGRAM = 2,
-    SHUT_RD = 0,
-    SHUT_WR = 1,
-    SHUT_RDWR = 2,
+    SOCK_DGRAM  = 2,
+    SHUT_RD     = 0,
+    SHUT_WR     = 1,
+    SHUT_RDWR   = 2,
 };
 
 /* OP_STATX: preserve the final directory entry instead of following it. */

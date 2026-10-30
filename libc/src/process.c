@@ -83,7 +83,8 @@ int spawnve(const char* path, char* const argv[], char* const envp[]) {
     /* A null environment is the convenient inheritance form used by the
      * shell.  The kernel ABI accepts an explicit empty vector as well, so
      * resolve this libc-level shorthand here. */
-    return process_result(__astia_process_spawnve(path, argv, envp == NULL ? environ : envp));
+    return process_result(
+        __astia_process_spawnve(path, argv, envp == NULL ? environ : envp));
 }
 
 int fork(void) {
@@ -93,7 +94,8 @@ int fork(void) {
     int result = process_result(__astia_process_fork());
     if (result == 0) {
         __astia_fio_after_fork();
-    } else if (result > 0) {
+    }
+    else if (result > 0) {
         /* The child inherited the ring alias as part of its address space,
            but cannot use the parent's process-owned slot.  Reset its lazy
            handle without destroying the parent's slot; the parent can drop
@@ -128,10 +130,10 @@ int setegid(unsigned int gid) {
     return process_result(astia_setegid(gid));
 }
 int setreuid(unsigned int real_uid, unsigned int effective_uid) {
-    return process_result(astia_setreuid(real_uid,effective_uid));
+    return process_result(astia_setreuid(real_uid, effective_uid));
 }
 int setregid(unsigned int real_gid, unsigned int effective_gid) {
-    return process_result(astia_setregid(real_gid,effective_gid));
+    return process_result(astia_setregid(real_gid, effective_gid));
 }
 
 int atexit(void (*function)(void)) {

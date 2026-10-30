@@ -23,10 +23,10 @@ namespace astia::fs::syscall {
     ///
     /// Errors:
     ///     -EFAULT: The out pointer does not reference writable userspace memory.
-    ///     -EINVAL: entries is zero, entries is greater than 64, or flags contains a bit other than zero.
-    ///     -ENOMEM: The kernel cannot create the userspace alias for the ring mapping.
-    ///     -ESRCH: The caller has no address space in which the ring alias can be mapped.
-    ///     -ENFILE: All four kernel ring slots are already in use.
+    ///     -EINVAL: entries is zero, entries is greater than 64, or flags contains a bit
+    ///     other than zero. -ENOMEM: The kernel cannot create the userspace alias for the
+    ///     ring mapping. -ESRCH: The caller has no address space in which the ring alias
+    ///     can be mapped. -ENFILE: All four kernel ring slots are already in use.
     ///
     /// Notes:
     ///     Userspace owns the SQ tail and CQ head; the kernel owns the SQ head

@@ -94,14 +94,14 @@ namespace astia::dev {
         static constexpr bytes_t rx_capacity_bytes = 1_kib;
         u8                       _rx[rx_capacity_bytes]{};
         u8                       _line[rx_capacity_bytes]{};
-        u32                      _line_length    = 0;
-        bool                     _line_overflow  = false;
+        u32                      _line_length   = 0;
+        bool                     _line_overflow = false;
         // Canonical VEOF at the start of a line is a real zero-length
         // read, not "not ready".  Keep that fact until the next read.
-        bool                     _eof_pending    = false;
-        bool                     _output_stopped = false;
-        alignas(64) u32 _rx_head                 = 0;
-        alignas(64) u32 _rx_tail                 = 0;
+        bool _eof_pending        = false;
+        bool _output_stopped     = false;
+        alignas(64) u32 _rx_head = 0;
+        alignas(64) u32 _rx_tail = 0;
     };
 
 } // namespace astia::dev

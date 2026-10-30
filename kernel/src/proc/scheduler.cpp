@@ -4,22 +4,22 @@
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
-#include <astia/mm/share.hpp>
 #include <astia/core/spinlock.hpp>
+#include <astia/mm/share.hpp>
 
 namespace astia::proc::scheduler {
 
     namespace {
-        inline constexpr u32 max_cpus = 256;
+        inline constexpr u32 max_cpus       = 256;
         inline constexpr u32 queue_capacity = 32;
         struct cpu_state {
             core::spinlock lock;
-            thread* queue[queue_capacity]{};
-            u32 queue_count = 0;
-            thread* idle_thread = nullptr;
-            bool initialized = false;
+            thread*        queue[queue_capacity]{};
+            u32            queue_count = 0;
+            thread*        idle_thread = nullptr;
+            bool           initialized = false;
         } cpus[max_cpus];
-        bool                 initialized = false;
+        bool initialized = false;
 
         void idle_entry(void*) {
             // Entered by a switch like any other thread, and the switcher's
@@ -39,8 +39,9 @@ namespace astia::proc::scheduler {
                 return false;
             }
             const u32 index = value->cpu_owner();
-            if (index >= max_cpus || !cpus[index].initialized) return false;
-            auto& state = cpus[index];
+            if (index >= max_cpus || !cpus[index].initialized)
+                return false;
+            auto&                state = cpus[index];
             core::spinlock_guard guard(state.lock);
             if (value->queued()) {
                 return true;
@@ -54,17 +55,22 @@ namespace astia::proc::scheduler {
         }
 
         bool rebalance_idle_cpu(u32 target_index) {
-            if (target_index >= max_cpus || !cpus[target_index].initialized) return false;
+            if (target_index >= max_cpus || !cpus[target_index].initialized)
+                return false;
             for (u32 source_index = 0; source_index < max_cpus; ++source_index) {
-                if (source_index == target_index || !cpus[source_index].initialized) continue;
-                const u32 first = source_index < target_index ? source_index : target_index;
-                const u32 second = source_index < target_index ? target_index : source_index;
+                if (source_index == target_index || !cpus[source_index].initialized)
+                    continue;
+                const u32 first =
+                    source_index < target_index ? source_index : target_index;
+                const u32 second =
+                    source_index < target_index ? target_index : source_index;
                 core::spinlock_guard first_guard(cpus[first].lock);
                 core::spinlock_guard second_guard(cpus[second].lock);
-                auto& source = cpus[source_index];
-                auto& target = cpus[target_index];
+                auto&                source = cpus[source_index];
+                auto&                target = cpus[target_index];
                 if (source.queue_count <= target.queue_count + 1 ||
-                    target.queue_count == queue_capacity) continue;
+                    target.queue_count == queue_capacity)
+                    continue;
                 u32 position = source.queue_count;
                 for (u32 i = 0; i < source.queue_count; ++i) {
                     if (source.queue[i]->state() == thread_state::runnable &&
@@ -73,7 +79,8 @@ namespace astia::proc::scheduler {
                         break;
                     }
                 }
-                if (position == source.queue_count) continue;
+                if (position == source.queue_count)
+                    continue;
                 thread* value = source.queue[position];
                 for (u32 i = position + 1; i < source.queue_count; ++i)
                     source.queue[i - 1] = source.queue[i];
@@ -86,7 +93,7 @@ namespace astia::proc::scheduler {
         }
 
         thread* select_next(u32 index) {
-            auto& state = cpus[index];
+            auto&                state = cpus[index];
             core::spinlock_guard guard(state.lock);
             if (state.queue_count == 0) {
                 return nullptr;
@@ -110,7 +117,8 @@ namespace astia::proc::scheduler {
             if (realtime_index >= 0) {
                 thread* value = state.queue[realtime_index];
                 value->queued(false);
-                for (u32 i = static_cast<u32>(realtime_index) + 1; i < state.queue_count; ++i)
+                for (u32 i = static_cast<u32>(realtime_index) + 1; i < state.queue_count;
+                     ++i)
                     state.queue[i - 1] = state.queue[i];
                 --state.queue_count;
                 return value;
@@ -132,7 +140,8 @@ namespace astia::proc::scheduler {
                     lowest       = value->vruntime();
                 }
             }
-            if (normal_index < 0) return nullptr;
+            if (normal_index < 0)
+                return nullptr;
             thread* value = state.queue[normal_index];
             value->queued(false);
             for (u32 i = static_cast<u32>(normal_index) + 1; i < state.queue_count; ++i)
@@ -164,12 +173,14 @@ namespace astia::proc::scheduler {
         if (!initialized || !arch::register_timer_hook(tick)) {
             return false;
         }
-        if (!init_cpu(arch::cpu::current_index())) return false;
+        if (!init_cpu(arch::cpu::current_index()))
+            return false;
         return true;
     }
 
     bool init_cpu(u32 cpu_index) {
-        if (!initialized || cpu_index >= max_cpus || cpus[cpu_index].initialized) return false;
+        if (!initialized || cpu_index >= max_cpus || cpus[cpu_index].initialized)
+            return false;
         auto idle = mm::share<thread>(proc::kernel_process(), proc::allocate_tid());
         if (!idle || !idle->prepare_kernel(idle_entry, nullptr) ||
             !proc::kernel_process()->add_thread(idle)) {
@@ -203,54 +214,57 @@ namespace astia::proc::scheduler {
     }
 
     namespace {
-        mm::shptr<thread> create_kernel_impl(u32 cpu_index, kernel_entry entry, void* argument,
-                                             scheduling_class sched_class, i32 nice,
-                                             u8 rt_priority, thread_options options) {
-        if (!initialized || entry == nullptr || proc::kernel_process() == nullptr) {
-            return {};
+        mm::shptr<thread> create_kernel_impl(u32 cpu_index, kernel_entry entry,
+                                             void* argument, scheduling_class sched_class,
+                                             i32 nice, u8 rt_priority,
+                                             thread_options options) {
+            if (!initialized || entry == nullptr || proc::kernel_process() == nullptr) {
+                return {};
+            }
+            if (cpu_index >= max_cpus || !cpus[cpu_index].initialized)
+                return {};
+            auto value = mm::share<thread>(proc::kernel_process(), proc::allocate_tid());
+            if (!value || !value->prepare_kernel(entry, argument) ||
+                !proc::kernel_process()->add_thread(value)) {
+                return {};
+            }
+            value->sched_class(sched_class);
+            value->nice(nice);
+            value->rt_priority(rt_priority);
+            value->state(thread_state::runnable);
+            value->cpu_owner(cpu_index);
+            value->migratable(options == thread_options::migratable);
+            arch::interrupt_guard gate;
+            if (!enqueue(value.get())) {
+                proc::kernel_process()->release_thread(value.get());
+                return {};
+            }
+            if (cpu_index != arch::cpu::current_index()) {
+                arch::cpu::request_reschedule();
+            }
+            return value;
         }
-        if (cpu_index >= max_cpus || !cpus[cpu_index].initialized) return {};
-        auto value = mm::share<thread>(proc::kernel_process(), proc::allocate_tid());
-        if (!value || !value->prepare_kernel(entry, argument) ||
-            !proc::kernel_process()->add_thread(value)) {
-            return {};
-        }
-        value->sched_class(sched_class);
-        value->nice(nice);
-        value->rt_priority(rt_priority);
-        value->state(thread_state::runnable);
-        value->cpu_owner(cpu_index);
-        value->migratable(options == thread_options::migratable);
-        arch::interrupt_guard gate;
-        if (!enqueue(value.get())) {
-            proc::kernel_process()->release_thread(value.get());
-            return {};
-        }
-        if (cpu_index != arch::cpu::current_index()) {
-            arch::cpu::request_reschedule();
-        }
-        return value;
-    }
 
     }
 
     mm::shptr<thread> create_kernel(kernel_entry entry, void* argument,
-                                    scheduling_class sched_class, i32 nice, u8 rt_priority,
-                                    thread_options options) {
-        return create_kernel_impl(arch::cpu::current_index(), entry, argument, sched_class, nice,
-                                  rt_priority, options);
+                                    scheduling_class sched_class, i32 nice,
+                                    u8 rt_priority, thread_options options) {
+        return create_kernel_impl(arch::cpu::current_index(), entry, argument,
+                                  sched_class, nice, rt_priority, options);
     }
 
     mm::shptr<thread> create_kernel_on(u32 cpu_index, kernel_entry entry, void* argument,
-                                       scheduling_class sched_class, i32 nice, u8 rt_priority,
-                                       thread_options options) {
-        return create_kernel_impl(cpu_index, entry, argument, sched_class, nice, rt_priority,
-                                  options);
+                                       scheduling_class sched_class, i32 nice,
+                                       u8 rt_priority, thread_options options) {
+        return create_kernel_impl(cpu_index, entry, argument, sched_class, nice,
+                                  rt_priority, options);
     }
 
     bool spawn_kernel(kernel_entry entry, void* argument, scheduling_class sched_class,
                       i32 nice, u8 rt_priority, thread_options options) {
-        auto value = create_kernel(entry, argument, sched_class, nice, rt_priority, options);
+        auto value =
+            create_kernel(entry, argument, sched_class, nice, rt_priority, options);
         if (!value || value->detach() != 0) {
             return false;
         }
@@ -264,12 +278,13 @@ namespace astia::proc::scheduler {
             return false;
         }
         const u32 source_index = value->cpu_owner();
-        if (source_index >= max_cpus || !cpus[source_index].initialized) return false;
+        if (source_index >= max_cpus || !cpus[source_index].initialized)
+            return false;
 
         arch::interrupt_guard gate;
-        auto& source = cpus[source_index];
-        auto& target = cpus[cpu_index];
-        const u32 first_index = source_index < cpu_index ? source_index : cpu_index;
+        auto&                 source = cpus[source_index];
+        auto&                 target = cpus[cpu_index];
+        const u32 first_index  = source_index < cpu_index ? source_index : cpu_index;
         const u32 second_index = source_index < cpu_index ? cpu_index : source_index;
         core::spinlock_guard first_guard(cpus[first_index].lock);
         core::spinlock_guard second_guard(cpus[second_index].lock);
@@ -281,7 +296,8 @@ namespace astia::proc::scheduler {
                     break;
                 }
             }
-            if (position == source.queue_count) return false;
+            if (position == source.queue_count)
+                return false;
             value->queued(false);
             for (u32 i = position + 1; i < source.queue_count; ++i)
                 source.queue[i - 1] = source.queue[i];
@@ -310,7 +326,8 @@ namespace astia::proc::scheduler {
         arch::interrupt_guard gate;
         value->state(thread_state::runnable);
         const bool queued = enqueue(value);
-        if (queued) arch::cpu::request_reschedule();
+        if (queued)
+            arch::cpu::request_reschedule();
         return queued;
     }
 
@@ -328,7 +345,7 @@ namespace astia::proc::scheduler {
         if (!initialized) {
             return;
         }
-        thread* previous = proc::current_thread();
+        thread*   previous  = proc::current_thread();
         const u32 cpu_index = arch::cpu::current_index();
         if (previous == nullptr) {
             return;
@@ -422,8 +439,8 @@ namespace astia::proc::scheduler {
     }
 
     extern "C" void astia_reschedule_if_needed() {
-        if (!initialized || (!arch::cpu::consume_should_yield() &&
-                             !arch::cpu::consume_reschedule())) {
+        if (!initialized ||
+            (!arch::cpu::consume_should_yield() && !arch::cpu::consume_reschedule())) {
             return;
         }
         yield();

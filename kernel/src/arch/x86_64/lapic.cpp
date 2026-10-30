@@ -111,46 +111,61 @@ namespace astia::arch::x86_64 {
     }
 
     bool lapic::enable() {
-        if (lapic_regs == nullptr) return false;
+        if (lapic_regs == nullptr)
+            return false;
         reg_write(reg_svr, 0x1FF);
         return true;
     }
 
-    u32 lapic::id() { return lapic_regs == nullptr ? 0 : reg_read(reg_id) >> 24; }
+    u32 lapic::id() {
+        return lapic_regs == nullptr ? 0 : reg_read(reg_id) >> 24;
+    }
 
     bool lapic::send_ipi(u32 apic_id, u8 vector) {
-        if (lapic_regs == nullptr) return false;
+        if (lapic_regs == nullptr)
+            return false;
         reg_write(reg_icr_high, apic_id << 24);
         reg_write(reg_icr_low, static_cast<u32>(vector));
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {
+        }
         return (reg_read(reg_icr_low) & (1u << 12)) == 0;
     }
 
     bool lapic::init_sipi(u32 apic_id, u8 vector) {
-        if (lapic_regs == nullptr) return false;
+        if (lapic_regs == nullptr)
+            return false;
         reg_write(reg_icr_high, apic_id << 24);
         reg_write(reg_icr_low, 0x00004500); // INIT, asserted, edge
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {
+        }
         reg_write(reg_icr_low, 0x00000500); // INIT, deassert
-        for (u32 i = 0; i < 1000000; ++i) asm volatile("" ::: "memory");
+        for (u32 i = 0; i < 1000000; ++i)
+            asm volatile("" ::: "memory");
         reg_write(reg_icr_low, 0x00004600 | vector);
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {
+        }
         reg_write(reg_icr_low, 0x00004600 | vector); // the architectural second SIPI
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {
+        }
         return (reg_read(reg_icr_low) & (1u << 12)) == 0;
     }
 
     bool lapic::init_sipi_all(u8 vector) {
-        if (lapic_regs == nullptr) return false;
+        if (lapic_regs == nullptr)
+            return false;
         reg_write(reg_icr_high, 0);
         reg_write(reg_icr_low, 0x000C4500);
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {
+        }
         reg_write(reg_icr_low, 0x000C0500);
-        for (u32 i = 0; i < 1000000; ++i) asm volatile("" ::: "memory");
+        for (u32 i = 0; i < 1000000; ++i)
+            asm volatile("" ::: "memory");
         reg_write(reg_icr_low, 0x000C4600 | vector);
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {
+        }
         reg_write(reg_icr_low, 0x000C4600 | vector);
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {}
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & (1u << 12)); ++i) {
+        }
         return (reg_read(reg_icr_low) & (1u << 12)) == 0;
     }
 

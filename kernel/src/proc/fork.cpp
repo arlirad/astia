@@ -28,8 +28,7 @@ namespace astia::proc {
         // initial state before that queue entry can run.
         child->state(process_state::runnable);
         if (!child->copy_descriptors_from(*parent) ||
-            !parent->clone_address_space_cow(child.get()) ||
-            !register_process(child)) {
+            !parent->clone_address_space_cow(child.get()) || !register_process(child)) {
             // The child shptr drops here; ~process releases every
             // backing reference and descriptor its failed clone took.
             return -EAGAIN;

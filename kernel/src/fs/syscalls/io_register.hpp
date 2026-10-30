@@ -21,7 +21,8 @@ namespace astia::fs::syscall {
     ///     the ring.
     ///
     /// Errors:
-    ///     -ENOSYS: The requested registration or unregistration operation is unsupported by the current kernel.
+    ///     -ENOSYS: The requested registration or unregistration operation is unsupported
+    ///     by the current kernel.
     ///
     /// Notes:
     ///     No registration opcode, pointer, count, or ring is currently

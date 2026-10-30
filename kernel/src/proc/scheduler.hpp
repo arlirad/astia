@@ -5,8 +5,8 @@
 namespace astia::proc::scheduler {
 
     enum class thread_options : u8 {
-        pinned      = 0,
-        migratable  = 1u << 0,
+        pinned     = 0,
+        migratable = 1u << 0,
     };
 
     /// Initialize the scheduler state for one logical CPU. Threads are pinned
@@ -19,9 +19,10 @@ namespace astia::proc::scheduler {
                   scheduling_class sched_class = scheduling_class::normal, i32 nice = 0,
                   u8 rt_priority = 0, thread_options options = thread_options::pinned);
     mm::shptr<thread>
-    create_kernel_on(u32 cpu_index, kernel_entry entry, void* argument,
-                     scheduling_class sched_class = scheduling_class::normal, i32 nice = 0,
-                     u8 rt_priority = 0, thread_options options = thread_options::pinned);
+         create_kernel_on(u32 cpu_index, kernel_entry entry, void* argument,
+                          scheduling_class sched_class = scheduling_class::normal,
+                          i32 nice = 0, u8 rt_priority = 0,
+                          thread_options options = thread_options::pinned);
     bool spawn_kernel(kernel_entry entry, void* argument,
                       scheduling_class sched_class = scheduling_class::normal,
                       i32 nice = 0, u8 rt_priority = 0,

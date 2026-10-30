@@ -69,52 +69,52 @@ enum {
     SYS_IO_ENTER    = 2,
     SYS_IO_REGISTER = 3,
     /* never-blocking direct calls */
-    SYS_MMAP           = 4,
-    SYS_MUNMAP         = 5,
-    SYS_MPROTECT       = 6,
-    SYS_CLOCK_GETTIME  = 7,
-    SYS_EXIT           = 8,
-    SYS_YIELD          = 9,
-    SYS_GETPID         = 10,
-    SYS_GETTID         = 11,
-    SYS_FUTEX          = 12,
-    SYS_WAITPID        = 13,
-    SYS_SPAWNVE        = 14,
-    SYS_FORK           = 15,
-    SYS_THREAD_CREATE  = 16,
-    SYS_THREAD_EXIT    = 17,
-    SYS_THREAD_JOIN    = 18,
-    SYS_THREAD_DETACH  = 19,
-    SYS_KILL           = 20,
-    SYS_SIGACTION      = 21,
-    SYS_SIGPROCMASK    = 22,
-    SYS_THREAD_CREATE2 = 23,
-    SYS_EXECVE         = 24,
-    SYS_SIGSUSPEND     = 25,
-    SYS_GETPGRP        = 26,
-    SYS_SETPGID        = 27,
-    SYS_SETSID         = 28,
-    SYS_SIGRETURN      = 29,
-    SYS_CHDIR          = 30,
-    SYS_GETCWD         = 31,
-    SYS_GETUID         = 32,
-    SYS_GETEUID        = 33,
-    SYS_GETGID         = 34,
-    SYS_GETEGID        = 35,
-    SYS_SETUID         = 36,
-    SYS_SETEUID        = 37,
-    SYS_SETGID         = 38,
-    SYS_SETEGID        = 39,
-    SYS_SETREUID       = 40,
-    SYS_SETREGID       = 41,
-    SYS_GETGROUPS      = 42,
-    SYS_SETGROUPS      = 43,
+    SYS_MMAP             = 4,
+    SYS_MUNMAP           = 5,
+    SYS_MPROTECT         = 6,
+    SYS_CLOCK_GETTIME    = 7,
+    SYS_EXIT             = 8,
+    SYS_YIELD            = 9,
+    SYS_GETPID           = 10,
+    SYS_GETTID           = 11,
+    SYS_FUTEX            = 12,
+    SYS_WAITPID          = 13,
+    SYS_SPAWNVE          = 14,
+    SYS_FORK             = 15,
+    SYS_THREAD_CREATE    = 16,
+    SYS_THREAD_EXIT      = 17,
+    SYS_THREAD_JOIN      = 18,
+    SYS_THREAD_DETACH    = 19,
+    SYS_KILL             = 20,
+    SYS_SIGACTION        = 21,
+    SYS_SIGPROCMASK      = 22,
+    SYS_THREAD_CREATE2   = 23,
+    SYS_EXECVE           = 24,
+    SYS_SIGSUSPEND       = 25,
+    SYS_GETPGRP          = 26,
+    SYS_SETPGID          = 27,
+    SYS_SETSID           = 28,
+    SYS_SIGRETURN        = 29,
+    SYS_CHDIR            = 30,
+    SYS_GETCWD           = 31,
+    SYS_GETUID           = 32,
+    SYS_GETEUID          = 33,
+    SYS_GETGID           = 34,
+    SYS_GETEGID          = 35,
+    SYS_SETUID           = 36,
+    SYS_SETEUID          = 37,
+    SYS_SETGID           = 38,
+    SYS_SETEGID          = 39,
+    SYS_SETREUID         = 40,
+    SYS_SETREGID         = 41,
+    SYS_GETGROUPS        = 42,
+    SYS_SETGROUPS        = 43,
     SYS_PROCESS_SNAPSHOT = 44,
-    SYS_GETSID         = 45,
-    SYS_UNMOUNT        = 46,
-    SYS_MOUNT          = 47,
-    SYS_GETRLIMIT      = 48,
-    SYS_SETRLIMIT      = 49,
+    SYS_GETSID           = 45,
+    SYS_UNMOUNT          = 46,
+    SYS_MOUNT            = 47,
+    SYS_GETRLIMIT        = 48,
+    SYS_SETRLIMIT        = 49,
 };
 
 /* ------------------------------------------------------------------ */
@@ -132,7 +132,7 @@ typedef struct astia_rlimit {
 } astia_rlimit;
 
 enum {
-    RLIMIT_AS = 9,
+    RLIMIT_AS     = 9,
     RLIMIT_NOFILE = 7,
 };
 
@@ -151,12 +151,12 @@ typedef struct astia_process_info {
 } astia_process_info;
 
 enum {
-    ASTIA_PROCESS_FRESH = 0,
+    ASTIA_PROCESS_FRESH    = 0,
     ASTIA_PROCESS_RUNNABLE = 1,
     ASTIA_PROCESS_STOPPING = 2,
-    ASTIA_PROCESS_STOPPED = 3,
-    ASTIA_PROCESS_ZOMBIE = 4,
-    ASTIA_PROCESS_DEAD = 5,
+    ASTIA_PROCESS_STOPPED  = 3,
+    ASTIA_PROCESS_ZOMBIE   = 4,
+    ASTIA_PROCESS_DEAD     = 5,
 };
 enum { ASTIA_PROCESS_SNAPSHOT_MAX = 64 };
 
@@ -296,18 +296,42 @@ static inline long astia_unmount(const char* target) {
 static inline long astia_mount(const char* type, const char* target, const char* source) {
     return astia_raw6(SYS_MOUNT, (long) type, (long) target, (long) source, 0, 0, 0);
 }
-static inline long astia_getuid(void) { return astia_raw6(SYS_GETUID,0,0,0,0,0,0); }
-static inline long astia_geteuid(void) { return astia_raw6(SYS_GETEUID,0,0,0,0,0,0); }
-static inline long astia_getgid(void) { return astia_raw6(SYS_GETGID,0,0,0,0,0,0); }
-static inline long astia_getegid(void) { return astia_raw6(SYS_GETEGID,0,0,0,0,0,0); }
-static inline long astia_setuid(uint32_t v) { return astia_raw6(SYS_SETUID,v,0,0,0,0,0); }
-static inline long astia_seteuid(uint32_t v) { return astia_raw6(SYS_SETEUID,v,0,0,0,0,0); }
-static inline long astia_setgid(uint32_t v) { return astia_raw6(SYS_SETGID,v,0,0,0,0,0); }
-static inline long astia_setegid(uint32_t v) { return astia_raw6(SYS_SETEGID,v,0,0,0,0,0); }
-static inline long astia_setreuid(uint32_t r,uint32_t e) { return astia_raw6(SYS_SETREUID,r,e,0,0,0,0); }
-static inline long astia_setregid(uint32_t r,uint32_t e) { return astia_raw6(SYS_SETREGID,r,e,0,0,0,0); }
-static inline long astia_getgroups(int32_t n, uint32_t* g) { return astia_raw6(SYS_GETGROUPS,n,(long)g,0,0,0,0); }
-static inline long astia_setgroups(int32_t n, const uint32_t* g) { return astia_raw6(SYS_SETGROUPS,n,(long)g,0,0,0,0); }
+static inline long astia_getuid(void) {
+    return astia_raw6(SYS_GETUID, 0, 0, 0, 0, 0, 0);
+}
+static inline long astia_geteuid(void) {
+    return astia_raw6(SYS_GETEUID, 0, 0, 0, 0, 0, 0);
+}
+static inline long astia_getgid(void) {
+    return astia_raw6(SYS_GETGID, 0, 0, 0, 0, 0, 0);
+}
+static inline long astia_getegid(void) {
+    return astia_raw6(SYS_GETEGID, 0, 0, 0, 0, 0, 0);
+}
+static inline long astia_setuid(uint32_t v) {
+    return astia_raw6(SYS_SETUID, v, 0, 0, 0, 0, 0);
+}
+static inline long astia_seteuid(uint32_t v) {
+    return astia_raw6(SYS_SETEUID, v, 0, 0, 0, 0, 0);
+}
+static inline long astia_setgid(uint32_t v) {
+    return astia_raw6(SYS_SETGID, v, 0, 0, 0, 0, 0);
+}
+static inline long astia_setegid(uint32_t v) {
+    return astia_raw6(SYS_SETEGID, v, 0, 0, 0, 0, 0);
+}
+static inline long astia_setreuid(uint32_t r, uint32_t e) {
+    return astia_raw6(SYS_SETREUID, r, e, 0, 0, 0, 0);
+}
+static inline long astia_setregid(uint32_t r, uint32_t e) {
+    return astia_raw6(SYS_SETREGID, r, e, 0, 0, 0, 0);
+}
+static inline long astia_getgroups(int32_t n, uint32_t* g) {
+    return astia_raw6(SYS_GETGROUPS, n, (long) g, 0, 0, 0, 0);
+}
+static inline long astia_setgroups(int32_t n, const uint32_t* g) {
+    return astia_raw6(SYS_SETGROUPS, n, (long) g, 0, 0, 0, 0);
+}
 static inline long astia_process_snapshot(astia_process_info* out, uint32_t capacity) {
     return astia_raw6(SYS_PROCESS_SNAPSHOT, (long) out, (long) capacity, 0, 0, 0, 0);
 }

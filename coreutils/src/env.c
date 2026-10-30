@@ -1,4 +1,5 @@
 #include "common.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,21 +13,24 @@ int main(int argc, char** argv) {
     int first_command = 1;
     while (first_command < argc) {
         const char* assignment = argv[first_command];
-        const char* equals = 0;
+        const char* equals     = 0;
         if (assignment[0] == '-')
             return cu_usage("env", "[NAME=VALUE]... [COMMAND [ARG]...]");
         for (const char* p = assignment; *p != '\0'; ++p) {
-            if (*p == '=') { equals = p; break; }
+            if (*p == '=') {
+                equals = p;
+                break;
+            }
         }
         if (equals == 0 || equals == assignment)
             break;
         size_t name_length = (size_t) (equals - assignment);
-        char* name = (char*) malloc(name_length + 1);
+        char*  name        = (char*) malloc(name_length + 1);
         if (name == 0)
             return cu_error("env", "cannot set environment");
         memcpy(name, assignment, name_length);
         name[name_length] = '\0';
-        int set_result = setenv(name, equals + 1, 1);
+        int set_result    = setenv(name, equals + 1, 1);
         free(name);
         if (set_result != 0)
             return cu_error("env", "cannot set environment");

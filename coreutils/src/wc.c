@@ -27,10 +27,9 @@ static int count_fd(int fd, const char* name, int lines_only) {
         }
     }
     char output[96];
-    int  length = lines_only
-                      ? snprintf(output, sizeof output, "%lu\n", lines)
-                      : snprintf(output, sizeof output, "%lu %lu %lu %s\n", lines, words,
-                                 bytes, name);
+    int  length = lines_only ? snprintf(output, sizeof output, "%lu\n", lines)
+                             : snprintf(output, sizeof output, "%lu %lu %lu %s\n", lines,
+                                        words, bytes, name);
     return length < 0 || cu_write_all(CU_STDOUT, output, (size_t) length) < 0;
 }
 
@@ -39,13 +38,14 @@ int main(int argc, char** argv) {
     cu_args_init(&args, argc, argv);
     int lines_only = 0;
     if (argc == 2 && cu_is_help(argv[1]))
-        return cu_help("wc", "[FILE]...", "Print line, word, and byte counts for each FILE.");
+        return cu_help("wc", "[FILE]...",
+                       "Print line, word, and byte counts for each FILE.");
     if (argc == 2 && cu_is_version(argv[1]))
         return cu_version("wc");
     if (argc == 1)
         return count_fd(CU_STDIN, "", 0);
-    int status = 0;
-    int operands = 0;
+    int         status   = 0;
+    int         operands = 0;
     const char* path;
     while ((path = cu_args_next(&args)) != 0) {
         if (args.options && path[0] == '-') {

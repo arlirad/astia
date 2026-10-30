@@ -13,7 +13,7 @@ namespace astia::proc {
     bool terminal_read_allowed(pgrp_t) __attribute__((weak));
     bool terminal_write_allowed(pgrp_t, bool) __attribute__((weak));
     bool terminal_set_foreground_allowed(pgrp_t) __attribute__((weak));
-    i64 terminal_signal_foreground(pgrp_t, signal_number) __attribute__((weak));
+    i64  terminal_signal_foreground(pgrp_t, signal_number) __attribute__((weak));
 }
 
 namespace astia::dev {
@@ -118,11 +118,13 @@ namespace astia::dev {
     }
 
     u32 tty::poll(u32 events, u32) {
-        const u32 head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
-        const u32 tail = __atomic_load_n(&_rx_tail, __ATOMIC_RELAXED);
-        const bool readable = ((head - tail) & (rx_capacity_bytes - 1)) != 0 || _eof_pending;
+        const u32  head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
+        const u32  tail = __atomic_load_n(&_rx_tail, __ATOMIC_RELAXED);
+        const bool readable =
+            ((head - tail) & (rx_capacity_bytes - 1)) != 0 || _eof_pending;
         u32 result = POLLOUT;
-        if (readable) result |= POLLIN;
+        if (readable)
+            result |= POLLIN;
         return result & (events | POLLERR | POLLHUP);
     }
 
@@ -345,16 +347,17 @@ namespace astia::dev {
         if (request == TIOCGPGRP) {
             if (argp == nullptr)
                 return -EINVAL;
-            *static_cast<i32*>(argp) = static_cast<i32>(static_cast<u32>(_foreground_pgrp));
+            *static_cast<i32*>(argp) =
+                static_cast<i32>(static_cast<u32>(_foreground_pgrp));
             return 0;
         }
         if (request == TIOCSPGRP) {
             if (argp == nullptr)
                 return -EINVAL;
             const i32 group = *static_cast<const i32*>(argp);
-            if (group <= 0 || (proc::terminal_set_foreground_allowed != nullptr &&
-                               !proc::terminal_set_foreground_allowed(
-                                   pgrp_t{static_cast<u32>(group)})))
+            if (group <= 0 ||
+                (proc::terminal_set_foreground_allowed != nullptr &&
+                 !proc::terminal_set_foreground_allowed(pgrp_t{static_cast<u32>(group)})))
                 return -EPERM;
             _foreground_pgrp = pgrp_t{static_cast<u32>(group)};
             return 0;
@@ -388,8 +391,10 @@ namespace astia::dev {
 
     void tty::tty_signal(u8 byte) {
         signal_number signal = signal_number::int_;
-        if (byte == _termios.c_cc[VQUIT]) signal = signal_number::quit;
-        else if (byte == _termios.c_cc[VSUSP]) signal = signal_number::tstp;
+        if (byte == _termios.c_cc[VQUIT])
+            signal = signal_number::quit;
+        else if (byte == _termios.c_cc[VSUSP])
+            signal = signal_number::tstp;
         if (proc::terminal_signal_foreground != nullptr)
             (void) proc::terminal_signal_foreground(_foreground_pgrp, signal);
     }

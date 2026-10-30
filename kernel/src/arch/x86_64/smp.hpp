@@ -14,8 +14,8 @@ namespace astia::arch::x86_64::smp {
     /// initialized proc, then release APs to their idle scheduler threads.
     bool init_scheduler();
 
-    u32 discovered_cpus();
-    u32 online_cpus();
+    u32  discovered_cpus();
+    u32  online_cpus();
     void request_reschedule();
     void request_local_reschedule();
     void request_local_reschedule_from_interrupt();

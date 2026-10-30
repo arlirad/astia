@@ -99,7 +99,7 @@ namespace astia::arch {
         /// Virtual to physical, or invalid. Consults the parent when this
         /// map has no entry of its own.
         paddr_t translate(vaddr_t virt) const;
-        bool writable(vaddr_t virt) const;
+        bool    writable(vaddr_t virt) const;
 
         /// Install this page map (arch equivalent: load the root register).
         void activate() const;

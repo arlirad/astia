@@ -5,7 +5,7 @@ extern "C" {
 #endif
 
 #define EFD_NONBLOCK 0x0001
-#define EFD_CLOEXEC  0x0002
+#define EFD_CLOEXEC 0x0002
 
 int eventfd(unsigned int initial_value, int flags);
 

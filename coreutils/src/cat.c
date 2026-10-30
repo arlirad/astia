@@ -25,7 +25,8 @@ int main(int argc, char** argv) {
     const char* path;
     while ((path = cu_args_next(&args)) != 0) {
         if (cu_is_help(path))
-            return cu_help("cat", "[FILE]...", "Copy FILEs to standard output; - means standard input.");
+            return cu_help("cat", "[FILE]...",
+                           "Copy FILEs to standard output; - means standard input.");
         if (cu_is_version(path))
             return cu_version("cat");
         if (args.options && path[0] == '-')

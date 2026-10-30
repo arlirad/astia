@@ -156,12 +156,12 @@ namespace astia::arch {
         // frame.  They cannot live in the context object: the raw switch
         // deliberately exposes only the fixed callee-saved ABI, and the
         // trampoline has no context pointer after the switch.
-        frame[-6] = image->rdi;
-        frame[-5] = image->rsi;
-        frame[-4] = image->rdx;
-        frame[-3] = image->r10;
-        frame[-2] = image->r8;
-        frame[-1] = image->r9;
+        frame[-6]  = image->rdi;
+        frame[-5]  = image->rsi;
+        frame[-4]  = image->rdx;
+        frame[-3]  = image->r10;
+        frame[-2]  = image->r8;
+        frame[-1]  = image->r9;
         frame[0]   = image->rip;
         frame[1]   = x86_64::user_code_selector;
         frame[2]   = image->rflags;

@@ -1,15 +1,15 @@
 #pragma once
 
+#include <astia/api/aio.h>
 #include <astia/common.hpp>
 #include <astia/io.hpp>
-#include <astia/api/aio.h>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/shptr.hpp>
 
-    // Minimal kernel VFS foundation.  This is deliberately fixed-storage:
-    // Permission metadata is enforced against owner bits.  Astia does not yet
-    // have per-process uid/gid credentials, so chmod authorization and
-    // group/other selection are intentionally deferred rather than faked.
+// Minimal kernel VFS foundation.  This is deliberately fixed-storage:
+// Permission metadata is enforced against owner bits.  Astia does not yet
+// have per-process uid/gid credentials, so chmod authorization and
+// group/other selection are intentionally deferred rather than faked.
 // it runs before the general heap and gives device drivers a stable
 // path -> file -> operation seam.  The async ring owns submission,
 // parking, and completion; the VFS owns names and shared polymorphic
@@ -22,8 +22,12 @@ namespace astia::fs {
     struct unix_socket_operations;
 
     enum class file_type : u32 {
-        unknown = 0, fifo = 1, character = 2, directory = 4,
-        regular = 8, symlink = 10,
+        unknown   = 0,
+        fifo      = 1,
+        character = 2,
+        directory = 4,
+        regular   = 8,
+        symlink   = 10,
     };
 
     enum class permission_bits : u8 { none = 0, execute = 1, write = 2, read = 4 };
@@ -31,35 +35,83 @@ namespace astia::fs {
     class file_permissions {
         public:
         constexpr file_permissions(u16 value = 0) : value_(value & 07777u) {}
-        constexpr u16 raw() const { return value_; }
-        constexpr u8 owner() const { return static_cast<u8>((value_ >> 6) & 7); }
-        constexpr u8 group() const { return static_cast<u8>((value_ >> 3) & 7); }
-        constexpr u8 other() const { return static_cast<u8>(value_ & 7); }
-        constexpr bool owner_allows(permission_bits bits) const { return (owner() & static_cast<u8>(bits)) == static_cast<u8>(bits); }
-        constexpr bool group_allows(permission_bits bits) const { return (group() & static_cast<u8>(bits)) == static_cast<u8>(bits); }
-        constexpr bool other_allows(permission_bits bits) const { return (other() & static_cast<u8>(bits)) == static_cast<u8>(bits); }
-        constexpr file_permissions chmod_mask() const { return file_permissions(value_ & 07777u); }
-        constexpr file_permissions with_permissions(file_permissions value) const { return file_permissions(value.raw()); }
-        private: u16 value_;
+        constexpr u16 raw() const {
+            return value_;
+        }
+        constexpr u8 owner() const {
+            return static_cast<u8>((value_ >> 6) & 7);
+        }
+        constexpr u8 group() const {
+            return static_cast<u8>((value_ >> 3) & 7);
+        }
+        constexpr u8 other() const {
+            return static_cast<u8>(value_ & 7);
+        }
+        constexpr bool owner_allows(permission_bits bits) const {
+            return (owner() & static_cast<u8>(bits)) == static_cast<u8>(bits);
+        }
+        constexpr bool group_allows(permission_bits bits) const {
+            return (group() & static_cast<u8>(bits)) == static_cast<u8>(bits);
+        }
+        constexpr bool other_allows(permission_bits bits) const {
+            return (other() & static_cast<u8>(bits)) == static_cast<u8>(bits);
+        }
+        constexpr file_permissions chmod_mask() const {
+            return file_permissions(value_ & 07777u);
+        }
+        constexpr file_permissions with_permissions(file_permissions value) const {
+            return file_permissions(value.raw());
+        }
+
+        private:
+        u16 value_;
     };
 
     class file_mode {
         public:
-        constexpr file_mode(file_type type = file_type::unknown, file_permissions permissions = {})
+        constexpr file_mode(file_type        type        = file_type::unknown,
+                            file_permissions permissions = {})
             : type_(type), permissions_(permissions) {}
-        constexpr file_type type() const { return type_; }
-        constexpr file_permissions permissions() const { return permissions_; }
-        constexpr bool exists() const { return type_ != file_type::unknown; }
-        constexpr bool is_fifo() const { return type_ == file_type::fifo; }
-        constexpr bool is_character_device() const { return type_ == file_type::character; }
-        constexpr bool is_directory() const { return type_ == file_type::directory; }
-        constexpr bool is_regular() const { return type_ == file_type::regular; }
-        constexpr bool is_symlink() const { return type_ == file_type::symlink; }
-        constexpr bool owner_allows(permission_bits bits) const { return permissions_.owner_allows(bits); }
-        constexpr bool group_allows(permission_bits bits) const { return permissions_.group_allows(bits); }
-        constexpr bool other_allows(permission_bits bits) const { return permissions_.other_allows(bits); }
-        constexpr file_mode chmod(file_permissions permissions) const { return file_mode(type_, permissions.chmod_mask()); }
-        private: file_type type_; file_permissions permissions_;
+        constexpr file_type type() const {
+            return type_;
+        }
+        constexpr file_permissions permissions() const {
+            return permissions_;
+        }
+        constexpr bool exists() const {
+            return type_ != file_type::unknown;
+        }
+        constexpr bool is_fifo() const {
+            return type_ == file_type::fifo;
+        }
+        constexpr bool is_character_device() const {
+            return type_ == file_type::character;
+        }
+        constexpr bool is_directory() const {
+            return type_ == file_type::directory;
+        }
+        constexpr bool is_regular() const {
+            return type_ == file_type::regular;
+        }
+        constexpr bool is_symlink() const {
+            return type_ == file_type::symlink;
+        }
+        constexpr bool owner_allows(permission_bits bits) const {
+            return permissions_.owner_allows(bits);
+        }
+        constexpr bool group_allows(permission_bits bits) const {
+            return permissions_.group_allows(bits);
+        }
+        constexpr bool other_allows(permission_bits bits) const {
+            return permissions_.other_allows(bits);
+        }
+        constexpr file_mode chmod(file_permissions permissions) const {
+            return file_mode(type_, permissions.chmod_mask());
+        }
+
+        private:
+        file_type        type_;
+        file_permissions permissions_;
     };
 
     inline constexpr u32 max_nodes      = 32;
@@ -137,12 +189,12 @@ namespace astia::fs {
         virtual u64              mtime_nsec() const;
         virtual long             touch(u64 sec, u64 nsec);
         virtual mm::phys_region* memory_region();
-        virtual void              duplicate(u32 flags);
-        virtual void              close(u32 flags);
+        virtual void             duplicate(u32 flags);
+        virtual void             close(u32 flags);
         /// Return a capability contract, or nullptr when unsupported.  The
         /// default implementation advertises adapters for the legacy virtual
         /// methods, so old subclasses need not be changed.
-        virtual const void*       capability(file_capability kind) const;
+        virtual const void* capability(file_capability kind) const;
         /// Kernel-internal typed hook for protocol-specific file operations.
         /// This is deliberately separate from the generic file capabilities.
         virtual const unix_socket_operations* unix_socket_capability() const;
@@ -174,8 +226,7 @@ namespace astia::fs {
             if (other._mount)
                 attach_mount(other._mount);
         }
-        open_file(const char* path, file_mode mode)
-            : _mode(mode), _has_path(true) {
+        open_file(const char* path, file_mode mode) : _mode(mode), _has_path(true) {
             for (u32 i = 0; i + 1 < path_max && path != nullptr && path[i] != '\0'; ++i)
                 _path[i] = path[i];
         }
@@ -184,18 +235,24 @@ namespace astia::fs {
         long read(void* buf, u32 len, u64 offset = offset_current);
         long write(const void* buf, u32 len, u64 offset = offset_current);
         long submit(io_request& request);
-        u32 poll(u32 events) const;
-        u32 flags() const { return _flags; }
-        void set_status_flags(u32 flags) { _flags = (_flags & ~0x120u) | (flags & 0x120u); }
-        long ioctl(u64 request, void* argp);
-        long size() const;
+        u32  poll(u32 events) const;
+        u32  flags() const {
+            return _flags;
+        }
+        void set_status_flags(u32 flags) {
+            _flags = (_flags & ~0x120u) | (flags & 0x120u);
+        }
+        long             ioctl(u64 request, void* argp);
+        long             size() const;
         mm::phys_region* mapping() const;
-        file_mode mode() const;
-        const char* path() const { return _has_path ? _path : nullptr; }
+        file_mode        mode() const;
+        const char*      path() const {
+            return _has_path ? _path : nullptr;
+        }
         void set_path(const char* path);
         void attach_mount(mount* owner);
-        u64 mtime_sec() const;
-        u64 mtime_nsec() const;
+        u64  mtime_sec() const;
+        u64  mtime_nsec() const;
 
         file* backing() const {
             return _object.get();
@@ -228,18 +285,19 @@ namespace astia::fs {
     mm::shptr<open_file> open(const char* path, u32 flags = 0);
     mm::shptr<open_file> open_directory(const char* path);
 
-    long read_directory(const char* path, u64 index, char* name, u32 capacity, file_type* type);
+    long read_directory(const char* path, u64 index, char* name, u32 capacity,
+                        file_type* type);
     long make_directory(const char* path, file_mode mode);
     long remove_path(const char* path, bool directory);
     /// Atomically rename within one mounted filesystem.  Different mounts
     /// are rejected with -EXDEV; the filesystem owns replacement rules.
-    long rename_path(const char* old_path, const char* new_path);
-    long link_path(const char* old_path, const char* new_path);
+    long      rename_path(const char* old_path, const char* new_path);
+    long      link_path(const char* old_path, const char* new_path);
     file_type node_type(const char* path);
     file_mode node_mode(const char* path);
-    uid_t node_uid(const char* path);
-    gid_t node_gid(const char* path);
-    long chmod_path(const char* path, file_permissions permissions);
+    uid_t     node_uid(const char* path);
+    gid_t     node_gid(const char* path);
+    long      chmod_path(const char* path, file_permissions permissions);
     long chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
     long touch_path(const char* path, u64 sec, u64 nsec);
     long make_symlink(const char* target, const char* path);

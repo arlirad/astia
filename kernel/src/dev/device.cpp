@@ -4,7 +4,9 @@
 
 namespace astia::dev {
 
-    u32 device::poll(u32 events, u32) { return events & (POLLIN | POLLOUT); }
+    u32 device::poll(u32 events, u32) {
+        return events & (POLLIN | POLLOUT);
+    }
 
     long device::ioctl(u64 request, void* argp) {
         (void) request;
@@ -19,9 +21,10 @@ namespace astia::dev {
         // not a parked one: /dev/null uses zero to report EOF.  Async
         // devices (notably tty) override submit() and explicitly leave the
         // request incomplete when they need an interrupt-driven resume.
-        const long result = request.direction() == io_direction::input
-                                ? read(request.buffer(), request.length(), request.offset())
-                                : write(request.buffer(), request.length(), request.offset());
+        const long result =
+            request.direction() == io_direction::input
+                ? read(request.buffer(), request.length(), request.offset())
+                : write(request.buffer(), request.length(), request.offset());
         if (result == 0) {
             request.complete(true);
         }

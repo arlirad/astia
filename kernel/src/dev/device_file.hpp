@@ -12,13 +12,15 @@ namespace astia::dev {
         public:
         constexpr explicit device_file(device* device) : _device(device) {}
 
-        long read(void* buf, u32 len, u64 offset) override;
-        long write(const void* buf, u32 len, u64 offset) override;
-        long submit(io_request& request) override;
-        u32 poll(u32 events, u32 flags) override;
-        long ioctl(u64 request, void* argp) override;
-        long size() const override;
-        fs::file_mode mode() const override { return fs::file_mode(fs::file_type::character, fs::file_permissions(0666)); }
+        long          read(void* buf, u32 len, u64 offset) override;
+        long          write(const void* buf, u32 len, u64 offset) override;
+        long          submit(io_request& request) override;
+        u32           poll(u32 events, u32 flags) override;
+        long          ioctl(u64 request, void* argp) override;
+        long          size() const override;
+        fs::file_mode mode() const override {
+            return fs::file_mode(fs::file_type::character, fs::file_permissions(0666));
+        }
 
         private:
         device* _device;

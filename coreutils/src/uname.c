@@ -10,7 +10,7 @@ static int print_field(const char* value, int* printed) {
 }
 
 int main(int argc, char** argv) {
-    int all = 0;
+    int all     = 0;
     int printed = 0;
     for (int i = 1; i < argc; ++i) {
         const char* option = argv[i];
@@ -27,12 +27,23 @@ int main(int argc, char** argv) {
         for (int j = 1; option[j] != '\0'; ++j) {
             const char* value = 0;
             switch (option[j]) {
-            case 's': value = "Astia"; break;
-            case 'n': value = "astia"; break;
-            case 'r': value = "0.1"; break;
-            case 'v': value = "Astia kernel"; break;
-            case 'm': value = "x86_64"; break;
-            default: return cu_error("uname", "unknown option");
+            case 's':
+                value = "Astia";
+                break;
+            case 'n':
+                value = "astia";
+                break;
+            case 'r':
+                value = "0.1";
+                break;
+            case 'v':
+                value = "Astia kernel";
+                break;
+            case 'm':
+                value = "x86_64";
+                break;
+            default:
+                return cu_error("uname", "unknown option");
             }
             if (print_field(value, &printed) < 0)
                 return 1;
@@ -41,10 +52,12 @@ int main(int argc, char** argv) {
     if (all) {
         printed = 0;
         if (print_field("Astia", &printed) < 0 || print_field("astia", &printed) < 0 ||
-            print_field("0.1", &printed) < 0 || print_field("Astia kernel", &printed) < 0 ||
+            print_field("0.1", &printed) < 0 ||
+            print_field("Astia kernel", &printed) < 0 ||
             print_field("x86_64", &printed) < 0)
             return 1;
-    } else if (!printed && print_field("Astia", &printed) < 0) {
+    }
+    else if (!printed && print_field("Astia", &printed) < 0) {
         return 1;
     }
     return cu_puts("\n") < 0;

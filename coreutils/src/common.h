@@ -9,10 +9,10 @@
 #define CU_STDERR 2
 
 typedef struct {
-    int   argc;
+    int    argc;
     char** argv;
-    int   index;
-    int   options;
+    int    index;
+    int    options;
 } cu_args;
 
 static int cu_write_all(int fd, const void* data, size_t length) {
@@ -41,9 +41,9 @@ static int cu_puts_fd(int fd, const char* text) {
 }
 
 static void cu_args_init(cu_args* args, int argc, char** argv) {
-    args->argc = argc;
-    args->argv = argv;
-    args->index = 1;
+    args->argc    = argc;
+    args->argv    = argv;
+    args->index   = 1;
     args->options = 1;
 }
 

@@ -80,11 +80,11 @@ extern long    syscall(long number, ...);
 
 struct host_stat {
     unsigned long dev, ino, nlink;
-    unsigned int mode, uid, gid;
-    unsigned int pad;
+    unsigned int  mode, uid, gid;
+    unsigned int  pad;
     unsigned long rdev, size, blksize, blocks;
-    long atime, atime_nsec, mtime, mtime_nsec, ctime, ctime_nsec;
-    long unused[3];
+    long          atime, atime_nsec, mtime, mtime_nsec, ctime, ctime_nsec;
+    long          unused[3];
 };
 
 static long host_vector(long number, int fd, const struct iovec* iov, uint32_t count) {
@@ -185,42 +185,102 @@ long __astia_fio_size(int fd, uint64_t* out) {
 
 long __astia_fio_stat(const char* path, void* out, uint32_t length) {
     struct host_stat hs;
-    astia_stat* st = (astia_stat*)out;
-    long rc;
-    if (length != sizeof *st) return -EINVAL;
+    astia_stat*      st = (astia_stat*) out;
+    long             rc;
+    if (length != sizeof *st)
+        return -EINVAL;
     rc = syscall(SYS_newfstatat, -100, path, &hs, 0);
-    if (rc < 0) return -HOST_ERRNO;
-    *st = (astia_stat){(uint64_t)hs.dev, (uint64_t)hs.ino, (uint64_t)hs.size,
-                       (uint64_t)hs.blocks, (uint32_t)hs.mode, (uint32_t)hs.nlink,
-                       hs.uid, hs.gid, hs.atime, hs.atime_nsec, hs.mtime,
-                       hs.mtime_nsec, hs.ctime, hs.ctime_nsec, {0, 0, 0, 0}};
+    if (rc < 0)
+        return -HOST_ERRNO;
+    *st = (astia_stat) {(uint64_t) hs.dev,
+                        (uint64_t) hs.ino,
+                        (uint64_t) hs.size,
+                        (uint64_t) hs.blocks,
+                        (uint32_t) hs.mode,
+                        (uint32_t) hs.nlink,
+                        hs.uid,
+                        hs.gid,
+                        hs.atime,
+                        hs.atime_nsec,
+                        hs.mtime,
+                        hs.mtime_nsec,
+                        hs.ctime,
+                        hs.ctime_nsec,
+                        {0, 0, 0, 0}};
     return 0;
 }
-long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length, int flags) {
-    struct host_stat hs; astia_stat* st = (astia_stat*)out;
-    if (length != sizeof *st) return -EINVAL;
-    if (syscall(SYS_newfstatat, dirfd, path, &hs, flags) < 0) return -HOST_ERRNO;
-    *st = (astia_stat){(uint64_t)hs.dev,(uint64_t)hs.ino,(uint64_t)hs.size,(uint64_t)hs.blocks,
-                       (uint32_t)hs.mode,(uint32_t)hs.nlink,hs.uid,hs.gid,hs.atime,hs.atime_nsec,
-                       hs.mtime,hs.mtime_nsec,hs.ctime,hs.ctime_nsec,{0,0,0,0}};
+long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length,
+                        int flags) {
+    struct host_stat hs;
+    astia_stat*      st = (astia_stat*) out;
+    if (length != sizeof *st)
+        return -EINVAL;
+    if (syscall(SYS_newfstatat, dirfd, path, &hs, flags) < 0)
+        return -HOST_ERRNO;
+    *st = (astia_stat) {(uint64_t) hs.dev,
+                        (uint64_t) hs.ino,
+                        (uint64_t) hs.size,
+                        (uint64_t) hs.blocks,
+                        (uint32_t) hs.mode,
+                        (uint32_t) hs.nlink,
+                        hs.uid,
+                        hs.gid,
+                        hs.atime,
+                        hs.atime_nsec,
+                        hs.mtime,
+                        hs.mtime_nsec,
+                        hs.ctime,
+                        hs.ctime_nsec,
+                        {0, 0, 0, 0}};
     return 0;
 }
 long __astia_fio_lstat(const char* path, void* out, uint32_t length) {
-    struct host_stat hs; astia_stat* st=(astia_stat*)out;
-    if (length != sizeof *st) return -EINVAL;
-    if (syscall(SYS_newfstatat, -100, path, &hs, 0x100) < 0) return -HOST_ERRNO;
-    *st=(astia_stat){(uint64_t)hs.dev,(uint64_t)hs.ino,(uint64_t)hs.size,(uint64_t)hs.blocks,(uint32_t)hs.mode,(uint32_t)hs.nlink,hs.uid,hs.gid,hs.atime,hs.atime_nsec,hs.mtime,hs.mtime_nsec,hs.ctime,hs.ctime_nsec,{0,0,0,0}}; return 0;
+    struct host_stat hs;
+    astia_stat*      st = (astia_stat*) out;
+    if (length != sizeof *st)
+        return -EINVAL;
+    if (syscall(SYS_newfstatat, -100, path, &hs, 0x100) < 0)
+        return -HOST_ERRNO;
+    *st = (astia_stat) {(uint64_t) hs.dev,
+                        (uint64_t) hs.ino,
+                        (uint64_t) hs.size,
+                        (uint64_t) hs.blocks,
+                        (uint32_t) hs.mode,
+                        (uint32_t) hs.nlink,
+                        hs.uid,
+                        hs.gid,
+                        hs.atime,
+                        hs.atime_nsec,
+                        hs.mtime,
+                        hs.mtime_nsec,
+                        hs.ctime,
+                        hs.ctime_nsec,
+                        {0, 0, 0, 0}};
+    return 0;
 }
 
 long __astia_fio_fstat(int fd, void* out, uint32_t length) {
     struct host_stat hs;
-    astia_stat* st = (astia_stat*)out;
-    if (length != sizeof *st) return -EINVAL;
-    if (syscall(SYS_fstat, fd, &hs) < 0) return -HOST_ERRNO;
-    *st = (astia_stat){(uint64_t)hs.dev, (uint64_t)hs.ino, (uint64_t)hs.size,
-                       (uint64_t)hs.blocks, (uint32_t)hs.mode, (uint32_t)hs.nlink,
-                       hs.uid, hs.gid, hs.atime, hs.atime_nsec, hs.mtime,
-                       hs.mtime_nsec, hs.ctime, hs.ctime_nsec, {0, 0, 0, 0}};
+    astia_stat*      st = (astia_stat*) out;
+    if (length != sizeof *st)
+        return -EINVAL;
+    if (syscall(SYS_fstat, fd, &hs) < 0)
+        return -HOST_ERRNO;
+    *st = (astia_stat) {(uint64_t) hs.dev,
+                        (uint64_t) hs.ino,
+                        (uint64_t) hs.size,
+                        (uint64_t) hs.blocks,
+                        (uint32_t) hs.mode,
+                        (uint32_t) hs.nlink,
+                        hs.uid,
+                        hs.gid,
+                        hs.atime,
+                        hs.atime_nsec,
+                        hs.mtime,
+                        hs.mtime_nsec,
+                        hs.ctime,
+                        hs.ctime_nsec,
+                        {0, 0, 0, 0}};
     return 0;
 }
 
@@ -233,7 +293,8 @@ long __astia_fio_chmod(const char* path, int mode) {
     long rc = syscall(SYS_chmod, path, mode);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
-long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid, int nofollow) {
+long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid,
+                       int nofollow) {
     long rc = syscall(nofollow ? SYS_lchown : SYS_chown, path, uid, gid);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
@@ -260,28 +321,52 @@ long __astia_fio_rename(const char* old_path, const char* new_path) {
     long rc = syscall(SYS_rename, old_path, new_path);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
-long __astia_fio_renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path) {
+long __astia_fio_renameat(int olddirfd, const char* old_path, int newdirfd,
+                          const char* new_path) {
     long rc = syscall(SYS_renameat, olddirfd, old_path, newdirfd, new_path);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
-long __astia_fio_link(const char* old_path, const char* new_path) { long rc=syscall(SYS_link,old_path,new_path); return rc<0?-HOST_ERRNO:0; }
-long __astia_fio_linkat(int olddirfd, const char* old_path, int newdirfd, const char* new_path) { long rc=syscall(SYS_linkat,olddirfd,old_path,newdirfd,new_path,0); return rc<0?-HOST_ERRNO:0; }
+long __astia_fio_link(const char* old_path, const char* new_path) {
+    long rc = syscall(SYS_link, old_path, new_path);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
+long __astia_fio_linkat(int olddirfd, const char* old_path, int newdirfd,
+                        const char* new_path) {
+    long rc = syscall(SYS_linkat, olddirfd, old_path, newdirfd, new_path, 0);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
 long __astia_fio_mkdirat(int dirfd, const char* path, int mode) {
     long rc = syscall(SYS_mkdirat, dirfd, path, mode);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
-long __astia_fio_symlink(const char* target, const char* path) { long rc=syscall(SYS_symlink,target,path); return rc<0?-HOST_ERRNO:0; }
-long __astia_fio_readlink(const char* path, char* buffer, size_t capacity) { long rc=syscall(SYS_readlink,path,buffer,capacity); return rc<0?-HOST_ERRNO:rc; }
-long __astia_fio_readlinkat(int dirfd, const char* path, char* buffer, size_t capacity) { long rc=syscall(SYS_readlinkat,dirfd,path,buffer,capacity); return rc<0?-HOST_ERRNO:rc; }
+long __astia_fio_symlink(const char* target, const char* path) {
+    long rc = syscall(SYS_symlink, target, path);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
+long __astia_fio_readlink(const char* path, char* buffer, size_t capacity) {
+    long rc = syscall(SYS_readlink, path, buffer, capacity);
+    return rc < 0 ? -HOST_ERRNO : rc;
+}
+long __astia_fio_readlinkat(int dirfd, const char* path, char* buffer, size_t capacity) {
+    long rc = syscall(SYS_readlinkat, dirfd, path, buffer, capacity);
+    return rc < 0 ? -HOST_ERRNO : rc;
+}
 
 void __astia_fio_prepare_exec(void) {}
 void __astia_fio_prepare_fork(void) {}
 void __astia_fio_after_fork(void) {}
 long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
-    (void)path; (void)index; (void)out; return -ENOSYS;
+    (void) path;
+    (void) index;
+    (void) out;
+    return -ENOSYS;
 }
 long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
-    (void)fd; (void)request; (void)arg; (void)length; return -ENOSYS;
+    (void) fd;
+    (void) request;
+    (void) arg;
+    (void) length;
+    return -ENOSYS;
 }
 long __astia_fio_pipe(int fds[2]) {
     long rc = syscall(SYS_pipe, fds);
@@ -316,10 +401,10 @@ long __astia_fio_eventfd(unsigned int initial_value, int flags) {
     unsigned int host_flags = 0;
     long         rc;
 
-    if (flags & ~((int)(EFD_NONBLOCK | EFD_CLOEXEC)))
+    if (flags & ~((int) (EFD_NONBLOCK | EFD_CLOEXEC)))
         return -EINVAL;
     if (flags & EFD_NONBLOCK)
-        host_flags |= 0x800u;   /* Linux EFD_NONBLOCK */
+        host_flags |= 0x800u; /* Linux EFD_NONBLOCK */
     if (flags & EFD_CLOEXEC)
         host_flags |= 0x80000u; /* Linux EFD_CLOEXEC */
     rc = syscall(SYS_eventfd2, initial_value, host_flags);

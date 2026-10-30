@@ -1,16 +1,16 @@
 #include "common.h"
+#include <sys/stat.h>
 
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/stat.h>
 #include <string.h>
 
 static void mode_string(mode_t mode, char* result) {
     result[0] = S_ISDIR(mode) ? 'd' : S_ISLNK(mode) ? 'l' : S_ISREG(mode) ? '-' : '?';
-    const int bits[] = {S_IRUSR, S_IWUSR, S_IXUSR, S_IRGRP, S_IWGRP, S_IXGRP,
-                        S_IROTH, S_IWOTH, S_IXOTH};
+    const int  bits[]  = {S_IRUSR, S_IWUSR, S_IXUSR, S_IRGRP, S_IWGRP,
+                          S_IXGRP, S_IROTH, S_IWOTH, S_IXOTH};
     const char marks[] = "rwxrwxrwx";
     for (int i = 0; i < 9; ++i)
         result[i + 1] = (mode & bits[i]) ? marks[i] : '-';
@@ -19,11 +19,13 @@ static void mode_string(mode_t mode, char* result) {
 
 static char* join_path(const char* parent, const char* name) {
     size_t a = strlen(parent), b = strlen(name);
-    char* result = malloc(a + b + 2);
-    if (result == 0) return 0;
+    char*  result = malloc(a + b + 2);
+    if (result == 0)
+        return 0;
     memcpy(result, parent, a);
     result[a] = (a != 0 && parent[a - 1] == '/') ? '\0' : '/';
-    if (result[a] == '/') ++a;
+    if (result[a] == '/')
+        ++a;
     memcpy(result + a, name, b + 1);
     return result;
 }
@@ -32,21 +34,25 @@ static int print_entry(const char* path, const char* name, int detailed) {
     if (!detailed)
         return cu_puts(name) < 0 || cu_puts("\n") < 0;
     struct stat info;
-    if (lstat(path, &info) < 0) return cu_error("ls", strerror(errno));
+    if (lstat(path, &info) < 0)
+        return cu_error("ls", strerror(errno));
     char mode[11];
     mode_string(info.st_mode, mode);
     char line[256];
-    int length = snprintf(line, sizeof line, "%s %lu %u %u %ld %ld %s",
-                          mode, info.st_nlink, info.st_uid, info.st_gid,
-                          (long)info.st_size, (long)info.st_mtime, name);
-    if (length < 0 || (size_t)length >= sizeof line || cu_write_all(CU_STDOUT, line, (size_t)length) < 0)
+    int  length = snprintf(line, sizeof line, "%s %lu %u %u %ld %ld %s", mode,
+                           info.st_nlink, info.st_uid, info.st_gid, (long) info.st_size,
+                           (long) info.st_mtime, name);
+    if (length < 0 || (size_t) length >= sizeof line ||
+        cu_write_all(CU_STDOUT, line, (size_t) length) < 0)
         return 1;
     if (S_ISLNK(info.st_mode)) {
         char target[256];
         long n = readlink(path, target, sizeof target - 1);
-        if (n < 0) return cu_error("ls", strerror(errno));
+        if (n < 0)
+            return cu_error("ls", strerror(errno));
         target[n] = '\0';
-        if (cu_puts(" -> ") < 0 || cu_puts(target) < 0) return 1;
+        if (cu_puts(" -> ") < 0 || cu_puts(target) < 0)
+            return 1;
     }
     return cu_puts("\n") < 0;
 }
@@ -85,16 +91,17 @@ static int list_one(const char* path, int header, int detailed) {
 int main(int argc, char** argv) {
     cu_args args;
     cu_args_init(&args, argc, argv);
-    int status  = 0;
-    int headers = 0;
-    int detailed = 0;
-    int operands = 0;
+    int         status   = 0;
+    int         headers  = 0;
+    int         detailed = 0;
+    int         operands = 0;
     const char* path;
     if (argc == 1)
         return list_one(".", 0, 0);
     while ((path = cu_args_next(&args)) != 0) {
         if (cu_is_help(path))
-            return cu_help("ls", "[OPTION]... [FILE]...", "List directory contents.  -a and -l are supported.");
+            return cu_help("ls", "[OPTION]... [FILE]...",
+                           "List directory contents.  -a and -l are supported.");
         if (cu_is_version(path))
             return cu_version("ls");
         if (cu_arg_is(path, "-a", "--all"))

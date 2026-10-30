@@ -2,7 +2,8 @@
 
 int main(int argc, char** argv) {
     if (argc == 2 && cu_is_help(argv[1]))
-        return cu_help("echo", "[-n] [STRING]...", "Write the arguments to standard output.");
+        return cu_help("echo", "[-n] [STRING]...",
+                       "Write the arguments to standard output.");
     if (argc == 2 && cu_is_version(argv[1]))
         return cu_version("echo");
     int first   = 1;

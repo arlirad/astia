@@ -16,9 +16,9 @@
  * cap is real: kernel/tests/init_libc.c, against the ring.
  */
 
+#include "../src/file_port.h" /* import ABI enums before host O_* macros */
 #include <sys/types.h>
 #include <sys/uio.h> /* ours: the calls under test */
-#include "../src/file_port.h" /* import ABI enums before host O_* macros */
 
 #include <errno.h>
 #include <fcntl.h> /* host O_*, open() */

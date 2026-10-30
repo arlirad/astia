@@ -13,7 +13,8 @@ int ioctl(int fd, unsigned long request, ...) {
 
     if (request == TIOCSCTTY) {
         arg = NULL;
-    } else {
+    }
+    else {
         va_start(ap, request);
         arg = va_arg(ap, void*);
         va_end(ap);

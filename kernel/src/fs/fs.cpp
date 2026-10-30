@@ -27,19 +27,19 @@ namespace astia::fs {
         };
 
         struct mount_entry {
-            bool   used;
-            char   target[path_max];
-            mount* instance;
+            bool            used;
+            char            target[path_max];
+            mount*          instance;
             mount_ownership ownership;
             void (*destroy)(mount*);
-            u32    active_operations;
+            u32 active_operations;
         };
 
-        type_entry  types[max_types];
-        mount_entry mounts[max_mounts];
+        type_entry     types[max_types];
+        mount_entry    mounts[max_mounts];
         core::spinlock mount_registry_lock;
-        bool        ready;
-        bool        bootstrapping;
+        bool           ready;
+        bool           bootstrapping;
 
         bool equal(const char* lhs, const char* rhs) {
             if (lhs == nullptr || rhs == nullptr)
@@ -52,7 +52,10 @@ namespace astia::fs {
         }
 
         u32 length_of(const char* value) {
-            u32 n = 0; while (value != nullptr && value[n] != '\0') ++n; return n;
+            u32 n = 0;
+            while (value != nullptr && value[n] != '\0')
+                ++n;
+            return n;
         }
 
         bool copy_path(char* dst, const char* src) {
@@ -124,12 +127,18 @@ namespace astia::fs {
 
             mount_operation(const mount_operation&)            = delete;
             mount_operation& operator=(const mount_operation&) = delete;
-            explicit operator bool() const { return entry_ != nullptr; }
-            mount_entry* entry() const { return entry_; }
-            mount* instance() const { return instance_; }
+            explicit         operator bool() const {
+                return entry_ != nullptr;
+            }
+            mount_entry* entry() const {
+                return entry_;
+            }
+            mount* instance() const {
+                return instance_;
+            }
 
             private:
-            mount_entry* entry_ = nullptr;
+            mount_entry* entry_    = nullptr;
             mount*       instance_ = nullptr;
         };
 
@@ -170,38 +179,75 @@ namespace astia::fs {
     long mount::read_directory(const char*, u64, char*, u32, file_type*) {
         return -ENOSYS;
     }
-    long mount::mkdir(const char*, file_mode) { return -ENOSYS; }
-    long mount::unlink(const char*, bool) { return -ENOSYS; }
-    long mount::rename(const char*, const char*) { return -ENOSYS; }
-    long mount::link(const char*, const char*) { return -ENOSYS; }
-    file_type mount::node_type(const char*) const { return directory_unknown; }
-    file_mode mount::node_mode(const char*) const { return {}; }
-    uid_t mount::node_uid(const char*) const { return {}; }
-    gid_t mount::node_gid(const char*) const { return {}; }
-    uid_t file::uid() const { return {}; }
-    gid_t file::gid() const { return {}; }
-    long file::chown(uid_t, gid_t) { return -ENOSYS; }
-    u64 file::inode() const { return 0; }
-    u32 file::nlink() const { return 1; }
-    u32 file::poll(u32 events, u32) { return events & (POLLIN | POLLOUT); }
-    long mount::chmod(const char*, file_permissions) { return -ENOSYS; }
-    long mount::chown(const char*, uid_t, gid_t) { return -ENOSYS; }
-    long mount::symlink(const char*, const char*) { return -ENOSYS; }
-    long mount::readlink(const char*, char*, u32) const { return -ENOSYS; }
+    long mount::mkdir(const char*, file_mode) {
+        return -ENOSYS;
+    }
+    long mount::unlink(const char*, bool) {
+        return -ENOSYS;
+    }
+    long mount::rename(const char*, const char*) {
+        return -ENOSYS;
+    }
+    long mount::link(const char*, const char*) {
+        return -ENOSYS;
+    }
+    file_type mount::node_type(const char*) const {
+        return directory_unknown;
+    }
+    file_mode mount::node_mode(const char*) const {
+        return {};
+    }
+    uid_t mount::node_uid(const char*) const {
+        return {};
+    }
+    gid_t mount::node_gid(const char*) const {
+        return {};
+    }
+    uid_t file::uid() const {
+        return {};
+    }
+    gid_t file::gid() const {
+        return {};
+    }
+    long file::chown(uid_t, gid_t) {
+        return -ENOSYS;
+    }
+    u64 file::inode() const {
+        return 0;
+    }
+    u32 file::nlink() const {
+        return 1;
+    }
+    u32 file::poll(u32 events, u32) {
+        return events & (POLLIN | POLLOUT);
+    }
+    long mount::chmod(const char*, file_permissions) {
+        return -ENOSYS;
+    }
+    long mount::chown(const char*, uid_t, gid_t) {
+        return -ENOSYS;
+    }
+    long mount::symlink(const char*, const char*) {
+        return -ENOSYS;
+    }
+    long mount::readlink(const char*, char*, u32) const {
+        return -ENOSYS;
+    }
 
     bool init() {
         for (u32 i = 0; i < max_types; ++i)
             types[i] = type_entry{};
         for (u32 i = 0; i < max_mounts; ++i)
             mounts[i] = mount_entry{};
-        ready = true;
+        ready         = true;
         bootstrapping = true;
 
         devfs_instance = ::new (devfs_storage) devfs_mount{};
         devfs_type.attach(devfs_instance);
-        const bool ok = register_type(&devfs_type) == 0 && register_type(&initrd_type()) == 0 &&
-                        register_type(&tmpfs_type_instance) == 0 &&
-                        mount_type("devfs", "/dev") == 0 && mount_type("tmpfs", "/tmp") == 0;
+        const bool ok =
+            register_type(&devfs_type) == 0 && register_type(&initrd_type()) == 0 &&
+            register_type(&tmpfs_type_instance) == 0 &&
+            mount_type("devfs", "/dev") == 0 && mount_type("tmpfs", "/tmp") == 0;
         bootstrapping = false;
         return ok;
     }
@@ -225,30 +271,39 @@ namespace astia::fs {
             return -EINVAL;
         char checked_target[path_max]{};
         if (bootstrapping) {
-            if (!copy_path(checked_target, target)) return -ENAMETOOLONG;
-        } else if (equal(target, "/")) {
+            if (!copy_path(checked_target, target))
+                return -ENAMETOOLONG;
+        }
+        else if (equal(target, "/")) {
             checked_target[0] = '/';
             checked_target[1] = '\0';
-        } else {
+        }
+        else {
             long rc = resolve_path(target, checked_target, sizeof checked_target, false);
             if (rc < 0) {
-                if (!copy_path(checked_target, target)) return rc;
+                if (!copy_path(checked_target, target))
+                    return rc;
                 bool known_mountpoint = false;
                 {
                     core::spinlock_guard registry_guard(mount_registry_lock);
                     for (u32 i = 0; i < max_mounts; ++i)
-                        if (equal(mounts[i].target, checked_target)) known_mountpoint = true;
-                }
-                if (!known_mountpoint) return rc;
-            } else if (node_type(checked_target) != directory_dir) {
-                bool known_mountpoint = false;
-                {
-                    core::spinlock_guard registry_guard(mount_registry_lock);
-                    for (u32 i = 0; i < max_mounts; ++i)
-                        if (equal(mounts[i].target, checked_target)) known_mountpoint = true;
+                        if (equal(mounts[i].target, checked_target))
+                            known_mountpoint = true;
                 }
                 if (!known_mountpoint)
-                    return node_type(checked_target) == directory_unknown ? -ENOENT : -ENOTDIR;
+                    return rc;
+            }
+            else if (node_type(checked_target) != directory_dir) {
+                bool known_mountpoint = false;
+                {
+                    core::spinlock_guard registry_guard(mount_registry_lock);
+                    for (u32 i = 0; i < max_mounts; ++i)
+                        if (equal(mounts[i].target, checked_target))
+                            known_mountpoint = true;
+                }
+                if (!known_mountpoint)
+                    return node_type(checked_target) == directory_unknown ? -ENOENT
+                                                                          : -ENOTDIR;
             }
         }
         const filesystem* type = find_type(type_name);
@@ -280,10 +335,10 @@ namespace astia::fs {
         // registry cannot destroy an initrd without first clearing the
         // filesystem's cached pointer, and the public ABI has no teardown
         // hook for doing that safely.
-        const mount_ownership ownership =
-            type == &tmpfs_type_instance ? mount_ownership::registry_owned
-                                          : mount_ownership::static_instance;
-        void (*destroy)(mount*) = nullptr;
+        const mount_ownership ownership = type == &tmpfs_type_instance
+                                              ? mount_ownership::registry_owned
+                                              : mount_ownership::static_instance;
+        void (*destroy)(mount*)         = nullptr;
         if (type == &tmpfs_type_instance)
             destroy = destroy_tmpfs_mount;
         if (!copy_path(mounts[free_slot].target, checked_target)) {
@@ -291,24 +346,27 @@ namespace astia::fs {
                 destroy(instance);
             return -ENAMETOOLONG;
         }
-        mounts[free_slot].used     = true;
-        mounts[free_slot].instance = instance;
+        mounts[free_slot].used      = true;
+        mounts[free_slot].instance  = instance;
         mounts[free_slot].ownership = ownership;
-        mounts[free_slot].destroy = destroy;
+        mounts[free_slot].destroy   = destroy;
         return 0;
     }
 
     long unmount_type(const char* target) {
         char checked_target[path_max]{};
-        if (target == nullptr) return -EFAULT;
-        if (equal(target, "/")) return -EBUSY;
-        long resolve_result = resolve_path(target, checked_target, sizeof checked_target, false);
+        if (target == nullptr)
+            return -EFAULT;
+        if (equal(target, "/"))
+            return -EBUSY;
+        long resolve_result =
+            resolve_path(target, checked_target, sizeof checked_target, false);
         if (resolve_result < 0)
             return resolve_result;
         if (equal(checked_target, "/"))
             return -EBUSY;
         core::spinlock_guard registry_guard(mount_registry_lock);
-        mount_entry* selected = nullptr;
+        mount_entry*         selected = nullptr;
         for (u32 i = 0; i < max_mounts; ++i) {
             if (mounts[i].used && equal(mounts[i].target, checked_target)) {
                 selected = &mounts[i];
@@ -325,13 +383,13 @@ namespace astia::fs {
             if (path_matches(checked_target, mounts[i].target))
                 return -EBUSY;
         }
-        mount* instance = selected->instance;
+        mount*                instance  = selected->instance;
         const mount_ownership ownership = selected->ownership;
-        void (*destroy)(mount*) = selected->destroy;
-        selected->used = false;
-        selected->instance = nullptr;
-        selected->ownership = mount_ownership::static_instance;
-        selected->destroy = nullptr;
+        void (*destroy)(mount*)         = selected->destroy;
+        selected->used                  = false;
+        selected->instance              = nullptr;
+        selected->ownership             = mount_ownership::static_instance;
+        selected->destroy               = nullptr;
         // Only registry-owned factories may be destroyed here.  Cached devfs
         // has a null callback and remains in its static storage.
         if (ownership == mount_ownership::registry_owned && destroy != nullptr)
@@ -343,7 +401,8 @@ namespace astia::fs {
         mount_operation operation(path);
         if (!operation)
             return -ENOENT;
-        return operation.instance()->register_file(relative_path(*operation.entry(), path), object);
+        return operation.instance()->register_file(
+            relative_path(*operation.entry(), path), object);
     }
 
     mm::shptr<open_file> open_path(const char* path, u32 flags) {
@@ -353,7 +412,8 @@ namespace astia::fs {
         mount_operation operation(resolved);
         if (!operation)
             return {};
-        auto result = operation.instance()->open(relative_path(*operation.entry(), resolved), flags);
+        auto result = operation.instance()->open(
+            relative_path(*operation.entry(), resolved), flags);
         if (result) {
             result->set_path(resolved);
             result->attach_mount(operation.instance());
@@ -368,46 +428,58 @@ namespace astia::fs {
     mm::shptr<open_file> open_directory(const char* path) {
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, true);
-        if (rc < 0 || node_type(resolved) != directory_dir) return {};
+        if (rc < 0 || node_type(resolved) != directory_dir)
+            return {};
         mount_operation operation(resolved);
-        if (!operation) return {};
+        if (!operation)
+            return {};
         auto result = mm::share<open_file>(resolved, node_mode(resolved));
-        if (result) result->attach_mount(operation.instance());
+        if (result)
+            result->attach_mount(operation.instance());
         return result;
     }
 
     long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                         file_type* type) {
+                        file_type* type) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, true);
-        if (rc < 0) return rc;
+        if (rc < 0)
+            return rc;
         mount_operation operation(resolved);
         if (!operation)
             return -ENOENT;
-        return operation.instance()->read_directory(relative_path(*operation.entry(), resolved), index, name,
-                                               capacity, type);
+        return operation.instance()->read_directory(
+            relative_path(*operation.entry(), resolved), index, name, capacity, type);
     }
 
     long make_directory(const char* path, file_mode mode) {
-        if (path == nullptr || path[0] != '/') return -EINVAL;
+        if (path == nullptr || path[0] != '/')
+            return -EINVAL;
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, false);
-        if (rc < 0) return rc;
+        if (rc < 0)
+            return rc;
         mount_operation operation(resolved);
-        if (!operation) return -ENOENT;
-        return operation.instance()->mkdir(relative_path(*operation.entry(), resolved), mode);
+        if (!operation)
+            return -ENOENT;
+        return operation.instance()->mkdir(relative_path(*operation.entry(), resolved),
+                                           mode);
     }
 
     long remove_path(const char* path, bool directory) {
-        if (path == nullptr || path[0] != '/') return -EINVAL;
+        if (path == nullptr || path[0] != '/')
+            return -EINVAL;
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, false);
-        if (rc < 0) return rc;
+        if (rc < 0)
+            return rc;
         mount_operation operation(resolved);
-        if (!operation) return -ENOENT;
-        return operation.instance()->unlink(relative_path(*operation.entry(), resolved), directory);
+        if (!operation)
+            return -ENOENT;
+        return operation.instance()->unlink(relative_path(*operation.entry(), resolved),
+                                            directory);
     }
 
     long rename_path(const char* old_path, const char* new_path) {
@@ -416,44 +488,56 @@ namespace astia::fs {
             return -EINVAL;
         char old_resolved[path_max]{}, new_resolved[path_max]{};
         long rc = resolve_path(old_path, old_resolved, sizeof old_resolved, false);
-        if (rc < 0) return rc;
+        if (rc < 0)
+            return rc;
         rc = resolve_path(new_path, new_resolved, sizeof new_resolved, false);
-        if (rc < 0) return rc;
+        if (rc < 0)
+            return rc;
         mount_operation old_operation(old_resolved);
         mount_operation new_operation(new_resolved);
         if (!old_operation || !new_operation)
             return -ENOENT;
         if (old_operation.instance() != new_operation.instance())
             return -EXDEV;
-        return old_operation.instance()->rename(relative_path(*old_operation.entry(), old_resolved),
-                                                 relative_path(*new_operation.entry(), new_resolved));
+        return old_operation.instance()->rename(
+            relative_path(*old_operation.entry(), old_resolved),
+            relative_path(*new_operation.entry(), new_resolved));
     }
 
     long link_path(const char* old_path, const char* new_path) {
-        if (old_path == nullptr || new_path == nullptr || old_path[0] != '/' || new_path[0] != '/')
+        if (old_path == nullptr || new_path == nullptr || old_path[0] != '/' ||
+            new_path[0] != '/')
             return -EINVAL;
         char old_resolved[path_max]{}, new_resolved[path_max]{};
         long rc = resolve_path(old_path, old_resolved, sizeof old_resolved, true);
-        if (rc < 0) return rc;
+        if (rc < 0)
+            return rc;
         rc = resolve_path(new_path, new_resolved, sizeof new_resolved, false);
-        if (rc < 0) return rc;
+        if (rc < 0)
+            return rc;
         mount_operation old_operation(old_resolved);
         mount_operation new_operation(new_resolved);
-        if (!old_operation || !new_operation) return -ENOENT;
-        if (old_operation.instance() != new_operation.instance()) return -EXDEV;
-        return old_operation.instance()->link(relative_path(*old_operation.entry(), old_resolved),
-                                              relative_path(*new_operation.entry(), new_resolved));
+        if (!old_operation || !new_operation)
+            return -ENOENT;
+        if (old_operation.instance() != new_operation.instance())
+            return -EXDEV;
+        return old_operation.instance()->link(
+            relative_path(*old_operation.entry(), old_resolved),
+            relative_path(*new_operation.entry(), new_resolved));
     }
 
     file_type node_type(const char* path) {
-        if (path == nullptr || path[0] != '/') return directory_unknown;
+        if (path == nullptr || path[0] != '/')
+            return directory_unknown;
         mount_operation operation(path);
-        if (!operation) return directory_unknown;
+        if (!operation)
+            return directory_unknown;
         mount_entry* entry = operation.entry();
         // A mount point is itself a directory in the namespace.  Some
         // filesystems (notably devfs) only expose entries below their root
         // and therefore cannot describe the mount root through node_type().
-        if (equal(entry->target, path)) return directory_dir;
+        if (equal(entry->target, path))
+            return directory_dir;
         return operation.instance()->node_type(relative_path(*entry, path));
     }
 
@@ -462,33 +546,50 @@ namespace astia::fs {
             return -EINVAL;
         char pending[path_max * 2]{};
         char result[path_max]{};
-        u32 plen = 0, rlen = 1, links = 0;
-        u32 path_length = 0;
-        while (path[path_length] != '\0') ++path_length;
+        u32  plen = 0, rlen = 1, links = 0;
+        u32  path_length = 0;
+        while (path[path_length] != '\0')
+            ++path_length;
         const bool trailing_slash = path_length != 0 && path[path_length - 1] == '/';
-        result[0] = '/';
+        result[0]                 = '/';
         for (u32 i = 0; path[i] != '\0'; ++i) {
-            if (plen + 1 >= sizeof pending) return -ENAMETOOLONG;
+            if (plen + 1 >= sizeof pending)
+                return -ENAMETOOLONG;
             pending[plen++] = path[i];
         }
         pending[plen] = '\0';
         for (;;) {
             u32 start = 0;
-            while (start < plen && pending[start] == '/') ++start;
-            if (start == plen) break;
+            while (start < plen && pending[start] == '/')
+                ++start;
+            if (start == plen)
+                break;
             u32 end = start;
-            while (end < plen && pending[end] != '/') ++end;
+            while (end < plen && pending[end] != '/')
+                ++end;
             char component[path_max]{};
-            u32 clen = end - start;
-            if (clen >= path_max) return -ENAMETOOLONG;
-            for (u32 i = 0; i < clen; ++i) component[i] = pending[start + i];
+            u32  clen = end - start;
+            if (clen >= path_max)
+                return -ENAMETOOLONG;
+            for (u32 i = 0; i < clen; ++i)
+                component[i] = pending[start + i];
             component[clen] = '\0';
-            for (u32 i = end; i <= plen; ++i) pending[i - end] = pending[i];
+            for (u32 i = end; i <= plen; ++i)
+                pending[i - end] = pending[i];
             plen -= end;
-            while (plen != 0 && pending[0] == '/') { for (u32 i=0;i<plen;++i) pending[i]=pending[i+1]; --plen; }
-            if (equal(component, ".")) continue;
+            while (plen != 0 && pending[0] == '/') {
+                for (u32 i = 0; i < plen; ++i)
+                    pending[i] = pending[i + 1];
+                --plen;
+            }
+            if (equal(component, "."))
+                continue;
             if (equal(component, "..")) {
-                if (rlen > 1) { --rlen; while (rlen > 1 && result[rlen-1] != '/') --rlen; }
+                if (rlen > 1) {
+                    --rlen;
+                    while (rlen > 1 && result[rlen - 1] != '/')
+                        --rlen;
+                }
                 continue;
             }
             // Every component except the root is looked up beneath a
@@ -497,110 +598,150 @@ namespace astia::fs {
             if (rlen > 1 && node_type(result) != directory_dir)
                 return node_type(result) == directory_unknown ? -ENOENT : -ENOTDIR;
             const u32 parent_len = rlen;
-            if (rlen > 1) result[rlen++] = '/';
-            if (rlen + clen >= sizeof result) return -ENAMETOOLONG;
-            for (u32 i=0;i<clen;++i) result[rlen++]=component[i];
-            result[rlen]='\0';
+            if (rlen > 1)
+                result[rlen++] = '/';
+            if (rlen + clen >= sizeof result)
+                return -ENAMETOOLONG;
+            for (u32 i = 0; i < clen; ++i)
+                result[rlen++] = component[i];
+            result[rlen]    = '\0';
             const bool last = plen == 0;
             if ((!last || follow_final) && node_type(result) == directory_lnk) {
-                if (++links > 16) return -ELOOP;
+                if (++links > 16)
+                    return -ELOOP;
                 char target[path_max]{};
                 long n = read_symlink(result, target, sizeof target);
-                if (n < 0) return n;
+                if (n < 0)
+                    return n;
                 char combined[path_max * 2]{};
-                u32 at = 0;
+                u32  at = 0;
                 if (target[0] != '/') {
                     at = parent_len;
-                    for (u32 i=0;i<at;++i) combined[i]=result[i];
-                    if (at > 1 && combined[at - 1] != '/') combined[at++] = '/';
+                    for (u32 i = 0; i < at; ++i)
+                        combined[i] = result[i];
+                    if (at > 1 && combined[at - 1] != '/')
+                        combined[at++] = '/';
                 }
-                for (u32 i=0; target[i] != '\0'; ++i) {
-                    if (at + i + 1 >= sizeof combined) return -ENAMETOOLONG;
-                    combined[at+i]=target[i];
+                for (u32 i = 0; target[i] != '\0'; ++i) {
+                    if (at + i + 1 >= sizeof combined)
+                        return -ENAMETOOLONG;
+                    combined[at + i] = target[i];
                 }
                 u32 tail = 0;
-                while (pending[tail] != '\0') ++tail;
-                const u32 target_len = length_of(target);
+                while (pending[tail] != '\0')
+                    ++tail;
+                const u32 target_len   = length_of(target);
                 const u32 combined_len = at + target_len + (tail ? tail + 1 : 0);
                 if (combined_len >= sizeof combined)
                     return -ENAMETOOLONG;
                 if (tail != 0) {
-                    combined[at + target_len]='/';
-                    for (u32 i=0;i<=tail;++i)
-                        combined[at+target_len+1+i]=pending[i];
+                    combined[at + target_len] = '/';
+                    for (u32 i = 0; i <= tail; ++i)
+                        combined[at + target_len + 1 + i] = pending[i];
                 }
                 else {
                     combined[combined_len] = '\0';
                 }
                 plen = combined_len;
-                for (u32 i=0;i<=plen;++i) pending[i]=combined[i];
-                rlen = 1; result[0]='/';
+                for (u32 i = 0; i <= plen; ++i)
+                    pending[i] = combined[i];
+                rlen      = 1;
+                result[0] = '/';
             }
         }
         if (trailing_slash) {
             const file_type final_type = node_type(result);
-            if (final_type == directory_unknown) return -ENOENT;
-            if (final_type != directory_dir) return -ENOTDIR;
+            if (final_type == directory_unknown)
+                return -ENOENT;
+            if (final_type != directory_dir)
+                return -ENOTDIR;
         }
         // rlen excludes the terminating NUL; leave room for it in the
         // caller's buffer before copying the complete string below.
-        if (rlen + 1 > capacity) return -ENAMETOOLONG;
-        for (u32 i=0;i<=rlen;++i) buffer[i]=result[i];
+        if (rlen + 1 > capacity)
+            return -ENAMETOOLONG;
+        for (u32 i = 0; i <= rlen; ++i)
+            buffer[i] = result[i];
         return 0;
     }
 
     long make_symlink(const char* target, const char* path) {
-        if (target == nullptr || path == nullptr || path[0] != '/') return -EINVAL;
+        if (target == nullptr || path == nullptr || path[0] != '/')
+            return -EINVAL;
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, false);
-        if (rc < 0) return rc;
-        mount_operation operation(resolved); if (!operation) return -ENOENT;
-        return operation.instance()->symlink(target, relative_path(*operation.entry(), resolved));
+        if (rc < 0)
+            return rc;
+        mount_operation operation(resolved);
+        if (!operation)
+            return -ENOENT;
+        return operation.instance()->symlink(target,
+                                             relative_path(*operation.entry(), resolved));
     }
     long read_symlink(const char* path, char* buffer, u32 capacity) {
         if (path == nullptr || path[0] != '/' || buffer == nullptr || capacity == 0)
             return -EINVAL;
-        mount_operation operation(path); if (!operation) return -ENOENT;
-        return operation.instance()->readlink(relative_path(*operation.entry(), path), buffer, capacity);
+        mount_operation operation(path);
+        if (!operation)
+            return -ENOENT;
+        return operation.instance()->readlink(relative_path(*operation.entry(), path),
+                                              buffer, capacity);
     }
 
     file_mode node_mode(const char* path) {
-        if (path == nullptr || path[0] != '/') return {};
+        if (path == nullptr || path[0] != '/')
+            return {};
         mount_operation operation(path);
-        return !operation ? file_mode{} : operation.instance()->node_mode(relative_path(*operation.entry(), path));
+        return !operation ? file_mode{}
+                          : operation.instance()->node_mode(
+                                relative_path(*operation.entry(), path));
     }
     uid_t node_uid(const char* path) {
         mount_operation operation(path);
-        return operation ? operation.instance()->node_uid(relative_path(*operation.entry(), path)) : uid_t{};
+        return operation ? operation.instance()->node_uid(
+                               relative_path(*operation.entry(), path))
+                         : uid_t{};
     }
     gid_t node_gid(const char* path) {
         mount_operation operation(path);
-        return operation ? operation.instance()->node_gid(relative_path(*operation.entry(), path)) : gid_t{};
+        return operation ? operation.instance()->node_gid(
+                               relative_path(*operation.entry(), path))
+                         : gid_t{};
     }
 
     long chmod_path(const char* path, file_permissions permissions) {
-        if (path == nullptr || path[0] != '/') return -EINVAL;
+        if (path == nullptr || path[0] != '/')
+            return -EINVAL;
         mount_operation operation(path);
-        if (!operation) return -ENOENT;
-        return operation.instance()->chmod(relative_path(*operation.entry(), path), permissions);
+        if (!operation)
+            return -ENOENT;
+        return operation.instance()->chmod(relative_path(*operation.entry(), path),
+                                           permissions);
     }
 
     long chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final) {
-        if (path == nullptr || path[0] != '/') return -EINVAL;
+        if (path == nullptr || path[0] != '/')
+            return -EINVAL;
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, follow_final);
-        if (rc < 0) return rc;
+        if (rc < 0)
+            return rc;
         mount_operation operation(resolved);
         return !operation ? -ENOENT
-                          : operation.instance()->chown(relative_path(*operation.entry(), resolved), uid, gid);
+                          : operation.instance()->chown(
+                                relative_path(*operation.entry(), resolved), uid, gid);
     }
 
     long touch_path(const char* path, u64 sec, u64 nsec) {
-        if (path == nullptr || path[0] != '/') return -EINVAL;
+        if (path == nullptr || path[0] != '/')
+            return -EINVAL;
         mount_operation operation(path);
-        if (!operation) return -ENOENT;
-        auto object = operation.instance()->open(relative_path(*operation.entry(), path), 0);
-        if (!object) return -ENOENT;
+        if (!operation)
+            return -ENOENT;
+        auto object =
+            operation.instance()->open(relative_path(*operation.entry(), path), 0);
+        if (!object)
+            return -ENOENT;
         return object->backing()->touch(sec, nsec);
     }
 
@@ -658,10 +799,18 @@ namespace astia::fs {
         return -ESPIPE;
     }
 
-    file_mode file::mode() const { return file_mode(file_type::regular, file_permissions(0666)); }
-    u64 file::mtime_sec() const { return 0; }
-    u64 file::mtime_nsec() const { return 0; }
-    long file::touch(u64, u64) { return -EROFS; }
+    file_mode file::mode() const {
+        return file_mode(file_type::regular, file_permissions(0666));
+    }
+    u64 file::mtime_sec() const {
+        return 0;
+    }
+    u64 file::mtime_nsec() const {
+        return 0;
+    }
+    long file::touch(u64, u64) {
+        return -EROFS;
+    }
 
     mm::phys_region* file::memory_region() {
         return nullptr;
@@ -692,12 +841,12 @@ namespace astia::fs {
             return const_cast<file*>(object)->memory_region();
         }
 
-        const file_read_capability legacy_read_capability{legacy_read};
-        const file_write_capability legacy_write_capability{legacy_write};
-        const file_submit_capability legacy_submit_capability{legacy_submit};
-        const file_poll_capability legacy_poll_capability{legacy_poll};
-        const file_ioctl_capability legacy_ioctl_capability{legacy_ioctl};
-        const file_size_capability legacy_size_capability{legacy_size};
+        const file_read_capability    legacy_read_capability{legacy_read};
+        const file_write_capability   legacy_write_capability{legacy_write};
+        const file_submit_capability  legacy_submit_capability{legacy_submit};
+        const file_poll_capability    legacy_poll_capability{legacy_poll};
+        const file_ioctl_capability   legacy_ioctl_capability{legacy_ioctl};
+        const file_size_capability    legacy_size_capability{legacy_size};
         const file_mapping_capability legacy_mapping_capability{legacy_mapping};
 
         long dispatch_submit(file* object, io_request& request) {
@@ -752,13 +901,20 @@ namespace astia::fs {
 
     const void* file::capability(file_capability kind) const {
         switch (kind) {
-            case file_capability::read:   return &legacy_read_capability;
-            case file_capability::write:  return &legacy_write_capability;
-            case file_capability::submit: return &legacy_submit_capability;
-            case file_capability::poll:   return &legacy_poll_capability;
-            case file_capability::ioctl:  return &legacy_ioctl_capability;
-            case file_capability::size:   return &legacy_size_capability;
-            case file_capability::mapping:return &legacy_mapping_capability;
+        case file_capability::read:
+            return &legacy_read_capability;
+        case file_capability::write:
+            return &legacy_write_capability;
+        case file_capability::submit:
+            return &legacy_submit_capability;
+        case file_capability::poll:
+            return &legacy_poll_capability;
+        case file_capability::ioctl:
+            return &legacy_ioctl_capability;
+        case file_capability::size:
+            return &legacy_size_capability;
+        case file_capability::mapping:
+            return &legacy_mapping_capability;
         }
         return nullptr;
     }
@@ -787,7 +943,7 @@ namespace astia::fs {
     long open_file::read(void* buf, u32 len, u64 offset) {
         if (!_object)
             return -EBADF;
-        const u64 actual = offset == offset_current ? _position : offset;
+        const u64  actual = offset == offset_current ? _position : offset;
         const long result = dispatch_read(_object.get(), buf, len, actual);
         if (result > 0)
             _position = actual + static_cast<u64>(result);
@@ -847,15 +1003,23 @@ namespace astia::fs {
         return _object ? dispatch_mapping(_object.get()) : nullptr;
     }
 
-    file_mode open_file::mode() const { return !_object ? _mode : _object->mode(); }
+    file_mode open_file::mode() const {
+        return !_object ? _mode : _object->mode();
+    }
     void open_file::set_path(const char* path) {
-        if (path == nullptr) return;
+        if (path == nullptr)
+            return;
         u32 i = 0;
-        for (; i + 1 < path_max && path[i] != '\0'; ++i) _path[i] = path[i];
-        _path[i] = '\0';
+        for (; i + 1 < path_max && path[i] != '\0'; ++i)
+            _path[i] = path[i];
+        _path[i]  = '\0';
         _has_path = true;
     }
-    u64 open_file::mtime_sec() const { return !_object ? 0 : _object->mtime_sec(); }
-    u64 open_file::mtime_nsec() const { return !_object ? 0 : _object->mtime_nsec(); }
+    u64 open_file::mtime_sec() const {
+        return !_object ? 0 : _object->mtime_sec();
+    }
+    u64 open_file::mtime_nsec() const {
+        return !_object ? 0 : _object->mtime_nsec();
+    }
 
 } // namespace astia::fs

@@ -7,7 +7,9 @@
 
 namespace astia::arch {
 
-    bool init_scheduler() { return true; }
+    bool init_scheduler() {
+        return true;
+    }
 
     struct context {
         u64 registers[16]{};
@@ -72,12 +74,18 @@ namespace astia::arch {
     void cpu::set_kernel_stack(u64) {}
     void cpu::interrupt_enter() {}
     void cpu::interrupt_exit() {}
-    bool cpu::consume_should_yield() { return false; }
+    bool cpu::consume_should_yield() {
+        return false;
+    }
     void cpu::request_reschedule() {}
     void cpu::request_local_reschedule() {}
-    bool cpu::consume_reschedule() { return false; }
+    bool cpu::consume_reschedule() {
+        return false;
+    }
 
-    u32 cpu::current_index() { return 0; }
+    u32 cpu::current_index() {
+        return 0;
+    }
 
     // No GICv3/port-based timer bringup yet; the aarch64 port implements
     // this when it gains an interrupt controller driver.

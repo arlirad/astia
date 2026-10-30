@@ -4,7 +4,8 @@ namespace astia::proc::syscall {
     /// futex - Wait on or wake a shared user word.
     ///
     /// Synopsis:
-    ///     long futex(uint32_t *address, uint32_t operation, uint32_t value, const timespec *timeout);
+    ///     long futex(uint32_t *address, uint32_t operation, uint32_t value, const
+    ///     timespec *timeout);
     ///
     /// Description:
     ///     FUTEX_WAIT blocks while the word equals value. FUTEX_WAKE wakes up

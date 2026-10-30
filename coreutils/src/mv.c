@@ -3,24 +3,28 @@
 #include <fcntl.h>
 
 static int move_file(const char* source, const char* destination) {
-    if (rename(source, destination) == 0) return 0;
-    if (errno != EXDEV) return cu_error("mv", source);
+    if (rename(source, destination) == 0)
+        return 0;
+    if (errno != EXDEV)
+        return cu_error("mv", source);
 
     /* Cross-filesystem moves cannot be atomic; retain the traditional
        copy-and-unlink fallback, but never hide native rename errors. */
     int input = open(source, O_RDONLY);
-    if (input < 0) return cu_error("mv", source);
+    if (input < 0)
+        return cu_error("mv", source);
     int output = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (output < 0) {
         close(input);
         return cu_error("mv", destination);
     }
     char buffer[4096];
-    int status = 0;
+    int  status = 0;
     for (;;) {
         long count = read(input, buffer, sizeof buffer);
-        if (count == 0) break;
-        if (count < 0 || cu_write_all(output, buffer, (size_t)count) < 0) {
+        if (count == 0)
+            break;
+        if (count < 0 || cu_write_all(output, buffer, (size_t) count) < 0) {
             status = cu_error("mv", source);
             break;
         }
@@ -35,7 +39,7 @@ static int move_file(const char* source, const char* destination) {
 int main(int argc, char** argv) {
     cu_args args;
     cu_args_init(&args, argc, argv);
-    const char* source = 0;
+    const char* source      = 0;
     const char* destination = 0;
     const char* value;
     while ((value = cu_args_next(&args)) != 0) {

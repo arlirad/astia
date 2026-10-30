@@ -4,7 +4,8 @@ namespace astia::proc::syscall {
     /// thread_create2 - Create a user thread with two arguments.
     ///
     /// Synopsis:
-    ///     long thread_create2(void (*entry)(void *, void *), void *stack_top, void *argument0, void *argument1);
+    ///     long thread_create2(void (*entry)(void *, void *), void *stack_top, void
+    ///     *argument0, void *argument1);
     ///
     /// Description:
     ///     Creates a thread and passes both arguments directly to entry on the

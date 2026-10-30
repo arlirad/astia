@@ -1,6 +1,6 @@
 #pragma once
-#include <astia/fs.hpp>
 #include <astia/api/aio.h>
+#include <astia/fs.hpp>
 
 namespace astia::fs {
     /// Private protocol capability.  The callbacks operate on the original
@@ -17,7 +17,7 @@ namespace astia::fs {
         bool (*recvfrom_address)(open_file&, astia_sockaddr&);
     };
 
-long create_unix_socket(mm::shptr<open_file>& out, u32 type);
-long unix_socketpair(mm::shptr<open_file>& left, mm::shptr<open_file>& right,
-                     u32 type);
+    long create_unix_socket(mm::shptr<open_file>& out, u32 type);
+    long unix_socketpair(mm::shptr<open_file>& left, mm::shptr<open_file>& right,
+                         u32 type);
 }

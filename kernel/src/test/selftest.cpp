@@ -1,6 +1,8 @@
 #include "selftest.hpp"
 
+#include "../arch/x86_64/smp.hpp"
 #include "../dev/chr/tty/uart16550.hpp"
+#include "../fs/filesystem.hpp"
 #include "aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
@@ -13,8 +15,6 @@
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
-#include "../fs/filesystem.hpp"
-#include "../arch/x86_64/smp.hpp"
 
 namespace astia::test {
 
@@ -24,14 +24,14 @@ namespace astia::test {
         using logs = astia::log::context<"selftest">;
 
         volatile u32 scheduler_counts[2]{};
-        volatile u32 ap_work_seen = 0;
-        volatile u32 ap_stress_done = 0;
+        volatile u32 ap_work_seen       = 0;
+        volatile u32 ap_stress_done     = 0;
         volatile u32 ap_stress_cpu_mask = 0;
-        volatile u32 migration_done = 0;
+        volatile u32 migration_done     = 0;
         volatile u32 migration_cpu_mask = 0;
-        volatile u32 preempt_started   = 0;
-        volatile u32 preempt_main_seen = 0;
-        volatile u32 preempt_done      = 0;
+        volatile u32 preempt_started    = 0;
+        volatile u32 preempt_main_seen  = 0;
+        volatile u32 preempt_done       = 0;
 
         void scheduler_worker(void* argument) {
             auto* count = static_cast<volatile u32*>(argument);
@@ -63,17 +63,18 @@ namespace astia::test {
         }
 
         bool ap_scheduler_checks() {
-            if (arch::x86_64::smp::online_cpus() < 2) return true;
+            if (arch::x86_64::smp::online_cpus() < 2)
+                return true;
             ap_work_seen = 0;
-            auto ap_work = proc::scheduler::create_kernel_on(1, ap_scheduler_worker, nullptr);
+            auto ap_work =
+                proc::scheduler::create_kernel_on(1, ap_scheduler_worker, nullptr);
             if (!ap_work || ap_work->detach() != 0) {
                 logs::error("smp scheduler: could not queue AP work");
                 return false;
             }
             arch::cpu::interrupts();
-            for (u32 i = 0; i < 200 &&
-                            __atomic_load_n(&ap_work_seen, __ATOMIC_ACQUIRE) == 0;
-                 ++i) {
+            for (u32 i = 0;
+                 i < 200 && __atomic_load_n(&ap_work_seen, __ATOMIC_ACQUIRE) == 0; ++i) {
                 arch::cpu::halt();
             }
             arch::cpu::nointerrupts();
@@ -82,18 +83,19 @@ namespace astia::test {
                 return false;
             }
             constexpr u32 stress_jobs = 8;
-            ap_stress_done = 0;
-            ap_stress_cpu_mask = 0;
+            ap_stress_done            = 0;
+            ap_stress_cpu_mask        = 0;
             for (u32 i = 0; i < stress_jobs; ++i) {
-                auto job = proc::scheduler::create_kernel_on(1, ap_stress_worker, nullptr);
+                auto job =
+                    proc::scheduler::create_kernel_on(1, ap_stress_worker, nullptr);
                 if (!job || job->detach() != 0) {
                     logs::error("smp scheduler: stress queue failed at %u", i);
                     return false;
                 }
             }
             arch::cpu::interrupts();
-            for (u32 i = 0;
-                 i < 400 && __atomic_load_n(&ap_stress_done, __ATOMIC_ACQUIRE) < stress_jobs;
+            for (u32 i = 0; i < 400 && __atomic_load_n(&ap_stress_done,
+                                                       __ATOMIC_ACQUIRE) < stress_jobs;
                  ++i) {
                 arch::cpu::halt();
             }
@@ -105,8 +107,8 @@ namespace astia::test {
                 return false;
             }
             constexpr u32 migration_jobs = 8;
-            migration_done = 0;
-            migration_cpu_mask = 0;
+            migration_done               = 0;
+            migration_cpu_mask           = 0;
             for (u32 i = 0; i < migration_jobs; ++i) {
                 auto job = proc::scheduler::create_kernel(
                     migration_worker, nullptr, proc::scheduling_class::normal, 0, 0,
@@ -118,22 +120,24 @@ namespace astia::test {
             }
             arch::cpu::request_reschedule();
             arch::cpu::interrupts();
-            for (u32 i = 0;
-                 i < 400 && __atomic_load_n(&migration_done, __ATOMIC_ACQUIRE) < migration_jobs;
+            for (u32 i = 0; i < 400 && __atomic_load_n(&migration_done,
+                                                       __ATOMIC_ACQUIRE) < migration_jobs;
                  ++i) {
                 arch::cpu::halt();
             }
             arch::cpu::nointerrupts();
             const u32 migrated_done = __atomic_load_n(&migration_done, __ATOMIC_ACQUIRE);
-            const u32 migrated_mask = __atomic_load_n(&migration_cpu_mask, __ATOMIC_ACQUIRE);
+            const u32 migrated_mask =
+                __atomic_load_n(&migration_cpu_mask, __ATOMIC_ACQUIRE);
             if (migrated_done != migration_jobs || (migrated_mask & (1u << 1)) == 0) {
                 logs::error("smp scheduler: migration done=%u mask=%x", migrated_done,
                             migrated_mask);
                 return false;
             }
             logs::info("smp scheduler: migration ok");
-            logs::info("smp scheduler: AP work ok; stress=%u cpu-mask=%x migration=%u mask=%x",
-                       done, mask, migrated_done, migrated_mask);
+            logs::info(
+                "smp scheduler: AP work ok; stress=%u cpu-mask=%x migration=%u mask=%x",
+                done, mask, migrated_done, migrated_mask);
             return true;
         }
 
@@ -426,7 +430,8 @@ namespace astia::test {
                 return false;
             }
             open = {};
-            if (fs::unmount_type("/tmp") != 0 || fs::node_type("/tmp") != fs::directory_unknown ||
+            if (fs::unmount_type("/tmp") != 0 ||
+                fs::node_type("/tmp") != fs::directory_unknown ||
                 fs::mount_type("tmpfs", "/tmp") != 0) {
                 logs::error("mount lifecycle fail (teardown/remount)");
                 return false;
@@ -438,8 +443,9 @@ namespace astia::test {
             if (fs::mount_type("tmpfs", "/tmp/.") != -EEXIST ||
                 fs::mount_type("tmpfs", "/does-not-exist") != -ENOENT ||
                 fs::mount_type("tmpfs", "tmpfs") != -EINVAL ||
-                fs::make_directory("/tmp/nested", fs::file_mode(fs::directory_dir,
-                                                                  fs::file_permissions(0755))) != 0) {
+                fs::make_directory(
+                    "/tmp/nested",
+                    fs::file_mode(fs::directory_dir, fs::file_permissions(0755))) != 0) {
                 logs::error("mount lifecycle fail (normalization/nesting)");
                 return false;
             }

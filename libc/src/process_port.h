@@ -7,11 +7,11 @@
  * Every function returns >= 0 or the negated error code, matching the
  * astia ABI convention. */
 #pragma GCC visibility push(default)
-void __astia_process_exit(int status);
-long __astia_process_getpid(void);
-long __astia_process_gettid(void);
-long __astia_process_yield(void);
-long __astia_process_waitpid(int pid, int* status, int options);
+void                   __astia_process_exit(int status);
+long                   __astia_process_getpid(void);
+long                   __astia_process_gettid(void);
+long                   __astia_process_yield(void);
+long                   __astia_process_waitpid(int pid, int* status, int options);
 long __astia_process_spawnve(const char* path, char* const argv[], char* const envp[]);
 long __astia_process_execve(const char* path, char* const argv[], char* const envp[]);
 long __astia_process_fork(void);

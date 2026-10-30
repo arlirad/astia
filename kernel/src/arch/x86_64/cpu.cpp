@@ -34,7 +34,7 @@ namespace astia::arch {
 
     void cpu::interrupt_exit() {
         u32 depth;
-        asm volatile("decl %%gs:24; movl %%gs:24, %0" : "=r"(depth) :: "memory");
+        asm volatile("decl %%gs:24; movl %%gs:24, %0" : "=r"(depth)::"memory");
         if (depth == 0 && x86_64::smp::consume_reschedule(current_index())) {
             asm volatile("movl $1, %%gs:28" ::: "memory");
         }
@@ -42,7 +42,7 @@ namespace astia::arch {
 
     bool cpu::consume_should_yield() {
         u32 value = 0;
-        asm volatile("xchgl %0, %%gs:28" : "+r"(value) :: "memory");
+        asm volatile("xchgl %0, %%gs:28" : "+r"(value)::"memory");
         return value != 0;
     }
 

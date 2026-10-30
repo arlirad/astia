@@ -379,7 +379,6 @@ void c_main(const long* frame) {
             astia_exit(21);
         if (astia_waitpid((int32_t) child, &child_status) != child || child_status != 0)
             astia_exit(21);
-
     }
 
     astia_exit(0);

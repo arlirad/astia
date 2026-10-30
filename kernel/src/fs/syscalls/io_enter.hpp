@@ -29,10 +29,12 @@ namespace astia::fs::syscall {
     ///
     /// Errors:
     ///     -EFAULT: timeout is non-null but does not reference readable userspace memory.
-    ///     -EINVAL: ring is not a live ring owned by the caller, flags contains an unknown bit, or timeout has a negative field or tv_nsec outside 0 through 999999999.
-    ///     -EAGAIN: A completion wait was requested while interrupts were unavailable for sleeping.
-    ///     -EIO: The architecture has no timer frequency with which to convert timeout.
-    ///     -ETIMEDOUT: The requested minimum number of CQEs did not become visible before the timeout expired.
+    ///     -EINVAL: ring is not a live ring owned by the caller, flags contains an
+    ///     unknown bit, or timeout has a negative field or tv_nsec outside 0 through
+    ///     999999999. -EAGAIN: A completion wait was requested while interrupts were
+    ///     unavailable for sleeping. -EIO: The architecture has no timer frequency with
+    ///     which to convert timeout. -ETIMEDOUT: The requested minimum number of CQEs did
+    ///     not become visible before the timeout expired.
     ///
     /// Notes:
     ///     ENTER_GETEVENTS does not itself specify a count; min_complete does.

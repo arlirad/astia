@@ -1,10 +1,10 @@
 #include "proc.hpp"
 
-#include "scheduler.hpp"
 #include "../sys/user_mem.hpp"
+#include "scheduler.hpp"
 #include <astia/api/errno.h>
-#include <astia/api/termios.h>
 #include <astia/api/syscalls.h>
+#include <astia/api/termios.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/log.hpp>
@@ -20,11 +20,11 @@ namespace astia::proc {
         using logs       = astia::log::context<"proc">;
         using spawn_logs = logs::child<"spawn">;
 
-        process* kernel   = nullptr;
+        process*             kernel   = nullptr;
         inline constexpr u32 max_cpus = 256;
-        thread*  current[max_cpus]{};
-        tid_t    next_tid = 1;
-        pid_t    next_pid{1};
+        thread*              current[max_cpus]{};
+        tid_t                next_tid = 1;
+        pid_t                next_pid{1};
 
         inline constexpr u32 registry_capacity = 64;
         // Non-trivial element type in freestanding code: static storage
@@ -74,7 +74,8 @@ namespace astia::proc {
     }
 
     bool unregister_process(process* value) {
-        if (value == nullptr) return false;
+        if (value == nullptr)
+            return false;
         core::spinlock_guard guard(registry_lock);
         for (u32 i = 1; i < registry_capacity; ++i) {
             if (registry[i].get() == value) {
@@ -87,7 +88,7 @@ namespace astia::proc {
 
     pid_t allocate_pid() {
         const pid_t value = next_pid;
-        next_pid = pid_t{static_cast<u32>(static_cast<u32>(next_pid) + 1)};
+        next_pid          = pid_t{static_cast<u32>(static_cast<u32>(next_pid) + 1)};
         return value;
     }
 
@@ -137,7 +138,8 @@ namespace astia::proc {
 
     void set_current_thread(thread* value) {
         const u32 index = arch::cpu::current_index();
-        if (index < max_cpus) current[index] = value;
+        if (index < max_cpus)
+            current[index] = value;
     }
 
     optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],
@@ -150,8 +152,9 @@ namespace astia::proc {
             return fail(error_t::einval);
         }
         const fs::file_mode image_mode = fs::node_mode(path);
-        if (image_mode.exists() && !parent->can_access(image_mode, fs::node_uid(path),
-                                                        fs::node_gid(path), fs::permission_bits::execute))
+        if (image_mode.exists() &&
+            !parent->can_access(image_mode, fs::node_uid(path), fs::node_gid(path),
+                                fs::permission_bits::execute))
             return fail(error_t::eacces);
         auto image_file = fs::open_path(path);
         if (!image_file) {
@@ -177,7 +180,7 @@ namespace astia::proc {
         }
 
         const pid_t child_id = allocate_pid();
-        auto      child    = mm::share<process>(child_id, parent->pid(), path);
+        auto        child    = mm::share<process>(child_id, parent->pid(), path);
         if (!child) {
             mm::heap::free(image.value);
             return fail(error_t::enomem);
@@ -226,25 +229,30 @@ namespace astia::proc {
         if (capacity > ASTIA_PROCESS_SNAPSHOT_MAX || (capacity != 0 && output == 0))
             return -EINVAL;
         astia_process_info records[ASTIA_PROCESS_SNAPSHOT_MAX]{};
-        u32 count = 0;
+        u32                count = 0;
         {
             core::spinlock_guard guard(registry_lock);
             for (u32 i = 0; i < registry_capacity && count < capacity; ++i) {
                 process* value = registry[i].get();
-                if (value == nullptr) continue;
+                if (value == nullptr)
+                    continue;
                 auto& record = records[count++];
-                record.pid = static_cast<i32>(static_cast<u32>(value->pid()));
-                record.ppid = static_cast<i32>(static_cast<u32>(value->parent_pid()));
-                record.pgid = static_cast<i32>(static_cast<u32>(value->process_group()));
-                record.uid = value->uid(); record.gid = value->gid();
+                record.pid   = static_cast<i32>(static_cast<u32>(value->pid()));
+                record.ppid  = static_cast<i32>(static_cast<u32>(value->parent_pid()));
+                record.pgid  = static_cast<i32>(static_cast<u32>(value->process_group()));
+                record.uid   = value->uid();
+                record.gid   = value->gid();
                 record.state = static_cast<u32>(value->state());
-                record.has_ctty = value->controlling_terminal() != nullptr ? 1u : 0u;
+                record.has_ctty  = value->controlling_terminal() != nullptr ? 1u : 0u;
                 const char* name = value->name();
-                for (u32 n = 0; name != nullptr && n + 1 < sizeof(record.name) && name[n]; ++n)
+                for (u32 n = 0; name != nullptr && n + 1 < sizeof(record.name) && name[n];
+                     ++n)
                     record.name[n] = name[n];
             }
         }
-        if (count != 0 && !sys::copy_out(sys::user_range::bytes(output, count * sizeof(records[0])), records))
+        if (count != 0 &&
+            !sys::copy_out(sys::user_range::bytes(output, count * sizeof(records[0])),
+                           records))
             return -EFAULT;
         return count;
     }
@@ -265,7 +273,7 @@ namespace astia::proc {
         // Zombies remain registered until their parent reaps them, matching
         // native process lifetime; reaping removes the PID atomically.
         core::spinlock_guard guard(registry_lock);
-        const i32 slot = find_slot_locked(target);
+        const i32            slot = find_slot_locked(target);
         if (slot < 0 || !registry[slot])
             return -ESRCH;
         return static_cast<i64>(static_cast<u32>(registry[slot]->session()));
@@ -278,8 +286,8 @@ namespace astia::proc {
         if (owner->pid() != owner->session() || owner->controlling_terminal() != nullptr)
             return -EPERM;
         owner->controlling_terminal(terminal);
-        i32 group = static_cast<i32>(static_cast<u32>(owner->process_group()));
-        const long rc = fs::dispatch_ioctl(terminal, TIOCSPGRP, &group);
+        i32        group = static_cast<i32>(static_cast<u32>(owner->process_group()));
+        const long rc    = fs::dispatch_ioctl(terminal, TIOCSPGRP, &group);
         if (rc < 0) {
             owner->controlling_terminal(nullptr);
             return rc;
@@ -287,13 +295,14 @@ namespace astia::proc {
         return 0;
     }
 
-
     fs::file* controlling_terminal() {
         process* owner = current_process();
         return owner == nullptr ? nullptr : owner->controlling_terminal();
     }
 
-    bool has_controlling_terminal() { return controlling_terminal() != nullptr; }
+    bool has_controlling_terminal() {
+        return controlling_terminal() != nullptr;
+    }
 
     bool process_group_exists(pgrp_t group, pid_t session) {
         core::spinlock_guard guard(registry_lock);
@@ -301,7 +310,8 @@ namespace astia::proc {
     }
 
     i64 terminal_signal_foreground(pgrp_t foreground, signal_number signal) {
-        if (foreground == pgrp_t{}) return -ESRCH;
+        if (foreground == pgrp_t{})
+            return -ESRCH;
         return signal_process_group(foreground, signal);
     }
 
@@ -329,7 +339,8 @@ namespace astia::proc {
 
     bool terminal_set_foreground_allowed(pgrp_t foreground) {
         process* owner = current_process();
-        if (owner == nullptr) return false;
+        if (owner == nullptr)
+            return false;
         return process_group_exists(foreground, owner->session());
     }
 
@@ -346,7 +357,7 @@ namespace astia::proc {
             return -EINVAL;
 
         core::spinlock_guard guard(registry_lock);
-        const i32 slot = find_slot_locked(pid);
+        const i32            slot = find_slot_locked(pid);
         // A freshly forked child can execute setpgid(0, ...) before another
         // registry scan observes its slot.  pid==0 is explicitly the caller,
         // so use that stable object directly.
@@ -369,8 +380,7 @@ namespace astia::proc {
         }
 
         if (pgid != pgrp_t{static_cast<u32>(target->pid())}) {
-            if (find_group_locked(pgid, caller->session()) ==
-                nullptr) {
+            if (find_group_locked(pgid, caller->session()) == nullptr) {
                 return -EPERM;
             }
         }
@@ -393,9 +403,9 @@ namespace astia::proc {
     i64 signal_process_group(pgrp_t group, signal_number value) {
         if (!valid_signal(value) && value != signal_number{})
             return -EINVAL;
-        bool                 found = false;
+        bool     found = false;
         process* targets[registry_capacity]{};
-        u32 count = 0;
+        u32      count = 0;
         {
             core::spinlock_guard guard(registry_lock);
             for (u32 i = 0; i < registry_capacity; ++i) {
@@ -404,15 +414,17 @@ namespace astia::proc {
                     target->state() == process_state::zombie ||
                     target->state() == process_state::dead)
                     continue;
-                found = true;
+                found            = true;
                 targets[count++] = target;
             }
         }
         if (value != signal_number{}) {
             for (u32 i = 0; i < count; ++i) {
-                if (!targets[i]->signals().send(value)) return -EINVAL;
+                if (!targets[i]->signals().send(value))
+                    return -EINVAL;
                 if (is_uncatchable(value) ||
-                    targets[i]->signals().disposition(value).action != signal_action::ignore)
+                    targets[i]->signals().disposition(value).action !=
+                        signal_action::ignore)
                     targets[i]->signal_state_change(value);
                 targets[i]->wake_signal_waiters();
             }
@@ -426,13 +438,13 @@ namespace astia::proc {
         if (parent == nullptr || self == nullptr) {
             return -ESRCH;
         }
-        const bool group_wait = pid < -1;
-        const pgrp_t requested_group = group_wait ? pgrp_t{static_cast<u32>(-pid)} :
-            (pid == 0 ? parent->process_group() : pgrp_t{});
-        constexpr u32 valid_wait_options =
-            static_cast<u32>(wait_options::nohang) |
-            static_cast<u32>(wait_options::untraced) |
-            static_cast<u32>(wait_options::continued);
+        const bool   group_wait = pid < -1;
+        const pgrp_t requested_group =
+            group_wait ? pgrp_t{static_cast<u32>(-pid)}
+                       : (pid == 0 ? parent->process_group() : pgrp_t{});
+        constexpr u32 valid_wait_options = static_cast<u32>(wait_options::nohang) |
+                                           static_cast<u32>(wait_options::untraced) |
+                                           static_cast<u32>(wait_options::continued);
         if (static_cast<u32>(options) & ~valid_wait_options)
             return -EINVAL;
 
@@ -473,16 +485,20 @@ namespace astia::proc {
                         zombie_child = child;
                         break;
                     }
-                    if ((static_cast<u32>(options) & static_cast<u32>(wait_options::untraced)) &&
+                    if ((static_cast<u32>(options) &
+                         static_cast<u32>(wait_options::untraced)) &&
                         child->stop_event_pending()) {
-                        if (status != nullptr) *status = child->stop_status();
+                        if (status != nullptr)
+                            *status = child->stop_status();
                         child->clear_stop_event();
                         result = static_cast<i64>(static_cast<u32>(child->pid()));
                         break;
                     }
-                    if ((static_cast<u32>(options) & static_cast<u32>(wait_options::continued)) &&
+                    if ((static_cast<u32>(options) &
+                         static_cast<u32>(wait_options::continued)) &&
                         child->continued_event_pending()) {
-                        if (status != nullptr) *status = 0xffff;
+                        if (status != nullptr)
+                            *status = 0xffff;
                         child->clear_continued_event();
                         result = static_cast<i64>(static_cast<u32>(child->pid()));
                         break;

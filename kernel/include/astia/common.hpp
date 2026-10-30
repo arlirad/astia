@@ -16,24 +16,40 @@ namespace astia {
     using usize = __SIZE_TYPE__;
     using isize = __PTRDIFF_TYPE__;
     struct fd_t {
-        i32 value = -1;
+        i32 value        = -1;
         constexpr fd_t() = default;
         constexpr explicit fd_t(i32 raw) : value(raw) {}
-        constexpr bool operator==(fd_t other) const { return value == other.value; }
-        constexpr bool operator!=(fd_t other) const { return value != other.value; }
+        constexpr bool operator==(fd_t other) const {
+            return value == other.value;
+        }
+        constexpr bool operator!=(fd_t other) const {
+            return value != other.value;
+        }
     };
 
-    template <typename Tag> struct domain_id {
-        u32 value = 0;
+    template <typename Tag>
+    struct domain_id {
+        u32 value             = 0;
         constexpr domain_id() = default;
         constexpr explicit domain_id(u32 raw) : value(raw) {}
-        constexpr explicit operator u32() const { return value; }
-        constexpr bool operator==(domain_id other) const { return value == other.value; }
-        constexpr bool operator!=(domain_id other) const { return value != other.value; }
+        constexpr explicit operator u32() const {
+            return value;
+        }
+        constexpr bool operator==(domain_id other) const {
+            return value == other.value;
+        }
+        constexpr bool operator!=(domain_id other) const {
+            return value != other.value;
+        }
     };
-    struct uid_tag; struct gid_tag; struct pid_tag; struct pgrp_tag;
-    using uid_t = domain_id<uid_tag>; using gid_t = domain_id<gid_tag>;
-    using pid_t = domain_id<pid_tag>; using pgrp_t = domain_id<pgrp_tag>;
+    struct uid_tag;
+    struct gid_tag;
+    struct pid_tag;
+    struct pgrp_tag;
+    using uid_t  = domain_id<uid_tag>;
+    using gid_t  = domain_id<gid_tag>;
+    using pid_t  = domain_id<pid_tag>;
+    using pgrp_t = domain_id<pgrp_tag>;
 
     /// Explicit vocabulary for values that otherwise tend to be naked u64s
     /// or machine-sized integers at subsystem boundaries. These are aliases,

@@ -10,7 +10,7 @@
 enum { default_stack_size = 64 * 1024 };
 
 static void pthread_start_trampoline(void* function_value, void* argument) {
-    void* (*function)(void*) = (void* (*) (void*) ) function_value;
+    void* (*function)(void*) = (void* (*)(void*) ) function_value;
     __astia_process_thread_exit(function(argument));
     __builtin_unreachable();
 }
@@ -40,7 +40,7 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     size_t stack_size = attr == NULL ? default_stack_size : attr->stack_size;
     if (stack_size < 16 * 1024)
         return EINVAL;
-    if (stack_size > (size_t)-1 - 4095u)
+    if (stack_size > (size_t) -1 - 4095u)
         return EINVAL;
     stack_size  = (stack_size + 4095u) & ~(size_t) 4095u;
     void* stack = mmap(NULL, stack_size, PROT_READ | PROT_WRITE,

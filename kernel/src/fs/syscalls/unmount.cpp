@@ -1,7 +1,8 @@
 #include "unmount.hpp"
-#include "../filesystem.hpp"
+
 #include "../../proc/proc.hpp"
 #include "../../sys/user_mem.hpp"
+#include "../filesystem.hpp"
 #include <astia/api/errno.h>
 
 namespace astia::fs::syscall {
@@ -12,8 +13,8 @@ namespace astia::fs::syscall {
         if (current->euid() != 0)
             return -EPERM;
         char path[path_max]{};
-        if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(
-                                      target_address)))
+        if (!sys::copy_in_string(path, sizeof path,
+                                 sys::user_range::string(target_address)))
             return -EFAULT;
         return unmount_type(path);
     }

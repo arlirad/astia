@@ -59,11 +59,11 @@ namespace astia::dev {
         constexpr u8 lcr_dlab   = 0x80;
         constexpr u8 lcr_8n1    = 0x03;
 
-        constexpr u8   mcr_dtr       = 0x01;
-        constexpr u8   mcr_rts       = 0x02;
-        constexpr u8   mcr_out2      = 0x08; // gates the IRQ line onto the PIC
-        constexpr u8   mcr_loopback  = 0x10;
-        constexpr char device_path[] = "/dev/tts0";
+        constexpr u8   mcr_dtr        = 0x01;
+        constexpr u8   mcr_rts        = 0x02;
+        constexpr u8   mcr_out2       = 0x08; // gates the IRQ line onto the PIC
+        constexpr u8   mcr_loopback   = 0x10;
+        constexpr char device_path[]  = "/dev/tts0";
         constexpr char console_path[] = "/dev/console";
 
         // QEMU answers THR instantly and real hardware shifts a byte in
@@ -313,7 +313,7 @@ namespace astia::dev {
         for (u32 i = 0; i < thre_spins; ++i) {
             if ((_ports[reg_lsr] & lsr_thre) != 0) {
                 _ports[reg_data] = c;
-                _ports[reg_ier] = ier_rx_ready;
+                _ports[reg_ier]  = ier_rx_ready;
                 return true;
             }
         }
@@ -428,7 +428,8 @@ namespace astia::dev {
             0) {
             return false;
         }
-        if (fs::register_device(console_path, mm::shptr<fs::file>::borrowed(&com1_file)) < 0)
+        if (fs::register_device(console_path, mm::shptr<fs::file>::borrowed(&com1_file)) <
+            0)
             return false;
         _ports[reg_ier] = ier_rx_ready;  // data-ready interrupts on
         arch::x86_64::pic::unmask(_irq); // handler in place first

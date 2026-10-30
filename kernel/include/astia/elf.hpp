@@ -42,7 +42,7 @@ namespace astia::elf {
     /// true the region must begin exactly at `hint` (an ET_EXEC's link
     /// address); otherwise `hint` is advisory and the callback picks any
     /// address (relocatable blocks and ET_DYN spans). Returns null on failure.
-    using map_fn = void* (*) (void* ctx, u64 hint, usize size, usize align, bool fixed);
+    using map_fn = void* (*)(void* ctx, u64 hint, usize size, usize align, bool fixed);
 
     /// Resolve an undefined global symbol by name to its runtime address.
     /// Returns 0 if the name is unknown. (Integer, not pointer, so neither side
@@ -90,8 +90,8 @@ namespace astia::elf {
     struct image {
         void* entry = nullptr; ///< Entry point (module_main for ET_REL, e_entry + bias
                                ///< for executables).
-        void* base = nullptr;  ///< Base of the loaded allocation (lowest mapped address).
-        usize size = 0;        ///< Total bytes spanned by the image.
+        void* base  = nullptr; ///< Base of the loaded allocation (lowest mapped address).
+        usize size  = 0;       ///< Total bytes spanned by the image.
         kind  loaded = kind::none; ///< Which loader produced this.
         u64   load_bias =
             0; ///< Relocation bias (0 for ET_REL and ET_EXEC; chosen for ET_DYN).

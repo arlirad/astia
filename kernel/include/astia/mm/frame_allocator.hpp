@@ -6,7 +6,7 @@
 
 namespace astia::mm {
 
-    using frame_access_fn = void* (*) (u64 physical);
+    using frame_access_fn = void* (*)(u64 physical);
 
     /// Modifiers for frame_allocator::alloc().
     enum class frame_flags : u32 {

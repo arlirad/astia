@@ -3,6 +3,7 @@
 #include "io.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/mm/heap.hpp>
+
 #include <cstddef>
 
 namespace astia::arch::x86_64 {
@@ -82,7 +83,8 @@ namespace astia::arch::x86_64 {
     } // namespace
 
     bool init_gdt_tss_cpu(u32 cpu_index) {
-        if (cpu_index >= max_cpus) return false;
+        if (cpu_index >= max_cpus)
+            return false;
         auto stack = mm::heap::alloc(16 * 1024);
         if (!stack) {
             return false;
@@ -91,32 +93,34 @@ namespace astia::arch::x86_64 {
         task_state[cpu_index]            = tss{};
         task_state[cpu_index].iomap_base = sizeof(tss);
 
-        auto* cpu_gdt = gdt[cpu_index];
-        cpu_gdt[0] = 0;
-        cpu_gdt[1] = 0x00AF9A000000FFFFull;
-        cpu_gdt[2] = 0x00AF92000000FFFFull;
-        cpu_gdt[3] = 0x00AFF2000000FFFFull;
-        cpu_gdt[4] = 0x00AFFA000000FFFFull;
+        auto* cpu_gdt    = gdt[cpu_index];
+        cpu_gdt[0]       = 0;
+        cpu_gdt[1]       = 0x00AF9A000000FFFFull;
+        cpu_gdt[2]       = 0x00AF92000000FFFFull;
+        cpu_gdt[3]       = 0x00AFF2000000FFFFull;
+        cpu_gdt[4]       = 0x00AFFA000000FFFFull;
         const u64 access = 0x89ull << 40;
-        const u64 base = reinterpret_cast<u64>(&task_state[cpu_index]);
-        cpu_gdt[5] = (sizeof(tss) - 1) | ((base & 0xFFFFFFu) << 16) | access |
-                     (((sizeof(tss) - 1) >> 16) & 0xFu) << 48 | ((base >> 24) & 0xFFull) << 56;
-        cpu_gdt[6] = base >> 32;
+        const u64 base   = reinterpret_cast<u64>(&task_state[cpu_index]);
+        cpu_gdt[5]       = (sizeof(tss) - 1) | ((base & 0xFFFFFFu) << 16) | access |
+                           (((sizeof(tss) - 1) >> 16) & 0xFu) << 48 |
+                           ((base >> 24) & 0xFFull) << 56;
+        cpu_gdt[6]       = base >> 32;
 
         descriptor[cpu_index].limit = sizeof(gdt[0]) - 1;
         descriptor[cpu_index].base  = reinterpret_cast<u64>(cpu_gdt);
-        task_state[cpu_index].rsp0 = reinterpret_cast<u64>(kernel_stack[cpu_index]) + 16 * 1024;
+        task_state[cpu_index].rsp0 =
+            reinterpret_cast<u64>(kernel_stack[cpu_index]) + 16 * 1024;
         astia_load_gdt_tss(&descriptor[cpu_index], tss_selector);
 
         // GS is reserved for the small CPU-local anchor.  Keeping this out
         // of the process/TLS machinery means the scheduler can identify the
         // current CPU before user mode exists.
-        constexpr u32 msr_gs_base = 0xC0000101;
-        cpu_locals[cpu_index].index            = cpu_index;
+        constexpr u32 msr_gs_base               = 0xC0000101;
+        cpu_locals[cpu_index].index             = cpu_index;
         cpu_locals[cpu_index].syscall_stack_top = task_state[cpu_index].rsp0;
         cpu_locals[cpu_index].syscall_saved_r12 = 0;
-        cpu_locals[cpu_index].interrupt_depth = 0;
-        cpu_locals[cpu_index].should_yield = 0;
+        cpu_locals[cpu_index].interrupt_depth   = 0;
+        cpu_locals[cpu_index].should_yield      = 0;
         wrmsr(msr_gs_base, reinterpret_cast<u64>(&cpu_locals[cpu_index]));
 
         constexpr u32 msr_efer  = 0xC0000080;
@@ -134,12 +138,15 @@ namespace astia::arch::x86_64 {
         return true;
     }
 
-    bool init_gdt_tss() { return init_gdt_tss_cpu(0); }
+    bool init_gdt_tss() {
+        return init_gdt_tss_cpu(0);
+    }
 
     void set_kernel_stack(u64 stack_top) {
         const u32 index = ::astia::arch::cpu::current_index();
-        if (index >= max_cpus) return;
-        task_state[index].rsp0 = stack_top;
+        if (index >= max_cpus)
+            return;
+        task_state[index].rsp0              = stack_top;
         cpu_locals[index].syscall_stack_top = stack_top;
     }
 

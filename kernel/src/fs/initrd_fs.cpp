@@ -30,7 +30,9 @@ namespace astia::fs {
             long size() const override {
                 return static_cast<long>(size_);
             }
-            file_mode mode() const override { return file_mode(file_type::regular, file_permissions(0755)); }
+            file_mode mode() const override {
+                return file_mode(file_type::regular, file_permissions(0755));
+            }
 
             private:
             const void* data_;
@@ -58,7 +60,7 @@ namespace astia::fs {
         }
 
         bool child_name(const char* directory, const char* full, char* name, u32 capacity,
-                         file_type& type) {
+                        file_type& type) {
             u32 directory_len = 0;
             u32 full_len      = 0;
             while (directory[directory_len] != '\0')
@@ -148,47 +150,59 @@ namespace astia::fs {
     }
 
     file_type initrd_mount::node_type(const char* path) const {
-        if (path == nullptr || path[0] != '/') return directory_unknown;
-        if (path[1] == '\0') return directory_dir;
+        if (path == nullptr || path[0] != '/')
+            return directory_unknown;
+        if (path[1] == '\0')
+            return directory_dir;
         for (u32 i = 0; i < initrd_max_entries; ++i)
-            if (entries_[i].used && equal(entries_[i].path, path)) return directory_reg;
+            if (entries_[i].used && equal(entries_[i].path, path))
+                return directory_reg;
         // Directories are implicit in the archive namespace.
         u32 length = 0;
-        while (path[length] != '\0') ++length;
+        while (path[length] != '\0')
+            ++length;
         for (u32 i = 0; i < initrd_max_entries; ++i) {
-            if (!entries_[i].used) continue;
+            if (!entries_[i].used)
+                continue;
             bool prefix = true;
             for (u32 j = 0; j < length; ++j)
-                if (entries_[i].path[j] != path[j]) prefix = false;
-            if (prefix && entries_[i].path[length] == '/') return directory_dir;
+                if (entries_[i].path[j] != path[j])
+                    prefix = false;
+            if (prefix && entries_[i].path[length] == '/')
+                return directory_dir;
         }
         return directory_unknown;
     }
 
     file_mode initrd_mount::node_mode(const char* path) const {
         if (path != nullptr && path[0] == '/') {
-            if (path[1] == '\0') return file_mode(file_type::directory, file_permissions(0755));
+            if (path[1] == '\0')
+                return file_mode(file_type::directory, file_permissions(0755));
             for (u32 i = 0; i < initrd_max_entries; ++i)
-                if (entries_[i].used && equal(entries_[i].path, path)) return file_mode(file_type::regular, file_permissions(0755));
+                if (entries_[i].used && equal(entries_[i].path, path))
+                    return file_mode(file_type::regular, file_permissions(0755));
             /* Directories are implicit in the archive namespace. */
             for (u32 i = 0; i < initrd_max_entries; ++i)
                 if (entries_[i].used) {
                     u32 n = 0;
-                    while (path[n] != '\0') ++n;
+                    while (path[n] != '\0')
+                        ++n;
                     bool prefix = n == 1;
                     if (!prefix) {
                         prefix = true;
                         for (u32 j = 0; j < n; ++j)
-                            if (entries_[i].path[j] != path[j]) prefix = false;
+                            if (entries_[i].path[j] != path[j])
+                                prefix = false;
                     }
-                    if (prefix && entries_[i].path[n] == '/') return file_mode(file_type::directory, file_permissions(0755));
+                    if (prefix && entries_[i].path[n] == '/')
+                        return file_mode(file_type::directory, file_permissions(0755));
                 }
         }
         return {};
     }
 
     long initrd_mount::read_directory(const char* path, u64 index, char* name,
-                                       u32 capacity, file_type* type) {
+                                      u32 capacity, file_type* type) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
         u64 ordinal = 0;
@@ -204,7 +218,7 @@ namespace astia::fs {
             for (u32 p = 0; p < i && !duplicate; ++p) {
                 if (!entries_[p].used)
                     continue;
-                char prior[256]{};
+                char      prior[256]{};
                 file_type prior_type = directory_unknown;
                 if (child_name(path, entries_[p].path, prior, sizeof prior, prior_type) &&
                     equal(candidate, prior))

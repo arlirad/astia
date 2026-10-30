@@ -210,7 +210,8 @@ namespace astia::sys {
         proc::process* owner = proc::current_process();
         if (owner != nullptr && owner->address_space() != nullptr) {
             const u64 first = destination.address() & ~u64{0xfff};
-            const u64 last = (destination.address() + destination.length() - 1) & ~u64{0xfff};
+            const u64 last =
+                (destination.address() + destination.length() - 1) & ~u64{0xfff};
             for (u64 page = first;; page += 4096) {
                 if (!owner->address_space()->writable(page) &&
                     !owner->cow_fault(page, true)) {

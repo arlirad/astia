@@ -9,9 +9,12 @@ int tcgetattr(int fd, struct termios* termios_p) {
 
 int tcsetattr(int fd, int actions, const struct termios* termios_p) {
     unsigned long request;
-    if (actions == TCSANOW) request = TCSETS;
-    else if (actions == TCSADRAIN) request = TCSETSW;
-    else if (actions == TCSAFLUSH) request = TCSETSF;
+    if (actions == TCSANOW)
+        request = TCSETS;
+    else if (actions == TCSADRAIN)
+        request = TCSETSW;
+    else if (actions == TCSAFLUSH)
+        request = TCSETSF;
     else {
         errno = EINVAL;
         return -1;
