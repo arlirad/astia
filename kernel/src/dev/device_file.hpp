@@ -19,7 +19,7 @@ namespace astia::dev {
         long          ioctl(u64 request, void* argp, usize size) override;
         long          size() const override;
         fs::file_mode mode() const override {
-            return fs::file_mode(fs::file_type::character, fs::file_permissions(0666));
+            return fs::file_mode(fs::file_type::character, fs::default_device_permissions);
         }
 
         private:

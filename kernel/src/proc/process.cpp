@@ -777,10 +777,8 @@ namespace astia::proc {
         const arch::page_map* caller_map =
             caller == nullptr ? nullptr : caller->address_space();
         address_space_->activate();
-        constexpr u64 stack_top   = 0x00007ffffff000ull;
-        constexpr u64 stack_size  = 256 * 1024;
-        constexpr u32 stack_pages = static_cast<u32>(stack_size / mm::page_size);
-        const u64     stack_base  = stack_top - stack_size;
+        constexpr u32 stack_pages = static_cast<u32>(user_stack_size / mm::page_size);
+        const u64     stack_base  = user_stack_top - user_stack_size;
         const u64 run = mm::kernel_frames().alloc(stack_pages, mm::frame_flags::zeroed);
         if (run == mm::frame_allocator::invalid_frame)
             return false;
@@ -839,7 +837,7 @@ namespace astia::proc {
         while (envp != nullptr && envc < max_spawn_env && envp[envc] != nullptr)
             envp_list[envc] = envp[envc], ++envc;
         const bool result =
-            build_initial_stack(stack_base, stack_top, frames, stack_pages, argv_list,
+            build_initial_stack(stack_base, user_stack_top, frames, stack_pages, argv_list,
                                 argc, envp_list, envc, rsp_out);
         if (caller_map != nullptr)
             caller_map->activate();
@@ -920,11 +918,9 @@ namespace astia::proc {
         if (address_space_ == nullptr) {
             return {};
         }
-        constexpr u64 stack_top   = 0x00007ffffff000ull;
-        constexpr u64 stack_size  = 256 * 1024;
-        constexpr u32 stack_pages = static_cast<u32>(stack_size / mm::page_size);
+        constexpr u32 stack_pages = static_cast<u32>(user_stack_size / mm::page_size);
         u64           frames[stack_pages]{};
-        const u64     stack_base = stack_top - stack_size;
+        const u64     stack_base = user_stack_top - user_stack_size;
         // One contiguous run, so the stack's VMA can adopt it as a
         // single phys_region — the unit fork's copy-on-write
         // accounting works in.
@@ -975,8 +971,9 @@ namespace astia::proc {
             ++envc;
         }
 
-        u64 user_entry_stack = stack_top;
-        if (!build_initial_stack(stack_top - stack_size, stack_top, frames, stack_pages,
+        u64 user_entry_stack = user_stack_top;
+        if (!build_initial_stack(user_stack_top - user_stack_size, user_stack_top, frames,
+                                 stack_pages,
                                  argv_list, argc, envp_list, envc, &user_entry_stack)) {
             return {};
         }

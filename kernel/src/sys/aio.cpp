@@ -169,8 +169,6 @@ namespace astia::sys {
         // 4 KiB pages at today's geometry) with room to grow, and the window
         // sits well above the user image (0x40000000) and below the user
         // stack (0x7ffffff000).
-        constexpr u64 user_ring_base  = 0x0000700000000000ull;
-        constexpr u64 user_ring_span  = 0x000000010000ull;
         constexpr u32 user_ring_pages =
             static_cast<u32>((map_bytes + mm::page_mask) / mm::page_size);
 
@@ -305,7 +303,7 @@ namespace astia::sys {
             if (space == nullptr || kernel == nullptr) {
                 return -ESRCH;
             }
-            const u64 base  = user_ring_base + user_ring_span * index;
+            const u64 base  = proc::user_ring_base + proc::user_ring_span * index;
             const u64 first = reinterpret_cast<u64>(rings_of(slot));
             for (u32 page = 0; page < user_ring_pages; ++page) {
                 const u64 offset = static_cast<u64>(page) * mm::page_size;
@@ -756,7 +754,8 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, -ENOENT);
             if ((s.op_flags & ASTIA_AIO_O_CREAT) != 0 && !existing_mode.exists()) {
                 auto requested =
-                    mapper<fs::file_permissions>::from(s.aux == 0 ? 0666 : s.aux);
+                    mapper<fs::file_permissions>::from(
+                        s.aux == 0 ? fs::default_file_permissions.raw() : s.aux);
                 if (!requested.has_value)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
                 (void) fs::chmod_path(resolved, requested.value);
@@ -792,7 +791,8 @@ namespace astia::sys {
                                               true);
             if (resolve_rc < 0)
                 return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
-            auto requested = mapper<fs::file_mode>::from(s.aux == 0 ? 0777 : s.aux);
+            auto requested = mapper<fs::file_mode>::from(
+                s.aux == 0 ? fs::default_directory_permissions.raw() : s.aux);
             if (!requested.has_value)
                 return cq_post_guarded(ring, s.user_data, -EINVAL);
             const long rc = fs::make_directory(resolved, requested.value);

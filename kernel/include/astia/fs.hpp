@@ -97,6 +97,15 @@ namespace astia::fs {
         u16 value_;
     };
 
+    // Filesystem policy modes.  Keep these in the kernel VFS namespace so
+    // callers do not have to repeat unexplained octal permission literals.
+    inline constexpr file_permissions default_file_permissions{0666};
+    inline constexpr file_permissions default_directory_permissions{0777};
+    inline constexpr file_permissions default_symlink_permissions{0777};
+    inline constexpr file_permissions default_device_permissions{0666};
+    inline constexpr file_permissions readonly_file_permissions{0755};
+    inline constexpr file_permissions readonly_directory_permissions{0755};
+
     class file_mode {
         public:
         constexpr file_mode(file_type        type        = file_type::unknown,

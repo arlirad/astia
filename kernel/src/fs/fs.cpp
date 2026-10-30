@@ -801,7 +801,7 @@ namespace astia::fs {
     }
 
     file_mode file::mode() const {
-        return file_mode(file_type::regular, file_permissions(0666));
+        return file_mode(file_type::regular, default_file_permissions);
     }
     u64 file::mtime_sec() const {
         return 0;

@@ -83,7 +83,7 @@ namespace astia::proc {
                 return false;
             };
             if (hint != 0 && (hint % page_bytes) == 0 && hint + want >= hint &&
-                hint + want <= mmap_region_top && !overlaps(hint)) {
+                hint + want <= user_mmap_top && !overlaps(hint)) {
                 return hint;
             }
             // Top-down first-fit over every hole, base-ascending: each
@@ -103,8 +103,8 @@ namespace astia::proc {
                 }
                 lower = it->end();
             }
-            if (mmap_region_top >= lower && mmap_region_top - lower >= want) {
-                best = mmap_region_top - want;
+            if (user_mmap_top >= lower && user_mmap_top - lower >= want) {
+                best = user_mmap_top - want;
             }
             return best;
         }
@@ -548,9 +548,9 @@ namespace astia::proc {
         // v1 repairs write faults on private writable mappings only:
         // reads land on present pages, and demand-paging/exec faults
         // stay fatal for now.  The user half runs to 0x800000000000 —
-        // mmap_region_top is only the *placement* ceiling; the stack
+        // user_mmap_top is only the *placement* ceiling; the stack
         // and TLS blocks sit above it and still CoW.
-        if (!write || address_space_ == nullptr || addr >= 0x0000800000000000ull) {
+        if (!write || address_space_ == nullptr || addr >= user_address_limit) {
             return false;
         }
         const u64 page_bytes = mm::phys_region::frame_size;

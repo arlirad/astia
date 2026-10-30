@@ -4,6 +4,7 @@
 #include "fd_table.hpp"
 #include "mmap_region.hpp"
 #include "thread.hpp"
+#include "user_layout.hpp"
 #include <astia/api/syscalls.h>
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
