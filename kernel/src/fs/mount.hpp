@@ -26,9 +26,14 @@ namespace astia::fs {
         virtual long symlink(const char* target, const char* path);
         virtual long readlink(const char* path, char* buffer, u32 capacity) const;
 
-        void retain_open() { ++open_count_; }
-        void release_open() { if (open_count_ != 0) --open_count_; }
-        u32 open_count() const { return open_count_; }
+        void retain_open() { __atomic_fetch_add(&open_count_, 1u, __ATOMIC_ACQ_REL); }
+        void release_open() {
+            u32 count = __atomic_load_n(&open_count_, __ATOMIC_ACQUIRE);
+            while (count != 0 && !__atomic_compare_exchange_n(
+                       &open_count_, &count, count - 1, false,
+                       __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {}
+        }
+        u32 open_count() const { return __atomic_load_n(&open_count_, __ATOMIC_ACQUIRE); }
 
         private:
         u32 open_count_ = 0;

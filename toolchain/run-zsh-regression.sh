@@ -5,8 +5,18 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 build=${ZSH_BUILD:-/tmp/astia-zsh-build}
 work=${ASTIA_ZSH_REGRESSION:-/tmp/astia-zsh-regression}
 clang=${CLANG:-clang}
+qemu=${QEMU:-qemu-system-x86_64}
 target=x86_64-unknown-elf
 resource=$($clang --target=$target -print-resource-dir)
+
+command -v "$qemu" >/dev/null 2>&1 || {
+    echo "QEMU executable not found: $qemu" >&2
+    exit 1
+}
+command -v timeout >/dev/null 2>&1 || {
+    echo "timeout command not found (required for the regression test)" >&2
+    exit 1
+}
 sysroot=$build/sysroot
 kernel=${ASTIA_KERNEL:-$root/kernel/build-tests/src/astiakrn_runtime}
 base_initrd=${ASTIA_INITRD:-$root/build-tests/tests/fixtures/boot_initrd.tar}
@@ -38,5 +48,5 @@ timeout 60 qemu-system-x86_64 -m 128M -kernel "$kernel" -initrd "$work/initrd.ta
 status=$?
 set -e
 cat "$log"
-test "$status" -eq 0 || test "$status" -eq 1
+test "$status" -eq 1
 grep -q 'astia-signal-ok' "$log"

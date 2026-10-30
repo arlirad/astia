@@ -32,6 +32,7 @@ static int remove_path(const char* path, int recursive) {
         errno = 0;
         entry = readdir(directory);
         if (entry == 0) {
+            if (errno != 0) status = -1;
             break;
         }
         char* child;

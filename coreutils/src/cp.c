@@ -52,6 +52,7 @@ static int copy_directory(const char* source, const char* destination, mode_t mo
         errno = 0;
         entry = readdir(directory);
         if (entry == 0) {
+            if (errno != 0) status = cu_error("cp", source);
             break;
         }
         char* from;

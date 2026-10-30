@@ -11,6 +11,15 @@ qemu=${QEMU:-qemu-system-x86_64}
 target=x86_64-unknown-elf
 resource=$($clang --target=$target -print-resource-dir)
 
+command -v "$qemu" >/dev/null 2>&1 || {
+    echo "QEMU executable not found: $qemu" >&2
+    exit 1
+}
+command -v timeout >/dev/null 2>&1 || {
+    echo "timeout command not found (required for the regression test)" >&2
+    exit 1
+}
+
 rm -rf "$out"
 mkdir -p "$out/bin" "$out/root/bin" "$out/root/sbin"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$crt0" COREUTILS_BUILD="$out" \

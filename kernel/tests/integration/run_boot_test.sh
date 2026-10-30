@@ -12,6 +12,13 @@
 # fail. isa-debug-exit maps a written value v to exit status (v << 1) | 1, so a
 # successful boot ends with status 1 and a failing one with status 3.
 
+set -eu
+
+if [ "$#" -lt 3 ]; then
+    echo "usage: $0 QEMU KERNEL [INITRD] [PATTERN...]" >&2
+    exit 2
+fi
+
 qemu=$1
 kernel=$2
 initrd=$3
@@ -28,6 +35,10 @@ machine_args=
 if [ -n "${ASTIA_QEMU_MACHINE:-}" ]; then
     machine_args="-machine $ASTIA_QEMU_MACHINE"
 fi
+
+# QEMU deliberately exits nonzero through isa-debug-exit, so capture that
+# status explicitly instead of letting `set -e` hide the diagnostic log.
+set +e
 
 # The invocation is written out per branch rather than assembled with
 # `set --`, because "$@" carries the patterns across this point.
@@ -47,6 +58,7 @@ else
         -no-reboot
 fi
 status=$?
+set -e
 
 cat "$log"
 

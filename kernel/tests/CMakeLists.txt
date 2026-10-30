@@ -5,6 +5,10 @@ set(CMAKE_CXX_FLAGS "-Wall -Wextra")
 set_property(DIRECTORY PROPERTY LINK_OPTIONS "")
 option(ASTIA_CROSS_USERSPACE "Use the Clang Astia sysroot for init_libc" OFF)
 
+# Fail at configure time with an actionable diagnostic instead of registering
+# ELF tests that cannot be built later.
+find_program(ASTIA_XXD xxd REQUIRED)
+
 add_library(astia_test_support STATIC
         support/main.cpp
         support/arena.cpp
@@ -75,8 +79,11 @@ function(astia_embed_blob out_cpp obj_path blob_name)
     set(_cpp ${obj_path}.cpp)
     add_custom_command(
             OUTPUT ${_cpp}
-            COMMAND sh -c "xxd -i -n ${blob_name} ${obj_path} > ${_cpp}"
-            DEPENDS ${obj_path}
+            COMMAND ${CMAKE_COMMAND} -E env
+                    XXD=${ASTIA_XXD}
+                    sh ${CMAKE_CURRENT_SOURCE_DIR}/embed_blob.sh
+                    ${obj_path} ${blob_name} ${_cpp}
+            DEPENDS ${obj_path} ${CMAKE_CURRENT_SOURCE_DIR}/embed_blob.sh
             COMMENT "Embedding ${blob_name}"
             VERBATIM
     )

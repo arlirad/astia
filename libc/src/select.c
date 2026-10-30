@@ -13,9 +13,14 @@ int select(int count, fd_set* read_set, fd_set* write_set, fd_set* except_set,
         return -1;
     }
     if (timeout != NULL) {
-        long long ms = (long long)timeout->tv_sec * 1000 +
-                       (timeout->tv_usec + 999) / 1000;
-        timeout_ms = ms > 2147483647LL ? 2147483647 : (int)ms;
+        /* Saturate before multiplying so a large timeval cannot overflow. */
+        if (timeout->tv_sec > (2147483647LL - 999) / 1000) {
+            timeout_ms = 2147483647;
+        } else {
+            long long ms = (long long)timeout->tv_sec * 1000 +
+                           (timeout->tv_usec + 999) / 1000;
+            timeout_ms = (int)ms;
+        }
     }
     pfds = (struct pollfd*)malloc((size_t)count * sizeof(*pfds));
     if (pfds == NULL && count != 0) { errno = ENOMEM; return -1; }

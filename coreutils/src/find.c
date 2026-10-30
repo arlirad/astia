@@ -31,6 +31,7 @@ static int visit(const char* path) {
         errno = 0;
         entry = readdir(directory);
         if (entry == 0) {
+            if (errno != 0) status = cu_error("find", path);
             break;
         }
         char* child;
