@@ -175,7 +175,7 @@ namespace astia::fs {
         u32 (*poll)(const file*, u32, u32);
     };
     struct file_ioctl_capability {
-        long (*ioctl)(file*, u64, void*);
+        long (*ioctl)(file*, u64, void*, usize);
     };
     struct file_size_capability {
         long (*size)(const file*);
@@ -207,7 +207,7 @@ namespace astia::fs {
         virtual long             write(const void* buf, u32 len, u64 offset);
         virtual long             submit(io_request& request);
         virtual u32              poll(u32 events, u32 flags);
-        virtual long             ioctl(u64 request, void* argp);
+        virtual long             ioctl(u64 request, void* argp, usize size);
         virtual long             size() const;
         virtual u64              inode() const;
         virtual u32              nlink() const;
@@ -222,8 +222,8 @@ namespace astia::fs {
         virtual void             duplicate(u32 flags);
         virtual void             close(u32 flags);
         /// Return a capability contract, or nullptr when unsupported.  The
-        /// default implementation advertises adapters for the legacy virtual
-        /// methods, so old subclasses need not be changed.
+        /// default implementation advertises adapters for the virtual
+        /// methods.
         virtual const void* capability(file_capability kind) const;
         /// Kernel-internal typed hook for protocol-specific file operations.
         /// This is deliberately separate from the generic file capabilities.
@@ -234,7 +234,7 @@ namespace astia::fs {
     // from the userspace ABI: callers pass an already-resolved file object.
     long dispatch_read(file* object, void* buffer, u32 length, u64 offset);
     long dispatch_write(file* object, const void* buffer, u32 length, u64 offset);
-    long dispatch_ioctl(file* object, u64 request, void* argp);
+    long dispatch_ioctl(file* object, u64 request, void* argp, usize size);
     mm::phys_region* dispatch_mapping(const file* object);
 
     /// One open file description.  Separate opens create separate
@@ -275,7 +275,7 @@ namespace astia::fs {
         void set_status_flags(u32 flags) {
             _flags = (_flags & ~open_file_status_mask) | (flags & open_file_status_mask);
         }
-        long             ioctl(u64 request, void* argp);
+        long             ioctl(u64 request, void* argp, usize size);
         long             size() const;
         mm::phys_region* mapping() const;
         file_mode        mode() const;

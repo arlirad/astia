@@ -29,7 +29,7 @@ namespace astia::proc::syscall {
         // flow into the VMA placer (which may otherwise ignore it and
         // make boundary mistakes look like a successful mapping).
         const u64 length = static_cast<u64>(len);
-        if (length > ~u64{0} - 4095u) {
+        if (length > ~u64{0} - mm::page_mask) {
             return -EINVAL;
         }
         if (addr >= astia::arch::kernel_base ||

@@ -62,7 +62,7 @@ namespace astia::dev {
         long write(const void* buf, u32 len, u64 off) override;
         long submit(io_request& request) override;
         u32  poll(u32 events, u32 flags) override;
-        long ioctl(u64 request, void* argp) override;
+        long ioctl(u64 request, void* argp, usize size) override;
 
         protected:
         void         tty_receive(u8 byte);

@@ -15,7 +15,7 @@ namespace astia::mm::heap {
     inline constexpr bytes_t region_bytes = 8_mib;
 
     /// Backing-page size used while wiring up the region.
-    inline constexpr usize page_bytes = 4096;
+    inline constexpr usize page_bytes = page_size;
 
     /// Register the region. The arch paging step calls this before init();
     /// init() then backs `base` page by page through `map`, taking the

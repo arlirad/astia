@@ -45,6 +45,14 @@ struct termios {
     speed_t  c_ospeed;   /* output baud rate, POSIX speed index */
 };
 
+/* Terminal window size, as used by TIOCGWINSZ/TIOCSWINSZ. */
+struct winsize {
+    unsigned short ws_row;
+    unsigned short ws_col;
+    unsigned short ws_xpixel;
+    unsigned short ws_ypixel;
+};
+
 /* c_iflag */
 #define IGNBRK 0x000001
 #define BRKINT 0x000002
@@ -109,6 +117,8 @@ struct termios {
 #define TIOCSPGRP 0x5410
 #define TIOCGPGRP 0x540f
 #define TIOCSCTTY 0x540e
+#define TIOCGWINSZ 0x5413
+#define TIOCSWINSZ 0x5414
 
 #ifdef __cplusplus
 }

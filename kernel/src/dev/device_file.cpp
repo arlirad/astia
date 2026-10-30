@@ -20,8 +20,8 @@ namespace astia::dev {
                                   : _device->poll(events, flags);
     }
 
-    long device_file::ioctl(u64 request, void* argp) {
-        return _device == nullptr ? -EINVAL : _device->ioctl(request, argp);
+    long device_file::ioctl(u64 request, void* argp, usize size) {
+        return _device == nullptr ? -EINVAL : _device->ioctl(request, argp, size);
     }
 
     long device_file::size() const {

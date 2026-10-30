@@ -66,7 +66,7 @@ namespace astia::dev {
 
         // Device-specific control: TCGETS/TCSETS on a tty, geometry on
         // a disk.  -ENOTTY when the request is unknown.
-        virtual long ioctl(u64 request, void* argp);
+        virtual long ioctl(u64 request, void* argp, usize size);
 
         protected:
         char     _name[16]{}; // {} matters: an uninitialized array member

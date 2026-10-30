@@ -1,18 +1,20 @@
 #pragma once
 
 #include <sys/types.h>
+#include <astia/api/wait.h>
 
 #define WNOHANG 1
 #define WUNTRACED 2
 #define WCONTINUED 8
-#define WIFEXITED(status) (((status) & 0x7f) == 0)
-#define WEXITSTATUS(status) (((status) >> 8) & 0xff)
-#define WIFSIGNALED(status) (((status) & 0x7f) != 0 && ((status) & 0x7f) != 0x7f)
-#define WTERMSIG(status) ((status) & 0x7f)
-#define WCOREDUMP(status) ((status) & 0x80)
-#define WIFSTOPPED(status) (((status) & 0xff) == 0x7f)
-#define WSTOPSIG(status) (((status) >> 8) & 0xff)
-#define WIFCONTINUED(status) ((status) == 0xffff)
+#define WIFEXITED(status) (((status) & ASTIA_WAIT_SIGNAL_MASK) == 0)
+#define WEXITSTATUS(status) (((status) >> 8) & ASTIA_WAIT_EXIT_MASK)
+#define WIFSIGNALED(status) (((status) & ASTIA_WAIT_SIGNAL_MASK) != 0 && \
+                             ((status) & ASTIA_WAIT_SIGNAL_MASK) != ASTIA_WAIT_STOPPED_MARKER)
+#define WTERMSIG(status) ((status) & ASTIA_WAIT_SIGNAL_MASK)
+#define WCOREDUMP(status) ((status) & ASTIA_WAIT_CORE_BIT)
+#define WIFSTOPPED(status) (((status) & ASTIA_WAIT_EXIT_MASK) == ASTIA_WAIT_STOPPED_MARKER)
+#define WSTOPSIG(status) (((status) >> 8) & ASTIA_WAIT_EXIT_MASK)
+#define WIFCONTINUED(status) ((status) == ASTIA_WAIT_CONTINUED_MARKER)
 
 int waitpid(int pid, int* status, int options);
 int wait(int* status);

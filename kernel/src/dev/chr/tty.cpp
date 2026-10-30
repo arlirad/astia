@@ -19,15 +19,6 @@ namespace astia::proc {
 namespace astia::dev {
 
     namespace {
-        struct tty_winsize {
-            u16 rows;
-            u16 columns;
-            u16 xpixel;
-            u16 ypixel;
-        };
-        constexpr u64 tiocgwinsz = 0x5413;
-        constexpr u64 tiocswinsz = 0x5414;
-
         // Flags the tty layer knows about, per mode word: TCSETS walks
         // these to tell the driver only about bits that actually
         // moved.
@@ -279,16 +270,16 @@ namespace astia::dev {
         (void) tty_putc(byte);
     }
 
-    long tty::ioctl(u64 request, void* argp) {
+    long tty::ioctl(u64 request, void* argp, usize size) {
         if (request == TCGETS) {
-            if (argp == nullptr) {
+            if (argp == nullptr || size != sizeof(struct termios)) {
                 return -EINVAL;
             }
             *static_cast<struct termios*>(argp) = _termios;
             return 0;
         }
         if (request == TCSETS || request == TCSETSW || request == TCSETSF) {
-            if (argp == nullptr) {
+            if (argp == nullptr || size != sizeof(struct termios)) {
                 return -EINVAL;
             }
             const struct termios& next = *static_cast<const struct termios*>(argp);
@@ -331,28 +322,28 @@ namespace astia::dev {
                 tty_discard_input();
             return 0;
         }
-        if (request == tiocgwinsz) {
-            if (argp == nullptr)
+        if (request == TIOCGWINSZ) {
+            if (argp == nullptr || size != sizeof(struct winsize))
                 return -EINVAL;
-            auto* size    = static_cast<tty_winsize*>(argp);
-            size->rows    = 24;
-            size->columns = 80;
-            size->xpixel  = 0;
-            size->ypixel  = 0;
+            auto* size = static_cast<struct winsize*>(argp);
+            size->ws_row    = 24;
+            size->ws_col    = 80;
+            size->ws_xpixel = 0;
+            size->ws_ypixel = 0;
             return 0;
         }
-        if (request == tiocswinsz) {
-            return argp == nullptr ? -EINVAL : 0;
+        if (request == TIOCSWINSZ) {
+            return argp == nullptr || size != sizeof(struct winsize) ? -EINVAL : 0;
         }
         if (request == TIOCGPGRP) {
-            if (argp == nullptr)
+            if (argp == nullptr || size != sizeof(i32))
                 return -EINVAL;
             *static_cast<i32*>(argp) =
                 static_cast<i32>(static_cast<u32>(_foreground_pgrp));
             return 0;
         }
         if (request == TIOCSPGRP) {
-            if (argp == nullptr)
+            if (argp == nullptr || size != sizeof(i32))
                 return -EINVAL;
             const i32 group = *static_cast<const i32*>(argp);
             if (group <= 0 ||
@@ -363,7 +354,7 @@ namespace astia::dev {
             return 0;
         }
         if (request == TIOCSCTTY)
-            return 0;
+            return argp == nullptr && size == 0 ? 0 : -EINVAL;
         return -ENOTTY;
     }
 

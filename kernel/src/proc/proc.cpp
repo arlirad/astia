@@ -287,7 +287,7 @@ namespace astia::proc {
             return -EPERM;
         owner->controlling_terminal(terminal);
         i32        group = static_cast<i32>(static_cast<u32>(owner->process_group()));
-        const long rc    = fs::dispatch_ioctl(terminal, TIOCSPGRP, &group);
+        const long rc    = fs::dispatch_ioctl(terminal, TIOCSPGRP, &group, sizeof(i32));
         if (rc < 0) {
             owner->controlling_terminal(nullptr);
             return rc;
@@ -498,7 +498,7 @@ namespace astia::proc {
                          static_cast<u32>(wait_options::continued)) &&
                         child->continued_event_pending()) {
                         if (status != nullptr)
-                            *status = 0xffff;
+                            *status = astia::wait_continued_marker;
                         child->clear_continued_event();
                         result = static_cast<i64>(static_cast<u32>(child->pid()));
                         break;

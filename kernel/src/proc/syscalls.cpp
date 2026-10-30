@@ -40,6 +40,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
+#include <astia/wait.hpp>
 
 namespace astia::proc {
     namespace syscall {
@@ -121,7 +122,8 @@ namespace astia::proc {
             if (default_action(signal) == signal_default::terminate ||
                 default_action(signal) == signal_default::core) {
                 owner->signal_termination(signal);
-                self->exit(reinterpret_cast<void*>(128u + static_cast<u8>(signal)));
+                self->exit(reinterpret_cast<void*>(static_cast<usize>(
+                    wait_signal_exit_status(static_cast<u8>(signal)))));
                 __builtin_unreachable();
             }
             if (default_action(signal) == signal_default::stop ||
@@ -150,7 +152,8 @@ namespace astia::proc {
             return;
         fatal_signal:
             owner->signal_termination(signal);
-            self->exit(reinterpret_cast<void*>(128u + static_cast<u8>(signal)));
+            self->exit(reinterpret_cast<void*>(static_cast<usize>(
+                wait_signal_exit_status(static_cast<u8>(signal)))));
             __builtin_unreachable();
         }
 

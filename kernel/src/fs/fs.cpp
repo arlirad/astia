@@ -789,9 +789,10 @@ namespace astia::fs {
         }
         return result;
     }
-    long file::ioctl(u64 request, void* argp) {
+    long file::ioctl(u64 request, void* argp, usize size) {
         (void) request;
         (void) argp;
+        (void) size;
         return -ENOTTY;
     }
 
@@ -831,8 +832,8 @@ namespace astia::fs {
         u32 legacy_poll(const file* object, u32 events, u32 flags) {
             return const_cast<file*>(object)->poll(events, flags);
         }
-        long legacy_ioctl(file* object, u64 request, void* argp) {
-            return object->ioctl(request, argp);
+        long legacy_ioctl(file* object, u64 request, void* argp, usize size) {
+            return object->ioctl(request, argp, size);
         }
         long legacy_size(const file* object) {
             return object->size();
@@ -885,11 +886,11 @@ namespace astia::fs {
                                      : object->write(buffer, length, offset);
     }
 
-    long dispatch_ioctl(file* object, u64 request, void* argp) {
+    long dispatch_ioctl(file* object, u64 request, void* argp, usize size) {
         const auto* capability = static_cast<const file_ioctl_capability*>(
             object->capability(file_capability::ioctl));
-        return capability != nullptr ? capability->ioctl(object, request, argp)
-                                     : object->ioctl(request, argp);
+        return capability != nullptr ? capability->ioctl(object, request, argp, size)
+                                     : object->ioctl(request, argp, size);
     }
 
     mm::phys_region* dispatch_mapping(const file* object) {
@@ -989,10 +990,10 @@ namespace astia::fs {
             return static_cast<u32>(POLLNVAL);
         return dispatch_poll(_object.get(), events, _flags);
     }
-    long open_file::ioctl(u64 request, void* argp) {
+    long open_file::ioctl(u64 request, void* argp, usize size) {
         if (!_object)
             return -EBADF;
-        return dispatch_ioctl(_object.get(), request, argp);
+        return dispatch_ioctl(_object.get(), request, argp, size);
     }
 
     long open_file::size() const {

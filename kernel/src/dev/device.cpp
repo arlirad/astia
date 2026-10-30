@@ -8,9 +8,10 @@ namespace astia::dev {
         return events & (POLLIN | POLLOUT);
     }
 
-    long device::ioctl(u64 request, void* argp) {
+    long device::ioctl(u64 request, void* argp, usize size) {
         (void) request;
         (void) argp;
+        (void) size;
         return -ENOTTY;
     }
 

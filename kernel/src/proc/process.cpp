@@ -682,7 +682,7 @@ namespace astia::proc {
             if (tty) {
                 controlling_terminal(tty->backing());
                 i32 group = static_cast<i32>(static_cast<u32>(process_group_));
-                (void) tty->ioctl(TIOCSPGRP, &group);
+                (void) tty->ioctl(TIOCSPGRP, &group, sizeof(i32));
             }
         }
         return installed;
@@ -779,15 +779,15 @@ namespace astia::proc {
         address_space_->activate();
         constexpr u64 stack_top   = 0x00007ffffff000ull;
         constexpr u64 stack_size  = 256 * 1024;
-        constexpr u32 stack_pages = static_cast<u32>(stack_size / 4096);
+        constexpr u32 stack_pages = static_cast<u32>(stack_size / mm::page_size);
         const u64     stack_base  = stack_top - stack_size;
         const u64 run = mm::kernel_frames().alloc(stack_pages, mm::frame_flags::zeroed);
         if (run == mm::frame_allocator::invalid_frame)
             return false;
         u64 frames[stack_pages]{};
         for (u32 i = 0; i < stack_pages; ++i) {
-            frames[i] = run + u64{i} * 4096;
-            if (!address_space_->map_4k(stack_base + u64{i} * 4096, frames[i],
+            frames[i] = run + u64{i} * mm::page_size;
+            if (!address_space_->map_4k(stack_base + u64{i} * mm::page_size, frames[i],
                                         arch::page_flags::present |
                                             arch::page_flags::writable |
                                             arch::page_flags::user)) {
@@ -795,7 +795,7 @@ namespace astia::proc {
                 // leaf frames are still ours.  Do not strand the whole run on
                 // a partial stack construction failure.
                 for (u32 done = 0; done < i; ++done)
-                    address_space_->unmap(stack_base + u64{done} * 4096);
+                    address_space_->unmap(stack_base + u64{done} * mm::page_size);
                 mm::kernel_frames().release(run, stack_pages);
                 if (caller_map != nullptr)
                     caller_map->activate();
@@ -809,7 +809,7 @@ namespace astia::proc {
             // adopt() does not own the frame run when allocation of its
             // bookkeeping fails.
             for (u32 done = 0; done < stack_pages; ++done)
-                address_space_->unmap(stack_base + u64{done} * 4096);
+                address_space_->unmap(stack_base + u64{done} * mm::page_size);
             mm::kernel_frames().release(run, stack_pages);
             if (caller_map != nullptr)
                 caller_map->activate();
@@ -822,7 +822,7 @@ namespace astia::proc {
             // register_mapping adopts the region only on success.
             region->release_ref();
             for (u32 done = 0; done < stack_pages; ++done)
-                address_space_->unmap(stack_base + u64{done} * 4096);
+                address_space_->unmap(stack_base + u64{done} * mm::page_size);
             if (caller_map != nullptr)
                 caller_map->activate();
             else
@@ -922,7 +922,7 @@ namespace astia::proc {
         }
         constexpr u64 stack_top   = 0x00007ffffff000ull;
         constexpr u64 stack_size  = 256 * 1024;
-        constexpr u32 stack_pages = static_cast<u32>(stack_size / 4096);
+        constexpr u32 stack_pages = static_cast<u32>(stack_size / mm::page_size);
         u64           frames[stack_pages]{};
         const u64     stack_base = stack_top - stack_size;
         // One contiguous run, so the stack's VMA can adopt it as a
@@ -937,8 +937,8 @@ namespace astia::proc {
             return {};
         }
         for (u32 i = 0; i < stack_pages; ++i) {
-            frames[i] = run + u64{i} * 4096;
-            if (!address_space_->map_4k(stack_base + u64{i} * 4096, frames[i],
+            frames[i] = run + u64{i} * mm::page_size;
+            if (!address_space_->map_4k(stack_base + u64{i} * mm::page_size, frames[i],
                                         arch::page_flags::present |
                                             arch::page_flags::writable |
                                             arch::page_flags::user)) {

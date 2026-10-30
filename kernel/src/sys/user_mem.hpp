@@ -146,9 +146,9 @@ namespace astia::sys {
         if (base >= arch::kernel_base || range.length() > arch::kernel_base - base) {
             return false;
         }
-        const u64 first = base & ~u64{0xfff};
-        const u64 last  = (base + range.length() - 1) & ~u64{0xfff};
-        for (u64 page = first;; page += 4096) {
+        const u64 first = base & ~mm::page_mask;
+        const u64 last  = (base + range.length() - 1) & ~mm::page_mask;
+        for (u64 page = first;; page += mm::page_size) {
             if (space->translate(page) == arch::page_map::invalid) {
                 return false;
             }
@@ -209,10 +209,10 @@ namespace astia::sys {
         // taking the user address as a writable pointer.
         proc::process* owner = proc::current_process();
         if (owner != nullptr && owner->address_space() != nullptr) {
-            const u64 first = destination.address() & ~u64{0xfff};
+            const u64 first = destination.address() & ~mm::page_mask;
             const u64 last =
-                (destination.address() + destination.length() - 1) & ~u64{0xfff};
-            for (u64 page = first;; page += 4096) {
+                (destination.address() + destination.length() - 1) & ~mm::page_mask;
+            for (u64 page = first;; page += mm::page_size) {
                 if (!owner->address_space()->writable(page) &&
                     !owner->cow_fault(page, true)) {
                     return false;
@@ -272,14 +272,14 @@ namespace astia::sys {
         if (byte >= arch::kernel_base) {
             return false;
         }
-        if (space->translate(byte & ~u64{0xfff}) == arch::page_map::invalid) {
+        if (space->translate(byte & ~mm::page_mask) == arch::page_map::invalid) {
             return false;
         }
         for (usize i = 0; i < capacity; ++i, ++byte) {
             if (byte >= arch::kernel_base) {
                 return false;
             }
-            if ((byte & 0xfff) == 0 &&
+            if ((byte & mm::page_mask) == 0 &&
                 space->translate(byte) == arch::page_map::invalid) {
                 return false;
             }

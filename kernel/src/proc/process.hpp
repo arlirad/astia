@@ -10,6 +10,7 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/wait.hpp>
 
 namespace astia::proc {
 
@@ -142,11 +143,11 @@ namespace astia::proc {
             return exit_status_;
         }
         i32 wait_status() const {
-            return termination_signal_ != 0 ? (termination_signal_ & 0x7f)
-                                            : ((exit_status_ & 0xff) << 8);
+            return termination_signal_ != 0 ? wait_status_from_signal(termination_signal_)
+                                            : wait_status_from_exit(exit_status_);
         }
         i32 stop_status() const {
-            return (stop_signal_ << 8) | 0x7f;
+            return wait_status_from_stop(stop_signal_);
         }
         bool stop_event_pending() const {
             return stop_event_;

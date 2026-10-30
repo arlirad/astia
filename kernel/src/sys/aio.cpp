@@ -171,7 +171,8 @@ namespace astia::sys {
         // stack (0x7ffffff000).
         constexpr u64 user_ring_base  = 0x0000700000000000ull;
         constexpr u64 user_ring_span  = 0x000000010000ull;
-        constexpr u32 user_ring_pages = static_cast<u32>((map_bytes + 4095u) / 4096u);
+        constexpr u32 user_ring_pages =
+            static_cast<u32>((map_bytes + mm::page_mask) / mm::page_size);
 
         // One in-flight operation.  The request lives here, in its final
         // address, rather than on the submitting stack: a device that parks
@@ -221,16 +222,16 @@ namespace astia::sys {
             // address translate() hands map_4k() — must fall on a page
             // boundary. 64 bytes is not enough.  Park state deliberately
             // sits in front of it, outside the two pages userspace sees.
-            alignas(4096) u8 map[map_bytes];
+            alignas(mm::page_size) u8 map[map_bytes];
         };
 
         // Raw pointers keep the pre-heap global state trivial.  A ring
         // slot owns shptr members and is constructed in this fixed,
         // aligned pool; no global shptr destructors are registered.
         ring_slot* g_slots[ring_count];
-        alignas(4096) u8 slot_storage[ring_count][sizeof(ring_slot)];
+        alignas(mm::page_size) u8 slot_storage[ring_count][sizeof(ring_slot)];
 
-        static_assert(alignof(ring_slot) >= 4096,
+        static_assert(alignof(ring_slot) >= mm::page_size,
                       "ring slots must be page-granular (see ring_slot::map)");
         static_assert(map_bytes <= sizeof(ring_slot::map),
                       "ring geometry exceeds the ring_slot backing array");
@@ -251,7 +252,7 @@ namespace astia::sys {
                      (g_slots[i]->owner == caller && g_slots[i]->user_base != 0 &&
                       address ==
                           g_slots[i]->user_base +
-                              (reinterpret_cast<u64>(rings_of(*g_slots[i])) & 0xfff)))) {
+                               (reinterpret_cast<u64>(rings_of(*g_slots[i])) & mm::page_mask)))) {
                     return g_slots[i];
                 }
             }
@@ -307,16 +308,16 @@ namespace astia::sys {
             const u64 base  = user_ring_base + user_ring_span * index;
             const u64 first = reinterpret_cast<u64>(rings_of(slot));
             for (u32 page = 0; page < user_ring_pages; ++page) {
-                const u64 offset = static_cast<u64>(page) * 4096u;
+                const u64 offset = static_cast<u64>(page) * mm::page_size;
                 // translate() folds in the address' page offset, and the
                 // ring storage is not page-aligned: mask it back off.
-                const u64 phys = kernel->translate(first + offset) & ~u64{0xfff};
+                const u64 phys = kernel->translate(first + offset) & ~mm::page_mask;
                 if (!space->map_4k(base + offset, phys,
                                    arch::page_flags::present |
                                        arch::page_flags::writable |
                                        arch::page_flags::user)) {
                     for (u32 done = 0; done < page; ++done) {
-                        (void) space->unmap(base + static_cast<u64>(done) * 4096u);
+                        (void) space->unmap(base + static_cast<u64>(done) * mm::page_size);
                     }
                     return -ENOMEM;
                 }
@@ -325,7 +326,7 @@ namespace astia::sys {
             // mid-page: carry the intra-page offset into the alias so
             // `base + ...` addresses inside the struct stay correct.
             slot.user_base = base;
-            *out           = base + (first & 0xfff);
+            *out           = base + (first & mm::page_mask);
             return 0;
         }
 
@@ -338,7 +339,8 @@ namespace astia::sys {
             arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
             if (space != nullptr) {
                 for (u32 page = 0; page < user_ring_pages; ++page) {
-                    (void) space->unmap(slot.user_base + static_cast<u64>(page) * 4096u);
+                    (void) space->unmap(slot.user_base +
+                                        static_cast<u64>(page) * mm::page_size);
                 }
             }
             slot.user_base = 0;
@@ -1536,10 +1538,10 @@ namespace astia::sys {
                 input    = s.offset != TCGETS;
                 output   = s.offset == TCGETS;
             }
-            else if (s.offset == 0x5413 || s.offset == 0x5414) {
-                expected = 8;
-                input    = s.offset == 0x5414;
-                output   = s.offset == 0x5413;
+            else if (s.offset == TIOCGWINSZ || s.offset == TIOCSWINSZ) {
+                expected = sizeof(struct winsize);
+                input    = s.offset == TIOCSWINSZ;
+                output   = s.offset == TIOCGWINSZ;
             }
             else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {
                 expected = sizeof(i32);
@@ -1563,7 +1565,8 @@ namespace astia::sys {
             if (input && !sys::copy_in(ioctl_storage,
                                        sys::user_range::bytes(s.address, expected)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
-            long rc = object->ioctl(s.offset, ioctl_storage);
+            void* kernel_arg = expected == 0 ? nullptr : static_cast<void*>(ioctl_storage);
+            long rc = object->ioctl(s.offset, kernel_arg, expected);
             if (rc >= 0 && s.offset == TIOCSCTTY)
                 rc = proc::acquire_controlling_terminal(object->backing());
             if (rc >= 0 && output &&

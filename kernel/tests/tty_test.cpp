@@ -46,11 +46,11 @@ namespace {
 
     void set_termios(test_tty& tty, tcflag_t input, tcflag_t output, tcflag_t local) {
         struct termios value{};
-        ASTIA_CHECK(tty.ioctl(TCGETS, &value) == 0);
+        ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
         value.c_iflag = input;
         value.c_oflag = output;
         value.c_lflag = local;
-        ASTIA_CHECK(tty.ioctl(TCSETS, &value) == 0);
+        ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
     }
 
 } // namespace
@@ -68,9 +68,9 @@ ASTIA_TEST(tty_noncanonical_vmin_waits_for_minimum) {
     test_tty tty;
     set_termios(tty, 0, 0, 0);
     struct termios value{};
-    ASTIA_CHECK(tty.ioctl(TCGETS, &value) == 0);
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     value.c_cc[VMIN] = 2;
-    ASTIA_CHECK(tty.ioctl(TCSETS, &value) == 0);
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
 
     char result[4]{};
     tty.tty_receive('a');
@@ -171,9 +171,9 @@ ASTIA_TEST(tty_tcsetsf_flushes_pending_input) {
     test_tty tty;
     set_termios(tty, 0, 0, ICANON);
     struct termios value{};
-    ASTIA_CHECK(tty.ioctl(TCGETS, &value) == 0);
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     tty.tty_receive('x');
-    ASTIA_CHECK(tty.ioctl(TCSETSF, &value) == 0);
+    ASTIA_CHECK(tty.ioctl(TCSETSF, &value, sizeof(value)) == 0);
     tty.tty_receive('\n');
     char result[8]{};
     ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 1);
@@ -183,9 +183,9 @@ ASTIA_TEST(tty_tcsetsf_flushes_pending_input) {
 ASTIA_TEST(tty_process_group_round_trip) {
     test_tty   tty;
     astia::i32 group = 42;
-    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group) == 0);
+    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group, sizeof(group)) == 0);
     group = 0;
-    ASTIA_CHECK(tty.ioctl(TIOCGPGRP, &group) == 0);
+    ASTIA_CHECK(tty.ioctl(TIOCGPGRP, &group, sizeof(group)) == 0);
     ASTIA_CHECK(group == 42);
 }
 
@@ -193,8 +193,8 @@ ASTIA_TEST(tty_job_control_controls_and_signals_foreground_group) {
     test_tty tty;
     set_termios(tty, 0, 0, ICANON | ISIG);
     astia::i32 group = 7;
-    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group) == 0);
-    ASTIA_CHECK(tty.ioctl(TIOCSCTTY, nullptr) == 0);
+    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group, sizeof(group)) == 0);
+    ASTIA_CHECK(tty.ioctl(TIOCSCTTY, nullptr, 0) == 0);
     tty.tty_receive('x');
     tty.tty_receive(astia::dev::tty_defaults::ctrl_z);
     char result[4]{};

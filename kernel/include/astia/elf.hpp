@@ -36,7 +36,7 @@ namespace astia::elf {
     };
 
     /// Page size the executable loader aligns segment spans to (x86-64).
-    inline constexpr u64 page_size = 4096;
+    inline constexpr u64 page_size = mm::page_size;
 
     /// Map `size` bytes aligned to `align` (a power of two). When `fixed` is
     /// true the region must begin exactly at `hint` (an ET_EXEC's link

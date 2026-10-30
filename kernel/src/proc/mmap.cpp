@@ -219,7 +219,7 @@ namespace astia::proc {
         if (address_space_ == nullptr || len == 0) {
             return -EINVAL;
         }
-        if (static_cast<u64>(len) > ~u64{0} - 4095u) {
+        if (static_cast<u64>(len) > ~u64{0} - mm::page_mask) {
             return -EINVAL;
         }
         const u64 page_bytes = mm::phys_region::frame_size;
@@ -271,7 +271,7 @@ namespace astia::proc {
         if (address_space_ == nullptr || len == 0) {
             return -EINVAL;
         }
-        if (static_cast<u64>(len) > ~u64{0} - 4095u) {
+        if (static_cast<u64>(len) > ~u64{0} - mm::page_mask) {
             return -EINVAL;
         }
         const u64 page_bytes = mm::phys_region::frame_size;

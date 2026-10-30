@@ -38,7 +38,7 @@ namespace astia::mm {
     /// later sit in front of it without changing callers.
     class frame_allocator {
         public:
-        static constexpr usize frame_size = 4096;
+        static constexpr usize frame_size = page_size;
 
         static constexpr u64 invalid_frame = ~u64{0};
 

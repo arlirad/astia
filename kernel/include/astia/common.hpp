@@ -61,6 +61,13 @@ namespace astia {
     using paddr_t  = u64;
     using vaddr_t  = u64;
 
+    /// Kernel page geometry.  Keep the size and its low-bit mask together so
+    /// generic memory code does not grow independent copies of the geometry.
+    namespace mm {
+        inline constexpr usize page_size = 4096;
+        inline constexpr u64   page_mask = page_size - 1;
+    } // namespace mm
+
     /// Time conversion factors used by kernel clocks and deadlines. These are
     /// constants rather than converting duration types so existing raw-count
     /// arithmetic and ABI representations remain unchanged.
