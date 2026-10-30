@@ -18,6 +18,7 @@
 namespace astia::fs {
 
     class mount;
+    class file;
 
     enum class file_type : u32 {
         unknown = 0, fifo = 1, character = 2, directory = 4,
@@ -64,6 +65,38 @@ namespace astia::fs {
     inline constexpr u32 path_max       = 64;
     inline constexpr u64 offset_current = ~u64{0};
 
+    /// Optional operation surfaces exposed by a file.  A capability is a
+    /// small, non-owning contract: its callbacks receive the original file
+    /// object, rather than a wrapper.  This is intentional -- readiness uses
+    /// the address of that object as its stable identity.
+    enum class file_capability : u8 {
+        read,
+        write,
+        submit,
+        poll,
+        ioctl,
+        size,
+    };
+
+    struct file_read_capability {
+        long (*read)(file*, void*, u32, u64);
+    };
+    struct file_write_capability {
+        long (*write)(file*, const void*, u32, u64);
+    };
+    struct file_submit_capability {
+        long (*submit)(file*, io_request&);
+    };
+    struct file_poll_capability {
+        u32 (*poll)(const file*, u32, u32);
+    };
+    struct file_ioctl_capability {
+        long (*ioctl)(file*, u64, void*);
+    };
+    struct file_size_capability {
+        long (*size)(const file*);
+    };
+
     inline constexpr file_type directory_unknown = file_type::unknown;
     inline constexpr file_type directory_fifo    = file_type::fifo;
     inline constexpr file_type directory_chr     = file_type::character;
@@ -101,6 +134,10 @@ namespace astia::fs {
         virtual mm::phys_region* memory_region();
         virtual void              duplicate(u32 flags);
         virtual void              close(u32 flags);
+        /// Return a capability contract, or nullptr when unsupported.  The
+        /// default implementation advertises adapters for the legacy virtual
+        /// methods, so old subclasses need not be changed.
+        virtual const void*       capability(file_capability kind) const;
     };
 
     /// One open file description.  Separate opens create separate

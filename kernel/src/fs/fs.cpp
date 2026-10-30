@@ -575,6 +575,46 @@ namespace astia::fs {
     void file::duplicate(u32) {}
     void file::close(u32) {}
 
+    namespace {
+        long legacy_read(file* object, void* buffer, u32 length, u64 offset) {
+            return object->read(buffer, length, offset);
+        }
+        long legacy_write(file* object, const void* buffer, u32 length, u64 offset) {
+            return object->write(buffer, length, offset);
+        }
+        long legacy_submit(file* object, io_request& request) {
+            return object->submit(request);
+        }
+        u32 legacy_poll(const file* object, u32 events, u32 flags) {
+            return const_cast<file*>(object)->poll(events, flags);
+        }
+        long legacy_ioctl(file* object, u64 request, void* argp) {
+            return object->ioctl(request, argp);
+        }
+        long legacy_size(const file* object) {
+            return object->size();
+        }
+
+        const file_read_capability legacy_read_capability{legacy_read};
+        const file_write_capability legacy_write_capability{legacy_write};
+        const file_submit_capability legacy_submit_capability{legacy_submit};
+        const file_poll_capability legacy_poll_capability{legacy_poll};
+        const file_ioctl_capability legacy_ioctl_capability{legacy_ioctl};
+        const file_size_capability legacy_size_capability{legacy_size};
+    }
+
+    const void* file::capability(file_capability kind) const {
+        switch (kind) {
+            case file_capability::read:   return &legacy_read_capability;
+            case file_capability::write:  return &legacy_write_capability;
+            case file_capability::submit: return &legacy_submit_capability;
+            case file_capability::poll:   return &legacy_poll_capability;
+            case file_capability::ioctl:  return &legacy_ioctl_capability;
+            case file_capability::size:   return &legacy_size_capability;
+        }
+        return nullptr;
+    }
+
     open_file::~open_file() {
         if (_mount)
             _mount->release_open();
@@ -596,7 +636,11 @@ namespace astia::fs {
         if (!_object)
             return -EBADF;
         const u64 actual = offset == offset_current ? _position : offset;
-        const long result = _object->read(buf, len, actual);
+        const auto* capability = static_cast<const file_read_capability*>(
+            _object->capability(file_capability::read));
+        const long result = capability != nullptr
+                                ? capability->read(_object.get(), buf, len, actual)
+                                : _object->read(buf, len, actual);
         if (result > 0)
             _position = actual + static_cast<u64>(result);
         return result;
@@ -606,12 +650,20 @@ namespace astia::fs {
             return -EBADF;
         u64 actual = offset == offset_current ? _position : offset;
         if ((_flags & 0x0400u) != 0) {
-            const long end = _object->size();
+            const auto* size_capability = static_cast<const file_size_capability*>(
+                _object->capability(file_capability::size));
+            const long end = size_capability != nullptr
+                                 ? size_capability->size(_object.get())
+                                 : _object->size();
             if (end < 0)
                 return end;
             actual = static_cast<u64>(end);
         }
-        const long result = _object->write(buf, len, actual);
+        const auto* capability = static_cast<const file_write_capability*>(
+            _object->capability(file_capability::write));
+        const long result = capability != nullptr
+                                ? capability->write(_object.get(), buf, len, actual)
+                                : _object->write(buf, len, actual);
         if (result > 0)
             _position = actual + static_cast<u64>(result);
         return result;
@@ -624,26 +676,48 @@ namespace astia::fs {
         // same position the caller asked for, not on a moved _position.
         u64 actual = request.offset() == offset_current ? _position : request.offset();
         if ((_flags & 0x0400u) != 0 && request.direction() == io_direction::output) {
-            const long end = _object->size();
+            const auto* size_capability = static_cast<const file_size_capability*>(
+                _object->capability(file_capability::size));
+            const long end = size_capability != nullptr
+                                 ? size_capability->size(_object.get())
+                                 : _object->size();
             if (end < 0)
                 return end;
             actual = static_cast<u64>(end);
         }
         request.offset(actual);
-        const long result = _object->submit(request);
+        const auto* capability = static_cast<const file_submit_capability*>(
+            _object->capability(file_capability::submit));
+        const long result = capability != nullptr
+                                ? capability->submit(_object.get(), request)
+                                : _object->submit(request);
         if (result > 0)
             _position = actual + static_cast<u64>(result);
         return result;
     }
     u32 open_file::poll(u32 events) const {
-        return _object ? _object->poll(events, _flags) : static_cast<u32>(POLLNVAL);
+        if (!_object)
+            return static_cast<u32>(POLLNVAL);
+        const auto* capability = static_cast<const file_poll_capability*>(
+            _object->capability(file_capability::poll));
+        return capability != nullptr ? capability->poll(_object.get(), events, _flags)
+                                     : _object->poll(events, _flags);
     }
     long open_file::ioctl(u64 request, void* argp) {
-        return !_object ? -EBADF : _object->ioctl(request, argp);
+        if (!_object)
+            return -EBADF;
+        const auto* capability = static_cast<const file_ioctl_capability*>(
+            _object->capability(file_capability::ioctl));
+        return capability != nullptr ? capability->ioctl(_object.get(), request, argp)
+                                     : _object->ioctl(request, argp);
     }
 
     long open_file::size() const {
-        return !_object ? -EBADF : _object->size();
+        if (!_object)
+            return -EBADF;
+        const auto* capability = static_cast<const file_size_capability*>(
+            _object->capability(file_capability::size));
+        return capability != nullptr ? capability->size(_object.get()) : _object->size();
     }
 
     file_mode open_file::mode() const { return !_object ? _mode : _object->mode(); }
