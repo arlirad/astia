@@ -5,6 +5,11 @@ project(astiakernel
         DESCRIPTION "Modular kernel (C++20, no exceptions)"
         LANGUAGES C CXX ASM)
 
+# Keep paths rooted at the kernel when it is included by the repository-level
+# IDE project.  Direct `cmake -S kernel` builds get the same value.
+set(ASTIA_KERNEL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" CACHE INTERNAL
+        "Astia kernel source directory")
+
 # Global settings
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -6,8 +6,8 @@ add_library(mod STATIC
 
 target_include_directories(mod PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/log
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/log
 )
 
 target_link_libraries(mod PUBLIC elf initrd libcore mm dev log)

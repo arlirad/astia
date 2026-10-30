@@ -42,12 +42,12 @@ set(_astia_kernel_libs
 
 function(astia_configure_kernel target)
     target_include_directories(${target} PRIVATE
-            ${CMAKE_SOURCE_DIR}/include
-            ${CMAKE_SOURCE_DIR}/src/test
+            ${ASTIA_KERNEL_SOURCE_DIR}/include
+            ${ASTIA_KERNEL_SOURCE_DIR}/src/test
     )
     target_link_libraries(${target} PRIVATE ${_astia_kernel_libs})
     target_link_options(${target} PRIVATE
-            -T ${CMAKE_SOURCE_DIR}/cmake/linker/virt-x86_64.ld
+            -T ${ASTIA_KERNEL_SOURCE_DIR}/cmake/linker/virt-x86_64.ld
     )
 endfunction()
 

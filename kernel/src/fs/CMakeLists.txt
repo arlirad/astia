@@ -18,11 +18,11 @@ add_library(fs STATIC
 
 target_include_directories(fs PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/arch
-        ${CMAKE_SOURCE_DIR}/src/proc
-        ${CMAKE_SOURCE_DIR}/src/sys
-        ${CMAKE_SOURCE_DIR}/src/initrd
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd
 )
 
 target_link_libraries(fs PUBLIC libcore mm initrd ipc)

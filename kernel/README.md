@@ -72,12 +72,22 @@ init step arms delivery but leaves interrupts masked — opening the gate (`cpu:
 
 ## Building
 
-Run from this directory (`kernel/`):
+For CLion/clangd, open the repository root and use its CMake profile.  The
+root `CMakeLists.txt` owns the kernel subproject and exports the compile
+database in the selected build directory; this keeps `kernel/include` in the
+commands used to index headers such as `<astia/fs.hpp>`.
+
+The kernel can still be configured directly from this directory (`kernel/`):
 
 ```bash
 cmake -S . -B build -DARCH=x86_64
 cmake --build build
 ```
+
+When configuring from the repository root, use `cmake -S . -B build` instead.
+Do not point clangd at a stale `kernel/cmake-build-debug` database after
+changing the CLion CMake profile; reload CMake (or delete that build
+directory) so the generated `compile_commands.json` is refreshed.
 
 Change ARCH to `aarch64` as needed.
 

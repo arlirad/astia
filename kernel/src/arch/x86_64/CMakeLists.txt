@@ -34,7 +34,7 @@ add_custom_command(
 target_include_directories(arch_x86_64 PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/..
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/src/log
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/log
 )
 
 target_link_libraries(arch_x86_64 PUBLIC

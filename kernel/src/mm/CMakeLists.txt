@@ -10,7 +10,7 @@ add_library(mm STATIC
 
 target_include_directories(mm PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
 )
 
 # mm is designed to be replaceable; keep minimal deps

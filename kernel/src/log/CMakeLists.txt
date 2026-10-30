@@ -4,12 +4,12 @@ add_library(log STATIC
 
 target_include_directories(log PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/dev
-        ${CMAKE_SOURCE_DIR}/src/fs
-        ${CMAKE_SOURCE_DIR}/src/mm
-        ${CMAKE_SOURCE_DIR}/src/proc
-        ${CMAKE_SOURCE_DIR}/src/lib
-        ${CMAKE_SOURCE_DIR}/src/arch
-        ${CMAKE_SOURCE_DIR}/src/arch/x86_64
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/lib
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64
 )

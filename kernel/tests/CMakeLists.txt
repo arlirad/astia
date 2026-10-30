@@ -15,22 +15,22 @@ add_library(astia_test_support STATIC
 )
 target_include_directories(astia_test_support PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/support
-        ${CMAKE_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
 )
 
 # The real kernel sources are compiled straight into the test binaries, so the
 # tests exercise shipping code rather than copies.
 set(_astia_test_includes
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/lib
-        ${CMAKE_SOURCE_DIR}/src/ipc
-        ${CMAKE_SOURCE_DIR}/src/mm
-        ${CMAKE_SOURCE_DIR}/src/elf
-        ${CMAKE_SOURCE_DIR}/src/initrd
-        ${CMAKE_SOURCE_DIR}/src/mod
-        ${CMAKE_SOURCE_DIR}/src/boot/virt
-        ${CMAKE_SOURCE_DIR}/src/arch
-        ${CMAKE_SOURCE_DIR}/src/arch/x86_64
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/lib
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/ipc
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64
 )
 
 function(astia_add_host_test name)
@@ -43,9 +43,9 @@ endfunction()
 
 # --- Pure logic: no hardware, no fake memory needed. ------------------------
 astia_add_host_test(astia_memory_map_test memory_map_test.cpp)
-astia_add_host_test(astia_pvh_test pvh_test.cpp ${CMAKE_SOURCE_DIR}/src/boot/virt/pvh.cpp)
+astia_add_host_test(astia_pvh_test pvh_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/pvh.cpp)
 astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
-        ${CMAKE_SOURCE_DIR}/src/boot/virt/multiboot2.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/multiboot2.cpp)
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
@@ -55,16 +55,16 @@ astia_add_host_test(astia_signal_test signal_test.cpp)
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_tty_test
         tty_test.cpp
-        ${CMAKE_SOURCE_DIR}/src/dev/chr/tty.cpp
-        ${CMAKE_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
 )
-target_include_directories(astia_tty_test PRIVATE ${CMAKE_SOURCE_DIR}/src/dev)
+target_include_directories(astia_tty_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 astia_add_host_test(astia_pseudo_test
         pseudo_test.cpp
-        ${CMAKE_SOURCE_DIR}/src/dev/chr/pseudo.cpp
-        ${CMAKE_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/pseudo.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
 )
-target_include_directories(astia_pseudo_test PRIVATE ${CMAKE_SOURCE_DIR}/src/dev)
+target_include_directories(astia_pseudo_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 find_package(Threads REQUIRED)
 astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)
@@ -133,7 +133,7 @@ astia_add_host_test(astia_elf_test
         ${_hello_mod_cpp}
         ${_fixture_dyn_cpp}
         ${_fixture_exec_cpp}
-        ${CMAKE_SOURCE_DIR}/src/elf/elf.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
 )
 
 # initrd: the ustar reader, against a tarball built by make_initrd.sh (three
@@ -150,19 +150,19 @@ astia_embed_blob(_initrd_cpp ${_fix_dir}/initrd.tar initrd_blob)
 astia_add_host_test(astia_initrd_test
         initrd_test.cpp
         ${_initrd_cpp}
-        ${CMAKE_SOURCE_DIR}/src/initrd/initrd.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/initrd.cpp
 )
 
 # mod: the export table (the ELF loader itself is covered by astia_elf_test).
 astia_add_host_test(astia_mod_test
         mod_test.cpp
-        ${CMAKE_SOURCE_DIR}/src/mod/exports.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/exports.cpp
 )
 
 # memory.cpp is the code under test here, so it overrides the host libc's
 # symbols; -fno-builtin stops the compiler rewriting our loops back into calls.
-astia_add_host_test(astia_memory_test memory_test.cpp ${CMAKE_SOURCE_DIR}/src/lib/memory.cpp)
-set_source_files_properties(${CMAKE_SOURCE_DIR}/src/lib/memory.cpp
+astia_add_host_test(astia_memory_test memory_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp)
+set_source_files_properties(${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp
         PROPERTIES COMPILE_OPTIONS "-fno-builtin")
 
 # Substrate-bound logic: frame_allocator and page_map treat physical addresses
@@ -185,31 +185,31 @@ endfunction()
 
 astia_add_arena_test(astia_frame_allocator_test
         frame_allocator_test.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
 )
 astia_add_arena_test(astia_page_map_test
         page_map_test.cpp
-        ${CMAKE_SOURCE_DIR}/src/arch/x86_64/page_map.cpp
-        ${CMAKE_SOURCE_DIR}/src/arch/x86_64/layout.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/page_map.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/layout.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
 )
 
 # mm::heap: the free-list allocator over a window backed by arena frames.
 astia_add_arena_test(astia_heap_test
         heap_test.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/heap.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
 )
 
 # mm::phys_region: region-local reference counting and the CoW
 # parent/child links — no kernel-wide per-frame table anywhere.
 astia_add_arena_test(astia_phys_region_test
         phys_region_test.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/phys_region.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/pinned_buffer.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/iovec.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/heap.cpp
-        ${CMAKE_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/phys_region.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/pinned_buffer.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/iovec.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
 )
 
 # On-target integration test: boot the real kernel under QEMU and let its
@@ -286,47 +286,47 @@ if (ARCH STREQUAL "x86_64")
         # freestanding and non-PIE, with the AIO ports as Astia's side of the
         # seams.  Userspace images link this against tests/crt0.S.
         add_library(astia_userspace_libc STATIC
-                ${CMAKE_SOURCE_DIR}/../libc/src/assert.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/backend_aio.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/ctype.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/dirent.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/errno.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/file.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/group.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/pwd.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/ioctl.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/locale.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/malloc.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/math.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/mman.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/process.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/process_aio.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/path.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/prctl.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/pthread.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/printf.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/rlimit.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/scanf.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/setjmp.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/signal.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/socket.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/snprintf.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/stdlib.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/stat.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/string.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/termcap.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/termios.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/time.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/time_aio.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/times.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/unistd.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/utsname.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/uio.c
-                ${CMAKE_SOURCE_DIR}/../libc/src/wchar.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/assert.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/backend_aio.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/ctype.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/dirent.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/errno.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/file.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/group.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pwd.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/ioctl.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/locale.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/malloc.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/math.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/mman.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/process.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/process_aio.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/path.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/prctl.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pthread.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/printf.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/rlimit.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/scanf.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/setjmp.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/signal.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/socket.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/snprintf.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/stdlib.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/stat.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/string.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/termcap.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/termios.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time_aio.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/times.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/unistd.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/utsname.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/uio.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/wchar.c
         )
         target_include_directories(astia_userspace_libc PRIVATE
-                ${CMAKE_SOURCE_DIR}/../libc/include
-                ${CMAKE_SOURCE_DIR}/include
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
+                ${ASTIA_KERNEL_SOURCE_DIR}/include
         )
         target_compile_options(astia_userspace_libc PRIVATE
                 -ffreestanding -fno-pic -fno-pie -fno-stack-protector
@@ -341,21 +341,21 @@ if (ARCH STREQUAL "x86_64")
         if (ASTIA_CROSS_USERSPACE AND ASTIA_CLANG)
             set(_cross_dir ${_fix_dir}/clang)
             file(GLOB _cross_libc_sources CONFIGURE_DEPENDS
-                    ${CMAKE_SOURCE_DIR}/../libc/src/*.c)
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/*.c)
             add_custom_command(
                     OUTPUT ${_cross_dir}/image/init_libc
                     COMMAND ${CMAKE_COMMAND} -E env
                     ASTIA_CROSS_BUILD=${_cross_dir}
                     ASTIA_SYSROOT=${_cross_dir}/sysroot
                     CLANG=${ASTIA_CLANG}
-                    ${CMAKE_SOURCE_DIR}/../toolchain/build-init-libc.sh
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../toolchain/build-init-libc.sh
                     DEPENDS
-                    ${CMAKE_SOURCE_DIR}/../toolchain/build-init-libc.sh
-                    ${CMAKE_SOURCE_DIR}/../toolchain/astia-x86_64-clang.cmake
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../toolchain/build-init-libc.sh
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../toolchain/astia-x86_64-clang.cmake
                     ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
                     ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
                     ${_cross_libc_sources}
-                    ${CMAKE_SOURCE_DIR}/../libc/CMakeLists.txt
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../libc/CMakeLists.txt
                     COMMENT "Cross-building libc-backed userspace image init_libc"
             )
             set(_init_libc_image ${_cross_dir}/image/init_libc)
@@ -367,8 +367,8 @@ if (ARCH STREQUAL "x86_64")
                     -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
                     COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                     -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                    -fno-builtin -I${CMAKE_SOURCE_DIR}/include
-                    -I${CMAKE_SOURCE_DIR}/../libc/include
+                    -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                    -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                     -o ${_fix_dir}/init_libc_main.o
                     ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
                     COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
@@ -389,15 +389,15 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/hello_initrd.o ${_fix_dir}/boot_stage/
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -I${CMAKE_SOURCE_DIR}/include
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -o ${_fix_dir}/init_user.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/init_user ${_fix_dir}/init_user.o
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/sbin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/etc
-                COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/../init/passwd ${_fix_dir}/boot_stage/etc/passwd
-                COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/../init/group ${_fix_dir}/boot_stage/etc/group
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../init/passwd ${_fix_dir}/boot_stage/etc/passwd
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../init/group ${_fix_dir}/boot_stage/etc/group
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/init_user ${_fix_dir}/boot_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/bin
@@ -405,7 +405,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_init_libc_image} ${_fix_dir}/boot_stage/bin/init_libc
                 COMMAND sh -c "tar cf ${_fix_dir}/boot_initrd.tar -C ${_fix_dir}/boot_stage hello_initrd.o sbin/init bin/init_libc etc/passwd etc/group"
                 DEPENDS ${_fix_dir}/hello_initrd.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
-                ${CMAKE_SOURCE_DIR}/../init/passwd ${CMAKE_SOURCE_DIR}/../init/group
+                ${ASTIA_KERNEL_SOURCE_DIR}/../init/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../init/group
                 COMMENT "Packing boot initrd boot_initrd.tar"
         )
         # Tarballs are test inputs, not sources of any target, so build them as
@@ -430,22 +430,22 @@ if (ARCH STREQUAL "x86_64")
                 OUTPUT ${_fix_dir}/native_init ${_fix_dir}/native_daemon ${_fix_dir}/native_daemonctl ${_fix_dir}/native_ps
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${CMAKE_SOURCE_DIR}/../libc/include -I${CMAKE_SOURCE_DIR}/include
-                -o ${_fix_dir}/native_init.o ${CMAKE_SOURCE_DIR}/../init/init.c
+                -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/native_init.o ${ASTIA_KERNEL_SOURCE_DIR}/../init/init.c
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${CMAKE_SOURCE_DIR}/../libc/include -I${CMAKE_SOURCE_DIR}/include
-                -o ${_fix_dir}/native_daemon.o ${CMAKE_SOURCE_DIR}/../init/daemon.c
+                -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/native_daemon.o ${ASTIA_KERNEL_SOURCE_DIR}/../init/daemon.c
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${CMAKE_SOURCE_DIR}/../libc/include -I${CMAKE_SOURCE_DIR}/include
-                -I${CMAKE_SOURCE_DIR}/../coreutils/src
-                -o ${_fix_dir}/native_daemonctl.o ${CMAKE_SOURCE_DIR}/../coreutils/src/daemonctl.c
+                -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src
+                -o ${_fix_dir}/native_daemonctl.o ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${CMAKE_SOURCE_DIR}/../libc/include -I${CMAKE_SOURCE_DIR}/include
-                -I${CMAKE_SOURCE_DIR}/../coreutils/src
-                -o ${_fix_dir}/native_ps.o ${CMAKE_SOURCE_DIR}/../coreutils/src/ps.c
+                -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src
+                -o ${_fix_dir}/native_ps.o ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/ps.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/native_init ${_fix_dir}/crt0.o ${_fix_dir}/native_init.o
@@ -462,11 +462,11 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/native_ps ${_fix_dir}/crt0.o ${_fix_dir}/native_ps.o
                 $<TARGET_FILE:astia_userspace_libc> -lgcc
-                DEPENDS ${CMAKE_SOURCE_DIR}/../init/init.c
-                ${CMAKE_SOURCE_DIR}/../init/daemon.c
-                ${CMAKE_SOURCE_DIR}/../init/daemon.h ${CMAKE_SOURCE_DIR}/../libc/include/daemon_protocol.h
-                ${CMAKE_SOURCE_DIR}/../coreutils/src/daemonctl.c ${CMAKE_SOURCE_DIR}/../coreutils/src/ps.c
-                ${CMAKE_SOURCE_DIR}/../coreutils/src/common.h ${_fix_dir}/crt0.o
+                DEPENDS ${ASTIA_KERNEL_SOURCE_DIR}/../init/init.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../init/daemon.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../init/daemon.h ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/ps.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/common.h ${_fix_dir}/crt0.o
                 astia_userspace_libc
                 COMMENT "Building native init and daemon images")
         add_custom_command(
@@ -478,10 +478,10 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemon ${_fix_dir}/native_stage/sbin/daemon
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemonctl ${_fix_dir}/native_stage/bin/daemonctl
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_ps ${_fix_dir}/native_stage/bin/ps
-                COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/../init/rc ${_fix_dir}/native_stage/etc/rc
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../init/rc ${_fix_dir}/native_stage/etc/rc
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_stage/bin/init_libc
                 COMMAND sh -c "tar cf ${_fix_dir}/native_boot_initrd.tar -C ${_fix_dir}/native_stage sbin/init sbin/daemon bin/daemonctl bin/ps bin/init_libc etc/rc"
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemon ${_fix_dir}/native_daemonctl ${_fix_dir}/native_ps ${_init_libc_image} ${CMAKE_SOURCE_DIR}/../init/rc
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemon ${_fix_dir}/native_daemonctl ${_fix_dir}/native_ps ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../init/rc
                 COMMENT "Packing native init/daemon initrd")
         add_custom_target(astia_native_boot_initrd ALL DEPENDS ${_fix_dir}/native_boot_initrd.tar)
         add_test(NAME astia_native_daemon_boot
@@ -496,18 +496,18 @@ if (ARCH STREQUAL "x86_64")
             add_custom_target(astia_grub_iso ALL
                     COMMAND BUILD=${CMAKE_BINARY_DIR}/grub ISO=${CMAKE_BINARY_DIR}/astia-grub.iso
                             KERNEL_TARGET=astiakrn_test
-                            ${CMAKE_SOURCE_DIR}/scripts/make-grub-iso.sh
+                            ${ASTIA_KERNEL_SOURCE_DIR}/scripts/make-grub-iso.sh
                     BYPRODUCTS ${CMAKE_BINARY_DIR}/astia-grub.iso
                     DEPENDS astiakrn_test
-                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                    WORKING_DIRECTORY ${ASTIA_KERNEL_SOURCE_DIR}
                     COMMENT "Building GRUB Multiboot2 ISO")
             add_test(NAME astia_grub_smp_boot
-                    COMMAND env ASTIA_GRUB_EXPECT_AP_WORK=1 sh ${CMAKE_SOURCE_DIR}/scripts/test-grub-smp.sh
+                    COMMAND env ASTIA_GRUB_EXPECT_AP_WORK=1 sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                     ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp_boot PROPERTIES TIMEOUT 30)
             add_test(NAME astia_grub_smp4_boot
                     COMMAND env ASTIA_SMP=4 ASTIA_GRUB_EXPECT_AP_WORK=1
-                            sh ${CMAKE_SOURCE_DIR}/scripts/test-grub-smp.sh
+                            sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                             ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp4_boot PROPERTIES TIMEOUT 30)
         endif ()

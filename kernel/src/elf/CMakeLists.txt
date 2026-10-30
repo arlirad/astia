@@ -4,7 +4,7 @@ add_library(elf STATIC
 
 target_include_directories(elf PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
 )
 
 target_link_libraries(elf PUBLIC libcore)

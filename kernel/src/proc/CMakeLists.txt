@@ -43,9 +43,9 @@ add_library(proc STATIC
 
 target_include_directories(proc PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/src/sys
-        ${CMAKE_SOURCE_DIR}/src/fs
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs
 )
 
 target_link_libraries(proc PUBLIC libcore core mm arch_${ARCH} fs elf ipc)

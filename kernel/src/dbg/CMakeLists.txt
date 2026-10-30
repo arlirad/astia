@@ -3,5 +3,5 @@ add_library(dbg STATIC
 )
 
 target_include_directories(dbg PUBLIC
-        ${CMAKE_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
 )
