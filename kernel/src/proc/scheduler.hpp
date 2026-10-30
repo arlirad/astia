@@ -4,6 +4,11 @@
 
 namespace astia::proc::scheduler {
 
+    inline constexpr u32 max_cpu_count             = 256;
+    inline constexpr u32 run_queue_capacity        = 32;
+    inline constexpr u32 run_queue_rebalance_slack = 1;
+    inline constexpr u32 nice_charge_scale         = 1024;
+
     enum class thread_options : u8 {
         pinned     = 0,
         migratable = 1u << 0,

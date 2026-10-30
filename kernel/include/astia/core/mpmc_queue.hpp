@@ -24,15 +24,15 @@ namespace astia::core {
         static_assert((Capacity & (Capacity - 1)) == 0,
                       "mpmc_queue capacity must be a power of two");
 
-        struct alignas(64) slot {
+        struct alignas(cache_line_bytes) slot {
             u64 sequence = 0;
             alignas(T) u8 storage[sizeof(T)];
         };
 
         static constexpr u64 mask = static_cast<u64>(Capacity - 1);
 
-        alignas(64) u64 enqueue_position_ = 0;
-        alignas(64) u64 dequeue_position_ = 0;
+        alignas(cache_line_bytes) u64 enqueue_position_ = 0;
+        alignas(cache_line_bytes) u64 dequeue_position_ = 0;
         slot slots_[Capacity];
 
         static T* value(slot& entry) {

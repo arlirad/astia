@@ -19,6 +19,12 @@ namespace astia::initrd {
     /// Size of a tar header / the archive block size.
     inline constexpr usize block_size = 512;
 
+    /// Fixed-width fields and protocol marker sizes in a ustar header.
+    inline constexpr usize name_field_size  = 100;
+    inline constexpr usize size_field_size  = 12;
+    inline constexpr usize ustar_magic_size = 5;
+    inline constexpr char  ustar_magic[ustar_magic_size] = {'u', 's', 't', 'a', 'r'};
+
     /// One regular file in the archive. `name` and `data` point into the
     /// archive image and stay valid for as long as it does.
     struct file {

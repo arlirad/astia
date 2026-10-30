@@ -26,6 +26,16 @@
 
 namespace astia::elf {
 
+    /// ELF identification bytes required by the System V ELF format.
+    inline constexpr u8 elf_magic[] = {0x7f, 'E', 'L', 'F'};
+
+    /// Number of bytes in the ELF identification array.
+    inline constexpr usize elf_ident_size = 16;
+
+    /// Fixed caps used by the loader's stack-backed metadata tables.
+    inline constexpr usize max_sections        = 64;
+    inline constexpr usize max_program_headers = 64;
+
     /// What kind of ELF image this is (from the header's e_type, after
     /// validating the ELF64/x86-64 identity).
     enum class kind : u8 {

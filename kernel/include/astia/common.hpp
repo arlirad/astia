@@ -61,6 +61,8 @@ namespace astia {
     using paddr_t  = u64;
     using vaddr_t  = u64;
 
+    inline constexpr usize cache_line_bytes = 64;
+
     /// Kernel page geometry.  Keep the size and its low-bit mask together so
     /// generic memory code does not grow independent copies of the geometry.
     namespace mm {

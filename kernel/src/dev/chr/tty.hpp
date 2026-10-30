@@ -100,8 +100,8 @@ namespace astia::dev {
         // read, not "not ready".  Keep that fact until the next read.
         bool _eof_pending        = false;
         bool _output_stopped     = false;
-        alignas(64) u32 _rx_head = 0;
-        alignas(64) u32 _rx_tail = 0;
+        alignas(cache_line_bytes) u32 _rx_head = 0;
+        alignas(cache_line_bytes) u32 _rx_tail = 0;
     };
 
 } // namespace astia::dev

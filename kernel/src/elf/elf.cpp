@@ -19,7 +19,7 @@ namespace astia::elf {
 
         // --- ELF constants (System V ABI, x86-64 supplement) ---
 
-        constexpr usize ei_nident    = 16;
+        constexpr usize ei_nident    = elf_ident_size;
         constexpr u32   ei_class     = 4;
         constexpr u32   ei_data      = 5;
         constexpr u8    elfclass64   = 2;
@@ -151,12 +151,6 @@ namespace astia::elf {
 
         constexpr u8 stb_weak = 2;
 
-        // Upper bound on sections we will process. A typical module .o has
-        // ~15-20; the fixed cap keeps the per-section base table off the heap
-        // (this loader must work before/independent of any dynamic allocation,
-        // and mirrors memory_map / init's fixed-capacity style).
-        constexpr usize max_sections = 64;
-
         bool str_eq(const char* a, const char* b) {
             while (*a != '\0' && *a == *b) {
                 ++a;
@@ -184,8 +178,8 @@ namespace astia::elf {
                 return false;
             }
             const auto* eh = static_cast<const elf64_ehdr*>(bytes);
-            if (eh->e_ident[0] != 0x7f || eh->e_ident[1] != 'E' ||
-                eh->e_ident[2] != 'L' || eh->e_ident[3] != 'F') {
+            if (eh->e_ident[0] != elf_magic[0] || eh->e_ident[1] != elf_magic[1] ||
+                eh->e_ident[2] != elf_magic[2] || eh->e_ident[3] != elf_magic[3]) {
                 return false;
             }
             if (eh->e_ident[ei_class] != elfclass64 ||
@@ -778,12 +772,12 @@ namespace astia::elf {
             (type != et_exec && type != et_dyn) || header.e_phnum == 0 ||
             header.e_phentsize != sizeof(elf64_phdr))
             return false;
-        if (header.e_phnum > 64 ||
+        if (header.e_phnum > max_program_headers ||
             !in_bounds(header.e_phoff,
                        static_cast<u64>(header.e_phnum) * sizeof(elf64_phdr), file_size))
             return false;
 
-        elf64_phdr   ph[64]{};
+        elf64_phdr   ph[max_program_headers]{};
         read_request ph_request{header.e_phoff, ph,
                                 static_cast<usize>(header.e_phnum) * sizeof(elf64_phdr),
                                 -1};

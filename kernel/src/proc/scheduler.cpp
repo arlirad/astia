@@ -10,15 +10,13 @@
 namespace astia::proc::scheduler {
 
     namespace {
-        inline constexpr u32 max_cpus       = 256;
-        inline constexpr u32 queue_capacity = 32;
         struct cpu_state {
             core::spinlock lock;
-            thread*        queue[queue_capacity]{};
+            thread*        queue[run_queue_capacity]{};
             u32            queue_count = 0;
             thread*        idle_thread = nullptr;
             bool           initialized = false;
-        } cpus[max_cpus];
+        } cpus[max_cpu_count];
         bool initialized = false;
 
         void idle_entry(void*) {
@@ -39,14 +37,14 @@ namespace astia::proc::scheduler {
                 return false;
             }
             const u32 index = value->cpu_owner();
-            if (index >= max_cpus || !cpus[index].initialized)
+            if (index >= max_cpu_count || !cpus[index].initialized)
                 return false;
             auto&                state = cpus[index];
             core::spinlock_guard guard(state.lock);
             if (value->queued()) {
                 return true;
             }
-            if (state.queue_count == queue_capacity) {
+            if (state.queue_count == run_queue_capacity) {
                 return false;
             }
             value->queued(true);
@@ -55,9 +53,9 @@ namespace astia::proc::scheduler {
         }
 
         bool rebalance_idle_cpu(u32 target_index) {
-            if (target_index >= max_cpus || !cpus[target_index].initialized)
+            if (target_index >= max_cpu_count || !cpus[target_index].initialized)
                 return false;
-            for (u32 source_index = 0; source_index < max_cpus; ++source_index) {
+            for (u32 source_index = 0; source_index < max_cpu_count; ++source_index) {
                 if (source_index == target_index || !cpus[source_index].initialized)
                     continue;
                 const u32 first =
@@ -68,8 +66,8 @@ namespace astia::proc::scheduler {
                 core::spinlock_guard second_guard(cpus[second].lock);
                 auto&                source = cpus[source_index];
                 auto&                target = cpus[target_index];
-                if (source.queue_count <= target.queue_count + 1 ||
-                    target.queue_count == queue_capacity)
+                if (source.queue_count <= target.queue_count + run_queue_rebalance_slack ||
+                    target.queue_count == run_queue_capacity)
                     continue;
                 u32 position = source.queue_count;
                 for (u32 i = 0; i < source.queue_count; ++i) {
@@ -153,8 +151,8 @@ namespace astia::proc::scheduler {
         u64 nice_charge(i32 nice) {
             // Integer approximation of a weighted fair scheduler: nice
             // -20 advances slowly, nice 19 advances quickly.
-            return nice < 0 ? 1024u / static_cast<u32>(1 - nice)
-                            : 1024u * static_cast<u32>(1 + nice);
+            return nice < 0 ? nice_charge_scale / static_cast<u32>(1 - nice)
+                            : nice_charge_scale * static_cast<u32>(1 + nice);
         }
 
         /// Restore the interrupt gate after the scheduler has finished its
@@ -179,7 +177,7 @@ namespace astia::proc::scheduler {
     }
 
     bool init_cpu(u32 cpu_index) {
-        if (!initialized || cpu_index >= max_cpus || cpus[cpu_index].initialized)
+        if (!initialized || cpu_index >= max_cpu_count || cpus[cpu_index].initialized)
             return false;
         auto idle = mm::share<thread>(proc::kernel_process(), proc::allocate_tid());
         if (!idle || !idle->prepare_kernel(idle_entry, nullptr) ||
@@ -202,7 +200,7 @@ namespace astia::proc::scheduler {
     }
 
     bool start_cpu(u32 cpu_index) {
-        if (!initialized || cpu_index >= max_cpus || !cpus[cpu_index].initialized ||
+        if (!initialized || cpu_index >= max_cpu_count || !cpus[cpu_index].initialized ||
             proc::current_thread() != nullptr) {
             return false;
         }
@@ -221,7 +219,7 @@ namespace astia::proc::scheduler {
             if (!initialized || entry == nullptr || proc::kernel_process() == nullptr) {
                 return {};
             }
-            if (cpu_index >= max_cpus || !cpus[cpu_index].initialized)
+            if (cpu_index >= max_cpu_count || !cpus[cpu_index].initialized)
                 return {};
             auto value = mm::share<thread>(proc::kernel_process(), proc::allocate_tid());
             if (!value || !value->prepare_kernel(entry, argument) ||
@@ -272,13 +270,13 @@ namespace astia::proc::scheduler {
     }
 
     bool migrate(thread* value, u32 cpu_index) {
-        if (!initialized || value == nullptr || cpu_index >= max_cpus ||
+        if (!initialized || value == nullptr || cpu_index >= max_cpu_count ||
             !cpus[cpu_index].initialized || value->cpu_owner() == cpu_index ||
             !value->queued() || value->state() != thread_state::runnable) {
             return false;
         }
         const u32 source_index = value->cpu_owner();
-        if (source_index >= max_cpus || !cpus[source_index].initialized)
+        if (source_index >= max_cpu_count || !cpus[source_index].initialized)
             return false;
 
         arch::interrupt_guard gate;
@@ -304,7 +302,7 @@ namespace astia::proc::scheduler {
             --source.queue_count;
         }
 
-        if (target.queue_count == queue_capacity) {
+        if (target.queue_count == run_queue_capacity) {
             // Both queues are held in index order, so restoring the source
             // cannot deadlock with a reverse migration on another CPU.
             value->cpu_owner(source_index);

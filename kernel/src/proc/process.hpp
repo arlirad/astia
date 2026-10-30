@@ -15,18 +15,19 @@
 
 namespace astia::proc {
 
-    inline constexpr u32 max_process_threads        = 16;
-    inline constexpr u32 max_process_waiters        = 4;
-    inline constexpr u32 max_process_signal_waiters = max_process_threads;
+    inline constexpr u32 max_processes                   = 64;
+    inline constexpr u32 max_threads_per_process         = 16;
+    inline constexpr u32 max_waiters_per_process         = 4;
+    inline constexpr u32 max_signal_waiters_per_process  = max_threads_per_process;
 
     /// Reserved userspace TLS placement for process-created threads.
     inline constexpr u64 process_tls_first  = 0x00007fffef000000ull;
     inline constexpr u64 process_tls_stride = 0x00100000ull;
 
     /// Userspace spawn limits for the startup frame (argv/envp).
-    inline constexpr u32   max_spawn_args     = 16;
-    inline constexpr u32   max_spawn_env      = 16;
-    inline constexpr usize spawn_string_bytes = 2048;
+    inline constexpr u32   max_argv_entries       = 16;
+    inline constexpr u32   max_env_entries        = 16;
+    inline constexpr usize max_spawn_string_bytes = 2048;
 
     enum class process_state : u8 {
         fresh,
@@ -340,8 +341,8 @@ namespace astia::proc {
         pid_t     session_;
         fs::file* controlling_terminal_ = nullptr;
         u32       uid_ = 0, euid_ = 0, gid_ = 0, egid_ = 0;
-        static constexpr u32 max_groups = 16;
-        gid_t                groups_[max_groups]{};
+        static constexpr u32 max_supplementary_groups = 16;
+        gid_t                groups_[max_supplementary_groups]{};
         u32                  group_count_ = 0;
         char                 name_[32]{};
         process_state        state_              = process_state::fresh;
@@ -352,10 +353,10 @@ namespace astia::proc {
         bool                 continued_event_    = false;
         signal_state         signals_{};
 
-        mm::shptr<thread> threads_[max_process_threads];
+        mm::shptr<thread> threads_[max_threads_per_process];
         u32               thread_count_ = 0;
-        thread*           waiters_[max_process_waiters]{};
-        thread*           signal_waiters_[max_process_signal_waiters]{};
+        thread*           waiters_[max_waiters_per_process]{};
+        thread*           signal_waiters_[max_signal_waiters_per_process]{};
         fd_table          descriptors_;
         arch::page_map*   address_space_ = nullptr;
         u64               tls_tp_        = 0;

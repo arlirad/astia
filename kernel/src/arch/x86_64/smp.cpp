@@ -32,7 +32,7 @@ namespace astia::arch::x86_64::smp {
         u32 cpu_online       = 1;
         u32 scheduler_online = 0;
         u32 apic_ids[max_cpus]{};
-        alignas(64) u32 reschedule_pending[max_cpus]{};
+        alignas(cache_line_bytes) u32 reschedule_pending[max_cpus]{};
 
         extern "C" void ap_entry(u64 cpu_index) {
             logs::info("AP%u entered trampoline", static_cast<u32>(cpu_index));
@@ -232,13 +232,14 @@ namespace astia::arch::x86_64::smp {
         for (u32 n = 0; n < cpu_total; ++n) {
             if ((!broadcast && apic_ids[n] == bsp) || (broadcast && n != 0))
                 continue;
-            auto stack = mm::heap::alloc(16 * 1024);
+            constexpr usize ap_stack_bytes = 16 * 1024;
+            auto stack = mm::heap::alloc(ap_stack_bytes);
             if (!stack) {
                 logs::error("AP%u stack allocation failed", index);
                 break;
             }
             astia_ap_cr3    = static_cast<u32>(astia::arch::kernel_page_map()->root());
-            astia_ap_stack  = reinterpret_cast<u64>(stack.value) + 16 * 1024;
+            astia_ap_stack  = reinterpret_cast<u64>(stack.value) + ap_stack_bytes;
             astia_ap_entry  = reinterpret_cast<u64>(&ap_entry);
             astia_ap_cpu    = index;
             const bool sent = broadcast ? lapic::init_sipi_all(0x08)

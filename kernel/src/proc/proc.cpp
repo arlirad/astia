@@ -21,23 +21,21 @@ namespace astia::proc {
         using spawn_logs = logs::child<"spawn">;
 
         process*             kernel   = nullptr;
-        inline constexpr u32 max_cpus = 256;
-        thread*              current[max_cpus]{};
+        thread*              current[scheduler::max_cpu_count]{};
         tid_t                next_tid = 1;
         pid_t                next_pid{1};
 
-        inline constexpr u32 registry_capacity = 64;
         // Non-trivial element type in freestanding code: static storage
         // plus placement construction, so the global itself stays
         // trivially destructible (same pattern as fs::devfs_instance).
         alignas(mm::shptr<process>) u8
-            registry_storage[sizeof(mm::shptr<process>) * registry_capacity];
+            registry_storage[sizeof(mm::shptr<process>) * max_processes];
         mm::shptr<process>* registry = nullptr;
         core::spinlock      registry_lock;
 
         /// registry_lock must be held.
         i32 find_slot_locked(pid_t id) {
-            for (u32 i = 0; i < registry_capacity; ++i) {
+            for (u32 i = 0; i < max_processes; ++i) {
                 if (registry[i] && registry[i]->pid() == id) {
                     return static_cast<i32>(i);
                 }
@@ -49,7 +47,7 @@ namespace astia::proc {
         // would incorrectly allow setpgid() to join an arbitrary process
         // rather than an existing process group.
         process* find_group_locked(pgrp_t group, pid_t session) {
-            for (u32 i = 0; i < registry_capacity; ++i) {
+            for (u32 i = 0; i < max_processes; ++i) {
                 process* value = registry[i].get();
                 if (value != nullptr && value->process_group() == group &&
                     value->session() == session &&
@@ -64,7 +62,7 @@ namespace astia::proc {
 
     bool register_process(const mm::shptr<process>& value) {
         core::spinlock_guard guard(registry_lock);
-        for (u32 i = 1; i < registry_capacity; ++i) {
+        for (u32 i = 1; i < max_processes; ++i) {
             if (!registry[i]) {
                 registry[i] = value;
                 return true;
@@ -77,7 +75,7 @@ namespace astia::proc {
         if (value == nullptr)
             return false;
         core::spinlock_guard guard(registry_lock);
-        for (u32 i = 1; i < registry_capacity; ++i) {
+        for (u32 i = 1; i < max_processes; ++i) {
             if (registry[i].get() == value) {
                 registry[i] = {};
                 return true;
@@ -97,7 +95,7 @@ namespace astia::proc {
             return false;
         }
 
-        registry    = ::new (registry_storage) mm::shptr<process>[registry_capacity];
+        registry    = ::new (registry_storage) mm::shptr<process>[max_processes];
         registry[0] = mm::share<process>(pid_t{}, pid_t{}, "kernel");
         kernel      = registry[0].get();
         if (kernel == nullptr || !kernel->install_standard_streams()) {
@@ -129,7 +127,7 @@ namespace astia::proc {
 
     thread* current_thread() {
         const u32 index = arch::cpu::current_index();
-        return index < max_cpus ? current[index] : nullptr;
+        return index < scheduler::max_cpu_count ? current[index] : nullptr;
     }
 
     tid_t allocate_tid() {
@@ -138,7 +136,7 @@ namespace astia::proc {
 
     void set_current_thread(thread* value) {
         const u32 index = arch::cpu::current_index();
-        if (index < max_cpus)
+        if (index < scheduler::max_cpu_count)
             current[index] = value;
     }
 
@@ -232,7 +230,7 @@ namespace astia::proc {
         u32                count = 0;
         {
             core::spinlock_guard guard(registry_lock);
-            for (u32 i = 0; i < registry_capacity && count < capacity; ++i) {
+            for (u32 i = 0; i < max_processes && count < capacity; ++i) {
                 process* value = registry[i].get();
                 if (value == nullptr)
                     continue;
@@ -404,11 +402,11 @@ namespace astia::proc {
         if (!valid_signal(value) && value != signal_number{})
             return -EINVAL;
         bool     found = false;
-        process* targets[registry_capacity]{};
+        process* targets[max_processes]{};
         u32      count = 0;
         {
             core::spinlock_guard guard(registry_lock);
-            for (u32 i = 0; i < registry_capacity; ++i) {
+            for (u32 i = 0; i < max_processes; ++i) {
                 process* target = registry[i].get();
                 if (target == nullptr || target->process_group() != group ||
                     target->state() == process_state::zombie ||
@@ -466,7 +464,7 @@ namespace astia::proc {
             mm::shptr<process> taken;
             {
                 core::spinlock_guard guard(registry_lock);
-                for (u32 i = 0; i < registry_capacity; ++i) {
+                for (u32 i = 0; i < max_processes; ++i) {
                     process* child = registry[i].get();
                     if (child == nullptr || child->parent_pid() != parent->pid()) {
                         continue;

@@ -46,7 +46,7 @@ namespace astia::arch::x86_64 {
         // GS points at one of these anchors.  Keep the offsets stable: the
         // syscall entry path uses index 0, stack_top 8, saved_r12 16 before
         // it has a C frame in which to recover a CPU-local pointer.
-        struct alignas(64) cpu_local {
+        struct alignas(cache_line_bytes) cpu_local {
             u32 index;
             u32 reserved;
             u64 syscall_stack_top;
@@ -83,9 +83,10 @@ namespace astia::arch::x86_64 {
     } // namespace
 
     bool init_gdt_tss_cpu(u32 cpu_index) {
+        constexpr usize kernel_stack_bytes = 16 * 1024;
         if (cpu_index >= max_cpus)
             return false;
-        auto stack = mm::heap::alloc(16 * 1024);
+        auto stack = mm::heap::alloc(kernel_stack_bytes);
         if (!stack) {
             return false;
         }
@@ -109,7 +110,7 @@ namespace astia::arch::x86_64 {
         descriptor[cpu_index].limit = sizeof(gdt[0]) - 1;
         descriptor[cpu_index].base  = reinterpret_cast<u64>(cpu_gdt);
         task_state[cpu_index].rsp0 =
-            reinterpret_cast<u64>(kernel_stack[cpu_index]) + 16 * 1024;
+            reinterpret_cast<u64>(kernel_stack[cpu_index]) + kernel_stack_bytes;
         astia_load_gdt_tss(&descriptor[cpu_index], tss_selector);
 
         // GS is reserved for the small CPU-local anchor.  Keeping this out

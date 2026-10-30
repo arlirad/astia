@@ -8,6 +8,9 @@ namespace astia::proc {
 
     using tid_t = u32;
 
+    inline constexpr i32 nice_minimum = -20;
+    inline constexpr i32 nice_maximum = 19;
+
     enum class thread_state : u8 {
         fresh,
         runnable,
@@ -90,7 +93,8 @@ namespace astia::proc {
             return nice_;
         }
         void nice(i32 value) {
-            nice_ = value < -20 ? -20 : value > 19 ? 19 : value;
+            nice_ = value < nice_minimum ? nice_minimum
+                                         : value > nice_maximum ? nice_maximum : value;
         }
         u8 rt_priority() const {
             return rt_priority_;

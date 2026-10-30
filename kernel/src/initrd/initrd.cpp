@@ -16,8 +16,8 @@ namespace astia::initrd {
         constexpr usize off_size     = 124;
         constexpr usize off_typeflag = 156;
         constexpr usize off_magic    = 257;
-        constexpr usize name_len     = 100;
-        constexpr usize size_len     = 12;
+        constexpr usize name_len     = name_field_size;
+        constexpr usize size_len     = size_field_size;
 
         // typeflag values we care about.
         constexpr char type_regular     = '0';
@@ -33,10 +33,14 @@ namespace astia::initrd {
 
         // True if `p` begins with the five-byte ustar magic. Both POSIX and GNU
         // spell it "ustar"; the bytes that follow differ (" \0" vs "\0 "), so we
-        // compare exactly five rather than treating it as a C string.
+        // compare exactly the five-byte marker rather than treating it as a C string.
         bool has_ustar_magic(const u8* p) {
-            return p[0] == 'u' && p[1] == 's' && p[2] == 't' && p[3] == 'a' &&
-                   p[4] == 'r';
+            for (usize i = 0; i < ustar_magic_size; ++i) {
+                if (p[i] != static_cast<u8>(ustar_magic[i])) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         // True if [p, p+n) contains a NUL, i.e. a fixed field is terminated.
