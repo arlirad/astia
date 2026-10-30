@@ -199,6 +199,7 @@ namespace astia::sys {
             bool                     done     = false;
             bool                     resuming = false;
             bool                     control  = false;
+            bool                     socket_accept = false;
             bool                     readiness = false;
             u32                      poll_events = 0;
             bool                     recvfrom_address = false;
@@ -420,7 +421,14 @@ namespace astia::sys {
         io_outcome pump(parked_op& op, long& result) {
             for (;;) {
                 const usize ask = static_cast<usize>(op.request.length());
-                const long  n   = op.object->submit(op.request);
+                long n = 0;
+                if (op.socket_accept) {
+                    const auto* socket = op.object->backing()->unix_socket_capability();
+                    n = socket == nullptr ? -EOPNOTSUPP
+                                          : socket->accept(*op.object, op.request);
+                } else {
+                    n = op.object->submit(op.request);
+                }
                 if (op.control) {
                     if (n == 0 && !op.request.complete())
                         return io_outcome::parked;
@@ -470,7 +478,8 @@ namespace astia::sys {
         bool submit_request(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
                             const mm::shptr<fs::open_file>& object,
                             const sys::user_range* entries, u32 count,
-                            io_direction direction, bool control = false) {
+                            io_direction direction, bool control = false,
+                            bool socket_accept = false) {
             arch::interrupt_guard gate;
             parked_op*            p = nullptr;
             for (u32 i = 0; i < park_capacity; ++i) {
@@ -491,6 +500,7 @@ namespace astia::sys {
             p->object = object;
             p->moved  = 0;
             p->control = control;
+            p->socket_accept = socket_accept;
             p->recvfrom_address = s.op == OP_RECVFROM;
             p->recvfrom_address_user = p->recvfrom_address ? s.offset : 0;
 
@@ -527,7 +537,8 @@ namespace astia::sys {
             }
             if (p->recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
-                if (!fs::unix_recvfrom_address(*object, address) ||
+                const auto* socket = object->backing()->unix_socket_capability();
+                if (socket == nullptr || !socket->recvfrom_address(*object, address) ||
                     !sys::copy_out(sys::user_range::bytes(p->recvfrom_address_user,
                                                           sizeof address), &address))
                     result = -EFAULT;
@@ -570,7 +581,8 @@ namespace astia::sys {
             }
             if (op.recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
-                if (!fs::unix_recvfrom_address(*op.object, address) ||
+                const auto* socket = op.object->backing()->unix_socket_capability();
+                if (socket == nullptr || !socket->recvfrom_address(*op.object, address) ||
                     !sys::copy_out(sys::user_range::bytes(op.recvfrom_address_user,
                                                           sizeof address), &address))
                     result = -EFAULT;
@@ -699,11 +711,13 @@ namespace astia::sys {
                 if (s.op == OP_SENDTO) {
                     if (!sys::copy_in(&a, sys::user_range::bytes(s.offset, sizeof a)))
                         return cq_post_guarded(ring, s.user_data, -EFAULT);
-                    long rc = fs::unix_sendto(*object, &a);
+                    const auto* socket = object->backing()->unix_socket_capability();
+                    long rc = socket == nullptr ? -EOPNOTSUPP : socket->sendto(*object, &a);
                     if (rc < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
                 } else {
                     if (s.length == 0) return cq_post_guarded(ring, s.user_data, 0);
-                    long rc = fs::unix_recvfrom(*object);
+                    const auto* socket = object->backing()->unix_socket_capability();
+                    long rc = socket == nullptr ? -EOPNOTSUPP : socket->recvfrom(*object);
                     if (rc < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
                 }
                 sys::user_range range = sys::user_range::bytes(s.address, s.length);
@@ -1305,17 +1319,26 @@ namespace astia::sys {
                 auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
                 if(!sys::user_range_ok(sys::user_range::bytes(s.address,sizeof(astia_sockaddr)))) return cq_post_guarded(ring,s.user_data,-EFAULT);
                 astia_sockaddr a{}; if(!sys::copy_in(&a,sys::user_range::bytes(s.address,sizeof a))) return cq_post_guarded(ring,s.user_data,-EFAULT);
-                long rc=s.op==OP_BIND?fs::unix_bind(*object,a):fs::unix_connect(*object,a);
+                 const auto* socket = object->backing()->unix_socket_capability();
+                 long rc = socket == nullptr ? -EOPNOTSUPP
+                                             : (s.op == OP_BIND ? socket->bind(*object, a)
+                                                                 : socket->connect(*object, a));
                 return cq_post_guarded(ring,s.user_data,(i32)rc);
             }
             case OP_LISTEN: {
                 auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
-                return cq_post_guarded(ring,s.user_data,(i32)fs::unix_listen(*object,s.aux));
+                 const auto* socket = object->backing()->unix_socket_capability();
+                 return cq_post_guarded(ring, s.user_data,
+                                        static_cast<i32>(socket == nullptr
+                                                             ? -EOPNOTSUPP
+                                                             : socket->listen(*object, s.aux)));
             }
             case OP_ACCEPT: {
                 auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
+                if (object->backing()->unix_socket_capability() == nullptr)
+                    return cq_post_guarded(ring, s.user_data, -EOPNOTSUPP);
                 return submit_request(slot, ring, s, object, nullptr, 0,
-                                       io_direction::input, true);
+                                       io_direction::input, true, true);
             }
 
             case OP_POLL_ADD: {
@@ -1397,7 +1420,11 @@ namespace astia::sys {
             }
             case OP_SHUTDOWN: {
                 auto object=file_for(s.fd); if(!object) return cq_post_guarded(ring,s.user_data,-EBADF);
-                return cq_post_guarded(ring,s.user_data,(i32)fs::unix_shutdown(*object,s.op_flags));
+                 const auto* socket = object->backing()->unix_socket_capability();
+                 return cq_post_guarded(ring, s.user_data,
+                                        static_cast<i32>(socket == nullptr
+                                                             ? -EOPNOTSUPP
+                                                             : socket->shutdown(*object, s.op_flags)));
             }
 
             default:

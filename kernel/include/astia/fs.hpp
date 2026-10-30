@@ -19,6 +19,7 @@ namespace astia::fs {
 
     class mount;
     class file;
+    struct unix_socket_operations;
 
     enum class file_type : u32 {
         unknown = 0, fifo = 1, character = 2, directory = 4,
@@ -142,6 +143,9 @@ namespace astia::fs {
         /// default implementation advertises adapters for the legacy virtual
         /// methods, so old subclasses need not be changed.
         virtual const void*       capability(file_capability kind) const;
+        /// Kernel-internal typed hook for protocol-specific file operations.
+        /// This is deliberately separate from the generic file capabilities.
+        virtual const unix_socket_operations* unix_socket_capability() const;
     };
 
     // Kernel-internal capability dispatch.  These are deliberately separate

@@ -763,6 +763,10 @@ namespace astia::fs {
         return nullptr;
     }
 
+    const unix_socket_operations* file::unix_socket_capability() const {
+        return nullptr;
+    }
+
     open_file::~open_file() {
         if (_mount)
             _mount->release_open();
