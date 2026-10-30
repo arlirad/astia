@@ -1469,6 +1469,64 @@ namespace astia::sys {
                                      : socket->shutdown(*object, s.op_flags)));
         }
 
+        bool handle_ioctl(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
+            /* ioctl is a control-plane fence.  Do not consume this SQE
+               while an older read/write is parked: otherwise a batch
+               containing READ, IOCTL, READ could observe tty state out
+               of order.  Returning false leaves SQ head at IOCTL; the
+               wake-up path retries it after the parked operation posts. */
+            if (has_parked(slot))
+                return false;
+            // ioctl implementations expect a stable kernel object and
+            // may both read and write it.  Decode the ABI's typed
+            // requests here instead of passing a caller pointer into a
+            // device (which was both a TOCTOU and kernel-pointer bug).
+            usize expected = 0;
+            bool  input = false, output = false;
+            if (s.offset == TCGETS || s.offset == TCSETS || s.offset == TCSETSW ||
+                s.offset == TCSETSF) {
+                expected = sizeof(struct termios);
+                input    = s.offset != TCGETS;
+                output   = s.offset == TCGETS;
+            }
+            else if (s.offset == 0x5413 || s.offset == 0x5414) {
+                expected = 8;
+                input    = s.offset == 0x5414;
+                output   = s.offset == 0x5413;
+            }
+            else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {
+                expected = sizeof(i32);
+                input    = s.offset == TIOCSPGRP;
+                output   = s.offset == TIOCGPGRP;
+            }
+            else if (s.offset == TIOCSCTTY) {
+                expected = 0;
+            }
+            else {
+                return cq_post_guarded(ring, s.user_data, -ENOTTY);
+            }
+            if (s.length != expected ||
+                !sys::user_range_ok(sys::user_range::bytes(s.address, expected)))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            mm::shptr<fs::open_file> object = file_for(s.fd);
+            if (!object)
+                return cq_post_guarded(ring, s.user_data, -EBADF);
+            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
+            if (input && !sys::copy_in(ioctl_storage,
+                                       sys::user_range::bytes(s.address, expected)))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            long rc = object->ioctl(s.offset, ioctl_storage);
+            if (rc >= 0 && s.offset == TIOCSCTTY)
+                rc = proc::acquire_controlling_terminal(object->backing());
+            if (rc >= 0 && output &&
+                !sys::copy_out(sys::user_range::bytes(s.address, expected),
+                               ioctl_storage))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+        }
+
         bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             switch (s.op) {
             case OP_NOP:
@@ -1536,63 +1594,8 @@ namespace astia::sys {
             case OP_READDIR:
                 return handle_readdir(ring, s);
 
-            case OP_IOCTL: {
-                /* ioctl is a control-plane fence.  Do not consume this SQE
-                   while an older read/write is parked: otherwise a batch
-                   containing READ, IOCTL, READ could observe tty state out
-                   of order.  Returning false leaves SQ head at IOCTL; the
-                   wake-up path retries it after the parked operation posts. */
-                if (has_parked(slot))
-                    return false;
-                // ioctl implementations expect a stable kernel object and
-                // may both read and write it.  Decode the ABI's typed
-                // requests here instead of passing a caller pointer into a
-                // device (which was both a TOCTOU and kernel-pointer bug).
-                usize expected = 0;
-                bool  input = false, output = false;
-                if (s.offset == TCGETS || s.offset == TCSETS || s.offset == TCSETSW ||
-                    s.offset == TCSETSF) {
-                    expected = sizeof(struct termios);
-                    input    = s.offset != TCGETS;
-                    output   = s.offset == TCGETS;
-                }
-                else if (s.offset == 0x5413 || s.offset == 0x5414) {
-                    expected = 8;
-                    input    = s.offset == 0x5414;
-                    output   = s.offset == 0x5413;
-                }
-                else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {
-                    expected = sizeof(i32);
-                    input    = s.offset == TIOCSPGRP;
-                    output   = s.offset == TIOCGPGRP;
-                }
-                else if (s.offset == TIOCSCTTY) {
-                    expected = 0;
-                }
-                else {
-                    return cq_post_guarded(ring, s.user_data, -ENOTTY);
-                }
-                if (s.length != expected ||
-                    !sys::user_range_ok(sys::user_range::bytes(s.address, expected)))
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                mm::shptr<fs::open_file> object = file_for(s.fd);
-                if (!object)
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                __atomic_thread_fence(__ATOMIC_SEQ_CST);
-                alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
-                if (input && !sys::copy_in(ioctl_storage,
-                                           sys::user_range::bytes(s.address, expected)))
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                long rc = object->ioctl(s.offset, ioctl_storage);
-                if (rc >= 0 && s.offset == TIOCSCTTY)
-                    rc = proc::acquire_controlling_terminal(object->backing());
-                if (rc >= 0 && output &&
-                    !sys::copy_out(sys::user_range::bytes(s.address, expected),
-                                   ioctl_storage))
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                __atomic_thread_fence(__ATOMIC_SEQ_CST);
-                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-            }
+            case OP_IOCTL:
+                return handle_ioctl(slot, ring, s);
 
             case OP_PIPE:
                 return handle_pipe(ring, s);
