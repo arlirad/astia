@@ -56,9 +56,10 @@ static int decimal(const char* text, int* result) {
     unsigned value = 0;
     int      digit = 0;
     while (*text >= '0' && *text <= '9') {
-        value = value * 10u + (unsigned) (*text - '0');
-        if (value > SERVICE_RESTART_MAX)
+        unsigned next = (unsigned) (*text - '0');
+        if (value > (SERVICE_RESTART_MAX - next) / 10u)
             return -1;
+        value = value * 10u + next;
         ++text;
         digit = 1;
     }
@@ -162,8 +163,10 @@ static int start_service(struct service* service) {
     if (service->pid >= 0 && setpgid(service->pid, service->pid) < 0) {
         /* A child which exited in this small race is still reaped normally. */
         if (errno != ESRCH) {
-            service->last_error = errno;
+            int error = errno;
+            service->last_error = error;
             kill(service->pid, SIGTERM);
+            errno = error;
             return -1;
         }
     }
@@ -240,6 +243,8 @@ static int write_all(int fd, const void* data, size_t length) {
     const char* bytes = (const char*) data;
     while (length) {
         long written = write(fd, bytes, (unsigned long) length);
+        if (written < 0 && errno == EINTR)
+            continue;
         if (written <= 0)
             return -1;
         bytes += written;
@@ -274,7 +279,9 @@ static int control_helper(int listen_fd, int input, int output) {
                 continue;
             return 1;
         }
-        length = recv(client, request, sizeof request - 1, 0);
+        do {
+            length = recv(client, request, sizeof request - 1, 0);
+        } while (length < 0 && errno == EINTR);
         if (length <= 0 || length >= (long) sizeof request ||
             (request[length - 1] != '\n' && request[length - 1] != '\0')) {
             write_all(client, "ERR malformed request\n", 23);
@@ -329,6 +336,7 @@ int astia_daemon_run(const char* rc_path) {
             ++failures;
             continue;
         }
+        memset(&services[count], 0, sizeof services[count]);
         memcpy(services[count].line, line, n + 1);
         parsed = parse_line(&services[count]);
         if (parsed < 0) {

@@ -141,6 +141,7 @@ public:
         return count;
     }
     void attach(const mm::shptr<channel>& c, u32 s, unix_file* peer) { ch_=c; side_=s; peer_file_=peer; state_=state::connected; }
+    void detach_pending() { ch_ = {}; peer_file_ = nullptr; state_ = state::fresh; }
     state kind() const { return state_; }
     void make_listener(u32 b) { state_=state::listener; backlog_=b; }
     void mark_bound() { bound_=true; }
@@ -176,7 +177,7 @@ unix_file* find(const char* n){for(auto& e:names)if(e.used&&e.listener&&same(e.n
  long create_unix_socket(mm::shptr<open_file>& out, u32 type){if(type!=SOCK_STREAM&&type!=SOCK_DGRAM)return -EAFNOSUPPORT;auto f=mm::share<unix_file>(); if(!f)return -ENOMEM;if(type==SOCK_DGRAM)f->make_dgram();out=mm::share<open_file>(f,0); return out?0:-ENOMEM;}
  long unix_bind(open_file& o,const astia_sockaddr& a){auto* f=static_cast<unix_file*>(o.backing());char n[path_max];if(!f||!path(a,n))return -EINVAL;core::spinlock_guard g(names_lock);if(find(n))return -EADDRINUSE;for(auto&e:names)if(!e.used){e.used=true;e.listener=f;e.owner=&o;for(u32 i=0;i<path_max;++i){e.name[i]=n[i];if(!n[i])break;}f->set_bound_address(a);f->mark_bound();return 0;}return -ENFILE;}
 long unix_listen(open_file& o,u32 b){auto*f=static_cast<unix_file*>(o.backing());if(!f||f->kind()!=unix_file::state::fresh)return -EINVAL;f->make_listener(b>max_backlog?max_backlog:b?b:1);return 0;}
-  long unix_connect(open_file& o,const astia_sockaddr&a){auto*c=static_cast<unix_file*>(o.backing());char n[path_max];if(!c||!path(a,n))return -EINVAL;core::spinlock_guard g(names_lock);auto*l=find(n);if(!l)return -ECONNREFUSED;if(c->kind()==unix_file::state::dgram){if(l->kind()!=unix_file::state::dgram)return -ENOTSUP;for(auto&e:names)if(e.listener==l&&e.owner){auto owner=mm::share<open_file>(*e.owner);if(!owner)return -ENOMEM;c->set_dgram_target(owner);return 0;}return -ECONNREFUSED;}if(l->kind()!=unix_file::state::listener)return -ECONNREFUSED;auto ch=mm::share<channel>();auto s=mm::share<unix_file>();if(!ch||!s)return -ENOMEM;c->attach(ch,0,s.get());s->attach(ch,1,c);auto so=mm::share<open_file>(s,0);if(!so||!l->enqueue(so))return -ECONNREFUSED;return 0;}
+  long unix_connect(open_file& o,const astia_sockaddr&a){auto*c=static_cast<unix_file*>(o.backing());char n[path_max];if(!c||!path(a,n))return -EINVAL;core::spinlock_guard g(names_lock);auto*l=find(n);if(!l)return -ECONNREFUSED;if(c->kind()==unix_file::state::dgram){if(l->kind()!=unix_file::state::dgram)return -ENOTSUP;for(auto&e:names)if(e.listener==l&&e.owner){auto owner=mm::share<open_file>(*e.owner);if(!owner)return -ENOMEM;c->set_dgram_target(owner);return 0;}return -ECONNREFUSED;}if(l->kind()!=unix_file::state::listener)return -ECONNREFUSED;auto ch=mm::share<channel>();auto s=mm::share<unix_file>();if(!ch||!s)return -ENOMEM;c->attach(ch,0,s.get());s->attach(ch,1,c);auto so=mm::share<open_file>(s,0);if(!so||!l->enqueue(so)){c->detach_pending();return -ECONNREFUSED;}return 0;}
 long unix_accept(open_file&o,mm::shptr<open_file>&out){auto*l=static_cast<unix_file*>(o.backing());if(!l||l->kind()!=unix_file::state::listener)return -EINVAL;out=l->dequeue();return out?0:0;}
 long unix_socketpair(mm::shptr<open_file>& left, mm::shptr<open_file>& right, u32 type) {
     if (type != SOCK_STREAM) return -EAFNOSUPPORT;
@@ -184,8 +185,12 @@ long unix_socketpair(mm::shptr<open_file>& left, mm::shptr<open_file>& right, u3
     if (!ch || !a || !b) return -ENOMEM;
     a->attach(ch,0,b.get()); b->attach(ch,1,a.get());
     left=mm::share<open_file>(a,0); right=mm::share<open_file>(b,0);
-    return left && right ? 0 : -ENOMEM;
-}
+     if (left && right)
+         return 0;
+     left = {};
+     right = {};
+     return -ENOMEM;
+ }
  long unix_shutdown(open_file& o, u32 how) { auto* f=static_cast<unix_file*>(o.backing()); return f ? f->shutdown(how) : -EBADF; }
  long unix_sendto(open_file& o,const astia_sockaddr* a){auto*f=static_cast<unix_file*>(o.backing());if(!f||f->kind()!=unix_file::state::dgram)return -EOPNOTSUPP;char n[path_max];if(!a||!path(*a,n))return -EINVAL;auto*t=find(n);if(!t||t->kind()!=unix_file::state::dgram)return -ECONNREFUSED;for(auto&e:names)if(e.listener==t&&e.owner){auto owner=mm::share<open_file>(*e.owner);if(!owner)return -ENOMEM;f->set_dgram_target(owner);return 0;}return -ECONNREFUSED;}
  long unix_recvfrom(open_file& o){auto*f=static_cast<unix_file*>(o.backing());if(!f||f->kind()!=unix_file::state::dgram)return -EOPNOTSUPP;f->set_dgram_address();return 0;}

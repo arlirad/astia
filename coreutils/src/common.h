@@ -19,6 +19,8 @@ static int cu_write_all(int fd, const void* data, size_t length) {
     const char* bytes = (const char*) data;
     while (length != 0) {
         long written = write(fd, bytes, (unsigned long) length);
+        if (written < 0 && errno == EINTR)
+            continue;
         if (written <= 0)
             return -1;
         bytes += written;

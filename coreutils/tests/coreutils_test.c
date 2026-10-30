@@ -18,8 +18,12 @@ static int fail(const char* what) {
 
 static int put_file(const char* path, const char* text) {
     FILE* file = fopen(path, "w");
-    if (file == NULL || fwrite(text, 1, strlen(text), file) != strlen(text))
+    if (file == NULL)
         return -1;
+    if (fwrite(text, 1, strlen(text), file) != strlen(text)) {
+        fclose(file);
+        return -1;
+    }
     return fclose(file);
 }
 
@@ -37,10 +41,16 @@ static int file_equals(const char* path, const char* expected) {
     FILE* file = fopen(path, "r");
     char buffer[512];
     size_t length = strlen(expected);
-    if (file == NULL || length >= sizeof buffer || fread(buffer, 1, length, file) != length)
+    if (file == NULL)
         return 0;
+    if (length >= sizeof buffer || fread(buffer, 1, length, file) != length) {
+        fclose(file);
+        return 0;
+    }
     buffer[length] = '\0';
-    return strcmp(buffer, expected) == 0;
+    int equal = strcmp(buffer, expected) == 0;
+    fclose(file);
+    return equal;
 }
 
 static int credential_checks(void) {
@@ -90,8 +100,12 @@ static int run(const char* name, char* const argv[], const char* input,
         if (put_file("/tmp/coreutils_stdin", input) != 0)
             return -1;
         int fd = open("/tmp/coreutils_stdin", O_RDONLY);
-        if (fd < 0 || dup2(fd, 0) < 0)
+        if (fd < 0)
             return -1;
+        if (dup2(fd, 0) < 0) {
+            close(fd);
+            return -1;
+        }
         close(fd);
     }
     char path[64];
@@ -104,8 +118,11 @@ static int run(const char* name, char* const argv[], const char* input,
     if (expected_output != NULL) {
         saved_stdout = dup(1);
         output_fd = open("/tmp/coreutils_stdout", O_WRONLY | O_CREAT | O_TRUNC, 0600);
-        if (saved_stdout < 0 || output_fd < 0 || dup2(output_fd, 1) < 0)
+        if (saved_stdout < 0 || output_fd < 0 || dup2(output_fd, 1) < 0) {
+            if (output_fd >= 0) close(output_fd);
+            if (saved_stdout >= 0) close(saved_stdout);
             return -1;
+        }
         close(output_fd);
     }
     char* const envp[] = {"PATH=/bin", "COREUTILS_TEST=present", NULL};

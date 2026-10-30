@@ -724,14 +724,45 @@ namespace astia::proc {
             if (!address_space_->map_4k(stack_base + u64{i} * 4096, frames[i],
                                         arch::page_flags::present |
                                             arch::page_flags::writable |
-                                            arch::page_flags::user))
+                                            arch::page_flags::user)) {
+                // map_4k may have allocated intermediate page tables, but the
+                // leaf frames are still ours.  Do not strand the whole run on
+                // a partial stack construction failure.
+                for (u32 done = 0; done < i; ++done)
+                    address_space_->unmap(stack_base + u64{done} * 4096);
+                mm::kernel_frames().release(run, stack_pages);
+                if (caller_map != nullptr)
+                    caller_map->activate();
+                else
+                    arch::kernel_page_map()->activate();
                 return false;
+            }
         }
         auto* region = mm::phys_region::adopt(run, stack_pages);
-        if (region == nullptr ||
-            !register_mapping(stack_base, stack_pages,
-                              map_protection::read | map_protection::write, region))
+        if (region == nullptr) {
+            // adopt() does not own the frame run when allocation of its
+            // bookkeeping fails.
+            for (u32 done = 0; done < stack_pages; ++done)
+                address_space_->unmap(stack_base + u64{done} * 4096);
+            mm::kernel_frames().release(run, stack_pages);
+            if (caller_map != nullptr)
+                caller_map->activate();
+            else
+                arch::kernel_page_map()->activate();
             return false;
+        }
+        if (!register_mapping(stack_base, stack_pages,
+                              map_protection::read | map_protection::write, region)) {
+            // register_mapping adopts the region only on success.
+            region->release_ref();
+            for (u32 done = 0; done < stack_pages; ++done)
+                address_space_->unmap(stack_base + u64{done} * 4096);
+            if (caller_map != nullptr)
+                caller_map->activate();
+            else
+                arch::kernel_page_map()->activate();
+            return false;
+        }
         const char* argv_list[max_spawn_args]{};
         const char* envp_list[max_spawn_env]{};
         u32         argc = 0, envc = 0;

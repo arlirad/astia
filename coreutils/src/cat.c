@@ -40,7 +40,8 @@ int main(int argc, char** argv) {
             continue;
         }
         status |= copy_fd(fd, path);
-        close(fd);
+        if (close(fd) < 0)
+            status |= cu_error("cat", path);
     }
     return status;
 }

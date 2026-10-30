@@ -39,9 +39,13 @@ namespace astia::proc {
         if (fd.value < 0 || static_cast<u32>(fd.value) >= max_process_fds) {
             return false;
         }
-        core::spinlock_guard guard(lock_);
-        entries_[fd.value].file = file;
-        entries_[fd.value].flags = flags;
+        mm::shptr<fs::open_file> old;
+        {
+            core::spinlock_guard guard(lock_);
+            old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd.value].file);
+            entries_[fd.value].file = file;
+            entries_[fd.value].flags = flags;
+        }
         return true;
     }
 
@@ -49,9 +53,12 @@ namespace astia::proc {
         if (fd.value < 0 || static_cast<u32>(fd.value) >= max_process_fds) {
             return false;
         }
-        core::spinlock_guard guard(lock_);
-        entries_[fd.value].file = {};
-        entries_[fd.value].flags = 0;
+        mm::shptr<fs::open_file> old;
+        {
+            core::spinlock_guard guard(lock_);
+            old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd.value].file);
+            entries_[fd.value].flags = 0;
+        }
         return true;
     }
 

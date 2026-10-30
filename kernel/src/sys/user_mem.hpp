@@ -193,6 +193,12 @@ namespace astia::sys {
     /// so that much is the caller's own promise).  Returns false, writing
     /// nothing, if the range fails validation.
     inline bool copy_out(user_range destination, const void* source) {
+        // Besides avoiding a meaningless source dereference, this keeps the
+        // page walk below from turning an empty range into address-1.  Empty
+        // optional output slots are valid and must be a no-op.
+        if (destination.empty()) {
+            return true;
+        }
         if (!user_range_ok(destination)) {
             return false;
         }

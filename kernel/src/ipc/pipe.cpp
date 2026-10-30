@@ -121,6 +121,13 @@ namespace astia::fs {
             return -ENOMEM;
         read_end  = mm::share<open_file>(object, 1u << 31);
         write_end = mm::share<open_file>(object, 1u << 30);
-        return read_end && write_end ? 0 : -ENOMEM;
+        if (read_end && write_end)
+            return 0;
+        // Do not leave callers with a usable-looking half of a pipe after
+        // an allocation failure.  In particular, the syscall layer cannot
+        // install both descriptors atomically from a partial result.
+        read_end  = {};
+        write_end = {};
+        return -ENOMEM;
     }
 }

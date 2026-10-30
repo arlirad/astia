@@ -90,8 +90,8 @@ static int copy_one(const char* source, const char* destination, mode_t mode) {
         return cu_error("cp", destination);
     }
     status = copy_fd(input, output, source);
-    close(input);
-    close(output);
+    if (close(input) < 0 || close(output) < 0)
+        status = cu_error("cp", source);
     return status;
 }
 
