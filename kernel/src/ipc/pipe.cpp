@@ -105,8 +105,6 @@ namespace astia::fs {
                 return result;
             }
 
-            const void* capability(file_capability kind) const override;
-
             private:
             u32 head_ = 0;
             u32 tail_ = 0;
@@ -116,33 +114,6 @@ namespace astia::fs {
             u32 writers_;
         };
 
-        long pipe_read(file* object, void* buffer, u32 length, u64 offset) {
-            return static_cast<pipe_file*>(object)->read(buffer, length, offset);
-        }
-        long pipe_write(file* object, const void* buffer, u32 length, u64 offset) {
-            return static_cast<pipe_file*>(object)->write(buffer, length, offset);
-        }
-        long pipe_submit(file* object, io_request& request) {
-            return static_cast<pipe_file*>(object)->submit(request);
-        }
-        u32 pipe_poll(const file* object, u32 events, u32 flags) {
-            return const_cast<pipe_file*>(static_cast<const pipe_file*>(object))->poll(events, flags);
-        }
-
-        const file_read_capability pipe_read_capability{pipe_read};
-        const file_write_capability pipe_write_capability{pipe_write};
-        const file_submit_capability pipe_submit_capability{pipe_submit};
-        const file_poll_capability pipe_poll_capability{pipe_poll};
-
-        const void* pipe_file::capability(file_capability kind) const {
-            switch (kind) {
-                case file_capability::read:   return &pipe_read_capability;
-                case file_capability::write:  return &pipe_write_capability;
-                case file_capability::submit: return &pipe_submit_capability;
-                case file_capability::poll:   return &pipe_poll_capability;
-                default:                      return file::capability(kind);
-            }
-        }
     }
 
     long create_pipe(mm::shptr<open_file>& read_end, mm::shptr<open_file>& write_end) {
