@@ -707,328 +707,179 @@ namespace astia::sys {
                                   direction);
         }
 
-        bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            switch (s.op) {
-            case OP_NOP:
-                return cq_post_guarded(ring, s.user_data, 0);
-
-            case OP_READ:
-            case OP_WRITE:
-            case OP_SEND:
-            case OP_RECV:
-            case OP_READV:
-            case OP_WRITEV: {
-                dispatch_context context{slot, ring, s, proc::current_process()};
-                return dispatch_io(context);
-            }
-
-            case OP_SENDTO:
-            case OP_RECVFROM: {
-                mm::shptr<fs::open_file> object = file_for(s.fd);
-                if (!object)
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                if (!sys::user_range_ok(sys::user_range::bytes(s.address, s.length)) ||
-                    !sys::user_range_ok(
-                        sys::user_range::bytes(s.offset, sizeof(astia_sockaddr))))
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                if (s.length > max_operation_bytes)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                astia_sockaddr a{};
-                if (s.op == OP_SENDTO) {
-                    if (!sys::copy_in(&a, sys::user_range::bytes(s.offset, sizeof a)))
-                        return cq_post_guarded(ring, s.user_data, -EFAULT);
-                    const auto* socket = object->backing()->unix_socket_capability();
-                    long        rc =
-                        socket == nullptr ? -EOPNOTSUPP : socket->sendto(*object, &a);
-                    if (rc < 0)
-                        return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-                }
-                else {
-                    if (s.length == 0)
-                        return cq_post_guarded(ring, s.user_data, 0);
-                    const auto* socket = object->backing()->unix_socket_capability();
-                    long rc = socket == nullptr ? -EOPNOTSUPP : socket->recvfrom(*object);
-                    if (rc < 0)
-                        return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-                }
-                sys::user_range range = sys::user_range::bytes(s.address, s.length);
-                return submit_request(slot, ring, s, object, &range, 1,
-                                      s.op == OP_RECVFROM ? io_direction::input
-                                                          : io_direction::output);
-            }
-
-            case OP_OPENAT: {
-                // The pathname is user memory: copy it into the kernel
-                // rather than letting the VFS walk a raw user pointer.
-                char path[256];
-                if (!sys::copy_in_string(path, sizeof path,
-                                         sys::user_range::string(s.address))) {
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                }
-                auto* current = proc::current_process();
-                char  resolved[256];
-                if (current == nullptr)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                long resolve_rc = resolve_at(current, s.fd == -1 ? AT_FDCWD : s.fd, path,
-                                             resolved, sizeof resolved);
-                if (resolve_rc >= 0)
-                    resolve_rc =
-                        fs::resolve_path(resolved, resolved, sizeof resolved, true);
-                if (resolve_rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
-                if (resolved[0] == '/' && resolved[1] == 'd' && resolved[2] == 'e' &&
-                    resolved[3] == 'v' && resolved[4] == '/' && resolved[5] == 't' &&
-                    resolved[6] == 't' && resolved[7] == 'y' && resolved[8] == '\0' &&
-                    !proc::has_controlling_terminal())
-                    return cq_post_guarded(ring, s.user_data, -ENXIO);
-                const fs::file_mode existing_mode = fs::node_mode(resolved);
-                if (existing_mode.exists() && existing_mode.is_directory() &&
-                    (s.op_flags & O_DIRECTORY) == 0)
-                    return cq_post_guarded(ring, s.user_data, -EISDIR);
-                if (existing_mode.exists() && !existing_mode.is_directory() &&
-                    (s.op_flags & O_DIRECTORY) != 0)
-                    return cq_post_guarded(ring, s.user_data, -ENOTDIR);
-                if (!existing_mode.exists() && (s.op_flags & 0x04u) == 0)
-                    return cq_post_guarded(ring, s.user_data, -ENOENT);
-                if (existing_mode.exists()) {
-                    auto*       cred  = proc::current_process();
-                    const uid_t owner = fs::node_uid(resolved);
-                    const gid_t group = fs::node_gid(resolved);
-                    if ((s.op_flags & 2u) != 0 &&
-                        !cred->can_access(existing_mode, owner, group,
-                                          fs::permission_bits::write))
-                        return cq_post_guarded(ring, s.user_data, -EACCES);
-                    if ((s.op_flags & 1u) == 0 &&
-                        !cred->can_access(existing_mode, owner, group,
-                                          fs::permission_bits::read))
-                        return cq_post_guarded(ring, s.user_data, -EACCES);
-                }
-                // op_flags carries O_*; aux is the creation mode.  The
-                // VFS needs the former to implement O_CREAT/O_TRUNC on
-                // writable filesystems, while mode remains metadata for
-                // a future permission layer.
-                mm::shptr<fs::open_file> object = existing_mode.is_directory()
-                                                      ? fs::open_directory(resolved)
-                                                      : fs::open(resolved, s.op_flags);
-                if (!object) {
-                    return cq_post_guarded(ring, s.user_data, -ENOENT);
-                }
-                /* The VFS open seam predates creation metadata.  Apply the
-                   requested mode only when this OPENAT created a new node;
-                   an O_CREAT open of an existing node must not chmod it. */
-                if ((s.op_flags & 0x04u) != 0 && !existing_mode.exists()) {
-                    auto requested =
-                        mapper<fs::file_permissions>::from(s.aux == 0 ? 0666 : s.aux);
-                    if (!requested.has_value)
-                        return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    (void) fs::chmod_path(resolved, requested.value);
-                    (void) fs::chown_path(resolved, uid_t{current->uid()},
-                                          gid_t{current->gid()});
-                }
-                current = proc::current_process();
-                if (current == nullptr) {
-                    return cq_post_guarded(ring, s.user_data, -ESRCH);
-                }
-                // open(2) returns the lowest available descriptor.  The
-                // standard streams normally occupy 0..2, but callers may
-                // close one before opening a replacement (zsh does this
-                // for an asynchronous child and expects /dev/null at fd 0).
-                for (i32 i = 0; i < static_cast<i32>(proc::max_process_fds); ++i) {
-                    if (!current->descriptor(fd_t{i}) &&
-                        current->set_descriptor(
-                            fd_t{i}, object, (s.op_flags & O_CLOEXEC) != 0 ? 1u : 0u)) {
-                        return cq_post_guarded(ring, s.user_data, i);
-                    }
-                }
-                return cq_post_guarded(ring, s.user_data, -EMFILE);
-            }
-
-            case OP_CLOSE: {
-                proc::process* current = proc::current_process();
-                auto           mapped  = mapper<fd_t>::from(s.fd);
-                if (current == nullptr || !mapped.has_value ||
-                    !current->descriptor(mapped.value)) {
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                }
-                current->clear_descriptor(mapped.value);
-                return cq_post_guarded(ring, s.user_data, 0);
-            }
-
-            case OP_MKDIRAT:
-            case OP_UNLINKAT: {
-                char path[256];
-                if (!sys::copy_in_string(path, sizeof path,
-                                         sys::user_range::string(s.address)))
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                auto* current = proc::current_process();
-                char  resolved[256];
-                if (current == nullptr)
-                    return cq_post_guarded(ring, s.user_data, -ESRCH);
-                long resolve_rc =
-                    resolve_at(current, s.fd, path, resolved, sizeof resolved);
-                if (resolve_rc >= 0)
-                    resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
-                                                  s.op == OP_MKDIRAT);
-                if (resolve_rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
-                auto requested = mapper<fs::file_mode>::from(s.aux == 0 ? 0777 : s.aux);
-                if (s.op == OP_MKDIRAT && !requested.has_value)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                const long rc =
-                    s.op == OP_MKDIRAT
-                        ? fs::make_directory(resolved, requested.value)
-                        : fs::remove_path(resolved,
-                                          (s.op_flags & UNLINKAT_REMOVEDIR) != 0);
-                if (rc >= 0 && s.op == OP_MKDIRAT)
-                    (void) fs::chown_path(resolved, uid_t{current->uid()},
-                                          gid_t{current->gid()});
-                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-            }
-
-            case OP_RENAMEAT: {
-                char old_path[256];
-                char new_path[256];
-                if (!sys::copy_in_string(old_path, sizeof old_path,
-                                         sys::user_range::string(s.address)) ||
-                    !sys::copy_in_string(new_path, sizeof new_path,
-                                         sys::user_range::string(s.offset)))
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                auto* current = proc::current_process();
-                char  old_resolved[256];
-                char  new_resolved[256];
-                if (current == nullptr)
-                    return cq_post_guarded(ring, s.user_data, -ESRCH);
-                long old_rc    = resolve_at(current, s.fd, old_path, old_resolved,
-                                            sizeof old_resolved);
-                i32  new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
-                long new_rc    = resolve_at(current, new_dirfd, new_path, new_resolved,
-                                            sizeof new_resolved);
-                if (old_rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) old_rc);
-                if (new_rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) new_rc);
-                if (!parent_writable(current, old_resolved) ||
-                    !parent_writable(current, new_resolved))
+        bool handle_openat(astia_rings* ring, const astia_sqe& s) {
+            // The pathname is user memory: copy it into the kernel rather
+            // than letting the VFS walk a raw user pointer.
+            char path[256];
+            if (!sys::copy_in_string(path, sizeof path,
+                                     sys::user_range::string(s.address)))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            auto* current = proc::current_process();
+            char  resolved[256];
+            if (current == nullptr)
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            long resolve_rc = resolve_at(current, s.fd == -1 ? AT_FDCWD : s.fd, path,
+                                         resolved, sizeof resolved);
+            if (resolve_rc >= 0)
+                resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
+            if (resolve_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+            if (resolved[0] == '/' && resolved[1] == 'd' && resolved[2] == 'e' &&
+                resolved[3] == 'v' && resolved[4] == '/' && resolved[5] == 't' &&
+                resolved[6] == 't' && resolved[7] == 'y' && resolved[8] == '\0' &&
+                !proc::has_controlling_terminal())
+                return cq_post_guarded(ring, s.user_data, -ENXIO);
+            const fs::file_mode existing_mode = fs::node_mode(resolved);
+            if (existing_mode.exists() && existing_mode.is_directory() &&
+                (s.op_flags & O_DIRECTORY) == 0)
+                return cq_post_guarded(ring, s.user_data, -EISDIR);
+            if (existing_mode.exists() && !existing_mode.is_directory() &&
+                (s.op_flags & O_DIRECTORY) != 0)
+                return cq_post_guarded(ring, s.user_data, -ENOTDIR);
+            if (!existing_mode.exists() && (s.op_flags & 0x04u) == 0)
+                return cq_post_guarded(ring, s.user_data, -ENOENT);
+            if (existing_mode.exists()) {
+                auto*       cred  = proc::current_process();
+                const uid_t owner = fs::node_uid(resolved);
+                const gid_t group = fs::node_gid(resolved);
+                if ((s.op_flags & 2u) != 0 &&
+                    !cred->can_access(existing_mode, owner, group,
+                                      fs::permission_bits::write))
                     return cq_post_guarded(ring, s.user_data, -EACCES);
-                const long rc = fs::rename_path(old_resolved, new_resolved);
-                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-            }
-
-            case OP_LINKAT: {
-                char old_path[256], new_path[256];
-                if (!sys::copy_in_string(old_path, sizeof old_path,
-                                         sys::user_range::string(s.address)) ||
-                    !sys::copy_in_string(new_path, sizeof new_path,
-                                         sys::user_range::string(s.offset)))
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                auto* current = proc::current_process();
-                if (current == nullptr)
-                    return cq_post_guarded(ring, s.user_data, -ESRCH);
-                char old_resolved[256], new_resolved[256];
-                long old_rc    = resolve_at(current, s.fd, old_path, old_resolved,
-                                            sizeof old_resolved);
-                i32  new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
-                long new_rc    = resolve_at(current, new_dirfd, new_path, new_resolved,
-                                            sizeof new_resolved);
-                if (old_rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) old_rc);
-                if (new_rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) new_rc);
-                old_rc = fs::resolve_path(old_resolved, old_resolved, sizeof old_resolved,
-                                          true);
-                new_rc = fs::resolve_path(new_resolved, new_resolved, sizeof new_resolved,
-                                          false);
-                if (old_rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) old_rc);
-                if (new_rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) new_rc);
-                if (!parent_writable(current, old_resolved) ||
-                    !parent_writable(current, new_resolved))
+                if ((s.op_flags & 1u) == 0 &&
+                    !cred->can_access(existing_mode, owner, group,
+                                      fs::permission_bits::read))
                     return cq_post_guarded(ring, s.user_data, -EACCES);
-                return cq_post_guarded(ring, s.user_data,
-                                       (i32) fs::link_path(old_resolved, new_resolved));
             }
-
-            case OP_DUP: {
-                proc::process*           current = proc::current_process();
-                mm::shptr<fs::open_file> source  = file_for(s.fd);
-                if (current == nullptr || !source) {
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                }
-                const auto fd =
-                    current->duplicate_descriptor(mapper<fd_t>::from(s.fd).value);
-                return cq_post_guarded(ring, s.user_data,
-                                       fd ? static_cast<i64>(fd.value.value) : -EMFILE);
-            }
-
-            case OP_DUP2: {
-                proc::process* current = proc::current_process();
-                auto           old_fd  = mapper<fd_t>::from(s.fd);
-                auto           new_fd  = mapper<fd_t>::from(static_cast<i64>(s.offset));
-                if (current == nullptr || !old_fd.has_value || !new_fd.has_value ||
-                    !current->descriptor(old_fd.value)) {
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                }
-                const i32 target = new_fd.value.value;
-                if (target != s.fd) {
-                    const auto result =
-                        current->duplicate_descriptor_to(old_fd.value, new_fd.value);
-                    if (!result)
-                        return cq_post_guarded(ring, s.user_data, -EMFILE);
-                }
-                return cq_post_guarded(ring, s.user_data, target);
-            }
-
-            case OP_FCNTL: {
-                proc::process* current = proc::current_process();
-                auto           mapped  = mapper<fd_t>::from(s.fd);
-                if (current == nullptr || !mapped.has_value ||
-                    !current->descriptor(mapped.value))
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                const u32 argument = s.aux;
-                switch (s.op_flags) {
-                case ASTIA_F_DUPFD:
-                case ASTIA_F_DUPFD_CLOEXEC: {
-                    if (static_cast<i32>(argument) < 0)
-                        return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    const u32 flags =
-                        s.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
-                    const auto result = current->duplicate_descriptor(
-                        mapped.value, fd_t{static_cast<i32>(argument)}, flags);
-                    return cq_post_guarded(ring, s.user_data,
-                                           result ? result.value.value : -EMFILE);
-                }
-                case ASTIA_F_GETFD:
-                    return cq_post_guarded(
-                        ring, s.user_data,
-                        static_cast<i32>(current->descriptor_flags(mapped.value)));
-                case ASTIA_F_SETFD:
-                    if ((argument & ~ASTIA_FD_CLOEXEC) != 0)
-                        return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    if (!current->set_descriptor_flags(mapped.value, argument))
-                        return cq_post_guarded(ring, s.user_data, -EBADF);
-                    return cq_post_guarded(ring, s.user_data, 0);
-                case ASTIA_F_GETFL: {
-                    const u32 flags  = current->descriptor(mapped.value)->flags();
-                    u32       result = (flags & 3u) == 2u ? 2u : ((flags & 1u) ? 1u : 0u);
-                    if (flags & 0x20u)
-                        result |= ASTIA_O_APPEND;
-                    if (flags & 0x100u)
-                        result |= ASTIA_O_NONBLOCK;
-                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(result));
-                }
-                case ASTIA_F_SETFL: {
-                    auto object = current->descriptor(mapped.value);
-                    object->set_status_flags((argument & ASTIA_O_APPEND ? 0x20u : 0u) |
-                                             (argument & ASTIA_O_NONBLOCK ? 0x100u : 0u));
-                    return cq_post_guarded(ring, s.user_data, 0);
-                }
-                default:
+            mm::shptr<fs::open_file> object = existing_mode.is_directory()
+                                                  ? fs::open_directory(resolved)
+                                                  : fs::open(resolved, s.op_flags);
+            if (!object)
+                return cq_post_guarded(ring, s.user_data, -ENOENT);
+            if ((s.op_flags & 0x04u) != 0 && !existing_mode.exists()) {
+                auto requested =
+                    mapper<fs::file_permissions>::from(s.aux == 0 ? 0666 : s.aux);
+                if (!requested.has_value)
                     return cq_post_guarded(ring, s.user_data, -EINVAL);
-                }
+                (void) fs::chmod_path(resolved, requested.value);
+                (void) fs::chown_path(resolved, uid_t{current->uid()},
+                                      gid_t{current->gid()});
             }
+            current = proc::current_process();
+            if (current == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ESRCH);
+            for (i32 i = 0; i < static_cast<i32>(proc::max_process_fds); ++i) {
+                if (!current->descriptor(fd_t{i}) &&
+                    current->set_descriptor(fd_t{i}, object,
+                                            (s.op_flags & O_CLOEXEC) != 0 ? 1u : 0u))
+                    return cq_post_guarded(ring, s.user_data, i);
+            }
+            return cq_post_guarded(ring, s.user_data, -EMFILE);
+        }
 
-            case OP_STATX: {
+        bool handle_mkdirat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
+            char path[256];
+            if (!sys::copy_in_string(path, sizeof path,
+                                     sys::user_range::string(s.address)))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            auto* current = proc::current_process();
+            char  resolved[256];
+            if (current == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ESRCH);
+            long resolve_rc = resolve_at(current, s.fd, path, resolved, sizeof resolved);
+            if (resolve_rc >= 0)
+                resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
+                                              true);
+            if (resolve_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+            auto requested = mapper<fs::file_mode>::from(s.aux == 0 ? 0777 : s.aux);
+            if (!requested.has_value)
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            const long rc = fs::make_directory(resolved, requested.value);
+            if (rc >= 0)
+                (void) fs::chown_path(resolved, uid_t{current->uid()},
+                                      gid_t{current->gid()});
+            return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+        }
+
+        bool handle_unlinkat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
+            char path[256];
+            if (!sys::copy_in_string(path, sizeof path,
+                                     sys::user_range::string(s.address)))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            auto* current = proc::current_process();
+            char  resolved[256];
+            if (current == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ESRCH);
+            long resolve_rc = resolve_at(current, s.fd, path, resolved, sizeof resolved);
+            if (resolve_rc >= 0)
+                resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, false);
+            if (resolve_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+            const long rc = fs::remove_path(resolved,
+                                            (s.op_flags & UNLINKAT_REMOVEDIR) != 0);
+            return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+        }
+
+        bool handle_renameat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
+            char old_path[256], new_path[256];
+            if (!sys::copy_in_string(old_path, sizeof old_path,
+                                     sys::user_range::string(s.address)) ||
+                !sys::copy_in_string(new_path, sizeof new_path,
+                                     sys::user_range::string(s.offset)))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            auto* current = proc::current_process();
+            char old_resolved[256], new_resolved[256];
+            if (current == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ESRCH);
+            long old_rc = resolve_at(current, s.fd, old_path, old_resolved, sizeof old_resolved);
+            i32 new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
+            long new_rc = resolve_at(current, new_dirfd, new_path, new_resolved,
+                                     sizeof new_resolved);
+            if (old_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) old_rc);
+            if (new_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) new_rc);
+            if (!parent_writable(current, old_resolved) ||
+                !parent_writable(current, new_resolved))
+                return cq_post_guarded(ring, s.user_data, -EACCES);
+            return cq_post_guarded(ring, s.user_data,
+                                   static_cast<i32>(fs::rename_path(old_resolved, new_resolved)));
+        }
+
+        bool handle_linkat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
+            char old_path[256], new_path[256];
+            if (!sys::copy_in_string(old_path, sizeof old_path,
+                                     sys::user_range::string(s.address)) ||
+                !sys::copy_in_string(new_path, sizeof new_path,
+                                     sys::user_range::string(s.offset)))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            auto* current = proc::current_process();
+            if (current == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ESRCH);
+            char old_resolved[256], new_resolved[256];
+            long old_rc = resolve_at(current, s.fd, old_path, old_resolved, sizeof old_resolved);
+            i32 new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
+            long new_rc = resolve_at(current, new_dirfd, new_path, new_resolved,
+                                     sizeof new_resolved);
+            if (old_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) old_rc);
+            if (new_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) new_rc);
+            old_rc = fs::resolve_path(old_resolved, old_resolved, sizeof old_resolved, true);
+            new_rc = fs::resolve_path(new_resolved, new_resolved, sizeof new_resolved, false);
+            if (old_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) old_rc);
+            if (new_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) new_rc);
+            if (!parent_writable(current, old_resolved) ||
+                !parent_writable(current, new_resolved))
+                return cq_post_guarded(ring, s.user_data, -EACCES);
+            return cq_post_guarded(ring, s.user_data,
+                                   static_cast<i32>(fs::link_path(old_resolved, new_resolved)));
+        }
+
+        bool handle_statx(astia_rings* ring, const astia_sqe& s) {
                 // Footnote ‡ of <astia/api/aio.h>: address NULL means fd is
                 // the stat target (fstat), otherwise address is a pathname
                 // and fd is the dirfd. The VFS still has one exact-path
@@ -1138,9 +989,10 @@ namespace astia::sys {
                 stat_out->mtime_sec  = object->mtime_sec();
                 stat_out->mtime_nsec = object->mtime_nsec();
                 return cq_post_guarded(ring, s.user_data, 0);
-            }
 
-            case OP_CHMOD: {
+        }
+
+        bool handle_chmod(astia_rings* ring, const astia_sqe& s) {
                 char path[256];
                 if (!sys::copy_in_string(path, sizeof path,
                                          sys::user_range::string(s.address)))
@@ -1159,9 +1011,10 @@ namespace astia::sys {
                 return cq_post_guarded(
                     ring, s.user_data,
                     static_cast<i32>(fs::chmod_path(resolved, requested.value)));
-            }
 
-            case OP_CHOWN: {
+        }
+
+        bool handle_chown(astia_rings* ring, const astia_sqe& s) {
                 auto* current = proc::current_process();
                 auto  owner   = mapper<uid_t>::from(static_cast<i64>(s.aux));
                 auto  group   = mapper<gid_t>::from(static_cast<i64>(s.offset));
@@ -1206,9 +1059,10 @@ namespace astia::sys {
                     ring, s.user_data,
                     static_cast<i32>(fs::chown_path(resolved, owner.value, group.value,
                                                     follow_final)));
-            }
 
-            case OP_UTIMENSAT: {
+        }
+
+        bool handle_utimensat(astia_rings* ring, const astia_sqe& s) {
                 char path[256];
                 if (!sys::copy_in_string(path, sizeof path,
                                          sys::user_range::string(s.address)))
@@ -1229,9 +1083,10 @@ namespace astia::sys {
                 return cq_post_guarded(
                     ring, s.user_data,
                     static_cast<i32>(fs::touch_path(resolved, sec, nsec)));
-            }
 
-            case OP_SYMLINKAT: {
+        }
+
+        bool handle_symlinkat(astia_rings* ring, const astia_sqe& s) {
                 char target[256], path[256];
                 if (!sys::copy_in_string(target, sizeof target,
                                          sys::user_range::string(s.address)) ||
@@ -1254,8 +1109,10 @@ namespace astia::sys {
                     (void) fs::chown_path(resolved, uid_t{current->uid()},
                                           gid_t{current->gid()}, false);
                 return cq_post_guarded(ring, s.user_data, (i32) link_rc);
-            }
-            case OP_READLINKAT: {
+
+        }
+
+        bool handle_readlinkat(astia_rings* ring, const astia_sqe& s) {
                 char path[256];
                 if (!sys::copy_in_string(path, sizeof path,
                                          sys::user_range::string(s.address)))
@@ -1288,9 +1145,10 @@ namespace astia::sys {
                         sys::user_range::bytes(s.offset, static_cast<usize>(n)), target))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 return cq_post_guarded(ring, s.user_data, (i32) n);
-            }
 
-            case OP_READDIR: {
+        }
+
+        bool handle_readdir(astia_rings* ring, const astia_sqe& s) {
                 char path[256];
                 if (!sys::copy_in_string(path, sizeof path,
                                          sys::user_range::string(s.offset)))
@@ -1323,7 +1181,183 @@ namespace astia::sys {
                 if (!sys::copy_out(out, &result))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+
+        }
+
+        bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
+            switch (s.op) {
+            case OP_NOP:
+                return cq_post_guarded(ring, s.user_data, 0);
+
+            case OP_READ:
+            case OP_WRITE:
+            case OP_SEND:
+            case OP_RECV:
+            case OP_READV:
+            case OP_WRITEV: {
+                dispatch_context context{slot, ring, s, proc::current_process()};
+                return dispatch_io(context);
             }
+
+            case OP_SENDTO:
+            case OP_RECVFROM: {
+                mm::shptr<fs::open_file> object = file_for(s.fd);
+                if (!object)
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                if (!sys::user_range_ok(sys::user_range::bytes(s.address, s.length)) ||
+                    !sys::user_range_ok(
+                        sys::user_range::bytes(s.offset, sizeof(astia_sockaddr))))
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                if (s.length > max_operation_bytes)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                astia_sockaddr a{};
+                if (s.op == OP_SENDTO) {
+                    if (!sys::copy_in(&a, sys::user_range::bytes(s.offset, sizeof a)))
+                        return cq_post_guarded(ring, s.user_data, -EFAULT);
+                    const auto* socket = object->backing()->unix_socket_capability();
+                    long        rc =
+                        socket == nullptr ? -EOPNOTSUPP : socket->sendto(*object, &a);
+                    if (rc < 0)
+                        return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+                }
+                else {
+                    if (s.length == 0)
+                        return cq_post_guarded(ring, s.user_data, 0);
+                    const auto* socket = object->backing()->unix_socket_capability();
+                    long rc = socket == nullptr ? -EOPNOTSUPP : socket->recvfrom(*object);
+                    if (rc < 0)
+                        return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+                }
+                sys::user_range range = sys::user_range::bytes(s.address, s.length);
+                return submit_request(slot, ring, s, object, &range, 1,
+                                      s.op == OP_RECVFROM ? io_direction::input
+                                                          : io_direction::output);
+            }
+
+            case OP_OPENAT:
+                return handle_openat(ring, s);
+
+            case OP_CLOSE: {
+                proc::process* current = proc::current_process();
+                auto           mapped  = mapper<fd_t>::from(s.fd);
+                if (current == nullptr || !mapped.has_value ||
+                    !current->descriptor(mapped.value)) {
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                }
+                current->clear_descriptor(mapped.value);
+                return cq_post_guarded(ring, s.user_data, 0);
+            }
+
+            case OP_MKDIRAT:
+                return handle_mkdirat(slot, ring, s);
+
+            case OP_UNLINKAT:
+                return handle_unlinkat(slot, ring, s);
+
+            case OP_RENAMEAT:
+                return handle_renameat(slot, ring, s);
+
+            case OP_LINKAT:
+                return handle_linkat(slot, ring, s);
+
+            case OP_DUP: {
+                proc::process*           current = proc::current_process();
+                mm::shptr<fs::open_file> source  = file_for(s.fd);
+                if (current == nullptr || !source) {
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                }
+                const auto fd =
+                    current->duplicate_descriptor(mapper<fd_t>::from(s.fd).value);
+                return cq_post_guarded(ring, s.user_data,
+                                       fd ? static_cast<i64>(fd.value.value) : -EMFILE);
+            }
+
+            case OP_DUP2: {
+                proc::process* current = proc::current_process();
+                auto           old_fd  = mapper<fd_t>::from(s.fd);
+                auto           new_fd  = mapper<fd_t>::from(static_cast<i64>(s.offset));
+                if (current == nullptr || !old_fd.has_value || !new_fd.has_value ||
+                    !current->descriptor(old_fd.value)) {
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                }
+                const i32 target = new_fd.value.value;
+                if (target != s.fd) {
+                    const auto result =
+                        current->duplicate_descriptor_to(old_fd.value, new_fd.value);
+                    if (!result)
+                        return cq_post_guarded(ring, s.user_data, -EMFILE);
+                }
+                return cq_post_guarded(ring, s.user_data, target);
+            }
+
+            case OP_FCNTL: {
+                proc::process* current = proc::current_process();
+                auto           mapped  = mapper<fd_t>::from(s.fd);
+                if (current == nullptr || !mapped.has_value ||
+                    !current->descriptor(mapped.value))
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                const u32 argument = s.aux;
+                switch (s.op_flags) {
+                case ASTIA_F_DUPFD:
+                case ASTIA_F_DUPFD_CLOEXEC: {
+                    if (static_cast<i32>(argument) < 0)
+                        return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    const u32 flags =
+                        s.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
+                    const auto result = current->duplicate_descriptor(
+                        mapped.value, fd_t{static_cast<i32>(argument)}, flags);
+                    return cq_post_guarded(ring, s.user_data,
+                                           result ? result.value.value : -EMFILE);
+                }
+                case ASTIA_F_GETFD:
+                    return cq_post_guarded(
+                        ring, s.user_data,
+                        static_cast<i32>(current->descriptor_flags(mapped.value)));
+                case ASTIA_F_SETFD:
+                    if ((argument & ~ASTIA_FD_CLOEXEC) != 0)
+                        return cq_post_guarded(ring, s.user_data, -EINVAL);
+                    if (!current->set_descriptor_flags(mapped.value, argument))
+                        return cq_post_guarded(ring, s.user_data, -EBADF);
+                    return cq_post_guarded(ring, s.user_data, 0);
+                case ASTIA_F_GETFL: {
+                    const u32 flags  = current->descriptor(mapped.value)->flags();
+                    u32       result = (flags & 3u) == 2u ? 2u : ((flags & 1u) ? 1u : 0u);
+                    if (flags & 0x20u)
+                        result |= ASTIA_O_APPEND;
+                    if (flags & 0x100u)
+                        result |= ASTIA_O_NONBLOCK;
+                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(result));
+                }
+                case ASTIA_F_SETFL: {
+                    auto object = current->descriptor(mapped.value);
+                    object->set_status_flags((argument & ASTIA_O_APPEND ? 0x20u : 0u) |
+                                             (argument & ASTIA_O_NONBLOCK ? 0x100u : 0u));
+                    return cq_post_guarded(ring, s.user_data, 0);
+                }
+                default:
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                }
+            }
+
+            case OP_STATX:
+                return handle_statx(ring, s);
+
+            case OP_CHMOD:
+                return handle_chmod(ring, s);
+
+            case OP_CHOWN:
+                return handle_chown(ring, s);
+
+            case OP_UTIMENSAT:
+                return handle_utimensat(ring, s);
+
+            case OP_SYMLINKAT:
+                return handle_symlinkat(ring, s);
+            case OP_READLINKAT:
+                return handle_readlinkat(ring, s);
+
+            case OP_READDIR:
+                return handle_readdir(ring, s);
 
             case OP_IOCTL: {
                 /* ioctl is a control-plane fence.  Do not consume this SQE
