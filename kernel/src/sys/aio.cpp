@@ -1184,6 +1184,209 @@ namespace astia::sys {
 
         }
 
+        bool handle_close(astia_rings* ring, const astia_sqe& s) {
+            proc::process* current = proc::current_process();
+            auto           mapped  = mapper<fd_t>::from(s.fd);
+            if (current == nullptr || !mapped.has_value ||
+                !current->descriptor(mapped.value)) {
+                return cq_post_guarded(ring, s.user_data, -EBADF);
+            }
+            current->clear_descriptor(mapped.value);
+            return cq_post_guarded(ring, s.user_data, 0);
+        }
+
+        bool handle_dup(astia_rings* ring, const astia_sqe& s) {
+            proc::process*           current = proc::current_process();
+            mm::shptr<fs::open_file> source  = file_for(s.fd);
+            if (current == nullptr || !source) {
+                return cq_post_guarded(ring, s.user_data, -EBADF);
+            }
+            const auto fd =
+                current->duplicate_descriptor(mapper<fd_t>::from(s.fd).value);
+            return cq_post_guarded(ring, s.user_data,
+                                   fd ? static_cast<i64>(fd.value.value) : -EMFILE);
+        }
+
+        bool handle_dup2(astia_rings* ring, const astia_sqe& s) {
+            proc::process* current = proc::current_process();
+            auto           old_fd  = mapper<fd_t>::from(s.fd);
+            auto           new_fd  = mapper<fd_t>::from(static_cast<i64>(s.offset));
+            if (current == nullptr || !old_fd.has_value || !new_fd.has_value ||
+                !current->descriptor(old_fd.value)) {
+                return cq_post_guarded(ring, s.user_data, -EBADF);
+            }
+            const i32 target = new_fd.value.value;
+            if (target != s.fd) {
+                const auto result =
+                    current->duplicate_descriptor_to(old_fd.value, new_fd.value);
+                if (!result)
+                    return cq_post_guarded(ring, s.user_data, -EMFILE);
+            }
+            return cq_post_guarded(ring, s.user_data, target);
+        }
+
+        bool handle_fcntl(astia_rings* ring, const astia_sqe& s) {
+            proc::process* current = proc::current_process();
+            auto           mapped  = mapper<fd_t>::from(s.fd);
+            if (current == nullptr || !mapped.has_value ||
+                !current->descriptor(mapped.value))
+                return cq_post_guarded(ring, s.user_data, -EBADF);
+            const u32 argument = s.aux;
+            switch (s.op_flags) {
+            case ASTIA_F_DUPFD:
+            case ASTIA_F_DUPFD_CLOEXEC: {
+                if (static_cast<i32>(argument) < 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                const u32 flags =
+                    s.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
+                const auto result = current->duplicate_descriptor(
+                    mapped.value, fd_t{static_cast<i32>(argument)}, flags);
+                return cq_post_guarded(ring, s.user_data,
+                                       result ? result.value.value : -EMFILE);
+            }
+            case ASTIA_F_GETFD:
+                return cq_post_guarded(
+                    ring, s.user_data,
+                    static_cast<i32>(current->descriptor_flags(mapped.value)));
+            case ASTIA_F_SETFD:
+                if ((argument & ~ASTIA_FD_CLOEXEC) != 0)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                if (!current->set_descriptor_flags(mapped.value, argument))
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                return cq_post_guarded(ring, s.user_data, 0);
+            case ASTIA_F_GETFL: {
+                const u32 flags  = current->descriptor(mapped.value)->flags();
+                u32       result = (flags & 3u) == 2u ? 2u : ((flags & 1u) ? 1u : 0u);
+                if (flags & 0x20u)
+                    result |= ASTIA_O_APPEND;
+                if (flags & 0x100u)
+                    result |= ASTIA_O_NONBLOCK;
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(result));
+            }
+            case ASTIA_F_SETFL: {
+                auto object = current->descriptor(mapped.value);
+                object->set_status_flags((argument & ASTIA_O_APPEND ? 0x20u : 0u) |
+                                         (argument & ASTIA_O_NONBLOCK ? 0x100u : 0u));
+                return cq_post_guarded(ring, s.user_data, 0);
+            }
+            default:
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            }
+        }
+
+        bool handle_pipe(astia_rings* ring, const astia_sqe& s) {
+            const sys::user_range out =
+                sys::user_range::bytes(s.address, 2 * sizeof(i32));
+            if (!sys::user_range_ok(out))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            proc::process* current = proc::current_process();
+            if (current == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ESRCH);
+            mm::shptr<fs::open_file> read_end;
+            mm::shptr<fs::open_file> write_end;
+            long                     rc = fs::create_pipe(read_end, write_end);
+            if (rc < 0)
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+            i32 read_fd  = -1;
+            i32 write_fd = -1;
+            for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
+                if (read_fd < 0 && !current->descriptor(fd_t{fd})) {
+                    if (current->set_descriptor(fd_t{fd}, read_end))
+                        read_fd = fd;
+                }
+                else if (write_fd < 0 && !current->descriptor(fd_t{fd})) {
+                    if (current->set_descriptor(fd_t{fd}, write_end)) {
+                        write_fd = fd;
+                        break;
+                    }
+                }
+            }
+            if (read_fd < 0 || write_fd < 0) {
+                if (read_fd >= 0)
+                    current->clear_descriptor(fd_t{read_fd});
+                return cq_post_guarded(ring, s.user_data, -EMFILE);
+            }
+            i32 result[2] = {read_fd, write_fd};
+            if (!sys::copy_out(out, result)) {
+                current->clear_descriptor(fd_t{read_fd});
+                current->clear_descriptor(fd_t{write_fd});
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            }
+            return cq_post_guarded(ring, s.user_data, 0);
+        }
+
+        bool handle_socket(astia_rings* ring, const astia_sqe& s) {
+            if (s.fd != AF_UNIX ||
+                (s.op_flags != SOCK_STREAM && s.op_flags != SOCK_DGRAM) || s.aux != 0)
+                return cq_post_guarded(ring, s.user_data, -EAFNOSUPPORT);
+            proc::process*           current = proc::current_process();
+            mm::shptr<fs::open_file> object;
+            long                     rc = fs::create_unix_socket(object, s.op_flags);
+            if (rc < 0 || !current)
+                return cq_post_guarded(ring, s.user_data,
+                                       (i32) (rc < 0 ? rc : -ESRCH));
+            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
+                if (!current->descriptor(fd_t{fd}) &&
+                    current->set_descriptor(fd_t{fd}, object))
+                    return cq_post_guarded(ring, s.user_data, fd);
+            return cq_post_guarded(ring, s.user_data, -EMFILE);
+        }
+
+        bool handle_eventfd_create(astia_rings* ring, const astia_sqe& s) {
+            if ((s.op_flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0 ||
+                s.offset == UINT64_MAX)
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            proc::process* current = proc::current_process();
+            if (!current)
+                return cq_post_guarded(ring, s.user_data, -ESRCH);
+            mm::shptr<eventfd_file> event(
+                new eventfd_file(s.offset, (s.op_flags & ASTIA_EFD_NONBLOCK) != 0));
+            if (!event)
+                return cq_post_guarded(ring, s.user_data, -ENOMEM);
+            const u32 fd_flags = (s.op_flags & ASTIA_EFD_CLOEXEC ? 0x1u : 0u) |
+                                 (s.op_flags & ASTIA_EFD_NONBLOCK ? 0x800u : 0u);
+            auto object = mm::share<fs::open_file>(event, fd_flags);
+            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
+                if (!current->descriptor(fd_t{fd}) &&
+                    current->set_descriptor(fd_t{fd}, object))
+                    return cq_post_guarded(ring, s.user_data, fd);
+            return cq_post_guarded(ring, s.user_data, -EMFILE);
+        }
+
+        bool handle_socketpair(astia_rings* ring, const astia_sqe& s) {
+            if (s.fd != AF_UNIX || s.op_flags != SOCK_STREAM || s.aux != 0 ||
+                s.length != 2 * sizeof(i32) ||
+                !sys::user_range_ok(sys::user_range::bytes(s.address, s.length)))
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            proc::process* current = proc::current_process();
+            if (!current)
+                return cq_post_guarded(ring, s.user_data, -ESRCH);
+            mm::shptr<fs::open_file> a, b;
+            long                     rc = fs::unix_socketpair(a, b, s.op_flags);
+            if (rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) rc);
+            i32 fds[2] = {-1, -1};
+            for (i32 fd = 3; fd < (i32) proc::max_process_fds && fds[1] < 0; ++fd) {
+                if (fds[0] < 0 && !current->descriptor(fd_t{fd}) &&
+                    current->set_descriptor(fd_t{fd}, a))
+                    fds[0] = fd;
+                else if (fds[0] >= 0 && !current->descriptor(fd_t{fd}) &&
+                         current->set_descriptor(fd_t{fd}, b))
+                    fds[1] = fd;
+            }
+            if (fds[1] < 0) {
+                if (fds[0] >= 0)
+                    current->clear_descriptor(fd_t{fds[0]});
+                return cq_post_guarded(ring, s.user_data, -EMFILE);
+            }
+            if (!sys::copy_out(sys::user_range::bytes(s.address, s.length), fds)) {
+                current->clear_descriptor(fd_t{fds[0]});
+                current->clear_descriptor(fd_t{fds[1]});
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            }
+            return cq_post_guarded(ring, s.user_data, 0);
+        }
+
         bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             switch (s.op) {
             case OP_NOP:
@@ -1237,16 +1440,8 @@ namespace astia::sys {
             case OP_OPENAT:
                 return handle_openat(ring, s);
 
-            case OP_CLOSE: {
-                proc::process* current = proc::current_process();
-                auto           mapped  = mapper<fd_t>::from(s.fd);
-                if (current == nullptr || !mapped.has_value ||
-                    !current->descriptor(mapped.value)) {
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                }
-                current->clear_descriptor(mapped.value);
-                return cq_post_guarded(ring, s.user_data, 0);
-            }
+            case OP_CLOSE:
+                return handle_close(ring, s);
 
             case OP_MKDIRAT:
                 return handle_mkdirat(slot, ring, s);
@@ -1260,84 +1455,14 @@ namespace astia::sys {
             case OP_LINKAT:
                 return handle_linkat(slot, ring, s);
 
-            case OP_DUP: {
-                proc::process*           current = proc::current_process();
-                mm::shptr<fs::open_file> source  = file_for(s.fd);
-                if (current == nullptr || !source) {
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                }
-                const auto fd =
-                    current->duplicate_descriptor(mapper<fd_t>::from(s.fd).value);
-                return cq_post_guarded(ring, s.user_data,
-                                       fd ? static_cast<i64>(fd.value.value) : -EMFILE);
-            }
+            case OP_DUP:
+                return handle_dup(ring, s);
 
-            case OP_DUP2: {
-                proc::process* current = proc::current_process();
-                auto           old_fd  = mapper<fd_t>::from(s.fd);
-                auto           new_fd  = mapper<fd_t>::from(static_cast<i64>(s.offset));
-                if (current == nullptr || !old_fd.has_value || !new_fd.has_value ||
-                    !current->descriptor(old_fd.value)) {
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                }
-                const i32 target = new_fd.value.value;
-                if (target != s.fd) {
-                    const auto result =
-                        current->duplicate_descriptor_to(old_fd.value, new_fd.value);
-                    if (!result)
-                        return cq_post_guarded(ring, s.user_data, -EMFILE);
-                }
-                return cq_post_guarded(ring, s.user_data, target);
-            }
+            case OP_DUP2:
+                return handle_dup2(ring, s);
 
-            case OP_FCNTL: {
-                proc::process* current = proc::current_process();
-                auto           mapped  = mapper<fd_t>::from(s.fd);
-                if (current == nullptr || !mapped.has_value ||
-                    !current->descriptor(mapped.value))
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                const u32 argument = s.aux;
-                switch (s.op_flags) {
-                case ASTIA_F_DUPFD:
-                case ASTIA_F_DUPFD_CLOEXEC: {
-                    if (static_cast<i32>(argument) < 0)
-                        return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    const u32 flags =
-                        s.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
-                    const auto result = current->duplicate_descriptor(
-                        mapped.value, fd_t{static_cast<i32>(argument)}, flags);
-                    return cq_post_guarded(ring, s.user_data,
-                                           result ? result.value.value : -EMFILE);
-                }
-                case ASTIA_F_GETFD:
-                    return cq_post_guarded(
-                        ring, s.user_data,
-                        static_cast<i32>(current->descriptor_flags(mapped.value)));
-                case ASTIA_F_SETFD:
-                    if ((argument & ~ASTIA_FD_CLOEXEC) != 0)
-                        return cq_post_guarded(ring, s.user_data, -EINVAL);
-                    if (!current->set_descriptor_flags(mapped.value, argument))
-                        return cq_post_guarded(ring, s.user_data, -EBADF);
-                    return cq_post_guarded(ring, s.user_data, 0);
-                case ASTIA_F_GETFL: {
-                    const u32 flags  = current->descriptor(mapped.value)->flags();
-                    u32       result = (flags & 3u) == 2u ? 2u : ((flags & 1u) ? 1u : 0u);
-                    if (flags & 0x20u)
-                        result |= ASTIA_O_APPEND;
-                    if (flags & 0x100u)
-                        result |= ASTIA_O_NONBLOCK;
-                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(result));
-                }
-                case ASTIA_F_SETFL: {
-                    auto object = current->descriptor(mapped.value);
-                    object->set_status_flags((argument & ASTIA_O_APPEND ? 0x20u : 0u) |
-                                             (argument & ASTIA_O_NONBLOCK ? 0x100u : 0u));
-                    return cq_post_guarded(ring, s.user_data, 0);
-                }
-                default:
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                }
-            }
+            case OP_FCNTL:
+                return handle_fcntl(ring, s);
 
             case OP_STATX:
                 return handle_statx(ring, s);
@@ -1417,63 +1542,11 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
             }
 
-            case OP_PIPE: {
-                const sys::user_range out =
-                    sys::user_range::bytes(s.address, 2 * sizeof(i32));
-                if (!sys::user_range_ok(out))
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                proc::process* current = proc::current_process();
-                if (current == nullptr)
-                    return cq_post_guarded(ring, s.user_data, -ESRCH);
-                mm::shptr<fs::open_file> read_end;
-                mm::shptr<fs::open_file> write_end;
-                long                     rc = fs::create_pipe(read_end, write_end);
-                if (rc < 0)
-                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-                i32 read_fd  = -1;
-                i32 write_fd = -1;
-                for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
-                    if (read_fd < 0 && !current->descriptor(fd_t{fd})) {
-                        if (current->set_descriptor(fd_t{fd}, read_end))
-                            read_fd = fd;
-                    }
-                    else if (write_fd < 0 && !current->descriptor(fd_t{fd})) {
-                        if (current->set_descriptor(fd_t{fd}, write_end)) {
-                            write_fd = fd;
-                            break;
-                        }
-                    }
-                }
-                if (read_fd < 0 || write_fd < 0) {
-                    if (read_fd >= 0)
-                        current->clear_descriptor(fd_t{read_fd});
-                    return cq_post_guarded(ring, s.user_data, -EMFILE);
-                }
-                i32 result[2] = {read_fd, write_fd};
-                if (!sys::copy_out(out, result)) {
-                    current->clear_descriptor(fd_t{read_fd});
-                    current->clear_descriptor(fd_t{write_fd});
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                }
-                return cq_post_guarded(ring, s.user_data, 0);
-            }
+            case OP_PIPE:
+                return handle_pipe(ring, s);
 
-            case OP_SOCKET: {
-                if (s.fd != AF_UNIX ||
-                    (s.op_flags != SOCK_STREAM && s.op_flags != SOCK_DGRAM) || s.aux != 0)
-                    return cq_post_guarded(ring, s.user_data, -EAFNOSUPPORT);
-                proc::process*           current = proc::current_process();
-                mm::shptr<fs::open_file> object;
-                long                     rc = fs::create_unix_socket(object, s.op_flags);
-                if (rc < 0 || !current)
-                    return cq_post_guarded(ring, s.user_data,
-                                           (i32) (rc < 0 ? rc : -ESRCH));
-                for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
-                    if (!current->descriptor(fd_t{fd}) &&
-                        current->set_descriptor(fd_t{fd}, object))
-                        return cq_post_guarded(ring, s.user_data, fd);
-                return cq_post_guarded(ring, s.user_data, -EMFILE);
-            }
+            case OP_SOCKET:
+                return handle_socket(ring, s);
             case OP_BIND:
             case OP_CONNECT: {
                 auto object = file_for(s.fd);
@@ -1540,26 +1613,8 @@ namespace astia::sys {
                 return true;
             }
 
-            case OP_EVENTFD_CREATE: {
-                if ((s.op_flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0 ||
-                    s.offset == UINT64_MAX)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                proc::process* current = proc::current_process();
-                if (!current)
-                    return cq_post_guarded(ring, s.user_data, -ESRCH);
-                mm::shptr<eventfd_file> event(
-                    new eventfd_file(s.offset, (s.op_flags & ASTIA_EFD_NONBLOCK) != 0));
-                if (!event)
-                    return cq_post_guarded(ring, s.user_data, -ENOMEM);
-                const u32 fd_flags = (s.op_flags & ASTIA_EFD_CLOEXEC ? 0x1u : 0u) |
-                                     (s.op_flags & ASTIA_EFD_NONBLOCK ? 0x800u : 0u);
-                auto      object   = mm::share<fs::open_file>(event, fd_flags);
-                for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
-                    if (!current->descriptor(fd_t{fd}) &&
-                        current->set_descriptor(fd_t{fd}, object))
-                        return cq_post_guarded(ring, s.user_data, fd);
-                return cq_post_guarded(ring, s.user_data, -EMFILE);
-            }
+            case OP_EVENTFD_CREATE:
+                return handle_eventfd_create(ring, s);
 
             case OP_CANCEL: {
                 const u64 target = s.offset;
@@ -1582,39 +1637,8 @@ namespace astia::sys {
                 }
                 return cq_post_guarded(ring, s.user_data, -ENOENT);
             }
-            case OP_SOCKETPAIR: {
-                if (s.fd != AF_UNIX || s.op_flags != SOCK_STREAM || s.aux != 0 ||
-                    s.length != 2 * sizeof(i32) ||
-                    !sys::user_range_ok(sys::user_range::bytes(s.address, s.length)))
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                proc::process* current = proc::current_process();
-                if (!current)
-                    return cq_post_guarded(ring, s.user_data, -ESRCH);
-                mm::shptr<fs::open_file> a, b;
-                long                     rc = fs::unix_socketpair(a, b, s.op_flags);
-                if (rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) rc);
-                i32 fds[2] = {-1, -1};
-                for (i32 fd = 3; fd < (i32) proc::max_process_fds && fds[1] < 0; ++fd) {
-                    if (fds[0] < 0 && !current->descriptor(fd_t{fd}) &&
-                        current->set_descriptor(fd_t{fd}, a))
-                        fds[0] = fd;
-                    else if (fds[0] >= 0 && !current->descriptor(fd_t{fd}) &&
-                             current->set_descriptor(fd_t{fd}, b))
-                        fds[1] = fd;
-                }
-                if (fds[1] < 0) {
-                    if (fds[0] >= 0)
-                        current->clear_descriptor(fd_t{fds[0]});
-                    return cq_post_guarded(ring, s.user_data, -EMFILE);
-                }
-                if (!sys::copy_out(sys::user_range::bytes(s.address, s.length), fds)) {
-                    current->clear_descriptor(fd_t{fds[0]});
-                    current->clear_descriptor(fd_t{fds[1]});
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
-                }
-                return cq_post_guarded(ring, s.user_data, 0);
-            }
+            case OP_SOCKETPAIR:
+                return handle_socketpair(ring, s);
             case OP_SHUTDOWN: {
                 auto object = file_for(s.fd);
                 if (!object)
