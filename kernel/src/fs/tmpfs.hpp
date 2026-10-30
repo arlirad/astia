@@ -16,6 +16,7 @@ namespace astia::fs {
         long             read(void* buffer, u32 length, u64 offset) override;
         long             write(const void* buffer, u32 length, u64 offset) override;
         long             size() const override;
+        const void*      capability(file_capability kind) const override;
         u64              inode() const override { return inode_; }
         u32              nlink() const override { return nlink_; }
         void             add_link() { ++nlink_; }

@@ -47,7 +47,35 @@ namespace {
             for (u32 i = 0; i < n; ++i) if (parent[i] != path[i]) return false;
             return path[n] == '/';
         }
+
+        long tmpfs_read(file* object, void* buffer, u32 length, u64 offset) {
+            return static_cast<tmpfs_file*>(object)->read(buffer, length, offset);
+        }
+        long tmpfs_write(file* object, const void* buffer, u32 length, u64 offset) {
+            return static_cast<tmpfs_file*>(object)->write(buffer, length, offset);
+        }
+        long tmpfs_size(const file* object) {
+            return static_cast<const tmpfs_file*>(object)->size();
+        }
+        mm::phys_region* tmpfs_mapping(const file* object) {
+            return const_cast<tmpfs_file*>(static_cast<const tmpfs_file*>(object))->memory_region();
+        }
+
+        const file_read_capability tmpfs_read_capability{tmpfs_read};
+        const file_write_capability tmpfs_write_capability{tmpfs_write};
+        const file_size_capability tmpfs_size_capability{tmpfs_size};
+        const file_mapping_capability tmpfs_mapping_capability{tmpfs_mapping};
     } // namespace
+
+    const void* tmpfs_file::capability(file_capability kind) const {
+        switch (kind) {
+            case file_capability::read:    return &tmpfs_read_capability;
+            case file_capability::write:   return &tmpfs_write_capability;
+            case file_capability::size:    return &tmpfs_size_capability;
+            case file_capability::mapping: return &tmpfs_mapping_capability;
+            default:                       return file::capability(kind);
+        }
+    }
 
     tmpfs_file::tmpfs_file(usize pages, file_mode mode)
         : storage_(mm::phys_region::create(pages, true)), mode_(mode), inode_(next_inode++) {}

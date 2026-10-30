@@ -76,6 +76,7 @@ namespace astia::fs {
         poll,
         ioctl,
         size,
+        mapping,
     };
 
     struct file_read_capability {
@@ -95,6 +96,9 @@ namespace astia::fs {
     };
     struct file_size_capability {
         long (*size)(const file*);
+    };
+    struct file_mapping_capability {
+        mm::phys_region* (*mapping)(const file*);
     };
 
     inline constexpr file_type directory_unknown = file_type::unknown;

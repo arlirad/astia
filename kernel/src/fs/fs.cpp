@@ -594,6 +594,9 @@ namespace astia::fs {
         long legacy_size(const file* object) {
             return object->size();
         }
+        mm::phys_region* legacy_mapping(const file* object) {
+            return const_cast<file*>(object)->memory_region();
+        }
 
         const file_read_capability legacy_read_capability{legacy_read};
         const file_write_capability legacy_write_capability{legacy_write};
@@ -601,6 +604,7 @@ namespace astia::fs {
         const file_poll_capability legacy_poll_capability{legacy_poll};
         const file_ioctl_capability legacy_ioctl_capability{legacy_ioctl};
         const file_size_capability legacy_size_capability{legacy_size};
+        const file_mapping_capability legacy_mapping_capability{legacy_mapping};
     }
 
     const void* file::capability(file_capability kind) const {
@@ -611,6 +615,7 @@ namespace astia::fs {
             case file_capability::poll:   return &legacy_poll_capability;
             case file_capability::ioctl:  return &legacy_ioctl_capability;
             case file_capability::size:   return &legacy_size_capability;
+            case file_capability::mapping:return &legacy_mapping_capability;
         }
         return nullptr;
     }
