@@ -81,10 +81,4 @@ namespace astia::proc {
         }
     };
 
-    /// Highest address mmap may hand out: below the TLS block the
-    /// userspace loader places at 0x7ffff0000000, well above the ELF
-    /// image at 0x40000000 and the stack near the top of the user
-    /// half.
-    inline constexpr u64 mmap_region_top = 0x00007fffe0000000ull;
-
 } // namespace astia::proc

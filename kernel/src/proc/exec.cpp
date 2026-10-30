@@ -32,7 +32,7 @@ namespace astia::proc {
         void* map_user(void* opaque, u64 hint, usize size, usize align, bool fixed) {
             auto&     state = *static_cast<image_map*>(opaque);
             const u64 base  = fixed ? hint : (state.next_base + align - 1) & ~(align - 1);
-            if (base < 0x40000000ull || base + size >= 0x0000800000000000ull ||
+            if (base < user_image_base || base + size >= user_address_limit ||
                 state.count >= elf::max_segments) {
                 return nullptr;
             }
@@ -146,7 +146,7 @@ namespace astia::proc {
         if (!map.valid()) {
             return false;
         }
-        image_map  state{&map, 0x40000000ull};
+        image_map  state{&map, user_image_base};
         elf::env   environment{&state, map_user, nullptr, nullptr, copy_image};
         elf::image image{};
 
@@ -290,7 +290,7 @@ namespace astia::proc {
         arch::page_map map = arch::page_map::create(arch::kernel_page_map());
         if (!map.valid())
             return false;
-        stream_context        stream{{&map, 0x40000000ull}, file.get()};
+        stream_context        stream{{&map, user_image_base}, file.get()};
         elf::image            image{};
         const process*        caller = current_process();
         const arch::page_map* caller_map =

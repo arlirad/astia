@@ -31,7 +31,7 @@ namespace astia::fs {
                 return static_cast<long>(size_);
             }
             file_mode mode() const override {
-                return file_mode(file_type::regular, file_permissions(0755));
+                return file_mode(file_type::regular, readonly_file_permissions);
             }
 
             private:
@@ -177,10 +177,10 @@ namespace astia::fs {
     file_mode initrd_mount::node_mode(const char* path) const {
         if (path != nullptr && path[0] == '/') {
             if (path[1] == '\0')
-                return file_mode(file_type::directory, file_permissions(0755));
+                return file_mode(file_type::directory, readonly_directory_permissions);
             for (u32 i = 0; i < initrd_max_entries; ++i)
                 if (entries_[i].used && equal(entries_[i].path, path))
-                    return file_mode(file_type::regular, file_permissions(0755));
+                    return file_mode(file_type::regular, readonly_file_permissions);
             /* Directories are implicit in the archive namespace. */
             for (u32 i = 0; i < initrd_max_entries; ++i)
                 if (entries_[i].used) {
@@ -195,7 +195,7 @@ namespace astia::fs {
                                 prefix = false;
                     }
                     if (prefix && entries_[i].path[n] == '/')
-                        return file_mode(file_type::directory, file_permissions(0755));
+                        return file_mode(file_type::directory, readonly_directory_permissions);
                 }
         }
         return {};

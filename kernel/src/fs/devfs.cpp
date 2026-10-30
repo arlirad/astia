@@ -88,7 +88,7 @@ namespace astia::fs {
 
     file_mode devfs_mount::node_mode(const char* path) const {
         if (equal(path, "/tty"))
-            return file_mode(file_type::character, file_permissions(0666));
+            return file_mode(file_type::character, default_device_permissions);
         for (u32 i = 0; i < devfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path))
                 return entries_[i].object->mode();

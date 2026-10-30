@@ -13,6 +13,11 @@ namespace astia::arch::x86_64 {
         constexpr u16 ch0_data = 0x40;
         constexpr u16 mode_cmd = 0x43;
 
+        // 8254 channel 0 command bytes: lo/hi divisor writes, then mode.
+        constexpr u8 command_square_wave = 0x36; // mode 3
+        constexpr u8 command_one_shot     = 0x30; // mode 0
+        constexpr u8 command_latch_count  = 0x00;
+
         /// Write a 16-bit divisor to channel 0 (lo/hi access mode set by
         /// the preceding mode_cmd).
         void write_divisor(u16 divisor) {
@@ -23,17 +28,17 @@ namespace astia::arch::x86_64 {
     } // namespace
 
     void pit::start(u32 hz) {
-        outb(mode_cmd, 0x36); // ch0, lo/hi, mode 3 (square wave)
+        outb(mode_cmd, command_square_wave); // ch0, lo/hi, mode 3 (square wave)
         write_divisor(static_cast<u16>(input_hz / hz));
     }
 
     void pit::start_one_shot(u32 counts) {
-        outb(mode_cmd, 0x30); // ch0, lo/hi, mode 0 (one-shot)
+        outb(mode_cmd, command_one_shot); // ch0, lo/hi, mode 0 (one-shot)
         write_divisor(static_cast<u16>(counts));
     }
 
     u32 pit::read_count() {
-        outb(mode_cmd, 0x00); // latch ch0
+        outb(mode_cmd, command_latch_count); // latch ch0
         const u8 lo = inb(ch0_data);
         const u8 hi = inb(ch0_data);
         return static_cast<u32>(lo | (hi << 8));
