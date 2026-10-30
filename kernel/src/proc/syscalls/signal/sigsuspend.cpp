@@ -30,7 +30,11 @@ namespace astia::proc::syscall {
             arch::cpu::nointerrupts();
             const u32 previous_mask = owner->signals().blocked();
             owner->signals().set_blocked(mask);
-            owner->add_signal_waiter(self);
+            if (!owner->add_signal_waiter(self)) {
+                owner->signals().set_blocked(previous_mask);
+                arch::cpu::interrupts();
+                return -EAGAIN;
+            }
             while (!owner->signals().has_unblocked_pending()) {
                 // Signal delivery is performed by the syscall exit hook.
                 // Signal senders clear the registration before waking us.

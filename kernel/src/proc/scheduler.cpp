@@ -223,6 +223,7 @@ namespace astia::proc::scheduler {
         value->migratable(options == thread_options::migratable);
         arch::interrupt_guard gate;
         if (!enqueue(value.get())) {
+            proc::kernel_process()->release_thread(value.get());
             return {};
         }
         if (cpu_index != arch::cpu::current_index()) {

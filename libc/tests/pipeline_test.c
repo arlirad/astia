@@ -37,6 +37,8 @@ int main(void) {
     close(fds[0]);
 
     const char* path = "/tmp/astia_pipeline_test";
+    int saved_stdout = dup(1);
+    CHECK(saved_stdout >= 0);
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     CHECK(fd >= 0);
     CHECK(dup2(fd, 1) == 1);
@@ -52,6 +54,10 @@ int main(void) {
     CHECK(strcmp(result, "one\ntwo\n") == 0);
     close(fd);
     unlink(path);
+    if (saved_stdout >= 0) {
+        CHECK(dup2(saved_stdout, 1) == 1);
+        close(saved_stdout);
+    }
     if (fails) printf("pipeline_test: %d failure(s)\n", fails);
     return fails != 0;
 }

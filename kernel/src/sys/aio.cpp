@@ -192,6 +192,8 @@ namespace astia::sys {
             bool           used;
             proc::process* owner;
             u64            user_base; // user-half alias of the ring; 0 = not mapped
+            u32            sq_entries;
+            u32            cq_entries;
             parked_op      park[park_capacity];
             // Page-aligned: aliasing the ring into a process maps whole
             // frames, so the source address — and with it the physical
@@ -222,12 +224,12 @@ namespace astia::sys {
             for (u32 i = 0; i < ring_count; ++i) {
                 // The user alias carries the ring's intra-page offset, so
                 // match any address inside the slot's aliased page range.
-                const u64 alias_span = static_cast<u64>(user_ring_pages) * 4096u;
                 if (g_slots[i] != nullptr && g_slots[i]->used &&
                     (((caller == nullptr || caller->address_space() == nullptr) &&
                       reinterpret_cast<u64>(rings_of(*g_slots[i])) == address) ||
                      (g_slots[i]->owner == caller && g_slots[i]->user_base != 0 &&
-                      address - g_slots[i]->user_base < alias_span))) {
+                      address == g_slots[i]->user_base +
+                                     (reinterpret_cast<u64>(rings_of(*g_slots[i])) & 0xfff)))) {
                     return g_slots[i];
                 }
             }
@@ -240,8 +242,33 @@ namespace astia::sys {
             }
             __builtin_memset(slot.map, 0, sizeof slot.map);
             slot.user_base = 0;
+            slot.sq_entries = 0;
+            slot.cq_entries = 0;
             slot.owner     = nullptr;
             slot.used      = false;
+        }
+
+        bool ring_layout_ok(const ring_slot& slot, const astia_rings* ring) {
+            if (ring == nullptr || ring->magic != RINGS_MAGIC ||
+                ring->version != API_VERSION || ring->features != FEAT_SINGLE_MMAP ||
+                ring->sq_entries != slot.sq_entries || ring->cq_entries != slot.cq_entries ||
+                ring->sq_off != sizeof(astia_rings) ||
+                ring->cq_off != ring->sq_off + sizeof(astia_sq_ring) ||
+                ring->sqes_off != ring->cq_off + sizeof(astia_cq_ring) ||
+                ring->cqes_off != ring->sqes_off +
+                                      static_cast<u32>(sizeof(astia_sqe)) * slot.sq_entries)
+                return false;
+            const astia_sq_ring* sq = astia_rings_sq(const_cast<astia_rings*>(ring));
+            const astia_cq_ring* cq = astia_rings_cq(const_cast<astia_rings*>(ring));
+            if (sq->entries != slot.sq_entries || sq->mask != slot.sq_entries - 1 ||
+                cq->entries != slot.cq_entries || cq->mask != slot.cq_entries - 1)
+                return false;
+            const u32 sq_tail = __atomic_load_n(&sq->tail, __ATOMIC_ACQUIRE);
+            const u32 sq_head = __atomic_load_n(&sq->head, __ATOMIC_RELAXED);
+            const u32 cq_tail = __atomic_load_n(&cq->tail, __ATOMIC_ACQUIRE);
+            const u32 cq_head = __atomic_load_n(&cq->head, __ATOMIC_RELAXED);
+            return sq_tail - sq_head <= slot.sq_entries &&
+                   cq_tail - cq_head <= slot.cq_entries;
         }
 
         /// Alias a slot's ring frames into the process' user half and return
@@ -295,13 +322,29 @@ namespace astia::sys {
         }
 
         bool cq_post(astia_rings* ring, u64 user_data, i32 result) {
-            astia_cq_ring* cq   = astia_rings_cq(ring);
+            // The shared header is writable by userspace.  Parked completions
+            // may arrive after the validating io_enter, so never re-read its
+            // mutable offsets from an IRQ path.
+            ring_slot* storage = nullptr;
+            for (u32 i = 0; i < ring_count; ++i) {
+                if (g_slots[i] != nullptr && g_slots[i]->used &&
+                    rings_of(*g_slots[i]) == ring) {
+                    storage = g_slots[i];
+                    break;
+                }
+            }
+            if (storage == nullptr)
+                storage = slot_of(ring);
+            if (storage == nullptr)
+                return false;
+            astia_rings* storage_ring = rings_of(*storage);
+            astia_cq_ring* cq = astia_rings_cq(storage_ring);
             const u32      head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
             const u32      tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
             if (tail - head >= cq->entries) {
                 return false;
             }
-            astia_cqe* c = &astia_rings_cqes(ring)[tail & cq->mask];
+            astia_cqe* c = &astia_rings_cqes(storage_ring)[tail & cq->mask];
             c->user_data = user_data;
             c->result    = result;
             c->flags     = 0;
@@ -615,9 +658,13 @@ namespace astia::sys {
             case OP_SENDTO:
             case OP_RECVFROM: {
                 mm::shptr<fs::open_file> object = file_for(s.fd);
-                if (!object || !sys::user_range_ok(sys::user_range::bytes(s.address, s.length)) ||
+                if (!object)
+                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                if (!sys::user_range_ok(sys::user_range::bytes(s.address, s.length)) ||
                     !sys::user_range_ok(sys::user_range::bytes(s.offset, sizeof(astia_sockaddr))))
-                    return cq_post_guarded(ring, s.user_data, object ? -EFAULT : -EBADF);
+                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                if (s.length > max_operation_bytes)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
                 astia_sockaddr a{};
                 if (s.op == OP_SENDTO) {
                     if (!sys::copy_in(&a, sys::user_range::bytes(s.offset, sizeof a)))
@@ -630,8 +677,6 @@ namespace astia::sys {
                     if (rc < 0) return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
                 }
                 sys::user_range range = sys::user_range::bytes(s.address, s.length);
-                if (!sys::user_range_ok(range) || s.length > max_operation_bytes)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
                 return submit_request(slot, ring, s, object, &range, 1,
                                       s.op == OP_RECVFROM ? io_direction::input : io_direction::output);
             }
@@ -1286,8 +1331,18 @@ namespace astia::sys {
                 for (u32 i = 0; i < park_capacity; ++i) {
                     parked_op& p = slot.park[i];
                     if (p.used && !p.done && p.request.user_data() == target) {
-                        p.done = cq_post_guarded(ring, target, -ECANCELED);
-                        return cq_post_guarded(ring, s.user_data, 0);
+                        // Cancellation needs two CQ slots.  Do not consume the
+                        // SQE if either completion could be lost.
+                        arch::interrupt_guard gate;
+                        astia_cq_ring* cq = astia_rings_cq(ring);
+                        const u32 head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
+                        const u32 tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+                        if (tail - head > cq->entries - 2)
+                            return false;
+                        if (!cq_post(ring, target, -ECANCELED))
+                            return false;
+                        p.done = true;
+                        return cq_post(ring, s.user_data, 0);
                     }
                 }
                 return cq_post_guarded(ring, s.user_data, -ENOENT);
@@ -1358,6 +1413,8 @@ namespace astia::sys {
             r->cq_off      = r->sq_off + sizeof(astia_sq_ring);
             r->sqes_off    = r->cq_off + sizeof(astia_cq_ring);
             r->cqes_off    = r->sqes_off + static_cast<u32>(sizeof(astia_sqe)) * sq;
+            slot.sq_entries = sq;
+            slot.cq_entries = cq;
 
             astia_sq_ring* sqp = astia_rings_sq(r);
             sqp->mask          = sq - 1;
@@ -1380,7 +1437,12 @@ namespace astia::sys {
                 visible = reinterpret_cast<astia_rings*>(user_address);
             }
 
-            *out = visible;
+            if (!sys::copy_out(sys::user_range::bytes(reinterpret_cast<u64>(out),
+                                                       sizeof visible), &visible)) {
+                unmap_ring_user(slot, owner);
+                clear_slot(slot);
+                return -EFAULT;
+            }
             return 0;
         }
         return -ENFILE;
@@ -1388,7 +1450,7 @@ namespace astia::sys {
 
     long io_destroy(astia_rings* ring) {
         ring_slot* slot = slot_of(ring);
-        if (slot == nullptr) {
+        if (slot == nullptr || !ring_layout_ok(*slot, ring)) {
             return -EINVAL;
         }
         // Reclaim everything the device already finished, then refuse only
@@ -1417,7 +1479,7 @@ namespace astia::sys {
     long io_enter(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
                   u64 timeout_ticks) {
         ring_slot* slot = slot_of(ring);
-        if (slot == nullptr) {
+        if (slot == nullptr || !ring_layout_ok(*slot, ring)) {
             return -EINVAL;
         }
         constexpr u32 known = ENTER_GETEVENTS | ENTER_ABS_TIMEOUT;
@@ -1494,7 +1556,9 @@ namespace astia::sys {
 
     void io_device_ready(i32 fd) {
         proc::process* current = proc::current_process();
-        if (current == nullptr || !current->descriptor(fd_t{fd})) {
+        auto current_object = current == nullptr ? mm::shptr<fs::open_file>{}
+                                                  : current->descriptor(fd_t{fd});
+        if (!current_object) {
             return;
         }
         arch::interrupt_guard gate;
@@ -1507,7 +1571,8 @@ namespace astia::sys {
             astia_rings* ring = rings_of(slot);
             for (u32 p = 0; p < park_capacity; ++p) {
                 parked_op& op = slot.park[p];
-                if (op.used && !op.done && op.fd == fd) {
+                if (op.used && !op.done && op.fd == fd && op.object &&
+                    op.object->backing() == current_object->backing()) {
                     resume_parked(ring, op);
                 }
             }

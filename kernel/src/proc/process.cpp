@@ -917,7 +917,11 @@ namespace astia::proc {
 
         auto value = mm::share<thread>(this, proc::allocate_tid());
         if (!value || !value->prepare_user(entry, user_entry_stack, tls_tp_) ||
-            !add_thread(value) || !scheduler::wake(value.get())) {
+            !add_thread(value)) {
+            return {};
+        }
+        if (!scheduler::wake(value.get())) {
+            release_thread(value.get());
             return {};
         }
         if (caller_map != nullptr)
@@ -943,7 +947,11 @@ namespace astia::proc {
         if (!value ||
             !value->prepare_user_start(entry, user_stack_top, fs_base, argument,
                                        argument1) ||
-            !add_thread(value) || !scheduler::wake(value.get())) {
+            !add_thread(value)) {
+            return {};
+        }
+        if (!scheduler::wake(value.get())) {
+            release_thread(value.get());
             return {};
         }
         value->tls_mapping(tls_base, tls_pages);
@@ -1052,7 +1060,11 @@ namespace astia::proc {
         if (!value || !value->prepare_fork_user(uctx)) {
             return {};
         }
-        if (!add_thread(value) || !scheduler::wake(value.get())) {
+        if (!add_thread(value)) {
+            return {};
+        }
+        if (!scheduler::wake(value.get())) {
+            release_thread(value.get());
             return {};
         }
         return value;

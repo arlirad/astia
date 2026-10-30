@@ -73,6 +73,18 @@ namespace astia::proc {
         return false;
     }
 
+    bool unregister_process(process* value) {
+        if (value == nullptr) return false;
+        core::spinlock_guard guard(registry_lock);
+        for (u32 i = 1; i < registry_capacity; ++i) {
+            if (registry[i].get() == value) {
+                registry[i] = {};
+                return true;
+            }
+        }
+        return false;
+    }
+
     pid_t allocate_pid() {
         const pid_t value = next_pid;
         next_pid = pid_t{static_cast<u32>(static_cast<u32>(next_pid) + 1)};
@@ -187,12 +199,18 @@ namespace astia::proc {
         const bool loaded_image =
             child->load_user_image(image.value, static_cast<usize>(image_size), &entry);
         mm::heap::free(image.value);
-        if (!loaded_image || !child->create_user_thread(entry, argv, envp)) {
+        if (!loaded_image) {
             spawn_logs::error("ELF load or user thread setup failed");
             return fail(error_t::einval);
         }
         if (!register_process(child)) {
             spawn_logs::error("process registry full");
+            return fail(error_t::eagain);
+        }
+        if (!child->create_user_thread(entry, argv, envp)) {
+            (void) unregister_process(child.get());
+            parent->wake_waiters();
+            spawn_logs::error("user thread setup failed");
             return fail(error_t::eagain);
         }
         return optional<mm::shptr<process>>(child);
@@ -424,7 +442,12 @@ namespace astia::proc {
         arch::cpu::nointerrupts();
         i64 result = 0;
         for (;;) {
-            parent->add_waiter(self);
+            if (!parent->add_waiter(self)) {
+                // Never block without a slot: child exit would have no way
+                // to wake this thread, leaving waitpid stuck forever.
+                result = -EAGAIN;
+                break;
+            }
 
             process*           zombie_child = nullptr;
             bool               has_children = false;

@@ -41,9 +41,12 @@ static int file_equals(const char* path, const char* expected) {
     FILE* file = fopen(path, "r");
     char buffer[512];
     size_t length = strlen(expected);
-    if (file == NULL)
+    if (file == NULL || length >= sizeof buffer) {
+        if (file != NULL)
+            fclose(file);
         return 0;
-    if (length >= sizeof buffer || fread(buffer, 1, length, file) != length) {
+    }
+    if (fread(buffer, 1, length, file) != length) {
         fclose(file);
         return 0;
     }
@@ -66,8 +69,11 @@ static int credential_checks(void) {
     (void) unlink(file);
     (void) unlink(link);
     int fd = open(file, O_CREAT | O_RDWR, 0640);
-    if (fd < 0 || fstat(fd, &st) != 0 || st.st_uid != getuid() || st.st_gid != getgid())
+    if (fd < 0 || fstat(fd, &st) != 0 || st.st_uid != getuid() || st.st_gid != getgid()) {
+        if (fd >= 0)
+            close(fd);
         return fail("ownership inheritance");
+    }
     if (chown(file, getuid(), getgid()) != 0 ||
         symlink(file, link) != 0 || lchown(link, getuid(), getgid()) != 0 ||
         lstat(link, &st) != 0 || !S_ISLNK(st.st_mode))
@@ -96,21 +102,33 @@ static int account_checks(void) {
  * independent of the terminal and serial-device setup used by QEMU. */
 static int run(const char* name, char* const argv[], const char* input,
                int expected_status, const char* expected_output, int exact) {
+    int saved_stdin = -1;
     if (input != NULL) {
         if (put_file("/tmp/coreutils_stdin", input) != 0)
             return -1;
         int fd = open("/tmp/coreutils_stdin", O_RDONLY);
         if (fd < 0)
             return -1;
+        saved_stdin = dup(0);
+        if (saved_stdin < 0) {
+            close(fd);
+            return -1;
+        }
         if (dup2(fd, 0) < 0) {
             close(fd);
+            close(saved_stdin);
             return -1;
         }
         close(fd);
     }
     char path[64];
-    if (strlen(argv[0]) + 6 >= sizeof path)
+    if (strlen(argv[0]) + 6 >= sizeof path) {
+        if (saved_stdin >= 0) {
+            (void) dup2(saved_stdin, 0);
+            close(saved_stdin);
+        }
         return -1;
+    }
     snprintf(path, sizeof path, "/bin/%s", argv[0]);
 
     int saved_stdout = -1;
@@ -120,7 +138,14 @@ static int run(const char* name, char* const argv[], const char* input,
         output_fd = open("/tmp/coreutils_stdout", O_WRONLY | O_CREAT | O_TRUNC, 0600);
         if (saved_stdout < 0 || output_fd < 0 || dup2(output_fd, 1) < 0) {
             if (output_fd >= 0) close(output_fd);
-            if (saved_stdout >= 0) close(saved_stdout);
+            if (saved_stdout >= 0) {
+                (void) dup2(saved_stdout, 1);
+                close(saved_stdout);
+            }
+            if (saved_stdin >= 0) {
+                (void) dup2(saved_stdin, 0);
+                close(saved_stdin);
+            }
             return -1;
         }
         close(output_fd);
@@ -130,6 +155,10 @@ static int run(const char* name, char* const argv[], const char* input,
     if (child < 0) {
         if (saved_stdout >= 0) (void) dup2(saved_stdout, 1);
         if (saved_stdout >= 0) close(saved_stdout);
+        if (saved_stdin >= 0) {
+            (void) dup2(saved_stdin, 0);
+            close(saved_stdin);
+        }
         return -1;
     }
     int status = 0;
@@ -138,6 +167,10 @@ static int run(const char* name, char* const argv[], const char* input,
     if (saved_stdout >= 0) {
         if (dup2(saved_stdout, 1) < 0) ok = 0;
         close(saved_stdout);
+    }
+    if (saved_stdin >= 0) {
+        if (dup2(saved_stdin, 0) < 0) ok = 0;
+        close(saved_stdin);
     }
     if (!ok) {
         printf("run %s: status=%d\n", name, status >> 8 & 255);

@@ -58,6 +58,7 @@ int main(void) {
     CHECK(lstat("astia_stat_test_dir/dangling", &st) == 0 && S_ISLNK(st.st_mode));
     errno = 0;
     CHECK(stat("astia_stat_test_dir/missing", &st) == -1 && errno == ENOENT);
+    CHECK(stat(file, &st) == 0);
     time_t before = st.st_mtime;
     CHECK(utime(file, NULL) == 0 && stat(file, &st) == 0 && st.st_mtime >= before);
     errno = 0;

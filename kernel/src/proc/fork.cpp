@@ -25,17 +25,18 @@ namespace astia::proc {
         }
         child->inherit_groups(*parent);
         // create_fork_thread() queues the child immediately.  Publish its
-        // initial state before that queue entry can run, and do not rewrite a
-        // zombie if the child wins the race with registry publication.
+        // initial state before that queue entry can run.
         child->state(process_state::runnable);
         if (!child->copy_descriptors_from(*parent) ||
             !parent->clone_address_space_cow(child.get()) ||
-            !child->create_fork_thread(child_image)) {
+            !register_process(child)) {
             // The child shptr drops here; ~process releases every
             // backing reference and descriptor its failed clone took.
             return -EAGAIN;
         }
-        if (!register_process(child)) {
+        if (!child->create_fork_thread(child_image)) {
+            (void) unregister_process(child.get());
+            parent->wake_waiters();
             return -EAGAIN;
         }
         return static_cast<i64>(static_cast<u32>(child->pid()));
