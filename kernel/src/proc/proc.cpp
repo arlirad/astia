@@ -63,7 +63,7 @@ namespace astia::proc {
         }
 
         pgrp_t process_group_for(pid_t id) {
-            return pgrp_t{static_cast<u32>(id)};
+            return pgrp_from_raw(raw_id(id));
         }
 
         bool is_process_group_leader(const process* value) {
@@ -97,7 +97,7 @@ namespace astia::proc {
 
     pid_t allocate_pid() {
         const pid_t value = next_pid;
-        next_pid          = pid_t{static_cast<u32>(static_cast<u32>(next_pid) + 1)};
+        next_pid          = pid_from_raw(raw_id(next_pid) + 1);
         return value;
     }
 
@@ -234,6 +234,12 @@ namespace astia::proc {
         return slot < 0 ? nullptr : registry[slot].get();
     }
 
+    mm::shptr<process> retain_process(pid_t id) {
+        core::spinlock_guard guard(registry_lock);
+        const i32            slot = find_slot_locked(id);
+        return slot < 0 ? mm::shptr<process>{} : registry[slot];
+    }
+
     i64 process_snapshot(u64 output, u32 capacity) {
         if (capacity > ASTIA_PROCESS_SNAPSHOT_MAX || (capacity != 0 && output == 0))
             return -EINVAL;
@@ -361,7 +367,7 @@ namespace astia::proc {
         if (self_target)
             pid = caller->pid();
         if (pgid == pgrp_t{})
-            pgid = pgrp_t{raw_id(pid)};
+            pgid = pgrp_from_raw(raw_id(pid));
         if (pid == pid_t{} || pgid == pgrp_t{})
             return -EINVAL;
 
@@ -387,7 +393,7 @@ namespace astia::proc {
             return -EPERM;
         }
 
-        if (pgid != pgrp_t{raw_id(target->pid())}) {
+        if (pgid != pgrp_from_raw(raw_id(target->pid()))) {
             if (find_group_locked(pgid, caller->session()) == nullptr) {
                 return -EPERM;
             }
@@ -412,7 +418,7 @@ namespace astia::proc {
         if (!valid_signal(value) && value != signal_number{})
             return -EINVAL;
         bool     found = false;
-        process* targets[max_processes]{};
+        mm::shptr<process> targets[max_processes];
         u32      count = 0;
         {
             core::spinlock_guard guard(registry_lock);
@@ -421,7 +427,7 @@ namespace astia::proc {
                 if (!is_live(target) || target->process_group() != group)
                     continue;
                 found            = true;
-                targets[count++] = target;
+                targets[count++] = registry[i];
             }
         }
         if (value != signal_number{}) {
@@ -446,9 +452,9 @@ namespace astia::proc {
         }
         const bool   group_wait = pid < -1;
         const pgrp_t requested_group =
-            group_wait ? pgrp_t{static_cast<u32>(-pid)}
+            group_wait ? wait_group_from_selector(pid)
                        : (pid == 0 ? parent->process_group() : pgrp_t{});
-        if (static_cast<u32>(options) & ~valid_wait_option_bits)
+        if (raw_wait_options(options) & ~valid_wait_option_bits)
             return -EINVAL;
 
         // From here to the blocking yield the scan and the waiter
@@ -474,7 +480,7 @@ namespace astia::proc {
                     if (child == nullptr || child->parent_pid() != parent->pid()) {
                         continue;
                     }
-                    if (pid > 0 && child->pid() != pid_t{static_cast<u32>(pid)}) {
+                    if (pid > 0 && child->pid() != wait_pid_from_selector(pid)) {
                         continue;
                     }
                     if ((group_wait || pid == 0) &&
@@ -488,8 +494,7 @@ namespace astia::proc {
                         zombie_child = child;
                         break;
                     }
-                    if ((static_cast<u32>(options) &
-                         static_cast<u32>(wait_options::untraced)) &&
+                    if (has_wait_option(options, wait_options::untraced) &&
                         child->stop_event_pending()) {
                         if (status != nullptr)
                             *status = child->stop_status();
@@ -497,8 +502,7 @@ namespace astia::proc {
                         result = static_cast<i64>(raw_id(child->pid()));
                         break;
                     }
-                    if ((static_cast<u32>(options) &
-                         static_cast<u32>(wait_options::continued)) &&
+                    if (has_wait_option(options, wait_options::continued) &&
                         child->continued_event_pending()) {
                         if (status != nullptr)
                             *status = astia::wait_continued_marker;
@@ -532,7 +536,7 @@ namespace astia::proc {
                 result = -ECHILD;
                 break;
             }
-            if (static_cast<u32>(options) & static_cast<u32>(wait_options::nohang)) {
+            if (has_wait_option(options, wait_options::nohang)) {
                 parent->remove_waiter(self);
                 result = 0;
                 break;

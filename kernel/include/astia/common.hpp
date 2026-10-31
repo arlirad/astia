@@ -51,6 +51,14 @@ namespace astia {
     using pid_t  = domain_id<pid_tag>;
     using pgrp_t = domain_id<pgrp_tag>;
 
+    constexpr pid_t pid_from_raw(u32 raw) {
+        return pid_t{raw};
+    }
+
+    constexpr pgrp_t pgrp_from_raw(u32 raw) {
+        return pgrp_t{raw};
+    }
+
     /// Explicitly name the ABI conversion at syscall boundaries.
     template <typename Tag>
     constexpr u32 raw_id(domain_id<Tag> id) {

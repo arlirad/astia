@@ -323,7 +323,7 @@ namespace astia::proc {
     } // namespace
 
     process::process(pid_t id, pid_t parent, const char* name)
-        : pid_(id), parent_pid_(parent), process_group_(pgrp_t{static_cast<u32>(id)}),
+        : pid_(id), parent_pid_(parent), process_group_(pgrp_from_raw(raw_id(id))),
           session_(id) {
         u32 i = 0;
         while (name != nullptr && name[i] != '\0' && i + 1 < sizeof(name_)) {
@@ -479,7 +479,7 @@ namespace astia::proc {
         // Do this before dropping descriptors so the terminal's foreground
         // process group is still available to the signal fan-out.
         if (controlling_terminal_ != nullptr && session_ == pid_) {
-            (void) signal_process_group(pgrp_t{raw_id(process_group_)},
+            (void) signal_process_group(pgrp_from_raw(raw_id(process_group_)),
                                         signal_number::hup);
             controlling_terminal_ = nullptr;
         }
@@ -499,6 +499,7 @@ namespace astia::proc {
             value->tls_mapping_pages() != 0) {
             unmap(value->tls_mapping_base(),
                   value->tls_mapping_pages() * mm::phys_region::frame_size);
+            value->clear_tls_mapping();
         }
         // Waiters block on the *parent* (registered by proc::waitpid);
         // waking must happen on that object, not on the dying process.
@@ -506,8 +507,8 @@ namespace astia::proc {
     }
 
     void process::notify_parent_of_state_change() {
-        process* parent = find_process(parent_pid_);
-        if (parent == nullptr)
+        mm::shptr<process> parent = retain_process(parent_pid_);
+        if (!parent)
             return;
         (void) parent->signals().send(signal_number::chld);
         if (parent->address_space() != nullptr)

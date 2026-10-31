@@ -14,7 +14,7 @@ namespace astia {
             if (raw < 0 || raw > 0xffffffffll)
                 return optional<proc::getsid_target>(error_t::einval);
             return optional<proc::getsid_target>(
-                proc::getsid_target{pid_t{static_cast<u32>(raw)}});
+                proc::getsid_target{pid_from_raw(static_cast<u32>(raw))});
         }
     };
 
@@ -47,7 +47,7 @@ namespace astia {
         static optional<pid_t> from(i64 raw) {
             if (raw <= 0 || raw > 0xffffffffll)
                 return optional<pid_t>(error_t::einval);
-            return optional<pid_t>(pid_t{static_cast<u32>(raw)});
+            return optional<pid_t>(pid_from_raw(static_cast<u32>(raw)));
         }
     };
 
@@ -56,7 +56,7 @@ namespace astia {
         static optional<pgrp_t> from(i64 raw) {
             if (raw <= 0 || raw > 0xffffffffll)
                 return optional<pgrp_t>(error_t::einval);
-            return optional<pgrp_t>(pgrp_t{static_cast<u32>(raw)});
+            return optional<pgrp_t>(pgrp_from_raw(static_cast<u32>(raw)));
         }
     };
 

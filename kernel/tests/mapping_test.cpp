@@ -95,6 +95,14 @@ ASTIA_TEST(getsid_selector_mapping_rejects_bad_signed_or_overflow_values) {
     ASTIA_CHECK(!overflow.has_value && overflow.error == astia::error_t::einval);
 }
 
+ASTIA_TEST(process_identifier_helpers_preserve_domains) {
+    const auto pid = astia::pid_from_raw(42);
+    const auto group = astia::pgrp_from_raw(42);
+    ASTIA_CHECK(astia::raw_id(pid) == 42);
+    ASTIA_CHECK(astia::raw_id(group) == 42);
+    ASTIA_CHECK(astia::proc::wait_group_from_selector(-42) == group);
+}
+
 ASTIA_TEST(descriptor_mapper_keeps_abi_integer_at_boundary) {
     const auto valid     = astia::mapper<astia::fd_t>::from(7);
     const auto negative  = astia::mapper<astia::fd_t>::from(-1);

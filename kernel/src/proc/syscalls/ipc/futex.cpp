@@ -23,7 +23,7 @@ namespace astia::proc {
 namespace astia::proc::syscall {
 
     i64 futex(u64 address, u32 op, u32 expected, u64 timeout) {
-        auto operation = mapper<ipc::futex_operation>::from(op & ~FUTEX_PRIVATE_FLAG);
+        auto operation = mapper<ipc::futex_operation>::from(op & ~ipc::futex_private_bit);
         if (!operation)
             return -EINVAL;
         // Timeouts are deliberately deferred: an untimed wait/wake

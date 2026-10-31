@@ -65,20 +65,27 @@ namespace astia::proc {
     }
 
     void fd_table::clear_all() {
-        core::spinlock_guard guard(lock_);
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
-            entries_[fd].file  = {};
-            entries_[fd].flags = 0;
+            mm::shptr<fs::open_file> old;
+            {
+                core::spinlock_guard guard(lock_);
+                old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
+                entries_[fd].flags = 0;
+            }
         }
     }
 
     void fd_table::close_on_exec() {
-        core::spinlock_guard guard(lock_);
-        for (u32 fd = 0; fd < max_process_fds; ++fd)
-            if ((entries_[fd].flags & ASTIA_FD_CLOEXEC) != 0) {
-                entries_[fd].file  = {};
-                entries_[fd].flags = 0;
+        for (u32 fd = 0; fd < max_process_fds; ++fd) {
+            mm::shptr<fs::open_file> old;
+            {
+                core::spinlock_guard guard(lock_);
+                if ((entries_[fd].flags & ASTIA_FD_CLOEXEC) != 0) {
+                    old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
+                    entries_[fd].flags = 0;
+                }
             }
+        }
     }
 
     optional<fd_t> fd_table::duplicate(fd_t old_fd) {

@@ -23,6 +23,22 @@ namespace astia::proc {
                                                   static_cast<u32>(wait_options::untraced) |
                                                   static_cast<u32>(wait_options::continued);
 
+    constexpr u32 raw_wait_options(wait_options options) {
+        return static_cast<u32>(options);
+    }
+
+    constexpr bool has_wait_option(wait_options options, wait_options option) {
+        return (raw_wait_options(options) & raw_wait_options(option)) != 0;
+    }
+
+    constexpr pgrp_t wait_group_from_selector(i32 pid) {
+        return pgrp_from_raw(static_cast<u32>(-static_cast<i64>(pid)));
+    }
+
+    constexpr pid_t wait_pid_from_selector(i32 pid) {
+        return pid_from_raw(static_cast<u32>(pid));
+    }
+
     constexpr wait_options operator|(wait_options a, wait_options b) {
         return static_cast<wait_options>(static_cast<u32>(a) | static_cast<u32>(b));
     }
@@ -57,6 +73,9 @@ namespace astia::proc {
 
     /// Look up a live process by pid in the registry.
     process* find_process(pid_t id);
+    /// Look up a process while retaining an owning reference for use after
+    /// the registry lock is released.
+    mm::shptr<process> retain_process(pid_t id);
 
     /// Process-group/session operations for the calling process.
     pgrp_t getpgrp();

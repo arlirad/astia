@@ -177,6 +177,10 @@ namespace astia::proc {
             tls_mapping_base_  = base;
             tls_mapping_pages_ = pages;
         }
+        void clear_tls_mapping() {
+            tls_mapping_base_  = 0;
+            tls_mapping_pages_ = 0;
+        }
 
         private:
         bool allocate_kernel_stack();
