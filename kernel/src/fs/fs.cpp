@@ -1,6 +1,7 @@
 #include "devfs.hpp"
 #include "initrd_fs.hpp"
 #include "tmpfs.hpp"
+#include "unix_pathname.hpp"
 #include <astia/api/errno.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/fs.hpp>
@@ -428,6 +429,15 @@ namespace astia::fs {
         mount_operation operation(resolved);
         if (!operation)
             return {};
+        mm::shptr<file> unix_endpoint;
+        if (lookup_unix_path(resolved, unix_endpoint) == 0) {
+            auto result = mm::share<open_file>(unix_endpoint, flags);
+            if (result) {
+                result->set_path(resolved);
+                result->attach_mount(operation.instance());
+            }
+            return result;
+        }
         auto result = operation.instance()->open(
             relative_path(*operation.entry(), resolved), flags);
         if (result) {
@@ -466,8 +476,14 @@ namespace astia::fs {
         mount_operation operation(resolved);
         if (!operation)
             return -ENOENT;
-        return operation.instance()->read_directory(
-            relative_path(*operation.entry(), resolved), index, name, capacity, type);
+        const char* relative = relative_path(*operation.entry(), resolved);
+        rc = operation.instance()->read_directory(relative, index, name, capacity, type);
+        if (rc > 0) return rc;
+        u64 base = 0;
+        while (operation.instance()->read_directory(relative, base, name, capacity, type) > 0)
+            ++base;
+        return read_unix_directory(resolved, operation.instance(), index - base,
+                                   name, capacity, type);
     }
 
     long make_directory(const char* path, file_mode mode) {
@@ -494,8 +510,9 @@ namespace astia::fs {
         mount_operation operation(resolved);
         if (!operation)
             return -ENOENT;
-        return operation.instance()->unlink(relative_path(*operation.entry(), resolved),
-                                            directory);
+        long unix_rc = remove_unix_path(resolved, operation.instance(), directory);
+        if (unix_rc != 0) return unix_rc > 0 ? 0 : unix_rc;
+        return operation.instance()->unlink(relative_path(*operation.entry(), resolved), directory);
     }
 
     long rename_path(const char* old_path, const char* new_path) {
@@ -515,6 +532,8 @@ namespace astia::fs {
             return -ENOENT;
         if (old_operation.instance() != new_operation.instance())
             return -EXDEV;
+        long unix_rc = rename_unix_path(old_resolved, new_resolved, old_operation.instance());
+        if (unix_rc != 0) return unix_rc > 0 ? 0 : unix_rc;
         return old_operation.instance()->rename(
             relative_path(*old_operation.entry(), old_resolved),
             relative_path(*new_operation.entry(), new_resolved));
@@ -537,6 +556,10 @@ namespace astia::fs {
             return -ENOENT;
         if (old_operation.instance() != new_operation.instance())
             return -EXDEV;
+        if (unix_node_type(old_resolved, old_operation.instance()) != directory_unknown)
+            return -EPERM;
+        if (unix_node_type(new_resolved, new_operation.instance()) != directory_unknown)
+            return -EEXIST;
         return old_operation.instance()->link(
             relative_path(*old_operation.entry(), old_resolved),
             relative_path(*new_operation.entry(), new_resolved));
@@ -554,6 +577,8 @@ namespace astia::fs {
         // and therefore cannot describe the mount root through node_type().
         if (equal(entry->target, path))
             return directory_dir;
+        file_type unix_type = unix_node_type(path, operation.instance());
+        if (unix_type != directory_unknown) return unix_type;
         return operation.instance()->node_type(relative_path(*entry, path));
     }
 
@@ -708,21 +733,24 @@ namespace astia::fs {
         if (path == nullptr || path[0] != '/')
             return {};
         mount_operation operation(path);
-        return !operation ? file_mode{}
-                          : operation.instance()->node_mode(
-                                relative_path(*operation.entry(), path));
+        if (!operation) return {};
+        file_mode unix_mode = unix_node_mode(path, operation.instance());
+        return unix_mode.exists() ? unix_mode
+                                  : operation.instance()->node_mode(relative_path(*operation.entry(), path));
     }
     uid_t node_uid(const char* path) {
         mount_operation operation(path);
-        return operation ? operation.instance()->node_uid(
-                               relative_path(*operation.entry(), path))
-                         : uid_t{};
+        if (!operation) return {};
+        file_type unix_type = unix_node_type(path, operation.instance());
+        return unix_type != directory_unknown ? unix_node_uid(path, operation.instance())
+                                              : operation.instance()->node_uid(relative_path(*operation.entry(), path));
     }
     gid_t node_gid(const char* path) {
         mount_operation operation(path);
-        return operation ? operation.instance()->node_gid(
-                               relative_path(*operation.entry(), path))
-                         : gid_t{};
+        if (!operation) return {};
+        file_type unix_type = unix_node_type(path, operation.instance());
+        return unix_type != directory_unknown ? unix_node_gid(path, operation.instance())
+                                              : operation.instance()->node_gid(relative_path(*operation.entry(), path));
     }
 
     long chmod_path(const char* path, file_permissions permissions) {

@@ -61,6 +61,7 @@ namespace astia::fs {
         directory = 4,
         regular   = 8,
         symlink   = 10,
+        socket    = 12,
     };
 
     enum class permission_bits : u8 { none = 0, execute = 1, write = 2, read = 4 };
@@ -141,6 +142,9 @@ namespace astia::fs {
         constexpr bool is_symlink() const {
             return type_ == file_type::symlink;
         }
+        constexpr bool is_socket() const {
+            return type_ == file_type::socket;
+        }
         constexpr bool owner_allows(permission_bits bits) const {
             return permissions_.owner_allows(bits);
         }
@@ -205,6 +209,7 @@ namespace astia::fs {
     inline constexpr file_type directory_dir     = file_type::directory;
     inline constexpr file_type directory_reg     = file_type::regular;
     inline constexpr file_type directory_lnk     = file_type::symlink;
+    inline constexpr file_type directory_sock    = file_type::socket;
 
     /// The polymorphic object behind a filesystem node.  Device classes
     /// derive from this interface; the kernel passes these objects
@@ -356,6 +361,14 @@ namespace astia::fs {
                       bool follow_final = true);
     mount* retain_mount_for_unix_path(const char* canonical);
     void release_mount_reference(mount* owner);
+    long remove_unix_path(const char* canonical, mount* owner, bool directory);
+    long rename_unix_path(const char* old_path, const char* new_path, mount* owner);
+    file_type unix_node_type(const char* canonical, mount* owner);
+    file_mode unix_node_mode(const char* canonical, mount* owner);
+    uid_t unix_node_uid(const char* canonical, mount* owner);
+    gid_t unix_node_gid(const char* canonical, mount* owner);
+    long read_unix_directory(const char* directory, mount* owner, u64 index,
+                             char* name, u32 capacity, file_type* type);
 
     struct kernel_read {
         open_file* file;

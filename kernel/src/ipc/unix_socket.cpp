@@ -38,6 +38,12 @@ namespace astia::fs {
             public:
             enum class state : u8 { fresh, listener, connected, dgram };
             unix_file() = default;
+            file_mode mode() const override {
+                return file_mode(file_type::socket, file_permissions(0777));
+            }
+            long size() const override {
+                return 0;
+            }
             long read(void* b, u32 n, u64) override {
                 if (state_ == state::dgram)
                     return recv_dgram(static_cast<u8*>(b), n);

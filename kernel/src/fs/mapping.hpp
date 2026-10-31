@@ -65,6 +65,9 @@ namespace astia {
             case fs::file_type::symlink:
                 type = 0120000u;
                 break;
+            case fs::file_type::socket:
+                type = 0140000u;
+                break;
             default:
                 break;
             }
