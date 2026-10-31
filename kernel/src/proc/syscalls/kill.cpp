@@ -26,8 +26,8 @@ namespace astia::proc::syscall {
         auto mapped_pid = mapper<pid_t>::from(pid_raw);
         if (!mapped_pid)
             return -EINVAL;
-        auto* target = find_process(mapped_pid.value);
-        if (target == nullptr)
+        auto target = retain_process(mapped_pid.value);
+        if (!target)
             return -ESRCH;
         if (signal_raw == 0)
             return 0;

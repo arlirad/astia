@@ -77,11 +77,9 @@ namespace astia::proc::syscall {
                 return -EFAULT;
             }
         }
-        if (next_ptr != 0) {
-            if (!owner->signals().disposition(signal, next_disposition)) {
-                return -EINVAL;
-            }
-        }
+        if (next_ptr != 0 &&
+            !owner->signals().change_disposition(signal, next_disposition))
+            return -EINVAL;
         return 0;
     }
 

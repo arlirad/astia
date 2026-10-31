@@ -1,6 +1,7 @@
 #include "process.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/arch/cpu.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/heap.hpp>
 
@@ -111,7 +112,7 @@ namespace astia::proc {
     } // namespace
 
     mmap_region* process::find_region(u64 addr) {
-        core::spinlock_guard guard(mmap_lock_);
+        arch::interrupt_spinlock_guard guard(mmap_lock_);
         for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
             if (it->covers(addr)) {
                 return it;
@@ -131,7 +132,7 @@ namespace astia::proc {
         }
         const u64 first = addr & ~(page_bytes - 1);
 
-        core::spinlock_guard guard(mmap_lock_);
+        arch::interrupt_spinlock_guard guard(mmap_lock_);
         // Resolve the whole range under one lock: a pin names exactly one
         // region, and deriving the VMA per page would let a concurrent
         // munmap from another thread make the range half-resolvable.
@@ -228,7 +229,7 @@ namespace astia::proc {
         if (want > rlimit_as_.current || mapped_bytes_ > rlimit_as_.current - want)
             return -ENOMEM;
 
-        core::spinlock_guard guard(mmap_lock_);
+        arch::interrupt_spinlock_guard guard(mmap_lock_);
         const u64            base = place(mmap_regions_, addr, want);
         if (base == 0) {
             return -ENOMEM;
@@ -292,7 +293,7 @@ namespace astia::proc {
             return -ENODEV;
         }
 
-        core::spinlock_guard guard(mmap_lock_);
+        arch::interrupt_spinlock_guard guard(mmap_lock_);
         const u64            base = place(mmap_regions_, addr, want);
         if (base == 0) {
             return -ENOMEM;
@@ -359,7 +360,7 @@ namespace astia::proc {
         const u64 first = addr;
         const u64 last  = addr + pages * page_bytes;
 
-        core::spinlock_guard guard(mmap_lock_);
+        arch::interrupt_spinlock_guard guard(mmap_lock_);
 
         // A region extending past the range's end is trimmed by giving
         // its tail a new entry; pre-allocate that single node so the
@@ -443,7 +444,7 @@ namespace astia::proc {
         if (region == nullptr || pages == 0) {
             return false;
         }
-        core::spinlock_guard guard(mmap_lock_);
+        arch::interrupt_spinlock_guard guard(mmap_lock_);
         auto*                entry = alloc_region();
         if (entry == nullptr) {
             return false;
@@ -479,7 +480,7 @@ namespace astia::proc {
         }
         const u64 page_bytes = mm::phys_region::frame_size;
 
-        core::spinlock_guard guard(mmap_lock_);
+        arch::interrupt_spinlock_guard guard(mmap_lock_);
         // Keep the original parent write state for every private writable
         // page.  A page may already be read-only because an earlier fork
         // owns a sharing reference; such a page must not be made writable by
@@ -626,7 +627,7 @@ namespace astia::proc {
         }
         const u64 page_bytes = mm::phys_region::frame_size;
 
-        core::spinlock_guard guard(mmap_lock_);
+        arch::interrupt_spinlock_guard guard(mmap_lock_);
         mmap_region*         vma  = nullptr;
         mmap_region*         prev = nullptr; // heir search needs the left
         for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {

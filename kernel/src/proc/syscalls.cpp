@@ -81,11 +81,11 @@ namespace astia::proc {
             if (owner == nullptr || self == nullptr) {
                 return;
             }
-            const signal_number signal = owner->signals().take_unblocked();
+            signal_disposition disposition{};
+            const signal_number signal = owner->signals().take_unblocked(&disposition);
             if (!valid_signal(signal)) {
                 return;
             }
-            const signal_disposition disposition = owner->signals().disposition(signal);
             const bool               suspended   = self->has_signal_restore_mask();
             const u32                restore_mask =
                 suspended ? self->signal_restore_mask() : owner->signals().blocked();

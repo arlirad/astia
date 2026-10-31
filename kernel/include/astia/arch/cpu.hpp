@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/core/spinlock.hpp>
 
 namespace astia::arch {
 
@@ -84,6 +85,25 @@ namespace astia::arch {
 
         private:
         bool open_; // was the gate open when we masked it?
+    };
+
+    /// Mask interrupts before acquiring a lock so an IRQ on this CPU cannot
+    /// preempt a holder and spin forever on that same lock.
+    class interrupt_spinlock_guard {
+        public:
+        explicit interrupt_spinlock_guard(core::spinlock& lock) : gate_(), lock_(lock) {
+            lock_.lock();
+        }
+        ~interrupt_spinlock_guard() {
+            lock_.unlock();
+        }
+
+        interrupt_spinlock_guard(const interrupt_spinlock_guard&)            = delete;
+        interrupt_spinlock_guard& operator=(const interrupt_spinlock_guard&) = delete;
+
+        private:
+        interrupt_guard gate_;
+        core::spinlock& lock_;
     };
 
 } // namespace astia::arch

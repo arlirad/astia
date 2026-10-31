@@ -72,7 +72,7 @@ namespace astia::proc {
     }
 
     bool register_process(const mm::shptr<process>& value) {
-        core::spinlock_guard guard(registry_lock);
+        arch::interrupt_spinlock_guard guard(registry_lock);
         for (u32 i = 1; i < max_processes; ++i) {
             if (!registry[i]) {
                 registry[i] = value;
@@ -85,7 +85,7 @@ namespace astia::proc {
     bool unregister_process(process* value) {
         if (value == nullptr)
             return false;
-        core::spinlock_guard guard(registry_lock);
+        arch::interrupt_spinlock_guard guard(registry_lock);
         for (u32 i = 1; i < max_processes; ++i) {
             if (registry[i].get() == value) {
                 registry[i] = {};
@@ -229,13 +229,13 @@ namespace astia::proc {
     }
 
     process* find_process(pid_t id) {
-        core::spinlock_guard guard(registry_lock);
+        arch::interrupt_spinlock_guard guard(registry_lock);
         const i32            slot = find_slot_locked(id);
         return slot < 0 ? nullptr : registry[slot].get();
     }
 
     mm::shptr<process> retain_process(pid_t id) {
-        core::spinlock_guard guard(registry_lock);
+        arch::interrupt_spinlock_guard guard(registry_lock);
         const i32            slot = find_slot_locked(id);
         return slot < 0 ? mm::shptr<process>{} : registry[slot];
     }
@@ -246,7 +246,7 @@ namespace astia::proc {
         astia_process_info records[ASTIA_PROCESS_SNAPSHOT_MAX]{};
         u32                count = 0;
         {
-            core::spinlock_guard guard(registry_lock);
+            arch::interrupt_spinlock_guard guard(registry_lock);
             for (u32 i = 0; i < max_processes && count < capacity; ++i) {
                 process* value = registry[i].get();
                 if (value == nullptr)
@@ -287,7 +287,7 @@ namespace astia::proc {
         // Hold the registry reference while reading the selected process.
         // Zombies remain registered until their parent reaps them, matching
         // native process lifetime; reaping removes the PID atomically.
-        core::spinlock_guard guard(registry_lock);
+        arch::interrupt_spinlock_guard guard(registry_lock);
         const i32            slot = find_slot_locked(target);
         if (slot < 0 || !registry[slot])
             return -ESRCH;
@@ -320,7 +320,7 @@ namespace astia::proc {
     }
 
     bool process_group_exists(pgrp_t group, pid_t session) {
-        core::spinlock_guard guard(registry_lock);
+        arch::interrupt_spinlock_guard guard(registry_lock);
         return find_group_locked(group, session) != nullptr;
     }
 
@@ -371,7 +371,7 @@ namespace astia::proc {
         if (pid == pid_t{} || pgid == pgrp_t{})
             return -EINVAL;
 
-        core::spinlock_guard guard(registry_lock);
+        arch::interrupt_spinlock_guard guard(registry_lock);
         const i32            slot = find_slot_locked(pid);
         // A freshly forked child can execute setpgid(0, ...) before another
         // registry scan observes its slot.  pid==0 is explicitly the caller,
@@ -421,7 +421,7 @@ namespace astia::proc {
         mm::shptr<process> targets[max_processes];
         u32      count = 0;
         {
-            core::spinlock_guard guard(registry_lock);
+            arch::interrupt_spinlock_guard guard(registry_lock);
             for (u32 i = 0; i < max_processes; ++i) {
                 process* target = registry[i].get();
                 if (!is_live(target) || target->process_group() != group)
@@ -474,7 +474,7 @@ namespace astia::proc {
             bool               has_children = false;
             mm::shptr<process> taken;
             {
-                core::spinlock_guard guard(registry_lock);
+                arch::interrupt_spinlock_guard guard(registry_lock);
                 for (u32 i = 0; i < max_processes; ++i) {
                     process* child = registry[i].get();
                     if (child == nullptr || child->parent_pid() != parent->pid()) {

@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/arch/cpu.hpp>
 #include <astia/mm/share.hpp>
 
 namespace astia::proc {
@@ -12,7 +13,7 @@ namespace astia::proc {
         auto error  = fs::open("/dev/tts0");
         if (!input || !output || !error)
             return false;
-        core::spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(lock_);
         entries_[STDIN].file  = input;
         entries_[STDOUT].file = output;
         entries_[STDERR].file = error;
@@ -20,14 +21,14 @@ namespace astia::proc {
     }
 
     mm::shptr<fs::open_file> fd_table::get(fd_t fd) const {
-        core::spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(lock_);
         return fd.value >= 0 && static_cast<u32>(fd.value) < max_process_fds
                    ? entries_[fd.value].file
                    : mm::shptr<fs::open_file>{};
     }
 
     u32 fd_table::flags(fd_t fd) const {
-        core::spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(lock_);
         return fd.value >= 0 && static_cast<u32>(fd.value) < max_process_fds
                    ? entries_[fd.value].flags
                    : 0;
@@ -43,7 +44,7 @@ namespace astia::proc {
         }
         mm::shptr<fs::open_file> old;
         {
-            core::spinlock_guard guard(lock_);
+            arch::interrupt_spinlock_guard guard(lock_);
             old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd.value].file);
             entries_[fd.value].file  = file;
             entries_[fd.value].flags = flags;
@@ -57,7 +58,7 @@ namespace astia::proc {
         }
         mm::shptr<fs::open_file> old;
         {
-            core::spinlock_guard guard(lock_);
+            arch::interrupt_spinlock_guard guard(lock_);
             old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd.value].file);
             entries_[fd.value].flags = 0;
         }
@@ -68,7 +69,7 @@ namespace astia::proc {
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
             mm::shptr<fs::open_file> old;
             {
-                core::spinlock_guard guard(lock_);
+                arch::interrupt_spinlock_guard guard(lock_);
                 old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
                 entries_[fd].flags = 0;
             }
@@ -79,7 +80,7 @@ namespace astia::proc {
         for (u32 fd = 0; fd < max_process_fds; ++fd) {
             mm::shptr<fs::open_file> old;
             {
-                core::spinlock_guard guard(lock_);
+                arch::interrupt_spinlock_guard guard(lock_);
                 if ((entries_[fd].flags & ASTIA_FD_CLOEXEC) != 0) {
                     old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
                     entries_[fd].flags = 0;
@@ -98,7 +99,7 @@ namespace astia::proc {
 
     optional<fd_t> fd_table::duplicate(fd_t old_fd, fd_t minimum, u32 flags,
                                        u32 maximum) {
-        core::spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(lock_);
         auto                 source =
             old_fd.value >= 0 && static_cast<u32>(old_fd.value) < max_process_fds
                 ? entries_[old_fd.value].file
@@ -123,7 +124,7 @@ namespace astia::proc {
     }
 
     optional<fd_t> fd_table::duplicate_to(fd_t old_fd, fd_t new_fd) {
-        core::spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(lock_);
         auto                 source =
             old_fd.value >= 0 && static_cast<u32>(old_fd.value) < max_process_fds
                 ? entries_[old_fd.value].file

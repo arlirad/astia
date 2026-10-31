@@ -41,7 +41,7 @@ namespace astia::proc::scheduler {
                 cpus[index].status != cpu_state::lifecycle::online)
                 return false;
             auto&                state = cpus[index];
-            core::spinlock_guard guard(state.lock);
+            arch::interrupt_spinlock_guard guard(state.lock);
             if (value->queued()) {
                 return true;
             }
@@ -65,8 +65,8 @@ namespace astia::proc::scheduler {
                     source_index < target_index ? source_index : target_index;
                 const u32 second =
                     source_index < target_index ? target_index : source_index;
-                core::spinlock_guard first_guard(cpus[first].lock);
-                core::spinlock_guard second_guard(cpus[second].lock);
+                arch::interrupt_spinlock_guard first_guard(cpus[first].lock);
+                arch::interrupt_spinlock_guard second_guard(cpus[second].lock);
                 auto&                source = cpus[source_index];
                 auto&                target = cpus[target_index];
                 if (source.queue_count <= target.queue_count + run_queue_rebalance_slack ||
@@ -103,7 +103,7 @@ namespace astia::proc::scheduler {
 
         thread* select_next(u32 index) {
             auto&                state = cpus[index];
-            core::spinlock_guard guard(state.lock);
+            arch::interrupt_spinlock_guard guard(state.lock);
             if (state.queue_count == 0) {
                 return nullptr;
             }
@@ -293,8 +293,8 @@ namespace astia::proc::scheduler {
         auto&                 target = cpus[cpu_index];
         const u32 first_index  = source_index < cpu_index ? source_index : cpu_index;
         const u32 second_index = source_index < cpu_index ? cpu_index : source_index;
-        core::spinlock_guard first_guard(cpus[first_index].lock);
-        core::spinlock_guard second_guard(cpus[second_index].lock);
+        arch::interrupt_spinlock_guard first_guard(cpus[first_index].lock);
+        arch::interrupt_spinlock_guard second_guard(cpus[second_index].lock);
         {
             u32 position = source.queue_count;
             for (u32 i = 0; i < source.queue_count; ++i) {
