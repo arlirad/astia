@@ -310,20 +310,12 @@ namespace astia::fs {
         const filesystem* type = find_type(type_name);
         if (type == nullptr)
             return -ENODEV;
-        core::spinlock_guard registry_guard(mount_registry_lock);
-        for (u32 i = 0; i < max_mounts; ++i) {
-            if (mounts[i].used && equal(mounts[i].target, checked_target))
-                return -EEXIST;
-        }
-        u32 free_slot = max_mounts;
-        for (u32 i = 0; i < max_mounts; ++i) {
-            if (!mounts[i].used) {
-                free_slot = i;
-                break;
-            }
-        }
-        if (free_slot == max_mounts)
-            return -ENFILE;
+
+        // Mount factories may allocate and initialize an entire filesystem.
+        // Do that before taking the registry lock; publication below is the
+        // only part that needs to be serialized.  The duplicate and capacity
+        // checks are repeated there because another mount may be published
+        // while the factory is running.
         mount* instance = type->mount(source);
         if (instance == nullptr)
             return -ENOMEM;
@@ -342,15 +334,42 @@ namespace astia::fs {
         void (*destroy)(mount*)         = nullptr;
         if (type == &tmpfs_type_instance)
             destroy = destroy_tmpfs_mount;
-        if (!copy_path(mounts[free_slot].target, checked_target)) {
+
+        bool published = false;
+        long publish_error = -ENFILE;
+        {
+            core::spinlock_guard registry_guard(mount_registry_lock);
+            for (u32 i = 0; i < max_mounts; ++i) {
+                if (mounts[i].used && equal(mounts[i].target, checked_target)) {
+                    publish_error = -EEXIST;
+                    break;
+                }
+            }
+            if (publish_error == -ENFILE) {
+                u32 free_slot = max_mounts;
+                for (u32 i = 0; i < max_mounts; ++i) {
+                    if (!mounts[i].used) {
+                        free_slot = i;
+                        break;
+                    }
+                }
+                if (free_slot != max_mounts &&
+                    copy_path(mounts[free_slot].target, checked_target)) {
+                    mounts[free_slot].used      = true;
+                    mounts[free_slot].instance  = instance;
+                    mounts[free_slot].ownership = ownership;
+                    mounts[free_slot].destroy   = destroy;
+                    mounts[free_slot].active_operations = 0;
+                    published = true;
+                }
+            }
+        }
+
+        if (!published) {
             if (destroy != nullptr)
                 destroy(instance);
-            return -ENAMETOOLONG;
+            return publish_error;
         }
-        mounts[free_slot].used      = true;
-        mounts[free_slot].instance  = instance;
-        mounts[free_slot].ownership = ownership;
-        mounts[free_slot].destroy   = destroy;
         return 0;
     }
 
@@ -366,31 +385,36 @@ namespace astia::fs {
             return resolve_result;
         if (equal(checked_target, "/"))
             return -EBUSY;
-        core::spinlock_guard registry_guard(mount_registry_lock);
-        mount_entry*         selected = nullptr;
-        for (u32 i = 0; i < max_mounts; ++i) {
-            if (mounts[i].used && equal(mounts[i].target, checked_target)) {
-                selected = &mounts[i];
-                break;
+        mount*                instance  = nullptr;
+        mount_ownership       ownership = mount_ownership::static_instance;
+        void (*destroy)(mount*)         = nullptr;
+        {
+            core::spinlock_guard registry_guard(mount_registry_lock);
+            mount_entry* selected = nullptr;
+            for (u32 i = 0; i < max_mounts; ++i) {
+                if (mounts[i].used && equal(mounts[i].target, checked_target)) {
+                    selected = &mounts[i];
+                    break;
+                }
             }
-        }
-        if (selected == nullptr)
-            return -ENOENT;
-        if (selected->active_operations != 0 || selected->instance->open_count() != 0)
-            return -EBUSY;
-        for (u32 i = 0; i < max_mounts; ++i) {
-            if (!mounts[i].used || &mounts[i] == selected)
-                continue;
-            if (path_matches(checked_target, mounts[i].target))
+            if (selected == nullptr)
+                return -ENOENT;
+            if (selected->active_operations != 0 || selected->instance->open_count() != 0)
                 return -EBUSY;
+            for (u32 i = 0; i < max_mounts; ++i) {
+                if (!mounts[i].used || &mounts[i] == selected)
+                    continue;
+                if (path_matches(checked_target, mounts[i].target))
+                    return -EBUSY;
+            }
+            instance            = selected->instance;
+            ownership           = selected->ownership;
+            destroy             = selected->destroy;
+            selected->used      = false;
+            selected->instance  = nullptr;
+            selected->ownership = mount_ownership::static_instance;
+            selected->destroy   = nullptr;
         }
-        mount*                instance  = selected->instance;
-        const mount_ownership ownership = selected->ownership;
-        void (*destroy)(mount*)         = selected->destroy;
-        selected->used                  = false;
-        selected->instance              = nullptr;
-        selected->ownership             = mount_ownership::static_instance;
-        selected->destroy               = nullptr;
         // Only registry-owned factories may be destroyed here.  Cached devfs
         // has a null callback and remains in its static storage.
         if (ownership == mount_ownership::registry_owned && destroy != nullptr)

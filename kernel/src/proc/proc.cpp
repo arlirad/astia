@@ -37,33 +37,43 @@ namespace astia::proc {
         mm::shptr<process>* registry = nullptr;
         core::spinlock      registry_lock;
 
-        /// registry_lock must be held.
-        i32 find_slot_locked(pid_t id) {
-            for (u32 i = 0; i < max_processes; ++i) {
-                if (registry[i] && registry[i]->pid() == id) {
-                    return static_cast<i32>(i);
-                }
-            }
-            return -1;
-        }
-
         bool is_live(const process* value) {
             return value != nullptr && value->state() != process_state::zombie &&
                    value->state() != process_state::dead;
         }
 
-        // registry_lock must be held.  Looking up the requested PID alone
-        // would incorrectly allow setpgid() to join an arbitrary process
-        // rather than an existing process group.
-        process* find_group_locked(pgrp_t group, pid_t session) {
+        u32 snapshot_registry(mm::shptr<process>* values) {
+            u32 count = 0;
+            arch::interrupt_spinlock_guard guard(registry_lock);
             for (u32 i = 0; i < max_processes; ++i) {
-                process* value = registry[i].get();
-                if (is_live(value) && value->process_group() == group &&
-                    value->session() == session) {
-                    return value;
+                if (registry[i])
+                    values[count++] = registry[i];
+            }
+            return count;
+        }
+
+        bool take_registered(process* value, mm::shptr<process>& taken) {
+            if (value == nullptr)
+                return false;
+            arch::interrupt_spinlock_guard guard(registry_lock);
+            for (u32 i = 1; i < max_processes; ++i) {
+                if (registry[i].get() == value) {
+                    taken = static_cast<mm::shptr<process>&&>(registry[i]);
+                    return true;
                 }
             }
-            return nullptr;
+            return false;
+        }
+
+        mm::shptr<process> retain_registered(process* value) {
+            if (value == nullptr)
+                return {};
+            arch::interrupt_spinlock_guard guard(registry_lock);
+            for (u32 i = 0; i < max_processes; ++i) {
+                if (registry[i].get() == value)
+                    return registry[i];
+            }
+            return {};
         }
 
         pgrp_t process_group_for(pid_t id) {
@@ -89,14 +99,17 @@ namespace astia::proc {
     bool unregister_process(process* value) {
         if (value == nullptr)
             return false;
-        arch::interrupt_spinlock_guard guard(registry_lock);
-        for (u32 i = 1; i < max_processes; ++i) {
-            if (registry[i].get() == value) {
-                registry[i] = {};
-                return true;
+        mm::shptr<process> removed;
+        {
+            arch::interrupt_spinlock_guard guard(registry_lock);
+            for (u32 i = 1; i < max_processes; ++i) {
+                if (registry[i].get() == value) {
+                    removed = static_cast<mm::shptr<process>&&>(registry[i]);
+                    break;
+                }
             }
         }
-        return false;
+        return static_cast<bool>(removed);
     }
 
     pid_t allocate_pid() {
@@ -231,41 +244,46 @@ namespace astia::proc {
     }
 
     process* find_process(pid_t id) {
-        arch::interrupt_spinlock_guard guard(registry_lock);
-        const i32            slot = find_slot_locked(id);
-        return slot < 0 ? nullptr : registry[slot].get();
+        mm::shptr<process> values[max_processes];
+        const u32 count = snapshot_registry(values);
+        for (u32 i = 0; i < count; ++i) {
+            if (values[i]->pid() == id)
+                return values[i].get();
+        }
+        return nullptr;
     }
 
     mm::shptr<process> retain_process(pid_t id) {
-        arch::interrupt_spinlock_guard guard(registry_lock);
-        const i32            slot = find_slot_locked(id);
-        return slot < 0 ? mm::shptr<process>{} : registry[slot];
+        mm::shptr<process> values[max_processes];
+        const u32 count = snapshot_registry(values);
+        for (u32 i = 0; i < count; ++i) {
+            if (values[i]->pid() == id)
+                return retain_registered(values[i].get());
+        }
+        return {};
     }
 
     i64 process_snapshot(u64 output, u32 capacity) {
         if (capacity > ASTIA_PROCESS_SNAPSHOT_MAX || (capacity != 0 && output == 0))
             return -EINVAL;
         astia_process_info records[ASTIA_PROCESS_SNAPSHOT_MAX]{};
+        mm::shptr<process> values[max_processes];
+        const u32 process_count = snapshot_registry(values);
         u32                count = 0;
-        {
-            arch::interrupt_spinlock_guard guard(registry_lock);
-            for (u32 i = 0; i < max_processes && count < capacity; ++i) {
-                process* value = registry[i].get();
-                if (value == nullptr)
-                    continue;
-                auto& record = records[count++];
-                record.pid   = static_cast<i32>(raw_id(value->pid()));
-                record.ppid  = static_cast<i32>(raw_id(value->parent_pid()));
-                record.pgid  = static_cast<i32>(raw_id(value->process_group()));
-                record.uid   = value->uid();
-                record.gid   = value->gid();
-                record.state = static_cast<u32>(value->state());
-                record.has_ctty  = value->controlling_terminal() != nullptr ? 1u : 0u;
-                const char* name = value->name();
-                for (u32 n = 0; name != nullptr && n + 1 < sizeof(record.name) && name[n];
-                     ++n)
-                    record.name[n] = name[n];
-            }
+        for (u32 i = 0; i < process_count && count < capacity; ++i) {
+            process* value = values[i].get();
+            auto& record = records[count++];
+            record.pid   = static_cast<i32>(raw_id(value->pid()));
+            record.ppid  = static_cast<i32>(raw_id(value->parent_pid()));
+            record.pgid  = static_cast<i32>(raw_id(value->process_group()));
+            record.uid   = value->uid();
+            record.gid   = value->gid();
+            record.state = static_cast<u32>(value->state());
+            record.has_ctty  = value->controlling_terminal() != nullptr ? 1u : 0u;
+            const char* name = value->name();
+            for (u32 n = 0; name != nullptr && n + 1 < sizeof(record.name) && name[n];
+                 ++n)
+                record.name[n] = name[n];
         }
         if (count != 0 &&
             !sys::copy_out(sys::user_range::bytes(output, count * sizeof(records[0])),
@@ -286,14 +304,10 @@ namespace astia::proc {
         if (target == pid_t{})
             return static_cast<i64>(raw_id(owner->session()));
 
-        // Hold the registry reference while reading the selected process.
-        // Zombies remain registered until their parent reaps them, matching
-        // native process lifetime; reaping removes the PID atomically.
-        arch::interrupt_spinlock_guard guard(registry_lock);
-        const i32            slot = find_slot_locked(target);
-        if (slot < 0 || !registry[slot])
+        mm::shptr<process> selected = retain_process(target);
+        if (!selected)
             return -ESRCH;
-        return static_cast<i64>(raw_id(registry[slot]->session()));
+        return static_cast<i64>(raw_id(selected->session()));
     }
 
     i64 acquire_controlling_terminal(fs::file* terminal) {
@@ -322,8 +336,15 @@ namespace astia::proc {
     }
 
     bool process_group_exists(pgrp_t group, pid_t session) {
-        arch::interrupt_spinlock_guard guard(registry_lock);
-        return find_group_locked(group, session) != nullptr;
+        mm::shptr<process> values[max_processes];
+        const u32 count = snapshot_registry(values);
+        for (u32 i = 0; i < count; ++i) {
+            process* value = values[i].get();
+            if (is_live(value) && value->process_group() == group &&
+                value->session() == session)
+                return true;
+        }
+        return false;
     }
 
     i64 terminal_signal_foreground(pgrp_t foreground, signal_number signal) {
@@ -373,13 +394,16 @@ namespace astia::proc {
         if (pid == pid_t{} || pgid == pgrp_t{})
             return -EINVAL;
 
-        arch::interrupt_spinlock_guard guard(registry_lock);
-        const i32            slot = find_slot_locked(pid);
+        mm::shptr<process> values[max_processes];
+        const u32 value_count = snapshot_registry(values);
+        process* target = self_target ? caller : nullptr;
+        for (u32 i = 0; i < value_count && target == nullptr; ++i) {
+            if (values[i]->pid() == pid)
+                target = values[i].get();
+        }
         // A freshly forked child can execute setpgid(0, ...) before another
         // registry scan observes its slot.  pid==0 is explicitly the caller,
         // so use that stable object directly.
-        process* target =
-            self_target ? caller : (slot < 0 ? nullptr : registry[slot].get());
         if (!is_live(target)) {
             return -ESRCH;
         }
@@ -396,7 +420,16 @@ namespace astia::proc {
         }
 
         if (pgid != pgrp_from_raw(raw_id(target->pid()))) {
-            if (find_group_locked(pgid, caller->session()) == nullptr) {
+            bool group_exists = false;
+            for (u32 i = 0; i < value_count; ++i) {
+                process* value = values[i].get();
+                if (is_live(value) && value->process_group() == pgid &&
+                    value->session() == caller->session()) {
+                    group_exists = true;
+                    break;
+                }
+            }
+            if (!group_exists) {
                 return -EPERM;
             }
         }
@@ -421,16 +454,14 @@ namespace astia::proc {
             return -EINVAL;
         bool     found = false;
         mm::shptr<process> targets[max_processes];
-        u32      count = 0;
-        {
-            arch::interrupt_spinlock_guard guard(registry_lock);
-            for (u32 i = 0; i < max_processes; ++i) {
-                process* target = registry[i].get();
-                if (!is_live(target) || target->process_group() != group)
-                    continue;
-                found            = true;
-                targets[count++] = registry[i];
-            }
+        const u32 value_count = snapshot_registry(targets);
+        u32 count = 0;
+        for (u32 i = 0; i < value_count; ++i) {
+            process* target = targets[i].get();
+            if (!is_live(target) || target->process_group() != group)
+                continue;
+            found = true;
+            targets[count++] = static_cast<mm::shptr<process>&&>(targets[i]);
         }
         if (value != signal_number{}) {
             for (u32 i = 0; i < count; ++i) {
@@ -472,57 +503,56 @@ namespace astia::proc {
                 break;
             }
 
-            process*           zombie_child = nullptr;
             bool               has_children = false;
             mm::shptr<process> taken;
-            {
-                arch::interrupt_spinlock_guard guard(registry_lock);
-                for (u32 i = 0; i < max_processes; ++i) {
-                    process* child = registry[i].get();
-                    if (child == nullptr || child->parent_pid() != parent->pid()) {
-                        continue;
-                    }
-                    if (pid > 0 && child->pid() != wait_pid_from_selector(pid)) {
-                        continue;
-                    }
-                    if ((group_wait || pid == 0) &&
-                        child->process_group() != requested_group) {
-                        continue;
-                    }
-                    has_children = true;
-                    if (child->state() == process_state::zombie) {
-                        taken        = registry[i];
-                        registry[i]  = {};
-                        zombie_child = child;
-                        break;
-                    }
-                    if (has_wait_option(options, wait_options::untraced) &&
-                        child->stop_event_pending()) {
-                        if (status != nullptr)
-                            *status = child->stop_status();
-                        child->clear_stop_event();
-                        result = static_cast<i64>(raw_id(child->pid()));
-                        break;
-                    }
-                    if (has_wait_option(options, wait_options::continued) &&
-                        child->continued_event_pending()) {
-                        if (status != nullptr)
-                            *status = astia::wait_continued_marker;
-                        child->clear_continued_event();
-                        result = static_cast<i64>(raw_id(child->pid()));
-                        break;
-                    }
+            mm::shptr<process> children[max_processes];
+            const u32 child_count = snapshot_registry(children);
+            process* zombie_child = nullptr;
+            for (u32 i = 0; i < child_count; ++i) {
+                process* child = children[i].get();
+                if (child == nullptr || child->parent_pid() != parent->pid())
+                    continue;
+                if (pid > 0 && child->pid() != wait_pid_from_selector(pid))
+                    continue;
+                if ((group_wait || pid == 0) &&
+                    child->process_group() != requested_group)
+                    continue;
+                has_children = true;
+                if (child->state() == process_state::zombie) {
+                    zombie_child = child;
+                    break;
+                }
+                if (has_wait_option(options, wait_options::untraced) &&
+                    child->stop_event_pending()) {
+                    if (status != nullptr)
+                        *status = child->stop_status();
+                    child->clear_stop_event();
+                    result = static_cast<i64>(raw_id(child->pid()));
+                    break;
+                }
+                if (has_wait_option(options, wait_options::continued) &&
+                    child->continued_event_pending()) {
+                    if (status != nullptr)
+                        *status = astia::wait_continued_marker;
+                    child->clear_continued_event();
+                    result = static_cast<i64>(raw_id(child->pid()));
+                    break;
                 }
             }
 
             if (zombie_child != nullptr) {
+                // Membership is removed under the registry lock, but the
+                // reference is moved out so a final release cannot destroy a
+                // process while that lock is held.
+                if (!take_registered(zombie_child, taken))
+                    continue;
                 // `taken` now owns the registry's reference; dropping it
                 // below runs ~process, which frees the address space
                 // and the dead threads' kernel stacks.  The child was
                 // already switched off this CPU before we were resumed.
-                const pid_t child_pid = zombie_child->pid();
+                const pid_t child_pid = taken->pid();
                 if (status != nullptr) {
-                    *status = zombie_child->wait_status();
+                    *status = taken->wait_status();
                 }
                 result = static_cast<i64>(raw_id(child_pid));
                 parent->remove_waiter(self);

@@ -70,6 +70,11 @@ init step arms delivery but leaves interrupts masked — opening the gate (`cpu:
   interrupt handler might re-enter: mask before locking, restore after
   unlocking.
 
+The lock hierarchy, IRQ restrictions, and no-callback-under-lock rule are
+documented in [`SYNCHRONIZATION.md`](SYNCHRONIZATION.md).  It is a partial
+hierarchy: subsystem boundaries should be crossed using references or copied
+state rather than by nesting unrelated locks.
+
 ## Building
 
 For CLion/clangd, open the repository root and use its CMake profile.  The
