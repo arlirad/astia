@@ -198,6 +198,7 @@ namespace astia::sys {
             ~ring_guard() {
                 if (held_)
                     lock_.release();
+                gate_.unlock();
             }
             ring_guard(const ring_guard&)            = delete;
             ring_guard& operator=(const ring_guard&) = delete;
@@ -206,7 +207,18 @@ namespace astia::sys {
                 if (held_) {
                     lock_.release();
                     held_ = false;
-                    gate_.unlock();
+                }
+                gate_.unlock();
+            }
+
+            // Release only the spinlock.  Keep this guard's interrupt gate
+            // nested until the surrounding lock guard is finished; otherwise
+            // releasing an outer pool lock would re-enable IRQs while the
+            // per-ring lock is still held.
+            void release_lock() {
+                if (held_) {
+                    lock_.release();
+                    held_ = false;
                 }
             }
 
@@ -570,7 +582,6 @@ namespace astia::sys {
                             const sys::user_range* entries, u32 count,
                             io_direction direction, bool control = false,
                             bool socket_accept = false) {
-            arch::interrupt_guard gate;
             parked_op*            p = nullptr;
             for (u32 i = 0; i < parked_operation_slots; ++i) {
                 if (!slot.park[i].used) {
@@ -681,7 +692,6 @@ namespace astia::sys {
         /// handler.  Task context only: dropping a pin may take a lock and
         /// may return frames to the allocator.
         void reap_completed(ring_slot& slot) {
-            arch::interrupt_guard gate;
             for (u32 i = 0; i < parked_operation_slots; ++i) {
                 parked_op& op = slot.park[i];
                 if (op.used && op.done) {
@@ -1700,7 +1710,6 @@ namespace astia::sys {
             const u32 ready = object->poll(s.aux);
             if (ready != 0)
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(ready));
-            arch::interrupt_guard gate;
             parked_op*            p = nullptr;
             for (u32 i = 0; i < parked_operation_slots; ++i)
                 if (!slot.park[i].used) {
@@ -1728,7 +1737,6 @@ namespace astia::sys {
                 if (p.used && !p.done && p.request.user_data() == target) {
                     // Cancellation needs two CQ slots.  Do not consume the
                     // SQE if either completion could be lost.
-                    arch::interrupt_guard gate;
                     astia_cq_ring*        cq = astia_rings_cq(ring);
                     const u32 head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
                     const u32 tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
@@ -1944,12 +1952,15 @@ namespace astia::sys {
                 break;
             }
         }
+        // The per-ring lock now pins the slot, and it has been detached from
+        // the pool.  Do not serialize the pool while reclaiming pins or
+        // unmapping the user alias.
+        pool_guard.release_lock();
         // Drop the userspace view (if the ring had one) before the slot
         // goes back to the pool; the frames are kernel .bss and survive.
         unmap_ring_user(*slot, proc::current_process());
         clear_slot(*slot);
         ring_lock_guard.unlock();
-        pool_guard.unlock();
         slot->~ring_slot();
         return 0;
     }
@@ -1966,6 +1977,9 @@ namespace astia::sys {
             return -EINVAL;
         }
         ring_guard ring_lock_guard(slot->lock);
+        // The ring lock pins the slot while the submitter runs.  The pool is
+        // needed only for lookup/lifetime, not for dispatch or CQ work.
+        pool_guard.release_lock();
         // An interrupted completion is only a posted CQE until someone in
         // task context says otherwise; do that before claiming capacity.
         reap_completed(*slot);
@@ -2070,14 +2084,20 @@ namespace astia::sys {
         if (!current_object) {
             return;
         }
-        ring_guard pool_guard(g_ring_pool_lock);
+        // There is not yet a safe device->ring reverse index: parked slots
+        // retain open-file references and may be torn down by exec/exit.
+        // Keep this bounded global scan for now, but do not hold the pool
+        // lock while resuming a request; a per-device waiter index is the
+        // next reduction target.
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+            ring_guard pool_guard(g_ring_pool_lock);
             ring_slot* slot_ptr = g_slots[i];
             if (slot_ptr == nullptr || !slot_ptr->used) {
                 continue;
             }
             ring_slot&   slot = *slot_ptr;
             ring_guard ring_lock_guard(slot.lock);
+            pool_guard.release_lock();
             astia_rings* ring = rings_of(slot);
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 parked_op& op = slot.park[p];
@@ -2097,14 +2117,17 @@ namespace astia::sys {
         if (dev == nullptr) {
             return;
         }
-        ring_guard pool_guard(g_ring_pool_lock);
+        // See io_device_ready(): ownership/lifetime currently requires the
+        // bounded scan, while each ring is protected independently.
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+            ring_guard pool_guard(g_ring_pool_lock);
             ring_slot* slot_ptr = g_slots[i];
             if (slot_ptr == nullptr || !slot_ptr->used) {
                 continue;
             }
             ring_slot&   slot = *slot_ptr;
             ring_guard ring_lock_guard(slot.lock);
+            pool_guard.release_lock();
             astia_rings* ring = rings_of(slot);
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 parked_op& op = slot.park[p];
@@ -2120,12 +2143,13 @@ namespace astia::sys {
     void io_exec_process(proc::process* owner) {
         if (owner == nullptr)
             return;
-        ring_guard pool_guard(g_ring_pool_lock);
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+            ring_guard pool_guard(g_ring_pool_lock);
             ring_slot* slot = g_slots[i];
             if (slot == nullptr || !slot->used || slot->owner != owner)
                 continue;
             ring_guard ring_lock_guard(slot->lock);
+            pool_guard.release_lock();
             reap_completed(*slot);
             unmap_ring_user(*slot, owner);
             clear_slot(*slot);
@@ -2135,28 +2159,26 @@ namespace astia::sys {
     void io_exit_process(proc::process* owner) {
         if (owner == nullptr)
             return;
-        ring_guard pool_guard(g_ring_pool_lock);
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+            ring_guard pool_guard(g_ring_pool_lock);
             ring_slot* slot = g_slots[i];
             if (slot == nullptr || !slot->used || slot->owner != owner)
                 continue;
             ring_guard ring_lock_guard(slot->lock);
+            pool_guard.release_lock();
             reap_completed(*slot);
             // No operation may outlive its process.  In particular, a parked
             // pipe read holds an open_file reference; leaving the ring slot
             // behind until waitpid would keep that endpoint alive and prevent
             // EOF from reaching the other end.  The process is gone, so cancel
             // all parked operations while the slot is still owned by it.
-            {
-                arch::interrupt_guard gate;
-                for (u32 p = 0; p < parked_operation_slots; ++p) {
-                    parked_op& op = slot->park[p];
-                    if (!op.used)
-                        continue;
-                    op.entries.release();
-                    op.object = mm::shptr<fs::open_file>{};
-                    op        = parked_op{};
-                }
+            for (u32 p = 0; p < parked_operation_slots; ++p) {
+                parked_op& op = slot->park[p];
+                if (!op.used)
+                    continue;
+                op.entries.release();
+                op.object = mm::shptr<fs::open_file>{};
+                op        = parked_op{};
             }
             unmap_ring_user(*slot, owner);
             clear_slot(*slot);
