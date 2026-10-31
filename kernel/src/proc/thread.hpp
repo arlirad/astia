@@ -179,6 +179,9 @@ namespace astia::proc {
         }
 
         private:
+        bool allocate_kernel_stack();
+        void release_kernel_stack();
+
         process*         owner_;
         tid_t            tid_;
         thread_state     state_                = thread_state::fresh;

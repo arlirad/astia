@@ -19,6 +19,7 @@ namespace astia::proc {
     inline constexpr u32 max_threads_per_process         = 16;
     inline constexpr u32 max_waiters_per_process         = 4;
     inline constexpr u32 max_signal_waiters_per_process  = max_threads_per_process;
+    inline constexpr u32 max_supplementary_groups        = 16;
 
     /// Reserved userspace TLS placement for process-created threads.
     inline constexpr u64 process_tls_first  = 0x00007fffef000000ull;
@@ -43,6 +44,8 @@ namespace astia::proc {
     /// a non-owning backlink to their process.
     class process {
         public:
+        inline static constexpr u32 max_supplementary_groups = 16;
+
         process(pid_t id, pid_t parent, const char* name);
         ~process();
 
@@ -316,6 +319,8 @@ namespace astia::proc {
         bool cow_fault(u64 addr, bool write);
 
         private:
+        void notify_parent_of_state_change();
+
         /// File the VMA entry for an already-mapped range [base, base
         /// + pages): `region` adopts the `pages` contiguous frames the
         /// caller mapped PTEs for, and the entry takes over its
@@ -325,7 +330,8 @@ namespace astia::proc {
         bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
         void discard_image();
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
-                                  usize& mapping_pages);
+                                   usize& mapping_pages);
+        void replace_image(process& staging);
         /// Map PTEs for [base, base + pages) and insert the VMA entry,
         /// which takes over `region`'s reference (`file`/`file_offset`
         /// recorded on it, both empty for anonymous ranges).  On
@@ -341,7 +347,6 @@ namespace astia::proc {
         pid_t     session_;
         fs::file* controlling_terminal_ = nullptr;
         u32       uid_ = 0, euid_ = 0, gid_ = 0, egid_ = 0;
-        static constexpr u32 max_supplementary_groups = 16;
         gid_t                groups_[max_supplementary_groups]{};
         u32                  group_count_ = 0;
         char                 name_[32]{};

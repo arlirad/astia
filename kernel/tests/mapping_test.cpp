@@ -13,18 +13,21 @@ namespace {
         write = 1u << 1,
     };
 
-    using flags_mapper = astia::bitmask_mapper<flags, 0x3>;
+    inline constexpr astia::u8 valid_flag_bits = static_cast<astia::u8>(flags::read) |
+                                                 static_cast<astia::u8>(flags::write);
+    using flags_mapper = astia::bitmask_mapper<flags, valid_flag_bits>;
 
 }
 
 ASTIA_TEST(mapping_accepts_valid_bitmask) {
-    const auto value = flags_mapper::from(0x3);
+    const auto value = flags_mapper::from(valid_flag_bits);
     ASTIA_CHECK(value.has_value);
-    ASTIA_CHECK(static_cast<astia::u8>(value.value) == 0x3);
+    ASTIA_CHECK(static_cast<astia::u8>(value.value) == valid_flag_bits);
 }
 
 ASTIA_TEST(mapping_rejects_unknown_bits) {
-    const auto value = flags_mapper::from(0x4);
+    constexpr astia::u8 unknown_bit = 1u << 2;
+    const auto value = flags_mapper::from(unknown_bit);
     ASTIA_CHECK(!value.has_value);
     ASTIA_CHECK(value.error == astia::error_t::einval);
 }
@@ -85,7 +88,7 @@ ASTIA_TEST(getsid_selector_mapping_accepts_zero_and_positive_pid) {
     ASTIA_CHECK(target.has_value && static_cast<astia::u32>(target.value.pid) == 42);
 }
 
-ASTIA_TEST(getsid_selector_mapping_uses_esrch_for_bad_signed_or_overflow_values) {
+ASTIA_TEST(getsid_selector_mapping_rejects_bad_signed_or_overflow_values) {
     const auto negative = astia::mapper<astia::proc::getsid_target>::from(-1);
     const auto overflow = astia::mapper<astia::proc::getsid_target>::from(0x100000000ll);
     ASTIA_CHECK(!negative.has_value && negative.error == astia::error_t::einval);

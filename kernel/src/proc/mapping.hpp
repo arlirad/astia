@@ -40,10 +40,7 @@ namespace astia {
 
     template <>
     struct mapper<proc::wait_options>
-        : bitmask_mapper<proc::wait_options,
-                         static_cast<u64>(proc::wait_options::nohang) |
-                             static_cast<u64>(proc::wait_options::untraced) |
-                             static_cast<u64>(proc::wait_options::continued)> {};
+        : bitmask_mapper<proc::wait_options, proc::valid_wait_option_bits> {};
 
     template <>
     struct mapper<pid_t> {
@@ -90,9 +87,11 @@ namespace astia {
     };
 
     template <>
-    struct mapper<proc::map_protection> : bitmask_mapper<proc::map_protection, 0x7> {};
+    struct mapper<proc::map_protection> : bitmask_mapper<proc::map_protection,
+                                                         proc::valid_map_protection_bits> {};
 
     template <>
-    struct mapper<proc::map_flags> : bitmask_mapper<proc::map_flags, 0x33> {};
+    struct mapper<proc::map_flags>
+        : bitmask_mapper<proc::map_flags, proc::valid_map_flag_bits> {};
 
 } // namespace astia

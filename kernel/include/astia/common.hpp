@@ -51,6 +51,12 @@ namespace astia {
     using pid_t  = domain_id<pid_tag>;
     using pgrp_t = domain_id<pgrp_tag>;
 
+    /// Explicitly name the ABI conversion at syscall boundaries.
+    template <typename Tag>
+    constexpr u32 raw_id(domain_id<Tag> id) {
+        return static_cast<u32>(id);
+    }
+
     /// Explicit vocabulary for values that otherwise tend to be naked u64s
     /// or machine-sized integers at subsystem boundaries. These are aliases,
     /// not wrapper types, so they preserve the existing ABI and arithmetic.

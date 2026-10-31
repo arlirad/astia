@@ -38,7 +38,7 @@ namespace astia::proc {
             parent->wake_waiters();
             return -EAGAIN;
         }
-        return static_cast<i64>(static_cast<u32>(child->pid()));
+        return static_cast<i64>(raw_id(child->pid()));
     }
 
 } // namespace astia::proc

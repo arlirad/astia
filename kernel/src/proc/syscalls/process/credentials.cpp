@@ -73,9 +73,9 @@ namespace astia::proc::syscall {
         auto* p = current_process();
         if (!p)
             return -ESRCH;
-        if (n < 0 || n > 16)
+        if (n < 0 || n > static_cast<i64>(max_supplementary_groups))
             return -EINVAL;
-        u32 values[16]{};
+        u32 values[max_supplementary_groups]{};
         i64 rc = p->getgroups(static_cast<i32>(n), values);
         if (rc < 0 || n == 0)
             return rc;
@@ -90,9 +90,9 @@ namespace astia::proc::syscall {
         auto* p = current_process();
         if (!p)
             return -ESRCH;
-        if (n < 0 || n > 16)
+        if (n < 0 || n > static_cast<i64>(max_supplementary_groups))
             return -EINVAL;
-        u32 values[16]{};
+        u32 values[max_supplementary_groups]{};
         if (n != 0 &&
             (in == 0 || !sys::copy_in(values, sys::user_range::bytes(
                                                   static_cast<u64>(in),

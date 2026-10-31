@@ -479,7 +479,7 @@ namespace astia::proc {
         // Do this before dropping descriptors so the terminal's foreground
         // process group is still available to the signal fan-out.
         if (controlling_terminal_ != nullptr && session_ == pid_) {
-            (void) signal_process_group(pgrp_t{static_cast<u32>(process_group_)},
+            (void) signal_process_group(pgrp_t{raw_id(process_group_)},
                                         signal_number::hup);
             controlling_terminal_ = nullptr;
         }
@@ -502,13 +502,17 @@ namespace astia::proc {
         }
         // Waiters block on the *parent* (registered by proc::waitpid);
         // waking must happen on that object, not on the dying process.
+        notify_parent_of_state_change();
+    }
+
+    void process::notify_parent_of_state_change() {
         process* parent = find_process(parent_pid_);
-        if (parent != nullptr) {
-            parent->signals().send(signal_number::chld);
-            if (parent->address_space() != nullptr)
-                parent->wake_signal_waiters();
-            parent->wake_waiters();
-        }
+        if (parent == nullptr)
+            return;
+        (void) parent->signals().send(signal_number::chld);
+        if (parent->address_space() != nullptr)
+            parent->wake_signal_waiters();
+        parent->wake_waiters();
     }
 
     void process::signal_state_change(signal_number signal) {
@@ -530,12 +534,7 @@ namespace astia::proc {
             }
             for (u32 i = 0; i < count; ++i)
                 scheduler::wake(wake_list[i]);
-            process* parent = find_process(parent_pid_);
-            if (parent != nullptr) {
-                (void) parent->signals().send(signal_number::chld);
-                parent->wake_signal_waiters();
-                parent->wake_waiters();
-            }
+            notify_parent_of_state_change();
             return;
         }
         if (signal != signal_number::stop && signal != signal_number::tstp &&
@@ -555,12 +554,7 @@ namespace astia::proc {
                     value->state(thread_state::blocked);
             }
         }
-        process* parent = find_process(parent_pid_);
-        if (parent != nullptr) {
-            (void) parent->signals().send(signal_number::chld);
-            parent->wake_signal_waiters();
-            parent->wake_waiters();
-        }
+        notify_parent_of_state_change();
     }
 
     mm::shptr<thread> process::take_thread(thread* value) {
@@ -681,7 +675,7 @@ namespace astia::proc {
             auto tty = descriptor(fd_t{STDIN});
             if (tty) {
                 controlling_terminal(tty->backing());
-                i32 group = static_cast<i32>(static_cast<u32>(process_group_));
+                i32 group = static_cast<i32>(raw_id(process_group_));
                 (void) tty->ioctl(TIOCSPGRP, &group, sizeof(i32));
             }
         }
@@ -836,31 +830,34 @@ namespace astia::proc {
             argv_list[argc++] = name_;
         while (envp != nullptr && envc < max_env_entries && envp[envc] != nullptr)
             envp_list[envc] = envp[envc], ++envc;
-        const bool result =
+        const bool built =
             build_initial_stack(stack_base, user_stack_top, frames, stack_pages, argv_list,
                                 argc, envp_list, envc, rsp_out);
         if (caller_map != nullptr)
             caller_map->activate();
         else
             arch::kernel_page_map()->activate();
-        return result;
+        if (!built) {
+            // The VMA owns the frame run after register_mapping succeeds.
+            // Remove it on a malformed or oversized startup vector.
+            unmap(stack_base, user_stack_bytes);
+        }
+        return built;
     }
 
-    bool process::exec_user_image(const void* bytes, usize length, char* const argv[],
-                                  char* const envp[], u64* entry_out, u64* stack_out) {
-        process staging(pid_, parent_pid_, name_);
-        u64     entry = 0, stack = 0;
-        if (!staging.load_user_image(bytes, length, &entry) ||
-            !staging.build_user_stack(argv, envp, &stack))
-            return false;
+    void process::replace_image(process& staging) {
         arch::page_map* old_map     = address_space_;
-        mmap_region*    old_regions = mmap_regions_;
-        address_space_              = staging.address_space_;
-        mmap_regions_               = staging.mmap_regions_;
-        tls_tp_                     = staging.tls_tp_;
-        staging.address_space_      = nullptr;
-        staging.mmap_regions_       = nullptr;
-        staging.tls_tp_             = 0;
+        mmap_region*   old_regions = mmap_regions_;
+
+        address_space_ = staging.address_space_;
+        mmap_regions_   = staging.mmap_regions_;
+        mapped_bytes_   = staging.mapped_bytes_;
+        tls_tp_         = staging.tls_tp_;
+        staging.address_space_ = nullptr;
+        staging.mmap_regions_  = nullptr;
+        staging.mapped_bytes_  = 0;
+        staging.tls_tp_        = 0;
+
         if (address_space_ != nullptr)
             address_space_->activate();
         delete old_map;
@@ -873,6 +870,16 @@ namespace astia::proc {
             delete old_regions;
             old_regions = next;
         }
+    }
+
+    bool process::exec_user_image(const void* bytes, usize length, char* const argv[],
+                                  char* const envp[], u64* entry_out, u64* stack_out) {
+        process staging(pid_, parent_pid_, name_);
+        u64     entry = 0, stack = 0;
+        if (!staging.load_user_image(bytes, length, &entry) ||
+            !staging.build_user_stack(argv, envp, &stack))
+            return false;
+        replace_image(staging);
         *entry_out = entry;
         *stack_out = stack;
         return true;
@@ -888,26 +895,7 @@ namespace astia::proc {
             return false;
         close_on_exec_descriptors();
         sys::io_exec_process(this);
-        arch::page_map* old_map     = address_space_;
-        mmap_region*    old_regions = mmap_regions_;
-        address_space_              = staging.address_space_;
-        mmap_regions_               = staging.mmap_regions_;
-        tls_tp_                     = staging.tls_tp_;
-        staging.address_space_      = nullptr;
-        staging.mmap_regions_       = nullptr;
-        staging.tls_tp_             = 0;
-        if (address_space_ != nullptr)
-            address_space_->activate();
-        delete old_map;
-        while (old_regions != nullptr) {
-            mmap_region* next = old_regions->next;
-            old_regions->backing->unmap_range(old_regions->region_page,
-                                              old_regions->pages);
-            if (old_regions->holds_ref)
-                old_regions->backing->release_ref();
-            delete old_regions;
-            old_regions = next;
-        }
+        replace_image(staging);
         *entry_out = entry;
         *stack_out = stack;
         return true;
@@ -918,79 +906,22 @@ namespace astia::proc {
         if (address_space_ == nullptr) {
             return {};
         }
-        constexpr u32 stack_pages = static_cast<u32>(user_stack_bytes / mm::page_size);
-        u64           frames[stack_pages]{};
-        const u64     stack_base = user_stack_top - user_stack_bytes;
-        // One contiguous run, so the stack's VMA can adopt it as a
-        // single phys_region — the unit fork's copy-on-write
-        // accounting works in.
-        process*              caller = current_process();
-        const arch::page_map* caller_map =
-            caller == nullptr ? nullptr : caller->address_space();
-        address_space_->activate();
-        const u64 run = mm::kernel_frames().alloc(stack_pages, mm::frame_flags::zeroed);
-        if (run == mm::frame_allocator::invalid_frame) {
-            return {};
-        }
-        for (u32 i = 0; i < stack_pages; ++i) {
-            frames[i] = run + u64{i} * mm::page_size;
-            if (!address_space_->map_4k(stack_base + u64{i} * mm::page_size, frames[i],
-                                        arch::page_flags::present |
-                                            arch::page_flags::writable |
-                                            arch::page_flags::user)) {
-                return {};
-            }
-        }
-        auto* stack_region = mm::phys_region::adopt(run, stack_pages);
-        if (stack_region == nullptr ||
-            !register_mapping(stack_base, stack_pages,
-                              map_protection::read | map_protection::write,
-                              stack_region)) {
-            if (stack_region != nullptr) {
-                stack_region->release();
-            }
-            return {};
-        }
-
-        // Argument/environment content for the startup frame.  An
-        // empty argv defaults to argv[0] = the image path, matching
-        // the execve contract that argv is never empty.
-        const char* argv_list[max_argv_entries]{};
-        const char* envp_list[max_env_entries]{};
-        u32         argc = 0;
-        u32         envc = 0;
-        while (argv != nullptr && argc < max_argv_entries && argv[argc] != nullptr) {
-            argv_list[argc] = argv[argc];
-            ++argc;
-        }
-        if (argc == 0) {
-            argv_list[argc++] = name_;
-        }
-        while (envp != nullptr && envc < max_env_entries && envp[envc] != nullptr) {
-            envp_list[envc] = envp[envc];
-            ++envc;
-        }
-
         u64 user_entry_stack = user_stack_top;
-        if (!build_initial_stack(user_stack_top - user_stack_bytes, user_stack_top, frames,
-                                 stack_pages,
-                                 argv_list, argc, envp_list, envc, &user_entry_stack)) {
+        if (!build_user_stack(argv, envp, &user_entry_stack)) {
             return {};
         }
 
         auto value = mm::share<thread>(this, proc::allocate_tid());
         if (!value || !value->prepare_user(entry, user_entry_stack, tls_tp_) ||
             !add_thread(value)) {
+            unmap(user_stack_top - user_stack_bytes, user_stack_bytes);
             return {};
         }
         if (!scheduler::wake(value.get())) {
             release_thread(value.get());
+            unmap(user_stack_top - user_stack_bytes, user_stack_bytes);
             return {};
         }
-        if (caller_map != nullptr)
-            caller_map->activate();
-        else
-            arch::kernel_page_map()->activate();
         return value;
     }
 

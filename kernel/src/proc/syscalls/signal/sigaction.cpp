@@ -12,6 +12,20 @@
 
 namespace astia::proc::syscall {
 
+    namespace {
+        uintptr_t user_handler_value(const signal_disposition& disposition) {
+            switch (disposition.action) {
+            case signal_action::ignore:
+                return ASTIA_SIG_IGN;
+            case signal_action::handler:
+                return reinterpret_cast<uintptr_t>(disposition.handler);
+            case signal_action::default_action:
+                return ASTIA_SIG_DFL;
+            }
+            return ASTIA_SIG_DFL;
+        }
+    }
+
     i64 sigaction(i32 value, u64 next_ptr, u64 old_ptr) {
         auto mapped_signal = mapper<signal_number>::from(value);
         if (!mapped_signal || !valid_signal(mapped_signal.value))
@@ -29,10 +43,7 @@ namespace astia::proc::syscall {
                 return -EFAULT;
             }
             struct astia_sigaction out{};
-            out.handler  = old.action == signal_action::ignore ? ASTIA_SIG_IGN
-                           : old.action == signal_action::handler
-                               ? reinterpret_cast<uintptr_t>(old.handler)
-                               : ASTIA_SIG_DFL;
+            out.handler  = user_handler_value(old);
             out.mask     = old.mask;
             out.flags    = 0;
             out.restorer = old.restorer;

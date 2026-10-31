@@ -19,6 +19,10 @@ namespace astia::proc {
         continued = 1u << 3,
     };
 
+    inline constexpr u32 valid_wait_option_bits = static_cast<u32>(wait_options::nohang) |
+                                                  static_cast<u32>(wait_options::untraced) |
+                                                  static_cast<u32>(wait_options::continued);
+
     constexpr wait_options operator|(wait_options a, wait_options b) {
         return static_cast<wait_options>(static_cast<u32>(a) | static_cast<u32>(b));
     }

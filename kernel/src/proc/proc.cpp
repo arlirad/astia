@@ -43,20 +43,31 @@ namespace astia::proc {
             return -1;
         }
 
+        bool is_live(const process* value) {
+            return value != nullptr && value->state() != process_state::zombie &&
+                   value->state() != process_state::dead;
+        }
+
         // registry_lock must be held.  Looking up the requested PID alone
         // would incorrectly allow setpgid() to join an arbitrary process
         // rather than an existing process group.
         process* find_group_locked(pgrp_t group, pid_t session) {
             for (u32 i = 0; i < max_processes; ++i) {
                 process* value = registry[i].get();
-                if (value != nullptr && value->process_group() == group &&
-                    value->session() == session &&
-                    value->state() != process_state::zombie &&
-                    value->state() != process_state::dead) {
+                if (is_live(value) && value->process_group() == group &&
+                    value->session() == session) {
                     return value;
                 }
             }
             return nullptr;
+        }
+
+        pgrp_t process_group_for(pid_t id) {
+            return pgrp_t{static_cast<u32>(id)};
+        }
+
+        bool is_process_group_leader(const process* value) {
+            return value != nullptr && value->process_group() == process_group_for(value->pid());
         }
     }
 
@@ -235,9 +246,9 @@ namespace astia::proc {
                 if (value == nullptr)
                     continue;
                 auto& record = records[count++];
-                record.pid   = static_cast<i32>(static_cast<u32>(value->pid()));
-                record.ppid  = static_cast<i32>(static_cast<u32>(value->parent_pid()));
-                record.pgid  = static_cast<i32>(static_cast<u32>(value->process_group()));
+                record.pid   = static_cast<i32>(raw_id(value->pid()));
+                record.ppid  = static_cast<i32>(raw_id(value->parent_pid()));
+                record.pgid  = static_cast<i32>(raw_id(value->process_group()));
                 record.uid   = value->uid();
                 record.gid   = value->gid();
                 record.state = static_cast<u32>(value->state());
@@ -265,7 +276,7 @@ namespace astia::proc {
         if (owner == nullptr)
             return -ESRCH;
         if (target == pid_t{})
-            return static_cast<i64>(static_cast<u32>(owner->session()));
+            return static_cast<i64>(raw_id(owner->session()));
 
         // Hold the registry reference while reading the selected process.
         // Zombies remain registered until their parent reaps them, matching
@@ -274,7 +285,7 @@ namespace astia::proc {
         const i32            slot = find_slot_locked(target);
         if (slot < 0 || !registry[slot])
             return -ESRCH;
-        return static_cast<i64>(static_cast<u32>(registry[slot]->session()));
+        return static_cast<i64>(raw_id(registry[slot]->session()));
     }
 
     i64 acquire_controlling_terminal(fs::file* terminal) {
@@ -284,7 +295,7 @@ namespace astia::proc {
         if (owner->pid() != owner->session() || owner->controlling_terminal() != nullptr)
             return -EPERM;
         owner->controlling_terminal(terminal);
-        i32        group = static_cast<i32>(static_cast<u32>(owner->process_group()));
+        i32        group = static_cast<i32>(raw_id(owner->process_group()));
         const long rc    = fs::dispatch_ioctl(terminal, TIOCSPGRP, &group, sizeof(i32));
         if (rc < 0) {
             owner->controlling_terminal(nullptr);
@@ -350,7 +361,7 @@ namespace astia::proc {
         if (self_target)
             pid = caller->pid();
         if (pgid == pgrp_t{})
-            pgid = pgrp_t{static_cast<u32>(pid)};
+            pgid = pgrp_t{raw_id(pid)};
         if (pid == pid_t{} || pgid == pgrp_t{})
             return -EINVAL;
 
@@ -361,8 +372,7 @@ namespace astia::proc {
         // so use that stable object directly.
         process* target =
             self_target ? caller : (slot < 0 ? nullptr : registry[slot].get());
-        if (target == nullptr || target->state() == process_state::zombie ||
-            target->state() == process_state::dead) {
+        if (!is_live(target)) {
             return -ESRCH;
         }
         if (target != caller && target->parent_pid() != caller->pid()) {
@@ -373,11 +383,11 @@ namespace astia::proc {
         }
         // POSIX rejects setpgid() for a session leader, including a
         // redundant request for its current process group.
-        if (target->session() == target->pid()) {
+        if (is_process_group_leader(target) && target->session() == target->pid()) {
             return -EPERM;
         }
 
-        if (pgid != pgrp_t{static_cast<u32>(target->pid())}) {
+        if (pgid != pgrp_t{raw_id(target->pid())}) {
             if (find_group_locked(pgid, caller->session()) == nullptr) {
                 return -EPERM;
             }
@@ -390,12 +400,12 @@ namespace astia::proc {
         process* owner = current_process();
         if (owner == nullptr)
             return -ESRCH;
-        if (owner->process_group() == pgrp_t{static_cast<u32>(owner->pid())})
+        if (is_process_group_leader(owner))
             return -EPERM;
         owner->session(owner->pid());
-        owner->process_group(pgrp_t{static_cast<u32>(owner->pid())});
+        owner->process_group(process_group_for(owner->pid()));
         owner->controlling_terminal(nullptr);
-        return static_cast<i64>(static_cast<u32>(owner->session()));
+        return static_cast<i64>(raw_id(owner->session()));
     }
 
     i64 signal_process_group(pgrp_t group, signal_number value) {
@@ -408,9 +418,7 @@ namespace astia::proc {
             core::spinlock_guard guard(registry_lock);
             for (u32 i = 0; i < max_processes; ++i) {
                 process* target = registry[i].get();
-                if (target == nullptr || target->process_group() != group ||
-                    target->state() == process_state::zombie ||
-                    target->state() == process_state::dead)
+                if (!is_live(target) || target->process_group() != group)
                     continue;
                 found            = true;
                 targets[count++] = target;
@@ -440,10 +448,7 @@ namespace astia::proc {
         const pgrp_t requested_group =
             group_wait ? pgrp_t{static_cast<u32>(-pid)}
                        : (pid == 0 ? parent->process_group() : pgrp_t{});
-        constexpr u32 valid_wait_options = static_cast<u32>(wait_options::nohang) |
-                                           static_cast<u32>(wait_options::untraced) |
-                                           static_cast<u32>(wait_options::continued);
-        if (static_cast<u32>(options) & ~valid_wait_options)
+        if (static_cast<u32>(options) & ~valid_wait_option_bits)
             return -EINVAL;
 
         // From here to the blocking yield the scan and the waiter
@@ -489,7 +494,7 @@ namespace astia::proc {
                         if (status != nullptr)
                             *status = child->stop_status();
                         child->clear_stop_event();
-                        result = static_cast<i64>(static_cast<u32>(child->pid()));
+                        result = static_cast<i64>(raw_id(child->pid()));
                         break;
                     }
                     if ((static_cast<u32>(options) &
@@ -498,7 +503,7 @@ namespace astia::proc {
                         if (status != nullptr)
                             *status = astia::wait_continued_marker;
                         child->clear_continued_event();
-                        result = static_cast<i64>(static_cast<u32>(child->pid()));
+                        result = static_cast<i64>(raw_id(child->pid()));
                         break;
                     }
                 }
@@ -513,7 +518,7 @@ namespace astia::proc {
                 if (status != nullptr) {
                     *status = zombie_child->wait_status();
                 }
-                result = static_cast<i64>(static_cast<u32>(child_pid));
+                result = static_cast<i64>(raw_id(child_pid));
                 parent->remove_waiter(self);
                 taken = {};
                 break;

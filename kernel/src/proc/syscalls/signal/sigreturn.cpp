@@ -12,6 +12,10 @@
 
 namespace astia::proc::syscall {
 
+    namespace {
+        inline constexpr u64 user_interrupt_flag = 1u << 9;
+    }
+
     i64 sigreturn(const arch::syscall_frame& input) {
         const auto range =
             sys::user_range::bytes(input.a0, sizeof(astia_x86_64_signal_context_t));
@@ -21,7 +25,7 @@ namespace astia::proc::syscall {
         if (!sys::copy_in(&saved, range))
             return -EFAULT;
         if (saved.rip == 0 || saved.rsp == 0 || saved.rip >= arch::kernel_base ||
-            saved.rsp >= arch::kernel_base || (saved.rflags & (1u << 9)) == 0)
+            saved.rsp >= arch::kernel_base || (saved.rflags & user_interrupt_flag) == 0)
             return -EFAULT;
         auto& frame  = const_cast<arch::syscall_frame&>(input);
         frame.nr     = ~u64{1};

@@ -213,7 +213,7 @@ namespace astia::proc {
         if (has(flags, map_flags::fixed)) {
             return -ENOSYS;
         }
-        if (static_cast<u32>(prot) & ~0x7u) {
+        if (static_cast<u32>(prot) & ~valid_map_protection_bits) {
             return -EINVAL;
         }
         if (address_space_ == nullptr || len == 0) {
@@ -265,7 +265,7 @@ namespace astia::proc {
         if (has(flags, map_flags::fixed)) {
             return -ENOSYS;
         }
-        if (static_cast<u32>(prot) & ~0x7u) {
+        if (static_cast<u32>(prot) & ~valid_map_protection_bits) {
             return -EINVAL;
         }
         if (address_space_ == nullptr || len == 0) {

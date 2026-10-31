@@ -15,7 +15,7 @@ namespace astia::proc::scheduler {
             thread*        queue[run_queue_capacity]{};
             u32            queue_count = 0;
             thread*        idle_thread = nullptr;
-            bool           initialized = false;
+            enum class lifecycle : u8 { offline, online } status = lifecycle::offline;
         } cpus[max_cpu_count];
         bool initialized = false;
 
@@ -37,7 +37,8 @@ namespace astia::proc::scheduler {
                 return false;
             }
             const u32 index = value->cpu_owner();
-            if (index >= max_cpu_count || !cpus[index].initialized)
+            if (index >= max_cpu_count ||
+                cpus[index].status != cpu_state::lifecycle::online)
                 return false;
             auto&                state = cpus[index];
             core::spinlock_guard guard(state.lock);
@@ -53,10 +54,12 @@ namespace astia::proc::scheduler {
         }
 
         bool rebalance_idle_cpu(u32 target_index) {
-            if (target_index >= max_cpu_count || !cpus[target_index].initialized)
+            if (target_index >= max_cpu_count ||
+                cpus[target_index].status != cpu_state::lifecycle::online)
                 return false;
             for (u32 source_index = 0; source_index < max_cpu_count; ++source_index) {
-                if (source_index == target_index || !cpus[source_index].initialized)
+                if (source_index == target_index ||
+                    cpus[source_index].status != cpu_state::lifecycle::online)
                     continue;
                 const u32 first =
                     source_index < target_index ? source_index : target_index;
@@ -90,6 +93,14 @@ namespace astia::proc::scheduler {
             return false;
         }
 
+        void remove_from_queue(cpu_state& state, u32 position) {
+            thread* value = state.queue[position];
+            value->queued(false);
+            for (u32 i = position + 1; i < state.queue_count; ++i)
+                state.queue[i - 1] = state.queue[i];
+            --state.queue_count;
+        }
+
         thread* select_next(u32 index) {
             auto&                state = cpus[index];
             core::spinlock_guard guard(state.lock);
@@ -114,11 +125,7 @@ namespace astia::proc::scheduler {
             }
             if (realtime_index >= 0) {
                 thread* value = state.queue[realtime_index];
-                value->queued(false);
-                for (u32 i = static_cast<u32>(realtime_index) + 1; i < state.queue_count;
-                     ++i)
-                    state.queue[i - 1] = state.queue[i];
-                --state.queue_count;
+                remove_from_queue(state, static_cast<u32>(realtime_index));
                 return value;
             }
 
@@ -141,10 +148,7 @@ namespace astia::proc::scheduler {
             if (normal_index < 0)
                 return nullptr;
             thread* value = state.queue[normal_index];
-            value->queued(false);
-            for (u32 i = static_cast<u32>(normal_index) + 1; i < state.queue_count; ++i)
-                state.queue[i - 1] = state.queue[i];
-            --state.queue_count;
+            remove_from_queue(state, static_cast<u32>(normal_index));
             return value;
         }
 
@@ -177,7 +181,8 @@ namespace astia::proc::scheduler {
     }
 
     bool init_cpu(u32 cpu_index) {
-        if (!initialized || cpu_index >= max_cpu_count || cpus[cpu_index].initialized)
+        if (!initialized || cpu_index >= max_cpu_count ||
+            cpus[cpu_index].status == cpu_state::lifecycle::online)
             return false;
         auto idle = mm::share<thread>(proc::kernel_process(), proc::allocate_tid());
         if (!idle || !idle->prepare_kernel(idle_entry, nullptr) ||
@@ -188,7 +193,7 @@ namespace astia::proc::scheduler {
         idle->state(thread_state::runnable);
         idle->cpu_owner(cpu_index);
         cpus[cpu_index].idle_thread = idle.get();
-        cpus[cpu_index].initialized = true;
+        cpus[cpu_index].status = cpu_state::lifecycle::online;
         // APs enter directly in their idle loop rather than through a
         // context switch, so publish the CPU-local current object now.  The
         // BSP already owns its bootstrap thread and keeps it.
@@ -200,7 +205,8 @@ namespace astia::proc::scheduler {
     }
 
     bool start_cpu(u32 cpu_index) {
-        if (!initialized || cpu_index >= max_cpu_count || !cpus[cpu_index].initialized ||
+        if (!initialized || cpu_index >= max_cpu_count ||
+            cpus[cpu_index].status != cpu_state::lifecycle::online ||
             proc::current_thread() != nullptr) {
             return false;
         }
@@ -219,7 +225,8 @@ namespace astia::proc::scheduler {
             if (!initialized || entry == nullptr || proc::kernel_process() == nullptr) {
                 return {};
             }
-            if (cpu_index >= max_cpu_count || !cpus[cpu_index].initialized)
+            if (cpu_index >= max_cpu_count ||
+                cpus[cpu_index].status != cpu_state::lifecycle::online)
                 return {};
             auto value = mm::share<thread>(proc::kernel_process(), proc::allocate_tid());
             if (!value || !value->prepare_kernel(entry, argument) ||
@@ -271,12 +278,14 @@ namespace astia::proc::scheduler {
 
     bool migrate(thread* value, u32 cpu_index) {
         if (!initialized || value == nullptr || cpu_index >= max_cpu_count ||
-            !cpus[cpu_index].initialized || value->cpu_owner() == cpu_index ||
+            cpus[cpu_index].status != cpu_state::lifecycle::online ||
+            value->cpu_owner() == cpu_index ||
             !value->queued() || value->state() != thread_state::runnable) {
             return false;
         }
         const u32 source_index = value->cpu_owner();
-        if (source_index >= max_cpu_count || !cpus[source_index].initialized)
+        if (source_index >= max_cpu_count ||
+            cpus[source_index].status != cpu_state::lifecycle::online)
             return false;
 
         arch::interrupt_guard gate;
@@ -296,10 +305,7 @@ namespace astia::proc::scheduler {
             }
             if (position == source.queue_count)
                 return false;
-            value->queued(false);
-            for (u32 i = position + 1; i < source.queue_count; ++i)
-                source.queue[i - 1] = source.queue[i];
-            --source.queue_count;
+            remove_from_queue(source, position);
         }
 
         if (target.queue_count == run_queue_capacity) {

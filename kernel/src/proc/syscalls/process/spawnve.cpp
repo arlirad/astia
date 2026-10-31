@@ -44,7 +44,7 @@ namespace astia::proc::syscall {
         }
         if (result == 0) {
             auto child = proc::spawnve(path, argv_vec, envp_vec);
-            result     = child ? static_cast<i64>(static_cast<u32>(child.value->pid()))
+            result     = child ? static_cast<i64>(raw_id(child.value->pid()))
                                : -astia::errno_value(child.error);
         }
         mm::heap::free(storage.value);
