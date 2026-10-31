@@ -299,6 +299,8 @@ namespace astia::fs {
         }
         void set_path(const char* path);
         void attach_mount(mount* owner);
+        mount* mount_owner() const { return _mount; }
+        mm::shptr<file> backing_reference() const { return _object; }
         u64  mtime_sec() const;
         u64  mtime_nsec() const;
 
@@ -352,6 +354,8 @@ namespace astia::fs {
     long read_symlink(const char* path, char* buffer, u32 capacity);
     long resolve_path(const char* path, char* buffer, u32 capacity,
                       bool follow_final = true);
+    mount* retain_mount_for_unix_path(const char* canonical);
+    void release_mount_reference(mount* owner);
 
     struct kernel_read {
         open_file* file;

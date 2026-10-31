@@ -3,6 +3,7 @@
 #include "../proc/process.hpp"
 #include "../sys/aio.hpp"
 #include "proc.hpp"
+#include "../fs/unix_pathname.hpp"
 #include <astia/api/errno.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
@@ -10,7 +11,6 @@
 namespace astia::fs {
     namespace {
         constexpr u32 socket_stream_capacity_bytes    = 4096;
-        constexpr u32 socket_name_capacity             = 32;
         constexpr u32 socket_backlog_capacity          = 16;
         constexpr u32 socket_datagram_queue_capacity  = 32;
         constexpr u32 socket_datagram_payload_capacity = 2048;
@@ -34,15 +34,6 @@ namespace astia::fs {
                 shut_wr[socket_side_count]{};
         };
         class unix_file;
-        struct name_entry {
-            bool       used{};
-            char       name[path_max]{};
-            unix_file* listener{};
-            open_file* owner{};
-        };
-        name_entry     names[socket_name_capacity];
-        core::spinlock names_lock;
-
         class unix_file final : public file {
             public:
             enum class state : u8 { fresh, listener, connected, dgram };
@@ -177,10 +168,7 @@ namespace astia::fs {
                 if (__atomic_fetch_sub(&opens_, 1u, __ATOMIC_ACQ_REL) != 1)
                     return;
                 if (bound_) {
-                    core::spinlock_guard g(names_lock);
-                    for (auto& e : names)
-                        if (e.listener == this)
-                            e = name_entry{};
+                    unregister_unix_path(bound_path_, this);
                     bound_ = false;
                 }
                 if (ch_) {
@@ -201,10 +189,9 @@ namespace astia::fs {
             void set_bound_address(const astia_sockaddr& a) {
                 bound_addr_ = a;
             }
-            void set_dgram_target(const mm::shptr<open_file>& owner) {
-                dgram_target_owner_ = owner;
-                dgram_target_ =
-                    owner ? static_cast<unix_file*>(owner->backing()) : nullptr;
+            void set_dgram_target(const mm::shptr<file>& endpoint) {
+                dgram_target_owner_ = endpoint;
+                dgram_target_ = endpoint ? static_cast<unix_file*>(endpoint.get()) : nullptr;
             }
             void set_dgram_address() {
                 dgram_out_pending_ = true;
@@ -269,8 +256,12 @@ namespace astia::fs {
                 state_   = state::listener;
                 backlog_ = b;
             }
-            void mark_bound() {
+            void mark_bound(const char* path) {
                 bound_ = true;
+                for (u32 i = 0; i < path_max; ++i) {
+                    bound_path_[i] = path[i];
+                    if (!path[i]) break;
+                }
             }
             long shutdown(u32 how) {
                 if (state_ == state::dgram) {
@@ -319,7 +310,8 @@ namespace astia::fs {
             state                state_{state::fresh};
             u32                  backlog_{};
             bool                 bound_{};
-            mm::shptr<open_file> dgram_target_owner_;
+            char                 bound_path_[path_max]{};
+            mm::shptr<file>      dgram_target_owner_;
             unix_file*           dgram_target_{};
             astia_sockaddr       dgram_out_value_{};
             bool                 dgram_out_pending_{};
@@ -394,21 +386,6 @@ namespace astia::fs {
             out[n] = '\0';
             return out[0] == '/';
         }
-        bool same(const char* a, const char* b) {
-            if (!a || !b)
-                return false;
-            while (*a && *a == *b) {
-                ++a;
-                ++b;
-            }
-            return *a == *b;
-        }
-        unix_file* find(const char* n) {
-            for (auto& e : names)
-                if (e.used && e.listener && same(e.name, n))
-                    return e.listener;
-            return nullptr;
-        }
     }
     long create_unix_socket(mm::shptr<open_file>& out, u32 type) {
         if (type != SOCK_STREAM && type != SOCK_DGRAM)
@@ -427,24 +404,14 @@ namespace astia::fs {
             char  n[path_max];
             if (!f || !path(a, n))
                 return -EINVAL;
-            core::spinlock_guard g(names_lock);
-            if (find(n))
-                return -EADDRINUSE;
-            for (auto& e : names)
-                if (!e.used) {
-                    e.used     = true;
-                    e.listener = f;
-                    e.owner    = &o;
-                    for (u32 i = 0; i < path_max; ++i) {
-                        e.name[i] = n[i];
-                        if (!n[i])
-                            break;
-                    }
-                    f->set_bound_address(a);
-                    f->mark_bound();
-                    return 0;
-                }
-            return -ENFILE;
+            char canonical[path_max]{};
+            long rc = register_unix_path(n, o.backing_reference(), canonical,
+                                          sizeof canonical);
+            if (rc < 0)
+                return rc;
+            f->set_bound_address(a);
+            f->mark_bound(canonical);
+            return 0;
         }
         long socket_listen(open_file& o, u32 b) {
             auto* f = static_cast<unix_file*>(o.backing());
@@ -460,22 +427,15 @@ namespace astia::fs {
             char  n[path_max];
             if (!c || !path(a, n))
                 return -EINVAL;
-            core::spinlock_guard g(names_lock);
-            auto*                l = find(n);
-            if (!l)
+            mm::shptr<file> endpoint;
+            if (lookup_unix_path(n, endpoint) < 0)
                 return -ECONNREFUSED;
+            auto* l = static_cast<unix_file*>(endpoint.get());
             if (c->kind() == unix_file::state::dgram) {
                 if (l->kind() != unix_file::state::dgram)
                     return -ENOTSUP;
-                for (auto& e : names)
-                    if (e.listener == l && e.owner) {
-                        auto owner = mm::share<open_file>(*e.owner);
-                        if (!owner)
-                            return -ENOMEM;
-                        c->set_dgram_target(owner);
-                        return 0;
-                    }
-                return -ECONNREFUSED;
+                c->set_dgram_target(endpoint);
+                return 0;
             }
             if (l->kind() != unix_file::state::listener)
                 return -ECONNREFUSED;
@@ -530,18 +490,14 @@ namespace astia::fs {
             char n[path_max];
             if (!a || !path(*a, n))
                 return -EINVAL;
-            auto* t = find(n);
+            mm::shptr<file> endpoint;
+            if (lookup_unix_path(n, endpoint) < 0)
+                return -ECONNREFUSED;
+            auto* t = static_cast<unix_file*>(endpoint.get());
             if (!t || t->kind() != unix_file::state::dgram)
                 return -ECONNREFUSED;
-            for (auto& e : names)
-                if (e.listener == t && e.owner) {
-                    auto owner = mm::share<open_file>(*e.owner);
-                    if (!owner)
-                        return -ENOMEM;
-                    f->set_dgram_target(owner);
-                    return 0;
-                }
-            return -ECONNREFUSED;
+            f->set_dgram_target(endpoint);
+            return 0;
         }
         long socket_recvfrom(open_file& o) {
             auto* f = static_cast<unix_file*>(o.backing());

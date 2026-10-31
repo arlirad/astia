@@ -397,6 +397,22 @@ namespace astia::fs {
         return 0;
     }
 
+    mount* retain_mount_for_unix_path(const char* canonical) {
+        if (!canonical)
+            return nullptr;
+        core::spinlock_guard guard(mount_registry_lock);
+        mount_entry* entry = find_mount_locked(canonical);
+        if (!entry || !entry->used || !entry->instance)
+            return nullptr;
+        entry->instance->retain_open();
+        return entry->instance;
+    }
+
+    void release_mount_reference(mount* owner) {
+        if (owner)
+            owner->release_open();
+    }
+
     long register_device(const char* path, const mm::shptr<file>& object) {
         mount_operation operation(path);
         if (!operation)

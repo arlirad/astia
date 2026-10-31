@@ -4,6 +4,7 @@ add_library(fs STATIC
         initrd_fs.cpp
         initrd_init.cpp
         tmpfs.cpp
+        unix_pathname.cpp
         syscalls.cpp
         syscalls/io_setup.cpp
         syscalls/io_destroy.cpp
