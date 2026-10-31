@@ -22,6 +22,8 @@ fi
 qemu=$1
 kernel=$2
 initrd=$3
+qemu_timeout_seconds=30
+expected_qemu_status=1
 shift 3    # everything left in "$@" is a required log pattern
 
 log=${TMPDIR:-/tmp}/astia_boot_$$.log
@@ -43,14 +45,14 @@ set +e
 # The invocation is written out per branch rather than assembled with
 # `set --`, because "$@" carries the patterns across this point.
 if [ -n "$initrd" ]; then
-    timeout 30 "$qemu" $machine_args $smp_args -kernel "$kernel" -initrd "$initrd" \
+    timeout "$qemu_timeout_seconds" "$qemu" $machine_args $smp_args -kernel "$kernel" -initrd "$initrd" \
         -serial "file:$log" \
         -display none \
         -monitor none \
         -device isa-debug-exit \
         -no-reboot
 else
-    timeout 30 "$qemu" $machine_args $smp_args -kernel "$kernel" \
+    timeout "$qemu_timeout_seconds" "$qemu" $machine_args $smp_args -kernel "$kernel" \
         -serial "file:$log" \
         -display none \
         -monitor none \
@@ -62,7 +64,7 @@ set -e
 
 cat "$log"
 
-if [ "$status" -eq 1 ] && grep -q "core: selftest ok" "$log"; then
+if [ "$status" -eq "$expected_qemu_status" ] && grep -q "core: selftest ok" "$log"; then
     for pattern in "$@"; do
         if ! grep -qF "$pattern" "$log"; then
             echo "run_boot_test: expected output not found: $pattern" >&2

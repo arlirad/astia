@@ -9,6 +9,8 @@ kernel=${ASTIA_KERNEL:-$root/kernel/build-tests/src/astiakrn_runtime}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 target=x86_64-unknown-elf
+qemu_timeout_seconds=60
+expected_qemu_status=1
 resource=$($clang --target=$target -print-resource-dir)
 
 command -v "$qemu" >/dev/null 2>&1 || {
@@ -46,10 +48,10 @@ tar cf "$out/initrd.tar" -C "$out/root" sbin bin etc
 
 log="$out/qemu.log"
 set +e
-timeout 60 "$qemu" -m 128M -kernel "$kernel" -initrd "$out/initrd.tar" \
+timeout "$qemu_timeout_seconds" "$qemu" -m 128M -kernel "$kernel" -initrd "$out/initrd.tar" \
     -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot
 status=$?
 set -e
 cat "$log"
-test "$status" -eq 1
+test "$status" -eq "$expected_qemu_status"
 grep -qF 'coreutils tests ok' "$log"

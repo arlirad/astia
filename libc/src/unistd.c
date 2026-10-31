@@ -43,7 +43,7 @@ int getlogin_r(char* name, unsigned long name_size) {
 }
 
 int access(const char* path, int mode) {
-    char       resolved[256];
+    char       resolved[astia_path_buffer_capacity];
     astia_stat value;
     long       rc;
 
@@ -220,7 +220,7 @@ int pipe(int fds[2]) {
     return 0;
 }
 int chdir(const char* path) {
-    char resolved[256];
+    char resolved[astia_path_buffer_capacity];
     if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
         return -1;
     long rc = astia_chdir(resolved);
@@ -415,8 +415,8 @@ long readlinkat(int dirfd, const char* path, char* buffer, unsigned long capacit
     return rc;
 }
 int rename(const char* old_path, const char* new_path) {
-    char old_resolved[256];
-    char new_resolved[256];
+    char old_resolved[astia_path_buffer_capacity];
+    char new_resolved[astia_path_buffer_capacity];
     if (__astia_resolve_path(old_path, old_resolved, sizeof old_resolved) != 0 ||
         __astia_resolve_path(new_path, new_resolved, sizeof new_resolved) != 0)
         return -1;
@@ -436,7 +436,7 @@ int renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_p
     return 0;
 }
 int execve(const char* path, char* const argv[], char* const envp[]) {
-    char resolved[256];
+    char resolved[astia_path_buffer_capacity];
     long rc;
     if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
         return -1;
@@ -453,7 +453,7 @@ int execv(const char* path, char* const argv[]) {
 
 int execvp(const char* file, char* const argv[]) {
     const char* path;
-    char        candidate[256];
+    char        candidate[astia_path_buffer_capacity];
 
     if (file == NULL || *file == '\0') {
         errno = ENOENT;

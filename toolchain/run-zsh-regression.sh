@@ -7,6 +7,8 @@ work=${ASTIA_ZSH_REGRESSION:-/tmp/astia-zsh-regression}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 target=x86_64-unknown-elf
+qemu_timeout_seconds=60
+expected_qemu_status=1
 resource=$($clang --target=$target -print-resource-dir)
 
 command -v "$qemu" >/dev/null 2>&1 || {
@@ -43,10 +45,10 @@ tar cf "$work/initrd.tar" -C "$work/root" sbin bin
 
 log=$work/qemu.log
 set +e
-timeout 60 qemu-system-x86_64 -m 128M -kernel "$kernel" -initrd "$work/initrd.tar" \
+timeout "$qemu_timeout_seconds" qemu-system-x86_64 -m 128M -kernel "$kernel" -initrd "$work/initrd.tar" \
     -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot
 status=$?
 set -e
 cat "$log"
-test "$status" -eq 1
+test "$status" -eq "$expected_qemu_status"
 grep -q 'astia-signal-ok' "$log"

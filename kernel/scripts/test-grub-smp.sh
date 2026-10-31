@@ -4,11 +4,12 @@ set -eu
 qemu=${QEMU:-qemu-system-x86_64}
 iso=${1:?usage: test-grub-smp.sh <iso>}
 smp=${ASTIA_SMP:-2}
+qemu_timeout_seconds=10
 log=${TMPDIR:-/tmp}/astia_grub_smp_$$.log
 trap 'rm -f "$log"' EXIT INT TERM
 
 set +e
-timeout 10 "$qemu" -machine q35 -smp "$smp" -cdrom "$iso" \
+timeout "$qemu_timeout_seconds" "$qemu" -machine q35 -smp "$smp" -cdrom "$iso" \
     -serial "file:$log" -display none -monitor none -no-reboot
 status=$?
 set -e

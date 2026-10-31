@@ -4,24 +4,31 @@
 #include <errno.h>
 #include <stdlib.h>
 
+enum {
+    max_timeout_ms = 2147483647,
+    ms_per_sec      = 1000,
+    usec_per_sec    = 1000000,
+};
+
 int select(int count, fd_set* read_set, fd_set* write_set, fd_set* except_set,
            struct timeval* timeout) {
     struct pollfd* pfds;
     int            n = 0, rc, timeout_ms = -1;
     if (count < 0 || count > FD_SETSIZE ||
-        (timeout != NULL &&
-         (timeout->tv_sec < 0 || timeout->tv_usec < 0 || timeout->tv_usec >= 1000000))) {
+        (timeout != NULL && (timeout->tv_sec < 0 || timeout->tv_usec < 0 ||
+                             timeout->tv_usec >= usec_per_sec))) {
         errno = EINVAL;
         return -1;
     }
     if (timeout != NULL) {
         /* Saturate before multiplying so a large timeval cannot overflow. */
-        if (timeout->tv_sec > (2147483647LL - 999) / 1000) {
-            timeout_ms = 2147483647;
+        if (timeout->tv_sec > (max_timeout_ms - (ms_per_sec - 1)) / ms_per_sec) {
+            timeout_ms = max_timeout_ms;
         }
         else {
             long long ms =
-                (long long) timeout->tv_sec * 1000 + (timeout->tv_usec + 999) / 1000;
+                (long long) timeout->tv_sec * ms_per_sec +
+                (timeout->tv_usec + ms_per_sec - 1) / ms_per_sec;
             timeout_ms = (int) ms;
         }
     }

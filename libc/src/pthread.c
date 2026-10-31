@@ -7,7 +7,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-enum { default_stack_size = 64 * 1024 };
+enum {
+    default_stack_size  = 64 * 1024,
+    minimum_stack_size  = 16 * 1024,
+    page_size           = 4096,
+    page_alignment_mask = page_size - 1,
+};
 
 static void pthread_start_trampoline(void* function_value, void* argument) {
     void* (*function)(void*) = (void* (*)(void*) ) function_value;
@@ -27,7 +32,7 @@ int pthread_attr_destroy(pthread_attr_t* attr) {
 }
 
 int pthread_attr_setstacksize(pthread_attr_t* attr, size_t size) {
-    if (attr == NULL || size < 16 * 1024)
+    if (attr == NULL || size < minimum_stack_size)
         return EINVAL;
     attr->stack_size = size;
     return 0;
@@ -38,11 +43,11 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     if (thread == NULL || start_routine == NULL)
         return EINVAL;
     size_t stack_size = attr == NULL ? default_stack_size : attr->stack_size;
-    if (stack_size < 16 * 1024)
+    if (stack_size < minimum_stack_size)
         return EINVAL;
-    if (stack_size > (size_t) -1 - 4095u)
+    if (stack_size > (size_t) -1 - page_alignment_mask)
         return EINVAL;
-    stack_size  = (stack_size + 4095u) & ~(size_t) 4095u;
+    stack_size = (stack_size + page_alignment_mask) & ~(size_t) page_alignment_mask;
     void* stack = mmap(NULL, stack_size, PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (stack == MAP_FAILED)

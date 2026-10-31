@@ -5,7 +5,7 @@
 #include <unistd.h>
 
 int __astia_resolve_path(const char* path, char* out, unsigned long capacity) {
-    char          cwd[256];
+    char          cwd[astia_path_buffer_capacity];
     unsigned long at = 0;
     unsigned long i;
     if (path == 0 || out == 0 || capacity == 0) {
