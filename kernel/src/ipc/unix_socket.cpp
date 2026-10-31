@@ -411,8 +411,11 @@ namespace astia::fs {
             if (!f || !path(a, n))
                 return -EINVAL;
             char canonical[path_max]{};
-            long rc = register_unix_path(n, o.backing_reference(), canonical,
-                                          sizeof canonical);
+            auto* current = proc::current_process();
+            if (!current)
+                return -ESRCH;
+            long rc = register_unix_path(n, o.backing_reference(), uid_t{current->euid()},
+                                         gid_t{current->egid()}, canonical, sizeof canonical);
             if (rc < 0)
                 return rc;
             f->set_bound_address(a);

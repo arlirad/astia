@@ -759,6 +759,9 @@ namespace astia::fs {
         mount_operation operation(path);
         if (!operation)
             return -ENOENT;
+        long unix_rc = unix_chmod_path(path, operation.instance(), permissions);
+        if (unix_rc != -ENOENT)
+            return unix_rc;
         return operation.instance()->chmod(relative_path(*operation.entry(), path),
                                            permissions);
     }
@@ -771,9 +774,12 @@ namespace astia::fs {
         if (rc < 0)
             return rc;
         mount_operation operation(resolved);
-        return !operation ? -ENOENT
-                          : operation.instance()->chown(
-                                relative_path(*operation.entry(), resolved), uid, gid);
+        if (!operation)
+            return -ENOENT;
+        long unix_rc = unix_chown_path(resolved, operation.instance(), uid, gid);
+        if (unix_rc != -ENOENT)
+            return unix_rc;
+        return operation.instance()->chown(relative_path(*operation.entry(), resolved), uid, gid);
     }
 
     long touch_path(const char* path, u64 sec, u64 nsec) {

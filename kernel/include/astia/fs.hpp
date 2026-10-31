@@ -367,6 +367,8 @@ namespace astia::fs {
     file_mode unix_node_mode(const char* canonical, mount* owner);
     uid_t unix_node_uid(const char* canonical, mount* owner);
     gid_t unix_node_gid(const char* canonical, mount* owner);
+    long unix_chmod_path(const char* canonical, mount* owner, file_permissions permissions);
+    long unix_chown_path(const char* canonical, mount* owner, uid_t uid, gid_t gid);
     long read_unix_directory(const char* directory, mount* owner, u64 index,
                              char* name, u32 capacity, file_type* type);
 

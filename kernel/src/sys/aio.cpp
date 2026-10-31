@@ -138,12 +138,24 @@ namespace astia::sys {
             const fs::file_mode mode  = fs::node_mode(parent);
             if (!mode.is_directory())
                 return false;
-            if (current->euid() == 0)
-                return true;
-            if (current->euid() != static_cast<u32>(fs::node_uid(parent)))
+            return current->can_access(mode, fs::node_uid(parent), fs::node_gid(parent),
+                                       fs::permission_bits::write) &&
+                   current->can_access(mode, fs::node_uid(parent), fs::node_gid(parent),
+                                       fs::permission_bits::execute);
+        }
+
+        bool socket_node_writable(proc::process* current, const char* path) {
+            if (!current || !path)
                 return false;
-            return mode.owner_allows(fs::permission_bits::write) &&
-                   mode.owner_allows(fs::permission_bits::execute);
+            const fs::file_type type = fs::node_type(path);
+            // Leave absence and non-socket paths to the endpoint operation so
+            // connect/sendto preserve their ECONNREFUSED result.
+            if (type == fs::directory_unknown)
+                return true;
+            if (type != fs::directory_sock)
+                return true;
+            return current->can_access(fs::node_mode(path), fs::node_uid(path),
+                                       fs::node_gid(path), fs::permission_bits::write);
         }
 
         // The parent keeps its ring while two forked children perform their
@@ -1451,6 +1463,21 @@ namespace astia::sys {
             if (s.op == OP_SENDTO) {
                 if (!sys::copy_in(&a, sys::user_range::bytes(s.offset, sizeof a)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
+                char socket_path[fs::path_max]{}, canonical[fs::path_max]{};
+                if (a.family != AF_UNIX || a.len < 3 || a.len > sizeof(a.data) + 2)
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                const u32 path_length = a.len - 2;
+                if (path_length >= sizeof socket_path || a.data[0] != '/')
+                    return cq_post_guarded(ring, s.user_data, -EINVAL);
+                for (u32 i = 0; i < path_length; ++i)
+                    socket_path[i] = static_cast<char>(a.data[i]);
+                socket_path[path_length] = '\0';
+                long path_rc = fs::resolve_path(socket_path, canonical, sizeof canonical,
+                                                 false);
+                if (path_rc < 0)
+                    return cq_post_guarded(ring, s.user_data, static_cast<i32>(path_rc));
+                if (!socket_node_writable(proc::current_process(), canonical))
+                    return cq_post_guarded(ring, s.user_data, -EACCES);
                 const auto* socket = object->backing()->unix_socket_capability();
                 long        rc =
                     socket == nullptr ? -EOPNOTSUPP : socket->sendto(*object, &a);
@@ -1481,6 +1508,26 @@ namespace astia::sys {
             astia_sockaddr a{};
             if (!sys::copy_in(&a, sys::user_range::bytes(s.address, sizeof a)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
+            char socket_path[fs::path_max]{}, canonical[fs::path_max]{};
+            if (a.family != AF_UNIX || a.len < 3 || a.len > sizeof(a.data) + 2)
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            const u32 path_length = a.len - 2;
+            if (path_length >= sizeof socket_path || a.data[0] != '/')
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            for (u32 i = 0; i < path_length; ++i)
+                socket_path[i] = static_cast<char>(a.data[i]);
+            socket_path[path_length] = '\0';
+            long path_rc = fs::resolve_path(socket_path, canonical, sizeof canonical,
+                                             false);
+            if (path_rc < 0)
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(path_rc));
+            if (s.op == OP_BIND) {
+                if (!parent_writable(proc::current_process(), canonical))
+                    return cq_post_guarded(ring, s.user_data, -EACCES);
+            }
+            else if (!socket_node_writable(proc::current_process(), canonical)) {
+                return cq_post_guarded(ring, s.user_data, -EACCES);
+            }
             const auto* socket = object->backing()->unix_socket_capability();
             long        rc = socket == nullptr
                                  ? -EOPNOTSUPP

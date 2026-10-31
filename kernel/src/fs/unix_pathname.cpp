@@ -27,7 +27,7 @@ namespace astia::fs {
     }
 
     long register_unix_path(const char* path, const mm::shptr<file>& endpoint,
-                            char* canonical, u32 capacity) {
+                            uid_t uid, gid_t gid, char* canonical, u32 capacity) {
         if (!path || !endpoint || !canonical || !capacity) return -EINVAL;
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, false);
@@ -53,6 +53,8 @@ namespace astia::fs {
         free->used = true;
         free->endpoint = endpoint;
         free->owner = owner;
+        free->uid = uid;
+        free->gid = gid;
         for (u32 i = 0; i <= length; ++i) {
             free->path[i] = resolved[i];
             canonical[i] = resolved[i];
@@ -189,6 +191,27 @@ namespace astia::fs {
         for (auto& item : entries)
             if (item.used && item.owner == owner && equal(item.path, canonical)) return item.gid;
         return {};
+    }
+    long unix_chmod_path(const char* canonical, mount* owner, file_permissions permissions) {
+        if (!canonical || !owner) return -EINVAL;
+        core::spinlock_guard guard(lock);
+        for (auto& item : entries)
+            if (item.used && item.owner == owner && equal(item.path, canonical)) {
+                item.mode = file_mode(file_type::socket, permissions);
+                return 0;
+            }
+        return -ENOENT;
+    }
+    long unix_chown_path(const char* canonical, mount* owner, uid_t uid, gid_t gid) {
+        if (!canonical || !owner) return -EINVAL;
+        core::spinlock_guard guard(lock);
+        for (auto& item : entries)
+            if (item.used && item.owner == owner && equal(item.path, canonical)) {
+                item.uid = uid;
+                item.gid = gid;
+                return 0;
+            }
+        return -ENOENT;
     }
     long read_unix_directory(const char* directory, mount* owner, u64 index,
                              char* name, u32 capacity, file_type* type) {
