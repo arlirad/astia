@@ -439,11 +439,16 @@ enum {
 #endif
 
 /* wait options (WAIT op_flags) */
-enum {
-    WNOHANG    = 1u << 0, /* complete at once with pid or -EAGAIN */
-    WUNTRACED  = 1u << 1,
-    WCONTINUED = 1u << 3,
-};
+/* Keep the traditional names usable without colliding with libc's macros. */
+#ifndef WNOHANG
+#define WNOHANG ASTIA_WNOHANG /* complete at once with pid or -EAGAIN */
+#endif
+#ifndef WUNTRACED
+#define WUNTRACED ASTIA_WUNTRACED
+#endif
+#ifndef WCONTINUED
+#define WCONTINUED ASTIA_WCONTINUED
+#endif
 
 /* sleep options (SLEEP op_flags) */
 enum {

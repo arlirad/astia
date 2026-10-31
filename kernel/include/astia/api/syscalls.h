@@ -31,6 +31,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/api/signal.h>
+#include "wait.h"
 
 #include <stdint.h>
 
@@ -368,7 +369,6 @@ static inline long astia_sigprocmask(int32_t how, uint32_t set, uint32_t* old) {
 /* pid > 0: wait for that child; pid == -1: any child.  On success the
  * reaped pid is returned and *status (if non-null) receives the exit
  * status.  May block. */
-enum { ASTIA_WNOHANG = 1u << 0, ASTIA_WUNTRACED = 1u << 1, ASTIA_WCONTINUED = 1u << 3 };
 static inline long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options) {
     return astia_raw6(SYS_WAITPID, (long) pid, (long) status, (long) options, 0, 0, 0);
 }

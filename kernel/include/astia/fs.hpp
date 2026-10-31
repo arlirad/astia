@@ -65,9 +65,12 @@ namespace astia::fs {
 
     enum class permission_bits : u8 { none = 0, execute = 1, write = 2, read = 4 };
 
+    inline constexpr u16 file_permissions_mask = 07777u;
+
     class file_permissions {
         public:
-        constexpr file_permissions(u16 value = 0) : value_(value & 07777u) {}
+        constexpr file_permissions(u16 value = 0)
+            : value_(value & file_permissions_mask) {}
         constexpr u16 raw() const {
             return value_;
         }
@@ -90,7 +93,7 @@ namespace astia::fs {
             return (other() & static_cast<u8>(bits)) == static_cast<u8>(bits);
         }
         constexpr file_permissions chmod_mask() const {
-            return file_permissions(value_ & 07777u);
+            return file_permissions(value_ & file_permissions_mask);
         }
         constexpr file_permissions with_permissions(file_permissions value) const {
             return file_permissions(value.raw());

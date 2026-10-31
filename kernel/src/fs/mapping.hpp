@@ -7,7 +7,7 @@ namespace astia {
     template <>
     struct mapper<fs::file_permissions> {
         static optional<fs::file_permissions> from(i64 raw) {
-            if (raw < 0 || raw > 07777)
+            if (raw < 0 || raw > fs::file_permissions_mask)
                 return optional<fs::file_permissions>(error_t::einval);
             return optional<fs::file_permissions>(
                 fs::file_permissions(static_cast<u16>(raw)));
@@ -43,7 +43,8 @@ namespace astia {
                 return optional<fs::file_mode>(error_t::einval);
             }
             return optional<fs::file_mode>(
-                fs::file_mode(type, fs::file_permissions(value & 07777u)));
+                fs::file_mode(type, fs::file_permissions(
+                                         value & fs::file_permissions_mask)));
         }
 
         static u32 to(fs::file_mode mode) {

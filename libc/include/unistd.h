@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sys/types.h>
+#include <astia/api/wait.h>
 
 /*
  * astia libc — <unistd.h> (process identity subset)
@@ -80,9 +81,15 @@ int  rename(const char* old_path, const char* new_path);
 int  renameat(int olddirfd, const char* old_path, int newdirfd, const char* new_path);
 long readlinkat(int dirfd, const char* path, char* buffer, unsigned long capacity);
 int  waitpid(int pid, int* status, int options);
-#define WNOHANG 1
-#define WUNTRACED 2
-#define WCONTINUED 8
+#ifndef WNOHANG
+#define WNOHANG ASTIA_WNOHANG
+#endif
+#ifndef WUNTRACED
+#define WUNTRACED ASTIA_WUNTRACED
+#endif
+#ifndef WCONTINUED
+#define WCONTINUED ASTIA_WCONTINUED
+#endif
 unsigned int alarm(unsigned int seconds);
 unsigned int sleep(unsigned int seconds);
 char*        mktemp(char* template_name);

@@ -48,6 +48,22 @@ namespace astia {
         setmask,
     };
 
+    constexpr bool valid_signal_mask_operation(signal_mask_operation operation) {
+        switch (operation) {
+        case signal_mask_operation::block:
+        case signal_mask_operation::unblock:
+        case signal_mask_operation::setmask:
+            return true;
+        }
+        return false;
+    }
+
+    constexpr bool valid_signal_mask_operation(i64 raw) {
+        return raw == static_cast<i64>(signal_mask_operation::block) ||
+               raw == static_cast<i64>(signal_mask_operation::unblock) ||
+               raw == static_cast<i64>(signal_mask_operation::setmask);
+    }
+
     enum class signal_action : u8 {
         default_action,
         ignore,

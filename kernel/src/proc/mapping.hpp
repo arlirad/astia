@@ -31,7 +31,7 @@ namespace astia {
     template <>
     struct mapper<signal_mask_operation> {
         static optional<signal_mask_operation> from(i64 raw) {
-            if (raw < 0 || raw > 2)
+            if (!valid_signal_mask_operation(raw))
                 return optional<signal_mask_operation>(error_t::einval);
             return optional<signal_mask_operation>(
                 static_cast<signal_mask_operation>(raw));
