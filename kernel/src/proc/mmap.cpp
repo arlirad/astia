@@ -200,7 +200,7 @@ namespace astia::proc {
         return true;
     }
 
-    u64 process::map_anonymous(u64 addr, usize len, map_protection prot,
+    u64 process::map_anonymous(vaddr_t addr, bytes_t len, map_protection prot,
                                map_flags flags) {
         // v1: private anonymous memory; shared mappings come with the
         // page cache and IPC.
@@ -212,9 +212,6 @@ namespace astia::proc {
         }
         if (has(flags, map_flags::fixed)) {
             return -ENOSYS;
-        }
-        if (static_cast<u32>(prot) & ~valid_map_protection_bits) {
-            return -EINVAL;
         }
         if (address_space_ == nullptr || len == 0) {
             return -EINVAL;
@@ -247,8 +244,8 @@ namespace astia::proc {
         return base;
     }
 
-    u64 process::map_file(fd_t fd, u64 addr, usize len, map_protection prot,
-                          map_flags flags, u64 off) {
+    u64 process::map_file(fd_t fd, vaddr_t addr, bytes_t len, map_protection prot,
+                          map_flags flags, offset_t off) {
         // File mappings: private mappings capture bytes into
         // fresh frames at map time — snapshot semantics, the same
         // kernel-side read the ELF loader trusts.  Writes land on the
@@ -264,9 +261,6 @@ namespace astia::proc {
         }
         if (has(flags, map_flags::fixed)) {
             return -ENOSYS;
-        }
-        if (static_cast<u32>(prot) & ~valid_map_protection_bits) {
-            return -EINVAL;
         }
         if (address_space_ == nullptr || len == 0) {
             return -EINVAL;
@@ -486,13 +480,74 @@ namespace astia::proc {
         const u64 page_bytes = mm::phys_region::frame_size;
 
         core::spinlock_guard guard(mmap_lock_);
+        // Keep the original parent write state for every private writable
+        // page.  A page may already be read-only because an earlier fork
+        // owns a sharing reference; such a page must not be made writable by
+        // rolling this fork back.
+        usize cow_pages = 0;
+        for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
+            if (!it->shared && has(it->prot, map_protection::write)) {
+                if (cow_pages > ~usize{0} - it->pages) {
+                    return false;
+                }
+                cow_pages += it->pages;
+            }
+        }
+        auto old_writable_storage = mm::heap::alloc(cow_pages);
+        if (cow_pages != 0 && !old_writable_storage) {
+            return false;
+        }
+        auto* old_writable = cow_pages == 0
+                                 ? nullptr
+                                 : static_cast<u8*>(old_writable_storage.value);
+        usize old_writable_at = 0;
+
+        auto rollback = [&]() {
+            // Restore only bits this transaction actually changed.  This is
+            // important when the parent was already a CoW participant.
+            usize state_at = 0;
+            for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
+                const bool cow = !it->shared && has(it->prot, map_protection::write);
+                for (u64 page = 0; page < it->pages; ++page) {
+                    const u64 virt = it->base + page * page_bytes;
+                    if (cow && state_at < old_writable_at && old_writable[state_at] != 0) {
+                        const u64 phys = address_space_->translate(virt);
+                        if (phys != arch::page_map::invalid) {
+                            (void) address_space_->map_4k(virt, phys, pte_flags(it->prot));
+                        }
+                    }
+                    if (cow) {
+                        ++state_at;
+                    }
+                }
+            }
+            while (child->mmap_regions_ != nullptr) {
+                mmap_region* victim = child->mmap_regions_;
+                child->mmap_regions_ = victim->next;
+                for (usize page = 0; page < victim->pages; ++page) {
+                    child->address_space_ == nullptr
+                        ? map.unmap(victim->base + page * page_bytes)
+                        : child->address_space_->unmap(victim->base + page * page_bytes);
+                }
+                victim->backing->unmap_range(victim->region_page, victim->pages);
+                if (victim->holds_ref) {
+                    victim->backing->release_ref();
+                }
+                delete victim;
+            }
+            if (old_writable_storage) {
+                mm::heap::free(old_writable_storage.value);
+            }
+        };
+
         for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
             if (!it->backing->share_range(it->region_page, it->pages)) {
+                rollback();
                 return false;
             }
             auto* entry = alloc_region();
             if (entry == nullptr) {
-                it->backing->release_range(it->region_page, it->pages);
+                rollback();
                 return false;
             }
             *entry             = *it;     // shares the open file description
@@ -520,6 +575,10 @@ namespace astia::proc {
                 const u64 virt = it->base + page * page_bytes;
                 const u64 phys = address_space_->translate(virt);
                 if (phys == arch::page_map::invalid || !map.map_4k(virt, phys, flags)) {
+                    for (u64 done = 0; done < page; ++done) {
+                        (void) map.unmap(it->base + done * page_bytes);
+                    }
+                    rollback();
                     return false;
                 }
             }
@@ -528,20 +587,33 @@ namespace astia::proc {
                 // too (map_4k overwrites the entry and invalidates).
                 for (u64 page = 0; page < it->pages; ++page) {
                     const u64 virt = it->base + page * page_bytes;
+                    old_writable[old_writable_at++] =
+                        address_space_->writable(virt) ? 1 : 0;
+                    if (old_writable[old_writable_at - 1] == 0) {
+                        continue;
+                    }
                     const u64 phys = address_space_->translate(virt);
                     if (phys == arch::page_map::invalid ||
                         !address_space_->map_4k(virt, phys, flags)) {
+                        rollback();
                         return false;
                     }
                 }
             }
         }
         child->address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
+        if (child->address_space_ == nullptr) {
+            rollback();
+            return false;
+        }
         child->mapped_bytes_  = mapped_bytes_;
         child->rlimit_nofile_ = rlimit_nofile_;
         child->rlimit_as_     = rlimit_as_;
         child->tls_tp_        = tls_tp_;
-        return child->address_space_ != nullptr;
+        if (old_writable_storage) {
+            mm::heap::free(old_writable_storage.value);
+        }
+        return true;
     }
 
     bool process::cow_fault(u64 addr, bool write) {

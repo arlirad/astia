@@ -1,0 +1,22 @@
+#pragma once
+
+#include "user_mem.hpp"
+#include "../../user_layout.hpp"
+#include <astia/arch/layout.hpp>
+
+namespace astia::proc::syscall {
+
+    inline bool valid_thread_start(u64 entry, u64 stack_top) {
+        constexpr u64 stack_alignment_bytes = thread_stack_alignment_bytes;
+        constexpr u64 stack_alignment_mask = thread_stack_alignment_mask;
+
+        return entry != 0 && stack_top != 0 && entry < arch::kernel_base &&
+               stack_top < arch::kernel_base &&
+               (stack_top & stack_alignment_mask) == 0 &&
+               stack_top >= stack_alignment_bytes &&
+               sys::user_range_ok(sys::user_range::bytes(entry, 1)) &&
+               sys::user_range_ok(sys::user_range::bytes(
+                   stack_top - stack_alignment_bytes, stack_alignment_bytes));
+    }
+
+} // namespace astia::proc::syscall

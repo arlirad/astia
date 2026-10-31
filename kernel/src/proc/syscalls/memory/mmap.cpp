@@ -28,8 +28,8 @@ namespace astia::proc::syscall {
         // The address is a userspace hint.  Never let a high-half hint
         // flow into the VMA placer (which may otherwise ignore it and
         // make boundary mistakes look like a successful mapping).
-        const u64 length = static_cast<u64>(len);
-        if (length > ~u64{0} - mm::page_mask) {
+        const bytes_t length = static_cast<bytes_t>(len);
+        if (length > ~bytes_t{0} - mm::page_mask) {
             return -EINVAL;
         }
         if (addr >= astia::arch::kernel_base ||

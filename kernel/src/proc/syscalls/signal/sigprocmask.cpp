@@ -12,18 +12,15 @@
 
 namespace astia::proc::syscall {
 
-    i64 sigprocmask(i32 how, u32 set, u64 old_ptr) {
+    i64 sigprocmask(i32 how, signal_mask set, u64 old_ptr) {
         auto* owner = current_process();
         if (owner == nullptr) {
             return -ESRCH;
         }
         if (old_ptr != 0) {
-            const auto range = sys::user_range::bytes(old_ptr, sizeof(u32));
-            if (!sys::user_range_ok(range)) {
-                return -EFAULT;
-            }
+            const auto old_range = sys::user_range::bytes(old_ptr, sizeof(u32));
             const u32 old = owner->signals().blocked();
-            if (!sys::copy_out(range, &old)) {
+            if (!sys::copy_out(old_range, &old)) {
                 return -EFAULT;
             }
         }

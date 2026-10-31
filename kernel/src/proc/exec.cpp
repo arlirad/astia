@@ -29,6 +29,24 @@ namespace astia::proc {
             fs::open_file* file;
         };
 
+        void unmap_run(arch::page_map& map, u64 virt, u64 pages) {
+            for (u64 page = 0; page < pages; ++page) {
+                (void) map.unmap(virt + page * elf::page_size);
+            }
+        }
+
+        void cleanup_pending(image_map& state, arch::page_map& map) {
+            for (u32 i = 0; i < state.count; ++i) {
+                auto& seg = state.segs[i];
+                if (!seg.used) {
+                    continue;
+                }
+                unmap_run(map, seg.virt, seg.pages);
+                mm::kernel_frames().release(seg.frames, seg.pages);
+                seg.used = false;
+            }
+        }
+
         void* map_user(void* opaque, u64 hint, usize size, usize align, bool fixed) {
             auto&     state = *static_cast<image_map*>(opaque);
             const u64 base  = fixed ? hint : (state.next_base + align - 1) & ~(align - 1);
@@ -50,6 +68,7 @@ namespace astia::proc {
                         base + page * elf::page_size, frames + page * elf::page_size,
                         arch::page_flags::present | arch::page_flags::writable |
                             arch::page_flags::user)) {
+                    unmap_run(*state.map, base, page);
                     mm::kernel_frames().release(frames, pages);
                     return nullptr;
                 }
@@ -119,6 +138,7 @@ namespace astia::proc {
                                 frames + page * elf::page_size,
                                 arch::page_flags::present | arch::page_flags::writable |
                                     arch::page_flags::user)) {
+                    unmap_run(map, tls_base, page);
                     mm::kernel_frames().release(frames, pages);
                     return false;
                 }
@@ -169,6 +189,13 @@ namespace astia::proc {
             arch::kernel_page_map()->activate();
         }
         if (!loaded) {
+            cleanup_pending(state, map);
+            return false;
+        }
+
+        address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
+        if (address_space_ == nullptr) {
+            cleanup_pending(state, map);
             return false;
         }
 
@@ -186,9 +213,13 @@ namespace astia::proc {
                                   region)) {
                 if (region != nullptr) {
                     region->release();
+                    state.segs[i].used = false;
                 }
+                cleanup_pending(state, *address_space_);
+                discard_image();
                 return false;
             }
+            state.segs[i].used = false;
         }
 
         // Static TLS: the thread's %fs base loads the block end this
@@ -198,7 +229,9 @@ namespace astia::proc {
             u64 tp         = 0;
             u64 tls_frames = 0;
             u64 tls_pages  = 0;
-            if (!map_tls_template(map, bytes, image, tp, tls_frames, tls_pages)) {
+            if (!map_tls_template(*address_space_, bytes, image, tp, tls_frames, tls_pages)) {
+                cleanup_pending(state, *address_space_);
+                discard_image();
                 return false;
             }
             tls_tp_      = tp;
@@ -208,15 +241,18 @@ namespace astia::proc {
                                   map_protection::read | map_protection::write, region)) {
                 if (region != nullptr) {
                     region->release();
+                } else {
+                    unmap_run(*address_space_, tls_base, tls_pages);
+                    mm::kernel_frames().release(tls_frames, tls_pages);
                 }
+                if (region != nullptr)
+                    unmap_run(*address_space_, tls_base, tls_pages);
+                cleanup_pending(state, *address_space_);
+                discard_image();
                 return false;
             }
         }
 
-        address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
-        if (address_space_ == nullptr) {
-            return false;
-        }
         *entry_out = reinterpret_cast<u64>(image.entry);
         return true;
     }
@@ -259,8 +295,9 @@ namespace astia::proc {
             for (u64 page = 0; page < pages; ++page) {
                 if (!map.map_4k(tls_base + page * elf::page_size,
                                 frames + page * elf::page_size,
-                                arch::page_flags::present | arch::page_flags::writable |
-                                    arch::page_flags::user)) {
+                                    arch::page_flags::present | arch::page_flags::writable |
+                                        arch::page_flags::user)) {
+                    unmap_run(map, tls_base, page);
                     mm::kernel_frames().release(frames, pages);
                     return false;
                 }
@@ -270,6 +307,7 @@ namespace astia::proc {
                 const long read        = file->read(
                     destination, static_cast<u32>(image.tls_filesz), image.tls_offset);
                 if (read != static_cast<long>(image.tls_filesz)) {
+                    unmap_run(map, tls_base, pages);
                     mm::kernel_frames().release(frames, pages);
                     return false;
                 }
@@ -303,33 +341,56 @@ namespace astia::proc {
             caller_map->activate();
         else
             arch::kernel_page_map()->activate();
-        if (!loaded)
+        if (!loaded) {
+            cleanup_pending(stream.map, map);
             return false;
+        }
+        address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
+        if (address_space_ == nullptr) {
+            cleanup_pending(stream.map, map);
+            return false;
+        }
         for (u32 i = 0; i < stream.map.count; ++i) {
-            const auto& seg    = stream.map.segs[i];
+            auto&       seg    = stream.map.segs[i];
             auto*       region = mm::phys_region::adopt(seg.frames, seg.pages);
             if (region == nullptr ||
                 !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
-                                  region))
+                                  region)) {
+                if (region != nullptr) {
+                    region->release();
+                    seg.used = false;
+                }
+                cleanup_pending(stream.map, *address_space_);
+                discard_image();
                 return false;
+            }
+            seg.used = false;
         }
         if (image.tls_memsz != 0) {
             u64 tls_frames = 0, tls_pages = 0, tp = 0;
-            if (!map_tls_file(map, file, image, tp, tls_frames, tls_pages))
+            if (!map_tls_file(*address_space_, file, image, tp, tls_frames, tls_pages)) {
+                cleanup_pending(stream.map, *address_space_);
+                discard_image();
                 return false;
+            }
             auto* region = mm::phys_region::adopt(tls_frames, tls_pages);
             if (region == nullptr ||
                 !register_mapping(tls_base, tls_pages,
                                   map_protection::read | map_protection::write, region)) {
                 if (region != nullptr)
                     region->release();
+                else {
+                    unmap_run(*address_space_, tls_base, tls_pages);
+                    mm::kernel_frames().release(tls_frames, tls_pages);
+                }
+                if (region != nullptr)
+                    unmap_run(*address_space_, tls_base, tls_pages);
+                cleanup_pending(stream.map, *address_space_);
+                discard_image();
                 return false;
             }
             tls_tp_ = tp;
         }
-        address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
-        if (address_space_ == nullptr)
-            return false;
         if (image.tls_memsz == 0)
             tls_tp_ = 0;
         *entry_out = reinterpret_cast<u64>(image.entry);

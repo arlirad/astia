@@ -15,16 +15,18 @@ namespace astia::proc::syscall {
             return -EINVAL;
         if (pid < -1 && !mapper<pgrp_t>::from(-static_cast<i64>(pid)))
             return -EINVAL;
-        const sys::user_range status = sys::user_range::bytes(status_ptr, sizeof(i32));
-        if (!status.null() && !sys::user_range_ok(status))
+        const sys::user_range status_range =
+            sys::user_range::bytes(status_ptr, sizeof(i32));
+        if (!status_range.null() && !sys::user_range_ok(status_range))
             return -EFAULT;
         i32  local  = 0;
         auto mapped = mapper<wait_options>::from(options);
         if (!mapped)
             return -EINVAL;
         const i64 result =
-            proc::waitpid(pid, status.null() ? nullptr : &local, mapped.value);
-        if (result >= 0 && !status.null() && !sys::copy_out(status, &local))
+            proc::waitpid(pid, status_range.null() ? nullptr : &local, mapped.value);
+        if (result >= 0 && !status_range.null() &&
+            !sys::copy_out(status_range, &local))
             return -EFAULT;
         return result;
     }

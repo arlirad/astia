@@ -20,7 +20,7 @@ namespace astia::proc::syscall {
         const auto range = sys::user_range::bytes(mask_ptr, sizeof(u32));
         if (!sys::user_range_ok(range))
             return -EFAULT;
-        u32 mask = 0;
+        signal_mask mask = 0;
         if (!sys::copy_in(&mask, range))
             return -EFAULT;
         // Match waitpid's register-before-scan protocol.  Interrupts stay
@@ -28,7 +28,7 @@ namespace astia::proc::syscall {
         // is blocked, so delivery cannot fall between the check and the
         // waiter registration.
         arch::cpu::nointerrupts();
-        const u32 previous_mask = owner->signals().blocked();
+        const signal_mask previous_mask = owner->signals().blocked();
         owner->signals().set_blocked(mask);
         if (!owner->add_signal_waiter(self)) {
             owner->signals().set_blocked(previous_mask);

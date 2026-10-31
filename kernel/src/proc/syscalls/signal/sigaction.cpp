@@ -37,28 +37,22 @@ namespace astia::proc::syscall {
         }
         const auto old = owner->signals().disposition(signal);
         if (old_ptr != 0) {
-            const auto range =
+            const auto old_range =
                 sys::user_range::bytes(old_ptr, sizeof(struct astia_sigaction));
-            if (!sys::user_range_ok(range)) {
-                return -EFAULT;
-            }
             struct astia_sigaction out{};
             out.handler  = user_handler_value(old);
             out.mask     = old.mask;
             out.flags    = 0;
             out.restorer = old.restorer;
-            if (!sys::copy_out(range, &out)) {
+            if (!sys::copy_out(old_range, &out)) {
                 return -EFAULT;
             }
         }
         if (next_ptr != 0) {
-            const auto range =
+            const auto next_range =
                 sys::user_range::bytes(next_ptr, sizeof(struct astia_sigaction));
-            if (!sys::user_range_ok(range)) {
-                return -EFAULT;
-            }
             struct astia_sigaction next{};
-            if (!sys::copy_in(&next, range)) {
+            if (!sys::copy_in(&next, next_range)) {
                 return -EFAULT;
             }
             signal_disposition disposition{};

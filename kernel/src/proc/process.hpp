@@ -253,15 +253,15 @@ namespace astia::proc {
         /// mmap: anonymous private memory; `addr` is a placement hint
         /// (0 = the kernel picks the highest hole below the mmap
         /// ceiling).  Returns the mapped base, or a negated errno.
-        u64 map_anonymous(u64 addr, usize len, map_protection prot, map_flags flags);
+        u64 map_anonymous(vaddr_t addr, bytes_t len, map_protection prot, map_flags flags);
 
         /// mmap of an open file, private (snapshot) semantics: the
         /// file's bytes are captured into fresh frames at map time,
         /// writes land on the private copy, and the mapping keeps the
         /// open file description alive across close().  `fd` resolves
         /// in this process' table; `off` must be page-aligned.
-        u64 map_file(fd_t fd, u64 addr, usize len, map_protection prot, map_flags flags,
-                     u64 off);
+        u64 map_file(fd_t fd, vaddr_t addr, bytes_t len, map_protection prot,
+                     map_flags flags, offset_t off);
 
         /// munmap: drop [addr, addr + len) rounded up to pages; parts
         /// of mapped regions outside the range are kept.  Returns 0,
