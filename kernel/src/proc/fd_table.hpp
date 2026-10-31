@@ -20,6 +20,7 @@ namespace astia::proc {
         u32                      flags(fd_t fd) const;
         bool                     set(fd_t fd, const mm::shptr<fs::open_file>& file);
         bool           set(fd_t fd, const mm::shptr<fs::open_file>& file, u32 flags);
+        bool           set_flags(fd_t fd, u32 flags);
         bool           clear(fd_t fd);
         void           clear_all();
         void           close_on_exec();

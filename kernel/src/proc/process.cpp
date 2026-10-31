@@ -723,8 +723,7 @@ namespace astia::proc {
     }
 
     bool process::set_descriptor_flags(fd_t fd, u32 flags) {
-        auto object = descriptors_.get(fd);
-        return object && descriptors_.set(fd, object, flags);
+        return descriptors_.set_flags(fd, flags);
     }
 
     optional<fd_t> process::duplicate_descriptor_to(fd_t old_fd, fd_t new_fd) {

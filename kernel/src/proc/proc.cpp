@@ -22,8 +22,12 @@ namespace astia::proc {
 
         process*             kernel   = nullptr;
         thread*              current[scheduler::max_cpu_count]{};
-        tid_t                next_tid = 1;
-        pid_t                next_pid{1};
+        // These counters are deliberately raw: the public IDs remain domain
+        // types, while the atomic operation can advance the underlying ABI
+        // value without taking the process registry lock.  Unsigned fetch-add
+        // wraps exactly as the old increment did.
+        u32 next_tid = 1;
+        u32 next_pid = 1;
 
         // Non-trivial element type in freestanding code: static storage
         // plus placement construction, so the global itself stays
@@ -96,9 +100,7 @@ namespace astia::proc {
     }
 
     pid_t allocate_pid() {
-        const pid_t value = next_pid;
-        next_pid          = pid_from_raw(raw_id(next_pid) + 1);
-        return value;
+        return pid_from_raw(__atomic_fetch_add(&next_pid, 1u, __ATOMIC_RELAXED));
     }
 
     bool init() {
@@ -115,7 +117,7 @@ namespace astia::proc {
             return false;
         }
 
-        auto bootstrap = mm::share<thread>(kernel, next_tid++);
+        auto bootstrap = mm::share<thread>(kernel, allocate_tid());
         if (!bootstrap || !kernel->add_thread(bootstrap)) {
             kernel      = nullptr;
             registry[0] = {};
@@ -142,7 +144,7 @@ namespace astia::proc {
     }
 
     tid_t allocate_tid() {
-        return next_tid++;
+        return __atomic_fetch_add(&next_tid, 1u, __ATOMIC_RELAXED);
     }
 
     void set_current_thread(thread* value) {

@@ -12,6 +12,9 @@ namespace astia::proc {
 
     namespace {
         inline constexpr u32 futex_capacity = 64;
+        inline constexpr u32 futex_bucket_count = 4;
+        inline constexpr u32 futex_bucket_capacity = futex_capacity / futex_bucket_count;
+        static_assert(futex_capacity % futex_bucket_count == 0);
 
         struct futex_waiter {
             process* owner   = nullptr;
@@ -19,8 +22,31 @@ namespace astia::proc {
             thread*  value   = nullptr;
         };
 
-        futex_waiter   waiters[futex_capacity]{};
-        core::spinlock waiters_lock;
+        struct futex_bucket {
+            futex_waiter   waiters[futex_bucket_capacity]{};
+            core::spinlock lock;
+        };
+
+        futex_bucket buckets[futex_bucket_count]{};
+        u32          waiter_count = 0;
+
+        // The address is part of the futex key, so every waiter and wake for
+        // one word uses the same bucket.  waiter_count preserves the old
+        // aggregate capacity while each bucket owns its share of the slots.
+        futex_bucket& bucket_for(u64 address) {
+            const u32 hash = static_cast<u32>((address >> 2) % futex_bucket_count);
+            return buckets[hash];
+        }
+
+        bool reserve_waiter() {
+            u32 count = __atomic_load_n(&waiter_count, __ATOMIC_RELAXED);
+            while (count < futex_capacity &&
+                   !__atomic_compare_exchange_n(&waiter_count, &count, count + 1,
+                                                false, __ATOMIC_ACQ_REL,
+                                                __ATOMIC_RELAXED)) {
+            }
+            return count < futex_capacity;
+        }
 
     } // namespace
 
@@ -39,24 +65,30 @@ namespace astia::proc {
         // section.  With interrupts disabled, a same-CPU FUTEX_WAKE
         // cannot slip between them and lose the wakeup.
         arch::cpu::nointerrupts();
+        auto& bucket = bucket_for(address);
         {
-            core::spinlock_guard lock(waiters_lock);
+            core::spinlock_guard lock(bucket.lock);
             if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
                 arch::cpu::interrupts();
                 return -EAGAIN;
             }
-            u32 slot = futex_capacity;
-            for (u32 i = 0; i < futex_capacity; ++i) {
-                if (waiters[i].value == nullptr) {
+            if (!reserve_waiter()) {
+                arch::cpu::interrupts();
+                return -EAGAIN;
+            }
+            u32 slot = futex_bucket_capacity;
+            for (u32 i = 0; i < futex_bucket_capacity; ++i) {
+                if (bucket.waiters[i].value == nullptr) {
                     slot = i;
                     break;
                 }
             }
-            if (slot == futex_capacity) {
+            if (slot == futex_bucket_capacity) {
+                __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
                 arch::cpu::interrupts();
                 return -EAGAIN;
             }
-            waiters[slot] = futex_waiter{owner, address, self};
+            bucket.waiters[slot] = futex_waiter{owner, address, self};
             self->state(thread_state::blocked);
         }
         scheduler::yield();
@@ -78,18 +110,27 @@ namespace astia::proc {
         }
         arch::cpu::nointerrupts();
         u32 woken = 0;
+        thread* wake_list[futex_bucket_capacity]{};
+        u32     wake_count = 0;
+        auto&   bucket     = bucket_for(address);
         {
-            core::spinlock_guard lock(waiters_lock);
-            for (u32 i = 0; i < futex_capacity && woken < count; ++i) {
-                if (waiters[i].value == nullptr || waiters[i].owner != owner ||
-                    waiters[i].address != address) {
+            core::spinlock_guard lock(bucket.lock);
+            for (u32 i = 0; i < futex_bucket_capacity && wake_count < count; ++i) {
+                if (bucket.waiters[i].value == nullptr ||
+                    bucket.waiters[i].owner != owner ||
+                    bucket.waiters[i].address != address) {
                     continue;
                 }
-                thread* value = waiters[i].value;
-                waiters[i]    = {};
-                if (scheduler::wake(value)) {
-                    ++woken;
-                }
+                wake_list[wake_count++] = bucket.waiters[i].value;
+                bucket.waiters[i]        = {};
+                __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            }
+        }
+        // Do not enter the scheduler while holding a futex bucket lock: the
+        // scheduler may indirectly contend with another futex operation.
+        for (u32 i = 0; i < wake_count; ++i) {
+            if (scheduler::wake(wake_list[i])) {
+                ++woken;
             }
         }
         arch::cpu::interrupts();

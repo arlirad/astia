@@ -52,6 +52,18 @@ namespace astia::proc {
         return true;
     }
 
+    bool fd_table::set_flags(fd_t fd, u32 flags) {
+        if (fd.value < 0 || static_cast<u32>(fd.value) >= max_process_fds) {
+            return false;
+        }
+        arch::interrupt_spinlock_guard guard(lock_);
+        if (!entries_[fd.value].file) {
+            return false;
+        }
+        entries_[fd.value].flags = flags;
+        return true;
+    }
+
     bool fd_table::clear(fd_t fd) {
         if (fd.value < 0 || static_cast<u32>(fd.value) >= max_process_fds) {
             return false;
@@ -66,23 +78,23 @@ namespace astia::proc {
     }
 
     void fd_table::clear_all() {
-        for (u32 fd = 0; fd < max_process_fds; ++fd) {
-            mm::shptr<fs::open_file> old;
-            {
-                arch::interrupt_spinlock_guard guard(lock_);
-                old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
+        mm::shptr<fs::open_file> old[max_process_fds];
+        {
+            arch::interrupt_spinlock_guard guard(lock_);
+            for (u32 fd = 0; fd < max_process_fds; ++fd) {
+                old[fd] = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
                 entries_[fd].flags = 0;
             }
         }
     }
 
     void fd_table::close_on_exec() {
-        for (u32 fd = 0; fd < max_process_fds; ++fd) {
-            mm::shptr<fs::open_file> old;
-            {
-                arch::interrupt_spinlock_guard guard(lock_);
+        mm::shptr<fs::open_file> old[max_process_fds];
+        {
+            arch::interrupt_spinlock_guard guard(lock_);
+            for (u32 fd = 0; fd < max_process_fds; ++fd) {
                 if ((entries_[fd].flags & ASTIA_FD_CLOEXEC) != 0) {
-                    old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
+                    old[fd] = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
                     entries_[fd].flags = 0;
                 }
             }
@@ -99,20 +111,26 @@ namespace astia::proc {
 
     optional<fd_t> fd_table::duplicate(fd_t old_fd, fd_t minimum, u32 flags,
                                        u32 maximum) {
-        arch::interrupt_spinlock_guard guard(lock_);
-        auto                 source =
-            old_fd.value >= 0 && static_cast<u32>(old_fd.value) < max_process_fds
-                ? entries_[old_fd.value].file
-                : mm::shptr<fs::open_file>{};
-        if (!source) {
+        if (old_fd.value < 0 || static_cast<u32>(old_fd.value) >= max_process_fds) {
             return error_t::ebadf;
         }
-        auto copy = mm::share<fs::open_file>(*source);
-        if (!copy)
-            return error_t::emfile;
         if (minimum.value < 0 || static_cast<u32>(minimum.value) >= maximum ||
             maximum > max_process_fds)
             return error_t::emfile;
+
+        mm::shptr<fs::open_file> source;
+        {
+            arch::interrupt_spinlock_guard guard(lock_);
+            source = entries_[old_fd.value].file;
+        }
+        if (!source)
+            return error_t::ebadf;
+
+        auto copy = mm::share<fs::open_file>(*source);
+        if (!copy)
+            return error_t::emfile;
+
+        arch::interrupt_spinlock_guard guard(lock_);
         for (u32 fd = static_cast<u32>(minimum.value); fd < maximum; ++fd) {
             if (!entries_[fd].file) {
                 entries_[fd].file  = copy;
@@ -124,19 +142,29 @@ namespace astia::proc {
     }
 
     optional<fd_t> fd_table::duplicate_to(fd_t old_fd, fd_t new_fd) {
-        arch::interrupt_spinlock_guard guard(lock_);
-        auto                 source =
-            old_fd.value >= 0 && static_cast<u32>(old_fd.value) < max_process_fds
-                ? entries_[old_fd.value].file
-                : mm::shptr<fs::open_file>{};
-        if (!source || new_fd.value < 0 ||
-            static_cast<u32>(new_fd.value) >= max_process_fds) {
+        if (old_fd.value < 0 || static_cast<u32>(old_fd.value) >= max_process_fds ||
+            new_fd.value < 0 || static_cast<u32>(new_fd.value) >= max_process_fds) {
             return error_t::ebadf;
         }
-        if (old_fd != new_fd) {
-            auto copy = mm::share<fs::open_file>(*source);
-            if (!copy)
-                return error_t::emfile;
+
+        mm::shptr<fs::open_file> source;
+        {
+            arch::interrupt_spinlock_guard guard(lock_);
+            source = entries_[old_fd.value].file;
+        }
+        if (!source)
+            return error_t::ebadf;
+        if (old_fd == new_fd)
+            return new_fd;
+
+        auto copy = mm::share<fs::open_file>(*source);
+        if (!copy)
+            return error_t::emfile;
+
+        mm::shptr<fs::open_file> old;
+        {
+            arch::interrupt_spinlock_guard guard(lock_);
+            old = static_cast<mm::shptr<fs::open_file>&&>(entries_[new_fd.value].file);
             entries_[new_fd.value].file  = copy;
             entries_[new_fd.value].flags = 0;
         }
