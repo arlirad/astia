@@ -1,6 +1,7 @@
 #pragma once
 
 #include "filesystem.hpp"
+#include <astia/core/spinlock.hpp>
 
 namespace astia::fs {
 
@@ -23,6 +24,9 @@ namespace astia::fs {
         };
 
         entry entries_[devfs_max_entries]{};
+        // Protects entry publication and lookup; object methods run after
+        // lookup with a retained reference and without this lock held.
+        mutable core::spinlock namespace_lock_;
     };
 
     class devfs final : public filesystem {

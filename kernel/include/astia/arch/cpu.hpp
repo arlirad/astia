@@ -76,12 +76,17 @@ namespace astia::arch {
             cpu::nointerrupts();
         }
         ~interrupt_guard() {
-            if (open_) {
-                cpu::interrupts();
-            }
+            unlock();
         }
         interrupt_guard(const interrupt_guard&)            = delete;
         interrupt_guard& operator=(const interrupt_guard&) = delete;
+
+        void unlock() {
+            if (open_) {
+                cpu::interrupts();
+                open_ = false;
+            }
+        }
 
         private:
         bool open_; // was the gate open when we masked it?

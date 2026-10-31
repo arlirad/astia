@@ -29,6 +29,7 @@ namespace astia::fs {
     }
 
     long devfs_mount::register_file(const char* path, const mm::shptr<file>& object) {
+        core::spinlock_guard guard(namespace_lock_);
         if (!object || path == nullptr || path[0] != '/')
             return -EINVAL;
         for (u32 i = 0; i < devfs_max_entries; ++i) {
@@ -54,28 +55,36 @@ namespace astia::fs {
                 return {};
             return mm::share<open_file>(mm::shptr<file>::borrowed(terminal), flags);
         }
-        for (u32 i = 0; i < devfs_max_entries; ++i) {
-            if (entries_[i].used && equal(entries_[i].path, path)) {
-                const file_mode mode = entries_[i].object->mode();
-                // OPENAT uses bit 0 for write-only and bit 1 for read/write.
-                if ((flags & ASTIA_AIO_O_RDWR) == ASTIA_AIO_O_RDWR &&
-                    (!mode.other_allows(permission_bits::read) ||
-                                          !mode.other_allows(permission_bits::write)))
-                    return {};
-                if ((flags & ASTIA_AIO_O_RDWR) != ASTIA_AIO_O_RDWR &&
-                    (flags & ASTIA_AIO_O_WRONLY) != 0 &&
-                    !mode.other_allows(permission_bits::write))
-                    return {};
-                if ((flags & ASTIA_AIO_O_ACCMODE) == ASTIA_AIO_O_RDONLY &&
-                    !mode.other_allows(permission_bits::read))
-                    return {};
-                return mm::share<open_file>(entries_[i].object, flags);
-            }
+        mm::shptr<file> object;
+        {
+            core::spinlock_guard guard(namespace_lock_);
+            for (u32 i = 0; i < devfs_max_entries; ++i)
+                if (entries_[i].used && equal(entries_[i].path, path)) {
+                    object = entries_[i].object;
+                    break;
+                }
+        }
+        if (object) {
+            const file_mode mode = object->mode();
+            // OPENAT uses bit 0 for write-only and bit 1 for read/write.
+            if ((flags & ASTIA_AIO_O_RDWR) == ASTIA_AIO_O_RDWR &&
+                (!mode.other_allows(permission_bits::read) ||
+                 !mode.other_allows(permission_bits::write)))
+                return {};
+            if ((flags & ASTIA_AIO_O_RDWR) != ASTIA_AIO_O_RDWR &&
+                (flags & ASTIA_AIO_O_WRONLY) != 0 &&
+                !mode.other_allows(permission_bits::write))
+                return {};
+            if ((flags & ASTIA_AIO_O_ACCMODE) == ASTIA_AIO_O_RDONLY &&
+                !mode.other_allows(permission_bits::read))
+                return {};
+            return mm::share<open_file>(object, flags);
         }
         return {};
     }
 
     file_type devfs_mount::node_type(const char* path) const {
+        core::spinlock_guard guard(namespace_lock_);
         // The node exists independently of whether the caller has a ctty;
         // only opening it requires a controlling terminal.
         if (equal(path, "/tty"))
@@ -89,9 +98,17 @@ namespace astia::fs {
     file_mode devfs_mount::node_mode(const char* path) const {
         if (equal(path, "/tty"))
             return file_mode(file_type::character, default_device_permissions);
-        for (u32 i = 0; i < devfs_max_entries; ++i)
-            if (entries_[i].used && equal(entries_[i].path, path))
-                return entries_[i].object->mode();
+        mm::shptr<file> object;
+        {
+            core::spinlock_guard guard(namespace_lock_);
+            for (u32 i = 0; i < devfs_max_entries; ++i)
+                if (entries_[i].used && equal(entries_[i].path, path)) {
+                    object = entries_[i].object;
+                    break;
+                }
+        }
+        if (object)
+            return object->mode();
         return {};
     }
 

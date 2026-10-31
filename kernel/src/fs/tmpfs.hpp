@@ -1,6 +1,7 @@
 #pragma once
 
 #include "filesystem.hpp"
+#include <astia/core/spinlock.hpp>
 #include <astia/mm/phys_region.hpp>
 
 namespace astia::fs {
@@ -20,46 +21,58 @@ namespace astia::fs {
         long        size() const override;
         const void* capability(file_capability kind) const override;
         u64         inode() const override {
+            core::spinlock_guard guard(lock_);
             return inode_;
         }
         u32 nlink() const override {
+            core::spinlock_guard guard(lock_);
             return nlink_;
         }
         void add_link() {
+            core::spinlock_guard guard(lock_);
             ++nlink_;
         }
         void drop_link() {
+            core::spinlock_guard guard(lock_);
             if (nlink_ != 0)
                 --nlink_;
         }
         file_mode mode() const override {
+            core::spinlock_guard guard(lock_);
             return mode_;
         }
         uid_t uid() const override {
+            core::spinlock_guard guard(lock_);
             return uid_;
         }
         gid_t gid() const override {
+            core::spinlock_guard guard(lock_);
             return gid_;
         }
         long chown(uid_t owner, gid_t group) override {
+            core::spinlock_guard guard(lock_);
             uid_ = owner;
             gid_ = group;
             return 0;
         }
         u64 mtime_sec() const override {
+            core::spinlock_guard guard(lock_);
             return mtime_sec_;
         }
         u64 mtime_nsec() const override {
+            core::spinlock_guard guard(lock_);
             return mtime_nsec_;
         }
         long touch(u64 sec, u64 nsec) override;
         void set_mode(file_mode mode) {
+            core::spinlock_guard guard(lock_);
             mode_ = mode;
         }
         mm::phys_region* memory_region() override {
             return storage_;
         }
         void truncate() {
+            core::spinlock_guard guard(lock_);
             size_ = 0;
         }
 
@@ -73,6 +86,8 @@ namespace astia::fs {
         u64              mtime_nsec_ = 0;
         u64              inode_      = 0;
         u32              nlink_      = 1;
+        // File lock is always acquired after a mount namespace lock.
+        mutable core::spinlock lock_;
     };
 
     class tmpfs_mount final : public mount {
@@ -94,6 +109,7 @@ namespace astia::fs {
         long      readlink(const char* path, char* buffer, u32 capacity) const override;
 
         private:
+        file_type node_type_unlocked(const char* path) const;
         struct entry {
             bool                  used      = false;
             bool                  directory = false;
@@ -104,6 +120,9 @@ namespace astia::fs {
             mm::shptr<tmpfs_file> object;
         };
         entry entries_[tmpfs_max_entries]{};
+        // Namespace lock protects entry publication and path identity.
+        // Callers may then acquire a file lock, never the reverse.
+        mutable core::spinlock namespace_lock_;
     };
 
     class tmpfs final : public filesystem {

@@ -44,11 +44,19 @@ namespace astia::core {
             lock_->lock();
         }
         ~spinlock_guard() {
-            lock_->unlock();
+            if (lock_ != nullptr)
+                lock_->unlock();
         }
 
         spinlock_guard(const spinlock_guard&)            = delete;
         spinlock_guard& operator=(const spinlock_guard&) = delete;
+
+        void unlock() {
+            if (lock_ != nullptr) {
+                lock_->unlock();
+                lock_ = nullptr;
+            }
+        }
 
         private:
         spinlock* lock_;

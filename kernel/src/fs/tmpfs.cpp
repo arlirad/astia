@@ -71,7 +71,7 @@ namespace astia::fs {
 
     tmpfs_file::tmpfs_file(usize pages, file_mode mode)
         : storage_(mm::phys_region::create(pages, true)), mode_(mode),
-          inode_(next_inode++) {}
+          inode_(__atomic_fetch_add(&next_inode, 1u, __ATOMIC_RELAXED)) {}
 
     tmpfs_file::~tmpfs_file() {
         if (storage_ != nullptr) {
@@ -80,6 +80,7 @@ namespace astia::fs {
     }
 
     long tmpfs_file::read(void* buffer, u32 length, u64 offset) {
+        core::spinlock_guard guard(lock_);
         if (buffer == nullptr && length != 0) {
             return -EFAULT;
         }
@@ -98,6 +99,7 @@ namespace astia::fs {
     }
 
     long tmpfs_file::write(const void* buffer, u32 length, u64 offset) {
+        core::spinlock_guard guard(lock_);
         if (buffer == nullptr && length != 0) {
             return -EFAULT;
         }
@@ -119,16 +121,19 @@ namespace astia::fs {
     }
 
     long tmpfs_file::touch(u64 sec, u64 nsec) {
+        core::spinlock_guard guard(lock_);
         mtime_sec_  = sec;
         mtime_nsec_ = nsec;
         return 0;
     }
 
     long tmpfs_file::size() const {
+        core::spinlock_guard guard(lock_);
         return static_cast<long>(size_);
     }
 
     mm::shptr<open_file> tmpfs_mount::open(const char* path, u32 flags) {
+        core::spinlock_guard guard(namespace_lock_);
         if (path == nullptr || path[0] != '/') {
             return {};
         }
@@ -161,7 +166,7 @@ namespace astia::fs {
         while (end > 1 && parent[end - 1] != '/')
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
-        if (node_type(parent) != directory_dir)
+        if (node_type_unlocked(parent) != directory_dir)
             return {};
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (entries_[i].used) {
@@ -182,6 +187,7 @@ namespace astia::fs {
     }
 
     long tmpfs_mount::mkdir(const char* path, file_mode mode) {
+        core::spinlock_guard guard(namespace_lock_);
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
         // The mount point is the tmpfs root.  From the VFS this is the
@@ -200,7 +206,7 @@ namespace astia::fs {
         while (end > 1 && parent[end - 1] != '/')
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
-        if (node_type(parent) != directory_dir)
+        if (node_type_unlocked(parent) != directory_dir)
             return -ENOENT;
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (!entries_[i].used) {
@@ -217,9 +223,10 @@ namespace astia::fs {
     }
 
     long tmpfs_mount::symlink(const char* target, const char* path) {
+        core::spinlock_guard guard(namespace_lock_);
         if (target == nullptr || path == nullptr || path[0] != '/' || target[0] == '\0')
             return -EINVAL;
-        if (node_type(path) != directory_unknown)
+        if (node_type_unlocked(path) != directory_unknown)
             return -EEXIST;
         char parent[path_max]{};
         if (!copy_path(parent, path))
@@ -230,7 +237,7 @@ namespace astia::fs {
         while (end > 1 && parent[end - 1] != '/')
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
-        if (node_type(parent) != directory_dir)
+        if (node_type_unlocked(parent) != directory_dir)
             return -ENOENT;
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (!entries_[i].used) {
@@ -255,6 +262,7 @@ namespace astia::fs {
         return -ENOSPC;
     }
     long tmpfs_mount::readlink(const char* path, char* buffer, u32 capacity) const {
+        core::spinlock_guard guard(namespace_lock_);
         if (!buffer || capacity == 0)
             return -EINVAL;
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
@@ -271,9 +279,10 @@ namespace astia::fs {
 
     long tmpfs_mount::read_directory(const char* path, u64 index, char* name,
                                      u32 capacity, file_type* type) {
+        core::spinlock_guard guard(namespace_lock_);
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
-        if (node_type(path) != directory_dir)
+        if (node_type_unlocked(path) != directory_dir)
             return -ENOTDIR;
         u32 path_len = 0;
         while (path[path_len] != '\0')
@@ -338,6 +347,7 @@ namespace astia::fs {
     }
 
     long tmpfs_mount::unlink(const char* path, bool directory) {
+        core::spinlock_guard guard(namespace_lock_);
         // The mount root already exists.  Report EEXIST so `mkdir -p` can
         // walk through a mounted directory such as /tmp.
         if (path == nullptr || path[0] != '/')
@@ -363,6 +373,7 @@ namespace astia::fs {
     }
 
     long tmpfs_mount::rename(const char* old_path, const char* new_path) {
+        core::spinlock_guard guard(namespace_lock_);
         if (old_path == nullptr || new_path == nullptr || old_path[0] != '/' ||
             new_path[0] != '/')
             return -EINVAL;
@@ -387,8 +398,8 @@ namespace astia::fs {
         while (end > 1 && new_parent[end - 1] != '/')
             --end;
         new_parent[end > 1 ? end - 1 : 1] = '\0';
-        if (node_type(old_parent) != directory_dir ||
-            node_type(new_parent) != directory_dir)
+        if (node_type_unlocked(old_parent) != directory_dir ||
+            node_type_unlocked(new_parent) != directory_dir)
             return -ENOENT;
 
         u32 source = tmpfs_max_entries;
@@ -467,11 +478,12 @@ namespace astia::fs {
     }
 
     long tmpfs_mount::link(const char* old_path, const char* new_path) {
+        core::spinlock_guard guard(namespace_lock_);
         if (old_path == nullptr || new_path == nullptr)
             return -EINVAL;
-        if (node_type(old_path) != directory_reg)
-            return node_type(old_path) == directory_dir ? -EPERM : -ENOENT;
-        if (node_type(new_path) != directory_unknown)
+        if (node_type_unlocked(old_path) != directory_reg)
+            return node_type_unlocked(old_path) == directory_dir ? -EPERM : -ENOENT;
+        if (node_type_unlocked(new_path) != directory_unknown)
             return -EEXIST;
         char parent[path_max]{};
         if (!copy_path(parent, new_path))
@@ -482,7 +494,7 @@ namespace astia::fs {
         while (end > 1 && parent[end - 1] != '/')
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
-        if (node_type(parent) != directory_dir)
+        if (node_type_unlocked(parent) != directory_dir)
             return -ENOENT;
         u32 source = tmpfs_max_entries;
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
@@ -509,6 +521,11 @@ namespace astia::fs {
     }
 
     file_type tmpfs_mount::node_type(const char* path) const {
+        core::spinlock_guard guard(namespace_lock_);
+        return node_type_unlocked(path);
+    }
+
+    file_type tmpfs_mount::node_type_unlocked(const char* path) const {
         if (path == nullptr || path[0] != '/')
             return directory_unknown;
         if (equal(path, "/"))
@@ -523,6 +540,7 @@ namespace astia::fs {
     }
 
     file_mode tmpfs_mount::node_mode(const char* path) const {
+        core::spinlock_guard guard(namespace_lock_);
         if (path == nullptr || path[0] != '/')
             return {};
         if (equal(path, "/"))
@@ -533,12 +551,14 @@ namespace astia::fs {
         return {};
     }
     uid_t tmpfs_mount::node_uid(const char* path) const {
+        core::spinlock_guard guard(namespace_lock_);
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path))
                 return entries_[i].uid;
         return {};
     }
     gid_t tmpfs_mount::node_gid(const char* path) const {
+        core::spinlock_guard guard(namespace_lock_);
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path))
                 return entries_[i].gid;
@@ -546,6 +566,7 @@ namespace astia::fs {
     }
 
     long tmpfs_mount::chmod(const char* path, file_permissions permissions) {
+        core::spinlock_guard guard(namespace_lock_);
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
         if (equal(path, "/"))
@@ -561,6 +582,7 @@ namespace astia::fs {
         return -ENOENT;
     }
     long tmpfs_mount::chown(const char* path, uid_t uid, gid_t gid) {
+        core::spinlock_guard guard(namespace_lock_);
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
