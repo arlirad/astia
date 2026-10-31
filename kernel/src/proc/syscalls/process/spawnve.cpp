@@ -15,7 +15,6 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
-#include <astia/mm/heap.hpp>
 namespace astia::proc::syscall {
     using namespace detail;
     i64 spawnve(u64 path_ptr, u64 argv_ptr, u64 envp_ptr) {
@@ -24,30 +23,16 @@ namespace astia::proc::syscall {
             return -EFAULT;
         }
 
-        // One heap block: both pointer vectors, then the string
-        // pool behind them — the kernel stack must not carry up to
-        // 16 KB of copied arguments through the ELF-loading call
-        // chain that follows.
-        const usize vec_bytes  = 2 * (vec_max + 1) * sizeof(char*);
-        const usize pool_bytes = 2 * vec_max * arg_cap;
-        auto        storage    = mm::heap::alloc(vec_bytes + pool_bytes);
-        if (!storage) {
+        argument_staging staging;
+        if (!staging.allocate()) {
             return -ENOMEM;
         }
-        char** argv_vec = reinterpret_cast<char**>(storage.value);
-        char** envp_vec = argv_vec + vec_max + 1;
-        char*  pool     = reinterpret_cast<char*>(envp_vec + vec_max + 1);
-
-        i64 result = copy_in_vector(argv_vec, pool, argv_ptr);
+        i64 result = staging.copy(argv_ptr, envp_ptr);
         if (result == 0) {
-            result = copy_in_vector(envp_vec, pool + vec_max * arg_cap, envp_ptr);
-        }
-        if (result == 0) {
-            auto child = proc::spawnve(path, argv_vec, envp_vec);
+            auto child = proc::spawnve(path, staging.argv(), staging.envp());
             result     = child ? static_cast<i64>(raw_id(child.value->pid()))
                                : -astia::errno_value(child.error);
         }
-        mm::heap::free(storage.value);
         return result;
     }
 }

@@ -35,6 +35,35 @@ namespace astia::proc::syscall {
         if (owner == nullptr) {
             return -ESRCH;
         }
+
+        // Materialize and validate the requested disposition before producing
+        // old-action output.  Besides giving invalid actions precedence over
+        // a bad old pointer, this keeps a failed change from having any
+        // observable output or state effect.
+        signal_disposition next_disposition{};
+        if (next_ptr != 0) {
+            const auto next_range =
+                sys::user_range::bytes(next_ptr, sizeof(struct astia_sigaction));
+            struct astia_sigaction next{};
+            if (!sys::copy_in(&next, next_range)) {
+                return -EFAULT;
+            }
+            if (next.handler == ASTIA_SIG_IGN) {
+                next_disposition.action = signal_action::ignore;
+            }
+            else if (next.handler != ASTIA_SIG_DFL) {
+                next_disposition.action   = signal_action::handler;
+                next_disposition.handler  = reinterpret_cast<signal_handler>(next.handler);
+                next_disposition.restorer = next.restorer;
+                next_disposition.mask     = next.mask;
+                if (next_disposition.restorer == 0 ||
+                    !sys::user_range_ok(sys::user_range::bytes(next_disposition.restorer, 1)))
+                    return -EFAULT;
+            }
+            if (is_uncatchable(signal))
+                return -EINVAL;
+        }
+
         const auto old = owner->signals().disposition(signal);
         if (old_ptr != 0) {
             const auto old_range =
@@ -49,26 +78,7 @@ namespace astia::proc::syscall {
             }
         }
         if (next_ptr != 0) {
-            const auto next_range =
-                sys::user_range::bytes(next_ptr, sizeof(struct astia_sigaction));
-            struct astia_sigaction next{};
-            if (!sys::copy_in(&next, next_range)) {
-                return -EFAULT;
-            }
-            signal_disposition disposition{};
-            if (next.handler == ASTIA_SIG_IGN) {
-                disposition.action = signal_action::ignore;
-            }
-            else if (next.handler != ASTIA_SIG_DFL) {
-                disposition.action   = signal_action::handler;
-                disposition.handler  = reinterpret_cast<signal_handler>(next.handler);
-                disposition.restorer = next.restorer;
-                disposition.mask     = next.mask;
-                if (disposition.restorer == 0 ||
-                    !sys::user_range_ok(sys::user_range::bytes(disposition.restorer, 1)))
-                    return -EFAULT;
-            }
-            if (!owner->signals().disposition(signal, disposition)) {
+            if (!owner->signals().disposition(signal, next_disposition)) {
                 return -EINVAL;
             }
         }

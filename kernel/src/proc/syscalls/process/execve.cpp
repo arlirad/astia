@@ -14,7 +14,6 @@
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/fs.hpp>
-#include <astia/mm/heap.hpp>
 namespace astia::proc::syscall {
     using namespace detail;
 
@@ -29,17 +28,10 @@ namespace astia::proc::syscall {
         char                  path[path_cap];
         if (!sys::copy_in_string(path, sizeof path, sys::user_range::string(path_ptr)))
             return -EFAULT;
-        const usize vec_bytes  = 2 * (vec_max + 1) * sizeof(char*);
-        const usize pool_bytes = 2 * vec_max * arg_cap;
-        auto        storage    = mm::heap::alloc(vec_bytes + pool_bytes);
-        if (!storage)
+        argument_staging staging;
+        if (!staging.allocate())
             return -ENOMEM;
-        char** argv_vec = reinterpret_cast<char**>(storage.value);
-        char** envp_vec = argv_vec + vec_max + 1;
-        char*  pool     = reinterpret_cast<char*>(envp_vec + vec_max + 1);
-        i64    result   = copy_in_vector(argv_vec, pool, argv_ptr);
-        if (result == 0)
-            result = copy_in_vector(envp_vec, pool + vec_max * arg_cap, envp_ptr);
+        i64 result = staging.copy(argv_ptr, envp_ptr);
         if (result == 0) {
             auto* owner = current_process();
             auto  file  = fs::open_path(path);
@@ -48,9 +40,9 @@ namespace astia::proc::syscall {
             else {
                 const long size  = file->size();
                 u64        entry = 0, stack = 0;
-                if (size <= 0 ||
-                    !owner->exec_user_file(file, static_cast<usize>(size), argv_vec,
-                                           envp_vec, &entry, &stack)) {
+                if (size <= 0 || !owner->exec_user_file(file, static_cast<usize>(size),
+                                                         staging.argv(), staging.envp(), &entry,
+                                                         &stack)) {
                     result = -ENOEXEC;
                 }
                 else {
@@ -75,7 +67,6 @@ namespace astia::proc::syscall {
                 }
             }
         }
-        mm::heap::free(storage.value);
         return result;
     }
 }

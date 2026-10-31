@@ -17,6 +17,9 @@ namespace astia::proc::syscall {
         if (owner == nullptr) {
             return -ESRCH;
         }
+        auto operation = mapper<signal_mask_operation>::from(how);
+        if (!operation)
+            return -EINVAL;
         if (old_ptr != 0) {
             const auto old_range = sys::user_range::bytes(old_ptr, sizeof(u32));
             const u32 old = owner->signals().blocked();
@@ -24,9 +27,6 @@ namespace astia::proc::syscall {
                 return -EFAULT;
             }
         }
-        auto operation = mapper<signal_mask_operation>::from(how);
-        if (!operation)
-            return -EINVAL;
         switch (operation.value) {
         case signal_mask_operation::block:
             owner->signals().block(set);

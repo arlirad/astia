@@ -35,9 +35,9 @@ namespace astia::proc {
             }
         }
 
-        void cleanup_pending(image_map& state, arch::page_map& map) {
-            for (u32 i = 0; i < state.count; ++i) {
-                auto& seg = state.segs[i];
+        void cleanup_pending(image_map& image, arch::page_map& map) {
+            for (u32 i = 0; i < image.count; ++i) {
+                auto& seg = image.segs[i];
                 if (!seg.used) {
                     continue;
                 }
@@ -48,10 +48,10 @@ namespace astia::proc {
         }
 
         void* map_user(void* opaque, u64 hint, usize size, usize align, bool fixed) {
-            auto&     state = *static_cast<image_map*>(opaque);
-            const u64 base  = fixed ? hint : (state.next_base + align - 1) & ~(align - 1);
+            auto&     image = *static_cast<image_map*>(opaque);
+            const u64 base  = fixed ? hint : (image.next_base + align - 1) & ~(align - 1);
             if (base < user_image_base || base + size >= user_address_limit ||
-                state.count >= elf::max_segments) {
+                image.count >= elf::max_segments) {
                 return nullptr;
             }
 
@@ -64,25 +64,25 @@ namespace astia::proc {
                 return nullptr;
             }
             for (u64 page = 0; page < pages; ++page) {
-                if (!state.map->map_4k(
+                if (!image.map->map_4k(
                         base + page * elf::page_size, frames + page * elf::page_size,
                         arch::page_flags::present | arch::page_flags::writable |
                             arch::page_flags::user)) {
-                    unmap_run(*state.map, base, page);
+                    unmap_run(*image.map, base, page);
                     mm::kernel_frames().release(frames, pages);
                     return nullptr;
                 }
             }
-            state.segs[state.count] = mapped_segment{base, frames, pages, true};
-            ++state.count;
-            state.next_base = base + size + elf::page_size;
+            image.segs[image.count] = mapped_segment{base, frames, pages, true};
+            ++image.count;
+            image.next_base = base + size + elf::page_size;
             return reinterpret_cast<void*>(base);
         }
 
         bool copy_image(void* opaque, u64 address, const void* source, usize length) {
-            auto& state = *static_cast<image_map*>(opaque);
-            for (u32 i = 0; i < state.count; ++i) {
-                const auto& seg = state.segs[i];
+            auto& image = *static_cast<image_map*>(opaque);
+            for (u32 i = 0; i < image.count; ++i) {
+                const auto& seg = image.segs[i];
                 if (address < seg.virt ||
                     address + length > seg.virt + seg.pages * elf::page_size)
                     continue;
@@ -166,8 +166,8 @@ namespace astia::proc {
         if (!map.valid()) {
             return false;
         }
-        image_map  state{&map, user_image_base};
-        elf::env   environment{&state, map_user, nullptr, nullptr, copy_image};
+        image_map  image_state{&map, user_image_base};
+        elf::env   environment{&image_state, map_user, nullptr, nullptr, copy_image};
         elf::image image{};
 
         // The ELF implementation copies segment bytes through the virtual
@@ -189,21 +189,21 @@ namespace astia::proc {
             arch::kernel_page_map()->activate();
         }
         if (!loaded) {
-            cleanup_pending(state, map);
+            cleanup_pending(image_state, map);
             return false;
         }
 
         address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
         if (address_space_ == nullptr) {
-            cleanup_pending(state, map);
+            cleanup_pending(image_state, map);
             return false;
         }
 
         // File every segment as a VMA: the frames (mapped above)
         // transfer to a phys_region, so fork and copy-on-write
         // account for the image like any other mapping.
-        for (u32 i = 0; i < state.count; ++i) {
-            const auto& seg = state.segs[i];
+        for (u32 i = 0; i < image_state.count; ++i) {
+            const auto& seg = image_state.segs[i];
             if (!seg.used) {
                 continue;
             }
@@ -213,13 +213,13 @@ namespace astia::proc {
                                   region)) {
                 if (region != nullptr) {
                     region->release();
-                    state.segs[i].used = false;
+                    image_state.segs[i].used = false;
                 }
-                cleanup_pending(state, *address_space_);
+                cleanup_pending(image_state, *address_space_);
                 discard_image();
                 return false;
             }
-            state.segs[i].used = false;
+            image_state.segs[i].used = false;
         }
 
         // Static TLS: the thread's %fs base loads the block end this
@@ -230,7 +230,7 @@ namespace astia::proc {
             u64 tls_frames = 0;
             u64 tls_pages  = 0;
             if (!map_tls_template(*address_space_, bytes, image, tp, tls_frames, tls_pages)) {
-                cleanup_pending(state, *address_space_);
+                cleanup_pending(image_state, *address_space_);
                 discard_image();
                 return false;
             }
@@ -247,7 +247,7 @@ namespace astia::proc {
                 }
                 if (region != nullptr)
                     unmap_run(*address_space_, tls_base, tls_pages);
-                cleanup_pending(state, *address_space_);
+                cleanup_pending(image_state, *address_space_);
                 discard_image();
                 return false;
             }

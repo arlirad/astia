@@ -95,11 +95,11 @@ namespace astia::proc {
             // against — can never hand out an address a live mapping
             // already occupies.
             u64 best  = 0;
-            u64 lower = 0; // end of the previous VMA (0 before the first)
+            u64 lower = 0;
             for (mmap_region* it = list; it != nullptr; it = it->next) {
                 const u64 upper = it->base;
                 if (upper >= lower && upper - lower >= want) {
-                    best = upper - want; // highest slice of this hole
+                    best = upper - want;
                 }
                 lower = it->end();
             }
@@ -122,7 +122,7 @@ namespace astia::proc {
 
     i32 process::pin_user(u64 addr, usize len, bool destination, mm::iovec& out) {
         if (address_space_ == nullptr || len == 0) {
-            return 0; // no address space: kernel memory cannot move
+            return 0;
         }
         const u64 page_bytes = mm::phys_region::frame_size;
         const u64 last       = addr + len;
@@ -143,7 +143,7 @@ namespace astia::proc {
             }
         }
         if (vma == nullptr || vma->end() < last) {
-            return -EFAULT; // unmapped, or crossing out of the region
+            return -EFAULT;
         }
         const usize page = static_cast<usize>((first - vma->base) / page_bytes);
         const usize count =
@@ -357,7 +357,7 @@ namespace astia::proc {
             return -EINVAL;
         }
         const u64 first = addr;
-        const u64 last  = addr + pages * page_bytes; // exclusive
+        const u64 last  = addr + pages * page_bytes;
 
         core::spinlock_guard guard(mmap_lock_);
 
@@ -380,7 +380,7 @@ namespace astia::proc {
         while (it != nullptr) {
             mmap_region* next = it->next;
             if (it->end() <= first || it->base >= last) {
-                prev = it; // disjoint: keep walking
+                prev = it;
                 it   = next;
                 continue;
             }
@@ -400,7 +400,7 @@ namespace astia::proc {
                 static_cast<usize>((drop_to - drop_from) / page_bytes));
             mapped_bytes_ -= drop_to - drop_from;
 
-            if (old_end > last) { // right remainder becomes its own entry
+            if (old_end > last) {
                 tail->next        = it->next;
                 tail->base        = last;
                 tail->pages       = (old_end - last) / page_bytes;
@@ -409,11 +409,11 @@ namespace astia::proc {
                 tail->holds_ref   = false;
                 tail->backing     = it->backing;
                 tail->region_page = it->region_page + (last - it->base) / page_bytes;
-                tail->file        = it->file; // identity travels with the range
+                tail->file        = it->file;
                 tail->file_offset = it->file_offset + (last - it->base);
                 it->next          = tail;
             }
-            if (old_base < first) { // left remainder keeps this entry
+            if (old_base < first) {
                 it->pages = (first - old_base) / page_bytes;
                 prev      = it;
                 it        = it->next;
@@ -428,8 +428,8 @@ namespace astia::proc {
             else {
                 prev->next = it->next;
             }
-            delete it; // the shptr releases the open file description
-            it = next; // prev stays put
+            delete it;
+            it = next;
         }
         return 0;
     }
@@ -493,14 +493,14 @@ namespace astia::proc {
                 cow_pages += it->pages;
             }
         }
-        auto old_writable_storage = mm::heap::alloc(cow_pages);
-        if (cow_pages != 0 && !old_writable_storage) {
+        auto saved_writable_storage = mm::heap::alloc(cow_pages);
+        if (cow_pages != 0 && !saved_writable_storage) {
             return false;
         }
-        auto* old_writable = cow_pages == 0
+        auto* saved_writable = cow_pages == 0
                                  ? nullptr
-                                 : static_cast<u8*>(old_writable_storage.value);
-        usize old_writable_at = 0;
+                                 : static_cast<u8*>(saved_writable_storage.value);
+        usize saved_writable_count = 0;
 
         auto rollback = [&]() {
             // Restore only bits this transaction actually changed.  This is
@@ -510,7 +510,7 @@ namespace astia::proc {
                 const bool cow = !it->shared && has(it->prot, map_protection::write);
                 for (u64 page = 0; page < it->pages; ++page) {
                     const u64 virt = it->base + page * page_bytes;
-                    if (cow && state_at < old_writable_at && old_writable[state_at] != 0) {
+                    if (cow && state_at < saved_writable_count && saved_writable[state_at] != 0) {
                         const u64 phys = address_space_->translate(virt);
                         if (phys != arch::page_map::invalid) {
                             (void) address_space_->map_4k(virt, phys, pte_flags(it->prot));
@@ -535,8 +535,8 @@ namespace astia::proc {
                 }
                 delete victim;
             }
-            if (old_writable_storage) {
-                mm::heap::free(old_writable_storage.value);
+            if (saved_writable_storage) {
+                mm::heap::free(saved_writable_storage.value);
             }
         };
 
@@ -550,9 +550,9 @@ namespace astia::proc {
                 rollback();
                 return false;
             }
-            *entry             = *it;     // shares the open file description
-            entry->holds_ref   = true;    // the child's own reference
-            entry->next        = nullptr; // never link into the parent's VMA list
+            *entry             = *it;
+            entry->holds_ref   = true;
+            entry->next        = nullptr;
             mmap_region** link = &child->mmap_regions_;
             while (*link != nullptr) {
                 link = &(*link)->next;
@@ -583,13 +583,12 @@ namespace astia::proc {
                 }
             }
             if (cow) {
-                // The parent's copy of the range loses its write bits
-                // too (map_4k overwrites the entry and invalidates).
+                // map_4k overwrites the entry and invalidates it.
                 for (u64 page = 0; page < it->pages; ++page) {
                     const u64 virt = it->base + page * page_bytes;
-                    old_writable[old_writable_at++] =
+                    saved_writable[saved_writable_count++] =
                         address_space_->writable(virt) ? 1 : 0;
-                    if (old_writable[old_writable_at - 1] == 0) {
+                    if (saved_writable[saved_writable_count - 1] == 0) {
                         continue;
                     }
                     const u64 phys = address_space_->translate(virt);
@@ -610,8 +609,8 @@ namespace astia::proc {
         child->rlimit_nofile_ = rlimit_nofile_;
         child->rlimit_as_     = rlimit_as_;
         child->tls_tp_        = tls_tp_;
-        if (old_writable_storage) {
-            mm::heap::free(old_writable_storage.value);
+        if (saved_writable_storage) {
+            mm::heap::free(saved_writable_storage.value);
         }
         return true;
     }
