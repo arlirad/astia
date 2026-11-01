@@ -131,12 +131,12 @@ namespace astia::proc {
     }
 
     namespace {
-        // Process-owned thread and waiter state is deliberately kept on its
-        // existing lock for now.  The deferred destruction queue is
-        // independent state: it is touched by an exiting thread and by the
-        // scheduler, so give it its own IRQ-safe lock rather than making
-        // unrelated process lifecycle operations contend with it.
+        // Process-owned thread and lifecycle state stays on this lock.  The
+        // waitpid/signal waiter lists have their own IRQ-safe lock: their
+        // register-before-scan protocol must remain atomic with interrupts
+        // masked, but they do not need to serialize with the thread table.
         core::spinlock process_lifecycle_lock;
+        core::spinlock process_wait_lock;
         core::spinlock dead_thread_lock;
 
         inline constexpr u32 dead_capacity = 16;
@@ -600,7 +600,7 @@ namespace astia::proc {
         if (value == nullptr) {
             return false;
         }
-        arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
         for (u32 i = 0; i < max_waiters_per_process; ++i) {
             if (waiters_[i] == nullptr) {
                 waiters_[i] = value;
@@ -611,7 +611,7 @@ namespace astia::proc {
     }
 
     void process::remove_waiter(thread* value) {
-        arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
         for (u32 i = 0; i < max_waiters_per_process; ++i) {
             if (waiters_[i] == value) {
                 waiters_[i] = nullptr;
@@ -623,7 +623,7 @@ namespace astia::proc {
         thread* wake_list[max_waiters_per_process];
         u32     count = 0;
         {
-            arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+            arch::interrupt_spinlock_guard guard(process_wait_lock);
             for (u32 i = 0; i < max_waiters_per_process; ++i) {
                 if (waiters_[i] != nullptr) {
                     wake_list[count++] = waiters_[i];
@@ -640,7 +640,7 @@ namespace astia::proc {
         if (value == nullptr) {
             return false;
         }
-        arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
         for (u32 i = 0; i < max_signal_waiters_per_process; ++i) {
             if (signal_waiters_[i] == nullptr) {
                 signal_waiters_[i] = value;
@@ -651,7 +651,7 @@ namespace astia::proc {
     }
 
     void process::remove_signal_waiter(thread* value) {
-        arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
         for (u32 i = 0; i < max_signal_waiters_per_process; ++i) {
             if (signal_waiters_[i] == value) {
                 signal_waiters_[i] = nullptr;
@@ -663,7 +663,7 @@ namespace astia::proc {
         thread* wake_list[max_signal_waiters_per_process];
         u32     count = 0;
         {
-            arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+            arch::interrupt_spinlock_guard guard(process_wait_lock);
             for (u32 i = 0; i < max_signal_waiters_per_process; ++i) {
                 if (signal_waiters_[i] != nullptr) {
                     wake_list[count++] = signal_waiters_[i];

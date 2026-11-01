@@ -16,12 +16,14 @@ needs, drop the lock, and then call across a subsystem boundary.
   used to obtain a process reference, but registry code must not call process,
   fd, mmap, VFS, scheduler, or signal operations while `registry_lock` is
   held.
-* A process's lifecycle state/thread and waiter locks protect process-local
-  state.  They precede neither the descriptor table nor the mmap list: code
-  must not hold one while entering the other.  The fd-table lock protects
-  descriptor slots only; the mmap lock protects VMA/list state only.  Copy a
-  descriptor or VMA reference under its lock, then operate on the referenced
-  object after unlocking.
+* A process's lifecycle/thread lock and its wait-list lock protect separate
+  process-local state.  The wait-list lock covers only waitpid/signal waiter
+  registration and extraction; wakeups run after it is released.  The
+  lifecycle lock covers process state and the thread table.  Neither precedes
+  the descriptor table or mmap list: code must not hold one while entering
+  the other.  The fd-table lock protects descriptor slots only; the mmap lock
+  protects VMA/list state only.  Copy a descriptor or VMA reference under its
+  lock, then operate on the referenced object after unlocking.
 * Scheduler CPU-queue locks are independent process locks.  When two queues
   are needed, acquire them in ascending CPU-index order and release them in
   reverse order.  Do not invoke process, wakeup, device, or scheduler policy

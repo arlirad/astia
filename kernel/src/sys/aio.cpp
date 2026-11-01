@@ -163,6 +163,15 @@ namespace astia::sys {
         constexpr u32 kernel_ring_slot_count = 4;
         constexpr u32 parked_operation_slots = 16;
 
+        // A hint only: the file interface has no atomic "join waiter and test
+        // readiness" operation, so publication after submit() can race a
+        // notification.  Wake paths retain the complete scan as fallback.
+        struct waiter_hint {
+            const fs::file* key = nullptr;
+        };
+
+        waiter_hint g_waiter_hints[kernel_ring_slot_count][parked_operation_slots];
+
         // Device submit paths may synchronously notify another parked request
         // (eventfd is one example).  Preserve the single owner rule while
         // allowing that same CPU to re-enter the ring without deadlocking;
@@ -301,6 +310,7 @@ namespace astia::sys {
             u32            sq_entries;
             u32            cq_entries;
             u32            waiters;
+            u32            pool_index;
             parked_op      park[parked_operation_slots];
             // Page-aligned: aliasing the ring into a process maps whole
             // frames, so the source address — and with it the physical
@@ -323,6 +333,17 @@ namespace astia::sys {
                       "ring slots must be page-granular (see ring_slot::map)");
         static_assert(ring_mapping_bytes <= sizeof(ring_slot::map),
                       "ring geometry exceeds the ring_slot backing array");
+
+        void clear_waiter_hint(const ring_slot& slot, u32 park_index) {
+            __atomic_store_n(&g_waiter_hints[slot.pool_index][park_index].key,
+                             static_cast<const fs::file*>(nullptr), __ATOMIC_RELEASE);
+        }
+
+        void publish_waiter_hint(const ring_slot& slot, u32 park_index,
+                                 const fs::file* key) {
+            __atomic_store_n(&g_waiter_hints[slot.pool_index][park_index].key, key,
+                             __ATOMIC_RELEASE);
+        }
 
         astia_rings* rings_of(const ring_slot& slot) {
             return reinterpret_cast<astia_rings*>(const_cast<u8*>(slot.map));
@@ -349,6 +370,7 @@ namespace astia::sys {
 
         void clear_slot(ring_slot& slot) {
             for (u32 i = 0; i < parked_operation_slots; ++i) {
+                clear_waiter_hint(slot, i);
                 slot.park[i] = parked_op{};
             }
             __builtin_memset(slot.map, 0, sizeof slot.map);
@@ -583,9 +605,11 @@ namespace astia::sys {
                             io_direction direction, bool control = false,
                             bool socket_accept = false) {
             parked_op*            p = nullptr;
+            u32                   park_index = 0;
             for (u32 i = 0; i < parked_operation_slots; ++i) {
                 if (!slot.park[i].used) {
                     p = &slot.park[i];
+                    park_index = i;
                     break;
                 }
             }
@@ -637,6 +661,7 @@ namespace astia::sys {
             long       result  = 0;
             const auto outcome = pump(*p, result);
             if (outcome == io_outcome::parked) {
+                publish_waiter_hint(slot, park_index, p->object->backing());
                 return true; // parked: a device resume completes it
             }
             complete_recvfrom_address(*p, result);
@@ -695,6 +720,7 @@ namespace astia::sys {
             for (u32 i = 0; i < parked_operation_slots; ++i) {
                 parked_op& op = slot.park[i];
                 if (op.used && op.done) {
+                    clear_waiter_hint(slot, i);
                     op.entries.release();
                     op.object = mm::shptr<fs::open_file>{};
                     op.done   = false;
@@ -1711,9 +1737,11 @@ namespace astia::sys {
             if (ready != 0)
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(ready));
             parked_op*            p = nullptr;
+            u32                   park_index = 0;
             for (u32 i = 0; i < parked_operation_slots; ++i)
                 if (!slot.park[i].used) {
                     p = &slot.park[i];
+                    park_index = i;
                     break;
                 }
             if (p == nullptr)
@@ -1727,6 +1755,7 @@ namespace astia::sys {
             p->fd          = s.fd;
             p->object      = object;
             p->request = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
+            publish_waiter_hint(slot, park_index, object->backing());
             return true;
         }
 
@@ -1878,6 +1907,7 @@ namespace astia::sys {
                 g_slots[i] = slot_ptr;
             }
             ring_slot& slot = *slot_ptr;
+            slot.pool_index = i;
             clear_slot(slot);
             slot.used  = true;
             slot.owner = proc::current_process();
@@ -2084,6 +2114,30 @@ namespace astia::sys {
         if (!current_object) {
             return;
         }
+        const fs::file* device = current_object->backing();
+        // Fast hint pass.  This is intentionally followed by the complete
+        // scan: a notification can occur between submit() returning 0 and
+        // publish_waiter_hint(), and the old scan is what closes that race.
+        bool hinted[kernel_ring_slot_count][parked_operation_slots]{};
+        for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+            for (u32 p = 0; p < parked_operation_slots; ++p) {
+                if (__atomic_load_n(&g_waiter_hints[i][p].key, __ATOMIC_ACQUIRE) != device)
+                    continue;
+                ring_guard pool_guard(g_ring_pool_lock);
+                ring_slot* slot_ptr = g_slots[i];
+                if (slot_ptr == nullptr || !slot_ptr->used)
+                    continue;
+                ring_slot& slot = *slot_ptr;
+                ring_guard ring_lock_guard(slot.lock);
+                pool_guard.release_lock();
+                parked_op& op = slot.park[p];
+                if (op.used && !op.done && op.fd == fd && op.object &&
+                    op.object->backing() == device) {
+                    hinted[i][p] = true;
+                    resume_parked(rings_of(slot), op);
+                }
+            }
+        }
         // There is not yet a safe device->ring reverse index: parked slots
         // retain open-file references and may be torn down by exec/exit.
         // Keep this bounded global scan for now, but do not hold the pool
@@ -2101,7 +2155,7 @@ namespace astia::sys {
             astia_rings* ring = rings_of(slot);
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 parked_op& op = slot.park[p];
-                if (op.used && !op.done && op.fd == fd && op.object &&
+                if (!hinted[i][p] && op.used && !op.done && op.fd == fd && op.object &&
                     op.object->backing() == current_object->backing()) {
                     resume_parked(ring, op);
                 }
@@ -2117,6 +2171,29 @@ namespace astia::sys {
         if (dev == nullptr) {
             return;
         }
+        // Hint pass only; the complete scan below remains mandatory because
+        // waiter publication is not an atomic operation in fs::file.
+        bool hinted[kernel_ring_slot_count][parked_operation_slots]{};
+        for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+            for (u32 p = 0; p < parked_operation_slots; ++p) {
+                if (__atomic_load_n(&g_waiter_hints[i][p].key, __ATOMIC_ACQUIRE) != dev)
+                    continue;
+                ring_guard pool_guard(g_ring_pool_lock);
+                ring_slot* slot_ptr = g_slots[i];
+                if (slot_ptr == nullptr || !slot_ptr->used)
+                    continue;
+                ring_slot& slot = *slot_ptr;
+                ring_guard ring_lock_guard(slot.lock);
+                pool_guard.release_lock();
+                parked_op& op = slot.park[p];
+                if (op.used && !op.done && op.object &&
+                    op.request.user_data() != excluded_user_data &&
+                    op.object->backing() == dev) {
+                    hinted[i][p] = true;
+                    resume_parked(rings_of(slot), op);
+                }
+            }
+        }
         // See io_device_ready(): ownership/lifetime currently requires the
         // bounded scan, while each ring is protected independently.
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
@@ -2131,7 +2208,7 @@ namespace astia::sys {
             astia_rings* ring = rings_of(slot);
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 parked_op& op = slot.park[p];
-                if (op.used && !op.done && op.object &&
+                if (!hinted[i][p] && op.used && !op.done && op.object &&
                     op.request.user_data() != excluded_user_data &&
                     op.object->backing() == dev) {
                     resume_parked(ring, op);
@@ -2176,6 +2253,7 @@ namespace astia::sys {
                 parked_op& op = slot->park[p];
                 if (!op.used)
                     continue;
+                clear_waiter_hint(*slot, p);
                 op.entries.release();
                 op.object = mm::shptr<fs::open_file>{};
                 op        = parked_op{};

@@ -133,26 +133,31 @@ namespace astia::fs {
     }
 
     mm::shptr<open_file> tmpfs_mount::open(const char* path, u32 flags) {
-        core::spinlock_guard guard(namespace_lock_);
         if (path == nullptr || path[0] != '/') {
             return {};
         }
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (!entries_[i].used || !equal(entries_[i].path, path)) {
-                continue;
+        mm::shptr<tmpfs_file> existing;
+        bool published = false;
+        {
+            core::spinlock_guard guard(namespace_lock_);
+            for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+                if (!entries_[i].used || !equal(entries_[i].path, path))
+                    continue;
+                if (entries_[i].directory)
+                    return {};
+                /* Permission selection is performed by the process/VFS ABI
+                   boundary, where real/effective and supplementary credentials
+                   are available.  Do not accidentally re-apply owner bits here. */
+                if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0)
+                    return {};
+                existing = entries_[i].object;
+                break;
             }
-            if (entries_[i].directory)
-                return {};
-            /* Permission selection is performed by the process/VFS ABI
-               boundary, where real/effective and supplementary credentials
-               are available.  Do not accidentally re-apply owner bits here. */
-            if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0) {
-                return {};
-            }
-            if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0) {
-                entries_[i].object->truncate();
-            }
-            return mm::share<open_file>(entries_[i].object, flags);
+        }
+        if (existing) {
+            if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0)
+                existing->truncate();
+            return mm::share<open_file>(existing, flags);
         }
         if ((flags & oflag_creat) == 0) {
             return {};
@@ -166,22 +171,45 @@ namespace astia::fs {
         while (end > 1 && parent[end - 1] != '/')
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
-        if (node_type_unlocked(parent) != directory_dir)
+        auto object = mm::shptr<tmpfs_file>(new tmpfs_file{});
+        if (!object || dispatch_mapping(object.get()) == nullptr)
             return {};
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (entries_[i].used) {
-                continue;
+        {
+            core::spinlock_guard guard(namespace_lock_);
+            /* Recheck after the allocation: creation remains one atomic
+               namespace publication, without holding the lock over it. */
+            for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+                if (entries_[i].used && equal(entries_[i].path, path)) {
+                    if (entries_[i].directory ||
+                        ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0))
+                        return {};
+                    existing = entries_[i].object;
+                    break;
+                }
             }
-            auto object = mm::shptr<tmpfs_file>(new tmpfs_file{});
-            if (!object || dispatch_mapping(object.get()) == nullptr ||
-                !copy_path(entries_[i].path, path)) {
-                return {};
+            if (!existing) {
+                if (node_type_unlocked(parent) != directory_dir)
+                    return {};
+                for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+                    if (entries_[i].used)
+                        continue;
+                    if (!copy_path(entries_[i].path, path))
+                        return {};
+                    entries_[i].used      = true;
+                    entries_[i].directory = false;
+                    entries_[i].mode = file_mode(file_type::regular, default_file_permissions);
+                    entries_[i].object = object;
+                    published = true;
+                    break;
+                }
             }
-            entries_[i].used      = true;
-            entries_[i].directory = false;
-            entries_[i].mode      = file_mode(file_type::regular, default_file_permissions);
-            entries_[i].object    = object;
+        }
+        if (published)
             return mm::share<open_file>(object, flags);
+        if (existing) {
+            if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0)
+                existing->truncate();
+            return mm::share<open_file>(existing, flags);
         }
         return {};
     }
@@ -223,11 +251,8 @@ namespace astia::fs {
     }
 
     long tmpfs_mount::symlink(const char* target, const char* path) {
-        core::spinlock_guard guard(namespace_lock_);
         if (target == nullptr || path == nullptr || path[0] != '/' || target[0] == '\0')
             return -EINVAL;
-        if (node_type_unlocked(path) != directory_unknown)
-            return -EEXIST;
         char parent[path_max]{};
         if (!copy_path(parent, path))
             return -ENAMETOOLONG;
@@ -237,58 +262,72 @@ namespace astia::fs {
         while (end > 1 && parent[end - 1] != '/')
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
-        if (node_type_unlocked(parent) != directory_dir)
-            return -ENOENT;
-        for (u32 i = 0; i < tmpfs_max_entries; ++i)
-            if (!entries_[i].used) {
-                u32 n = 0;
-                while (target[n]) {
-                    if (n + 1 >= path_max)
+        u32 n = 0;
+        while (target[n]) {
+            if (n + 1 >= path_max)
+                return -ENAMETOOLONG;
+            ++n;
+        }
+        auto object = mm::shptr<tmpfs_file>(new tmpfs_file{
+            1, file_mode(file_type::symlink, default_symlink_permissions)});
+        if (!object)
+            return -ENOMEM;
+        if (dispatch_write(object.get(), target, n, 0) != (long) n)
+            return -ENOSPC;
+        {
+            core::spinlock_guard guard(namespace_lock_);
+            if (node_type_unlocked(path) != directory_unknown)
+                return -EEXIST;
+            if (node_type_unlocked(parent) != directory_dir)
+                return -ENOENT;
+            for (u32 i = 0; i < tmpfs_max_entries; ++i)
+                if (!entries_[i].used) {
+                    if (!copy_path(entries_[i].path, path))
                         return -ENAMETOOLONG;
-                    ++n;
+                    entries_[i].used      = true;
+                    entries_[i].directory = false;
+                    entries_[i].mode = file_mode(file_type::symlink, default_symlink_permissions);
+                    entries_[i].object = object;
+                    return 0;
                 }
-                auto object = mm::shptr<tmpfs_file>(new tmpfs_file{
-                    1, file_mode(file_type::symlink, default_symlink_permissions)});
-                if (!object || !copy_path(entries_[i].path, path))
-                    return -ENOMEM;
-                if (dispatch_write(object.get(), target, n, 0) != (long) n)
-                    return -ENOSPC;
-                entries_[i].used      = true;
-                entries_[i].directory = false;
-                entries_[i].mode = file_mode(file_type::symlink, default_symlink_permissions);
-                entries_[i].object = object;
-                return 0;
-            }
+        }
         return -ENOSPC;
     }
     long tmpfs_mount::readlink(const char* path, char* buffer, u32 capacity) const {
-        core::spinlock_guard guard(namespace_lock_);
         if (!buffer || capacity == 0)
             return -EINVAL;
-        for (u32 i = 0; i < tmpfs_max_entries; ++i)
-            if (entries_[i].used && equal(entries_[i].path, path)) {
-                if (!entries_[i].mode.is_symlink())
-                    return -EINVAL;
-                long n = dispatch_read(entries_[i].object.get(), buffer, capacity, 0);
-                if (n < 0)
-                    return n;
-                return n;
-            }
+        mm::shptr<tmpfs_file> object;
+        {
+            core::spinlock_guard guard(namespace_lock_);
+            for (u32 i = 0; i < tmpfs_max_entries; ++i)
+                if (entries_[i].used && equal(entries_[i].path, path)) {
+                    if (!entries_[i].mode.is_symlink())
+                        return -EINVAL;
+                    object = entries_[i].object;
+                    break;
+                }
+        }
+        if (object)
+            return dispatch_read(object.get(), buffer, capacity, 0);
         return -ENOENT;
     }
 
     long tmpfs_mount::read_directory(const char* path, u64 index, char* name,
                                      u32 capacity, file_type* type) {
-        core::spinlock_guard guard(namespace_lock_);
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
-        if (node_type_unlocked(path) != directory_dir)
-            return -ENOTDIR;
-        u32 path_len = 0;
-        while (path[path_len] != '\0')
-            ++path_len;
-        u64 ordinal = 0;
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+        char selected[path_max]{};
+        file_type selected_type{};
+        bool found = false;
+        {
+            core::spinlock_guard guard(namespace_lock_);
+            if (node_type_unlocked(path) != directory_dir)
+                return -ENOTDIR;
+            u32 path_len = 0;
+            while (path[path_len] != '\0')
+                ++path_len;
+            u64 ordinal = 0;
+            for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (!entries_[i].used)
                 continue;
             const char* full  = entries_[i].path;
@@ -333,43 +372,62 @@ namespace astia::fs {
             if (duplicate || ordinal++ != index)
                 continue;
             for (u32 j = 0; j < end - start; ++j)
-                name[j] = full[start + j];
-            name[end - start] = '\0';
-            *type = end < path_max && full[end] != '\0'
+                selected[j] = full[start + j];
+            selected[end - start] = '\0';
+            selected_type = end < path_max && full[end] != '\0'
                         ? directory_dir
                         : (entries_[i].directory
                                ? directory_dir
                                : (entries_[i].mode.is_symlink() ? directory_lnk
-                                                                : directory_reg));
+                                                                 : directory_reg));
+            found = true;
+            break;
+            }
+        }
+        if (found) {
+            u32 length = 0;
+            while (selected[length] != '\0')
+                ++length;
+            for (u32 i = 0; i <= length; ++i)
+                name[i] = selected[i];
+            *type = selected_type;
             return 1;
         }
         return 0;
     }
 
     long tmpfs_mount::unlink(const char* path, bool directory) {
-        core::spinlock_guard guard(namespace_lock_);
         // The mount root already exists.  Report EEXIST so `mkdir -p` can
         // walk through a mounted directory such as /tmp.
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
         if (equal(path, "/"))
             return -EEXIST;
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (!entries_[i].used || !equal(entries_[i].path, path))
-                continue;
-            if (entries_[i].directory != directory)
-                return directory ? -ENOTDIR : -EISDIR;
-            if (directory) {
-                for (u32 j = 0; j < tmpfs_max_entries; ++j)
-                    if (entries_[j].used && parent_of(path, entries_[j].path))
-                        return -ENOTEMPTY;
+        mm::shptr<tmpfs_file> object;
+        bool found = false;
+        {
+            core::spinlock_guard guard(namespace_lock_);
+            for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+                if (!entries_[i].used || !equal(entries_[i].path, path))
+                    continue;
+                if (entries_[i].directory != directory)
+                    return directory ? -ENOTDIR : -EISDIR;
+                if (directory) {
+                    for (u32 j = 0; j < tmpfs_max_entries; ++j)
+                        if (entries_[j].used && parent_of(path, entries_[j].path))
+                            return -ENOTEMPTY;
+                }
+                object = entries_[i].object;
+                entries_[i] = entry{};
+                found = true;
+                break;
             }
-            if (entries_[i].object)
-                entries_[i].object->drop_link();
-            entries_[i] = entry{};
-            return 0;
         }
-        return -ENOENT;
+        if (!found)
+            return -ENOENT;
+        if (object)
+            object->drop_link();
+        return 0;
     }
 
     long tmpfs_mount::rename(const char* old_path, const char* new_path) {
