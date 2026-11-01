@@ -303,14 +303,14 @@ namespace astia::proc {
         return static_cast<i64>(raw_id(selected->session()));
     }
 
-    i64 acquire_controlling_terminal(const mm::shptr<fs::file>& terminal) {
+    i64 acquire_controlling_terminal(const mm::shptr<fs::open_file>& terminal) {
         process* owner = current_process();
         if (owner == nullptr || !terminal)
             return -ENXIO;
         if (!owner->claim_controlling_terminal(terminal))
             return -EPERM;
         i32        group = static_cast<i32>(raw_id(owner->process_group()));
-        const long rc    = fs::dispatch_ioctl(terminal.get(), TIOCSPGRP, &group, sizeof(i32));
+        const long rc    = terminal->ioctl(TIOCSPGRP, &group, sizeof(i32));
         if (rc < 0) {
             owner->controlling_terminal({});
             return rc;
@@ -318,9 +318,9 @@ namespace astia::proc {
         return 0;
     }
 
-    mm::shptr<fs::file> controlling_terminal() {
+    mm::shptr<fs::open_file> controlling_terminal() {
         process* owner = current_process();
-        return owner == nullptr ? mm::shptr<fs::file>{} : owner->controlling_terminal();
+        return owner == nullptr ? mm::shptr<fs::open_file>{} : owner->controlling_terminal();
     }
 
     bool has_controlling_terminal() {

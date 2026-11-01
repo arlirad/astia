@@ -1812,7 +1812,7 @@ namespace astia::sys {
             void* kernel_arg = expected == 0 ? nullptr : static_cast<void*>(ioctl_storage);
             long rc = object->ioctl(s.offset, kernel_arg, expected);
             if (rc >= 0 && s.offset == TIOCSCTTY)
-                rc = proc::acquire_controlling_terminal(object->backing_reference());
+                rc = proc::acquire_controlling_terminal(object);
             if (rc >= 0 && output &&
                 !sys::copy_out(sys::user_range::bytes(s.address, expected),
                                ioctl_storage))

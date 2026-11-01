@@ -81,7 +81,7 @@ namespace astia::proc {
     pgrp_t getpgrp();
     i64    getsid(pid_t target);
     /// Attach the supplied tty to the current session leader.
-    i64 acquire_controlling_terminal(const mm::shptr<fs::file>& terminal);
+    i64 acquire_controlling_terminal(const mm::shptr<fs::open_file>& terminal);
     /// True when a live process in `group` belongs to `session`.
     bool process_group_exists(pgrp_t group, pid_t session);
     /// Terminal line-discipline hooks.  These deliberately operate on the
@@ -90,7 +90,7 @@ namespace astia::proc {
     bool      terminal_read_allowed(pgrp_t foreground);
     bool      terminal_write_allowed(pgrp_t foreground, bool tostop);
     bool      terminal_set_foreground_allowed(pgrp_t foreground);
-    mm::shptr<fs::file> controlling_terminal();
+    mm::shptr<fs::open_file> controlling_terminal();
     bool      has_controlling_terminal();
     i64       setpgid(pid_t pid, pgrp_t pgid);
     i64       setsid();

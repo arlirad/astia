@@ -544,7 +544,7 @@ namespace astia::fs {
             auto* current = proc::current_process();
             if (!current)
                 return -ESRCH;
-            long rc = register_unix_path(n, o.backing_reference(), uid_t{current->euid()},
+            long rc = register_unix_path(n, o.node_reference(), uid_t{current->euid()},
                                          gid_t{current->egid()}, canonical, sizeof canonical);
             if (rc < 0)
                 return rc;
@@ -566,7 +566,7 @@ namespace astia::fs {
             char  n[path_max];
             if (!c || !path(a, n))
                 return -EINVAL;
-            mm::shptr<unix_file> c_owner(o.backing_reference());
+            mm::shptr<unix_file> c_owner(o.node_reference());
             mm::shptr<file> endpoint;
             if (lookup_unix_path(n, endpoint) < 0)
                 return -ECONNREFUSED;

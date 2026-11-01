@@ -718,7 +718,7 @@ namespace astia::proc {
         if (installed) {
             auto tty = descriptor(fd_t{STDIN});
             if (tty) {
-                controlling_terminal(tty->backing_reference());
+                controlling_terminal(tty);
                 i32 group = static_cast<i32>(raw_id(process_group()));
                 (void) tty->ioctl(TIOCSPGRP, &group, sizeof(i32));
             }

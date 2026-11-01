@@ -146,15 +146,15 @@ namespace astia::proc {
             arch::interrupt_spinlock_guard guard(metadata_lock_);
             session_ = value;
         }
-        mm::shptr<fs::file> controlling_terminal() const {
+        mm::shptr<fs::open_file> controlling_terminal() const {
             arch::interrupt_spinlock_guard guard(metadata_lock_);
             return controlling_terminal_;
         }
-        void controlling_terminal(const mm::shptr<fs::file>& value) {
+        void controlling_terminal(const mm::shptr<fs::open_file>& value) {
             arch::interrupt_spinlock_guard guard(metadata_lock_);
             controlling_terminal_ = value;
         }
-        bool claim_controlling_terminal(const mm::shptr<fs::file>& value) {
+        bool claim_controlling_terminal(const mm::shptr<fs::open_file>& value) {
             arch::interrupt_spinlock_guard guard(metadata_lock_);
             if (!value || pid_ != session_ || controlling_terminal_)
                 return false;
@@ -335,7 +335,7 @@ namespace astia::proc {
             pgrp_t process_group;
             pid_t  session;
             u32    uid, gid;
-            mm::shptr<fs::file> controlling_terminal;
+            mm::shptr<fs::open_file> controlling_terminal;
         };
         void snapshot_metadata(metadata_snapshot& out) const {
             arch::interrupt_spinlock_guard guard(metadata_lock_);
@@ -390,7 +390,7 @@ namespace astia::proc {
         pid_t     parent_pid_;
         pgrp_t    process_group_;
         pid_t     session_;
-        mm::shptr<fs::file> controlling_terminal_;
+        mm::shptr<fs::open_file> controlling_terminal_;
         u32       uid_ = 0, euid_ = 0, gid_ = 0, egid_ = 0;
         gid_t                groups_[max_supplementary_groups]{};
         u32                  group_count_ = 0;

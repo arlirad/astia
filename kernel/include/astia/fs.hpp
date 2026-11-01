@@ -305,7 +305,10 @@ namespace astia::fs {
         void set_path(const char* path);
         void attach_mount(mount* owner);
         mount* mount_owner() const { return _mount; }
-        mm::shptr<file> backing_reference() const { return _object; }
+        // A retained node reference is needed only by VFS-owned registries
+        // (for example the AF_UNIX pathname table).  Process and syscall
+        // code should retain the open_file instead.
+        mm::shptr<file> node_reference() const { return _object; }
         u64  mtime_sec() const;
         u64  mtime_nsec() const;
 

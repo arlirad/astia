@@ -50,10 +50,13 @@ namespace astia::fs {
 
     mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags) {
         if (equal(path, "/tty")) {
-            mm::shptr<file> terminal = proc::controlling_terminal();
+            mm::shptr<open_file> terminal = proc::controlling_terminal();
             if (!terminal)
                 return {};
-            return mm::share<open_file>(terminal, flags);
+            auto result = mm::share<open_file>(*terminal);
+            if (result)
+                result->set_status_flags(flags);
+            return result;
         }
         mm::shptr<file> object;
         {
