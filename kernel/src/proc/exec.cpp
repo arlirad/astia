@@ -193,7 +193,7 @@ namespace astia::proc {
             return false;
         }
 
-        address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
+        address_space_.reset(new arch::page_map(static_cast<arch::page_map&&>(map)));
         if (address_space_ == nullptr) {
             cleanup_pending(image_state, map);
             return false;
@@ -345,7 +345,7 @@ namespace astia::proc {
             cleanup_pending(stream.map, map);
             return false;
         }
-        address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
+        address_space_.reset(new arch::page_map(static_cast<arch::page_map&&>(map)));
         if (address_space_ == nullptr) {
             cleanup_pending(stream.map, map);
             return false;

@@ -653,7 +653,7 @@ namespace astia::proc {
                 }
             }
         }
-        child->address_space_ = new arch::page_map(static_cast<arch::page_map&&>(map));
+        child->address_space_.reset(new arch::page_map(static_cast<arch::page_map&&>(map)));
         if (child->address_space_ == nullptr) {
             rollback();
             return false;

@@ -462,8 +462,6 @@ namespace astia::proc {
                 victim->backing->release_ref();
             delete victim;
         }
-        delete address_space_;
-        address_space_ = nullptr;
         tls_tp_        = 0;
         mapped_bytes_  = 0;
     }
@@ -901,21 +899,20 @@ namespace astia::proc {
     }
 
     void process::replace_image(process& staging) {
-        arch::page_map* old_map     = address_space_;
+        mm::uptr<arch::page_map> old_map = static_cast<mm::uptr<arch::page_map>&&>(address_space_);
         mmap_region*   old_regions = mmap_regions_;
 
-        address_space_ = staging.address_space_;
+        address_space_ = static_cast<mm::uptr<arch::page_map>&&>(staging.address_space_);
         mmap_regions_   = staging.mmap_regions_;
         mapped_bytes_   = staging.mapped_bytes_;
         tls_tp_         = staging.tls_tp_;
-        staging.address_space_ = nullptr;
         staging.mmap_regions_  = nullptr;
         staging.mapped_bytes_  = 0;
         staging.tls_tp_        = 0;
 
         if (address_space_ != nullptr)
             address_space_->activate();
-        delete old_map;
+        old_map.reset();
         while (old_regions != nullptr) {
             mmap_region* next = old_regions->next;
             old_regions->backing->unmap_range(old_regions->region_page,

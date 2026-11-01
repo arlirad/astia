@@ -11,6 +11,7 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/mm/uptr.hpp>
 #include <astia/wait.hpp>
 
 namespace astia::proc {
@@ -269,13 +270,13 @@ namespace astia::proc {
         /// blocking join syscall operates on it.
         mm::shptr<thread>     thread_by_tid(tid_t id);
         const arch::page_map* address_space() const {
-            return address_space_;
+            return address_space_.get();
         }
 
         /// Mutable view for the syscall/ring layer, which maps kernel-owned
         /// pages (the I/O ring) into this process' user half on setup.
         arch::page_map* address_space() {
-            return address_space_;
+            return address_space_.get();
         }
 
         /// mmap: anonymous private memory; `addr` is a placement hint
@@ -411,7 +412,7 @@ namespace astia::proc {
         thread*           waiters_[max_waiters_per_process]{};
         thread*           signal_waiters_[max_signal_waiters_per_process]{};
         fd_table          descriptors_;
-        arch::page_map*   address_space_ = nullptr;
+        mm::uptr<arch::page_map> address_space_;
         u64               tls_tp_        = 0;
         astia_rlimit      rlimit_nofile_{max_process_fds, max_process_fds};
         astia_rlimit      rlimit_as_{~u64{0}, ~u64{0}};
