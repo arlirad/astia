@@ -229,16 +229,19 @@ namespace astia::proc {
         if (want > rlimit_as_.current || mapped_bytes_ > rlimit_as_.current - want)
             return -ENOMEM;
 
-        arch::interrupt_spinlock_guard guard(mmap_lock_);
-        const u64            base = place(mmap_regions_, addr, want);
-        if (base == 0) {
-            return -ENOMEM;
-        }
         auto* region = mm::phys_region::create(pages, true);
         if (region == nullptr) {
             return -ENOMEM;
         }
-        if (!install_mapping(base, pages, prot, region, {}, 0)) {
+        u64 base = 0;
+        bool installed = false;
+        {
+            arch::interrupt_spinlock_guard guard(mmap_lock_);
+            base = place(mmap_regions_, addr, want);
+            if (base != 0)
+                installed = install_mapping(base, pages, prot, region, {}, 0);
+        }
+        if (!installed) {
             region->release();
             return -ENOMEM;
         }
@@ -293,11 +296,6 @@ namespace astia::proc {
             return -ENODEV;
         }
 
-        arch::interrupt_spinlock_guard guard(mmap_lock_);
-        const u64            base = place(mmap_regions_, addr, want);
-        if (base == 0) {
-            return -ENOMEM;
-        }
         if (has(flags, map_flags::shared)) {
             auto* shared_region = file->mapping();
             if (shared_region == nullptr || off + want < off ||
@@ -309,8 +307,16 @@ namespace astia::proc {
                                             static_cast<usize>(pages))) {
                 return -EAGAIN;
             }
-            if (!install_mapping(base, pages, prot, shared_region, file, off,
-                                 static_cast<usize>(off / page_bytes), true)) {
+            u64  base      = 0;
+            bool installed = false;
+            {
+                arch::interrupt_spinlock_guard guard(mmap_lock_);
+                base = place(mmap_regions_, addr, want);
+                if (base != 0)
+                    installed = install_mapping(base, pages, prot, shared_region, file, off,
+                                                static_cast<usize>(off / page_bytes), true);
+            }
+            if (!installed) {
                 shared_region->release_range(static_cast<usize>(off / page_bytes),
                                              static_cast<usize>(pages));
                 return -ENOMEM;
@@ -340,7 +346,15 @@ namespace astia::proc {
             region->release();
             return -EIO;
         }
-        if (!install_mapping(base, pages, prot, region, file, off)) {
+        u64 base = 0;
+        bool installed = false;
+        {
+            arch::interrupt_spinlock_guard guard(mmap_lock_);
+            base = place(mmap_regions_, addr, want);
+            if (base != 0)
+                installed = install_mapping(base, pages, prot, region, file, off);
+        }
+        if (!installed) {
             region->release();
             return -ENOMEM;
         }
@@ -360,78 +374,80 @@ namespace astia::proc {
         const u64 first = addr;
         const u64 last  = addr + pages * page_bytes;
 
-        arch::interrupt_spinlock_guard guard(mmap_lock_);
-
         // A region extending past the range's end is trimmed by giving
         // its tail a new entry; pre-allocate that single node so the
         // unmap cannot fail halfway.
-        mmap_region* tail = nullptr;
-        for (mmap_region* scan = mmap_regions_; scan != nullptr; scan = scan->next) {
-            if (scan->base < last && scan->end() > last) {
-                tail = alloc_region();
-                if (tail == nullptr) {
-                    return -ENOMEM;
+        mmap_region* tail = alloc_region();
+        if (tail == nullptr) {
+            return -ENOMEM;
+        }
+        bool tail_used = false;
+
+        {
+            arch::interrupt_spinlock_guard guard(mmap_lock_);
+            // A region extending past the range's end needs the preallocated
+            // node.  It is harmlessly discarded below when no such region is
+            // present.
+            mmap_region* prev = nullptr;
+            mmap_region* it   = mmap_regions_;
+            while (it != nullptr) {
+                mmap_region* next = it->next;
+                if (it->end() <= first || it->base >= last) {
+                    prev = it;
+                    it   = next;
+                    continue;
                 }
-                break;
+                const u64 old_base = it->base;
+                const u64 old_end  = it->end();
+
+                // The covered middle loses its PTEs; the frames stay with
+                // the backing until its last mapping drops.
+                const u64 drop_from = old_base < first ? first : old_base;
+                const u64 drop_to   = old_end > last ? last : old_end;
+                for (u64 virt = drop_from; virt < drop_to; virt += page_bytes) {
+                    address_space_->unmap(virt);
+                    arch::page_map::invalidate(virt);
+                }
+                it->backing->unmap_range(
+                    it->region_page + (drop_from - old_base) / page_bytes,
+                    static_cast<usize>((drop_to - drop_from) / page_bytes));
+                mapped_bytes_ -= drop_to - drop_from;
+
+                if (old_end > last) {
+                    tail_used        = true;
+                    tail->next        = it->next;
+                    tail->base        = last;
+                    tail->pages       = (old_end - last) / page_bytes;
+                    tail->prot        = it->prot;
+                    tail->shared      = it->shared;
+                    tail->holds_ref   = false;
+                    tail->backing     = it->backing;
+                    tail->region_page = it->region_page + (last - it->base) / page_bytes;
+                    tail->file        = it->file;
+                    tail->file_offset = it->file_offset + (last - it->base);
+                    it->next          = tail;
+                }
+                if (old_base < first) {
+                    it->pages = (first - old_base) / page_bytes;
+                    prev      = it;
+                    it        = it->next;
+                    continue;
+                }
+                // Fully covered: unlink and free the entry, dropping the
+                // address space's reference on the backing.
+                drop_backing(prev, it);
+                if (prev == nullptr) {
+                    mmap_regions_ = it->next;
+                }
+                else {
+                    prev->next = it->next;
+                }
+                delete it;
+                it = next;
             }
         }
-
-        mmap_region* prev = nullptr;
-        mmap_region* it   = mmap_regions_;
-        while (it != nullptr) {
-            mmap_region* next = it->next;
-            if (it->end() <= first || it->base >= last) {
-                prev = it;
-                it   = next;
-                continue;
-            }
-            const u64 old_base = it->base;
-            const u64 old_end  = it->end();
-
-            // The covered middle loses its PTEs; the frames stay with
-            // the backing until its last mapping drops.
-            const u64 drop_from = old_base < first ? first : old_base;
-            const u64 drop_to   = old_end > last ? last : old_end;
-            for (u64 virt = drop_from; virt < drop_to; virt += page_bytes) {
-                address_space_->unmap(virt);
-                arch::page_map::invalidate(virt);
-            }
-            it->backing->unmap_range(
-                it->region_page + (drop_from - old_base) / page_bytes,
-                static_cast<usize>((drop_to - drop_from) / page_bytes));
-            mapped_bytes_ -= drop_to - drop_from;
-
-            if (old_end > last) {
-                tail->next        = it->next;
-                tail->base        = last;
-                tail->pages       = (old_end - last) / page_bytes;
-                tail->prot        = it->prot;
-                tail->shared      = it->shared;
-                tail->holds_ref   = false;
-                tail->backing     = it->backing;
-                tail->region_page = it->region_page + (last - it->base) / page_bytes;
-                tail->file        = it->file;
-                tail->file_offset = it->file_offset + (last - it->base);
-                it->next          = tail;
-            }
-            if (old_base < first) {
-                it->pages = (first - old_base) / page_bytes;
-                prev      = it;
-                it        = it->next;
-                continue;
-            }
-            // Fully covered: unlink and free the entry, dropping the
-            // address space's reference on the backing.
-            drop_backing(prev, it);
-            if (prev == nullptr) {
-                mmap_regions_ = it->next;
-            }
-            else {
-                prev->next = it->next;
-            }
-            delete it;
-            it = next;
-        }
+        if (!tail_used)
+            delete tail;
         return 0;
     }
 
@@ -444,7 +460,6 @@ namespace astia::proc {
         if (region == nullptr || pages == 0) {
             return false;
         }
-        arch::interrupt_spinlock_guard guard(mmap_lock_);
         auto*                entry = alloc_region();
         if (entry == nullptr) {
             return false;
@@ -454,19 +469,24 @@ namespace astia::proc {
         entry->prot      = prot;
         entry->holds_ref = true;
         entry->backing   = region;
-        const u64 bytes  = pages * mm::phys_region::frame_size;
-        if (bytes > rlimit_as_.current || mapped_bytes_ > rlimit_as_.current - bytes) {
+        const u64 bytes = pages * mm::phys_region::frame_size;
+        bool      linked = false;
+        {
+            arch::interrupt_spinlock_guard guard(mmap_lock_);
+            if (bytes <= rlimit_as_.current && mapped_bytes_ <= rlimit_as_.current - bytes) {
+                mapped_bytes_ += bytes;
+                mmap_region** link = &mmap_regions_;
+                while (*link != nullptr && (*link)->base < base) {
+                    link = &(*link)->next;
+                }
+                entry->next = *link;
+                *link       = entry;
+                linked      = true;
+            }
+        }
+        if (!linked)
             delete entry;
-            return false;
-        }
-        mapped_bytes_ += bytes;
-        mmap_region** link = &mmap_regions_;
-        while (*link != nullptr && (*link)->base < base) {
-            link = &(*link)->next;
-        }
-        entry->next = *link;
-        *link       = entry;
-        return true;
+        return linked;
     }
 
     bool process::clone_address_space_cow(process* child) {

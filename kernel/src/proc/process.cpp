@@ -133,11 +133,10 @@ namespace astia::proc {
     }
 
     namespace {
-        // Process-owned thread and lifecycle state stays on this lock.  The
-        // waitpid/signal waiter lists have their own IRQ-safe lock: their
+        // Process-owned thread and lifecycle state stays on each process's
+        // lock.  The waitpid/signal waiter lists have their own IRQ-safe lock: their
         // register-before-scan protocol must remain atomic with interrupts
         // masked, but they do not need to serialize with the thread table.
-        core::spinlock process_lifecycle_lock;
         core::spinlock process_wait_lock;
         core::spinlock dead_thread_lock;
 
@@ -449,7 +448,7 @@ namespace astia::proc {
         if (!value) {
             return false;
         }
-        arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+        arch::interrupt_spinlock_guard guard(lifecycle_lock_);
         for (u32 i = 0; i < max_threads_per_process; ++i) {
             if (!threads_[i]) {
                 threads_[i] = value;
@@ -466,7 +465,7 @@ namespace astia::proc {
 
     void process::thread_exited(thread* value, i32 status) {
         {
-            arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
             if (state() == process_state::zombie || state() == process_state::dead) {
                 return;
             }
@@ -530,7 +529,7 @@ namespace astia::proc {
             thread* wake_list[max_threads_per_process];
             u32     count = 0;
             {
-                arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+                arch::interrupt_spinlock_guard guard(lifecycle_lock_);
                 if (state() != process_state::stopped)
                     return;
                 state(process_state::runnable);
@@ -551,7 +550,7 @@ namespace astia::proc {
             signal != signal_number::ttin && signal != signal_number::ttou)
             return;
         {
-            arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
             if (state() == process_state::zombie || state() == process_state::dead ||
                 state() == process_state::stopped)
                 return;
@@ -568,7 +567,7 @@ namespace astia::proc {
     }
 
     mm::shptr<thread> process::take_thread(thread* value) {
-        arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+        arch::interrupt_spinlock_guard guard(lifecycle_lock_);
         for (u32 i = 0; i < max_threads_per_process; ++i) {
             if (threads_[i] && threads_[i].get() == value) {
                 mm::shptr<thread> taken = threads_[i];
@@ -583,7 +582,7 @@ namespace astia::proc {
     }
 
     mm::shptr<thread> process::retain_thread(thread* value) {
-        arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+        arch::interrupt_spinlock_guard guard(lifecycle_lock_);
         for (u32 i = 0; i < max_threads_per_process; ++i) {
             if (threads_[i] && threads_[i].get() == value)
                 return threads_[i];
@@ -594,10 +593,10 @@ namespace astia::proc {
     void process::release_thread(thread* value) {
         mm::shptr<thread> released;
         {
-            arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
             for (u32 i = 0; i < max_threads_per_process; ++i) {
                 if (threads_[i] && threads_[i].get() == value) {
-                    // Do not run ~thread while process_lifecycle_lock is held.
+                    // Do not run ~thread while lifecycle_lock_ is held.
                     released = static_cast<mm::shptr<thread>&&>(threads_[i]);
                     if (thread_count_ != 0) {
                         --thread_count_;
@@ -1044,7 +1043,7 @@ namespace astia::proc {
     }
 
     mm::shptr<thread> process::thread_by_tid(tid_t id) {
-        arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+        arch::interrupt_spinlock_guard guard(lifecycle_lock_);
         for (u32 i = 0; i < max_threads_per_process; ++i) {
             if (threads_[i] && threads_[i]->tid() == id) {
                 return threads_[i];

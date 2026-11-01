@@ -353,7 +353,7 @@ namespace astia::proc {
         u32                  group_count_ = 0;
         char                 name_[32]{};
         // These are observed by registry, scheduler, and wait paths that do
-        // not hold process_lifecycle_lock. Keep the byte-sized representation
+        // not hold lifecycle_lock_. Keep the byte-sized representation
         // and publish transitions explicitly rather than widening the record.
         u8                   state_              = static_cast<u8>(process_state::fresh);
         i32                  exit_status_        = 0;
@@ -375,6 +375,9 @@ namespace astia::proc {
         u64               mapped_bytes_      = 0;
         char              cwd_[fs::path_max] = "/";
         mmap_region*      mmap_regions_      = nullptr; // base-sorted
+        // Lifecycle/thread state is process-local; keeping this lock on the
+        // object avoids serializing unrelated processes.
+        core::spinlock    lifecycle_lock_{};
         core::spinlock    mmap_lock_{};
     };
 

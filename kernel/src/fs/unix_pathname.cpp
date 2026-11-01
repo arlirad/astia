@@ -37,29 +37,35 @@ namespace astia::fs {
         if (length + 1 > capacity) return -ENAMETOOLONG;
         mount* owner = retain_mount_for_unix_path(resolved);
         if (!owner) return -ENOENT;
+        long result = 0;
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
             if (item.used && equal(item.path, resolved)) {
-                release_mount_reference(owner);
-                return -EADDRINUSE;
+                result = -EADDRINUSE;
+                break;
             }
         entry* free = nullptr;
-        for (auto& item : entries)
-            if (!item.used) { free = &item; break; }
-        if (!free) {
+        if (!result) {
+            for (auto& item : entries)
+                if (!item.used) { free = &item; break; }
+            if (!free)
+                result = -ENFILE;
+        }
+        if (!result) {
+            free->used = true;
+            free->endpoint = endpoint;
+            free->owner = owner;
+            free->uid = uid;
+            free->gid = gid;
+            for (u32 i = 0; i <= length; ++i) {
+                free->path[i] = resolved[i];
+                canonical[i] = resolved[i];
+            }
+        }
+        guard.unlock();
+        if (result)
             release_mount_reference(owner);
-            return -ENFILE;
-        }
-        free->used = true;
-        free->endpoint = endpoint;
-        free->owner = owner;
-        free->uid = uid;
-        free->gid = gid;
-        for (u32 i = 0; i <= length; ++i) {
-            free->path[i] = resolved[i];
-            canonical[i] = resolved[i];
-        }
-        return 0;
+        return result;
     }
 
     long lookup_unix_path(const char* path, mm::shptr<file>& endpoint) {

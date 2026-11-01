@@ -126,63 +126,72 @@ namespace astia::fs {
                 return count;
             }
             u32 poll(u32 events, u32) override {
+                state kind;
+                mm::shptr<channel> channel;
+                u32 side;
+                u32 queue_count;
+                u32 dgram_count;
                 mm::shptr<unix_file> dgram_target_owner;
-                bool dgram_data = false;
-                bool dgram_space = false;
                 {
                     core::spinlock_guard guard(lock_);
-                    if (state_ == state::dgram) {
-                        dgram_data = dgram_count_ != 0;
-                        dgram_target_owner = dgram_target_owner_;
-                        if (dgram_target_owner.get() == this)
-                            dgram_space =
-                                dgram_count_ < socket_datagram_queue_capacity;
-                    }
+                    kind = state_;
+                    channel = ch_;
+                    side = side_;
+                    queue_count = queue_count_;
+                    dgram_count = dgram_count_;
+                    dgram_target_owner = dgram_target_owner_;
                 }
+
+                bool dgram_space = false;
                 if (dgram_target_owner && dgram_target_owner.get() != this) {
                     core::spinlock_guard target_guard(dgram_target_owner->lock_);
                     dgram_space =
                         dgram_target_owner->dgram_count_ < socket_datagram_queue_capacity;
+                } else if (kind == state::dgram) {
+                    dgram_space = dgram_count < socket_datagram_queue_capacity;
                 }
-                core::spinlock_guard guard(lock_);
                 u32 result = 0;
-                if (state_ == state::listener) {
-                    if (queue_count_)
+                if (kind == state::listener) {
+                    if (queue_count)
                         result |= POLLIN;
                 }
-                else if (state_ == state::dgram) {
-                    if (dgram_data)
+                else if (kind == state::dgram) {
+                    if (dgram_count)
                         result |= POLLIN;
                     if (dgram_space)
                         result |= POLLOUT;
                 }
-                else if (state_ == state::connected && ch_) {
-                    core::spinlock_guard channel_guard(ch_->lock);
-                    const u32 peer = socket_peer_side(side_);
-                    if (__atomic_load_n(&ch_->head[peer], __ATOMIC_ACQUIRE) !=
-                        __atomic_load_n(&ch_->tail[peer], __ATOMIC_RELAXED))
+                else if (kind == state::connected && channel) {
+                    core::spinlock_guard channel_guard(channel->lock);
+                    const u32 peer = socket_peer_side(side);
+                    if (__atomic_load_n(&channel->head[peer], __ATOMIC_ACQUIRE) !=
+                        __atomic_load_n(&channel->tail[peer], __ATOMIC_RELAXED))
                         result |= POLLIN;
-                    if (ch_->closed[side_] || ch_->shut_rd[side_])
+                    if (channel->closed[side] || channel->shut_rd[side])
                         result |= POLLIN | POLLHUP;
-                    if (ch_->shut_wr[peer])
+                    if (channel->shut_wr[peer])
                         result |= POLLIN | POLLHUP;
-                    if (ch_->closed[peer])
+                    if (channel->closed[peer])
                         result |= POLLERR;
-                    else if (!ch_->shut_wr[side_] &&
+                    else if (!channel->shut_wr[side] &&
                               socket_stream_capacity_bytes -
-                                  (__atomic_load_n(&ch_->head[side_], __ATOMIC_RELAXED) -
-                                     __atomic_load_n(&ch_->tail[side_],
-                                                     __ATOMIC_ACQUIRE)) !=
-                                 0)
+                                  (__atomic_load_n(&channel->head[side], __ATOMIC_RELAXED) -
+                                      __atomic_load_n(&channel->tail[side],
+                                                      __ATOMIC_ACQUIRE)) !=
+                                  0)
                         result |= POLLOUT;
                 }
                 return result & (events | POLLERR | POLLHUP);
             }
             long submit(io_request& r) override {
                 state kind;
+                mm::shptr<channel> channel;
+                u32 side;
                 {
                     core::spinlock_guard guard(lock_);
                     kind = state_;
+                    channel = ch_;
+                    side = side_;
                 }
                 if (kind == state::dgram) {
                     long n =
@@ -215,13 +224,10 @@ namespace astia::fs {
                              ? read(r.buffer(), r.length(), 0)
                              : write(r.buffer(), r.length(), 0);
                 bool peer_closed = false;
-                {
-                    core::spinlock_guard guard(lock_);
-                    if (ch_) {
-                        core::spinlock_guard channel_guard(ch_->lock);
-                        const u32 peer = socket_peer_side(side_);
-                        peer_closed = ch_->closed[peer] || ch_->shut_wr[peer];
-                    }
+                if (channel) {
+                    core::spinlock_guard channel_guard(channel->lock);
+                    const u32 peer = socket_peer_side(side);
+                    peer_closed = channel->closed[peer] || channel->shut_wr[peer];
                 }
                 if (n == 0 && r.direction() == io_direction::input && peer_closed)
                     r.complete(true);
