@@ -39,6 +39,16 @@ namespace astia::fs {
         type_entry     types[max_types];
         mount_entry    mounts[max_mounts];
         core::spinlock mount_registry_lock;
+        // Lookup callers still take mount_registry_lock.  This is only a
+        // hint: the generation makes the entry safe to reuse after an
+        // unmount or a later mount fills the same slot.
+        struct lookup_hint {
+            char         path[path_max];
+            mount_entry* entry;
+            u64          generation;
+        };
+        lookup_hint mount_lookup_hint{};
+        u64         mount_registry_generation;
         bool           ready;
         bool           bootstrapping;
 
@@ -91,6 +101,12 @@ namespace astia::fs {
         }
 
         mount_entry* find_mount_locked(const char* path) {
+            if (mount_lookup_hint.generation == mount_registry_generation &&
+                mount_lookup_hint.entry != nullptr && mount_lookup_hint.entry->used &&
+                mount_lookup_hint.entry->instance != nullptr &&
+                equal(mount_lookup_hint.path, path))
+                return mount_lookup_hint.entry;
+
             mount_entry* best     = nullptr;
             u32          best_len = 0;
             for (u32 i = 0; i < max_mounts; ++i) {
@@ -103,6 +119,12 @@ namespace astia::fs {
                     best     = &mounts[i];
                     best_len = length;
                 }
+            }
+            // Do not retain a caller-owned path.  Overlong paths are not
+            // cacheable, but remain fully handled by the normal scan.
+            if (copy_path(mount_lookup_hint.path, path)) {
+                mount_lookup_hint.entry      = best;
+                mount_lookup_hint.generation = mount_registry_generation;
             }
             return best;
         }
@@ -240,6 +262,8 @@ namespace astia::fs {
             types[i] = type_entry{};
         for (u32 i = 0; i < max_mounts; ++i)
             mounts[i] = mount_entry{};
+        mount_lookup_hint = lookup_hint{};
+        mount_registry_generation = 0;
         ready         = true;
         bootstrapping = true;
 
@@ -360,6 +384,7 @@ namespace astia::fs {
                     mounts[free_slot].ownership = ownership;
                     mounts[free_slot].destroy   = destroy;
                     mounts[free_slot].active_operations = 0;
+                    ++mount_registry_generation;
                     published = true;
                 }
             }
@@ -414,6 +439,7 @@ namespace astia::fs {
             selected->instance  = nullptr;
             selected->ownership = mount_ownership::static_instance;
             selected->destroy   = nullptr;
+            ++mount_registry_generation;
         }
         // Only registry-owned factories may be destroyed here.  Cached devfs
         // has a null callback and remains in its static storage.

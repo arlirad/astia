@@ -2,6 +2,7 @@
 
 #include "chrdev.hpp"
 #include <astia/api/termios.h>
+#include <astia/core/spinlock.hpp>
 #include <astia/io.hpp>
 
 // An asynchronous terminal: a character device that carries line
@@ -87,6 +88,14 @@ namespace astia::dev {
         virtual long tty_speed(speed_t speed);
         virtual bool tty_putc(u8 byte) = 0;
         virtual void tty_ready();
+
+        // This lock covers the line discipline and RX ring.  It is always
+        // acquired through interrupt_spinlock_guard: receive runs in IRQ
+        // context, while reads/ioctls run as tasks (and SMP may race too).
+        core::spinlock          _state_lock;
+        // TCSETS hardware hooks may take time and must not run with
+        // _state_lock held.  Serialize competing termios updates separately.
+        core::spinlock          _ioctl_lock;
 
         struct termios           _termios;
         u32                      _column = 0; // cursor column, for OPOST work later

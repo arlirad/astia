@@ -341,30 +341,35 @@ namespace astia::proc {
     }
 
     i64 process::setuid(u32 v) {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (euid_ != 0 && v != uid_ && v != euid_)
             return -EPERM;
         uid_ = euid_ = v;
         return 0;
     }
     i64 process::seteuid(u32 v) {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (euid_ != 0 && v != uid_ && v != euid_)
             return -EPERM;
         euid_ = v;
         return 0;
     }
     i64 process::setgid(u32 v) {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (egid_ != 0 && v != gid_ && v != egid_)
             return -EPERM;
         gid_ = egid_ = v;
         return 0;
     }
     i64 process::setegid(u32 v) {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (egid_ != 0 && v != gid_ && v != egid_)
             return -EPERM;
         egid_ = v;
         return 0;
     }
     i64 process::setreuid(u32 r, u32 e) {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (euid_ != 0 && r != uid_ && r != euid_ && e != uid_ && e != euid_)
             return -EPERM;
         if (r != static_cast<u32>(-1))
@@ -374,6 +379,7 @@ namespace astia::proc {
         return 0;
     }
     i64 process::setregid(u32 r, u32 e) {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (egid_ != 0 && r != gid_ && r != egid_ && e != gid_ && e != egid_)
             return -EPERM;
         if (r != static_cast<u32>(-1))
@@ -383,6 +389,7 @@ namespace astia::proc {
         return 0;
     }
     bool process::in_group(gid_t group) const {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (egid_ == static_cast<u32>(group))
             return true;
         for (u32 i = 0; i < group_count_; ++i)
@@ -391,6 +398,7 @@ namespace astia::proc {
         return false;
     }
     i64 process::getgroups(i32 count, u32* out) const {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (count < 0 || (count != 0 && out == nullptr))
             return -EINVAL;
         if (count == 0)
@@ -402,6 +410,7 @@ namespace astia::proc {
         return group_count_;
     }
     i64 process::setgroups(i32 count, const u32* values) {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (euid_ != 0)
             return -EPERM;
         if (count < 0 || static_cast<u32>(count) > max_supplementary_groups ||
@@ -486,10 +495,12 @@ namespace astia::proc {
         // Closing a session leader's terminal hangs up its foreground job.
         // Do this before dropping descriptors so the terminal's foreground
         // process group is still available to the signal fan-out.
-        if (controlling_terminal_ != nullptr && session_ == pid_) {
-            (void) signal_process_group(pgrp_from_raw(raw_id(process_group_)),
+        metadata_snapshot metadata{};
+        snapshot_metadata(metadata);
+        if (metadata.controlling_terminal != nullptr && metadata.session == pid_) {
+            (void) signal_process_group(pgrp_from_raw(raw_id(metadata.process_group)),
                                         signal_number::hup);
-            controlling_terminal_ = nullptr;
+            controlling_terminal(nullptr);
         }
         // Release a child's private ring at exit rather than waiting for
         // waitpid: the parent and subsequent children may still need slots.
@@ -693,7 +704,7 @@ namespace astia::proc {
             auto tty = descriptor(fd_t{STDIN});
             if (tty) {
                 controlling_terminal(tty->backing());
-                i32 group = static_cast<i32>(raw_id(process_group_));
+                i32 group = static_cast<i32>(raw_id(process_group()));
                 (void) tty->ioctl(TIOCSPGRP, &group, sizeof(i32));
             }
         }
@@ -705,14 +716,18 @@ namespace astia::proc {
     }
 
     bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value) {
-        if (fd.value < 0 || static_cast<u64>(fd.value) >= rlimit_nofile_.current)
+        astia_rlimit limit{};
+        (void) get_rlimit(RLIMIT_NOFILE, &limit);
+        if (fd.value < 0 || static_cast<u64>(fd.value) >= limit.current)
             return false;
         return descriptors_.set(fd, value);
     }
 
     bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value,
                                  u32 flags) {
-        if (fd.value < 0 || static_cast<u64>(fd.value) >= rlimit_nofile_.current)
+        astia_rlimit limit{};
+        (void) get_rlimit(RLIMIT_NOFILE, &limit);
+        if (fd.value < 0 || static_cast<u64>(fd.value) >= limit.current)
             return false;
         return descriptors_.set(fd, value, flags);
     }
@@ -726,12 +741,16 @@ namespace astia::proc {
     }
 
     optional<fd_t> process::duplicate_descriptor(fd_t old_fd) {
+        astia_rlimit limit{};
+        (void) get_rlimit(RLIMIT_NOFILE, &limit);
         return descriptors_.duplicate(old_fd, fd_t{0}, 0,
-                                      static_cast<u32>(rlimit_nofile_.current));
+                                      static_cast<u32>(limit.current));
     }
 
     optional<fd_t> process::duplicate_descriptor(fd_t old_fd, fd_t minimum, u32 flags) {
-        const u32 limit = static_cast<u32>(rlimit_nofile_.current);
+        astia_rlimit rlimit{};
+        (void) get_rlimit(RLIMIT_NOFILE, &rlimit);
+        const u32 limit = static_cast<u32>(rlimit.current);
         return descriptors_.duplicate(old_fd, minimum, flags, limit);
     }
 
@@ -744,7 +763,9 @@ namespace astia::proc {
     }
 
     optional<fd_t> process::duplicate_descriptor_to(fd_t old_fd, fd_t new_fd) {
-        if (new_fd.value < 0 || static_cast<u64>(new_fd.value) >= rlimit_nofile_.current)
+        astia_rlimit limit{};
+        (void) get_rlimit(RLIMIT_NOFILE, &limit);
+        if (new_fd.value < 0 || static_cast<u64>(new_fd.value) >= limit.current)
             return error_t::emfile;
         return descriptors_.duplicate_to(old_fd, new_fd);
     }
@@ -752,6 +773,7 @@ namespace astia::proc {
     i64 process::get_rlimit(i32 resource, astia_rlimit* out) const {
         if (out == nullptr)
             return -EFAULT;
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (resource == RLIMIT_NOFILE)
             *out = rlimit_nofile_;
         else if (resource == RLIMIT_AS)
@@ -762,6 +784,7 @@ namespace astia::proc {
     }
 
     i64 process::set_rlimit(i32 resource, const astia_rlimit& value) {
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (value.current > value.maximum)
             return -EINVAL;
         if (resource == RLIMIT_NOFILE) {

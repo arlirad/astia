@@ -56,21 +56,27 @@ namespace astia::proc {
             return parent_pid_;
         }
         pgrp_t process_group() const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             return process_group_;
         }
         pid_t session() const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             return session_;
         }
         u32 uid() const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             return uid_;
         }
         u32 euid() const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             return euid_;
         }
         u32 gid() const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             return gid_;
         }
         u32 egid() const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             return egid_;
         }
         i64  setuid(u32);
@@ -84,6 +90,7 @@ namespace astia::proc {
         bool in_group(gid_t group) const;
         bool can_access(fs::file_mode mode, uid_t owner, gid_t group,
                         fs::permission_bits want) const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             if (euid_ == 0)
                 return want != fs::permission_bits::execute ||
                        mode.owner_allows(fs::permission_bits::execute) ||
@@ -91,8 +98,14 @@ namespace astia::proc {
                        mode.other_allows(fs::permission_bits::execute);
             return euid_ == static_cast<u32>(owner)
                        ? mode.owner_allows(want)
-                       : (in_group(group) ? mode.group_allows(want)
-                                          : mode.other_allows(want));
+                        : ([&] {
+                              if (egid_ == static_cast<u32>(group))
+                                  return mode.group_allows(want);
+                              for (u32 i = 0; i < group_count_; ++i)
+                                  if (groups_[i] == group)
+                                      return mode.group_allows(want);
+                              return mode.other_allows(want);
+                          }());
         }
         const char* cwd() const {
             return cwd_;
@@ -105,6 +118,8 @@ namespace astia::proc {
         i64  compose_path_at(fd_t dirfd, const char* path, char* buffer,
                              usize length) const;
         void inherit_groups(const process& parent) {
+            arch::interrupt_spinlock_guard parent_guard(parent.metadata_lock_);
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             process_group_        = parent.process_group_;
             session_              = parent.session_;
             controlling_terminal_ = parent.controlling_terminal_;
@@ -124,16 +139,27 @@ namespace astia::proc {
             rlimit_as_     = parent.rlimit_as_;
         }
         void process_group(pgrp_t value) {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             process_group_ = value;
         }
         void session(pid_t value) {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             session_ = value;
         }
         fs::file* controlling_terminal() const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             return controlling_terminal_;
         }
         void controlling_terminal(fs::file* value) {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
             controlling_terminal_ = value;
+        }
+        bool claim_controlling_terminal(fs::file* value) {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
+            if (value == nullptr || pid_ != session_ || controlling_terminal_ != nullptr)
+                return false;
+            controlling_terminal_ = value;
+            return true;
         }
         const char* name() const {
             return name_;
@@ -302,6 +328,24 @@ namespace astia::proc {
         i64 get_rlimit(i32 resource, astia_rlimit* out) const;
         i64 set_rlimit(i32 resource, const astia_rlimit& value);
 
+        /// Capture read-mostly process metadata without taking lifecycle or
+        /// wait locks.  The lock also makes credential/group arrays and the
+        /// tty pointer a coherent snapshot for procfs-like readers.
+        struct metadata_snapshot {
+            pgrp_t process_group;
+            pid_t  session;
+            u32    uid, gid;
+            fs::file* controlling_terminal;
+        };
+        void snapshot_metadata(metadata_snapshot& out) const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
+            out.process_group       = process_group_;
+            out.session             = session_;
+            out.uid                 = uid_;
+            out.gid                 = gid_;
+            out.controlling_terminal = controlling_terminal_;
+        }
+
         bool exec_user_image(const void* bytes, usize length, char* const argv[],
                              char* const envp[], u64* entry_out, u64* stack_out);
         bool exec_user_file(const mm::shptr<fs::open_file>& file, usize length,
@@ -378,6 +422,9 @@ namespace astia::proc {
         // Lifecycle/thread state is process-local; keeping this lock on the
         // object avoids serializing unrelated processes.
         core::spinlock    lifecycle_lock_{};
+        // Credentials, groups, session/job-control metadata, and rlimits are
+        // read frequently but are independent of thread lifetime and waits.
+        mutable core::spinlock metadata_lock_{};
         core::spinlock    mmap_lock_{};
     };
 

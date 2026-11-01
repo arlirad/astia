@@ -266,11 +266,13 @@ namespace astia::proc {
             auto& record = records[count++];
             record.pid   = static_cast<i32>(raw_id(value->pid()));
             record.ppid  = static_cast<i32>(raw_id(value->parent_pid()));
-            record.pgid  = static_cast<i32>(raw_id(value->process_group()));
-            record.uid   = value->uid();
-            record.gid   = value->gid();
             record.state = static_cast<u32>(value->state());
-            record.has_ctty  = value->controlling_terminal() != nullptr ? 1u : 0u;
+            process::metadata_snapshot metadata{};
+            value->snapshot_metadata(metadata);
+            record.pgid      = static_cast<i32>(raw_id(metadata.process_group));
+            record.uid       = metadata.uid;
+            record.gid       = metadata.gid;
+            record.has_ctty  = metadata.controlling_terminal != nullptr ? 1u : 0u;
             const char* name = value->name();
             for (u32 n = 0; name != nullptr && n + 1 < sizeof(record.name) && name[n];
                  ++n)
@@ -305,9 +307,8 @@ namespace astia::proc {
         process* owner = current_process();
         if (owner == nullptr || terminal == nullptr)
             return -ENXIO;
-        if (owner->pid() != owner->session() || owner->controlling_terminal() != nullptr)
+        if (!owner->claim_controlling_terminal(terminal))
             return -EPERM;
-        owner->controlling_terminal(terminal);
         i32        group = static_cast<i32>(raw_id(owner->process_group()));
         const long rc    = fs::dispatch_ioctl(terminal, TIOCSPGRP, &group, sizeof(i32));
         if (rc < 0) {

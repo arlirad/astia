@@ -226,7 +226,9 @@ namespace astia::proc {
             return -ENOMEM;
         }
         const u64 want = pages * page_bytes;
-        if (want > rlimit_as_.current || mapped_bytes_ > rlimit_as_.current - want)
+        astia_rlimit address_limit{};
+        (void) get_rlimit(RLIMIT_AS, &address_limit);
+        if (want > address_limit.current || mapped_bytes_ > address_limit.current - want)
             return -ENOMEM;
 
         auto* region = mm::phys_region::create(pages, true);
@@ -281,7 +283,9 @@ namespace astia::proc {
             return -ENOMEM;
         }
         const u64 want = pages * page_bytes;
-        if (want > rlimit_as_.current || mapped_bytes_ > rlimit_as_.current - want)
+        astia_rlimit address_limit{};
+        (void) get_rlimit(RLIMIT_AS, &address_limit);
+        if (want > address_limit.current || mapped_bytes_ > address_limit.current - want)
             return -ENOMEM;
         if (off + want < off) {
             return -EINVAL;
@@ -473,7 +477,10 @@ namespace astia::proc {
         bool      linked = false;
         {
             arch::interrupt_spinlock_guard guard(mmap_lock_);
-            if (bytes <= rlimit_as_.current && mapped_bytes_ <= rlimit_as_.current - bytes) {
+            astia_rlimit address_limit{};
+            (void) get_rlimit(RLIMIT_AS, &address_limit);
+            if (bytes <= address_limit.current &&
+                mapped_bytes_ <= address_limit.current - bytes) {
                 mapped_bytes_ += bytes;
                 mmap_region** link = &mmap_regions_;
                 while (*link != nullptr && (*link)->base < base) {
@@ -627,8 +634,11 @@ namespace astia::proc {
             return false;
         }
         child->mapped_bytes_  = mapped_bytes_;
-        child->rlimit_nofile_ = rlimit_nofile_;
-        child->rlimit_as_     = rlimit_as_;
+        astia_rlimit nofile_limit{}, address_limit{};
+        (void) get_rlimit(RLIMIT_NOFILE, &nofile_limit);
+        (void) get_rlimit(RLIMIT_AS, &address_limit);
+        (void) child->set_rlimit(RLIMIT_NOFILE, nofile_limit);
+        (void) child->set_rlimit(RLIMIT_AS, address_limit);
         child->tls_tp_        = tls_tp_;
         if (saved_writable_storage) {
             mm::heap::free(saved_writable_storage.value);

@@ -31,10 +31,15 @@ namespace astia::dev {
 
     long tty::read(void* buf, u32 len, u64 off) {
         (void) off;
+        pgrp_t foreground;
+        {
+            arch::interrupt_spinlock_guard guard(_state_lock);
+            foreground = _foreground_pgrp;
+        }
         if (proc::terminal_read_allowed != nullptr &&
-            !proc::terminal_read_allowed(_foreground_pgrp))
+            !proc::terminal_read_allowed(foreground))
             return -EIO;
-        arch::interrupt_guard gate;
+        arch::interrupt_spinlock_guard guard(_state_lock);
         auto*                 dst   = static_cast<u8*>(buf);
         const u32             head  = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
         const u32             tail  = _rx_tail;
@@ -60,18 +65,28 @@ namespace astia::dev {
 
     long tty::write(const void* buf, u32 len, u64 off) {
         (void) off;
+        pgrp_t foreground;
+        bool   tostop;
+        bool   output_stopped;
+        termios termios;
+        {
+            arch::interrupt_spinlock_guard guard(_state_lock);
+            foreground       = _foreground_pgrp;
+            tostop           = (_termios.c_lflag & TOSTOP) != 0;
+            output_stopped   = _output_stopped;
+            termios          = _termios;
+        }
         if (proc::terminal_write_allowed != nullptr &&
-            !proc::terminal_write_allowed(_foreground_pgrp,
-                                          (_termios.c_lflag & TOSTOP) != 0))
+            !proc::terminal_write_allowed(foreground, tostop))
             return -EIO;
-        if (_output_stopped) {
+        if (output_stopped) {
             return 0;
         }
         const auto* source = static_cast<const u8*>(buf);
         u32         sent   = 0;
         for (; sent < len; ++sent) {
             const u8 byte = source[sent];
-            if ((_termios.c_oflag & OPOST) != 0 && (_termios.c_oflag & ONLCR) != 0 &&
+            if ((termios.c_oflag & OPOST) != 0 && (termios.c_oflag & ONLCR) != 0 &&
                 byte == '\n') {
                 if (!tty_putc('\r') || !tty_putc('\n')) {
                     break;
@@ -85,13 +100,20 @@ namespace astia::dev {
     }
 
     long tty::submit(io_request& request) {
+        termios current;
+        bool eof_pending;
+        {
+            arch::interrupt_spinlock_guard guard(_state_lock);
+            current     = _termios;
+            eof_pending = _eof_pending;
+        }
         if (request.direction() == io_direction::output) {
             return write(request.buffer(), request.length(), request.offset());
         }
         // A canonical VEOF at an empty line completes a parked read with
         // zero.  Consume it here so the generic async engine does not
         // interpret zero as another "park" result.
-        if ((_termios.c_lflag & ICANON) != 0 && _eof_pending) {
+        if ((current.c_lflag & ICANON) != 0 && eof_pending) {
             (void) read(request.buffer(), request.length(), request.offset());
             request.complete(true);
             return 0;
@@ -100,7 +122,7 @@ namespace astia::dev {
         if (count > 0) {
             return count;
         }
-        if ((_termios.c_lflag & ICANON) == 0 && _termios.c_cc[VMIN] == 0) {
+        if ((current.c_lflag & ICANON) == 0 && current.c_cc[VMIN] == 0) {
             request.complete(true);
             return 0;
         }
@@ -109,8 +131,9 @@ namespace astia::dev {
     }
 
     u32 tty::poll(u32 events, u32) {
-        const u32  head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
-        const u32  tail = __atomic_load_n(&_rx_tail, __ATOMIC_RELAXED);
+        arch::interrupt_spinlock_guard guard(_state_lock);
+        const u32  head = _rx_head;
+        const u32  tail = _rx_tail;
         const bool readable =
             ((head - tail) & (rx_capacity_bytes - 1)) != 0 || _eof_pending;
         u32 result = POLLOUT;
@@ -120,6 +143,17 @@ namespace astia::dev {
     }
 
     void tty::tty_receive(u8 byte) {
+        arch::interrupt_spinlock_guard guard(_state_lock);
+        u8   echo[3]{};
+        u32  echo_count = 0;
+        bool ready = false;
+        const auto finish = [&]() {
+            guard.unlock();
+            for (u32 i = 0; i < echo_count; ++i)
+                tty_echo(echo[i]);
+            if (ready)
+                tty_input_ready();
+        };
         if ((_termios.c_iflag & IXON) != 0) {
             if (byte == _termios.c_cc[VSTOP]) {
                 _output_stopped = true;
@@ -127,7 +161,8 @@ namespace astia::dev {
             }
             if (byte == _termios.c_cc[VSTART]) {
                 _output_stopped = false;
-                tty_input_ready();
+                ready = true;
+                finish();
                 return;
             }
         }
@@ -154,7 +189,12 @@ namespace astia::dev {
             // VINTR/VQUIT/VSUSP discard the current input line.  In
             // particular, Ctrl-C must not leave the half typed command to
             // be consumed after the foreground job handles the signal.
-            tty_discard_input();
+            const u32 head = _rx_head;
+            _rx_tail = head;
+            _line_length = 0;
+            _line_overflow = false;
+            _eof_pending = false;
+            guard.unlock();
             tty_signal(byte);
             return;
         }
@@ -167,7 +207,8 @@ namespace astia::dev {
             }
             _rx[head] = byte;
             __atomic_store_n(&_rx_head, next, __ATOMIC_RELEASE);
-            tty_echo(byte);
+            echo[echo_count++] = byte;
+            finish();
             return;
         }
 
@@ -175,29 +216,43 @@ namespace astia::dev {
             if (_line_length != 0) {
                 --_line_length;
                 if ((_termios.c_lflag & ECHOE) != 0) {
-                    tty_echo('\b');
-                    tty_echo(' ');
-                    tty_echo('\b');
+                    echo[echo_count++] = '\b';
+                    echo[echo_count++] = ' ';
+                    echo[echo_count++] = '\b';
                 }
             }
+            finish();
             return;
         }
         if (byte == _termios.c_cc[VKILL]) {
             _line_length   = 0;
             _line_overflow = false;
             if ((_termios.c_lflag & ECHOK) != 0) {
-                tty_echo('\n');
+                echo[echo_count++] = '\n';
             }
+            finish();
             return;
         }
         if (byte == _termios.c_cc[VEOF]) {
             if (_line_length == 0 && !_line_overflow) {
                 _eof_pending = true;
-                tty_input_ready();
+                ready = true;
             }
             else {
-                tty_commit_line(true);
+                const u32 head = _rx_head;
+                u32 next = head;
+                for (u32 i = 0; i < _line_length; ++i) {
+                    const u32 candidate = (next + 1) & (rx_capacity_bytes - 1);
+                    if (candidate == _rx_tail)
+                        break;
+                    _rx[next] = _line[i];
+                    next = candidate;
+                }
+                _line_length = 0;
+                _rx_head = next;
+                ready = true;
             }
+            finish();
             return;
         }
         if (byte == '\n') {
@@ -208,26 +263,64 @@ namespace astia::dev {
                 // as another suffix of the old command).
                 _line_length   = 0;
                 _line_overflow = false;
-                tty_commit_line(false);
+                const u32 head = _rx_head;
+                u32 next = head;
+                for (u32 i = 0; i < _line_length; ++i) {
+                    const u32 candidate = (next + 1) & (rx_capacity_bytes - 1);
+                    if (candidate == _rx_tail)
+                        break;
+                    _rx[next] = _line[i];
+                    next = candidate;
+                }
+                const u32 candidate = (next + 1) & (rx_capacity_bytes - 1);
+                if (candidate != _rx_tail) {
+                    _rx[next] = '\n';
+                    next = candidate;
+                }
+                _line_length = 0;
+                _line_overflow = false;
+                _rx_head = next;
+                ready = true;
                 if ((_termios.c_lflag & ECHO) != 0 || (_termios.c_lflag & ECHONL) != 0)
-                    tty_echo('\n');
+                    echo[echo_count++] = '\n';
+                finish();
                 return;
             }
-            tty_commit_line(false);
-            if ((_termios.c_lflag & ECHO) != 0 || (_termios.c_lflag & ECHONL) != 0) {
-                tty_echo('\n');
+            const u32 head = _rx_head;
+            u32 next = head;
+            for (u32 i = 0; i < _line_length; ++i) {
+                const u32 candidate = (next + 1) & (rx_capacity_bytes - 1);
+                if (candidate == _rx_tail)
+                    break;
+                _rx[next] = _line[i];
+                next = candidate;
             }
+            if (byte == '\n') {
+                const u32 candidate = (next + 1) & (rx_capacity_bytes - 1);
+                if (candidate != _rx_tail) {
+                    _rx[next] = '\n';
+                    next = candidate;
+                }
+            }
+            _line_length = 0;
+            _rx_head = next;
+            ready = true;
+            if ((_termios.c_lflag & ECHO) != 0 || (_termios.c_lflag & ECHONL) != 0) {
+                echo[echo_count++] = '\n';
+            }
+            finish();
             return;
         }
         if (_line_length < rx_capacity_bytes - 1) {
             _line[_line_length++] = byte;
             if ((_termios.c_lflag & ECHO) != 0) {
-                tty_echo(byte);
+                echo[echo_count++] = byte;
             }
         }
         else {
             _line_overflow = true;
         }
+        finish();
     }
 
     void tty::tty_input_ready() {
@@ -235,7 +328,7 @@ namespace astia::dev {
     }
 
     void tty::tty_discard_input() {
-        arch::interrupt_guard gate;
+        arch::interrupt_spinlock_guard guard(_state_lock);
         const u32             head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
         __atomic_store_n(&_rx_tail, head, __ATOMIC_RELEASE);
         _line_length   = 0;
@@ -244,6 +337,7 @@ namespace astia::dev {
     }
 
     void tty::tty_commit_line(bool eof) {
+        arch::interrupt_spinlock_guard guard(_state_lock);
         const u32 head = _rx_head;
         u32       next = head;
         for (u32 i = 0; i < _line_length; ++i) {
@@ -263,6 +357,7 @@ namespace astia::dev {
         }
         _line_length = 0;
         __atomic_store_n(&_rx_head, next, __ATOMIC_RELEASE);
+        guard.unlock();
         tty_input_ready();
     }
 
@@ -275,6 +370,7 @@ namespace astia::dev {
             if (argp == nullptr || size != sizeof(struct termios)) {
                 return -EINVAL;
             }
+            arch::interrupt_spinlock_guard guard(_state_lock);
             *static_cast<struct termios*>(argp) = _termios;
             return 0;
         }
@@ -282,7 +378,13 @@ namespace astia::dev {
             if (argp == nullptr || size != sizeof(struct termios)) {
                 return -EINVAL;
             }
-            const struct termios& next = *static_cast<const struct termios*>(argp);
+            const struct termios next = *static_cast<const struct termios*>(argp);
+            arch::interrupt_spinlock_guard ioctl_guard(_ioctl_lock);
+            struct termios old;
+            {
+                arch::interrupt_spinlock_guard guard(_state_lock);
+                old = _termios;
+            }
 
             // c_line is part of the ABI even though this kernel currently
             // provides only N_TTY.  Silently accepting another discipline
@@ -293,22 +395,22 @@ namespace astia::dev {
             // Tell the driver about every flag that moved; the rate
             // last, so a refusal leaves the line state untouched.
             for (const tcflag_t f : iflags) {
-                if (((_termios.c_iflag ^ next.c_iflag) & f) != 0) {
+                if (((old.c_iflag ^ next.c_iflag) & f) != 0) {
                     tty_iflag(f, (next.c_iflag & f) != 0);
                 }
             }
             for (const tcflag_t f : oflags) {
-                if (((_termios.c_oflag ^ next.c_oflag) & f) != 0) {
+                if (((old.c_oflag ^ next.c_oflag) & f) != 0) {
                     tty_oflag(f, (next.c_oflag & f) != 0);
                 }
             }
             for (const tcflag_t f : cflags) {
-                if (((_termios.c_cflag ^ next.c_cflag) & f) != 0) {
+                if (((old.c_cflag ^ next.c_cflag) & f) != 0) {
                     tty_cflag(f, (next.c_cflag & f) != 0);
                 }
             }
             for (const tcflag_t f : lflags) {
-                if (((_termios.c_lflag ^ next.c_lflag) & f) != 0) {
+                if (((old.c_lflag ^ next.c_lflag) & f) != 0) {
                     tty_lflag(f, (next.c_lflag & f) != 0);
                 }
             }
@@ -317,7 +419,10 @@ namespace astia::dev {
             if (rc < 0) {
                 return rc;
             }
-            _termios = next;
+            {
+                arch::interrupt_spinlock_guard guard(_state_lock);
+                _termios = next;
+            }
             if (request == TCSETSF)
                 tty_discard_input();
             return 0;
@@ -338,8 +443,8 @@ namespace astia::dev {
         if (request == TIOCGPGRP) {
             if (argp == nullptr || size != sizeof(i32))
                 return -EINVAL;
-            *static_cast<i32*>(argp) =
-                static_cast<i32>(static_cast<u32>(_foreground_pgrp));
+            arch::interrupt_spinlock_guard guard(_state_lock);
+            *static_cast<i32*>(argp) = static_cast<i32>(static_cast<u32>(_foreground_pgrp));
             return 0;
         }
         if (request == TIOCSPGRP) {
@@ -350,7 +455,10 @@ namespace astia::dev {
                 (proc::terminal_set_foreground_allowed != nullptr &&
                  !proc::terminal_set_foreground_allowed(pgrp_t{static_cast<u32>(group)})))
                 return -EPERM;
-            _foreground_pgrp = pgrp_t{static_cast<u32>(group)};
+            {
+                arch::interrupt_spinlock_guard guard(_state_lock);
+                _foreground_pgrp = pgrp_t{static_cast<u32>(group)};
+            }
             return 0;
         }
         if (request == TIOCSCTTY)
@@ -381,13 +489,20 @@ namespace astia::dev {
     void tty::tty_ready() {}
 
     void tty::tty_signal(u8 byte) {
+        pgrp_t foreground;
+        termios current;
+        {
+            arch::interrupt_spinlock_guard guard(_state_lock);
+            foreground = _foreground_pgrp;
+            current = _termios;
+        }
         signal_number signal = signal_number::int_;
-        if (byte == _termios.c_cc[VQUIT])
+        if (byte == current.c_cc[VQUIT])
             signal = signal_number::quit;
-        else if (byte == _termios.c_cc[VSUSP])
+        else if (byte == current.c_cc[VSUSP])
             signal = signal_number::tstp;
         if (proc::terminal_signal_foreground != nullptr)
-            (void) proc::terminal_signal_foreground(_foreground_pgrp, signal);
+            (void) proc::terminal_signal_foreground(foreground, signal);
     }
 
     long tty::tty_speed(speed_t speed) {

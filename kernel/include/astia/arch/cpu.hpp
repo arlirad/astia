@@ -100,15 +100,24 @@ namespace astia::arch {
             lock_.lock();
         }
         ~interrupt_spinlock_guard() {
-            lock_.unlock();
+            unlock();
         }
 
         interrupt_spinlock_guard(const interrupt_spinlock_guard&)            = delete;
         interrupt_spinlock_guard& operator=(const interrupt_spinlock_guard&) = delete;
 
+        void unlock() {
+            if (locked_) {
+                lock_.unlock();
+                locked_ = false;
+                gate_.unlock();
+            }
+        }
+
         private:
         interrupt_guard gate_;
         core::spinlock& lock_;
+        bool             locked_ = true;
     };
 
 } // namespace astia::arch
