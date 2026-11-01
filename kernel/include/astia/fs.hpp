@@ -54,28 +54,6 @@ namespace astia::fs {
     class file;
     struct unix_socket_operations;
 
-    /// Owning reference to a filesystem node.  This is intentionally a
-    /// distinct type from an open_file: registries may retain the node after
-    /// one particular open description has been closed.
-    class file_node_ref {
-        public:
-        file_node_ref() = default;
-        explicit file_node_ref(const mm::shptr<file>& node) : node_(node) {}
-
-        file* get() const { return node_.get(); }
-        explicit operator bool() const { return static_cast<bool>(node_); }
-
-        template <typename T>
-        mm::shptr<T> as() const {
-            return mm::shptr<T>(node_);
-        }
-
-        const mm::shptr<file>& ownership() const { return node_; }
-
-        private:
-        mm::shptr<file> node_;
-    };
-
     enum class file_type : u32 {
         unknown   = 0,
         fifo      = 1,
@@ -327,7 +305,7 @@ namespace astia::fs {
         void set_path(const char* path);
         void attach_mount(mount* owner);
         mount* mount_owner() const { return _mount; }
-        file_node_ref node() const { return file_node_ref(_object); }
+        mm::shptr<file> node() const { return _object; }
         u64  mtime_sec() const;
         u64  mtime_nsec() const;
 
