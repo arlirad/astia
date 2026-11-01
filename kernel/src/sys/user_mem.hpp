@@ -346,4 +346,9 @@ namespace astia::sys {
         return false; // no terminator within capacity
     }
 
+    inline bool copy_in_string(char* destination, usize capacity,
+                               user_ptr<char> source) {
+        return copy_in_string(destination, capacity, source.string());
+    }
+
 } // namespace astia::sys

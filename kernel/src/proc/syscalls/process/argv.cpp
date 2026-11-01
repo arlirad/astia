@@ -47,8 +47,7 @@ namespace astia::proc::syscall::detail {
                 return 0;
             }
             if (!sys::copy_in_string(pool, arg_cap,
-                                     sys::user_ptr<char>(reinterpret_cast<u64>(element))
-                                         .string()))
+                                     sys::user_ptr<char>(reinterpret_cast<u64>(element))))
                 return -EFAULT;
             vec[i] = pool;
             pool += arg_cap;
