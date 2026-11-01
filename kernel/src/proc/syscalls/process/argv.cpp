@@ -36,18 +36,19 @@ namespace astia::proc::syscall::detail {
         }
         for (usize i = 0; i < vec_max; ++i) {
             char*     element = nullptr;
-            const u64 delta   = static_cast<u64>(i) * sizeof(char*);
-            const u64 slot    = user_vector + delta;
-            if (slot < user_vector || delta > ~u64{0} - user_vector ||
-                !sys::copy_in(&element, sys::user_range::bytes(slot, sizeof element)))
+            const u64 delta = static_cast<u64>(i) * sizeof(char*);
+            if (delta > ~u64{0} - user_vector)
+                return -EFAULT;
+            const auto slot = sys::user_ptr<const u64>(user_vector + delta).validate();
+            if (!slot || !sys::copy_in(&element, slot.value.bytes()))
                 return -EFAULT;
             if (element == nullptr) {
                 vec[i] = nullptr;
                 return 0;
             }
-            if (!sys::copy_in_string(
-                    pool, arg_cap,
-                    sys::user_range::string(reinterpret_cast<u64>(element))))
+            if (!sys::copy_in_string(pool, arg_cap,
+                                     sys::user_ptr<char>(reinterpret_cast<u64>(element))
+                                         .string()))
                 return -EFAULT;
             vec[i] = pool;
             pool += arg_cap;

@@ -14,7 +14,7 @@ namespace astia::fs::syscall {
             return -EPERM;
         char path[path_max]{};
         if (!sys::copy_in_string(path, sizeof path,
-                                 sys::user_range::string(target_address)))
+                                 sys::user_ptr<char>(target_address).string()))
             return -EFAULT;
         return unmount_type(path);
     }

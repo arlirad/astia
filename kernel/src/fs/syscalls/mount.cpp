@@ -11,13 +11,13 @@ namespace astia::fs::syscall {
         char target[path_max]{};
         char source[path_max]{};
         if (!sys::copy_in_string(type, sizeof type,
-                                 sys::user_range::string(type_address)) ||
+                                 sys::user_ptr<char>(type_address).string()) ||
             !sys::copy_in_string(target, sizeof target,
-                                 sys::user_range::string(target_address)))
+                                 sys::user_ptr<char>(target_address).string()))
             return -EFAULT;
         if (source_address != 0 &&
             !sys::copy_in_string(source, sizeof source,
-                                 sys::user_range::string(source_address)))
+                                 sys::user_ptr<char>(source_address).string()))
             return -EFAULT;
 
         auto* current = proc::current_process();
