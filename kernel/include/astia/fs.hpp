@@ -309,10 +309,6 @@ namespace astia::fs {
         u64  mtime_sec() const;
         u64  mtime_nsec() const;
 
-        file* backing() const {
-            return _object.get();
-        }
-
         private:
         mm::shptr<file> _object;
         u64             _position = 0;

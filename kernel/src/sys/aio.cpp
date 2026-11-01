@@ -626,7 +626,7 @@ namespace astia::sys {
                 const usize ask = static_cast<usize>(op.request.length());
                 long        n   = 0;
                 if (op.socket_accept) {
-                    const auto* socket = op.object->backing()->unix_socket_capability();
+                    const auto* socket = op.object->node()->unix_socket_capability();
                     n = socket == nullptr ? -EOPNOTSUPP
                                           : socket->accept(*op.object, op.request);
                 }
@@ -674,7 +674,7 @@ namespace astia::sys {
         void complete_recvfrom_address(parked_op& op, long& result) {
             if (op.recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
-                const auto*    socket = op.object->backing()->unix_socket_capability();
+                const auto*    socket = op.object->node()->unix_socket_capability();
                 if (socket == nullptr || !socket->recvfrom_address(*op.object, address) ||
                     !sys::copy_out(
                         sys::user_range::bytes(op.recvfrom_address_user, sizeof address),
@@ -759,7 +759,7 @@ namespace astia::sys {
             long       result  = 0;
             const auto outcome = pump(*p, result);
             if (outcome == io_outcome::parked) {
-                publish_waiter_hint(slot, park_index, p->object->backing());
+                publish_waiter_hint(slot, park_index, p->object->node().get());
                 if (ready_generation() != generation)
                     resume_parked(ring, *p);
                 return true; // parked: a device resume completes it
@@ -1188,13 +1188,13 @@ namespace astia::sys {
                 auto* stat_out = reinterpret_cast<astia_stat*>(out.address());
                 __builtin_memset(stat_out, 0, sizeof *stat_out);
                 stat_out->dev        = 1;
-                stat_out->ino        = object->backing()->inode();
-                stat_out->nlink      = object->backing()->nlink();
+                stat_out->ino        = object->node()->inode();
+                stat_out->nlink      = object->node()->nlink();
                 stat_out->size       = static_cast<u64>(size);
                 stat_out->blocks     = (static_cast<u64>(size) + 511u) / 512u;
                 stat_out->mode       = mapper<fs::file_mode>::to(object->mode());
-                stat_out->uid        = static_cast<u32>(object->backing()->uid());
-                stat_out->gid        = static_cast<u32>(object->backing()->gid());
+                stat_out->uid        = static_cast<u32>(object->node()->uid());
+                stat_out->gid        = static_cast<u32>(object->node()->gid());
                 stat_out->mtime_sec  = object->mtime_sec();
                 stat_out->mtime_nsec = object->mtime_nsec();
                 return cq_post_guarded(ring, s.user_data, 0);
@@ -1239,12 +1239,12 @@ namespace astia::sys {
                     if (!object)
                         return cq_post_guarded(ring, s.user_data, -EBADF);
                     if (current->euid() != 0 &&
-                        (current->euid() != static_cast<u32>(object->backing()->uid()) ||
-                         owner.value != object->backing()->uid() ||
+                        (current->euid() != static_cast<u32>(object->node()->uid()) ||
+                         owner.value != object->node()->uid() ||
                          !current->in_group(group.value)))
                         return cq_post_guarded(ring, s.user_data, -EPERM);
                     return cq_post_guarded(ring, s.user_data,
-                                           static_cast<i32>(object->backing()->chown(
+                                           static_cast<i32>(object->node()->chown(
                                                owner.value, group.value)));
                 }
                 char path[256];
@@ -1671,7 +1671,7 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, static_cast<i32>(path_rc));
                 if (!socket_node_writable(proc::current_process(), canonical))
                     return cq_post_guarded(ring, s.user_data, -EACCES);
-                const auto* socket = object->backing()->unix_socket_capability();
+                const auto* socket = object->node()->unix_socket_capability();
                 long        rc =
                     socket == nullptr ? -EOPNOTSUPP : socket->sendto(*object, &a);
                 if (rc < 0)
@@ -1680,7 +1680,7 @@ namespace astia::sys {
             else {
                 if (s.length == 0)
                     return cq_post_guarded(ring, s.user_data, 0);
-                const auto* socket = object->backing()->unix_socket_capability();
+                const auto* socket = object->node()->unix_socket_capability();
                 long rc = socket == nullptr ? -EOPNOTSUPP : socket->recvfrom(*object);
                 if (rc < 0)
                     return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
@@ -1721,7 +1721,7 @@ namespace astia::sys {
             else if (!socket_node_writable(proc::current_process(), canonical)) {
                 return cq_post_guarded(ring, s.user_data, -EACCES);
             }
-            const auto* socket = object->backing()->unix_socket_capability();
+            const auto* socket = object->node()->unix_socket_capability();
             long        rc = socket == nullptr
                                  ? -EOPNOTSUPP
                                  : (s.op == OP_BIND ? socket->bind(*object, a)
@@ -1733,7 +1733,7 @@ namespace astia::sys {
             auto object = file_for(s.fd);
             if (!object)
                 return cq_post_guarded(ring, s.user_data, -EBADF);
-            const auto* socket = object->backing()->unix_socket_capability();
+            const auto* socket = object->node()->unix_socket_capability();
             return cq_post_guarded(
                 ring, s.user_data,
                 static_cast<i32>(socket == nullptr ? -EOPNOTSUPP
@@ -1744,7 +1744,7 @@ namespace astia::sys {
             auto object = file_for(s.fd);
             if (!object)
                 return cq_post_guarded(ring, s.user_data, -EBADF);
-            if (object->backing()->unix_socket_capability() == nullptr)
+            if (object->node()->unix_socket_capability() == nullptr)
                 return cq_post_guarded(ring, s.user_data, -EOPNOTSUPP);
             return submit_request(slot, ring, s, object, nullptr, 0,
                                   io_direction::input, true, true);
@@ -1754,7 +1754,7 @@ namespace astia::sys {
             auto object = file_for(s.fd);
             if (!object)
                 return cq_post_guarded(ring, s.user_data, -EBADF);
-            const auto* socket = object->backing()->unix_socket_capability();
+            const auto* socket = object->node()->unix_socket_capability();
             return cq_post_guarded(
                 ring, s.user_data,
                 static_cast<i32>(socket == nullptr
@@ -1848,7 +1848,7 @@ namespace astia::sys {
             p->fd          = s.fd;
             p->object      = object;
             p->request = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
-            publish_waiter_hint(slot, park_index, object->backing());
+            publish_waiter_hint(slot, park_index, object->node().get());
             if (ready_generation() != generation)
                 resume_parked(ring, *p);
             return true;
@@ -2233,7 +2233,7 @@ namespace astia::sys {
         if (!current_object) {
             return;
         }
-        const fs::file* device = current_object->backing();
+        const fs::file* device = current_object->node().get();
         bool indexed[kernel_ring_slot_count][parked_operation_slots]{};
         note_device_ready(device);
         {
@@ -2258,7 +2258,7 @@ namespace astia::sys {
                 pool_guard.release_lock();
                 parked_op& op = slot.park[p];
                 if (op.used && !op.done && op.fd == fd && op.object &&
-                    op.object->backing() == device) {
+                    op.object->node().get() == device) {
                     resume_parked(rings_of(slot), op);
                 }
             }
@@ -2298,7 +2298,7 @@ namespace astia::sys {
                 parked_op& op = slot.park[p];
                 if (op.used && !op.done && op.object &&
                     op.request.user_data() != excluded_user_data &&
-                    op.object->backing() == dev) {
+                    op.object->node().get() == dev) {
                     resume_parked(rings_of(slot), op);
                 }
             }

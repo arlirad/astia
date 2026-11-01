@@ -842,7 +842,7 @@ namespace astia::fs {
             operation.instance()->open(relative_path(*operation.entry(), path), 0);
         if (!object)
             return -ENOENT;
-        return object->backing()->touch(sec, nsec);
+        return object->node()->touch(sec, nsec);
     }
 
     bool read_batch(kernel_read* requests, usize count) {
