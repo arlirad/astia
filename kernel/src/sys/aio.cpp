@@ -675,10 +675,10 @@ namespace astia::sys {
             if (op.recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
                 const auto*    socket = op.object->node()->unix_socket_capability();
+                const auto destination =
+                    sys::user_ptr<astia_sockaddr>(op.recvfrom_address_user).validate();
                 if (socket == nullptr || !socket->recvfrom_address(*op.object, address) ||
-                    !sys::copy_out(
-                        sys::user_range::bytes(op.recvfrom_address_user, sizeof address),
-                        &address))
+                    !destination || !sys::copy_out(destination.value.bytes(), &address))
                     result = -EFAULT;
             }
         }
@@ -1093,9 +1093,8 @@ namespace astia::sys {
                 // the stat target (fstat), otherwise address is a pathname
                 // and fd is the dirfd. The VFS still has one exact-path
                 // namespace, so the dirfd is accepted and ignored.
-                const sys::user_range out =
-                    sys::user_range::bytes(s.offset, sizeof(astia_stat));
-                if (!sys::user_range_ok(out)) {
+                const auto out = sys::user_ptr<astia_stat>(s.offset).validate();
+                if (!out) {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 }
                 if (s.length != sizeof(astia_stat)) {
@@ -1122,9 +1121,9 @@ namespace astia::sys {
                         return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
                     const fs::file_type type = fs::node_type(resolved);
                     if ((s.op_flags & STATX_NOFOLLOW) != 0 && type == fs::directory_lnk) {
-                        __builtin_memset(reinterpret_cast<void*>(out.address()), 0,
+                        __builtin_memset(reinterpret_cast<void*>(out.value.get()), 0,
                                          sizeof(astia_stat));
-                        auto* link = reinterpret_cast<astia_stat*>(out.address());
+                        auto* link = reinterpret_cast<astia_stat*>(out.value.get());
                         char  target[256]{};
                         long  n = fs::read_symlink(resolved, target, sizeof target);
                         if (n < 0)
@@ -1141,9 +1140,9 @@ namespace astia::sys {
                     }
                     object = fs::open_path(resolved);
                     if (type == fs::directory_dir) {
-                        __builtin_memset(reinterpret_cast<void*>(out.address()), 0,
+                        __builtin_memset(reinterpret_cast<void*>(out.value.get()), 0,
                                          sizeof(astia_stat));
-                        auto* directory  = reinterpret_cast<astia_stat*>(out.address());
+                        auto* directory  = reinterpret_cast<astia_stat*>(out.value.get());
                         directory->dev   = 1;
                         directory->ino   = 1;
                         directory->nlink = 1;
@@ -1160,9 +1159,9 @@ namespace astia::sys {
                                                &child_type) <= 0) {
                             return cq_post_guarded(ring, s.user_data, -ENOENT);
                         }
-                        __builtin_memset(reinterpret_cast<void*>(out.address()), 0,
+                        __builtin_memset(reinterpret_cast<void*>(out.value.get()), 0,
                                          sizeof(astia_stat));
-                        auto* directory  = reinterpret_cast<astia_stat*>(out.address());
+                        auto* directory  = reinterpret_cast<astia_stat*>(out.value.get());
                         directory->dev   = 1;
                         directory->ino   = 1;
                         directory->nlink = 1;
@@ -1185,7 +1184,7 @@ namespace astia::sys {
                 // The VFS carries a size and nothing else about a node, so
                 // mode/uid/times stay zero rather than being guessed.  The
                 // range was validated above; this is the write it licensed.
-                auto* stat_out = reinterpret_cast<astia_stat*>(out.address());
+                auto* stat_out = reinterpret_cast<astia_stat*>(out.value.get());
                 __builtin_memset(stat_out, 0, sizeof *stat_out);
                 stat_out->dev        = 1;
                 stat_out->ino        = object->node()->inode();
@@ -1372,9 +1371,8 @@ namespace astia::sys {
                         fs::resolve_path(resolved, resolved, sizeof resolved, true);
                 if (resolve_rc < 0)
                     return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
-                const sys::user_range out =
-                    sys::user_range::bytes(s.address, sizeof(astia_dirent));
-                if (!sys::user_range_ok(out))
+                const auto out = sys::user_ptr<astia_dirent>(s.address).validate();
+                if (!out)
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 astia_dirent  result{};
                 fs::file_type type = fs::directory_unknown;
@@ -1387,7 +1385,7 @@ namespace astia::sys {
                         ++length;
                     result.namelen = length;
                 }
-                if (!sys::copy_out(out, &result))
+                if (!sys::copy_out(out.value.bytes(), &result))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
 
@@ -1492,9 +1490,8 @@ namespace astia::sys {
         }
 
         bool handle_pipe(astia_rings* ring, const astia_sqe& s) {
-            const sys::user_range out =
-                sys::user_range::bytes(s.address, 2 * sizeof(i32));
-            if (!sys::user_range_ok(out))
+            const auto out = sys::user_ptr<i32>(s.address).validate(2);
+            if (!out)
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             proc::process* current = proc::current_process();
             if (current == nullptr)
@@ -1524,7 +1521,7 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, -EMFILE);
             }
             i32 result[2] = {read_fd, write_fd};
-            if (!sys::copy_out(out, result)) {
+            if (!sys::copy_out(out.value.bytes(2), result)) {
                 current->clear_descriptor(fd_t{read_fd});
                 current->clear_descriptor(fd_t{write_fd});
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
@@ -1654,7 +1651,8 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, -EINVAL);
             astia_sockaddr a{};
             if (s.op == OP_SENDTO) {
-                if (!sys::copy_in(&a, sys::user_range::bytes(s.offset, sizeof a)))
+                const auto address = sys::user_ptr<astia_sockaddr>(s.offset).validate();
+                if (!address || !sys::copy_in(&a, address.value.bytes()))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 char socket_path[fs::path_max]{}, canonical[fs::path_max]{};
                 if (a.family != AF_UNIX || a.len < 3 || a.len > sizeof(a.data) + 2)
@@ -1695,11 +1693,11 @@ namespace astia::sys {
             auto object = file_for(s.fd);
             if (!object)
                 return cq_post_guarded(ring, s.user_data, -EBADF);
-            if (!sys::user_range_ok(
-                    sys::user_range::bytes(s.address, sizeof(astia_sockaddr))))
+            const auto address = sys::user_ptr<astia_sockaddr>(s.address).validate();
+            if (!address)
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             astia_sockaddr a{};
-            if (!sys::copy_in(&a, sys::user_range::bytes(s.address, sizeof a)))
+            if (!sys::copy_in(&a, address.value.bytes()))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             char socket_path[fs::path_max]{}, canonical[fs::path_max]{};
             if (a.family != AF_UNIX || a.len < 3 || a.len > sizeof(a.data) + 2)
@@ -1798,24 +1796,22 @@ namespace astia::sys {
             else {
                 return cq_post_guarded(ring, s.user_data, -ENOTTY);
             }
-            if (s.length != expected ||
-                !sys::user_range_ok(sys::user_range::bytes(s.address, expected)))
+            const auto argument = sys::user_ptr<u8>(s.address).validate(expected);
+            if (s.length != expected || !argument)
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             mm::shptr<fs::open_file> object = file_for(s.fd);
             if (!object)
                 return cq_post_guarded(ring, s.user_data, -EBADF);
             __atomic_thread_fence(__ATOMIC_SEQ_CST);
             alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
-            if (input && !sys::copy_in(ioctl_storage,
-                                       sys::user_range::bytes(s.address, expected)))
+            if (input && !sys::copy_in(ioctl_storage, argument.value.bytes(expected)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             void* kernel_arg = expected == 0 ? nullptr : static_cast<void*>(ioctl_storage);
             long rc = object->ioctl(s.offset, kernel_arg, expected);
             if (rc >= 0 && s.offset == TIOCSCTTY)
                 rc = proc::acquire_controlling_terminal(object);
             if (rc >= 0 && output &&
-                !sys::copy_out(sys::user_range::bytes(s.address, expected),
-                               ioctl_storage))
+                !sys::copy_out(argument.value.bytes(expected), ioctl_storage))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             __atomic_thread_fence(__ATOMIC_SEQ_CST);
             return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
