@@ -7,6 +7,7 @@
 #include <astia/common.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/iovec.hpp>
+#include <astia/optional.hpp>
 
 /*
  * User-pointer hygiene for the syscall boundary.
@@ -38,6 +39,9 @@
  */
 
 namespace astia::sys {
+
+    template <typename T>
+    class validated_user_ptr;
 
     /// An address the caller named, and the length that came with it.
     ///
@@ -122,6 +126,24 @@ namespace astia::sys {
         usize length_  = 0;
     };
 
+    /// A typed borrowed view formed only after page-map validation.
+    template <typename T>
+    class validated_user_ptr {
+        template <typename>
+        friend class user_ptr;
+
+        public:
+        constexpr validated_user_ptr() = default;
+        T* get() const { return reinterpret_cast<T*>(address_); }
+        user_range bytes(usize count = 1) const {
+            return user_range::bytes(address_, sizeof(T) * count);
+        }
+
+        private:
+        explicit validated_user_ptr(u64 address) : address_(address) {}
+        u64 address_;
+    };
+
     /// Typed userspace address token.  It deliberately cannot be
     /// dereferenced or converted to a kernel pointer; callers must choose a
     /// bounded user_range before copying or pinning memory.
@@ -140,6 +162,7 @@ namespace astia::sys {
             static_assert(sizeof(T) == 1, "string pointers must point to bytes");
             return user_range::string(address_);
         }
+        optional<validated_user_ptr<T>> validate(usize count = 1) const;
 
         private:
         u64 address_ = 0;
@@ -179,6 +202,15 @@ namespace astia::sys {
                 return true;
             }
         }
+    }
+
+    template <typename T>
+    optional<validated_user_ptr<T>> user_ptr<T>::validate(usize count) const {
+        if (count > (~usize{0} / sizeof(T)))
+            return error_t::erange;
+        if (!user_range_ok(bytes(count)))
+            return error_t::efault;
+        return validated_user_ptr<T>(address_);
     }
 
     /// Snapshot one entry of an asynchronous operation's buffer list: 0, or a

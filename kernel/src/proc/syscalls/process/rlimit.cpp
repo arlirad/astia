@@ -15,7 +15,8 @@ namespace astia::proc::syscall {
         if (rc < 0)
             return rc;
         const sys::user_ptr<astia_rlimit> destination(output);
-        if (destination.null() || !sys::copy_out(destination.bytes(), &value))
+        const auto validated = destination.validate();
+        if (!validated || !sys::copy_out(validated.value.bytes(), &value))
             return -EFAULT;
         return 0;
     }
@@ -26,7 +27,8 @@ namespace astia::proc::syscall {
             return -ESRCH;
         astia_rlimit value{};
         const sys::user_ptr<const astia_rlimit> source(input);
-        if (source.null() || !sys::copy_in(&value, source.bytes()))
+        const auto validated = source.validate();
+        if (!validated || !sys::copy_in(&value, validated.value.bytes()))
             return -EFAULT;
         return process->set_rlimit(resource, value);
     }
