@@ -7,11 +7,10 @@
 
 namespace astia::fs::syscall {
     i64 io_setup(u32 entries, u32 flags, u64 out) {
-        const sys::user_range ring_out =
-            sys::user_range::bytes(out, sizeof(astia_rings*));
-        if (!sys::user_range_ok(ring_out))
+        const auto ring_out = sys::user_ptr<astia_rings*>(out).validate();
+        if (!ring_out)
             return -EFAULT;
         return sys::io_setup(entries, flags,
-                             reinterpret_cast<astia_rings**>(ring_out.address()));
+                             ring_out.value.get());
     }
 }

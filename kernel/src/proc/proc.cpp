@@ -278,9 +278,10 @@ namespace astia::proc {
                  ++n)
                 record.name[n] = name[n];
         }
+        const auto destination =
+            sys::user_ptr<astia_process_info>(output).validate(count);
         if (count != 0 &&
-            !sys::copy_out(sys::user_range::bytes(output, count * sizeof(records[0])),
-                           records))
+            (!destination || !sys::copy_out(destination.value.bytes(count), records)))
             return -EFAULT;
         return count;
     }

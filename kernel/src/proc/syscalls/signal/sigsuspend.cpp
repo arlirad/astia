@@ -17,11 +17,11 @@ namespace astia::proc::syscall {
         auto* self  = current_thread();
         if (owner == nullptr || self == nullptr)
             return -ESRCH;
-        const auto range = sys::user_range::bytes(mask_ptr, sizeof(u32));
-        if (!sys::user_range_ok(range))
+        const auto range = sys::user_ptr<u32>(mask_ptr).validate();
+        if (!range)
             return -EFAULT;
         signal_mask mask = 0;
-        if (!sys::copy_in(&mask, range))
+        if (!sys::copy_in(&mask, range.value.bytes()))
             return -EFAULT;
         // Match waitpid's register-before-scan protocol.  Interrupts stay
         // masked until either a pending signal is observed or this thread

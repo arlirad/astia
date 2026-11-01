@@ -21,9 +21,8 @@ namespace astia::proc::syscall {
     i64 thread_create2(u64 entry, u64 stack_top, u64 argument0, u64 argument1) {
         auto* owner = current_process();
         if (owner == nullptr || !valid_thread_start(entry, stack_top) ||
-            !sys::user_range_ok(sys::user_range::bytes(argument0, 1)) ||
-            (argument1 != 0 &&
-             !sys::user_range_ok(sys::user_range::bytes(argument1, 1)))) {
+            !sys::user_ptr<u8>(argument0).validate() ||
+            (argument1 != 0 && !sys::user_ptr<u8>(argument1).validate())) {
             return -EFAULT;
         }
         auto value = owner->create_thread(entry, stack_top, argument0, argument1);
