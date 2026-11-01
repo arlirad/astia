@@ -160,7 +160,8 @@ namespace astia::mm {
     }
 
     void phys_region::release_ref() {
-        child* orphans = nullptr;
+        child*       orphans = nullptr;
+        phys_region* parent  = nullptr;
         {
             core::spinlock_guard guard(lock_);
             if (refs_ == 0) {
@@ -173,6 +174,8 @@ namespace astia::mm {
             refs_     = 0;
             orphans   = children_;
             children_ = nullptr;
+            parent    = parent_;
+            parent_   = nullptr;
         }
 
         while (orphans != nullptr) {
@@ -181,9 +184,8 @@ namespace astia::mm {
             node->region->detach_parent(this);
             heap::free(node);
         }
-        if (parent_ != nullptr) {
-            parent_->unlink_child(this);
-            parent_ = nullptr;
+        if (parent != nullptr) {
+            parent->unlink_child(this);
         }
 
         // Any still-live pages are owned by this last allocation
@@ -217,17 +219,26 @@ namespace astia::mm {
     }
 
     void phys_region::unlink_child(phys_region* target) {
-        core::spinlock_guard guard(lock_);
-        child**              link = &children_;
-        while (*link != nullptr) {
-            if ((*link)->region == target) {
-                child* dead = *link;
-                *link       = dead->next;
-                heap::free(dead);
-                return;
+        child* dead = nullptr;
+        {
+            core::spinlock_guard guard(lock_);
+            child**              link = &children_;
+            while (*link != nullptr) {
+                if ((*link)->region == target) {
+                    dead  = *link;
+                    *link = dead->next;
+                    break;
+                }
+                link = &(*link)->next;
             }
-            link = &(*link)->next;
         }
+
+        // Heap operations are external to the region's lock.  In particular,
+        // keeping this lock while taking heap::lock_ would invert the order
+        // against callers that already own heap metadata and then touch a
+        // region.
+        if (dead != nullptr)
+            heap::free(dead);
     }
 
     void phys_region::detach_parent(const phys_region* expected) {
@@ -238,16 +249,20 @@ namespace astia::mm {
     }
 
     phys_region* phys_region::split_page(usize index) {
-        if (index >= pages_ || page_refs_ == nullptr ||
-            __atomic_load_n(&page_refs_[index], __ATOMIC_ACQUIRE) == 0) {
+        // Keep a temporary atomic page claim while allocation and copying run
+        // without lock_.  A concurrent unmap can consume its own claim, but
+        // cannot free the source frame until this claim is dropped.
+        if (index >= pages_ || page_refs_ == nullptr || !retain_mapping(index, 1)) {
             return nullptr;
         }
         auto* copy = create(1, false); // the bytes come over below
         if (copy == nullptr) {
+            (void)unmap_range(index, 1);
             return nullptr;
         }
         auto node = heap::alloc(sizeof(child));
         if (!node) {
+            (void)unmap_range(index, 1);
             copy->release();
             return nullptr;
         }
@@ -263,10 +278,14 @@ namespace astia::mm {
         // to the low-level phys_region tests without a separate global
         // frame-use table.
         if (!unmap_range(index, 1)) {
+            (void)unmap_range(index, 1);
             heap::free(node.value);
             copy->release();
             return nullptr;
         }
+        // The first unmap moves one mapping to the child.  Drop the temporary
+        // claim only after the source bytes have been copied.
+        (void)unmap_range(index, 1);
 
         auto* list_node = static_cast<child*>(static_cast<void*>(node.value));
         {

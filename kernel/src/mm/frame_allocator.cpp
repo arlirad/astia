@@ -36,7 +36,14 @@ namespace astia::mm {
         bitmap_physical_      = bitmap_base;
         if (access_ == nullptr)
             access_ = identity_access;
-        bitmap_ = static_cast<u64*>(access_(bitmap_base));
+        // Access hooks can be arch callbacks (and may take paging locks), so
+        // never invoke one while holding the allocator lock.  The allocator
+        // is not published until the bitmap has been initialized below.
+        const frame_access_fn access = access_;
+        guard.unlock();
+        u64* const bitmap = static_cast<u64*>(access(bitmap_base));
+        core::spinlock_guard publish(lock_);
+        bitmap_ = bitmap;
 
         for (usize i = 0; i < words_; ++i) {
             bitmap_[i] = ~u64{0};
@@ -65,9 +72,20 @@ namespace astia::mm {
 
     void frame_allocator::configure_access(frame_access_fn access) {
         core::spinlock_guard guard(lock_);
-        access_ = access == nullptr ? identity_access : access;
-        if (bitmap_physical_ != 0) {
-            bitmap_ = static_cast<u64*>(access_(bitmap_physical_));
+        const frame_access_fn selected = access == nullptr ? identity_access : access;
+        const u64 physical = bitmap_physical_;
+        guard.unlock();
+
+        // As in init(), resolve the physical address without the allocator
+        // lock: an arch access hook is external code and must not be called
+        // in the allocator's critical section.
+        u64* bitmap = physical == 0 ? nullptr
+                                    : static_cast<u64*>(selected(physical));
+
+        core::spinlock_guard publish(lock_);
+        access_ = selected;
+        if (physical != 0) {
+            bitmap_ = bitmap;
         }
     }
 

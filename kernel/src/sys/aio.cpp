@@ -178,23 +178,23 @@ namespace astia::sys {
         // other CPUs still serialize through the underlying spinlock.
         struct ring_lock {
             core::spinlock lock;
-            u32             owner = ~u32{0};
-            u32             depth = 0;
+            static constexpr u32 cpu_slots = 256;
+            u32                  depth[cpu_slots]{};
 
             void acquire() {
                 const u32 cpu = arch::cpu::current_index();
-                if (owner == cpu) {
-                    ++depth;
+                if (cpu < cpu_slots && depth[cpu] != 0) {
+                    ++depth[cpu];
                     return;
                 }
                 lock.lock();
-                owner = cpu;
-                depth = 1;
+                if (cpu < cpu_slots)
+                    depth[cpu] = 1;
             }
             void release() {
-                if (--depth != 0)
+                const u32 cpu = arch::cpu::current_index();
+                if (cpu < cpu_slots && --depth[cpu] != 0)
                     return;
-                owner = ~u32{0};
                 lock.unlock();
             }
         };
@@ -298,6 +298,18 @@ namespace astia::sys {
             usize moved = 0;
         };
 
+        struct parked_cleanup {
+            mm::iovec                       entries[parked_operation_slots];
+            mm::shptr<fs::open_file>        objects[parked_operation_slots];
+
+            void release() {
+                for (u32 i = 0; i < parked_operation_slots; ++i) {
+                    entries[i].release();
+                    objects[i] = mm::shptr<fs::open_file>{};
+                }
+            }
+        };
+
         struct ring_slot {
             // Interrupt masking only excludes an IRQ on the current CPU.  The
             // dispatcher and device-ready path can run on different CPUs, so
@@ -312,6 +324,7 @@ namespace astia::sys {
             u32            waiters;
             u32            pool_index;
             parked_op      park[parked_operation_slots];
+            parked_cleanup cleanup;
             // Page-aligned: aliasing the ring into a process maps whole
             // frames, so the source address — and with it the physical
             // address translate() hands map_4k() — must fall on a page
@@ -368,11 +381,23 @@ namespace astia::sys {
             return nullptr;
         }
 
-        void clear_slot(ring_slot& slot) {
+        void detach_parked(ring_slot& slot, parked_cleanup& cleanup,
+                           bool completed_only = false) {
             for (u32 i = 0; i < parked_operation_slots; ++i) {
+                parked_op& op = slot.park[i];
+                if (!op.used || (completed_only && !op.done))
+                    continue;
                 clear_waiter_hint(slot, i);
-                slot.park[i] = parked_op{};
+                cleanup.entries[i] = static_cast<mm::iovec&&>(op.entries);
+                cleanup.objects[i] = static_cast<mm::shptr<fs::open_file>&&>(op.object);
+                // All resource-bearing members are now empty, so resetting
+                // the operation cannot invoke a callback under the lock.
+                op = parked_op{};
             }
+        }
+
+        void clear_slot(ring_slot& slot, parked_cleanup& cleanup) {
+            detach_parked(slot, cleanup);
             __builtin_memset(slot.map, 0, sizeof slot.map);
             slot.user_base  = 0;
             slot.sq_entries = 0;
@@ -644,9 +669,10 @@ namespace astia::sys {
                     // A failed submission keeps nothing: release whatever the
                     // earlier entries had already taken, so a refused readv()
                     // does not leave a partial pin behind.
-                    p->entries.release();
-                    p->object = mm::shptr<fs::open_file>{};
-                    p->used   = false;
+                    // Leave the resources in the slot until task context
+                    // reaps it below; pin/file release must not run under the
+                    // ring lock, even for a rejected submission.
+                    p->done = true;
                     (void) cq_post(ring, s.user_data, static_cast<i32>(pinned));
                     return true;
                 }
@@ -669,9 +695,10 @@ namespace astia::sys {
             // full CQ loses the completion rather than replaying it — the
             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
             (void) cq_post(ring, s.user_data, static_cast<i32>(result));
-            p->entries.release();
-            p->object = mm::shptr<fs::open_file>{};
-            p->used   = false;
+            // Reap after the ring lock is released; this operation uses the
+            // same park storage so its pins and open-file reference follow
+            // the parked cleanup rule too.
+            p->done = true;
             return true;
         }
 
@@ -716,22 +743,13 @@ namespace astia::sys {
         /// Reclaim park slots whose operations finished in an interrupt
         /// handler.  Task context only: dropping a pin may take a lock and
         /// may return frames to the allocator.
-        void reap_completed(ring_slot& slot) {
-            for (u32 i = 0; i < parked_operation_slots; ++i) {
-                parked_op& op = slot.park[i];
-                if (op.used && op.done) {
-                    clear_waiter_hint(slot, i);
-                    op.entries.release();
-                    op.object = mm::shptr<fs::open_file>{};
-                    op.done   = false;
-                    op.used   = false;
-                }
-            }
+        void reap_completed(ring_slot& slot, parked_cleanup& cleanup) {
+            detach_parked(slot, cleanup, true);
         }
 
         bool has_parked(const ring_slot& slot) {
             for (u32 i = 0; i < parked_operation_slots; ++i) {
-                if (slot.park[i].used)
+                if (slot.park[i].used && !slot.park[i].done)
                     return true;
             }
             return false;
@@ -1908,7 +1926,9 @@ namespace astia::sys {
             }
             ring_slot& slot = *slot_ptr;
             slot.pool_index = i;
-            clear_slot(slot);
+            parked_cleanup& cleanup = slot.cleanup;
+            clear_slot(slot, cleanup);
+            cleanup.release();
             slot.used  = true;
             slot.owner = proc::current_process();
 
@@ -1940,7 +1960,9 @@ namespace astia::sys {
                 u64        user_address = 0;
                 const long rc = map_ring_for_user(slot, i, owner, &user_address);
                 if (rc < 0) {
-                    clear_slot(slot);
+                    parked_cleanup& cleanup = slot.cleanup;
+                    clear_slot(slot, cleanup);
+                    cleanup.release();
                     return rc;
                 }
                 visible = reinterpret_cast<astia_rings*>(user_address);
@@ -1950,7 +1972,9 @@ namespace astia::sys {
                     sys::user_range::bytes(reinterpret_cast<u64>(out), sizeof visible),
                     &visible)) {
                 unmap_ring_user(slot, owner);
-                clear_slot(slot);
+                parked_cleanup& cleanup = slot.cleanup;
+                clear_slot(slot, cleanup);
+                cleanup.release();
                 return -EFAULT;
             }
             return 0;
@@ -1967,12 +1991,19 @@ namespace astia::sys {
         ring_guard ring_lock_guard(slot->lock);
         // Reclaim everything the device already finished, then refuse only
         // while an operation is genuinely still in flight.
-        reap_completed(*slot);
+        parked_cleanup& cleanup = slot->cleanup;
+        reap_completed(*slot, cleanup);
         if (slot->waiters != 0) {
+            ring_lock_guard.unlock();
+            pool_guard.unlock();
+            cleanup.release();
             return -EBUSY;
         }
         for (u32 i = 0; i < parked_operation_slots; ++i) {
             if (slot->park[i].used) {
+                ring_lock_guard.unlock();
+                pool_guard.unlock();
+                cleanup.release();
                 return -EBUSY;
             }
         }
@@ -1989,8 +2020,9 @@ namespace astia::sys {
         // Drop the userspace view (if the ring had one) before the slot
         // goes back to the pool; the frames are kernel .bss and survive.
         unmap_ring_user(*slot, proc::current_process());
-        clear_slot(*slot);
+        clear_slot(*slot, cleanup);
         ring_lock_guard.unlock();
+        cleanup.release();
         slot->~ring_slot();
         return 0;
     }
@@ -2010,9 +2042,6 @@ namespace astia::sys {
         // The ring lock pins the slot while the submitter runs.  The pool is
         // needed only for lookup/lifetime, not for dispatch or CQ work.
         pool_guard.release_lock();
-        // An interrupted completion is only a posted CQE until someone in
-        // task context says otherwise; do that before claiming capacity.
-        reap_completed(*slot);
 
         astia_sq_ring* sq       = astia_rings_sq(ring);
         const u32      tail     = __atomic_load_n(&sq->tail, __ATOMIC_ACQUIRE);
@@ -2028,7 +2057,19 @@ namespace astia::sys {
             consumed += 1;
         }
 
+        // Inline completions and pin failures use park storage so their
+        // resource release is deferred just like an IRQ completion.  Detach
+        // them while protected, then release after unlocking below.
+        // This single cleanup generation also reclaims completions left by a
+        // previous enter.  Keeping an earlier generation alive on this small
+        // kernel stack would both overwrite resources when slots are reused
+        // and exceed the 16 KiB stack budget.
+        parked_cleanup& cleanup = slot->cleanup;
+        reap_completed(*slot, cleanup);
+
         if (min_complete == 0) {
+            ring_lock_guard.unlock();
+            cleanup.release();
             return static_cast<long>(consumed);
         }
 
@@ -2043,6 +2084,7 @@ namespace astia::sys {
         // this interval.
         ++slot->waiters;
         ring_lock_guard.unlock();
+        cleanup.release();
         pool_guard.unlock();
         while (astia_cq_ready(ring) < min_complete) {
             if (!arch::cpu::check_interrupts()) {
@@ -2227,9 +2269,12 @@ namespace astia::sys {
                 continue;
             ring_guard ring_lock_guard(slot->lock);
             pool_guard.release_lock();
-            reap_completed(*slot);
+            parked_cleanup& cleanup = slot->cleanup;
+            reap_completed(*slot, cleanup);
             unmap_ring_user(*slot, owner);
-            clear_slot(*slot);
+            clear_slot(*slot, cleanup);
+            ring_lock_guard.unlock();
+            cleanup.release();
         }
     }
 
@@ -2243,25 +2288,18 @@ namespace astia::sys {
                 continue;
             ring_guard ring_lock_guard(slot->lock);
             pool_guard.release_lock();
-            reap_completed(*slot);
+            parked_cleanup& cleanup = slot->cleanup;
+            reap_completed(*slot, cleanup);
             // No operation may outlive its process.  In particular, a parked
             // pipe read holds an open_file reference; leaving the ring slot
             // behind until waitpid would keep that endpoint alive and prevent
             // EOF from reaching the other end.  The process is gone, so cancel
             // all parked operations while the slot is still owned by it.
-            for (u32 p = 0; p < parked_operation_slots; ++p) {
-                parked_op& op = slot->park[p];
-                if (!op.used)
-                    continue;
-                clear_waiter_hint(*slot, p);
-                op.entries.release();
-                op.object = mm::shptr<fs::open_file>{};
-                op        = parked_op{};
-            }
             unmap_ring_user(*slot, owner);
-            clear_slot(*slot);
+            clear_slot(*slot, cleanup);
             g_slots[i] = nullptr;
             ring_lock_guard.unlock();
+            cleanup.release();
             slot->~ring_slot();
         }
     }
