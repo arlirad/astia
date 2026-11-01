@@ -14,9 +14,9 @@ namespace astia::proc::syscall {
                stack_top < arch::kernel_base &&
                (stack_top & stack_alignment_mask) == 0 &&
                stack_top >= stack_alignment_bytes &&
-               sys::user_range_ok(sys::user_range::bytes(entry, 1)) &&
-               sys::user_range_ok(sys::user_range::bytes(
-                   stack_top - stack_alignment_bytes, stack_alignment_bytes));
+               sys::user_ptr<u8>(entry).validate() &&
+               sys::user_ptr<u8>(stack_top - stack_alignment_bytes)
+                   .validate(stack_alignment_bytes);
     }
 
 } // namespace astia::proc::syscall
