@@ -54,8 +54,8 @@ namespace astia::proc {
     i64 futex_wait(u64 address, u32 expected) {
         auto*                 owner = current_process();
         auto*                 self  = current_thread();
-        const sys::user_range range = sys::user_range::bytes(address, sizeof(u32));
-        if (owner == nullptr || self == nullptr || !sys::user_range_ok(range)) {
+        const auto validated = sys::user_ptr<u32>(address).validate();
+        if (owner == nullptr || self == nullptr || !validated) {
             return -EFAULT;
         }
         // The registry reference keeps the raw owner pointer valid for the
@@ -66,7 +66,7 @@ namespace astia::proc {
             return -EFAULT;
         // The validated range is what licenses this dereference: a futex
         // word is read and written in place, so it cannot be copied.
-        auto* word = reinterpret_cast<u32*>(range.address());
+        auto* word = validated.value.get();
 
         // The value check and waiter publication are one critical
         // section.  With interrupts disabled, a same-CPU FUTEX_WAKE
@@ -117,8 +117,7 @@ namespace astia::proc {
         // A wake only names the word — the waiters compare the address and
         // are never read, written or freed through it — but the caller
         // still has to own the memory it named.
-        if (owner == nullptr ||
-            !sys::user_range_ok(sys::user_range::bytes(address, sizeof(u32)))) {
+        if (owner == nullptr || !sys::user_ptr<u32>(address).validate()) {
             return -EFAULT;
         }
         arch::interrupt_guard gate;

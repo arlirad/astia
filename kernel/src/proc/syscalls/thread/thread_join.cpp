@@ -22,8 +22,10 @@ namespace astia::proc::syscall {
         if (owner == nullptr) {
             return -ESRCH;
         }
-        const sys::user_range output = sys::user_range::bytes(result_ptr, sizeof(void*));
-        if (!output.null() && !sys::user_range_ok(output)) {
+        const sys::user_ptr<void*> output(result_ptr);
+        const auto validated_output = output.null() ? optional<sys::validated_user_ptr<void*>>{}
+                                                     : output.validate();
+        if (!output.null() && !validated_output) {
             return -EFAULT;
         }
         auto target = owner->thread_by_tid(tid);
@@ -35,7 +37,7 @@ namespace astia::proc::syscall {
         if (rc < 0) {
             return rc;
         }
-        if (!output.null() && !sys::copy_out(output, &result)) {
+        if (!output.null() && !sys::copy_out(validated_output.value.bytes(), &result)) {
             return -EFAULT;
         }
         return 0;

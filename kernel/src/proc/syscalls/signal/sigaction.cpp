@@ -43,9 +43,9 @@ namespace astia::proc::syscall {
         signal_disposition next_disposition{};
         if (next_ptr != 0) {
             const auto next_range =
-                sys::user_range::bytes(next_ptr, sizeof(struct astia_sigaction));
+                sys::user_ptr<struct astia_sigaction>(next_ptr).validate();
             struct astia_sigaction next{};
-            if (!sys::copy_in(&next, next_range)) {
+            if (!next_range || !sys::copy_in(&next, next_range.value.bytes())) {
                 return -EFAULT;
             }
             if (next.handler == ASTIA_SIG_IGN) {
@@ -67,13 +67,13 @@ namespace astia::proc::syscall {
         const auto old = owner->signals().disposition(signal);
         if (old_ptr != 0) {
             const auto old_range =
-                sys::user_range::bytes(old_ptr, sizeof(struct astia_sigaction));
+                sys::user_ptr<struct astia_sigaction>(old_ptr).validate();
             struct astia_sigaction out{};
             out.handler  = user_handler_value(old);
             out.mask     = old.mask;
             out.flags    = 0;
             out.restorer = old.restorer;
-            if (!sys::copy_out(old_range, &out)) {
+            if (!old_range || !sys::copy_out(old_range.value.bytes(), &out)) {
                 return -EFAULT;
             }
         }
