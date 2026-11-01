@@ -308,7 +308,7 @@ namespace astia::sys {
             // real cross-CPU owner as well.
             ring_lock       lock;
             bool           used;
-            proc::process* owner;
+            mm::shptr<proc::process> owner;
             u64            user_base; // user-half alias of the ring; 0 = not mapped
             u32            sq_entries;
             u32            cq_entries;
@@ -438,7 +438,7 @@ namespace astia::sys {
                 if (g_slots[i] != nullptr && g_slots[i]->used &&
                     (((caller == nullptr || caller->address_space() == nullptr) &&
                       reinterpret_cast<u64>(rings_of(*g_slots[i])) == address) ||
-                     (g_slots[i]->owner == caller && g_slots[i]->user_base != 0 &&
+                      (g_slots[i]->owner.get() == caller && g_slots[i]->user_base != 0 &&
                       address ==
                           g_slots[i]->user_base +
                                (reinterpret_cast<u64>(rings_of(*g_slots[i])) & mm::page_mask)))) {
@@ -470,7 +470,7 @@ namespace astia::sys {
             slot.sq_entries = 0;
             slot.cq_entries = 0;
             slot.waiters    = 0;
-            slot.owner      = nullptr;
+            slot.owner      = {};
             slot.used       = false;
         }
 
@@ -2007,7 +2007,16 @@ namespace astia::sys {
             clear_slot(slot, cleanup);
             cleanup.release();
             slot.used  = true;
-            slot.owner = proc::current_process();
+            proc::process* current = proc::current_process();
+            if (current == nullptr) {
+                slot.used = false;
+                continue;
+            }
+            slot.owner = proc::retain_process(current->pid());
+            if (!slot.owner) {
+                slot.used = false;
+                continue;
+            }
 
             astia_rings* r  = rings_of(slot);
             r->magic        = RINGS_MAGIC;
@@ -2311,7 +2320,7 @@ namespace astia::sys {
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             ring_guard pool_guard(g_ring_pool_lock);
             ring_slot* slot = g_slots[i];
-            if (slot == nullptr || !slot->used || slot->owner != owner)
+            if (slot == nullptr || !slot->used || slot->owner.get() != owner)
                 continue;
             ring_guard ring_lock_guard(slot->lock);
             pool_guard.release_lock();
@@ -2330,7 +2339,7 @@ namespace astia::sys {
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             ring_guard pool_guard(g_ring_pool_lock);
             ring_slot* slot = g_slots[i];
-            if (slot == nullptr || !slot->used || slot->owner != owner)
+            if (slot == nullptr || !slot->used || slot->owner.get() != owner)
                 continue;
             ring_guard ring_lock_guard(slot->lock);
             pool_guard.release_lock();
