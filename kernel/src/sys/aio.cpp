@@ -695,7 +695,7 @@ namespace astia::sys {
         /// consumed.
         bool submit_request(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
                             const mm::shptr<fs::open_file>& object,
-                            const sys::user_range* entries, u32 count,
+                            const sys::byte_range* entries, u32 count,
                             io_direction direction, bool control = false,
                             bool socket_accept = false) {
             parked_op*            p = nullptr;
@@ -853,11 +853,11 @@ namespace astia::sys {
             // READ/WRITE name one range, READV/WRITEV up to max_segments of
             // them.  Both become the same list, so the engine has one path
             // and a device still gets one buffer per submit() either way.
-            sys::user_range ranges[mm::iovec::max_segments];
+            sys::byte_range ranges[mm::iovec::max_segments];
             u32             count = 0;
             if (s.op == OP_READ || s.op == OP_WRITE || s.op == OP_SEND ||
                 s.op == OP_RECV) {
-                ranges[0] = sys::user_range::bytes(s.address, s.length);
+                ranges[0] = sys::byte_range::bytes(s.address, s.length);
                 count     = 1;
             }
             else {
@@ -869,7 +869,7 @@ namespace astia::sys {
                 }
                 astia_iovec raw[mm::iovec::max_segments];
                 if (s.length != 0 &&
-                    !sys::copy_in(raw, sys::user_range::bytes(
+                    !sys::copy_in(raw, sys::byte_range::bytes(
                                            s.address, static_cast<usize>(s.length) *
                                                           sizeof(astia_iovec)))) {
                     return context.complete(-EFAULT);
@@ -880,7 +880,7 @@ namespace astia::sys {
                 // a raw pointer out of user memory.
                 for (u64 i = 0; i < s.length; ++i) {
                     ranges[i] =
-                        sys::user_range::bytes(reinterpret_cast<u64>(raw[i].base),
+                        sys::byte_range::bytes(reinterpret_cast<u64>(raw[i].base),
                                                static_cast<usize>(raw[i].len));
                 }
                 count = static_cast<u32>(s.length);
@@ -1336,7 +1336,7 @@ namespace astia::sys {
                 resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, false);
                 if (resolve_rc < 0)
                     return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
-                auto out = sys::user_range::bytes(s.offset, s.length);
+                auto out = sys::byte_range::bytes(s.offset, s.length);
                 if (!sys::user_range_ok(out))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 // read_symlink is a kernel/VFS API; never give it a raw
@@ -1350,7 +1350,7 @@ namespace astia::sys {
                     return cq_post_guarded(ring, s.user_data, (i32) n);
                 if (n != 0 &&
                     !sys::copy_out(
-                        sys::user_range::bytes(s.offset, static_cast<usize>(n)), target))
+                        sys::byte_range::bytes(s.offset, static_cast<usize>(n)), target))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 return cq_post_guarded(ring, s.user_data, (i32) n);
 
@@ -1607,7 +1607,7 @@ namespace astia::sys {
         bool handle_socketpair(astia_rings* ring, const astia_sqe& s) {
             if (s.fd != AF_UNIX || s.op_flags != SOCK_STREAM || s.aux != 0 ||
                 s.length != 2 * sizeof(i32) ||
-                !sys::user_range_ok(sys::user_range::bytes(s.address, s.length)))
+                !sys::user_range_ok(sys::byte_range::bytes(s.address, s.length)))
                 return cq_post_guarded(ring, s.user_data, -EINVAL);
             proc::process* current = proc::current_process();
             if (!current)
@@ -1630,7 +1630,7 @@ namespace astia::sys {
                     current->clear_descriptor(fd_t{fds[0]});
                 return cq_post_guarded(ring, s.user_data, -EMFILE);
             }
-            if (!sys::copy_out(sys::user_range::bytes(s.address, s.length), fds)) {
+            if (!sys::copy_out(sys::byte_range::bytes(s.address, s.length), fds)) {
                 current->clear_descriptor(fd_t{fds[0]});
                 current->clear_descriptor(fd_t{fds[1]});
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
@@ -1644,7 +1644,7 @@ namespace astia::sys {
             if (!object)
                 return cq_post_guarded(ring, s.user_data, -EBADF);
             const auto address = sys::user_ptr<astia_sockaddr>(s.offset).validate();
-            if (!sys::user_range_ok(sys::user_range::bytes(s.address, s.length)) ||
+            if (!sys::user_range_ok(sys::byte_range::bytes(s.address, s.length)) ||
                 !address)
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             if (s.length > max_operation_bytes)
@@ -1682,7 +1682,7 @@ namespace astia::sys {
                 if (rc < 0)
                     return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
             }
-            sys::user_range range = sys::user_range::bytes(s.address, s.length);
+            sys::byte_range range = sys::byte_range::bytes(s.address, s.length);
             return submit_request(slot, ring, s, object, &range, 1,
                                   s.op == OP_RECVFROM ? io_direction::input
                                                       : io_direction::output);
@@ -2050,7 +2050,7 @@ namespace astia::sys {
             }
 
             if (!sys::copy_out(
-                    sys::user_range::bytes(reinterpret_cast<u64>(out), sizeof visible),
+                    sys::byte_range::bytes(reinterpret_cast<u64>(out), sizeof visible),
                     &visible)) {
                 unmap_ring_user(slot, owner);
                 parked_cleanup& cleanup = slot.cleanup;

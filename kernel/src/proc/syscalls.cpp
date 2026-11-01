@@ -96,8 +96,8 @@ namespace astia::proc {
                     goto fatal_signal;
                 const u64 context = frame.rsp - sizeof(astia_x86_64_signal_context_t);
                 const u64 retaddr = context - 8;
-                if (!sys::user_range_ok(sys::user_range::bytes(retaddr, bytes)) ||
-                    !sys::user_range_ok(sys::user_range::bytes(
+                if (!sys::user_range_ok(sys::byte_range::bytes(retaddr, bytes)) ||
+                    !sys::user_range_ok(sys::byte_range::bytes(
                         reinterpret_cast<u64>(disposition.handler), 1)))
                     goto fatal_signal;
                 astia_x86_64_signal_context_t saved{
@@ -105,9 +105,9 @@ namespace astia::proc {
                     frame.a0,  frame.a4,  frame.a5,     frame.a3,     frame.rflags,
                     frame.r12, frame.r13, frame.r14,    frame.r15,    frame.rbp,
                     frame.rip, frame.rsp, frame.rflags, restore_mask, 0};
-                if (!sys::copy_out(sys::user_range::bytes(context, sizeof saved),
+                if (!sys::copy_out(sys::byte_range::bytes(context, sizeof saved),
                                    &saved) ||
-                    !sys::copy_out(sys::user_range::bytes(retaddr, 8),
+                    !sys::copy_out(sys::byte_range::bytes(retaddr, 8),
                                    &disposition.restorer))
                     goto fatal_signal;
                 owner->signals().block(signal_bit(signal) | disposition.mask);

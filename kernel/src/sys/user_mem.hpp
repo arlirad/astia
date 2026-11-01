@@ -42,6 +42,8 @@ namespace astia::sys {
 
     template <typename T>
     class validated_user_ptr;
+    template <typename T>
+    class user_range;
 
     /// An address the caller named, and the length that came with it.
     ///
@@ -53,7 +55,7 @@ namespace astia::sys {
     /// so the discipline has to: a caller-named address cannot be *used*
     /// anonymously.  The two safe things to do with one are copy it now,
     /// or pin it for the flight of an operation, and the gates below are
-    /// the only code that accepts a user_range — they are where the
+    /// the only code that accepts a byte_range — they are where the
     /// address finally becomes a pointer.
     ///
     /// This is a discipline, not a proof: the casts still exist, and they
@@ -62,29 +64,29 @@ namespace astia::sys {
     /// address into a pointer names itself, and that bytes() and string()
     /// are the only ways to name one — so a value that is not an address
     /// off the ABI has to say so at one grep-able call.
-    class user_range {
+    class byte_range {
         public:
         /// The null range: what a caller named when it named no memory at
         /// all (an optional result slot that was passed as NULL).  Every
         /// gate treats it as nothing to do, exactly as it treats any
         /// zero-length range, so this says "absent" — it does not name an
         /// address, and there is nothing behind it to reach.
-        user_range() = default;
+        byte_range() = default;
 
         /// A length-delimited range: the ordinary case, where the ABI — or
         /// the syscall's own argument shape — says how many bytes are
         /// meant.  Call it at the boundary; an address the kernel itself
         /// computed halfway through is the caller lying, not the type
         /// failing.
-        static user_range bytes(u64 address, usize length) {
-            return user_range(address, length);
+        static byte_range bytes(u64 address, usize length) {
+            return byte_range(address, length);
         }
 
         /// A NUL-terminated string.  Its extent is its terminator, not a
         /// count, so it carries no length: the gate that walks it supplies
         /// the bound, and length() is 0 — no gate may read it as a size.
-        static user_range string(u64 address) {
-            return user_range(address, 0);
+        static byte_range string(u64 address) {
+            return byte_range(address, 0);
         }
 
         u64 address() const {
@@ -110,20 +112,55 @@ namespace astia::sys {
         /// address: it claims no bound of its own, and the gate
         /// re-validates whatever it is handed, so the loop bound stays the
         /// caller's to get right.
-        user_range slice(usize offset, usize length) const {
+        byte_range slice(usize offset, usize length) const {
             // Do not let a wrapped sub-range turn into an unrelated address.
             // The consumer will still perform the page-map check, but it
             // must never be handed arithmetic that already overflowed.
             if (offset > ~u64{0} - address_)
-                return user_range(~u64{0}, length);
-            return user_range(address_ + offset, length);
+                return byte_range(~u64{0}, length);
+            return byte_range(address_ + offset, length);
         }
 
         private:
-        user_range(u64 address, usize length) : address_(address), length_(length) {}
+        byte_range(u64 address, usize length) : address_(address), length_(length) {}
 
         u64   address_ = 0;
         usize length_  = 0;
+    };
+
+    template <typename T>
+    class validated_user_range {
+        template <typename>
+        friend class user_range;
+
+        public:
+        constexpr validated_user_range() = default;
+        T* get() const { return reinterpret_cast<T*>(address_); }
+        byte_range bytes() const { return byte_range::bytes(address_, length_); }
+
+        private:
+        validated_user_range(u64 address, usize length) : address_(address), length_(length) {}
+        u64   address_ = 0;
+        usize length_  = 0;
+    };
+
+    template <typename T>
+    class user_range {
+        public:
+        constexpr user_range() = default;
+        constexpr user_range(u64 address, usize count)
+            : address_(address), count_(count) {}
+
+        constexpr u64 address() const { return address_; }
+        constexpr usize count() const { return count_; }
+        constexpr byte_range bytes() const {
+            return byte_range::bytes(address_, sizeof(T) * count_);
+        }
+        optional<validated_user_range<T>> validate() const;
+
+        private:
+        u64   address_ = 0;
+        usize count_   = 0;
     };
 
     /// A typed borrowed view formed only after page-map validation.
@@ -135,8 +172,8 @@ namespace astia::sys {
         public:
         constexpr validated_user_ptr() = default;
         T* get() const { return reinterpret_cast<T*>(address_); }
-        user_range bytes(usize count = 1) const {
-            return user_range::bytes(address_, sizeof(T) * count);
+        byte_range bytes(usize count = 1) const {
+            return byte_range::bytes(address_, sizeof(T) * count);
         }
 
         private:
@@ -146,7 +183,7 @@ namespace astia::sys {
 
     /// Typed userspace address token.  It deliberately cannot be
     /// dereferenced or converted to a kernel pointer; callers must choose a
-    /// bounded user_range before copying or pinning memory.
+    /// bounded byte_range before copying or pinning memory.
     template <typename T>
     class user_ptr {
         public:
@@ -155,12 +192,12 @@ namespace astia::sys {
 
         constexpr u64 address() const { return address_; }
         constexpr bool null() const { return address_ == 0; }
-        constexpr user_range bytes(usize count = 1) const {
-            return user_range::bytes(address_, sizeof(T) * count);
+        constexpr byte_range bytes(usize count = 1) const {
+            return byte_range::bytes(address_, sizeof(T) * count);
         }
-        constexpr user_range string() const {
+        constexpr byte_range string() const {
             static_assert(sizeof(T) == 1, "string pointers must point to bytes");
-            return user_range::string(address_);
+            return byte_range::string(address_);
         }
         optional<validated_user_ptr<T>> validate(usize count = 1) const;
 
@@ -176,7 +213,7 @@ namespace astia::sys {
     /// kernel_base and every page must translate in the caller's address
     /// space.  A zero length is vacuously valid; a null base with nonzero
     /// length is not.
-    inline bool user_range_ok(user_range range) {
+    inline bool user_range_ok(byte_range range) {
         if (range.length() == 0) {
             return true;
         }
@@ -213,6 +250,15 @@ namespace astia::sys {
         return validated_user_ptr<T>(address_);
     }
 
+    template <typename T>
+    optional<validated_user_range<T>> user_range<T>::validate() const {
+        if (count_ > (~usize{0} / sizeof(T)))
+            return error_t::erange;
+        if (!user_range_ok(bytes()))
+            return error_t::efault;
+        return validated_user_range<T>(address_, sizeof(T) * count_);
+    }
+
     /// Snapshot one entry of an asynchronous operation's buffer list: 0, or a
     /// negated errno.  user_range_ok() only proves the range is readable
     /// *now*; an operation that parks for a device needs the frames to still
@@ -224,7 +270,7 @@ namespace astia::sys {
     /// be refused.  A caller with no address space has nothing to snapshot, so
     /// its range is recorded as a plain kernel-memory entry: it cannot move,
     /// but the operation still has to walk it like every other entry.
-    inline long pin_user_range(user_range range, io_direction direction, mm::iovec& out) {
+    inline long pin_user_range(byte_range range, io_direction direction, mm::iovec& out) {
         if (range.empty()) {
             return 0;
         }
@@ -247,7 +293,7 @@ namespace astia::sys {
     /// from the range; `source` must be at least that long (a kernel local,
     /// so that much is the caller's own promise).  Returns false, writing
     /// nothing, if the range fails validation.
-    inline bool copy_out(user_range destination, const void* source) {
+    inline bool copy_out(byte_range destination, const void* source) {
         // Besides avoiding a meaningless source dereference, this keeps the
         // page walk below from turning an empty range into address-1.  Empty
         // optional output slots are valid and must be a no-op.
@@ -286,7 +332,7 @@ namespace astia::sys {
     }
 
     /// Copy in from a validated user range into the kernel.
-    inline bool copy_in(void* destination, user_range source) {
+    inline bool copy_in(void* destination, byte_range source) {
         if (!user_range_ok(source)) {
             return false;
         }
@@ -307,7 +353,7 @@ namespace astia::sys {
     /// unmapped page above it; a kernel client gets a plain bounded copy.
     /// Fails if any page is unmapped or the terminator is not found within
     /// the capacity bound.
-    inline bool copy_in_string(char* destination, usize capacity, user_range source) {
+    inline bool copy_in_string(char* destination, usize capacity, byte_range source) {
         if (capacity == 0 || source.null()) {
             return false;
         }
