@@ -26,7 +26,7 @@ namespace astia::proc {
 
         struct stream_context {
             image_map      map;
-            fs::open_file* file;
+            mm::shptr<fs::open_file> file;
         };
 
         void unmap_run(arch::page_map& map, u64 virt, u64 pages) {
@@ -260,13 +260,13 @@ namespace astia::proc {
     namespace {
         bool read_stream_batch(void* opaque, elf::read_request* requests, usize count) {
             auto* context = static_cast<stream_context*>(opaque);
-            if (context == nullptr || context->file == nullptr)
+            if (context == nullptr || !context->file)
                 return false;
             fs::kernel_read batch[elf::max_segments]{};
             if (count > elf::max_segments)
                 return false;
             for (usize i = 0; i < count; ++i) {
-                batch[i] = {context->file, requests[i].buffer, requests[i].offset,
+                batch[i] = {context->file.get(), requests[i].buffer, requests[i].offset,
                             static_cast<u32>(requests[i].length), -1};
             }
             if (!fs::read_batch(batch, count))
@@ -328,7 +328,7 @@ namespace astia::proc {
         arch::page_map map = arch::page_map::create(arch::kernel_page_map());
         if (!map.valid())
             return false;
-        stream_context        stream{{&map, user_image_base}, file.get()};
+        stream_context        stream{{&map, user_image_base}, file};
         elf::image            image{};
         const process*        caller = current_process();
         const arch::page_map* caller_map =
