@@ -232,14 +232,14 @@ namespace astia::proc {
         return optional<mm::shptr<process>>(child);
     }
 
-    process* find_process(pid_t id) {
+    mm::shptr<process> find_process(pid_t id) {
         mm::shptr<process> values[max_processes];
         const u32 count = snapshot_registry(values);
         for (u32 i = 0; i < count; ++i) {
             if (values[i]->pid() == id)
-                return values[i].get();
+                return values[i];
         }
-        return nullptr;
+        return {};
     }
 
     mm::shptr<process> retain_process(pid_t id) {

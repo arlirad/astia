@@ -72,7 +72,7 @@ namespace astia::proc {
                                          char* const envp[]);
 
     /// Look up a live process by pid in the registry.
-    process* find_process(pid_t id);
+    mm::shptr<process> find_process(pid_t id);
     /// Look up a process while retaining an owning reference for use after
     /// the registry lock is released.
     mm::shptr<process> retain_process(pid_t id);
