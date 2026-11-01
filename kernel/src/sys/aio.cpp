@@ -1643,15 +1643,14 @@ namespace astia::sys {
             mm::shptr<fs::open_file> object = file_for(s.fd);
             if (!object)
                 return cq_post_guarded(ring, s.user_data, -EBADF);
+            const auto address = sys::user_ptr<astia_sockaddr>(s.offset).validate();
             if (!sys::user_range_ok(sys::user_range::bytes(s.address, s.length)) ||
-                !sys::user_range_ok(
-                    sys::user_range::bytes(s.offset, sizeof(astia_sockaddr))))
+                !address)
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             if (s.length > max_operation_bytes)
                 return cq_post_guarded(ring, s.user_data, -EINVAL);
             astia_sockaddr a{};
             if (s.op == OP_SENDTO) {
-                const auto address = sys::user_ptr<astia_sockaddr>(s.offset).validate();
                 if (!address || !sys::copy_in(&a, address.value.bytes()))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 char socket_path[fs::path_max]{}, canonical[fs::path_max]{};
