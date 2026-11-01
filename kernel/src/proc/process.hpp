@@ -139,10 +139,10 @@ namespace astia::proc {
             return name_;
         }
         process_state state() const {
-            return state_;
+            return static_cast<process_state>(__atomic_load_n(&state_, __ATOMIC_ACQUIRE));
         }
         void state(process_state value) {
-            state_ = value;
+            __atomic_store_n(&state_, static_cast<u8>(value), __ATOMIC_RELEASE);
         }
         i32 exit_status() const {
             return exit_status_;
@@ -155,16 +155,16 @@ namespace astia::proc {
             return wait_status_from_stop(stop_signal_);
         }
         bool stop_event_pending() const {
-            return stop_event_;
+            return __atomic_load_n(&stop_event_, __ATOMIC_ACQUIRE) != 0;
         }
         bool continued_event_pending() const {
-            return continued_event_;
+            return __atomic_load_n(&continued_event_, __ATOMIC_ACQUIRE) != 0;
         }
         void clear_stop_event() {
-            stop_event_ = false;
+            __atomic_store_n(&stop_event_, 0, __ATOMIC_RELEASE);
         }
         void clear_continued_event() {
-            continued_event_ = false;
+            __atomic_store_n(&continued_event_, 0, __ATOMIC_RELEASE);
         }
         void signal_state_change(signal_number signal);
         void signal_termination(signal_number signal) {
@@ -187,6 +187,8 @@ namespace astia::proc {
         /// the thread table.  Used to defer destruction: the dying
         /// thread still runs on its own kernel stack.
         mm::shptr<thread> take_thread(thread* value);
+        /// Retain a process-owned thread while an external subsystem holds it.
+        mm::shptr<thread> retain_thread(thread* value);
         /// Drop the process's owning reference to a thread.  Only safe
         /// when the target can no longer run (joined or deferred).
         void release_thread(thread* value);
@@ -350,12 +352,15 @@ namespace astia::proc {
         gid_t                groups_[max_supplementary_groups]{};
         u32                  group_count_ = 0;
         char                 name_[32]{};
-        process_state        state_              = process_state::fresh;
+        // These are observed by registry, scheduler, and wait paths that do
+        // not hold process_lifecycle_lock. Keep the byte-sized representation
+        // and publish transitions explicitly rather than widening the record.
+        u8                   state_              = static_cast<u8>(process_state::fresh);
         i32                  exit_status_        = 0;
         i32                  termination_signal_ = 0;
         i32                  stop_signal_        = 0;
-        bool                 stop_event_         = false;
-        bool                 continued_event_    = false;
+        u8                   stop_event_         = 0;
+        u8                   continued_event_    = 0;
         signal_state         signals_{};
 
         mm::shptr<thread> threads_[max_threads_per_process];

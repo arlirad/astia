@@ -140,7 +140,12 @@ namespace astia::mm {
 
         const u64 frame = static_cast<u64>(found) * frame_size;
         if (has_flag(flags, frame_flags::zeroed)) {
-            fill_zero(access_(frame), static_cast<usize>(count) * frame_size);
+            // The used bits reserve these frames until the caller receives
+            // them. Copy the access hook under the bitmap lock, then keep the
+            // potentially slow callback outside it.
+            const frame_access_fn access = access_;
+            guard.unlock();
+            fill_zero(access(frame), static_cast<usize>(count) * frame_size);
         }
         return frame;
     }

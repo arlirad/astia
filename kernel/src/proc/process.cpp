@@ -1,5 +1,7 @@
 #include "process.hpp"
 
+#include "../ipc/futex.hpp"
+
 #include "../sys/aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
@@ -417,6 +419,7 @@ namespace astia::proc {
         // the timer switch this CPU while the dying process owns one: the
         // next thread could attempt the same lock and deadlock permanently.
         arch::interrupt_guard gate;
+        futex_remove_process(this);
         discard_image();
         // Member destructors run after this body, which would otherwise
         // restore IF before their shptr releases. Empty them while the gate
@@ -464,7 +467,7 @@ namespace astia::proc {
     void process::thread_exited(thread* value, i32 status) {
         {
             arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
-            if (state_ == process_state::zombie || state_ == process_state::dead) {
+            if (state() == process_state::zombie || state() == process_state::dead) {
                 return;
             }
             bool any_alive = false;
@@ -479,7 +482,7 @@ namespace astia::proc {
                 return;
             }
             exit_status_ = status;
-            state_       = process_state::zombie;
+            state(process_state::zombie);
         }
         // Closing a session leader's terminal hangs up its foreground job.
         // Do this before dropping descriptors so the terminal's foreground
@@ -528,11 +531,11 @@ namespace astia::proc {
             u32     count = 0;
             {
                 arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
-                if (state_ != process_state::stopped)
+                if (state() != process_state::stopped)
                     return;
-                state_ = process_state::runnable;
+                state(process_state::runnable);
                 if (signal == signal_number::cont)
-                    continued_event_ = true;
+                    __atomic_store_n(&continued_event_, 1, __ATOMIC_RELEASE);
                 for (u32 i = 0; i < max_threads_per_process; ++i) {
                     thread* value = threads_[i].get();
                     if (value != nullptr && value->state() == thread_state::blocked)
@@ -549,12 +552,12 @@ namespace astia::proc {
             return;
         {
             arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
-            if (state_ == process_state::zombie || state_ == process_state::dead ||
-                state_ == process_state::stopped)
+            if (state() == process_state::zombie || state() == process_state::dead ||
+                state() == process_state::stopped)
                 return;
             stop_signal_ = static_cast<i32>(signal);
-            stop_event_  = true;
-            state_       = process_state::stopped;
+            __atomic_store_n(&stop_event_, 1, __ATOMIC_RELEASE);
+            state(process_state::stopped);
             for (u32 i = 0; i < max_threads_per_process; ++i) {
                 thread* value = threads_[i].get();
                 if (value != nullptr && value->state() != thread_state::dead)
@@ -575,6 +578,15 @@ namespace astia::proc {
                 }
                 return taken;
             }
+        }
+        return {};
+    }
+
+    mm::shptr<thread> process::retain_thread(thread* value) {
+        arch::interrupt_spinlock_guard guard(process_lifecycle_lock);
+        for (u32 i = 0; i < max_threads_per_process; ++i) {
+            if (threads_[i] && threads_[i].get() == value)
+                return threads_[i];
         }
         return {};
     }

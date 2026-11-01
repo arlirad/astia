@@ -13,3 +13,14 @@ namespace astia::ipc {
     };
 
 } // namespace astia::ipc
+
+namespace astia::proc {
+
+    class process;
+
+    /// Remove all futex waiters owned by a process before its thread table is
+    /// destroyed.  Waiter slots retain their thread ownership independently,
+    /// so a wake detached on another CPU cannot use a freed raw pointer.
+    void futex_remove_process(process* owner);
+
+} // namespace astia::proc

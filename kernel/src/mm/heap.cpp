@@ -35,17 +35,18 @@ namespace astia::mm::heap {
         block* head_   = nullptr;
         usize  used_   = 0;
         bool   ready_  = false;
+        bool   initializing_ = false;
 
         /// Wire the whole region into the page map, one frame at a time. A
         /// failure here means the machine is out of memory; the caller fails
         /// the boot (the already-mapped frames are not worth unwinding).
-        bool map_backing() {
-            for (usize off = 0; off < bytes_; off += page_bytes) {
+        bool map_backing(u8* base, usize bytes, map_fn mapper) {
+            for (usize off = 0; off < bytes; off += page_bytes) {
                 const u64 frame = kernel_frames().alloc(1, frame_flags::zeroed);
                 if (frame == frame_allocator::invalid_frame) {
                     return false;
                 }
-                if (!mapper_(reinterpret_cast<u64>(base_) + off, frame)) {
+                if (!mapper(reinterpret_cast<u64>(base) + off, frame)) {
                     return false;
                 }
             }
@@ -94,6 +95,9 @@ namespace astia::mm::heap {
 
     void configure(void* base, usize bytes, map_fn map) {
         core::spinlock_guard guard(lock_);
+        if (initializing_) {
+            return;
+        }
         base_   = static_cast<u8*>(base);
         bytes_  = bytes;
         mapper_ = map;
@@ -107,9 +111,27 @@ namespace astia::mm::heap {
         if (base_ == nullptr || mapper_ == nullptr || bytes_ < sizeof(block) + 16) {
             return false;
         }
-        if (!map_backing()) {
+        if (initializing_) {
             return false;
         }
+
+        // Reserve the configuration while mapping invokes the frame allocator
+        // and arch callback. No partially built free list is published, and
+        // configure() cannot replace this snapshot until mapping finishes.
+        initializing_ = true;
+        u8* const base = base_;
+        const usize bytes = bytes_;
+        const map_fn mapper = mapper_;
+        guard.unlock();
+
+        const bool mapped = map_backing(base, bytes, mapper);
+
+        core::spinlock_guard publish(lock_);
+        initializing_ = false;
+        if (!mapped) {
+            return false;
+        }
+
         head_       = reinterpret_cast<block*>(base_);
         head_->size = bytes_ - sizeof(block);
         head_->prev = nullptr;
@@ -122,7 +144,7 @@ namespace astia::mm::heap {
 
     bool ready() {
         core::spinlock_guard guard(lock_);
-        return ready_;
+        return ready_ && !initializing_;
     }
 
     optional<u8*> alloc(usize bytes) {
@@ -132,7 +154,7 @@ namespace astia::mm::heap {
         const usize need = align_up(bytes, 16);
 
         core::spinlock_guard guard(lock_);
-        if (!ready_) {
+        if (!ready_ || initializing_) {
             // Not configured/initialised yet: nothing to hand out.
             return error_t::enomem;
         }
@@ -161,7 +183,7 @@ namespace astia::mm::heap {
         }
 
         core::spinlock_guard guard(lock_);
-        if (!ready_) {
+        if (!ready_ || initializing_) {
             return; // foreign pointer: ignore rather than corrupt
         }
 

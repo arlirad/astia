@@ -65,17 +65,6 @@ namespace astia::proc {
             return false;
         }
 
-        mm::shptr<process> retain_registered(process* value) {
-            if (value == nullptr)
-                return {};
-            arch::interrupt_spinlock_guard guard(registry_lock);
-            for (u32 i = 0; i < max_processes; ++i) {
-                if (registry[i].get() == value)
-                    return registry[i];
-            }
-            return {};
-        }
-
         pgrp_t process_group_for(pid_t id) {
             return pgrp_from_raw(raw_id(id));
         }
@@ -258,7 +247,9 @@ namespace astia::proc {
         const u32 count = snapshot_registry(values);
         for (u32 i = 0; i < count; ++i) {
             if (values[i]->pid() == id)
-                return retain_registered(values[i].get());
+                // snapshot_registry already retained the registry entry.
+                // Avoid a second registry-lock pass and return that reference.
+                return static_cast<mm::shptr<process>&&>(values[i]);
         }
         return {};
     }
