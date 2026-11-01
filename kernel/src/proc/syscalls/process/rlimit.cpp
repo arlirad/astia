@@ -14,8 +14,8 @@ namespace astia::proc::syscall {
         const i64    rc = process->get_rlimit(resource, &value);
         if (rc < 0)
             return rc;
-        if (output == 0 ||
-            !sys::copy_out(sys::user_range::bytes(output, sizeof value), &value))
+        const sys::user_ptr<astia_rlimit> destination(output);
+        if (destination.null() || !sys::copy_out(destination.bytes(), &value))
             return -EFAULT;
         return 0;
     }
@@ -25,8 +25,8 @@ namespace astia::proc::syscall {
         if (process == nullptr)
             return -ESRCH;
         astia_rlimit value{};
-        if (input == 0 ||
-            !sys::copy_in(&value, sys::user_range::bytes(input, sizeof value)))
+        const sys::user_ptr<const astia_rlimit> source(input);
+        if (source.null() || !sys::copy_in(&value, source.bytes()))
             return -EFAULT;
         return process->set_rlimit(resource, value);
     }

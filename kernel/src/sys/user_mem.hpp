@@ -122,6 +122,29 @@ namespace astia::sys {
         usize length_  = 0;
     };
 
+    /// Typed userspace address token.  It deliberately cannot be
+    /// dereferenced or converted to a kernel pointer; callers must choose a
+    /// bounded user_range before copying or pinning memory.
+    template <typename T>
+    class user_ptr {
+        public:
+        constexpr user_ptr() = default;
+        explicit constexpr user_ptr(u64 address) : address_(address) {}
+
+        constexpr u64 address() const { return address_; }
+        constexpr bool null() const { return address_ == 0; }
+        constexpr user_range bytes(usize count = 1) const {
+            return user_range::bytes(address_, sizeof(T) * count);
+        }
+        constexpr user_range string() const {
+            static_assert(sizeof(T) == 1, "string pointers must point to bytes");
+            return user_range::string(address_);
+        }
+
+        private:
+        u64 address_ = 0;
+    };
+
     /// True if `range` may be accessed by the current caller.  A caller with
     /// no address space of its own (the kernel process, in-kernel ring
     /// clients, selftests driving the syscall table) passes kernel pointers
