@@ -114,7 +114,7 @@ namespace astia::proc {
     mmap_region* process::find_region(u64 addr) {
         arch::interrupt_spinlock_guard guard(mmap_lock_);
         for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
-            if (it->covers(addr)) {
+            if (!it->pending && it->covers(addr)) {
                 return it;
             }
         }
@@ -138,7 +138,7 @@ namespace astia::proc {
         // munmap from another thread make the range half-resolvable.
         mmap_region* vma = nullptr;
         for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
-            if (it->covers(addr)) {
+            if (!it->pending && it->covers(addr)) {
                 vma = it;
                 break;
             }
@@ -159,12 +159,53 @@ namespace astia::proc {
         return 0;
     }
 
-    bool process::install_mapping(u64 base, usize pages, map_protection prot,
+    bool process::install_mapping(u64 hint, usize pages, map_protection prot,
                                   mm::phys_region*                region,
                                   const mm::shptr<fs::open_file>& file, u64 file_offset,
-                                  usize region_page, bool shared) {
+                                  u64& base_out, usize region_page, bool shared) {
         const u64  page_bytes = mm::phys_region::frame_size;
         const auto flags4     = pte_flags(prot);
+        auto* entry = alloc_region();
+        if (entry == nullptr)
+            return false;
+
+        // The pending node is the address-space reservation.  It remains in
+        // the sorted list while the expensive page-table work runs unlocked;
+        // all readers which could dereference its backing explicitly ignore
+        // pending nodes, while placement still treats it as occupied.
+        u64 base = 0;
+        bool reserved = false;
+        {
+            arch::interrupt_spinlock_guard guard(mmap_lock_);
+            base = place(mmap_regions_, hint, pages * page_bytes);
+            astia_rlimit address_limit{};
+            (void) get_rlimit(RLIMIT_AS, &address_limit);
+            if (base != 0 && pages * page_bytes <= address_limit.current &&
+                mapped_bytes_ <= address_limit.current - pages * page_bytes) {
+                entry->base        = base;
+                entry->pages       = pages;
+                entry->prot        = prot;
+                entry->shared      = shared;
+                entry->pending     = true;
+                entry->holds_ref   = true;
+                entry->backing     = region;
+                entry->region_page = region_page;
+                entry->file        = file;
+                entry->file_offset = file_offset;
+                mapped_bytes_ += pages * page_bytes;
+                mmap_region** link = &mmap_regions_;
+                while (*link != nullptr && (*link)->base < base)
+                    link = &(*link)->next;
+                entry->next = *link;
+                *link       = entry;
+                reserved    = true;
+            }
+        }
+        if (!reserved) {
+            delete entry;
+            return false;
+        }
+
         for (u64 page = 0; page < pages; ++page) {
             if (!address_space_->map_4k(
                     base + page * page_bytes,
@@ -172,32 +213,30 @@ namespace astia::proc {
                 for (u64 done = 0; done < page; ++done) {
                     address_space_->unmap(base + done * page_bytes);
                 }
+                {
+                    arch::interrupt_spinlock_guard guard(mmap_lock_);
+                    mmap_region** link = &mmap_regions_;
+                    while (*link != nullptr && *link != entry)
+                        link = &(*link)->next;
+                    if (*link == entry) {
+                        *link = entry->next;
+                        mapped_bytes_ -= pages * page_bytes;
+                    }
+                }
+                // Free after dropping mmap_lock_: heap locking is deliberately
+                // not nested under this address-space lock.
+                delete entry;
                 return false;
             }
         }
-        auto* entry = alloc_region();
-        if (entry == nullptr) {
-            for (u64 page = 0; page < pages; ++page) {
-                address_space_->unmap(base + page * page_bytes);
-            }
-            return false;
+        {
+            arch::interrupt_spinlock_guard guard(mmap_lock_);
+            // No operation removes a pending reservation; retain the check
+            // so publication remains an explicit transaction boundary.
+            if (entry->pending)
+                entry->pending = false;
         }
-        entry->base        = base;
-        entry->pages       = pages;
-        entry->prot        = prot;
-        entry->shared      = shared;
-        entry->holds_ref   = true;
-        entry->backing     = region;
-        entry->region_page = region_page;
-        entry->file        = file;
-        entry->file_offset = file_offset;
-        mapped_bytes_ += pages * page_bytes;
-        mmap_region** link = &mmap_regions_;
-        while (*link != nullptr && (*link)->base < base) {
-            link = &(*link)->next;
-        }
-        entry->next = *link;
-        *link       = entry;
+        base_out = base;
         return true;
     }
 
@@ -236,13 +275,7 @@ namespace astia::proc {
             return -ENOMEM;
         }
         u64 base = 0;
-        bool installed = false;
-        {
-            arch::interrupt_spinlock_guard guard(mmap_lock_);
-            base = place(mmap_regions_, addr, want);
-            if (base != 0)
-                installed = install_mapping(base, pages, prot, region, {}, 0);
-        }
+        const bool installed = install_mapping(addr, pages, prot, region, {}, 0, base);
         if (!installed) {
             region->release();
             return -ENOMEM;
@@ -311,15 +344,10 @@ namespace astia::proc {
                                             static_cast<usize>(pages))) {
                 return -EAGAIN;
             }
-            u64  base      = 0;
-            bool installed = false;
-            {
-                arch::interrupt_spinlock_guard guard(mmap_lock_);
-                base = place(mmap_regions_, addr, want);
-                if (base != 0)
-                    installed = install_mapping(base, pages, prot, shared_region, file, off,
-                                                static_cast<usize>(off / page_bytes), true);
-            }
+            u64 base = 0;
+            const bool installed =
+                install_mapping(addr, pages, prot, shared_region, file, off, base,
+                                static_cast<usize>(off / page_bytes), true);
             if (!installed) {
                 shared_region->release_range(static_cast<usize>(off / page_bytes),
                                              static_cast<usize>(pages));
@@ -351,13 +379,7 @@ namespace astia::proc {
             return -EIO;
         }
         u64 base = 0;
-        bool installed = false;
-        {
-            arch::interrupt_spinlock_guard guard(mmap_lock_);
-            base = place(mmap_regions_, addr, want);
-            if (base != 0)
-                installed = install_mapping(base, pages, prot, region, file, off);
-        }
+        const bool installed = install_mapping(addr, pages, prot, region, file, off, base);
         if (!installed) {
             region->release();
             return -ENOMEM;
@@ -396,7 +418,7 @@ namespace astia::proc {
             mmap_region* it   = mmap_regions_;
             while (it != nullptr) {
                 mmap_region* next = it->next;
-                if (it->end() <= first || it->base >= last) {
+                if (it->pending || it->end() <= first || it->base >= last) {
                     prev = it;
                     it   = next;
                     continue;
@@ -514,6 +536,9 @@ namespace astia::proc {
         // rolling this fork back.
         usize cow_pages = 0;
         for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
+            if (it->pending) {
+                return false;
+            }
             if (!it->shared && has(it->prot, map_protection::write)) {
                 if (cow_pages > ~usize{0} - it->pages) {
                     return false;

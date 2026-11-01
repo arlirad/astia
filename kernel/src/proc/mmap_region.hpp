@@ -68,6 +68,10 @@ namespace astia::proc {
         usize            pages     = 0;
         map_protection   prot      = map_protection::none;
         bool             shared    = false;
+        // A reserved mapping is in the VMA list only to claim its address
+        // range.  It is not visible to lookup/fault/pin until page tables
+        // have been installed and the transaction publishes it.
+        bool             pending   = false;
         bool             holds_ref = false;
         mm::phys_region* backing   = nullptr;
         /// First page in `backing` represented by this VMA.  This is

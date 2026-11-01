@@ -378,15 +378,14 @@ namespace astia::proc {
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
                                    usize& mapping_pages);
         void replace_image(process& staging);
-        /// Map PTEs for [base, base + pages) and insert the VMA entry,
-        /// which takes over `region`'s reference (`file`/`file_offset`
-        /// recorded on it, both empty for anonymous ranges).  On
-        /// failure the PTEs are rolled back and `region` stays the
-        /// caller's.
-        bool      install_mapping(u64 base, usize pages, map_protection prot,
+        /// Reserve an address, install PTEs without mmap_lock_, then publish
+        /// the VMA.  On failure the reservation and PTEs are rolled back and
+        /// `region` stays the caller's.
+        bool      install_mapping(u64 hint, usize pages, map_protection prot,
                                   mm::phys_region*                region,
                                   const mm::shptr<fs::open_file>& file, u64 file_offset,
-                                  usize region_page = 0, bool shared = false);
+                                  u64& base_out, usize region_page = 0,
+                                  bool shared = false);
         pid_t     pid_;
         pid_t     parent_pid_;
         pgrp_t    process_group_;

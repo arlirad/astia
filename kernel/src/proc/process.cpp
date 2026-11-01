@@ -398,27 +398,42 @@ namespace astia::proc {
         return false;
     }
     i64 process::getgroups(i32 count, u32* out) const {
-        arch::interrupt_spinlock_guard guard(metadata_lock_);
         if (count < 0 || (count != 0 && out == nullptr))
             return -EINVAL;
+        u32 snapshot[max_supplementary_groups]{};
+        u32 snapshot_count = 0;
+        {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
+            snapshot_count = group_count_;
+            if (count != 0 && static_cast<u32>(count) < snapshot_count)
+                return -EINVAL;
+            for (u32 i = 0; i < snapshot_count; ++i)
+                snapshot[i] = static_cast<u32>(groups_[i]);
+        }
         if (count == 0)
-            return group_count_;
-        if (static_cast<u32>(count) < group_count_)
-            return -EINVAL;
-        for (u32 i = 0; i < group_count_; ++i)
-            out[i] = static_cast<u32>(groups_[i]);
-        return group_count_;
+            return snapshot_count;
+        for (u32 i = 0; i < snapshot_count; ++i)
+            out[i] = snapshot[i];
+        return snapshot_count;
     }
     i64 process::setgroups(i32 count, const u32* values) {
-        arch::interrupt_spinlock_guard guard(metadata_lock_);
-        if (euid_ != 0)
-            return -EPERM;
         if (count < 0 || static_cast<u32>(count) > max_supplementary_groups ||
             (count != 0 && values == nullptr))
             return -EINVAL;
+        gid_t snapshot[max_supplementary_groups]{};
+        {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
+            if (euid_ != 0)
+                return -EPERM;
+        }
+        for (u32 i = 0; i < static_cast<u32>(count); ++i)
+            snapshot[i] = gid_t{values[i]};
+        arch::interrupt_spinlock_guard guard(metadata_lock_);
+        if (euid_ != 0)
+            return -EPERM;
         group_count_ = static_cast<u32>(count);
         for (u32 i = 0; i < group_count_; ++i)
-            groups_[i] = gid_t{values[i]};
+            groups_[i] = snapshot[i];
         return 0;
     }
 

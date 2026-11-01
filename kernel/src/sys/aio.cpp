@@ -163,15 +163,6 @@ namespace astia::sys {
         constexpr u32 kernel_ring_slot_count = 4;
         constexpr u32 parked_operation_slots = 16;
 
-        // A hint only: the file interface has no atomic "join waiter and test
-        // readiness" operation, so publication after submit() can race a
-        // notification.  Wake paths retain the complete scan as fallback.
-        struct waiter_hint {
-            const fs::file* key = nullptr;
-        };
-
-        waiter_hint g_waiter_hints[kernel_ring_slot_count][parked_operation_slots];
-
         // Device submit paths may synchronously notify another parked request
         // (eventfd is one example).  Preserve the single owner rule while
         // allowing that same CPU to re-enter the ring without deadlocking;
@@ -347,15 +338,91 @@ namespace astia::sys {
         static_assert(ring_mapping_bytes <= sizeof(ring_slot::map),
                       "ring geometry exceeds the ring_slot backing array");
 
+        // Reverse index from a backing file to its parked operations.  The
+        // index is deliberately fixed-size: it has exactly one node per park
+        // slot, and therefore cannot exhaust independently of the ring pool.
+        // Notification snapshots matching slot numbers under index_lock, then
+        // takes the pool/ring locks one at a time.  It never retains a raw slot
+        // pointer across those locks, so exec/exit and slot reuse remain safe.
+        constexpr u32 waiter_index_buckets = 32;
+        constexpr u16 waiter_index_none = 0xffff;
+        struct waiter_index_entry {
+            const fs::file* key  = nullptr;
+            u16             next = waiter_index_none;
+        };
+        core::spinlock g_waiter_index_lock;
+        u16 g_waiter_index_heads[waiter_index_buckets] = {
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none, waiter_index_none,
+            waiter_index_none, waiter_index_none};
+        waiter_index_entry
+            g_waiter_index[kernel_ring_slot_count * parked_operation_slots];
+        u64 g_ready_generation = 0;
+
+        u32 waiter_index_hash(const fs::file* key) {
+            return (static_cast<u32>(reinterpret_cast<u64>(key) >> 4) &
+                    (waiter_index_buckets - 1));
+        }
+
+        u32 waiter_index_number(u32 slot, u32 park_index) {
+            return slot * parked_operation_slots + park_index;
+        }
+
+        void waiter_index_remove(const ring_slot& slot, u32 park_index);
+
+        void waiter_index_insert(const ring_slot& slot, u32 park_index,
+                                 const fs::file* key) {
+            const u32 number = waiter_index_number(slot.pool_index, park_index);
+            const u32 bucket = waiter_index_hash(key);
+            g_waiter_index_lock.lock();
+            g_waiter_index[number].key  = key;
+            g_waiter_index[number].next = g_waiter_index_heads[bucket];
+            g_waiter_index_heads[bucket] = static_cast<u16>(number);
+            g_waiter_index_lock.unlock();
+        }
+
+        void waiter_index_remove(const ring_slot& slot, u32 park_index) {
+            const u32 number = waiter_index_number(slot.pool_index, park_index);
+            g_waiter_index_lock.lock();
+            const fs::file* key = g_waiter_index[number].key;
+            if (key != nullptr) {
+                const u32 bucket = waiter_index_hash(key);
+                u16*       link  = &g_waiter_index_heads[bucket];
+                while (*link != waiter_index_none) {
+                    if (*link == number) {
+                        *link = g_waiter_index[number].next;
+                        break;
+                    }
+                    link = &g_waiter_index[*link].next;
+                }
+                g_waiter_index[number] = {};
+            }
+            g_waiter_index_lock.unlock();
+        }
+
+        u64 ready_generation() {
+            return __atomic_load_n(&g_ready_generation, __ATOMIC_ACQUIRE);
+        }
+
+        void note_device_ready(const fs::file*) {
+            __atomic_fetch_add(&g_ready_generation, 1, __ATOMIC_ACQ_REL);
+        }
+
         void clear_waiter_hint(const ring_slot& slot, u32 park_index) {
-            __atomic_store_n(&g_waiter_hints[slot.pool_index][park_index].key,
-                             static_cast<const fs::file*>(nullptr), __ATOMIC_RELEASE);
+            waiter_index_remove(slot, park_index);
         }
 
         void publish_waiter_hint(const ring_slot& slot, u32 park_index,
                                  const fs::file* key) {
-            __atomic_store_n(&g_waiter_hints[slot.pool_index][park_index].key, key,
-                             __ATOMIC_RELEASE);
+            waiter_index_insert(slot, park_index, key);
         }
 
         astia_rings* rings_of(const ring_slot& slot) {
@@ -616,6 +683,8 @@ namespace astia::sys {
             }
         }
 
+        void resume_parked(astia_rings* ring, parked_op& op);
+
         /// Start one operation through the device's submit() seam.  The park
         /// slot is taken up front so the request sits at its final address
         /// before the device ever sees it: handing a device a stack-local
@@ -684,10 +753,15 @@ namespace astia::sys {
             p->request =
                 io_request(p->entries.window(), static_cast<u32>(p->entries.chunk()),
                            s.offset, s.user_data, direction);
+            // Capture before submit(): if readiness is reported while the
+            // device is testing the request, publication below must notice it.
+            const u64 generation = ready_generation();
             long       result  = 0;
             const auto outcome = pump(*p, result);
             if (outcome == io_outcome::parked) {
                 publish_waiter_hint(slot, park_index, p->object->backing());
+                if (ready_generation() != generation)
+                    resume_parked(ring, *p);
                 return true; // parked: a device resume completes it
             }
             complete_recvfrom_address(*p, result);
@@ -1751,6 +1825,7 @@ namespace astia::sys {
             auto object = file_for(s.fd);
             if (!object)
                 return cq_post_guarded(ring, s.user_data, POLLNVAL);
+            const u64 generation = ready_generation();
             const u32 ready = object->poll(s.aux);
             if (ready != 0)
                 return cq_post_guarded(ring, s.user_data, static_cast<i32>(ready));
@@ -1774,6 +1849,8 @@ namespace astia::sys {
             p->object      = object;
             p->request = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
             publish_waiter_hint(slot, park_index, object->backing());
+            if (ready_generation() != generation)
+                resume_parked(ring, *p);
             return true;
         }
 
@@ -2157,13 +2234,20 @@ namespace astia::sys {
             return;
         }
         const fs::file* device = current_object->backing();
-        // Fast hint pass.  This is intentionally followed by the complete
-        // scan: a notification can occur between submit() returning 0 and
-        // publish_waiter_hint(), and the old scan is what closes that race.
-        bool hinted[kernel_ring_slot_count][parked_operation_slots]{};
+        bool indexed[kernel_ring_slot_count][parked_operation_slots]{};
+        note_device_ready(device);
+        {
+            arch::interrupt_guard index_gate;
+            g_waiter_index_lock.lock();
+            for (u16 n = g_waiter_index_heads[waiter_index_hash(device)];
+                 n != waiter_index_none; n = g_waiter_index[n].next)
+                if (g_waiter_index[n].key == device)
+                    indexed[n / parked_operation_slots][n % parked_operation_slots] = true;
+            g_waiter_index_lock.unlock();
+        }
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
-                if (__atomic_load_n(&g_waiter_hints[i][p].key, __ATOMIC_ACQUIRE) != device)
+                if (!indexed[i][p])
                     continue;
                 ring_guard pool_guard(g_ring_pool_lock);
                 ring_slot* slot_ptr = g_slots[i];
@@ -2175,31 +2259,7 @@ namespace astia::sys {
                 parked_op& op = slot.park[p];
                 if (op.used && !op.done && op.fd == fd && op.object &&
                     op.object->backing() == device) {
-                    hinted[i][p] = true;
                     resume_parked(rings_of(slot), op);
-                }
-            }
-        }
-        // There is not yet a safe device->ring reverse index: parked slots
-        // retain open-file references and may be torn down by exec/exit.
-        // Keep this bounded global scan for now, but do not hold the pool
-        // lock while resuming a request; a per-device waiter index is the
-        // next reduction target.
-        for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
-            ring_guard pool_guard(g_ring_pool_lock);
-            ring_slot* slot_ptr = g_slots[i];
-            if (slot_ptr == nullptr || !slot_ptr->used) {
-                continue;
-            }
-            ring_slot&   slot = *slot_ptr;
-            ring_guard ring_lock_guard(slot.lock);
-            pool_guard.release_lock();
-            astia_rings* ring = rings_of(slot);
-            for (u32 p = 0; p < parked_operation_slots; ++p) {
-                parked_op& op = slot.park[p];
-                if (!hinted[i][p] && op.used && !op.done && op.fd == fd && op.object &&
-                    op.object->backing() == current_object->backing()) {
-                    resume_parked(ring, op);
                 }
             }
         }
@@ -2213,12 +2273,20 @@ namespace astia::sys {
         if (dev == nullptr) {
             return;
         }
-        // Hint pass only; the complete scan below remains mandatory because
-        // waiter publication is not an atomic operation in fs::file.
-        bool hinted[kernel_ring_slot_count][parked_operation_slots]{};
+        bool indexed[kernel_ring_slot_count][parked_operation_slots]{};
+        note_device_ready(dev);
+        {
+            arch::interrupt_guard index_gate;
+            g_waiter_index_lock.lock();
+            for (u16 n = g_waiter_index_heads[waiter_index_hash(dev)];
+                 n != waiter_index_none; n = g_waiter_index[n].next)
+                if (g_waiter_index[n].key == dev)
+                    indexed[n / parked_operation_slots][n % parked_operation_slots] = true;
+            g_waiter_index_lock.unlock();
+        }
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
-                if (__atomic_load_n(&g_waiter_hints[i][p].key, __ATOMIC_ACQUIRE) != dev)
+                if (!indexed[i][p])
                     continue;
                 ring_guard pool_guard(g_ring_pool_lock);
                 ring_slot* slot_ptr = g_slots[i];
@@ -2231,29 +2299,7 @@ namespace astia::sys {
                 if (op.used && !op.done && op.object &&
                     op.request.user_data() != excluded_user_data &&
                     op.object->backing() == dev) {
-                    hinted[i][p] = true;
                     resume_parked(rings_of(slot), op);
-                }
-            }
-        }
-        // See io_device_ready(): ownership/lifetime currently requires the
-        // bounded scan, while each ring is protected independently.
-        for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
-            ring_guard pool_guard(g_ring_pool_lock);
-            ring_slot* slot_ptr = g_slots[i];
-            if (slot_ptr == nullptr || !slot_ptr->used) {
-                continue;
-            }
-            ring_slot&   slot = *slot_ptr;
-            ring_guard ring_lock_guard(slot.lock);
-            pool_guard.release_lock();
-            astia_rings* ring = rings_of(slot);
-            for (u32 p = 0; p < parked_operation_slots; ++p) {
-                parked_op& op = slot.park[p];
-                if (!hinted[i][p] && op.used && !op.done && op.object &&
-                    op.request.user_data() != excluded_user_data &&
-                    op.object->backing() == dev) {
-                    resume_parked(ring, op);
                 }
             }
         }
