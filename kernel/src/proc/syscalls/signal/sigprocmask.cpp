@@ -21,9 +21,9 @@ namespace astia::proc::syscall {
         if (!operation)
             return -EINVAL;
         if (old_ptr != 0) {
-            const auto old_range = sys::user_range::bytes(old_ptr, sizeof(u32));
+            const auto old_range = sys::user_ptr<u32>(old_ptr).validate();
             const u32 old = owner->signals().blocked();
-            if (!sys::copy_out(old_range, &old)) {
+            if (!old_range || !sys::copy_out(old_range.value.bytes(), &old)) {
                 return -EFAULT;
             }
         }

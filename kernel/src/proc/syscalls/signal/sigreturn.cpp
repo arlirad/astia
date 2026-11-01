@@ -18,11 +18,11 @@ namespace astia::proc::syscall {
 
     i64 sigreturn(const arch::syscall_frame& input) {
         const auto range =
-            sys::user_range::bytes(input.a0, sizeof(astia_x86_64_signal_context_t));
-        if (!sys::user_range_ok(range))
+            sys::user_ptr<astia_x86_64_signal_context_t>(input.a0).validate();
+        if (!range)
             return -EFAULT;
         astia_x86_64_signal_context_t saved{};
-        if (!sys::copy_in(&saved, range))
+        if (!sys::copy_in(&saved, range.value.bytes()))
             return -EFAULT;
         if (saved.rip == 0 || saved.rsp == 0 || saved.rip >= arch::kernel_base ||
             saved.rsp >= arch::kernel_base || (saved.rflags & user_interrupt_flag) == 0)
