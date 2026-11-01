@@ -26,7 +26,7 @@ namespace astia::fs {
         bool parent_of(const char* directory, const char* path, u32& start);
     }
 
-    long register_unix_path(const char* path, const mm::shptr<file>& endpoint,
+    long register_unix_path(const char* path, const file_node_ref& endpoint,
                             uid_t uid, gid_t gid, char* canonical, u32 capacity) {
         if (!path || !endpoint || !canonical || !capacity) return -EINVAL;
         char resolved[path_max]{};
@@ -53,7 +53,7 @@ namespace astia::fs {
         }
         if (!result) {
             free->used = true;
-            free->endpoint = endpoint;
+            free->endpoint = endpoint.ownership();
             free->owner = owner;
             free->uid = uid;
             free->gid = gid;

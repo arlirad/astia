@@ -3,7 +3,7 @@
 #include <astia/fs.hpp>
 
 namespace astia::fs {
-    long register_unix_path(const char* path, const mm::shptr<file>& endpoint,
+    long register_unix_path(const char* path, const file_node_ref& endpoint,
                             uid_t uid, gid_t gid, char* canonical, u32 canonical_capacity);
     long lookup_unix_path(const char* path, mm::shptr<file>& endpoint);
     void unregister_unix_path(const char* canonical, file* endpoint);
