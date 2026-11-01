@@ -512,10 +512,10 @@ namespace astia::proc {
         // process group is still available to the signal fan-out.
         metadata_snapshot metadata{};
         snapshot_metadata(metadata);
-        if (metadata.controlling_terminal != nullptr && metadata.session == pid_) {
+        if (metadata.controlling_terminal && metadata.session == pid_) {
             (void) signal_process_group(pgrp_from_raw(raw_id(metadata.process_group)),
                                         signal_number::hup);
-            controlling_terminal(nullptr);
+            controlling_terminal({});
         }
         // Release a child's private ring at exit rather than waiting for
         // waitpid: the parent and subsequent children may still need slots.
@@ -718,7 +718,7 @@ namespace astia::proc {
         if (installed) {
             auto tty = descriptor(fd_t{STDIN});
             if (tty) {
-                controlling_terminal(tty->backing());
+                controlling_terminal(tty->backing_reference());
                 i32 group = static_cast<i32>(raw_id(process_group()));
                 (void) tty->ioctl(TIOCSPGRP, &group, sizeof(i32));
             }

@@ -272,7 +272,7 @@ namespace astia::proc {
             record.pgid      = static_cast<i32>(raw_id(metadata.process_group));
             record.uid       = metadata.uid;
             record.gid       = metadata.gid;
-            record.has_ctty  = metadata.controlling_terminal != nullptr ? 1u : 0u;
+            record.has_ctty  = metadata.controlling_terminal ? 1u : 0u;
             const char* name = value->name();
             for (u32 n = 0; name != nullptr && n + 1 < sizeof(record.name) && name[n];
                  ++n)
@@ -303,28 +303,28 @@ namespace astia::proc {
         return static_cast<i64>(raw_id(selected->session()));
     }
 
-    i64 acquire_controlling_terminal(fs::file* terminal) {
+    i64 acquire_controlling_terminal(const mm::shptr<fs::file>& terminal) {
         process* owner = current_process();
-        if (owner == nullptr || terminal == nullptr)
+        if (owner == nullptr || !terminal)
             return -ENXIO;
         if (!owner->claim_controlling_terminal(terminal))
             return -EPERM;
         i32        group = static_cast<i32>(raw_id(owner->process_group()));
-        const long rc    = fs::dispatch_ioctl(terminal, TIOCSPGRP, &group, sizeof(i32));
+        const long rc    = fs::dispatch_ioctl(terminal.get(), TIOCSPGRP, &group, sizeof(i32));
         if (rc < 0) {
-            owner->controlling_terminal(nullptr);
+            owner->controlling_terminal({});
             return rc;
         }
         return 0;
     }
 
-    fs::file* controlling_terminal() {
+    mm::shptr<fs::file> controlling_terminal() {
         process* owner = current_process();
-        return owner == nullptr ? nullptr : owner->controlling_terminal();
+        return owner == nullptr ? mm::shptr<fs::file>{} : owner->controlling_terminal();
     }
 
     bool has_controlling_terminal() {
-        return controlling_terminal() != nullptr;
+        return static_cast<bool>(controlling_terminal());
     }
 
     bool process_group_exists(pgrp_t group, pid_t session) {
@@ -437,7 +437,7 @@ namespace astia::proc {
             return -EPERM;
         owner->session(owner->pid());
         owner->process_group(process_group_for(owner->pid()));
-        owner->controlling_terminal(nullptr);
+        owner->controlling_terminal({});
         return static_cast<i64>(raw_id(owner->session()));
     }
 
