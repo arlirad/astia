@@ -49,17 +49,17 @@ namespace astia::boot::virt {
 
     } // namespace
 
-    bool parse_multiboot2_info(const void* raw, boot_info& out) {
-        if (raw == nullptr)
+    bool parse_multiboot2_info(span<const u8> mbi, boot_info& out) {
+        if (mbi.data() == nullptr || mbi.size() < sizeof(u32))
             return false;
 
-        const auto* bytes   = static_cast<const u8*>(raw);
+        const auto* bytes = mbi.data();
         u32         total32 = 0;
         // The fixed part is deliberately copied bytewise only after the caller has
         // supplied a non-null address; the structure is little-endian on i386.
         total32           = *reinterpret_cast<const u32*>(bytes);
         const usize total = total32;
-        if (total < 16 || (total & 7u) != 0)
+        if (total < 16 || (total & 7u) != 0 || total > mbi.size())
             return false;
 
         boot_info parsed{};

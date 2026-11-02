@@ -27,14 +27,15 @@ namespace astia::fs {
     }
 
     long register_unix_path(const char* path, const mm::shptr<file>& endpoint,
-                            uid_t uid, gid_t gid, char* canonical, u32 capacity) {
-        if (!path || !endpoint || !canonical || !capacity) return -EINVAL;
+                            uid_t uid, gid_t gid, astia::span<char> canonical) {
+        if (!path || !endpoint || canonical.data() == nullptr || canonical.empty())
+            return -EINVAL;
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, false);
         if (rc < 0) return rc;
         u32 length = 0;
         while (resolved[length]) ++length;
-        if (length + 1 > capacity) return -ENAMETOOLONG;
+        if (length + 1 > canonical.size()) return -ENAMETOOLONG;
         mount* owner = retain_mount_for_unix_path(resolved);
         if (!owner) return -ENOENT;
         long result = 0;
@@ -59,7 +60,7 @@ namespace astia::fs {
             free->gid = gid;
             for (u32 i = 0; i <= length; ++i) {
                 free->path[i] = resolved[i];
-                canonical[i] = resolved[i];
+                canonical.data()[i] = resolved[i];
             }
         }
         guard.unlock();
@@ -220,8 +221,9 @@ namespace astia::fs {
         return -ENOENT;
     }
     long read_unix_directory(const char* directory, mount* owner, u64 index,
-                             char* name, u32 capacity, file_type* type) {
-        if (!directory || !owner || !name || !type || !capacity) return -EINVAL;
+                             astia::span<char> name, file_type* type) {
+        if (!directory || !owner || name.data() == nullptr || name.empty() || !type)
+            return -EINVAL;
         core::spinlock_guard guard(lock);
         u64 ordinal = 0;
         for (auto& item : entries) {
@@ -234,9 +236,9 @@ namespace astia::fs {
             // A pathname record is one directory entry; duplicate prefixes
             // cannot occur because bind names are unique.
             if (ordinal++ != index) continue;
-            if (end - start + 1 > capacity) return -ENAMETOOLONG;
-            for (u32 i = start; i < end; ++i) name[i - start] = item.path[i];
-            name[end - start] = '\0';
+            if (end - start + 1 > name.size()) return -ENAMETOOLONG;
+            for (u32 i = start; i < end; ++i) name.data()[i - start] = item.path[i];
+            name.data()[end - start] = '\0';
             *type = directory_sock;
             return 1;
         }

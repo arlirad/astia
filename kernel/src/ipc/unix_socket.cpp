@@ -7,6 +7,7 @@
 #include <astia/api/errno.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
+#include <astia/span.hpp>
 
 namespace astia::fs {
     namespace {
@@ -56,7 +57,7 @@ namespace astia::fs {
                     side = side_;
                 }
                 if (kind == state::dgram)
-                    return recv_dgram(static_cast<u8*>(b), n);
+                    return recv_dgram(astia::span<u8>(static_cast<u8*>(b), n));
                 if (kind != state::connected)
                     return -ENOTCONN;
                 if (!channel)
@@ -96,7 +97,7 @@ namespace astia::fs {
                     side = side_;
                 }
                 if (kind == state::dgram)
-                    return send_dgram(static_cast<const u8*>(b), n);
+                    return send_dgram(astia::span<const u8>(static_cast<const u8*>(b), n));
                 if (kind != state::connected)
                     return -ENOTCONN;
                 if (!channel)
@@ -196,8 +197,9 @@ namespace astia::fs {
                 if (kind == state::dgram) {
                     long n =
                         r.direction() == io_direction::input
-                            ? recv_dgram(static_cast<u8*>(r.buffer()), r.length())
-                            : send_dgram(static_cast<const u8*>(r.buffer()), r.length());
+                            ? recv_dgram(astia::span<u8>(static_cast<u8*>(r.buffer()), r.length()))
+                            : send_dgram(astia::span<const u8>(static_cast<const u8*>(r.buffer()),
+                                                               r.length()));
                     if (n == 0 && !r.complete())
                         r.stage(1);
                     return n;
@@ -298,9 +300,11 @@ namespace astia::fs {
                 out = dgram_out_value_;
                 return true;
             }
-            long send_dgram(const u8* b, u32 n) {
-                if (n > socket_datagram_payload_capacity)
+            long send_dgram(astia::span<const u8> payload) {
+                if (payload.size() > socket_datagram_payload_capacity)
                     return -EINVAL;
+                if (payload.data() == nullptr && !payload.empty())
+                    return -EFAULT;
                 mm::shptr<unix_file> target_owner;
                 astia_sockaddr from;
                 {
@@ -318,17 +322,19 @@ namespace astia::fs {
                     if (target->dgram_count_ == socket_datagram_queue_capacity)
                         return 0;
                     datagram& m = target->dgrams_[target->dgram_tail_];
-                    m.len = n;
+                    m.len = static_cast<u32>(payload.size());
                     m.from = from;
-                    for (u32 i = 0; i < n; ++i) m.data[i] = b[i];
+                    for (u32 i = 0; i < m.len; ++i) m.data[i] = payload.data()[i];
                     target->dgram_tail_ =
                         (target->dgram_tail_ + 1) % socket_datagram_queue_capacity;
                     ++target->dgram_count_;
                 }
                 sys::io_device_ready_context(target);
-                return n;
+                return static_cast<long>(payload.size());
             }
-            long recv_dgram(u8* b, u32 n) {
+            long recv_dgram(astia::span<u8> output) {
+                if (output.data() == nullptr && !output.empty())
+                    return -EFAULT;
                 mm::shptr<unix_file> target_owner;
                 u32 count;
                 {
@@ -336,9 +342,9 @@ namespace astia::fs {
                     if (!dgram_count_)
                         return shut_rd_ ? 0 : 0;
                     datagram& m = dgrams_[dgram_head_];
-                    count = n < m.len ? n : m.len;
+                    count = output.size() < m.len ? static_cast<u32>(output.size()) : m.len;
                     for (u32 i = 0; i < count; ++i)
-                        b[i] = m.data[i];
+                        output.data()[i] = m.data[i];
                     if (dgram_out_pending_) {
                         dgram_out_value_ = m.from;
                         dgram_out_pending_ = false;
@@ -545,8 +551,9 @@ namespace astia::fs {
             if (!current)
                 return -ESRCH;
             mm::shptr<file> node = o.node();
-            long rc = register_unix_path(n, node, uid_t{current->euid()},
-                                         gid_t{current->egid()}, canonical, sizeof canonical);
+            long rc = register_unix_path(
+                n, node, uid_t{current->euid()}, gid_t{current->egid()},
+                astia::span<char>(canonical, sizeof canonical));
             if (rc < 0)
                 return rc;
             f->set_bound_address(a);

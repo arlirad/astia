@@ -540,9 +540,10 @@ namespace astia::elf {
         // each needs `*loc = bias + addend` to be usable at its run address.
         // Any other dynamic relocation type means real dynamic linking, which
         // this loader deliberately does not do, so we reject it.
-        bool apply_relative_relocs(const u8* bytes, usize len, const elf64_phdr* ph,
+        bool apply_relative_relocs(span<const u8> bytes, const elf64_phdr* ph,
                                    u16 phnum, u64 load_bias, u64 span_start,
                                    u64 span_end) {
+            const usize len = bytes.size();
             // Find PT_DYNAMIC; a fully static ET_EXEC has none, which is fine.
             const elf64_dyn* dyn       = nullptr;
             u64              dyn_count = 0;
@@ -551,7 +552,7 @@ namespace astia::elf {
                     if (!in_bounds(ph[i].p_offset, ph[i].p_filesz, len)) {
                         return false;
                     }
-                    dyn = reinterpret_cast<const elf64_dyn*>(bytes + ph[i].p_offset);
+                    dyn = reinterpret_cast<const elf64_dyn*>(bytes.data() + ph[i].p_offset);
                     dyn_count = ph[i].p_filesz / sizeof(elf64_dyn);
                     break;
                 }
@@ -591,7 +592,7 @@ namespace astia::elf {
                 return false;
             }
             u64         count = rela_size / sizeof(elf64_rela);
-            const auto* rela  = reinterpret_cast<const elf64_rela*>(bytes + rela_off);
+            const auto* rela = reinterpret_cast<const elf64_rela*>(bytes.data() + rela_off);
 
             for (u64 k = 0; k < count; ++k) {
                 const elf64_rela& r    = rela[k];
@@ -710,7 +711,9 @@ namespace astia::elf {
                 }
             }
             if (e.copy != nullptr) {
-                if (!e.copy(e.ctx, dest, src, static_cast<usize>(ph[i].p_filesz)))
+                if (!e.copy(e.ctx, dest,
+                            astia::span<const u8>(src,
+                                                  static_cast<usize>(ph[i].p_filesz))))
                     return false;
             }
             else if (d == nullptr) {
@@ -729,7 +732,7 @@ namespace astia::elf {
 
         // --- Apply R_X86_64_RELATIVE dynamic relocations (a PIE needs them to
         // make its internal pointers valid at the run address).
-        if (!apply_relative_relocs(base_bytes, len, ph, phnum, load_bias, span_start,
+        if (!apply_relative_relocs(bytes, ph, phnum, load_bias, span_start,
                                    span_end)) {
             return false;
         }

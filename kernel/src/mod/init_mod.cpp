@@ -30,8 +30,8 @@ namespace astia::mod {
 
         // Load one ELF image and run it, logging the outcome. `name` labels an
         // initrd file; when null the boot-module index `i` is used instead.
-        void load_and_run(const void* data, usize size, const char* name, u64 i) {
-            const module* mod = load_module(span<const u8>(static_cast<const u8*>(data), size));
+        void load_and_run(span<const u8> data, const char* name, u64 i) {
+            const module* mod = load_module(data);
             if (mod == nullptr) {
                 if (name != nullptr) {
                     logs::error("%s failed to load", name);
@@ -59,7 +59,7 @@ namespace astia::mod {
             if (elf::kind_of(f.data, f.size) != elf::kind::relocatable) {
                 return true;
             }
-            load_and_run(f.data, f.size, f.name, 0);
+            load_and_run(span<const u8>(static_cast<const u8*>(f.data), f.size), f.name, 0);
             return true;
         }
 
@@ -96,10 +96,11 @@ namespace astia::mod {
             // direct map so the bytes are addressable regardless of which
             // address space is active.
             const void* data = mm::kernel_frames().to_virt(m.paddr);
-            usize       size = static_cast<usize>(m.size);
+            const span<const u8> image(static_cast<const u8*>(data),
+                                       static_cast<usize>(m.size));
 
-            if (elf::kind_of(data, size) != elf::kind::none) {
-                load_and_run(data, size, nullptr, i);
+            if (elf::kind_of(image) != elf::kind::none) {
+                load_and_run(image, nullptr, i);
                 continue;
             }
             logs::warning("module %llu is not an ELF image",

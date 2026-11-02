@@ -61,55 +61,54 @@ namespace astia::proc {
         return 0;
     }
 
-    i64 process::copy_cwd(char* buffer, usize length) const {
-        if (buffer == nullptr || length == 0)
+    i64 process::copy_cwd(span<char> buffer) const {
+        if (buffer.null() || buffer.empty())
             return -EINVAL;
         usize i = 0;
-        for (; cwd_[i] != '\0' && i + 1 < length; ++i)
-            buffer[i] = cwd_[i];
+        for (; cwd_[i] != '\0' && i + 1 < buffer.size(); ++i)
+            buffer.data()[i] = cwd_[i];
         if (cwd_[i] != '\0')
             return -ERANGE;
-        buffer[i] = '\0';
+        buffer.data()[i] = '\0';
         return static_cast<i64>(i + 1);
     }
 
-    i64 process::compose_path(const char* path, char* buffer, usize length) const {
-        if (path == nullptr || buffer == nullptr || length == 0)
+    i64 process::compose_path(const char* path, span<char> buffer) const {
+        if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
         if (path[0] == '/') {
             usize i = 0;
-            for (; path[i] != '\0' && i + 1 < length; ++i)
-                buffer[i] = path[i];
+            for (; path[i] != '\0' && i + 1 < buffer.size(); ++i)
+                buffer.data()[i] = path[i];
             if (path[i] != '\0')
                 return -ENAMETOOLONG;
-            buffer[i] = '\0';
+            buffer.data()[i] = '\0';
             return 0;
         }
         if (path[0] == '.' && path[1] == '\0') {
-            return copy_cwd(buffer, length) < 0 ? -ERANGE : 0;
+            return copy_cwd(buffer) < 0 ? -ERANGE : 0;
         }
         usize at = 0;
-        for (; cwd_[at] != '\0' && at + 1 < length; ++at)
-            buffer[at] = cwd_[at];
-        if (at > 1 && at + 1 < length)
-            buffer[at++] = '/';
+        for (; cwd_[at] != '\0' && at + 1 < buffer.size(); ++at)
+            buffer.data()[at] = cwd_[at];
+        if (at > 1 && at + 1 < buffer.size())
+            buffer.data()[at++] = '/';
         usize source = 0;
-        for (; path[source] != '\0' && at + 1 < length; ++source, ++at)
-            buffer[at] = path[source];
+        for (; path[source] != '\0' && at + 1 < buffer.size(); ++source, ++at)
+            buffer.data()[at] = path[source];
         if (path[source] != '\0')
             return -ENAMETOOLONG;
-        buffer[at] = '\0';
+        buffer.data()[at] = '\0';
         return 0;
     }
 
-    i64 process::compose_path_at(fd_t dirfd, const char* path, char* buffer,
-                                 usize length) const {
-        if (path == nullptr || buffer == nullptr || length == 0)
+    i64 process::compose_path_at(fd_t dirfd, const char* path, span<char> buffer) const {
+        if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
         if (path[0] == '/')
-            return compose_path(path, buffer, length);
+            return compose_path(path, buffer);
         if (dirfd.value == -100)
-            return compose_path(path, buffer, length);
+            return compose_path(path, buffer);
         auto directory = descriptor(dirfd);
         if (!directory)
             return -EBADF;
@@ -117,18 +116,18 @@ namespace astia::proc {
             return -ENOTDIR;
         usize       at   = 0;
         const char* base = directory->path();
-        for (; base[at] != '\0' && at + 1 < length; ++at)
-            buffer[at] = base[at];
+        for (; base[at] != '\0' && at + 1 < buffer.size(); ++at)
+            buffer.data()[at] = base[at];
         if (base[at] != '\0')
             return -ENAMETOOLONG;
-        if (at > 1 && at + 1 < length)
-            buffer[at++] = '/';
+        if (at > 1 && at + 1 < buffer.size())
+            buffer.data()[at++] = '/';
         usize i = 0;
-        for (; path[i] != '\0' && at + 1 < length; ++i, ++at)
-            buffer[at] = path[i];
+        for (; path[i] != '\0' && at + 1 < buffer.size(); ++i, ++at)
+            buffer.data()[at] = path[i];
         if (path[i] != '\0')
             return -ENAMETOOLONG;
-        buffer[at] = '\0';
+        buffer.data()[at] = '\0';
         return 0;
     }
 
@@ -924,11 +923,11 @@ namespace astia::proc {
         }
     }
 
-    bool process::exec_user_image(const void* bytes, usize length, char* const argv[],
+    bool process::exec_user_image(span<const u8> bytes, char* const argv[],
                                   char* const envp[], u64* entry_out, u64* stack_out) {
         process staging(pid_, parent_pid_, name_);
         u64     entry = 0, stack = 0;
-        if (!staging.load_user_image(bytes, length, &entry) ||
+        if (!staging.load_user_image(bytes, &entry) ||
             !staging.build_user_stack(argv, envp, &stack))
             return false;
         replace_image(staging);

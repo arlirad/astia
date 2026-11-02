@@ -46,12 +46,12 @@ namespace astia::boot::virt {
 
     } // namespace
 
-    bool parse_start_info(const void* start_info, boot_info& out) {
-        if (start_info == nullptr) {
+    bool parse_start_info(span<const u8> start_info, boot_info& out) {
+        if (start_info.data() == nullptr || start_info.size() < sizeof(hvm_start_info)) {
             return false;
         }
 
-        const auto* info = static_cast<const hvm_start_info*>(start_info);
+        const auto* info = reinterpret_cast<const hvm_start_info*>(start_info.data());
         if (info->magic != hvm_start_magic) {
             return false;
         }

@@ -2,6 +2,7 @@
 
 #include "filesystem.hpp"
 #include "initrd.hpp"
+#include <astia/span.hpp>
 
 namespace astia::fs {
 
@@ -10,7 +11,10 @@ namespace astia::fs {
     class initrd_mount final : public mount {
         public:
         bool                 attach(const initrd::archive& archive);
-        bool                 add(const char* path, const void* data, usize size);
+        bool                 add(const char* path, astia::span<const u8> data);
+        bool                 add(const char* path, const void* data, usize size) {
+            return add(path, astia::span<const u8>(static_cast<const u8*>(data), size));
+        }
         mm::shptr<open_file> open(const char* path, u32 flags) override;
         file_type            node_type(const char* path) const override;
         file_mode            node_mode(const char* path) const override;
@@ -21,8 +25,7 @@ namespace astia::fs {
         struct entry {
             bool        used;
             char        path[path_max];
-            const void* data;
-            usize       size;
+            astia::span<const u8> data;
         };
 
         entry entries_[initrd_max_entries]{};

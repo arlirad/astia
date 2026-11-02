@@ -533,7 +533,7 @@ namespace astia::fs {
         while (operation.instance()->read_directory(relative, base, name, capacity, type) > 0)
             ++base;
         return read_unix_directory(resolved, operation.instance(), index - base,
-                                   name, capacity, type);
+                                   astia::span<char>(name, capacity), type);
     }
 
     long make_directory(const char* path, file_mode mode) {

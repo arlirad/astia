@@ -3,6 +3,7 @@
 #include <astia/api/aio.h>
 #include <astia/common.hpp>
 #include <astia/io.hpp>
+#include <astia/span.hpp>
 
 // A logical device: the root of the blk/char/net split and the seam
 // the async ring engine binds to.  aretev-shaped — a name, a kind, and
@@ -67,6 +68,19 @@ namespace astia::dev {
         // Device-specific control: TCGETS/TCSETS on a tty, geometry on
         // a disk.  -ENOTTY when the request is unknown.
         virtual long ioctl(u64 request, void* argp, usize size);
+
+        // Span adapters keep internal device call sites from carrying a
+        // pointer and length separately; the virtual compatibility seam above
+        // remains unchanged for file/driver implementations.
+        long read(astia::span<u8> buffer, u64 off) {
+            return read(buffer.data(), static_cast<u32>(buffer.size()), off);
+        }
+        long write(astia::span<const u8> buffer, u64 off) {
+            return write(buffer.data(), static_cast<u32>(buffer.size()), off);
+        }
+        long ioctl(u64 request, astia::span<u8> argument) {
+            return ioctl(request, argument.data(), argument.size());
+        }
 
         protected:
         char     _name[16]{}; // {} matters: an uninitialized array member

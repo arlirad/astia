@@ -1,10 +1,11 @@
 #pragma once
 
 #include <astia/fs.hpp>
+#include <astia/span.hpp>
 
 namespace astia::fs {
     long register_unix_path(const char* path, const mm::shptr<file>& endpoint,
-                            uid_t uid, gid_t gid, char* canonical, u32 canonical_capacity);
+                            uid_t uid, gid_t gid, astia::span<char> canonical);
     long lookup_unix_path(const char* path, mm::shptr<file>& endpoint);
     void unregister_unix_path(const char* canonical, file* endpoint);
     long remove_unix_path(const char* canonical, mount* owner, bool directory);
@@ -16,5 +17,5 @@ namespace astia::fs {
     long unix_chmod_path(const char* canonical, mount* owner, file_permissions permissions);
     long unix_chown_path(const char* canonical, mount* owner, uid_t uid, gid_t gid);
     long read_unix_directory(const char* directory, mount* owner, u64 index,
-                             char* name, u32 capacity, file_type* type);
+                             astia::span<char> name, file_type* type);
 }

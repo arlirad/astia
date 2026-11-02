@@ -8,16 +8,16 @@ namespace astia::fs {
     namespace {
         class initrd_file final : public file {
             public:
-            initrd_file(const void* data, usize size) : data_(data), size_(size) {}
+            explicit initrd_file(astia::span<const u8> data) : data_(data) {}
 
             long read(void* buffer, u32 length, u64 offset) override {
                 if (buffer == nullptr && length != 0)
                     return -EFAULT;
-                if (offset >= size_)
+                if (offset >= data_.size())
                     return 0;
-                const usize available = size_ - static_cast<usize>(offset);
+                const usize available = data_.size() - static_cast<usize>(offset);
                 const usize count     = available < length ? available : length;
-                const auto* source    = static_cast<const u8*>(data_) + offset;
+                const auto* source    = data_.data() + offset;
                 auto*       target    = static_cast<u8*>(buffer);
                 for (usize i = 0; i < count; ++i)
                     target[i] = source[i];
@@ -28,15 +28,14 @@ namespace astia::fs {
                 return -EROFS;
             }
             long size() const override {
-                return static_cast<long>(size_);
+                return static_cast<long>(data_.size());
             }
             file_mode mode() const override {
                 return file_mode(file_type::regular, readonly_file_permissions);
             }
 
             private:
-            const void* data_;
-            usize       size_;
+            astia::span<const u8> data_;
         };
 
         bool equal(const char* lhs, const char* rhs) {
@@ -59,7 +58,7 @@ namespace astia::fs {
             return true;
         }
 
-        bool child_name(const char* directory, const char* full, char* name, u32 capacity,
+        bool child_name(const char* directory, const char* full, astia::span<char> name,
                         file_type& type) {
             u32 directory_len = 0;
             u32 full_len      = 0;
@@ -81,23 +80,25 @@ namespace astia::fs {
             while (end < full_len && full[end] != '/')
                 ++end;
             const u32 length = end - start;
-            if (length + 1 > capacity)
+            if (name.data() == nullptr || length + 1 > name.size())
                 return false;
             for (u32 i = 0; i < length; ++i)
-                name[i] = full[start + i];
-            name[length] = '\0';
+                name.data()[i] = full[start + i];
+            name.data()[length] = '\0';
             type         = end < full_len ? directory_dir : directory_reg;
             return true;
         }
 
         bool add_file(void* opaque, const initrd::file& source) {
             auto& mount = *static_cast<initrd_mount*>(opaque);
-            return mount.add(source.name, source.data, source.size);
+            return mount.add(source.name,
+                             astia::span<const u8>(static_cast<const u8*>(source.data),
+                                                   source.size));
         }
     }
 
-    bool initrd_mount::add(const char* path, const void* data, usize size) {
-        if (attached_ || path == nullptr || data == nullptr || size == 0)
+    bool initrd_mount::add(const char* path, astia::span<const u8> data) {
+        if (attached_ || path == nullptr || data.data() == nullptr || data.empty())
             return false;
         char normalized[path_max]{};
         normalized[0] = '/';
@@ -112,7 +113,6 @@ namespace astia::fs {
                 entries_[i].used = true;
                 copy_path(entries_[i].path, normalized);
                 entries_[i].data = data;
-                entries_[i].size = size;
                 return true;
             }
         }
@@ -140,8 +140,8 @@ namespace astia::fs {
             return {};
         for (u32 i = 0; i < initrd_max_entries; ++i) {
             if (entries_[i].used && equal(entries_[i].path, path)) {
-                mm::shptr<initrd_file> object = mm::shptr<initrd_file>(
-                    new initrd_file(entries_[i].data, entries_[i].size));
+                mm::shptr<initrd_file> object =
+                    mm::shptr<initrd_file>(new initrd_file(entries_[i].data));
                 return object ? mm::share<open_file>(object, flags)
                               : mm::shptr<open_file>{};
             }
@@ -212,7 +212,8 @@ namespace astia::fs {
             const char* full = entries_[i].path;
             char        candidate[256]{};
             file_type   candidate_type = directory_unknown;
-            if (!child_name(path, full, candidate, sizeof candidate, candidate_type))
+            if (!child_name(path, full, astia::span<char>(candidate, sizeof candidate),
+                            candidate_type))
                 continue;
             bool duplicate = false;
             for (u32 p = 0; p < i && !duplicate; ++p) {
@@ -220,7 +221,8 @@ namespace astia::fs {
                     continue;
                 char      prior[256]{};
                 file_type prior_type = directory_unknown;
-                if (child_name(path, entries_[p].path, prior, sizeof prior, prior_type) &&
+                if (child_name(path, entries_[p].path, astia::span<char>(prior, sizeof prior),
+                               prior_type) &&
                     equal(candidate, prior))
                     duplicate = true;
             }

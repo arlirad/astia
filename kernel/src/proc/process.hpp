@@ -12,6 +12,7 @@
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/mm/uptr.hpp>
+#include <astia/span.hpp>
 #include <astia/wait.hpp>
 
 namespace astia::proc {
@@ -112,12 +113,21 @@ namespace astia::proc {
             return cwd_;
         }
         i64  change_directory(const char* path);
-        i64  copy_cwd(char* buffer, usize length) const;
+        i64  copy_cwd(span<char> buffer) const;
+        i64  copy_cwd(char* buffer, usize length) const {
+            return copy_cwd(span<char>(buffer, length));
+        }
         // Process helpers compose cwd/dirfd-relative paths; fs::resolve_path()
         // performs canonical VFS resolution as the second layer.
-        i64  compose_path(const char* path, char* buffer, usize length) const;
+        i64  compose_path(const char* path, span<char> buffer) const;
+        i64  compose_path(const char* path, char* buffer, usize length) const {
+            return compose_path(path, span<char>(buffer, length));
+        }
+        i64  compose_path_at(fd_t dirfd, const char* path, span<char> buffer) const;
         i64  compose_path_at(fd_t dirfd, const char* path, char* buffer,
-                             usize length) const;
+                             usize length) const {
+            return compose_path_at(dirfd, path, span<char>(buffer, length));
+        }
         void inherit_groups(const process& parent) {
             arch::interrupt_spinlock_guard parent_guard(parent.metadata_lock_);
             arch::interrupt_spinlock_guard guard(metadata_lock_);
@@ -248,7 +258,11 @@ namespace astia::proc {
         /// Load an ET_EXEC/ET_DYN image with the shared ELF loader into
         /// this process address space.  This prepares the image only;
         /// user entry/TSS return is an architecture step after this.
-        bool load_user_image(const void* bytes, usize length, u64* entry_out);
+        bool load_user_image(span<const u8> bytes, u64* entry_out);
+        bool load_user_image(const void* bytes, usize length, u64* entry_out) {
+            return load_user_image(
+                span<const u8>(static_cast<const u8*>(bytes), length), entry_out);
+        }
         /// x86_64 thread pointer (%fs base) for this process's static
         /// TLS block; 0 when the image declares no PT_TLS.
         u64 tls_tp() const {
@@ -347,8 +361,13 @@ namespace astia::proc {
             out.controlling_terminal = controlling_terminal_;
         }
 
-        bool exec_user_image(const void* bytes, usize length, char* const argv[],
+        bool exec_user_image(span<const u8> bytes, char* const argv[],
                              char* const envp[], u64* entry_out, u64* stack_out);
+        bool exec_user_image(const void* bytes, usize length, char* const argv[],
+                             char* const envp[], u64* entry_out, u64* stack_out) {
+            return exec_user_image(span<const u8>(static_cast<const u8*>(bytes), length),
+                                   argv, envp, entry_out, stack_out);
+        }
         bool exec_user_file(const mm::shptr<fs::open_file>& file, usize length,
                             char* const argv[], char* const envp[], u64* entry_out,
                             u64* stack_out);

@@ -23,13 +23,14 @@ namespace astia::proc::syscall::detail {
     }
 
     i64 argument_staging::copy(u64 argv, u64 envp) {
-        i64 result = copy_in_vector(argv_, pool_, argv);
+        i64 result = copy_in_vector(argv_, span<char>(pool_, vec_max * arg_cap), argv);
         if (result == 0)
-            result = copy_in_vector(envp_, pool_ + vec_max * arg_cap, envp);
+            result = copy_in_vector(envp_, span<char>(pool_ + vec_max * arg_cap,
+                                                      vec_max * arg_cap), envp);
         return result;
     }
 
-    i64 copy_in_vector(char** vec, char* pool, u64 user_vector) {
+    i64 copy_in_vector(char** vec, span<char> pool, u64 user_vector) {
         if (user_vector == 0) {
             vec[0] = nullptr;
             return 0;
@@ -46,11 +47,11 @@ namespace astia::proc::syscall::detail {
                 vec[i] = nullptr;
                 return 0;
             }
-            if (!sys::copy_in_string(span<char>(pool, arg_cap),
+            if (!sys::copy_in_string(span<char>(pool.data(), arg_cap),
                                      sys::user_ptr<char>(reinterpret_cast<u64>(element))))
                 return -EFAULT;
-            vec[i] = pool;
-            pool += arg_cap;
+            vec[i] = pool.data();
+            pool = span<char>(pool.data() + arg_cap, pool.size() - arg_cap);
         }
         return -E2BIG;
     }

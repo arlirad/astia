@@ -71,7 +71,7 @@ namespace astia::elf {
     /// Batch file reader. The callback must complete all requests before
     /// returning; implementations may submit them as one I/O-ring batch.
     using read_batch_fn = bool (*)(void* ctx, read_request* requests, usize count);
-    using copy_fn = bool (*)(void* ctx, u64 address, const void* source, usize length);
+    using copy_fn = bool (*)(void* ctx, u64 address, span<const u8> source);
 
     /// Caller-supplied environment: where memory comes from and how symbols
     /// are resolved.

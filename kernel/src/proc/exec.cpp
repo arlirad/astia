@@ -79,16 +79,17 @@ namespace astia::proc {
             return reinterpret_cast<void*>(base);
         }
 
-        bool copy_image(void* opaque, u64 address, const void* source, usize length) {
+        bool copy_image(void* opaque, u64 address, span<const u8> source) {
             auto& image = *static_cast<image_map*>(opaque);
             for (u32 i = 0; i < image.count; ++i) {
                 const auto& seg = image.segs[i];
                 if (address < seg.virt ||
-                    address + length > seg.virt + seg.pages * elf::page_size)
+                    address + source.size() > seg.virt + seg.pages * elf::page_size)
                     continue;
                 auto* destination =
                     static_cast<u8*>(mm::kernel_frames().to_virt(seg.frames));
-                __builtin_memcpy(destination + (address - seg.virt), source, length);
+                __builtin_memcpy(destination + (address - seg.virt), source.data(),
+                                 source.size());
                 return true;
             }
             return false;
@@ -121,14 +122,18 @@ namespace astia::proc {
         // frames come as one contiguous run so the block can be filed
         // as a single VMA (fork shares it copy-on-write); frames_out
         // hands the run back for that adoption.
-        bool map_tls_template(arch::page_map& map, const void* bytes,
+        bool map_tls_template(arch::page_map& map, span<const u8> bytes,
                               const elf::image& image, u64& tp_out, u64& frames_out,
                               u64& pages_out) {
             const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
             const u64 span  = (image.tls_memsz + align - 1) & ~(align - 1);
             const u64 pages =
                 (span + tls_tcb_headroom + elf::page_size - 1) / elf::page_size;
-            const auto* source = static_cast<const u8*>(bytes) + image.tls_offset;
+            if (image.tls_offset > bytes.size() ||
+                image.tls_filesz > bytes.size() - image.tls_offset)
+                return false;
+            const auto source = astia::span<const u8>(
+                bytes.data() + image.tls_offset, static_cast<usize>(image.tls_filesz));
             const u64 frames = mm::kernel_frames().alloc(pages, mm::frame_flags::zeroed);
             if (frames == mm::frame_allocator::invalid_frame) {
                 return false;
@@ -144,9 +149,9 @@ namespace astia::proc {
                 }
             }
             auto* destination = static_cast<u8*>(mm::kernel_frames().to_virt(frames));
-            for (u64 index = 0; index < image.tls_filesz && index < image.tls_memsz;
+            for (u64 index = 0; index < source.size() && index < image.tls_memsz;
                  ++index) {
-                destination[index] = source[index];
+                destination[index] = source.data()[index];
             }
             tp_out                                      = tls_base + span;
             *reinterpret_cast<u64*>(destination + span) = tp_out;
@@ -156,8 +161,8 @@ namespace astia::proc {
         }
     } // namespace
 
-    bool process::load_user_image(const void* bytes, usize length, u64* entry_out) {
-        if (bytes == nullptr || length == 0 || entry_out == nullptr ||
+    bool process::load_user_image(span<const u8> bytes, u64* entry_out) {
+        if (bytes.null() || bytes.empty() || entry_out == nullptr ||
             address_space_ != nullptr || arch::kernel_page_map() == nullptr) {
             return false;
         }
@@ -181,7 +186,7 @@ namespace astia::proc {
         const arch::page_map* caller_map =
             caller == nullptr ? nullptr : caller->address_space();
         map.activate();
-        const bool loaded = elf::load_executable(bytes, length, environment, image);
+        const bool loaded = elf::load_executable(bytes, environment, image);
         if (caller_map != nullptr) {
             caller_map->activate();
         }
