@@ -916,7 +916,7 @@ namespace astia::sys {
             // The pathname is user memory: copy it into the kernel rather
             // than letting the VFS walk a raw user pointer.
             char path[256];
-            if (!sys::copy_in_string(path, sizeof path,
+            if (!sys::copy_in_string(sys::span<char>(path, sizeof path),
                                      sys::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
@@ -987,7 +987,7 @@ namespace astia::sys {
 
         bool handle_mkdirat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
             char path[256];
-            if (!sys::copy_in_string(path, sizeof path,
+            if (!sys::copy_in_string(sys::span<char>(path, sizeof path),
                                      sys::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
@@ -1013,7 +1013,7 @@ namespace astia::sys {
 
         bool handle_unlinkat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
             char path[256];
-            if (!sys::copy_in_string(path, sizeof path,
+            if (!sys::copy_in_string(sys::span<char>(path, sizeof path),
                                      sys::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
@@ -1032,9 +1032,9 @@ namespace astia::sys {
 
         bool handle_renameat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
             char old_path[256], new_path[256];
-            if (!sys::copy_in_string(old_path, sizeof old_path,
+            if (!sys::copy_in_string(sys::span<char>(old_path, sizeof old_path),
                                      sys::user_ptr<char>(s.address)) ||
-                !sys::copy_in_string(new_path, sizeof new_path,
+                !sys::copy_in_string(sys::span<char>(new_path, sizeof new_path),
                                      sys::user_ptr<char>(s.offset)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
@@ -1058,9 +1058,9 @@ namespace astia::sys {
 
         bool handle_linkat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
             char old_path[256], new_path[256];
-            if (!sys::copy_in_string(old_path, sizeof old_path,
+            if (!sys::copy_in_string(sys::span<char>(old_path, sizeof old_path),
                                      sys::user_ptr<char>(s.address)) ||
-                !sys::copy_in_string(new_path, sizeof new_path,
+                !sys::copy_in_string(sys::span<char>(new_path, sizeof new_path),
                                      sys::user_ptr<char>(s.offset)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
@@ -1104,7 +1104,7 @@ namespace astia::sys {
                 mm::shptr<fs::open_file> object;
                 if (s.address != 0) {
                     char path[256];
-                    if (!sys::copy_in_string(path, sizeof path,
+                    if (!sys::copy_in_string(sys::span<char>(path, sizeof path),
                                              sys::user_ptr<char>(s.address))) {
                         return cq_post_guarded(ring, s.user_data, -EFAULT);
                     }
@@ -1202,7 +1202,7 @@ namespace astia::sys {
 
         bool handle_chmod(astia_rings* ring, const astia_sqe& s) {
                 char path[256];
-                if (!sys::copy_in_string(path, sizeof path,
+                if (!sys::copy_in_string(sys::span<char>(path, sizeof path),
                                          sys::user_ptr<char>(s.address)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
@@ -1247,7 +1247,7 @@ namespace astia::sys {
                                                owner.value, group.value)));
                 }
                 char path[256];
-                if (!sys::copy_in_string(path, sizeof path,
+                if (!sys::copy_in_string(sys::span<char>(path, sizeof path),
                                          sys::user_ptr<char>(s.address)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 char       resolved[256];
@@ -1272,7 +1272,7 @@ namespace astia::sys {
 
         bool handle_utimensat(astia_rings* ring, const astia_sqe& s) {
                 char path[256];
-                if (!sys::copy_in_string(path, sizeof path,
+                if (!sys::copy_in_string(sys::span<char>(path, sizeof path),
                                          sys::user_ptr<char>(s.address)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
@@ -1296,9 +1296,9 @@ namespace astia::sys {
 
         bool handle_symlinkat(astia_rings* ring, const astia_sqe& s) {
                 char target[256], path[256];
-                if (!sys::copy_in_string(target, sizeof target,
+                if (!sys::copy_in_string(sys::span<char>(target, sizeof target),
                                          sys::user_ptr<char>(s.address)) ||
-                    !sys::copy_in_string(path, sizeof path,
+                    !sys::copy_in_string(sys::span<char>(path, sizeof path),
                                          sys::user_ptr<char>(s.offset)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
@@ -1322,7 +1322,7 @@ namespace astia::sys {
 
         bool handle_readlinkat(astia_rings* ring, const astia_sqe& s) {
                 char path[256];
-                if (!sys::copy_in_string(path, sizeof path,
+                if (!sys::copy_in_string(sys::span<char>(path, sizeof path),
                                          sys::user_ptr<char>(s.address)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();
@@ -1358,7 +1358,7 @@ namespace astia::sys {
 
         bool handle_readdir(astia_rings* ring, const astia_sqe& s) {
                 char path[256];
-                if (!sys::copy_in_string(path, sizeof path,
+                if (!sys::copy_in_string(sys::span<char>(path, sizeof path),
                                          sys::user_ptr<char>(s.offset)))
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 auto* current = proc::current_process();

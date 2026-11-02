@@ -359,7 +359,8 @@ namespace astia::sys {
     /// unmapped page above it; a kernel client gets a plain bounded copy.
     /// Fails if any page is unmapped or the terminator is not found within
     /// the capacity bound.
-    inline bool copy_in_string(char* destination, usize capacity, span<u8> source) {
+    inline bool copy_in_string(span<char> destination, span<u8> source) {
+        const usize capacity = destination.size();
         if (capacity == 0 || source.null()) {
             return false;
         }
@@ -369,8 +370,8 @@ namespace astia::sys {
         u64                   byte  = source.address();
         if (space == nullptr) { // kernel client: bounded straight copy
             for (usize i = 0; i < capacity; ++i) {
-                destination[i] = static_cast<char>(from[i]);
-                if (destination[i] == '\0') {
+                destination.data()[i] = static_cast<char>(from[i]);
+                if (destination.data()[i] == '\0') {
                     return true;
                 }
             }
@@ -390,17 +391,16 @@ namespace astia::sys {
                 space->translate(byte) == arch::page_map::invalid) {
                 return false;
             }
-            destination[i] = static_cast<char>(from[i]);
-            if (destination[i] == '\0') {
+            destination.data()[i] = static_cast<char>(from[i]);
+            if (destination.data()[i] == '\0') {
                 return true;
             }
         }
         return false; // no terminator within capacity
     }
 
-    inline bool copy_in_string(char* destination, usize capacity,
-                               user_ptr<char> source) {
-        return copy_in_string(destination, capacity, source.string());
+    inline bool copy_in_string(span<char> destination, user_ptr<char> source) {
+        return copy_in_string(destination, source.string());
     }
 
 } // namespace astia::sys
