@@ -72,7 +72,11 @@ namespace astia::sys {
         /// gate treats it as nothing to do, exactly as it treats any
         /// zero-length range, so this says "absent" — it does not name an
         /// address, and there is nothing behind it to reach.
-        span() = default;
+        constexpr span() = default;
+        constexpr span(T* data, usize size) : data_(data), size_(size) {}
+
+        constexpr T* data() const { return data_; }
+        constexpr usize size() const { return size_; }
 
         /// A length-delimited range: the ordinary case, where the ABI — or
         /// the syscall's own argument shape — says how many bytes are
@@ -80,32 +84,32 @@ namespace astia::sys {
         /// computed halfway through is the caller lying, not the type
         /// failing.
         static span bytes(u64 address, usize length) {
-            return span(address, length);
+            return span(reinterpret_cast<T*>(address), length);
         }
 
         /// A NUL-terminated string.  Its extent is its terminator, not a
         /// count, so it carries no length: the gate that walks it supplies
         /// the bound, and length() is 0 — no gate may read it as a size.
         static span string(u64 address) {
-            return span(address, 0);
+            return span(reinterpret_cast<T*>(address), 0);
         }
 
         u64 address() const {
-            return address_;
+            return reinterpret_cast<u64>(data_);
         }
         usize length() const {
-            return length_;
+            return size_;
         }
 
         /// A null address: the ABI's "no such argument" for an optional
         /// result slot (waitpid's status, thread_join's result).
         bool null() const {
-            return address_ == 0;
+            return data_ == nullptr;
         }
 
         /// No bytes to move.
         bool empty() const {
-            return length_ == 0;
+            return size_ == 0;
         }
 
         /// The `length` bytes starting `offset` bytes into this range —
@@ -117,16 +121,15 @@ namespace astia::sys {
             // Do not let a wrapped sub-range turn into an unrelated address.
             // The consumer will still perform the page-map check, but it
             // must never be handed arithmetic that already overflowed.
-            if (offset > ~u64{0} - address_)
-                return span(~u64{0}, length);
-            return span(address_ + offset, length);
+            if (offset > ~usize{0} - reinterpret_cast<usize>(data_))
+                return span(reinterpret_cast<T*>(~usize{0}), length);
+            return span(reinterpret_cast<T*>(reinterpret_cast<usize>(data_) + offset),
+                        length);
         }
 
         private:
-        span(u64 address, usize length) : address_(address), length_(length) {}
-
-        u64   address_ = 0;
-        usize length_  = 0;
+        T*    data_ = nullptr;
+        usize size_ = 0;
     };
 
     template <typename T>
@@ -137,6 +140,7 @@ namespace astia::sys {
         public:
         constexpr validated_user_span() = default;
         T* get() const { return reinterpret_cast<T*>(address_); }
+        span<T> view() const { return span<T>(get(), length_ / sizeof(T)); }
         span<u8> bytes() const { return span<u8>::bytes(address_, length_); }
 
         private:
@@ -173,6 +177,7 @@ namespace astia::sys {
         public:
         constexpr validated_user_ptr() = default;
         T* get() const { return reinterpret_cast<T*>(address_); }
+        span<T> view(usize count = 1) const { return span<T>(get(), count); }
         span<u8> bytes(usize count = 1) const {
             return span<u8>::bytes(address_, sizeof(T) * count);
         }
