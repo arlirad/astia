@@ -36,8 +36,8 @@ enum { RING_ENTRIES = 64 };
  * O_DIRECTORY) from leaking into the ABI. */
 static uint32_t aio_open_flags_from_native(int flags) {
     uint32_t wire = (flags & O_RDWR) == O_RDWR ? ASTIA_AIO_O_RDWR
-                    : (flags & O_WRONLY) ? ASTIA_AIO_O_WRONLY
-                                         : ASTIA_AIO_O_RDONLY;
+                    : (flags & O_WRONLY)       ? ASTIA_AIO_O_WRONLY
+                                               : ASTIA_AIO_O_RDONLY;
     if (flags & O_CREAT)
         wire |= ASTIA_AIO_O_CREAT;
     if (flags & O_EXCL)

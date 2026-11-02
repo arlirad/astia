@@ -21,14 +21,28 @@ namespace astia::mm {
             return *this;
         }
 
-        ~uptr() { reset(); }
+        ~uptr() {
+            reset();
+        }
 
-        T* get() const { return value_; }
-        T* operator->() const { return value_; }
-        T& operator*() const { return *value_; }
-        explicit operator bool() const { return value_ != nullptr; }
-        bool operator==(decltype(nullptr)) const { return value_ == nullptr; }
-        bool operator!=(decltype(nullptr)) const { return value_ != nullptr; }
+        T* get() const {
+            return value_;
+        }
+        T* operator->() const {
+            return value_;
+        }
+        T& operator*() const {
+            return *value_;
+        }
+        explicit operator bool() const {
+            return value_ != nullptr;
+        }
+        bool operator==(decltype(nullptr)) const {
+            return value_ == nullptr;
+        }
+        bool operator!=(decltype(nullptr)) const {
+            return value_ != nullptr;
+        }
 
         void reset(T* value = nullptr) {
             if (value_ != value) {
@@ -38,7 +52,7 @@ namespace astia::mm {
         }
         T* release() {
             T* value = value_;
-            value_    = nullptr;
+            value_   = nullptr;
             return value;
         }
 

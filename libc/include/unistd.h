@@ -1,7 +1,7 @@
 #pragma once
 
-#include <sys/types.h>
 #include <astia/api/wait.h>
+#include <sys/types.h>
 
 /*
  * astia libc — <unistd.h> (process identity subset)

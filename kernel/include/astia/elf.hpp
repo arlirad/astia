@@ -71,7 +71,7 @@ namespace astia::elf {
     /// Batch file reader. The callback must complete all requests before
     /// returning; implementations may submit them as one I/O-ring batch.
     using read_batch_fn = bool (*)(void* ctx, read_request* requests, usize count);
-    using copy_fn = bool (*)(void* ctx, u64 address, span<const u8> source);
+    using copy_fn       = bool (*)(void* ctx, u64 address, span<const u8> source);
 
     /// Caller-supplied environment: where memory comes from and how symbols
     /// are resolved.
@@ -120,7 +120,7 @@ namespace astia::elf {
 
     /// Identify an ELF image's kind from its header, validating the ELF64
     /// little-endian x86-64 identity. Returns kind::none for anything else.
-    kind kind_of(span<const u8> bytes);
+    kind        kind_of(span<const u8> bytes);
     inline kind kind_of(const void* bytes, usize len) {
         return kind_of(span<const u8>(static_cast<const u8*>(bytes), len));
     }
@@ -129,9 +129,10 @@ namespace astia::elf {
     /// one contiguous block, resolve undefined symbols through `env::resolve`,
     /// apply the section relocations, and set `entry` to the defined
     /// `module_main` symbol. Requires `env::map`.
-    bool load_relocatable(span<const u8> bytes, const env& e, image& out);
+    bool        load_relocatable(span<const u8> bytes, const env& e, image& out);
     inline bool load_relocatable(const void* bytes, usize len, const env& e, image& out) {
-        return load_relocatable(span<const u8>(static_cast<const u8*>(bytes), len), e, out);
+        return load_relocatable(span<const u8>(static_cast<const u8*>(bytes), len), e,
+                                out);
     }
 
     /// Load a linked executable (ET_EXEC or ET_DYN): map the PT_LOAD segments
@@ -139,9 +140,10 @@ namespace astia::elf {
     /// allocator-chosen one for ET_DYN), zero the bss, apply the
     /// R_X86_64_RELATIVE dynamic relocations, and set `entry` to e_entry +
     /// load_bias. Requires `env::map`.
-    bool load_executable(span<const u8> bytes, const env& e, image& out);
+    bool        load_executable(span<const u8> bytes, const env& e, image& out);
     inline bool load_executable(const void* bytes, usize len, const env& e, image& out) {
-        return load_executable(span<const u8>(static_cast<const u8*>(bytes), len), e, out);
+        return load_executable(span<const u8>(static_cast<const u8*>(bytes), len), e,
+                               out);
     }
 
     /// Streaming executable loader. Reads only the ELF header/PHDR table and
@@ -150,7 +152,7 @@ namespace astia::elf {
 
     /// Dispatch to the right loader based on kind_of(). Returns false for
     /// anything that is not a supported ELF image.
-    bool load(span<const u8> bytes, const env& e, image& out);
+    bool        load(span<const u8> bytes, const env& e, image& out);
     inline bool load(const void* bytes, usize len, const env& e, image& out) {
         return load(span<const u8>(static_cast<const u8*>(bytes), len), e, out);
     }

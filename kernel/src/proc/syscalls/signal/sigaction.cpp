@@ -52,8 +52,8 @@ namespace astia::proc::syscall {
                 next_disposition.action = signal_action::ignore;
             }
             else if (next.handler != ASTIA_SIG_DFL) {
-                next_disposition.action   = signal_action::handler;
-                next_disposition.handler  = reinterpret_cast<signal_handler>(next.handler);
+                next_disposition.action  = signal_action::handler;
+                next_disposition.handler = reinterpret_cast<signal_handler>(next.handler);
                 next_disposition.restorer = next.restorer;
                 next_disposition.mask     = next.mask;
                 if (next_disposition.restorer == 0 ||

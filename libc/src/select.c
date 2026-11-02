@@ -6,8 +6,8 @@
 
 enum {
     max_timeout_ms = 2147483647,
-    ms_per_sec      = 1000,
-    usec_per_sec    = 1000000,
+    ms_per_sec     = 1000,
+    usec_per_sec   = 1000000,
 };
 
 int select(int count, fd_set* read_set, fd_set* write_set, fd_set* except_set,
@@ -26,10 +26,9 @@ int select(int count, fd_set* read_set, fd_set* write_set, fd_set* except_set,
             timeout_ms = max_timeout_ms;
         }
         else {
-            long long ms =
-                (long long) timeout->tv_sec * ms_per_sec +
-                (timeout->tv_usec + ms_per_sec - 1) / ms_per_sec;
-            timeout_ms = (int) ms;
+            long long ms = (long long) timeout->tv_sec * ms_per_sec +
+                           (timeout->tv_usec + ms_per_sec - 1) / ms_per_sec;
+            timeout_ms   = (int) ms;
         }
     }
     pfds = (struct pollfd*) malloc((size_t) count * sizeof(*pfds));

@@ -14,8 +14,10 @@ namespace astia::proc::syscall {
         const i64 rc = owner->copy_cwd(copy, length);
         if (rc < 0)
             return rc;
-        const auto destination = sys::user_ptr<char>(buffer).validate(static_cast<usize>(rc));
-        return destination && sys::copy_out(destination.value.bytes(static_cast<usize>(rc)), copy)
+        const auto destination =
+            sys::user_ptr<char>(buffer).validate(static_cast<usize>(rc));
+        return destination && sys::copy_out(
+                                  destination.value.bytes(static_cast<usize>(rc)), copy)
                    ? rc
                    : -EFAULT;
     }

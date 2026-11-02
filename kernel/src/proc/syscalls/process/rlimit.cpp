@@ -25,7 +25,7 @@ namespace astia::proc::syscall {
         auto* process = current_process();
         if (process == nullptr)
             return -ESRCH;
-        astia_rlimit value{};
+        astia_rlimit                            value{};
         const sys::user_ptr<const astia_rlimit> source(input);
         const auto validated = sys::user_span<const astia_rlimit>(input, 1).validate();
         if (!validated || !sys::copy_in(&value, validated.value.bytes()))

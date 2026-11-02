@@ -79,7 +79,7 @@ namespace astia::fs {
         private:
         mm::phys_region* storage_ = nullptr;
         u64              size_    = 0;
-        file_mode        mode_    = file_mode(file_type::regular, default_file_permissions);
+        file_mode        mode_ = file_mode(file_type::regular, default_file_permissions);
         uid_t            uid_{};
         gid_t            gid_{};
         u64              mtime_sec_  = 0;

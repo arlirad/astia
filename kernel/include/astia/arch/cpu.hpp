@@ -117,7 +117,7 @@ namespace astia::arch {
         private:
         interrupt_guard gate_;
         core::spinlock& lock_;
-        bool             locked_ = true;
+        bool            locked_ = true;
     };
 
 } // namespace astia::arch

@@ -59,7 +59,8 @@ namespace astia::mod {
             if (elf::kind_of(f.data, f.size) != elf::kind::relocatable) {
                 return true;
             }
-            load_and_run(span<const u8>(static_cast<const u8*>(f.data), f.size), f.name, 0);
+            load_and_run(span<const u8>(static_cast<const u8*>(f.data), f.size), f.name,
+                         0);
             return true;
         }
 
@@ -95,7 +96,7 @@ namespace astia::mod {
             // Physical memory where the bootloader left it: go through the
             // direct map so the bytes are addressable regardless of which
             // address space is active.
-            const void* data = mm::kernel_frames().to_virt(m.paddr);
+            const void*          data = mm::kernel_frames().to_virt(m.paddr);
             const span<const u8> image(static_cast<const u8*>(data),
                                        static_cast<usize>(m.size));
 

@@ -233,7 +233,7 @@ namespace astia::arch::x86_64::smp {
             if ((!broadcast && apic_ids[n] == bsp) || (broadcast && n != 0))
                 continue;
             constexpr usize ap_stack_bytes = 16 * 1024;
-            auto stack = mm::heap::alloc(ap_stack_bytes);
+            auto            stack          = mm::heap::alloc(ap_stack_bytes);
             if (!stack) {
                 logs::error("AP%u stack allocation failed", index);
                 break;

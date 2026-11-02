@@ -257,12 +257,12 @@ namespace astia::mm {
         }
         auto* copy = create(1, false); // the bytes come over below
         if (copy == nullptr) {
-            (void)unmap_range(index, 1);
+            (void) unmap_range(index, 1);
             return nullptr;
         }
         auto node = heap::alloc(sizeof(child));
         if (!node) {
-            (void)unmap_range(index, 1);
+            (void) unmap_range(index, 1);
             copy->release();
             return nullptr;
         }
@@ -278,14 +278,14 @@ namespace astia::mm {
         // to the low-level phys_region tests without a separate global
         // frame-use table.
         if (!unmap_range(index, 1)) {
-            (void)unmap_range(index, 1);
+            (void) unmap_range(index, 1);
             heap::free(node.value);
             copy->release();
             return nullptr;
         }
         // The first unmap moves one mapping to the child.  Drop the temporary
         // claim only after the source bytes have been copied.
-        (void)unmap_range(index, 1);
+        (void) unmap_range(index, 1);
 
         auto* list_node = static_cast<child*>(static_cast<void*>(node.value));
         {

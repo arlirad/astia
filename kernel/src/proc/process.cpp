@@ -1,7 +1,6 @@
 #include "process.hpp"
 
 #include "../ipc/futex.hpp"
-
 #include "../sys/aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
@@ -461,8 +460,8 @@ namespace astia::proc {
                 victim->backing->release_ref();
             delete victim;
         }
-        tls_tp_        = 0;
-        mapped_bytes_  = 0;
+        tls_tp_       = 0;
+        mapped_bytes_ = 0;
     }
 
     bool process::add_thread(const mm::shptr<thread>& value) {
@@ -883,8 +882,8 @@ namespace astia::proc {
         while (envp != nullptr && envc < max_env_entries && envp[envc] != nullptr)
             envp_list[envc] = envp[envc], ++envc;
         const bool built =
-            build_initial_stack(stack_base, user_stack_top, frames, stack_pages, argv_list,
-                                argc, envp_list, envc, rsp_out);
+            build_initial_stack(stack_base, user_stack_top, frames, stack_pages,
+                                argv_list, argc, envp_list, envc, rsp_out);
         if (caller_map != nullptr)
             caller_map->activate();
         else
@@ -898,16 +897,17 @@ namespace astia::proc {
     }
 
     void process::replace_image(process& staging) {
-        mm::uptr<arch::page_map> old_map = static_cast<mm::uptr<arch::page_map>&&>(address_space_);
-        mmap_region*   old_regions = mmap_regions_;
+        mm::uptr<arch::page_map> old_map =
+            static_cast<mm::uptr<arch::page_map>&&>(address_space_);
+        mmap_region* old_regions = mmap_regions_;
 
         address_space_ = static_cast<mm::uptr<arch::page_map>&&>(staging.address_space_);
-        mmap_regions_   = staging.mmap_regions_;
-        mapped_bytes_   = staging.mapped_bytes_;
-        tls_tp_         = staging.tls_tp_;
-        staging.mmap_regions_  = nullptr;
-        staging.mapped_bytes_  = 0;
-        staging.tls_tp_        = 0;
+        mmap_regions_  = staging.mmap_regions_;
+        mapped_bytes_  = staging.mapped_bytes_;
+        tls_tp_        = staging.tls_tp_;
+        staging.mmap_regions_ = nullptr;
+        staging.mapped_bytes_ = 0;
+        staging.tls_tp_       = 0;
 
         if (address_space_ != nullptr)
             address_space_->activate();

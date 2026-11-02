@@ -40,8 +40,7 @@ namespace astia::fs {
         static_cast<u32>(open_file_status_flags::nonblock);
 
     constexpr u32 open_file_status_from_aio(u32 flags) {
-        return (flags & open_file_private_mask) |
-               (flags & ASTIA_AIO_O_ACCMODE) |
+        return (flags & open_file_private_mask) | (flags & ASTIA_AIO_O_ACCMODE) |
                (flags & ASTIA_AIO_O_APPEND
                     ? static_cast<u32>(open_file_status_flags::append)
                     : 0u) |
@@ -302,12 +301,16 @@ namespace astia::fs {
         const char*      path() const {
             return _has_path ? _path : nullptr;
         }
-        void set_path(const char* path);
-        void attach_mount(mount* owner);
-        mount* mount_owner() const { return _mount; }
-        mm::shptr<file> node() const { return _object; }
-        u64  mtime_sec() const;
-        u64  mtime_nsec() const;
+        void   set_path(const char* path);
+        void   attach_mount(mount* owner);
+        mount* mount_owner() const {
+            return _mount;
+        }
+        mm::shptr<file> node() const {
+            return _object;
+        }
+        u64 mtime_sec() const;
+        u64 mtime_nsec() const;
 
         private:
         mm::shptr<file> _object;
@@ -349,24 +352,25 @@ namespace astia::fs {
     uid_t     node_uid(const char* path);
     gid_t     node_gid(const char* path);
     long      chmod_path(const char* path, file_permissions permissions);
-    long chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
-    long touch_path(const char* path, u64 sec, u64 nsec);
-    long make_symlink(const char* target, const char* path);
-    long read_symlink(const char* path, char* buffer, u32 capacity);
-    long resolve_path(const char* path, char* buffer, u32 capacity,
-                      bool follow_final = true);
+    long   chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
+    long   touch_path(const char* path, u64 sec, u64 nsec);
+    long   make_symlink(const char* target, const char* path);
+    long   read_symlink(const char* path, char* buffer, u32 capacity);
+    long   resolve_path(const char* path, char* buffer, u32 capacity,
+                        bool follow_final = true);
     mount* retain_mount_for_unix_path(const char* canonical);
-    void release_mount_reference(mount* owner);
-    long remove_unix_path(const char* canonical, mount* owner, bool directory);
-    long rename_unix_path(const char* old_path, const char* new_path, mount* owner);
+    void   release_mount_reference(mount* owner);
+    long   remove_unix_path(const char* canonical, mount* owner, bool directory);
+    long   rename_unix_path(const char* old_path, const char* new_path, mount* owner);
     file_type unix_node_type(const char* canonical, mount* owner);
     file_mode unix_node_mode(const char* canonical, mount* owner);
-    uid_t unix_node_uid(const char* canonical, mount* owner);
-    gid_t unix_node_gid(const char* canonical, mount* owner);
-    long unix_chmod_path(const char* canonical, mount* owner, file_permissions permissions);
-    long unix_chown_path(const char* canonical, mount* owner, uid_t uid, gid_t gid);
-    long read_unix_directory(const char* directory, mount* owner, u64 index,
-                             char* name, u32 capacity, file_type* type);
+    uid_t     unix_node_uid(const char* canonical, mount* owner);
+    gid_t     unix_node_gid(const char* canonical, mount* owner);
+    long      unix_chmod_path(const char* canonical, mount* owner,
+                              file_permissions permissions);
+    long      unix_chown_path(const char* canonical, mount* owner, uid_t uid, gid_t gid);
+    long read_unix_directory(const char* directory, mount* owner, u64 index, char* name,
+                             u32 capacity, file_type* type);
 
     struct kernel_read {
         open_file* file;

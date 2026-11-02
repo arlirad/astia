@@ -20,13 +20,12 @@ namespace astia::proc {
         fixed     = 0x10,
         anonymous = 0x20
     };
-    inline constexpr u32 valid_map_protection_bits = static_cast<u32>(map_protection::read) |
-                                                     static_cast<u32>(map_protection::write) |
-                                                     static_cast<u32>(map_protection::exec);
-    inline constexpr u32 valid_map_flag_bits = static_cast<u32>(map_flags::shared) |
-                                               static_cast<u32>(map_flags::priv) |
-                                               static_cast<u32>(map_flags::fixed) |
-                                               static_cast<u32>(map_flags::anonymous);
+    inline constexpr u32 valid_map_protection_bits =
+        static_cast<u32>(map_protection::read) | static_cast<u32>(map_protection::write) |
+        static_cast<u32>(map_protection::exec);
+    inline constexpr u32 valid_map_flag_bits =
+        static_cast<u32>(map_flags::shared) | static_cast<u32>(map_flags::priv) |
+        static_cast<u32>(map_flags::fixed) | static_cast<u32>(map_flags::anonymous);
     constexpr map_protection operator|(map_protection a, map_protection b) {
         return static_cast<map_protection>(static_cast<u32>(a) | static_cast<u32>(b));
     }
@@ -63,11 +62,11 @@ namespace astia::proc {
     /// mapping survives close(), and the offset records where the
     /// range was captured from.  Null/0 for anonymous mappings.
     struct mmap_region {
-        mmap_region*     next      = nullptr;
-        u64              base      = 0; ///< page-aligned
-        usize            pages     = 0;
-        map_protection   prot      = map_protection::none;
-        bool             shared    = false;
+        mmap_region*   next   = nullptr;
+        u64            base   = 0; ///< page-aligned
+        usize          pages  = 0;
+        map_protection prot   = map_protection::none;
+        bool           shared = false;
         // A reserved mapping is in the VMA list only to claim its address
         // range.  It is not visible to lookup/fault/pin until page tables
         // have been installed and the transaction publishes it.

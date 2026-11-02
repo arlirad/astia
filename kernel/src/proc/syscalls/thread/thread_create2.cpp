@@ -1,5 +1,4 @@
 #include "thread_create2.hpp"
-#include "thread_create_common.hpp"
 
 #include "../../../ipc/futex.hpp"
 #include "../../../ipc/mapping.hpp"
@@ -7,6 +6,7 @@
 #include "../../proc.hpp"
 #include "../../scheduler.hpp"
 #include "syscall.hpp"
+#include "thread_create_common.hpp"
 #include "user_mem.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>

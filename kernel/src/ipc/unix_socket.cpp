@@ -1,9 +1,9 @@
 #include "unix_socket.hpp"
 
+#include "../fs/unix_pathname.hpp"
 #include "../proc/process.hpp"
 #include "../sys/aio.hpp"
 #include "proc.hpp"
-#include "../fs/unix_pathname.hpp"
 #include <astia/api/errno.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
@@ -11,13 +11,13 @@
 
 namespace astia::fs {
     namespace {
-        constexpr u32 socket_stream_capacity_bytes    = 4096;
+        constexpr u32 socket_stream_capacity_bytes     = 4096;
         constexpr u32 socket_backlog_capacity          = 16;
-        constexpr u32 socket_datagram_queue_capacity  = 32;
+        constexpr u32 socket_datagram_queue_capacity   = 32;
         constexpr u32 socket_datagram_payload_capacity = 2048;
-        constexpr u32 socket_side_first               = 0;
-        constexpr u32 socket_side_second              = 1;
-        constexpr u32 socket_side_count               = 2;
+        constexpr u32 socket_side_first                = 0;
+        constexpr u32 socket_side_second               = 1;
+        constexpr u32 socket_side_count                = 2;
 
         constexpr u32 socket_peer_side(u32 side) {
             return side == socket_side_first ? socket_side_second : socket_side_first;
@@ -47,14 +47,14 @@ namespace astia::fs {
                 return 0;
             }
             long read(void* b, u32 n, u64) override {
-                state kind;
+                state              kind;
                 mm::shptr<channel> channel;
-                u32 side;
+                u32                side;
                 {
                     core::spinlock_guard guard(lock_);
-                    kind = state_;
+                    kind    = state_;
                     channel = ch_;
-                    side = side_;
+                    side    = side_;
                 }
                 if (kind == state::dgram)
                     return recv_dgram(astia::span<u8>(static_cast<u8*>(b), n));
@@ -72,7 +72,7 @@ namespace astia::fs {
                               t = __atomic_load_n(&channel->tail[peer], __ATOMIC_RELAXED);
                     if (h == t)
                         return 0;
-                    count = h - t < n ? h - t : n;
+                    count   = h - t < n ? h - t : n;
                     u8* out = static_cast<u8*>(b);
                     for (u32 i = 0; i < count; ++i)
                         out[i] = channel->data[peer][(t + i) &
@@ -85,40 +85,42 @@ namespace astia::fs {
                 return count;
             }
             long write(const void* b, u32 n, u64) override {
-                state kind;
-                mm::shptr<channel> channel;
+                state                kind;
+                mm::shptr<channel>   channel;
                 mm::shptr<unix_file> peer_owner;
-                u32 side;
+                u32                  side;
                 {
                     core::spinlock_guard guard(lock_);
-                    kind = state_;
-                    channel = ch_;
+                    kind       = state_;
+                    channel    = ch_;
                     peer_owner = peer_owner_;
-                    side = side_;
+                    side       = side_;
                 }
                 if (kind == state::dgram)
-                    return send_dgram(astia::span<const u8>(static_cast<const u8*>(b), n));
+                    return send_dgram(
+                        astia::span<const u8>(static_cast<const u8*>(b), n));
                 if (kind != state::connected)
                     return -ENOTCONN;
                 if (!channel)
                     return -ENOTCONN;
                 const u32 peer = socket_peer_side(side);
-                u32 count;
+                u32       count;
                 {
                     core::spinlock_guard channel_guard(channel->lock);
                     if (channel->closed[peer] || channel->shut_rd[peer] ||
                         channel->shut_wr[side])
                         return -EPIPE;
-                    u32 h = __atomic_load_n(&channel->head[side], __ATOMIC_RELAXED),
-                        t = __atomic_load_n(&channel->tail[side], __ATOMIC_ACQUIRE);
+                    u32 h    = __atomic_load_n(&channel->head[side], __ATOMIC_RELAXED),
+                        t    = __atomic_load_n(&channel->tail[side], __ATOMIC_ACQUIRE);
                     u32 free = socket_stream_capacity_bytes - (h - t);
                     if (!free)
                         return 0;
-                    count = free < n ? free : n;
+                    count        = free < n ? free : n;
                     const u8* in = static_cast<const u8*>(b);
                     for (u32 i = 0; i < count; ++i)
-                        channel->data[side][(h + i) &
-                                             (socket_stream_capacity_bytes - 1)] = in[i];
+                        channel
+                            ->data[side][(h + i) & (socket_stream_capacity_bytes - 1)] =
+                            in[i];
                     __atomic_store_n(&channel->head[side], h + count, __ATOMIC_RELEASE);
                 }
                 // As above, readiness callbacks must run after channel unlock.
@@ -127,19 +129,19 @@ namespace astia::fs {
                 return count;
             }
             u32 poll(u32 events, u32) override {
-                state kind;
-                mm::shptr<channel> channel;
-                u32 side;
-                u32 queue_count;
-                u32 dgram_count;
+                state                kind;
+                mm::shptr<channel>   channel;
+                u32                  side;
+                u32                  queue_count;
+                u32                  dgram_count;
                 mm::shptr<unix_file> dgram_target_owner;
                 {
                     core::spinlock_guard guard(lock_);
-                    kind = state_;
-                    channel = ch_;
-                    side = side_;
-                    queue_count = queue_count_;
-                    dgram_count = dgram_count_;
+                    kind               = state_;
+                    channel            = ch_;
+                    side               = side_;
+                    queue_count        = queue_count_;
+                    dgram_count        = dgram_count_;
                     dgram_target_owner = dgram_target_owner_;
                 }
 
@@ -148,7 +150,8 @@ namespace astia::fs {
                     core::spinlock_guard target_guard(dgram_target_owner->lock_);
                     dgram_space =
                         dgram_target_owner->dgram_count_ < socket_datagram_queue_capacity;
-                } else if (kind == state::dgram) {
+                }
+                else if (kind == state::dgram) {
                     dgram_space = dgram_count < socket_datagram_queue_capacity;
                 }
                 u32 result = 0;
@@ -164,7 +167,7 @@ namespace astia::fs {
                 }
                 else if (kind == state::connected && channel) {
                     core::spinlock_guard channel_guard(channel->lock);
-                    const u32 peer = socket_peer_side(side);
+                    const u32            peer = socket_peer_side(side);
                     if (__atomic_load_n(&channel->head[peer], __ATOMIC_ACQUIRE) !=
                         __atomic_load_n(&channel->tail[peer], __ATOMIC_RELAXED))
                         result |= POLLIN;
@@ -175,31 +178,32 @@ namespace astia::fs {
                     if (channel->closed[peer])
                         result |= POLLERR;
                     else if (!channel->shut_wr[side] &&
-                              socket_stream_capacity_bytes -
-                                  (__atomic_load_n(&channel->head[side], __ATOMIC_RELAXED) -
+                             socket_stream_capacity_bytes -
+                                     (__atomic_load_n(&channel->head[side],
+                                                      __ATOMIC_RELAXED) -
                                       __atomic_load_n(&channel->tail[side],
                                                       __ATOMIC_ACQUIRE)) !=
-                                  0)
+                                 0)
                         result |= POLLOUT;
                 }
                 return result & (events | POLLERR | POLLHUP);
             }
             long submit(io_request& r) override {
-                state kind;
+                state              kind;
                 mm::shptr<channel> channel;
-                u32 side;
+                u32                side;
                 {
                     core::spinlock_guard guard(lock_);
-                    kind = state_;
+                    kind    = state_;
                     channel = ch_;
-                    side = side_;
+                    side    = side_;
                 }
                 if (kind == state::dgram) {
-                    long n =
-                        r.direction() == io_direction::input
-                            ? recv_dgram(astia::span<u8>(static_cast<u8*>(r.buffer()), r.length()))
-                            : send_dgram(astia::span<const u8>(static_cast<const u8*>(r.buffer()),
-                                                               r.length()));
+                    long n = r.direction() == io_direction::input
+                                 ? recv_dgram(astia::span<u8>(
+                                       static_cast<u8*>(r.buffer()), r.length()))
+                                 : send_dgram(astia::span<const u8>(
+                                       static_cast<const u8*>(r.buffer()), r.length()));
                     if (n == 0 && !r.complete())
                         r.stage(1);
                     return n;
@@ -222,13 +226,13 @@ namespace astia::fs {
                     }
                     return -EMFILE;
                 }
-                long n = r.direction() == io_direction::input
-                             ? read(r.buffer(), r.length(), 0)
-                             : write(r.buffer(), r.length(), 0);
+                long n           = r.direction() == io_direction::input
+                                       ? read(r.buffer(), r.length(), 0)
+                                       : write(r.buffer(), r.length(), 0);
                 bool peer_closed = false;
                 if (channel) {
                     core::spinlock_guard channel_guard(channel->lock);
-                    const u32 peer = socket_peer_side(side);
+                    const u32            peer = socket_peer_side(side);
                     peer_closed = channel->closed[peer] || channel->shut_wr[peer];
                 }
                 if (n == 0 && r.direction() == io_direction::input && peer_closed)
@@ -245,24 +249,25 @@ namespace astia::fs {
             void close(u32) override {
                 if (__atomic_fetch_sub(&opens_, 1u, __ATOMIC_ACQ_REL) != 1)
                     return;
-                bool bound;
-                char path[path_max]{};
+                bool                 bound;
+                char                 path[path_max]{};
                 mm::shptr<unix_file> peer;
-                mm::shptr<channel> channel;
-                u32 side;
+                mm::shptr<channel>   channel;
+                u32                  side;
                 {
                     core::spinlock_guard guard(lock_);
                     bound = bound_;
                     for (u32 i = 0; i < path_max; ++i) {
                         path[i] = bound_path_[i];
-                        if (!path[i]) break;
+                        if (!path[i])
+                            break;
                     }
-                    bound_ = false;
-                    closed_ = true;
-                    peer = peer_owner_;
+                    bound_      = false;
+                    closed_     = true;
+                    peer        = peer_owner_;
                     peer_owner_ = {};
-                    channel = ch_;
-                    side = side_;
+                    channel     = ch_;
+                    side        = side_;
                 }
                 if (bound)
                     unregister_unix_path(path, this);
@@ -306,11 +311,11 @@ namespace astia::fs {
                 if (payload.data() == nullptr && !payload.empty())
                     return -EFAULT;
                 mm::shptr<unix_file> target_owner;
-                astia_sockaddr from;
+                astia_sockaddr       from;
                 {
                     core::spinlock_guard guard(lock_);
                     target_owner = dgram_target_owner_;
-                    from = bound_addr_;
+                    from         = bound_addr_;
                 }
                 unix_file* target = target_owner.get();
                 if (!target)
@@ -322,9 +327,10 @@ namespace astia::fs {
                     if (target->dgram_count_ == socket_datagram_queue_capacity)
                         return 0;
                     datagram& m = target->dgrams_[target->dgram_tail_];
-                    m.len = static_cast<u32>(payload.size());
-                    m.from = from;
-                    for (u32 i = 0; i < m.len; ++i) m.data[i] = payload.data()[i];
+                    m.len       = static_cast<u32>(payload.size());
+                    m.from      = from;
+                    for (u32 i = 0; i < m.len; ++i)
+                        m.data[i] = payload.data()[i];
                     target->dgram_tail_ =
                         (target->dgram_tail_ + 1) % socket_datagram_queue_capacity;
                     ++target->dgram_count_;
@@ -336,17 +342,18 @@ namespace astia::fs {
                 if (output.data() == nullptr && !output.empty())
                     return -EFAULT;
                 mm::shptr<unix_file> target_owner;
-                u32 count;
+                u32                  count;
                 {
                     core::spinlock_guard guard(lock_);
                     if (!dgram_count_)
                         return shut_rd_ ? 0 : 0;
                     datagram& m = dgrams_[dgram_head_];
-                    count = output.size() < m.len ? static_cast<u32>(output.size()) : m.len;
+                    count =
+                        output.size() < m.len ? static_cast<u32>(output.size()) : m.len;
                     for (u32 i = 0; i < count; ++i)
                         output.data()[i] = m.data[i];
                     if (dgram_out_pending_) {
-                        dgram_out_value_ = m.from;
+                        dgram_out_value_   = m.from;
                         dgram_out_pending_ = false;
                     }
                     dgram_head_ = (dgram_head_ + 1) % socket_datagram_queue_capacity;
@@ -360,16 +367,16 @@ namespace astia::fs {
             void attach(const mm::shptr<channel>& c, u32 s,
                         const mm::shptr<unix_file>& peer) {
                 core::spinlock_guard guard(lock_);
-                ch_        = c;
-                side_      = s;
+                ch_         = c;
+                side_       = s;
                 peer_owner_ = peer;
-                state_     = state::connected;
+                state_      = state::connected;
             }
             void detach_pending() {
                 core::spinlock_guard guard(lock_);
-                ch_        = {};
+                ch_         = {};
                 peer_owner_ = {};
-                state_     = state::fresh;
+                state_      = state::fresh;
             }
             state kind() const {
                 core::spinlock_guard guard(lock_);
@@ -385,30 +392,34 @@ namespace astia::fs {
                 bound_ = true;
                 for (u32 i = 0; i < path_max; ++i) {
                     bound_path_[i] = path[i];
-                    if (!path[i]) break;
+                    if (!path[i])
+                        break;
                 }
             }
             long shutdown(u32 how) {
                 mm::shptr<unix_file> peer;
-                mm::shptr<channel> channel;
-                u32 side;
+                mm::shptr<channel>   channel;
+                u32                  side;
                 {
                     core::spinlock_guard guard(lock_);
                     if (how > SHUT_RDWR)
                         return -EINVAL;
                     if (state_ == state::dgram) {
-                        if (how == SHUT_RD || how == SHUT_RDWR) shut_rd_ = true;
+                        if (how == SHUT_RD || how == SHUT_RDWR)
+                            shut_rd_ = true;
                         peer = dgram_target_owner_;
-                    } else {
+                    }
+                    else {
                         if (!ch_ || state_ != state::connected)
                             return -EINVAL;
                         channel = ch_;
-                        side = side_;
-                        peer = peer_owner_;
+                        side    = side_;
+                        peer    = peer_owner_;
                     }
                 }
                 if (!channel) {
-                    if (peer) sys::io_device_ready_context(peer.get());
+                    if (peer)
+                        sys::io_device_ready_context(peer.get());
                     sys::io_device_ready_context(this);
                     return 0;
                 }
@@ -419,7 +430,8 @@ namespace astia::fs {
                     if (how == SHUT_WR || how == SHUT_RDWR)
                         channel->shut_wr[side] = true;
                 }
-                if (peer) sys::io_device_ready_context(peer.get());
+                if (peer)
+                    sys::io_device_ready_context(peer.get());
                 return 0;
             }
             bool enqueue(const mm::shptr<open_file>& f) {
@@ -445,25 +457,25 @@ namespace astia::fs {
             }
 
             private:
-            mm::shptr<channel>   ch_;
-            u32                  side_{};
-            mm::shptr<unix_file> peer_owner_;
+            mm::shptr<channel>     ch_;
+            u32                    side_{};
+            mm::shptr<unix_file>   peer_owner_;
             mutable core::spinlock lock_;
-            state                state_{state::fresh};
-            bool                 closed_{};
-            u32                  backlog_{};
-            bool                 bound_{};
-            char                 bound_path_[path_max]{};
-            mm::shptr<unix_file> dgram_target_owner_;
-            astia_sockaddr       dgram_out_value_{};
-            bool                 dgram_out_pending_{};
-            datagram             dgrams_[socket_datagram_queue_capacity]{};
-            u32                  dgram_head_{}, dgram_tail_{}, dgram_count_{};
-            bool                 shut_rd_{};
-            astia_sockaddr       bound_addr_{};
-            mm::shptr<open_file> queue_[socket_backlog_capacity]{};
-            u32                  queue_head_{}, queue_tail_{}, queue_count_{};
-            u32                  opens_{1};
+            state                  state_{state::fresh};
+            bool                   closed_{};
+            u32                    backlog_{};
+            bool                   bound_{};
+            char                   bound_path_[path_max]{};
+            mm::shptr<unix_file>   dgram_target_owner_;
+            astia_sockaddr         dgram_out_value_{};
+            bool                   dgram_out_pending_{};
+            datagram               dgrams_[socket_datagram_queue_capacity]{};
+            u32                    dgram_head_{}, dgram_tail_{}, dgram_count_{};
+            bool                   shut_rd_{};
+            astia_sockaddr         bound_addr_{};
+            mm::shptr<open_file>   queue_[socket_backlog_capacity]{};
+            u32                    queue_head_{}, queue_tail_{}, queue_count_{};
+            u32                    opens_{1};
         };
 
         long unix_read(file* object, void* buffer, u32 length, u64 offset) {
@@ -546,14 +558,14 @@ namespace astia::fs {
             char  n[path_max];
             if (!f || !path(a, n))
                 return -EINVAL;
-            char canonical[path_max]{};
+            char  canonical[path_max]{};
             auto* current = proc::current_process();
             if (!current)
                 return -ESRCH;
             mm::shptr<file> node = o.node();
-            long rc = register_unix_path(
-                n, node, uid_t{current->euid()}, gid_t{current->egid()},
-                astia::span<char>(canonical, sizeof canonical));
+            long rc = register_unix_path(n, node, uid_t{current->euid()},
+                                         gid_t{current->egid()},
+                                         astia::span<char>(canonical, sizeof canonical));
             if (rc < 0)
                 return rc;
             f->set_bound_address(a);
@@ -564,9 +576,9 @@ namespace astia::fs {
             auto* f = static_cast<unix_file*>(o.node().get());
             if (!f || f->kind() != unix_file::state::fresh)
                 return -EINVAL;
-            f->make_listener(b > socket_backlog_capacity
-                                 ? socket_backlog_capacity
-                                 : b ? b : 1);
+            f->make_listener(b > socket_backlog_capacity ? socket_backlog_capacity
+                             : b                         ? b
+                                                         : 1);
             return 0;
         }
         long socket_connect(open_file& o, const astia_sockaddr& a) {
@@ -575,7 +587,7 @@ namespace astia::fs {
             if (!c || !path(a, n))
                 return -EINVAL;
             mm::shptr<unix_file> c_owner(o.node());
-            mm::shptr<file> endpoint;
+            mm::shptr<file>      endpoint;
             if (lookup_unix_path(n, endpoint) < 0)
                 return -ECONNREFUSED;
             auto* l = static_cast<unix_file*>(endpoint.get());
@@ -616,8 +628,8 @@ namespace astia::fs {
         auto b  = mm::share<unix_file>();
         if (!ch || !a || !b)
             return -ENOMEM;
-         a->attach(ch, socket_side_first, b);
-         b->attach(ch, socket_side_second, a);
+        a->attach(ch, socket_side_first, b);
+        b->attach(ch, socket_side_second, a);
         left  = mm::share<open_file>(a, 0);
         right = mm::share<open_file>(b, 0);
         if (left && right)

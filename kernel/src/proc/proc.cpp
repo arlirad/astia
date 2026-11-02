@@ -20,8 +20,8 @@ namespace astia::proc {
         using logs       = astia::log::context<"proc">;
         using spawn_logs = logs::child<"spawn">;
 
-        process*             kernel   = nullptr;
-        thread*              current[scheduler::max_cpu_count]{};
+        process* kernel = nullptr;
+        thread*  current[scheduler::max_cpu_count]{};
         // These counters are deliberately raw: the public IDs remain domain
         // types, while the atomic operation can advance the underlying ABI
         // value without taking the process registry lock.  Unsigned fetch-add
@@ -43,7 +43,7 @@ namespace astia::proc {
         }
 
         u32 snapshot_registry(mm::shptr<process>* values) {
-            u32 count = 0;
+            u32                            count = 0;
             arch::interrupt_spinlock_guard guard(registry_lock);
             for (u32 i = 0; i < max_processes; ++i) {
                 if (registry[i])
@@ -70,7 +70,8 @@ namespace astia::proc {
         }
 
         bool is_process_group_leader(const process* value) {
-            return value != nullptr && value->process_group() == process_group_for(value->pid());
+            return value != nullptr &&
+                   value->process_group() == process_group_for(value->pid());
         }
     }
 
@@ -234,7 +235,7 @@ namespace astia::proc {
 
     mm::shptr<process> find_process(pid_t id) {
         mm::shptr<process> values[max_processes];
-        const u32 count = snapshot_registry(values);
+        const u32          count = snapshot_registry(values);
         for (u32 i = 0; i < count; ++i) {
             if (values[i]->pid() == id)
                 return values[i];
@@ -244,7 +245,7 @@ namespace astia::proc {
 
     mm::shptr<process> retain_process(pid_t id) {
         mm::shptr<process> values[max_processes];
-        const u32 count = snapshot_registry(values);
+        const u32          count = snapshot_registry(values);
         for (u32 i = 0; i < count; ++i) {
             if (values[i]->pid() == id)
                 // snapshot_registry already retained the registry entry.
@@ -259,14 +260,14 @@ namespace astia::proc {
             return -EINVAL;
         astia_process_info records[ASTIA_PROCESS_SNAPSHOT_MAX]{};
         mm::shptr<process> values[max_processes];
-        const u32 process_count = snapshot_registry(values);
-        u32                count = 0;
+        const u32          process_count = snapshot_registry(values);
+        u32                count         = 0;
         for (u32 i = 0; i < process_count && count < capacity; ++i) {
-            process* value = values[i].get();
-            auto& record = records[count++];
-            record.pid   = static_cast<i32>(raw_id(value->pid()));
-            record.ppid  = static_cast<i32>(raw_id(value->parent_pid()));
-            record.state = static_cast<u32>(value->state());
+            process* value  = values[i].get();
+            auto&    record = records[count++];
+            record.pid      = static_cast<i32>(raw_id(value->pid()));
+            record.ppid     = static_cast<i32>(raw_id(value->parent_pid()));
+            record.state    = static_cast<u32>(value->state());
             process::metadata_snapshot metadata{};
             value->snapshot_metadata(metadata);
             record.pgid      = static_cast<i32>(raw_id(metadata.process_group));
@@ -321,7 +322,8 @@ namespace astia::proc {
 
     mm::shptr<fs::open_file> controlling_terminal() {
         process* owner = current_process();
-        return owner == nullptr ? mm::shptr<fs::open_file>{} : owner->controlling_terminal();
+        return owner == nullptr ? mm::shptr<fs::open_file>{}
+                                : owner->controlling_terminal();
     }
 
     bool has_controlling_terminal() {
@@ -330,7 +332,7 @@ namespace astia::proc {
 
     bool process_group_exists(pgrp_t group, pid_t session) {
         mm::shptr<process> values[max_processes];
-        const u32 count = snapshot_registry(values);
+        const u32          count = snapshot_registry(values);
         for (u32 i = 0; i < count; ++i) {
             process* value = values[i].get();
             if (is_live(value) && value->process_group() == group &&
@@ -388,8 +390,8 @@ namespace astia::proc {
             return -EINVAL;
 
         mm::shptr<process> values[max_processes];
-        const u32 value_count = snapshot_registry(values);
-        process* target = self_target ? caller : nullptr;
+        const u32          value_count = snapshot_registry(values);
+        process*           target      = self_target ? caller : nullptr;
         for (u32 i = 0; i < value_count && target == nullptr; ++i) {
             if (values[i]->pid() == pid)
                 target = values[i].get();
@@ -445,15 +447,15 @@ namespace astia::proc {
     i64 signal_process_group(pgrp_t group, signal_number value) {
         if (!valid_signal(value) && value != signal_number{})
             return -EINVAL;
-        bool     found = false;
+        bool               found = false;
         mm::shptr<process> targets[max_processes];
-        const u32 value_count = snapshot_registry(targets);
-        u32 count = 0;
+        const u32          value_count = snapshot_registry(targets);
+        u32                count       = 0;
         for (u32 i = 0; i < value_count; ++i) {
             process* target = targets[i].get();
             if (!is_live(target) || target->process_group() != group)
                 continue;
-            found = true;
+            found            = true;
             targets[count++] = static_cast<mm::shptr<process>&&>(targets[i]);
         }
         if (value != signal_number{}) {
@@ -499,16 +501,15 @@ namespace astia::proc {
             bool               has_children = false;
             mm::shptr<process> taken;
             mm::shptr<process> children[max_processes];
-            const u32 child_count = snapshot_registry(children);
-            process* zombie_child = nullptr;
+            const u32          child_count  = snapshot_registry(children);
+            process*           zombie_child = nullptr;
             for (u32 i = 0; i < child_count; ++i) {
                 process* child = children[i].get();
                 if (child == nullptr || child->parent_pid() != parent->pid())
                     continue;
                 if (pid > 0 && child->pid() != wait_pid_from_selector(pid))
                     continue;
-                if ((group_wait || pid == 0) &&
-                    child->process_group() != requested_group)
+                if ((group_wait || pid == 0) && child->process_group() != requested_group)
                     continue;
                 has_children = true;
                 if (child->state() == process_state::zombie) {

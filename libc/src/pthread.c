@@ -47,7 +47,7 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
         return EINVAL;
     if (stack_size > (size_t) -1 - page_alignment_mask)
         return EINVAL;
-    stack_size = (stack_size + page_alignment_mask) & ~(size_t) page_alignment_mask;
+    stack_size  = (stack_size + page_alignment_mask) & ~(size_t) page_alignment_mask;
     void* stack = mmap(NULL, stack_size, PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (stack == MAP_FAILED)

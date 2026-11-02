@@ -71,18 +71,18 @@ namespace astia::dev {
 
         // Tags are private to this boot selftest; completion order is not fixed.
         enum : u64 {
-            ring_tag_open = 0xC0DE00,
-            ring_tag_read = 0xC0DE01,
-            ring_tag_write = 0xC0DE02,
-            ring_tag_collect = 0xC0DE03,
-            ring_tag_close = 0xC0DE04,
-            ring_tag_dup = 0xC0DE05,
-            ring_tag_dup2 = 0xC0DE06,
+            ring_tag_open        = 0xC0DE00,
+            ring_tag_read        = 0xC0DE01,
+            ring_tag_write       = 0xC0DE02,
+            ring_tag_collect     = 0xC0DE03,
+            ring_tag_close       = 0xC0DE04,
+            ring_tag_dup         = 0xC0DE05,
+            ring_tag_dup2        = 0xC0DE06,
             ring_tag_alias_close = 0xC0DE07,
         };
 
-        constexpr char ring_payload[] = "ping";
-        constexpr u32 ring_payload_len = sizeof(ring_payload) - 1;
+        constexpr char ring_payload[]   = "ping";
+        constexpr u32  ring_payload_len = sizeof(ring_payload) - 1;
 
         // QEMU answers THR instantly and real hardware shifts a byte in
         // under 100 µs at 115200; the cap fires only on a dead port,
@@ -194,10 +194,11 @@ namespace astia::dev {
                 if (s == nullptr) {
                     return "sq full (alias close)";
                 }
-                *s           = astia_sqe{};
-                s->op        = OP_CLOSE;
-                s->fd        = close_fd;
-                s->user_data = ring_tag_alias_close + static_cast<u64>(close_fd == dup_fd);
+                *s    = astia_sqe{};
+                s->op = OP_CLOSE;
+                s->fd = close_fd;
+                s->user_data =
+                    ring_tag_alias_close + static_cast<u64>(close_fd == dup_fd);
                 astia_sq_publish(ring, 1);
                 if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
                     return "alias close kick failed";
@@ -285,7 +286,8 @@ namespace astia::dev {
                     return "collect kick failed";
                 }
                 astia_cqe* c = astia_cq_peek(ring);
-                if (c == nullptr || c->user_data != ring_tag_collect + round || c->result < 1) {
+                if (c == nullptr || c->user_data != ring_tag_collect + round ||
+                    c->result < 1) {
                     return "collect mismatch";
                 }
                 have += static_cast<u32>(c->result);
@@ -475,7 +477,7 @@ namespace astia::dev {
         com1.loopback(true);
 
         char        got[ring_payload_len] = {};
-        const char* why              = ring_selftest_body(ring, got);
+        const char* why                   = ring_selftest_body(ring, got);
 
         // Close the loop before reporting: while it is open, console
         // output feeds the receive FIFO instead of leaving the port.

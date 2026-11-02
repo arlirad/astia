@@ -137,7 +137,7 @@ namespace astia::fs {
             return {};
         }
         mm::shptr<tmpfs_file> existing;
-        bool published = false;
+        bool                  published = false;
         {
             core::spinlock_guard guard(namespace_lock_);
             for (u32 i = 0; i < tmpfs_max_entries; ++i) {
@@ -171,7 +171,7 @@ namespace astia::fs {
         while (end > 1 && parent[end - 1] != '/')
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
-        auto object = mm::shptr<tmpfs_file>(new tmpfs_file{});
+        auto object                   = mm::shptr<tmpfs_file>(new tmpfs_file{});
         if (!object || dispatch_mapping(object.get()) == nullptr)
             return {};
         {
@@ -197,9 +197,10 @@ namespace astia::fs {
                         return {};
                     entries_[i].used      = true;
                     entries_[i].directory = false;
-                    entries_[i].mode = file_mode(file_type::regular, default_file_permissions);
+                    entries_[i].mode =
+                        file_mode(file_type::regular, default_file_permissions);
                     entries_[i].object = object;
-                    published = true;
+                    published          = true;
                     break;
                 }
             }
@@ -262,7 +263,7 @@ namespace astia::fs {
         while (end > 1 && parent[end - 1] != '/')
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
-        u32 n = 0;
+        u32 n                         = 0;
         while (target[n]) {
             if (n + 1 >= path_max)
                 return -ENAMETOOLONG;
@@ -286,7 +287,8 @@ namespace astia::fs {
                         return -ENAMETOOLONG;
                     entries_[i].used      = true;
                     entries_[i].directory = false;
-                    entries_[i].mode = file_mode(file_type::symlink, default_symlink_permissions);
+                    entries_[i].mode =
+                        file_mode(file_type::symlink, default_symlink_permissions);
                     entries_[i].object = object;
                     return 0;
                 }
@@ -316,9 +318,9 @@ namespace astia::fs {
                                      u32 capacity, file_type* type) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
-        char selected[path_max]{};
+        char      selected[path_max]{};
         file_type selected_type{};
-        bool found = false;
+        bool      found = false;
         {
             core::spinlock_guard guard(namespace_lock_);
             if (node_type_unlocked(path) != directory_dir)
@@ -328,60 +330,61 @@ namespace astia::fs {
                 ++path_len;
             u64 ordinal = 0;
             for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (!entries_[i].used)
-                continue;
-            const char* full  = entries_[i].path;
-            u32         start = path_len == 1 ? 1 : path_len + 1;
-            if (path_len != 1) {
-                bool prefix = true;
-                for (u32 j = 0; j < path_len; ++j)
-                    if (full[j] != path[j])
-                        prefix = false;
-                if (!prefix || full[path_len] != '/')
+                if (!entries_[i].used)
                     continue;
-            }
-            u32 end = start;
-            while (full[end] != '\0' && full[end] != '/')
-                ++end;
-            if (end == start || end >= capacity)
-                continue;
-            bool duplicate = false;
-            for (u32 p = 0; p < i && !duplicate; ++p) {
-                if (!entries_[p].used)
-                    continue;
-                const char* prior       = entries_[p].path;
-                u32         prior_start = path_len == 1 ? 1 : path_len + 1;
+                const char* full  = entries_[i].path;
+                u32         start = path_len == 1 ? 1 : path_len + 1;
                 if (path_len != 1) {
-                    bool prior_prefix = true;
+                    bool prefix = true;
                     for (u32 j = 0; j < path_len; ++j)
-                        if (prior[j] != path[j])
-                            prior_prefix = false;
-                    if (!prior_prefix || prior[path_len] != '/')
+                        if (full[j] != path[j])
+                            prefix = false;
+                    if (!prefix || full[path_len] != '/')
                         continue;
                 }
-                u32 prior_end = prior_start;
-                while (prior[prior_end] != '\0' && prior[prior_end] != '/')
-                    ++prior_end;
-                if (prior_end - prior_start == end - start) {
-                    duplicate = true;
-                    for (u32 j = 0; j < end - start; ++j)
-                        if (prior[prior_start + j] != full[start + j])
-                            duplicate = false;
+                u32 end = start;
+                while (full[end] != '\0' && full[end] != '/')
+                    ++end;
+                if (end == start || end >= capacity)
+                    continue;
+                bool duplicate = false;
+                for (u32 p = 0; p < i && !duplicate; ++p) {
+                    if (!entries_[p].used)
+                        continue;
+                    const char* prior       = entries_[p].path;
+                    u32         prior_start = path_len == 1 ? 1 : path_len + 1;
+                    if (path_len != 1) {
+                        bool prior_prefix = true;
+                        for (u32 j = 0; j < path_len; ++j)
+                            if (prior[j] != path[j])
+                                prior_prefix = false;
+                        if (!prior_prefix || prior[path_len] != '/')
+                            continue;
+                    }
+                    u32 prior_end = prior_start;
+                    while (prior[prior_end] != '\0' && prior[prior_end] != '/')
+                        ++prior_end;
+                    if (prior_end - prior_start == end - start) {
+                        duplicate = true;
+                        for (u32 j = 0; j < end - start; ++j)
+                            if (prior[prior_start + j] != full[start + j])
+                                duplicate = false;
+                    }
                 }
-            }
-            if (duplicate || ordinal++ != index)
-                continue;
-            for (u32 j = 0; j < end - start; ++j)
-                selected[j] = full[start + j];
-            selected[end - start] = '\0';
-            selected_type = end < path_max && full[end] != '\0'
+                if (duplicate || ordinal++ != index)
+                    continue;
+                for (u32 j = 0; j < end - start; ++j)
+                    selected[j] = full[start + j];
+                selected[end - start] = '\0';
+                selected_type =
+                    end < path_max && full[end] != '\0'
                         ? directory_dir
                         : (entries_[i].directory
                                ? directory_dir
                                : (entries_[i].mode.is_symlink() ? directory_lnk
-                                                                 : directory_reg));
-            found = true;
-            break;
+                                                                : directory_reg));
+                found = true;
+                break;
             }
         }
         if (found) {
@@ -404,7 +407,7 @@ namespace astia::fs {
         if (equal(path, "/"))
             return -EEXIST;
         mm::shptr<tmpfs_file> object;
-        bool found = false;
+        bool                  found = false;
         {
             core::spinlock_guard guard(namespace_lock_);
             for (u32 i = 0; i < tmpfs_max_entries; ++i) {
@@ -417,9 +420,9 @@ namespace astia::fs {
                         if (entries_[j].used && parent_of(path, entries_[j].path))
                             return -ENOTEMPTY;
                 }
-                object = entries_[i].object;
+                object      = entries_[i].object;
                 entries_[i] = entry{};
-                found = true;
+                found       = true;
                 break;
             }
         }

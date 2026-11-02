@@ -5,16 +5,16 @@
 namespace astia::dev {
 
     long device_file::read(void* buf, u32 len, u64 offset) {
-        return _device == nullptr ? -EINVAL
-                                   : _device->read(astia::span<u8>(static_cast<u8*>(buf), len),
-                                                  offset);
+        return _device == nullptr
+                   ? -EINVAL
+                   : _device->read(astia::span<u8>(static_cast<u8*>(buf), len), offset);
     }
 
     long device_file::write(const void* buf, u32 len, u64 offset) {
-        return _device == nullptr ? -EINVAL
-                                   : _device->write(astia::span<const u8>(
-                                                        static_cast<const u8*>(buf), len),
-                                                    offset);
+        return _device == nullptr
+                   ? -EINVAL
+                   : _device->write(
+                         astia::span<const u8>(static_cast<const u8*>(buf), len), offset);
     }
 
     long device_file::submit(io_request& request) {
@@ -26,9 +26,10 @@ namespace astia::dev {
     }
 
     long device_file::ioctl(u64 request, void* argp, usize size) {
-        return _device == nullptr ? -EINVAL
-                                   : _device->ioctl(request,
-                                                    astia::span<u8>(static_cast<u8*>(argp), size));
+        return _device == nullptr
+                   ? -EINVAL
+                   : _device->ioctl(request,
+                                    astia::span<u8>(static_cast<u8*>(argp), size));
     }
 
     long device_file::size() const {

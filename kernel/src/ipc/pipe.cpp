@@ -82,13 +82,15 @@ namespace astia::fs {
             }
 
             void close(u32 flags) override {
-                u32* count = (flags & pipe_read_endpoint_flag) != 0 ? &readers_ : &writers_;
+                u32* count =
+                    (flags & pipe_read_endpoint_flag) != 0 ? &readers_ : &writers_;
                 if (__atomic_fetch_sub(count, 1u, __ATOMIC_ACQ_REL) == 1)
                     sys::io_device_ready_context(this);
             }
 
             void duplicate(u32 flags) override {
-                u32* count = (flags & pipe_read_endpoint_flag) != 0 ? &readers_ : &writers_;
+                u32* count =
+                    (flags & pipe_read_endpoint_flag) != 0 ? &readers_ : &writers_;
                 __atomic_fetch_add(count, 1u, __ATOMIC_ACQ_REL);
             }
 

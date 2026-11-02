@@ -29,11 +29,11 @@ namespace astia::arch::x86_64 {
     void pic::remap() {
         outb(master_command_port, icw1_init_with_icw4); // ICW1: init + ICW4 needed
         outb(slave_command_port, icw1_init_with_icw4);
-        outb(master_data_port, irq_base); // ICW2: master vector base
+        outb(master_data_port, irq_base);                   // ICW2: master vector base
         outb(slave_data_port, irq_base + slave_irq_offset); // ICW2: slave vector base
-        outb(master_data_port, icw3_master_slave_irq); // ICW3: slave hangs off IRQ2
-        outb(slave_data_port, icw3_slave_cascade_id); // ICW3: cascade identity
-        outb(master_data_port, icw4_8086_mode); // ICW4: 8086 mode
+        outb(master_data_port, icw3_master_slave_irq);      // ICW3: slave hangs off IRQ2
+        outb(slave_data_port, icw3_slave_cascade_id);       // ICW3: cascade identity
+        outb(master_data_port, icw4_8086_mode);             // ICW4: 8086 mode
         outb(slave_data_port, icw4_8086_mode);
         outb(master_data_port, all_irqs_masked); // OCW1: all IRQs masked
         outb(slave_data_port, all_irqs_masked);  // OCW1: all slave IRQs masked

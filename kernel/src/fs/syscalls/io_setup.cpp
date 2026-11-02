@@ -10,7 +10,6 @@ namespace astia::fs::syscall {
         const auto ring_out = sys::user_ptr<astia_rings*>(out).validate();
         if (!ring_out)
             return -EFAULT;
-        return sys::io_setup(entries, flags,
-                             ring_out.value.get());
+        return sys::io_setup(entries, flags, ring_out.value.get());
     }
 }

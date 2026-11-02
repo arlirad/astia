@@ -13,8 +13,8 @@ namespace astia::proc::scheduler {
         struct cpu_state {
             core::spinlock lock;
             thread*        queue[run_queue_capacity]{};
-            u32            queue_count = 0;
-            thread*        idle_thread = nullptr;
+            u32            queue_count                           = 0;
+            thread*        idle_thread                           = nullptr;
             enum class lifecycle : u8 { offline, online } status = lifecycle::offline;
         } cpus[max_cpu_count];
         bool initialized = false;
@@ -40,7 +40,7 @@ namespace astia::proc::scheduler {
             if (index >= max_cpu_count ||
                 cpus[index].status != cpu_state::lifecycle::online)
                 return false;
-            auto&                state = cpus[index];
+            auto&                          state = cpus[index];
             arch::interrupt_spinlock_guard guard(state.lock);
             if (value->queued()) {
                 return true;
@@ -67,9 +67,10 @@ namespace astia::proc::scheduler {
                     source_index < target_index ? target_index : source_index;
                 arch::interrupt_spinlock_guard first_guard(cpus[first].lock);
                 arch::interrupt_spinlock_guard second_guard(cpus[second].lock);
-                auto&                source = cpus[source_index];
-                auto&                target = cpus[target_index];
-                if (source.queue_count <= target.queue_count + run_queue_rebalance_slack ||
+                auto&                          source = cpus[source_index];
+                auto&                          target = cpus[target_index];
+                if (source.queue_count <=
+                        target.queue_count + run_queue_rebalance_slack ||
                     target.queue_count == run_queue_capacity)
                     continue;
                 u32 position = source.queue_count;
@@ -102,7 +103,7 @@ namespace astia::proc::scheduler {
         }
 
         thread* select_next(u32 index) {
-            auto&                state = cpus[index];
+            auto&                          state = cpus[index];
             arch::interrupt_spinlock_guard guard(state.lock);
             if (state.queue_count == 0) {
                 return nullptr;
@@ -193,7 +194,7 @@ namespace astia::proc::scheduler {
         idle->state(thread_state::runnable);
         idle->cpu_owner(cpu_index);
         cpus[cpu_index].idle_thread = idle.get();
-        cpus[cpu_index].status = cpu_state::lifecycle::online;
+        cpus[cpu_index].status      = cpu_state::lifecycle::online;
         // APs enter directly in their idle loop rather than through a
         // context switch, so publish the CPU-local current object now.  The
         // BSP already owns its bootstrap thread and keeps it.
@@ -279,8 +280,8 @@ namespace astia::proc::scheduler {
     bool migrate(thread* value, u32 cpu_index) {
         if (!initialized || value == nullptr || cpu_index >= max_cpu_count ||
             cpus[cpu_index].status != cpu_state::lifecycle::online ||
-            value->cpu_owner() == cpu_index ||
-            !value->queued() || value->state() != thread_state::runnable) {
+            value->cpu_owner() == cpu_index || !value->queued() ||
+            value->state() != thread_state::runnable) {
             return false;
         }
         const u32 source_index = value->cpu_owner();

@@ -29,9 +29,9 @@
  * This layer is what a future libc's syscall shims sit on.
  */
 
+#include "wait.h"
 #include <astia/api/errno.h>
 #include <astia/api/signal.h>
-#include "wait.h"
 
 #include <stdint.h>
 

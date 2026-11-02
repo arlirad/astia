@@ -81,13 +81,13 @@ namespace astia::proc {
             if (owner == nullptr || self == nullptr) {
                 return;
             }
-            signal_disposition disposition{};
+            signal_disposition  disposition{};
             const signal_number signal = owner->signals().take_unblocked(&disposition);
             if (!valid_signal(signal)) {
                 return;
             }
-            const bool               suspended   = self->has_signal_restore_mask();
-            const u32                restore_mask =
+            const bool suspended = self->has_signal_restore_mask();
+            const u32  restore_mask =
                 suspended ? self->signal_restore_mask() : owner->signals().blocked();
             if (disposition.action == signal_action::handler) {
                 auto&           frame = raw_frame;
@@ -97,18 +97,16 @@ namespace astia::proc {
                 const u64 context = frame.rsp - sizeof(astia_x86_64_signal_context_t);
                 const u64 retaddr = context - 8;
                 if (!sys::user_span_ok(span<u8>::bytes(retaddr, bytes)) ||
-                    !sys::user_span_ok(span<u8>::bytes(
-                        reinterpret_cast<u64>(disposition.handler), 1)))
+                    !sys::user_span_ok(
+                        span<u8>::bytes(reinterpret_cast<u64>(disposition.handler), 1)))
                     goto fatal_signal;
                 astia_x86_64_signal_context_t saved{
                     frame.nr,  frame.rbx, frame.rip,    frame.a2,     frame.a1,
                     frame.a0,  frame.a4,  frame.a5,     frame.a3,     frame.rflags,
                     frame.r12, frame.r13, frame.r14,    frame.r15,    frame.rbp,
                     frame.rip, frame.rsp, frame.rflags, restore_mask, 0};
-                if (!sys::copy_out(span<u8>::bytes(context, sizeof saved),
-                                   &saved) ||
-                    !sys::copy_out(span<u8>::bytes(retaddr, 8),
-                                   &disposition.restorer))
+                if (!sys::copy_out(span<u8>::bytes(context, sizeof saved), &saved) ||
+                    !sys::copy_out(span<u8>::bytes(retaddr, 8), &disposition.restorer))
                     goto fatal_signal;
                 owner->signals().block(signal_bit(signal) | disposition.mask);
                 frame.nr = ~u64{0};
@@ -152,8 +150,8 @@ namespace astia::proc {
             return;
         fatal_signal:
             owner->signal_termination(signal);
-            self->exit(reinterpret_cast<void*>(static_cast<usize>(
-                wait_signal_exit_status(static_cast<u8>(signal)))));
+            self->exit(reinterpret_cast<void*>(
+                static_cast<usize>(wait_signal_exit_status(static_cast<u8>(signal)))));
             __builtin_unreachable();
         }
 

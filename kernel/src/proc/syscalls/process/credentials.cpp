@@ -81,8 +81,8 @@ namespace astia::proc::syscall {
             return rc;
         const auto destination =
             sys::user_ptr<u32>(static_cast<u64>(out)).validate(static_cast<usize>(rc));
-        if (!destination || !sys::copy_out(destination.value.bytes(static_cast<usize>(rc)),
-                                           values))
+        if (!destination ||
+            !sys::copy_out(destination.value.bytes(static_cast<usize>(rc)), values))
             return -EFAULT;
         return rc;
     }
@@ -92,10 +92,11 @@ namespace astia::proc::syscall {
             return -ESRCH;
         if (n < 0 || n > static_cast<i64>(max_supplementary_groups))
             return -EINVAL;
-        u32 values[max_supplementary_groups]{};
-        const auto source =
-            sys::user_ptr<const u32>(static_cast<u64>(in)).validate(static_cast<usize>(n));
-        if (n != 0 && (!source || !sys::copy_in(values, source.value.bytes(static_cast<usize>(n)))))
+        u32        values[max_supplementary_groups]{};
+        const auto source = sys::user_ptr<const u32>(static_cast<u64>(in))
+                                .validate(static_cast<usize>(n));
+        if (n != 0 &&
+            (!source || !sys::copy_in(values, source.value.bytes(static_cast<usize>(n)))))
             return -EFAULT;
         return p->setgroups(static_cast<i32>(n), values);
     }

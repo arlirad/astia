@@ -10,9 +10,9 @@ namespace astia::fs {
 
     class initrd_mount final : public mount {
         public:
-        bool                 attach(const initrd::archive& archive);
-        bool                 add(const char* path, astia::span<const u8> data);
-        bool                 add(const char* path, const void* data, usize size) {
+        bool attach(const initrd::archive& archive);
+        bool add(const char* path, astia::span<const u8> data);
+        bool add(const char* path, const void* data, usize size) {
             return add(path, astia::span<const u8>(static_cast<const u8*>(data), size));
         }
         mm::shptr<open_file> open(const char* path, u32 flags) override;
@@ -23,8 +23,8 @@ namespace astia::fs {
 
         private:
         struct entry {
-            bool        used;
-            char        path[path_max];
+            bool                  used;
+            char                  path[path_max];
             astia::span<const u8> data;
         };
 

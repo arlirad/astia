@@ -361,7 +361,7 @@ namespace astia::test {
         bool statx_checks() {
             static const char probe_path[]   = "/dev/statx_probe";
             static const char missing_path[] = "/dev/astia_no_such_node";
-            constexpr u64 statx_tag = 0xC0DE57;
+            constexpr u64     statx_tag      = 0xC0DE57;
 
             if (fs::register_device(probe_path,
                                     mm::shptr<fs::file>::borrowed(&probe_node)) < 0) {

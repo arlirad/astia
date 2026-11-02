@@ -15,8 +15,8 @@ namespace astia::arch::x86_64 {
 
         // 8254 channel 0 command bytes: lo/hi divisor writes, then mode.
         constexpr u8 command_square_wave = 0x36; // mode 3
-        constexpr u8 command_one_shot     = 0x30; // mode 0
-        constexpr u8 command_latch_count  = 0x00;
+        constexpr u8 command_one_shot    = 0x30; // mode 0
+        constexpr u8 command_latch_count = 0x00;
 
         /// Write a 16-bit divisor to channel 0 (lo/hi access mode set by
         /// the preceding mode_cmd).

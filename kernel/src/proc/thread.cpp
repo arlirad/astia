@@ -63,12 +63,12 @@ namespace astia::proc {
         if (!allocate_kernel_stack()) {
             return false;
         }
-        entry_function_    = entry;
-        entry_argument_    = argument;
+        entry_function_ = entry;
+        entry_argument_ = argument;
 
         if (!arch::context_prepare_kernel(
                 context_, kernel_stack_top_ & ~u64{thread_stack_alignment_mask},
-                                           reinterpret_cast<u64>(&thread_trampoline))) {
+                reinterpret_cast<u64>(&thread_trampoline))) {
             release_kernel_stack();
             return false;
         }

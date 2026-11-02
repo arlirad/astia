@@ -11,13 +11,13 @@
 namespace astia::proc {
 
     namespace {
-        inline constexpr u32 futex_capacity = 64;
-        inline constexpr u32 futex_bucket_count = 4;
+        inline constexpr u32 futex_capacity        = 64;
+        inline constexpr u32 futex_bucket_count    = 4;
         inline constexpr u32 futex_bucket_capacity = futex_capacity / futex_bucket_count;
         static_assert(futex_capacity % futex_bucket_count == 0);
 
         struct futex_waiter {
-            process*          owner   = nullptr;
+            process*           owner   = nullptr;
             u64                address = 0;
             mm::shptr<process> owner_ref;
             mm::shptr<thread>  value;
@@ -42,9 +42,8 @@ namespace astia::proc {
         bool reserve_waiter() {
             u32 count = __atomic_load_n(&waiter_count, __ATOMIC_RELAXED);
             while (count < futex_capacity &&
-                   !__atomic_compare_exchange_n(&waiter_count, &count, count + 1,
-                                                false, __ATOMIC_ACQ_REL,
-                                                __ATOMIC_RELAXED)) {
+                   !__atomic_compare_exchange_n(&waiter_count, &count, count + 1, false,
+                                                __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
             }
             return count < futex_capacity;
         }
@@ -52,8 +51,8 @@ namespace astia::proc {
     } // namespace
 
     i64 futex_wait(u64 address, u32 expected) {
-        auto*                 owner = current_process();
-        auto*                 self  = current_thread();
+        auto*      owner     = current_process();
+        auto*      self      = current_thread();
         const auto validated = sys::user_ptr<u32>(address).validate();
         if (owner == nullptr || self == nullptr || !validated) {
             return -EFAULT;
@@ -72,7 +71,7 @@ namespace astia::proc {
         // section.  With interrupts disabled, a same-CPU FUTEX_WAKE
         // cannot slip between them and lose the wakeup.
         arch::interrupt_guard gate;
-        auto& bucket = bucket_for(address);
+        auto&                 bucket = bucket_for(address);
         {
             core::spinlock_guard lock(bucket.lock);
             if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
@@ -100,9 +99,9 @@ namespace astia::proc {
                 __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
                 return -EAGAIN;
             }
-            bucket.waiters[slot] = futex_waiter{
-                owner, address, static_cast<mm::shptr<process>&&>(owner_ref),
-                static_cast<mm::shptr<thread>&&>(retained)};
+            bucket.waiters[slot] =
+                futex_waiter{owner, address, static_cast<mm::shptr<process>&&>(owner_ref),
+                             static_cast<mm::shptr<thread>&&>(retained)};
             self->state(thread_state::blocked);
         }
         scheduler::yield();
@@ -121,19 +120,18 @@ namespace astia::proc {
             return -EFAULT;
         }
         arch::interrupt_guard gate;
-        mm::shptr<thread> wake_list[futex_bucket_capacity];
-        u32     wake_count = 0;
-        auto&   bucket     = bucket_for(address);
+        mm::shptr<thread>     wake_list[futex_bucket_capacity];
+        u32                   wake_count = 0;
+        auto&                 bucket     = bucket_for(address);
         {
             core::spinlock_guard lock(bucket.lock);
             for (u32 i = 0; i < futex_bucket_capacity && wake_count < count; ++i) {
-                if (!bucket.waiters[i].value ||
-                    bucket.waiters[i].owner != owner ||
+                if (!bucket.waiters[i].value || bucket.waiters[i].owner != owner ||
                     bucket.waiters[i].address != address) {
                     continue;
                 }
                 wake_list[wake_count++] = bucket.waiters[i].value;
-                bucket.waiters[i]        = {};
+                bucket.waiters[i]       = {};
                 __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
             }
         }
@@ -152,7 +150,7 @@ namespace astia::proc {
             return;
         arch::interrupt_guard gate;
         for (u32 bucket_index = 0; bucket_index < futex_bucket_count; ++bucket_index) {
-            auto& bucket = buckets[bucket_index];
+            auto&                bucket = buckets[bucket_index];
             core::spinlock_guard lock(bucket.lock);
             for (u32 i = 0; i < futex_bucket_capacity; ++i) {
                 if (bucket.waiters[i].value && bucket.waiters[i].owner == owner) {

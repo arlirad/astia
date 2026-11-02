@@ -19,9 +19,10 @@ namespace astia::proc {
         continued = 1u << 3,
     };
 
-    inline constexpr u32 valid_wait_option_bits = static_cast<u32>(wait_options::nohang) |
-                                                  static_cast<u32>(wait_options::untraced) |
-                                                  static_cast<u32>(wait_options::continued);
+    inline constexpr u32 valid_wait_option_bits =
+        static_cast<u32>(wait_options::nohang) |
+        static_cast<u32>(wait_options::untraced) |
+        static_cast<u32>(wait_options::continued);
 
     constexpr u32 raw_wait_options(wait_options options) {
         return static_cast<u32>(options);
@@ -86,14 +87,14 @@ namespace astia::proc {
     bool process_group_exists(pgrp_t group, pid_t session);
     /// Terminal line-discipline hooks.  These deliberately operate on the
     /// caller's native process group rather than manufacturing IDs in tty.
-    i64       terminal_signal_foreground(pgrp_t foreground, signal_number signal);
-    bool      terminal_read_allowed(pgrp_t foreground);
-    bool      terminal_write_allowed(pgrp_t foreground, bool tostop);
-    bool      terminal_set_foreground_allowed(pgrp_t foreground);
+    i64  terminal_signal_foreground(pgrp_t foreground, signal_number signal);
+    bool terminal_read_allowed(pgrp_t foreground);
+    bool terminal_write_allowed(pgrp_t foreground, bool tostop);
+    bool terminal_set_foreground_allowed(pgrp_t foreground);
     mm::shptr<fs::open_file> controlling_terminal();
-    bool      has_controlling_terminal();
-    i64       setpgid(pid_t pid, pgrp_t pgid);
-    i64       setsid();
+    bool                     has_controlling_terminal();
+    i64                      setpgid(pid_t pid, pgrp_t pgid);
+    i64                      setsid();
     /// Send a signal to every live member of a process group.  Signal zero
     /// only checks that the group has a live member.
     i64 signal_process_group(pgrp_t group, signal_number signal);

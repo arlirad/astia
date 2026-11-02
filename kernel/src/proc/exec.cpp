@@ -25,7 +25,7 @@ namespace astia::proc {
         };
 
         struct stream_context {
-            image_map      map;
+            image_map                map;
             mm::shptr<fs::open_file> file;
         };
 
@@ -234,7 +234,8 @@ namespace astia::proc {
             u64 tp         = 0;
             u64 tls_frames = 0;
             u64 tls_pages  = 0;
-            if (!map_tls_template(*address_space_, bytes, image, tp, tls_frames, tls_pages)) {
+            if (!map_tls_template(*address_space_, bytes, image, tp, tls_frames,
+                                  tls_pages)) {
                 cleanup_pending(image_state, *address_space_);
                 discard_image();
                 return false;
@@ -246,7 +247,8 @@ namespace astia::proc {
                                   map_protection::read | map_protection::write, region)) {
                 if (region != nullptr) {
                     region->release();
-                } else {
+                }
+                else {
                     unmap_run(*address_space_, tls_base, tls_pages);
                     mm::kernel_frames().release(tls_frames, tls_pages);
                 }
@@ -300,8 +302,8 @@ namespace astia::proc {
             for (u64 page = 0; page < pages; ++page) {
                 if (!map.map_4k(tls_base + page * elf::page_size,
                                 frames + page * elf::page_size,
-                                    arch::page_flags::present | arch::page_flags::writable |
-                                        arch::page_flags::user)) {
+                                arch::page_flags::present | arch::page_flags::writable |
+                                    arch::page_flags::user)) {
                     unmap_run(map, tls_base, page);
                     mm::kernel_frames().release(frames, pages);
                     return false;
@@ -356,8 +358,8 @@ namespace astia::proc {
             return false;
         }
         for (u32 i = 0; i < stream.map.count; ++i) {
-            auto&       seg    = stream.map.segs[i];
-            auto*       region = mm::phys_region::adopt(seg.frames, seg.pages);
+            auto& seg    = stream.map.segs[i];
+            auto* region = mm::phys_region::adopt(seg.frames, seg.pages);
             if (region == nullptr ||
                 !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
                                   region)) {

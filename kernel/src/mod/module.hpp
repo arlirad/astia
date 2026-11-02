@@ -38,7 +38,7 @@ namespace astia::mod {
     ///
     /// `image` need not stay valid after the call: section contents are copied
     /// into frame-allocator memory.
-    const module* load_module(span<const u8> image);
+    const module*        load_module(span<const u8> image);
     inline const module* load_module(const void* image, usize size) {
         return load_module(span<const u8>(static_cast<const u8*>(image), size));
     }

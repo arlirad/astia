@@ -234,9 +234,8 @@ namespace astia::arch {
             pde        = (frame & address_mask) | inherited | entry_present;
             u64* table = next_table(owner, virt, table_level::pt, pde);
             for (usize i = 0; i < 512; ++i) {
-                table[i] =
-                    (base + static_cast<u64>(i) * mm::page_size) | inherited |
-                    entry_present;
+                table[i] = (base + static_cast<u64>(i) * mm::page_size) | inherited |
+                           entry_present;
             }
             return true;
         }

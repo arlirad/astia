@@ -92,10 +92,10 @@ namespace astia::dev {
         // This lock covers the line discipline and RX ring.  It is always
         // acquired through interrupt_spinlock_guard: receive runs in IRQ
         // context, while reads/ioctls run as tasks (and SMP may race too).
-        core::spinlock          _state_lock;
+        core::spinlock _state_lock;
         // TCSETS hardware hooks may take time and must not run with
         // _state_lock held.  Serialize competing termios updates separately.
-        core::spinlock          _ioctl_lock;
+        core::spinlock _ioctl_lock;
 
         struct termios           _termios;
         u32                      _column = 0; // cursor column, for OPOST work later
@@ -107,8 +107,8 @@ namespace astia::dev {
         bool                     _line_overflow = false;
         // Canonical VEOF at the start of a line is a real zero-length
         // read, not "not ready".  Keep that fact until the next read.
-        bool _eof_pending        = false;
-        bool _output_stopped     = false;
+        bool _eof_pending                      = false;
+        bool _output_stopped                   = false;
         alignas(cache_line_bytes) u32 _rx_head = 0;
         alignas(cache_line_bytes) u32 _rx_tail = 0;
     };

@@ -37,10 +37,10 @@ namespace astia::arch::x86_64 {
 
         // ICR delivery words. Keep these as complete architectural values:
         // the INIT/SIPI sequence and its ordering are part of AP bring-up.
-        constexpr u32 icr_delivery_status = 1u << 12;
-        constexpr u32 icr_init_assert     = 0x00004500;
-        constexpr u32 icr_init_deassert   = 0x00000500;
-        constexpr u32 icr_startup         = 0x00004600;
+        constexpr u32 icr_delivery_status   = 1u << 12;
+        constexpr u32 icr_init_assert       = 0x00004500;
+        constexpr u32 icr_init_deassert     = 0x00000500;
+        constexpr u32 icr_startup           = 0x00004600;
         constexpr u32 icr_all_init_assert   = 0x000C4500;
         constexpr u32 icr_all_init_deassert = 0x000C0500;
         constexpr u32 icr_all_startup       = 0x000C4600;
@@ -136,7 +136,8 @@ namespace astia::arch::x86_64 {
             return false;
         reg_write(reg_icr_high, apic_id << 24);
         reg_write(reg_icr_low, static_cast<u32>(vector));
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status); ++i) {
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
+             ++i) {
         }
         return (reg_read(reg_icr_low) & icr_delivery_status) == 0;
     }
@@ -146,16 +147,19 @@ namespace astia::arch::x86_64 {
             return false;
         reg_write(reg_icr_high, apic_id << 24);
         reg_write(reg_icr_low, icr_init_assert); // INIT, asserted, edge
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status); ++i) {
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
+             ++i) {
         }
         reg_write(reg_icr_low, icr_init_deassert); // INIT, deassert
         for (u32 i = 0; i < 1000000; ++i)
             asm volatile("" ::: "memory");
         reg_write(reg_icr_low, icr_startup | vector);
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status); ++i) {
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
+             ++i) {
         }
         reg_write(reg_icr_low, icr_startup | vector); // the architectural second SIPI
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status); ++i) {
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
+             ++i) {
         }
         return (reg_read(reg_icr_low) & icr_delivery_status) == 0;
     }
@@ -165,16 +169,19 @@ namespace astia::arch::x86_64 {
             return false;
         reg_write(reg_icr_high, 0);
         reg_write(reg_icr_low, icr_all_init_assert);
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status); ++i) {
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
+             ++i) {
         }
         reg_write(reg_icr_low, icr_all_init_deassert);
         for (u32 i = 0; i < 1000000; ++i)
             asm volatile("" ::: "memory");
         reg_write(reg_icr_low, icr_all_startup | vector);
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status); ++i) {
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
+             ++i) {
         }
         reg_write(reg_icr_low, icr_all_startup | vector);
-        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status); ++i) {
+        for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
+             ++i) {
         }
         return (reg_read(reg_icr_low) & icr_delivery_status) == 0;
     }

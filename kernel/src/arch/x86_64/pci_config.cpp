@@ -4,7 +4,7 @@
 namespace astia::arch {
 
     namespace {
-        constexpr u32 config_enable      = 0x80000000u;
+        constexpr u32 config_enable       = 0x80000000u;
         constexpr u16 config_address_port = 0x0cf8;
         constexpr u16 config_data_port    = 0x0cfc;
         constexpr u32 config_offset_mask  = 0xfcu;
@@ -12,7 +12,8 @@ namespace astia::arch {
         inline u32 config_address(const pci_bdf address, u8 offset) {
             return config_enable | (static_cast<u32>(address.bus) << 16) |
                    (static_cast<u32>(address.device) << 11) |
-                   (static_cast<u32>(address.function) << 8) | (offset & config_offset_mask);
+                   (static_cast<u32>(address.function) << 8) |
+                   (offset & config_offset_mask);
         }
     }
 

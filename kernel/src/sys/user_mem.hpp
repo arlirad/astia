@@ -72,12 +72,19 @@ namespace astia::sys {
 
         public:
         constexpr validated_user_span() = default;
-        T* get() const { return reinterpret_cast<T*>(address_); }
-        span<T> view() const { return span<T>(get(), length_ / sizeof(T)); }
-        span<u8> bytes() const { return span<u8>::bytes(address_, length_); }
+        T* get() const {
+            return reinterpret_cast<T*>(address_);
+        }
+        span<T> view() const {
+            return span<T>(get(), length_ / sizeof(T));
+        }
+        span<u8> bytes() const {
+            return span<u8>::bytes(address_, length_);
+        }
 
         private:
-        validated_user_span(u64 address, usize length) : address_(address), length_(length) {}
+        validated_user_span(u64 address, usize length)
+            : address_(address), length_(length) {}
         u64   address_ = 0;
         usize length_  = 0;
     };
@@ -89,8 +96,12 @@ namespace astia::sys {
         constexpr user_span(u64 address, usize count)
             : address_(address), count_(count) {}
 
-        constexpr u64 address() const { return address_; }
-        constexpr usize count() const { return count_; }
+        constexpr u64 address() const {
+            return address_;
+        }
+        constexpr usize count() const {
+            return count_;
+        }
         constexpr span<u8> bytes() const {
             return span<u8>::bytes(address_, sizeof(T) * count_);
         }
@@ -109,8 +120,12 @@ namespace astia::sys {
 
         public:
         constexpr validated_user_ptr() = default;
-        T* get() const { return reinterpret_cast<T*>(address_); }
-        span<T> view(usize count = 1) const { return span<T>(get(), count); }
+        T* get() const {
+            return reinterpret_cast<T*>(address_);
+        }
+        span<T> view(usize count = 1) const {
+            return span<T>(get(), count);
+        }
         span<u8> bytes(usize count = 1) const {
             return span<u8>::bytes(address_, sizeof(T) * count);
         }
@@ -129,8 +144,12 @@ namespace astia::sys {
         constexpr user_ptr() = default;
         explicit constexpr user_ptr(u64 address) : address_(address) {}
 
-        constexpr u64 address() const { return address_; }
-        constexpr bool null() const { return address_ == 0; }
+        constexpr u64 address() const {
+            return address_;
+        }
+        constexpr bool null() const {
+            return address_ == 0;
+        }
         constexpr span<u8> bytes(usize count = 1) const {
             return span<u8>::bytes(address_, sizeof(T) * count);
         }

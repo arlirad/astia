@@ -6,10 +6,10 @@
 namespace astia::dbg {
 
     void stacktrace(u64 rbp, u64 rip) {
-        using logs               = astia::log::context<"dbg::stack">;
-        constexpr u32 max_trace_frames       = 24;
+        using logs                             = astia::log::context<"dbg::stack">;
+        constexpr u32 max_trace_frames         = 24;
         constexpr u64 max_frame_distance_bytes = 1024 * 1024;
-        const u64     base       = astia::arch::kernel_base;
+        const u64     base                     = astia::arch::kernel_base;
 
         logs::error("#0 rip=%llx rbp=%llx", static_cast<unsigned long long>(rip),
                     static_cast<unsigned long long>(rbp));

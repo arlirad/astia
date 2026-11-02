@@ -87,8 +87,8 @@ namespace astia {
     };
 
     template <>
-    struct mapper<proc::map_protection> : bitmask_mapper<proc::map_protection,
-                                                         proc::valid_map_protection_bits> {};
+    struct mapper<proc::map_protection>
+        : bitmask_mapper<proc::map_protection, proc::valid_map_protection_bits> {};
 
     template <>
     struct mapper<proc::map_flags>

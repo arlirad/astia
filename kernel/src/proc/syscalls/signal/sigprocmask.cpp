@@ -22,7 +22,7 @@ namespace astia::proc::syscall {
             return -EINVAL;
         if (old_ptr != 0) {
             const auto old_range = sys::user_ptr<u32>(old_ptr).validate();
-            const u32 old = owner->signals().blocked();
+            const u32  old       = owner->signals().blocked();
             if (!old_range || !sys::copy_out(old_range.value.bytes(), &old)) {
                 return -EFAULT;
             }

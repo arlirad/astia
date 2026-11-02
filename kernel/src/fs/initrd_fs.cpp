@@ -85,15 +85,15 @@ namespace astia::fs {
             for (u32 i = 0; i < length; ++i)
                 name.data()[i] = full[start + i];
             name.data()[length] = '\0';
-            type         = end < full_len ? directory_dir : directory_reg;
+            type                = end < full_len ? directory_dir : directory_reg;
             return true;
         }
 
         bool add_file(void* opaque, const initrd::file& source) {
             auto& mount = *static_cast<initrd_mount*>(opaque);
-            return mount.add(source.name,
-                             astia::span<const u8>(static_cast<const u8*>(source.data),
-                                                   source.size));
+            return mount.add(
+                source.name,
+                astia::span<const u8>(static_cast<const u8*>(source.data), source.size));
         }
     }
 
@@ -195,7 +195,8 @@ namespace astia::fs {
                                 prefix = false;
                     }
                     if (prefix && entries_[i].path[n] == '/')
-                        return file_mode(file_type::directory, readonly_directory_permissions);
+                        return file_mode(file_type::directory,
+                                         readonly_directory_permissions);
                 }
         }
         return {};
@@ -221,8 +222,8 @@ namespace astia::fs {
                     continue;
                 char      prior[256]{};
                 file_type prior_type = directory_unknown;
-                if (child_name(path, entries_[p].path, astia::span<char>(prior, sizeof prior),
-                               prior_type) &&
+                if (child_name(path, entries_[p].path,
+                               astia::span<char>(prior, sizeof prior), prior_type) &&
                     equal(candidate, prior))
                     duplicate = true;
             }

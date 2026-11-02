@@ -1,5 +1,5 @@
-#include "support/test.hpp"
 #include "arena.hpp"
+#include "support/test.hpp"
 #include <astia/core/rcu_hashmap.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
@@ -51,12 +51,12 @@ ASTIA_TEST(rcu_hashmap_publishes_and_erases_snapshots) {
 ASTIA_TEST(rcu_hashmap_supports_concurrent_readers_and_writers) {
     ensure_heap();
     astia::core::rcu_hashmap<int, int, 8, 64> map(hash_key, equal_key);
-    constexpr int keys = 32;
+    constexpr int                             keys = 32;
     for (int key = 0; key < keys; ++key)
         ASTIA_CHECK(map.insert_or_assign(key, 0));
 
-    std::atomic<bool> failed{false};
-    std::atomic<bool> start{false};
+    std::atomic<bool>        failed{false};
+    std::atomic<bool>        start{false};
     std::vector<std::thread> workers;
     for (int writer = 0; writer < 4; ++writer) {
         workers.emplace_back([&, writer] {
@@ -74,8 +74,8 @@ ASTIA_TEST(rcu_hashmap_supports_concurrent_readers_and_writers) {
             while (!start.load(std::memory_order_acquire))
                 std::this_thread::yield();
             for (int round = 0; round < 4000; ++round) {
-                const int key = round % keys;
-                auto value = map.find(key);
+                const int key   = round % keys;
+                auto      value = map.find(key);
                 if (value && value.value < 0)
                     failed.store(true, std::memory_order_release);
             }

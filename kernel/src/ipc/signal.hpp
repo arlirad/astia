@@ -5,12 +5,12 @@
 
 #if defined(ASTIA_SIGNAL_HOST_TEST)
 namespace astia {
-using signal_lock_guard = astia::core::spinlock_guard;
+    using signal_lock_guard = astia::core::spinlock_guard;
 } // namespace astia
 #else
 #include <astia/arch/cpu.hpp>
 namespace astia {
-using signal_lock_guard = astia::arch::interrupt_spinlock_guard;
+    using signal_lock_guard = astia::arch::interrupt_spinlock_guard;
 } // namespace astia
 #endif
 
@@ -103,9 +103,9 @@ namespace astia {
         }
 
         private:
-        signal_disposition dispositions_[signal_count]{};
-        signal_mask        pending_ = 0;
-        signal_mask        blocked_ = 0;
+        signal_disposition     dispositions_[signal_count]{};
+        signal_mask            pending_ = 0;
+        signal_mask            blocked_ = 0;
         mutable core::spinlock lock_{};
     };
 

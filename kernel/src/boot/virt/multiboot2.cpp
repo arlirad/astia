@@ -53,7 +53,7 @@ namespace astia::boot::virt {
         if (mbi.data() == nullptr || mbi.size() < sizeof(u32))
             return false;
 
-        const auto* bytes = mbi.data();
+        const auto* bytes   = mbi.data();
         u32         total32 = 0;
         // The fixed part is deliberately copied bytewise only after the caller has
         // supplied a non-null address; the structure is little-endian on i386.

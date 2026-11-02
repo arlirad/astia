@@ -26,7 +26,8 @@ namespace astia::proc::syscall {
         const u64             argv_ptr = frame.a1;
         const u64             envp_ptr = frame.a2;
         char                  path[path_cap];
-        if (!sys::copy_in_string(span<char>(path, sizeof path), sys::user_ptr<char>(path_ptr)))
+        if (!sys::copy_in_string(span<char>(path, sizeof path),
+                                 sys::user_ptr<char>(path_ptr)))
             return -EFAULT;
         argument_staging staging;
         if (!staging.allocate())
@@ -40,9 +41,9 @@ namespace astia::proc::syscall {
             else {
                 const long size  = file->size();
                 u64        entry = 0, stack = 0;
-                if (size <= 0 || !owner->exec_user_file(file, static_cast<usize>(size),
-                                                         staging.argv(), staging.envp(), &entry,
-                                                         &stack)) {
+                if (size <= 0 ||
+                    !owner->exec_user_file(file, static_cast<usize>(size), staging.argv(),
+                                           staging.envp(), &entry, &stack)) {
                     result = -ENOEXEC;
                 }
                 else {

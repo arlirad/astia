@@ -33,13 +33,19 @@ namespace astia::core {
             read_guard(const read_guard&)            = delete;
             read_guard& operator=(const read_guard&) = delete;
 
-            const T* data() const { return snapshot_ == nullptr ? nullptr : snapshot_->values; }
-            usize size() const { return snapshot_ == nullptr ? 0 : snapshot_->size; }
-            const T& operator[](usize index) const { return data()[index]; }
+            const T* data() const {
+                return snapshot_ == nullptr ? nullptr : snapshot_->values;
+            }
+            usize size() const {
+                return snapshot_ == nullptr ? 0 : snapshot_->size;
+            }
+            const T& operator[](usize index) const {
+                return data()[index];
+            }
 
             private:
             const rcu_vector& owner_;
-            const snapshot*  snapshot_ = nullptr;
+            const snapshot*   snapshot_ = nullptr;
         };
 
         rcu_vector() = default;
@@ -64,17 +70,27 @@ namespace astia::core {
             for (usize i = 0; i < values.size(); ++i)
                 next->values[i] = values[i];
 
-            core::spinlock_guard guard(writer_lock_);
-            reclaim_locked();
-            if (current_ && __atomic_load_n(&readers_, __ATOMIC_SEQ_CST) != 0 &&
-                retired_count_ == RetiredCapacity)
-                return false;
-            mm::shptr<snapshot> old = static_cast<mm::shptr<snapshot>&&>(current_);
-            current_ = static_cast<mm::shptr<snapshot>&&>(next);
-            __atomic_store_n(&published_, current_.get(), __ATOMIC_SEQ_CST);
-            if (old)
-                retired_[retired_count_++] = static_cast<mm::shptr<snapshot>&&>(old);
-            reclaim_locked();
+            mm::shptr<snapshot> garbage[RetiredCapacity];
+            usize               garbage_count = 0;
+            {
+                core::spinlock_guard guard(writer_lock_);
+                if (current_ && __atomic_load_n(&readers_, __ATOMIC_SEQ_CST) != 0 &&
+                    retired_count_ == RetiredCapacity)
+                    return false;
+                if (__atomic_load_n(&readers_, __ATOMIC_SEQ_CST) == 0) {
+                    for (usize i = 0; i < retired_count_; ++i)
+                        garbage[garbage_count++] =
+                            static_cast<mm::shptr<snapshot>&&>(retired_[i]);
+                    retired_count_ = 0;
+                }
+                mm::shptr<snapshot> old = static_cast<mm::shptr<snapshot>&&>(current_);
+                current_                = static_cast<mm::shptr<snapshot>&&>(next);
+                __atomic_store_n(&published_, current_.get(), __ATOMIC_SEQ_CST);
+                if (old)
+                    retired_[retired_count_++] = static_cast<mm::shptr<snapshot>&&>(old);
+            }
+            for (usize i = 0; i < garbage_count; ++i)
+                garbage[i] = {};
             return true;
         }
 
@@ -84,20 +100,12 @@ namespace astia::core {
         }
 
         private:
-        void reclaim_locked() {
-            if (__atomic_load_n(&readers_, __ATOMIC_SEQ_CST) != 0)
-                return;
-            for (usize i = 0; i < retired_count_; ++i)
-                retired_[i] = {};
-            retired_count_ = 0;
-        }
-
-        mutable core::spinlock      writer_lock_;
-        mm::shptr<snapshot>         current_;
-        mm::shptr<snapshot>         retired_[RetiredCapacity]{};
-        usize                       retired_count_ = 0;
+        mutable core::spinlock writer_lock_;
+        mm::shptr<snapshot>    current_;
+        mm::shptr<snapshot>    retired_[RetiredCapacity]{};
+        usize                  retired_count_          = 0;
         alignas(cache_line_bytes) mutable u32 readers_ = 0;
-        snapshot*                   published_ = nullptr;
+        snapshot* published_                           = nullptr;
     };
 
 } // namespace astia::core

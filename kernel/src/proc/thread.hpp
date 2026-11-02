@@ -93,8 +93,9 @@ namespace astia::proc {
             return nice_;
         }
         void nice(i32 value) {
-            nice_ = value < nice_minimum ? nice_minimum
-                                         : value > nice_maximum ? nice_maximum : value;
+            nice_ = value < nice_minimum   ? nice_minimum
+                    : value > nice_maximum ? nice_maximum
+                                           : value;
         }
         u8 rt_priority() const {
             return rt_priority_;

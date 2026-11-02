@@ -21,9 +21,9 @@ namespace astia::initrd {
     inline constexpr usize block_size = 512;
 
     /// Fixed-width fields and protocol marker sizes in a ustar header.
-    inline constexpr usize name_field_size  = 100;
-    inline constexpr usize size_field_size  = 12;
-    inline constexpr usize ustar_magic_size = 5;
+    inline constexpr usize name_field_size               = 100;
+    inline constexpr usize size_field_size               = 12;
+    inline constexpr usize ustar_magic_size              = 5;
     inline constexpr char  ustar_magic[ustar_magic_size] = {'u', 's', 't', 'a', 'r'};
 
     /// One regular file in the archive. `name` and `data` point into the
@@ -48,7 +48,7 @@ namespace astia::initrd {
     /// Open a tar image. Fails on anything too short to be an archive, or
     /// whose first block is neither a ustar header nor the end-of-archive
     /// marker.
-    bool open(span<const u8> image, archive& out);
+    bool        open(span<const u8> image, archive& out);
     inline bool open(const void* image, usize length, archive& out) {
         return open(span<const u8>(static_cast<const u8*>(image), length), out);
     }

@@ -15,10 +15,10 @@ namespace astia::boot::virt {
     ///
     /// Returns false if the pointer is null, the magic is wrong, or the
     /// structure carries no memory map. `out` is left untouched on failure.
-    bool parse_start_info(span<const u8> start_info, boot_info& out);
+    bool        parse_start_info(span<const u8> start_info, boot_info& out);
     inline bool parse_start_info(const void* start_info, boot_info& out) {
-        return parse_start_info(
-            span<const u8>(static_cast<const u8*>(start_info), 56), out);
+        return parse_start_info(span<const u8>(static_cast<const u8*>(start_info), 56),
+                                out);
     }
 
 } // namespace astia::boot::virt

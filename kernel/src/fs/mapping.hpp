@@ -42,9 +42,8 @@ namespace astia {
             default:
                 return optional<fs::file_mode>(error_t::einval);
             }
-            return optional<fs::file_mode>(
-                fs::file_mode(type, fs::file_permissions(
-                                         value & fs::file_permissions_mask)));
+            return optional<fs::file_mode>(fs::file_mode(
+                type, fs::file_permissions(value & fs::file_permissions_mask)));
         }
 
         static u32 to(fs::file_mode mode) {

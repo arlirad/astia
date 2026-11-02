@@ -13,8 +13,8 @@ namespace {
         write = 1u << 1,
     };
 
-    inline constexpr astia::u8 valid_flag_bits = static_cast<astia::u8>(flags::read) |
-                                                 static_cast<astia::u8>(flags::write);
+    inline constexpr astia::u8 valid_flag_bits =
+        static_cast<astia::u8>(flags::read) | static_cast<astia::u8>(flags::write);
     using flags_mapper = astia::bitmask_mapper<flags, valid_flag_bits>;
 
 }
@@ -27,7 +27,7 @@ ASTIA_TEST(mapping_accepts_valid_bitmask) {
 
 ASTIA_TEST(mapping_rejects_unknown_bits) {
     constexpr astia::u8 unknown_bit = 1u << 2;
-    const auto value = flags_mapper::from(unknown_bit);
+    const auto          value       = flags_mapper::from(unknown_bit);
     ASTIA_CHECK(!value.has_value);
     ASTIA_CHECK(value.error == astia::error_t::einval);
 }
@@ -96,7 +96,7 @@ ASTIA_TEST(getsid_selector_mapping_rejects_bad_signed_or_overflow_values) {
 }
 
 ASTIA_TEST(process_identifier_helpers_preserve_domains) {
-    const auto pid = astia::pid_from_raw(42);
+    const auto pid   = astia::pid_from_raw(42);
     const auto group = astia::pgrp_from_raw(42);
     ASTIA_CHECK(astia::raw_id(pid) == 42);
     ASTIA_CHECK(astia::raw_id(group) == 42);

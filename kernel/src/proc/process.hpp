@@ -17,11 +17,11 @@
 
 namespace astia::proc {
 
-    inline constexpr u32 max_processes                   = 64;
-    inline constexpr u32 max_threads_per_process         = 16;
-    inline constexpr u32 max_waiters_per_process         = 4;
-    inline constexpr u32 max_signal_waiters_per_process  = max_threads_per_process;
-    inline constexpr u32 max_supplementary_groups        = 16;
+    inline constexpr u32 max_processes                  = 64;
+    inline constexpr u32 max_threads_per_process        = 16;
+    inline constexpr u32 max_waiters_per_process        = 4;
+    inline constexpr u32 max_signal_waiters_per_process = max_threads_per_process;
+    inline constexpr u32 max_supplementary_groups       = 16;
 
     /// Reserved userspace TLS placement for process-created threads.
     inline constexpr u64 process_tls_first  = 0x00007fffef000000ull;
@@ -98,34 +98,32 @@ namespace astia::proc {
                        mode.owner_allows(fs::permission_bits::execute) ||
                        mode.group_allows(fs::permission_bits::execute) ||
                        mode.other_allows(fs::permission_bits::execute);
-            return euid_ == static_cast<u32>(owner)
-                       ? mode.owner_allows(want)
-                        : ([&] {
-                              if (egid_ == static_cast<u32>(group))
-                                  return mode.group_allows(want);
-                              for (u32 i = 0; i < group_count_; ++i)
-                                  if (groups_[i] == group)
-                                      return mode.group_allows(want);
-                              return mode.other_allows(want);
-                          }());
+            return euid_ == static_cast<u32>(owner) ? mode.owner_allows(want) : ([&] {
+                if (egid_ == static_cast<u32>(group))
+                    return mode.group_allows(want);
+                for (u32 i = 0; i < group_count_; ++i)
+                    if (groups_[i] == group)
+                        return mode.group_allows(want);
+                return mode.other_allows(want);
+            }());
         }
         const char* cwd() const {
             return cwd_;
         }
-        i64  change_directory(const char* path);
-        i64  copy_cwd(span<char> buffer) const;
-        i64  copy_cwd(char* buffer, usize length) const {
+        i64 change_directory(const char* path);
+        i64 copy_cwd(span<char> buffer) const;
+        i64 copy_cwd(char* buffer, usize length) const {
             return copy_cwd(span<char>(buffer, length));
         }
         // Process helpers compose cwd/dirfd-relative paths; fs::resolve_path()
         // performs canonical VFS resolution as the second layer.
-        i64  compose_path(const char* path, span<char> buffer) const;
-        i64  compose_path(const char* path, char* buffer, usize length) const {
+        i64 compose_path(const char* path, span<char> buffer) const;
+        i64 compose_path(const char* path, char* buffer, usize length) const {
             return compose_path(path, span<char>(buffer, length));
         }
-        i64  compose_path_at(fd_t dirfd, const char* path, span<char> buffer) const;
-        i64  compose_path_at(fd_t dirfd, const char* path, char* buffer,
-                             usize length) const {
+        i64 compose_path_at(fd_t dirfd, const char* path, span<char> buffer) const;
+        i64 compose_path_at(fd_t dirfd, const char* path, char* buffer,
+                            usize length) const {
             return compose_path_at(dirfd, path, span<char>(buffer, length));
         }
         void inherit_groups(const process& parent) {
@@ -260,8 +258,8 @@ namespace astia::proc {
         /// user entry/TSS return is an architecture step after this.
         bool load_user_image(span<const u8> bytes, u64* entry_out);
         bool load_user_image(const void* bytes, usize length, u64* entry_out) {
-            return load_user_image(
-                span<const u8>(static_cast<const u8*>(bytes), length), entry_out);
+            return load_user_image(span<const u8>(static_cast<const u8*>(bytes), length),
+                                   entry_out);
         }
         /// x86_64 thread pointer (%fs base) for this process's static
         /// TLS block; 0 when the image declares no PT_TLS.
@@ -296,7 +294,8 @@ namespace astia::proc {
         /// mmap: anonymous private memory; `addr` is a placement hint
         /// (0 = the kernel picks the highest hole below the mmap
         /// ceiling).  Returns the mapped base, or a negated errno.
-        u64 map_anonymous(vaddr_t addr, bytes_t len, map_protection prot, map_flags flags);
+        u64 map_anonymous(vaddr_t addr, bytes_t len, map_protection prot,
+                          map_flags flags);
 
         /// mmap of an open file, private (snapshot) semantics: the
         /// file's bytes are captured into fresh frames at map time,
@@ -347,22 +346,22 @@ namespace astia::proc {
         /// wait locks.  The lock also makes credential/group arrays and the
         /// tty pointer a coherent snapshot for procfs-like readers.
         struct metadata_snapshot {
-            pgrp_t process_group;
-            pid_t  session;
-            u32    uid, gid;
+            pgrp_t                   process_group;
+            pid_t                    session;
+            u32                      uid, gid;
             mm::shptr<fs::open_file> controlling_terminal;
         };
         void snapshot_metadata(metadata_snapshot& out) const {
             arch::interrupt_spinlock_guard guard(metadata_lock_);
-            out.process_group       = process_group_;
-            out.session             = session_;
-            out.uid                 = uid_;
-            out.gid                 = gid_;
+            out.process_group        = process_group_;
+            out.session              = session_;
+            out.uid                  = uid_;
+            out.gid                  = gid_;
             out.controlling_terminal = controlling_terminal_;
         }
 
-        bool exec_user_image(span<const u8> bytes, char* const argv[],
-                             char* const envp[], u64* entry_out, u64* stack_out);
+        bool exec_user_image(span<const u8> bytes, char* const argv[], char* const envp[],
+                             u64* entry_out, u64* stack_out);
         bool exec_user_image(const void* bytes, usize length, char* const argv[],
                              char* const envp[], u64* entry_out, u64* stack_out) {
             return exec_user_image(span<const u8>(static_cast<const u8*>(bytes), length),
@@ -396,55 +395,54 @@ namespace astia::proc {
         bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
         void discard_image();
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
-                                   usize& mapping_pages);
+                                  usize& mapping_pages);
         void replace_image(process& staging);
         /// Reserve an address, install PTEs without mmap_lock_, then publish
         /// the VMA.  On failure the reservation and PTEs are rolled back and
         /// `region` stays the caller's.
-        bool      install_mapping(u64 hint, usize pages, map_protection prot,
-                                  mm::phys_region*                region,
-                                  const mm::shptr<fs::open_file>& file, u64 file_offset,
-                                  u64& base_out, usize region_page = 0,
-                                  bool shared = false);
-        pid_t     pid_;
-        pid_t     parent_pid_;
-        pgrp_t    process_group_;
-        pid_t     session_;
+        bool   install_mapping(u64 hint, usize pages, map_protection prot,
+                               mm::phys_region*                region,
+                               const mm::shptr<fs::open_file>& file, u64 file_offset,
+                               u64& base_out, usize region_page = 0, bool shared = false);
+        pid_t  pid_;
+        pid_t  parent_pid_;
+        pgrp_t process_group_;
+        pid_t  session_;
         mm::shptr<fs::open_file> controlling_terminal_;
-        u32       uid_ = 0, euid_ = 0, gid_ = 0, egid_ = 0;
-        gid_t                groups_[max_supplementary_groups]{};
-        u32                  group_count_ = 0;
-        char                 name_[32]{};
+        u32                      uid_ = 0, euid_ = 0, gid_ = 0, egid_ = 0;
+        gid_t                    groups_[max_supplementary_groups]{};
+        u32                      group_count_ = 0;
+        char                     name_[32]{};
         // These are observed by registry, scheduler, and wait paths that do
         // not hold lifecycle_lock_. Keep the byte-sized representation
         // and publish transitions explicitly rather than widening the record.
-        u8                   state_              = static_cast<u8>(process_state::fresh);
-        i32                  exit_status_        = 0;
-        i32                  termination_signal_ = 0;
-        i32                  stop_signal_        = 0;
-        u8                   stop_event_         = 0;
-        u8                   continued_event_    = 0;
-        signal_state         signals_{};
+        u8           state_              = static_cast<u8>(process_state::fresh);
+        i32          exit_status_        = 0;
+        i32          termination_signal_ = 0;
+        i32          stop_signal_        = 0;
+        u8           stop_event_         = 0;
+        u8           continued_event_    = 0;
+        signal_state signals_{};
 
-        mm::shptr<thread> threads_[max_threads_per_process];
-        u32               thread_count_ = 0;
-        thread*           waiters_[max_waiters_per_process]{};
-        thread*           signal_waiters_[max_signal_waiters_per_process]{};
-        fd_table          descriptors_;
+        mm::shptr<thread>        threads_[max_threads_per_process];
+        u32                      thread_count_ = 0;
+        thread*                  waiters_[max_waiters_per_process]{};
+        thread*                  signal_waiters_[max_signal_waiters_per_process]{};
+        fd_table                 descriptors_;
         mm::uptr<arch::page_map> address_space_;
-        u64               tls_tp_        = 0;
-        astia_rlimit      rlimit_nofile_{max_process_fds, max_process_fds};
-        astia_rlimit      rlimit_as_{~u64{0}, ~u64{0}};
-        u64               mapped_bytes_      = 0;
-        char              cwd_[fs::path_max] = "/";
-        mmap_region*      mmap_regions_      = nullptr; // base-sorted
+        u64                      tls_tp_ = 0;
+        astia_rlimit             rlimit_nofile_{max_process_fds, max_process_fds};
+        astia_rlimit             rlimit_as_{~u64{0}, ~u64{0}};
+        u64                      mapped_bytes_      = 0;
+        char                     cwd_[fs::path_max] = "/";
+        mmap_region*             mmap_regions_      = nullptr; // base-sorted
         // Lifecycle/thread state is process-local; keeping this lock on the
         // object avoids serializing unrelated processes.
-        core::spinlock    lifecycle_lock_{};
+        core::spinlock lifecycle_lock_{};
         // Credentials, groups, session/job-control metadata, and rlimits are
         // read frequently but are independent of thread lifetime and waits.
         mutable core::spinlock metadata_lock_{};
-        core::spinlock    mmap_lock_{};
+        core::spinlock         mmap_lock_{};
     };
 
     /// Queue a just-died thread for destruction once its kernel stack

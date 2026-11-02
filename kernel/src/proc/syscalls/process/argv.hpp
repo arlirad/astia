@@ -10,7 +10,7 @@ namespace astia::proc::syscall::detail {
     // their string pools together preserves the loader-facing layout while
     // making release unconditional on every syscall return path.
     class argument_staging {
-    public:
+        public:
         argument_staging() = default;
         ~argument_staging();
 
@@ -20,15 +20,19 @@ namespace astia::proc::syscall::detail {
         bool allocate();
         i64  copy(u64 argv, u64 envp);
 
-        char** argv() const { return argv_; }
-        char** envp() const { return envp_; }
+        char** argv() const {
+            return argv_;
+        }
+        char** envp() const {
+            return envp_;
+        }
 
-    private:
+        private:
         u8*    storage_ = nullptr;
         char** argv_    = nullptr;
         char** envp_    = nullptr;
         char*  pool_    = nullptr;
     };
 
-    i64                    copy_in_vector(char** vec, span<char> pool, u64 user_vector);
+    i64 copy_in_vector(char** vec, span<char> pool, u64 user_vector);
 }

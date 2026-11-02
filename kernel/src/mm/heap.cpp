@@ -29,12 +29,12 @@ namespace astia::mm::heap {
 
         core::spinlock lock_{};
 
-        u8*    base_   = nullptr;
-        usize  bytes_  = 0;
-        map_fn mapper_ = nullptr;
-        block* head_   = nullptr;
-        usize  used_   = 0;
-        bool   ready_  = false;
+        u8*    base_         = nullptr;
+        usize  bytes_        = 0;
+        map_fn mapper_       = nullptr;
+        block* head_         = nullptr;
+        usize  used_         = 0;
+        bool   ready_        = false;
         bool   initializing_ = false;
 
         /// Wire the whole region into the page map, one frame at a time. A
@@ -118,9 +118,9 @@ namespace astia::mm::heap {
         // Reserve the configuration while mapping invokes the frame allocator
         // and arch callback. No partially built free list is published, and
         // configure() cannot replace this snapshot until mapping finishes.
-        initializing_ = true;
-        u8* const base = base_;
-        const usize bytes = bytes_;
+        initializing_       = true;
+        u8* const    base   = base_;
+        const usize  bytes  = bytes_;
         const map_fn mapper = mapper_;
         guard.unlock();
 
