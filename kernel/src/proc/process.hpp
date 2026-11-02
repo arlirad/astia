@@ -310,7 +310,7 @@ namespace astia::proc {
         /// and answers -EFAULT for a range that crosses out of one.  A process
         /// with no address space should not be here at all: its pointers are
         /// kernel memory, which cannot be unmapped out from under the
-        /// operation in the first place (see sys::pin_user_range).
+        /// operation in the first place (see sys::pin_user_span).
         i32 pin_user(u64 addr, usize len, bool destination, mm::iovec& out);
 
         /// Copy-on-write fork support (called on the parent): build
