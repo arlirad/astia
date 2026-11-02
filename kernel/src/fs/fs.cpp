@@ -4,6 +4,7 @@
 #include "unix_pathname.hpp"
 #include <astia/api/errno.h>
 #include <astia/core/spinlock.hpp>
+#include <astia/core/rcu_vector.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/share.hpp>
 
@@ -36,8 +37,15 @@ namespace astia::fs {
             u32 active_operations;
         };
 
+        struct mount_snapshot_entry {
+            bool used = false;
+            u32  index = 0;
+            char target[path_max]{};
+        };
+
         type_entry     types[max_types];
         mount_entry    mounts[max_mounts];
+        core::rcu_vector<mount_snapshot_entry, max_mounts> mount_snapshot;
         core::spinlock mount_registry_lock;
         // Lookup callers still take mount_registry_lock.  This is only a
         // hint: the generation makes the entry safe to reuse after an
@@ -100,15 +108,67 @@ namespace astia::fs {
             return target[i] == '\0' && (path[i] == '\0' || path[i] == '/');
         }
 
+        void publish_mount_snapshot_locked() {
+            mount_snapshot_entry entries[max_mounts]{};
+            for (u32 i = 0; i < max_mounts; ++i) {
+                entries[i].used  = mounts[i].used;
+                entries[i].index = i;
+                if (entries[i].used)
+                    copy_path(entries[i].target, mounts[i].target);
+            }
+            (void) mount_snapshot.replace(span<const mount_snapshot_entry>(entries, max_mounts));
+        }
+
+        u32 find_mount_snapshot_index(const char* path) {
+            u32 best       = max_mounts;
+            u32 best_length = 0;
+            core::rcu_vector<mount_snapshot_entry, max_mounts>::read_guard snapshot(
+                mount_snapshot);
+            for (usize i = 0; i < snapshot.size(); ++i) {
+                const auto& candidate = snapshot[i];
+                if (!candidate.used || !path_matches(candidate.target, path))
+                    continue;
+                const u32 length = length_of(candidate.target);
+                if (best == max_mounts || length > best_length) {
+                    best        = candidate.index;
+                    best_length = length;
+                }
+            }
+            return best;
+        }
+
         mount_entry* find_mount_locked(const char* path) {
+            mount_entry* best     = nullptr;
+            u32          best_len = 0;
+            {
+                core::rcu_vector<mount_snapshot_entry, max_mounts>::read_guard snapshot(
+                    mount_snapshot);
+                for (usize i = 0; i < snapshot.size(); ++i) {
+                    const auto& candidate = snapshot[i];
+                    if (!candidate.used || !path_matches(candidate.target, path))
+                        continue;
+                    u32 length = length_of(candidate.target);
+                    if (best == nullptr || length > best_len) {
+                        best     = candidate.index < max_mounts ? &mounts[candidate.index]
+                                                                 : nullptr;
+                        best_len = length;
+                    }
+                }
+            }
+            if (best != nullptr && best->used && best->instance != nullptr &&
+                path_matches(best->target, path))
+                return best;
+
+            // The snapshot is only an optimization.  A failed publication or
+            // a stale slot is handled by the authoritative registry scan.
             if (mount_lookup_hint.generation == mount_registry_generation &&
                 mount_lookup_hint.entry != nullptr && mount_lookup_hint.entry->used &&
                 mount_lookup_hint.entry->instance != nullptr &&
                 equal(mount_lookup_hint.path, path))
                 return mount_lookup_hint.entry;
 
-            mount_entry* best     = nullptr;
-            u32          best_len = 0;
+            best     = nullptr;
+            best_len = 0;
             for (u32 i = 0; i < max_mounts; ++i) {
                 if (!mounts[i].used || !path_matches(mounts[i].target, path))
                     continue;
@@ -132,8 +192,13 @@ namespace astia::fs {
         class mount_operation {
             public:
             explicit mount_operation(const char* path) {
+                const u32 snapshot_index = find_mount_snapshot_index(path);
                 core::spinlock_guard guard(mount_registry_lock);
-                entry_ = find_mount_locked(path);
+                entry_ = snapshot_index < max_mounts && mounts[snapshot_index].used &&
+                                 mounts[snapshot_index].instance != nullptr &&
+                                 path_matches(mounts[snapshot_index].target, path)
+                             ? &mounts[snapshot_index]
+                             : find_mount_locked(path);
                 if (entry_ == nullptr || !entry_->used || entry_->instance == nullptr) {
                     entry_ = nullptr;
                     return;
@@ -262,6 +327,7 @@ namespace astia::fs {
             types[i] = type_entry{};
         for (u32 i = 0; i < max_mounts; ++i)
             mounts[i] = mount_entry{};
+        publish_mount_snapshot_locked();
         mount_lookup_hint = lookup_hint{};
         mount_registry_generation = 0;
         ready         = true;
@@ -385,6 +451,7 @@ namespace astia::fs {
                     mounts[free_slot].destroy   = destroy;
                     mounts[free_slot].active_operations = 0;
                     ++mount_registry_generation;
+                    publish_mount_snapshot_locked();
                     published = true;
                 }
             }
@@ -440,6 +507,7 @@ namespace astia::fs {
             selected->ownership = mount_ownership::static_instance;
             selected->destroy   = nullptr;
             ++mount_registry_generation;
+            publish_mount_snapshot_locked();
         }
         // Only registry-owned factories may be destroyed here.  Cached devfs
         // has a null callback and remains in its static storage.
