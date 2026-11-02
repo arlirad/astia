@@ -173,11 +173,11 @@ namespace astia::elf {
 
         // Validate the ELF64/x86-64 identity and return e_type, or 0 on any
         // mismatch. Shared by kind_of() and both loaders.
-        bool ident_type(const void* bytes, usize len, u16& type_out) {
-            if (bytes == nullptr || len < sizeof(elf64_ehdr)) {
+        bool ident_type(span<const u8> bytes, u16& type_out) {
+            if (bytes.data() == nullptr || bytes.size() < sizeof(elf64_ehdr)) {
                 return false;
             }
-            const auto* eh = static_cast<const elf64_ehdr*>(bytes);
+            const auto* eh = reinterpret_cast<const elf64_ehdr*>(bytes.data());
             if (eh->e_ident[0] != elf_magic[0] || eh->e_ident[1] != elf_magic[1] ||
                 eh->e_ident[2] != elf_magic[2] || eh->e_ident[3] != elf_magic[3]) {
                 return false;
@@ -213,13 +213,14 @@ namespace astia::elf {
         // Validate the section table, then locate the symbol table and its
         // linked string table. Returns false on anything malformed or
         // truncated.
-        bool parse_relocatable(const void* bytes, usize len, view& v) {
+        bool parse_relocatable(span<const u8> bytes, view& v) {
+            const usize len = bytes.size();
             u16 type = 0;
-            if (!ident_type(bytes, len, type) || type != et_rel) {
+            if (!ident_type(bytes, type) || type != et_rel) {
                 return false;
             }
-            v.base = static_cast<const u8*>(bytes);
-            v.len  = len;
+            v.base = bytes.data();
+            v.len  = bytes.size();
             v.eh   = reinterpret_cast<const elf64_ehdr*>(v.base);
 
             const elf64_ehdr& eh = *v.eh;
@@ -316,13 +317,14 @@ namespace astia::elf {
     //  Relocatable (ET_REL) loader
     // ========================================================================
 
-    bool load_relocatable(const void* bytes, usize len, const env& e, image& out) {
+    bool load_relocatable(span<const u8> bytes, const env& e, image& out) {
+        const usize len = bytes.size();
         if (e.map == nullptr) {
             return false;
         }
 
         view v;
-        if (!parse_relocatable(bytes, len, v)) {
+        if (!parse_relocatable(bytes, v)) {
             return false;
         }
 
@@ -613,22 +615,23 @@ namespace astia::elf {
 
     } // namespace
 
-    bool load_executable(const void* bytes, usize len, const env& e, image& out) {
+    bool load_executable(span<const u8> bytes, const env& e, image& out) {
+        const usize len = bytes.size();
         if (e.map == nullptr) {
             return false;
         }
         u16 type = 0;
-        if (!ident_type(bytes, len, type) || (type != et_exec && type != et_dyn)) {
+        if (!ident_type(bytes, type) || (type != et_exec && type != et_dyn)) {
             return false;
         }
-        const auto* eh         = static_cast<const elf64_ehdr*>(bytes);
-        const u8*   base_bytes = static_cast<const u8*>(bytes);
+        const auto* eh         = reinterpret_cast<const elf64_ehdr*>(bytes.data());
+        const u8*   base_bytes = bytes.data();
 
         if (eh->e_phnum == 0 || eh->e_phentsize != sizeof(elf64_phdr)) {
             return false;
         }
         if (!in_bounds(eh->e_phoff, static_cast<u64>(eh->e_phnum) * sizeof(elf64_phdr),
-                       len)) {
+                       bytes.size())) {
             return false;
         }
         const auto* ph    = reinterpret_cast<const elf64_phdr*>(base_bytes + eh->e_phoff);
@@ -768,7 +771,7 @@ namespace astia::elf {
             return false;
 
         u16 type = 0;
-        if (!ident_type(&header, sizeof header, type) ||
+        if (!ident_type(span<const u8>(reinterpret_cast<const u8*>(&header), sizeof header), type) ||
             (type != et_exec && type != et_dyn) || header.e_phnum == 0 ||
             header.e_phentsize != sizeof(elf64_phdr))
             return false;
@@ -861,9 +864,9 @@ namespace astia::elf {
     //  Shared entry points
     // ========================================================================
 
-    kind kind_of(const void* bytes, usize len) {
+    kind kind_of(span<const u8> bytes) {
         u16 type = 0;
-        if (!ident_type(bytes, len, type)) {
+        if (!ident_type(bytes, type)) {
             return kind::none;
         }
         switch (type) {
@@ -878,13 +881,13 @@ namespace astia::elf {
         }
     }
 
-    bool load(const void* bytes, usize len, const env& e, image& out) {
-        switch (kind_of(bytes, len)) {
+    bool load(span<const u8> bytes, const env& e, image& out) {
+        switch (kind_of(bytes)) {
         case kind::relocatable:
-            return load_relocatable(bytes, len, e, out);
+            return load_relocatable(bytes, e, out);
         case kind::executable:
         case kind::dyn:
-            return load_executable(bytes, len, e, out);
+            return load_executable(bytes, e, out);
         default:
             return false;
         }

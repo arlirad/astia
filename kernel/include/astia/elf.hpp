@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/span.hpp>
 
 // A freestanding x86-64 ELF loader, generic over the two shapes the kernel
 // actually consumes:
@@ -119,20 +120,29 @@ namespace astia::elf {
 
     /// Identify an ELF image's kind from its header, validating the ELF64
     /// little-endian x86-64 identity. Returns kind::none for anything else.
-    kind kind_of(const void* bytes, usize len);
+    kind kind_of(span<const u8> bytes);
+    inline kind kind_of(const void* bytes, usize len) {
+        return kind_of(span<const u8>(static_cast<const u8*>(bytes), len));
+    }
 
     /// Load a relocatable (ET_REL) object: lay out its SHF_ALLOC sections in
     /// one contiguous block, resolve undefined symbols through `env::resolve`,
     /// apply the section relocations, and set `entry` to the defined
     /// `module_main` symbol. Requires `env::map`.
-    bool load_relocatable(const void* bytes, usize len, const env& e, image& out);
+    bool load_relocatable(span<const u8> bytes, const env& e, image& out);
+    inline bool load_relocatable(const void* bytes, usize len, const env& e, image& out) {
+        return load_relocatable(span<const u8>(static_cast<const u8*>(bytes), len), e, out);
+    }
 
     /// Load a linked executable (ET_EXEC or ET_DYN): map the PT_LOAD segments
     /// (one contiguous span, at a fixed address for ET_EXEC or an
     /// allocator-chosen one for ET_DYN), zero the bss, apply the
     /// R_X86_64_RELATIVE dynamic relocations, and set `entry` to e_entry +
     /// load_bias. Requires `env::map`.
-    bool load_executable(const void* bytes, usize len, const env& e, image& out);
+    bool load_executable(span<const u8> bytes, const env& e, image& out);
+    inline bool load_executable(const void* bytes, usize len, const env& e, image& out) {
+        return load_executable(span<const u8>(static_cast<const u8*>(bytes), len), e, out);
+    }
 
     /// Streaming executable loader. Reads only the ELF header/PHDR table and
     /// then fetches PT_LOAD file ranges through env::read_batch.
@@ -140,6 +150,9 @@ namespace astia::elf {
 
     /// Dispatch to the right loader based on kind_of(). Returns false for
     /// anything that is not a supported ELF image.
-    bool load(const void* bytes, usize len, const env& e, image& out);
+    bool load(span<const u8> bytes, const env& e, image& out);
+    inline bool load(const void* bytes, usize len, const env& e, image& out) {
+        return load(span<const u8>(static_cast<const u8*>(bytes), len), e, out);
+    }
 
 } // namespace astia::elf
