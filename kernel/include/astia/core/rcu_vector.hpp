@@ -24,11 +24,11 @@ namespace astia::core {
         class read_guard {
             public:
             explicit read_guard(const rcu_vector& owner) : owner_(owner) {
-                __atomic_add_fetch(&owner_.readers_, 1, __ATOMIC_ACQUIRE);
-                snapshot_ = __atomic_load_n(&owner_.published_, __ATOMIC_ACQUIRE);
+                __atomic_add_fetch(&owner_.readers_, 1, __ATOMIC_SEQ_CST);
+                snapshot_ = __atomic_load_n(&owner_.published_, __ATOMIC_SEQ_CST);
             }
             ~read_guard() {
-                __atomic_sub_fetch(&owner_.readers_, 1, __ATOMIC_RELEASE);
+                __atomic_sub_fetch(&owner_.readers_, 1, __ATOMIC_SEQ_CST);
             }
             read_guard(const read_guard&)            = delete;
             read_guard& operator=(const read_guard&) = delete;
@@ -66,12 +66,12 @@ namespace astia::core {
 
             core::spinlock_guard guard(writer_lock_);
             reclaim_locked();
-            if (current_ && __atomic_load_n(&readers_, __ATOMIC_ACQUIRE) != 0 &&
+            if (current_ && __atomic_load_n(&readers_, __ATOMIC_SEQ_CST) != 0 &&
                 retired_count_ == RetiredCapacity)
                 return false;
             mm::shptr<snapshot> old = static_cast<mm::shptr<snapshot>&&>(current_);
             current_ = static_cast<mm::shptr<snapshot>&&>(next);
-            __atomic_store_n(&published_, current_.get(), __ATOMIC_RELEASE);
+            __atomic_store_n(&published_, current_.get(), __ATOMIC_SEQ_CST);
             if (old)
                 retired_[retired_count_++] = static_cast<mm::shptr<snapshot>&&>(old);
             reclaim_locked();
@@ -85,7 +85,7 @@ namespace astia::core {
 
         private:
         void reclaim_locked() {
-            if (__atomic_load_n(&readers_, __ATOMIC_ACQUIRE) != 0)
+            if (__atomic_load_n(&readers_, __ATOMIC_SEQ_CST) != 0)
                 return;
             for (usize i = 0; i < retired_count_; ++i)
                 retired_[i] = {};

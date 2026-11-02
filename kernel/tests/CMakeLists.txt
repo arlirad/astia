@@ -184,6 +184,12 @@ function(astia_add_arena_test name)
     target_compile_definitions(${name} PRIVATE ASTIA_HOST_TEST=1)
 endfunction()
 
+astia_add_arena_test(astia_rcu_hashmap_test
+        rcu_hashmap_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp)
+target_link_libraries(astia_rcu_hashmap_test PRIVATE Threads::Threads)
+
 astia_add_arena_test(astia_frame_allocator_test
         frame_allocator_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
