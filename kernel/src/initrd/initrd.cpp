@@ -85,10 +85,10 @@ namespace astia::initrd {
         // Read the header at `off`, requiring it to be a ustar header (not the
         // end marker) that lies wholly inside the archive.
         bool read_header(const archive& a, usize off, const u8*& hdr) {
-            if (off > a.len || block_size > a.len - off) {
+            if (off > a.image.size() || block_size > a.image.size() - off) {
                 return false;
             }
-            const u8* p = a.base + off;
+            const u8* p = a.image.data() + off;
             if (is_zero_block(p)) {
                 return false; // end of archive
             }
@@ -111,12 +111,13 @@ namespace astia::initrd {
             return false;
         }
         archive a;
-        a.base = image.data();
-        a.len  = image.size();
+        a.image = image;
+        a.base  = image.data();
+        a.len   = image.size();
 
         // A valid archive begins with either a ustar header or, for an empty
         // one, the end-of-archive marker. Anything else is not a tar.
-        if (!is_zero_block(a.base)) {
+        if (!is_zero_block(a.image.data())) {
             const u8* hdr = nullptr;
             if (!read_header(a, 0, hdr)) {
                 return false;
@@ -127,14 +128,14 @@ namespace astia::initrd {
     }
 
     bool each(const archive& a, visit_fn visit, void* ctx) {
-        if (a.base == nullptr || a.len < block_size) {
+        if (a.image.data() == nullptr || a.image.size() < block_size) {
             return false;
         }
         usize off = 0;
-        while (off < a.len) {
+        while (off < a.image.size()) {
             // A zero block here is the clean end-of-archive marker; anything
             // else that fails to read is a truncated or corrupt header.
-            if (is_zero_block(a.base + off)) {
+            if (is_zero_block(a.image.data() + off)) {
                 return true;
             }
             const u8* hdr = nullptr;
@@ -150,7 +151,8 @@ namespace astia::initrd {
             char type = static_cast<char>(hdr[off_typeflag]);
 
             usize data_off = off + block_size;
-            if (size > a.len || data_off > a.len || size > a.len - data_off) {
+            if (size > a.image.size() || data_off > a.image.size() ||
+                size > a.image.size() - data_off) {
                 return false; // file data runs past the end of the archive
             }
 
@@ -169,7 +171,7 @@ namespace astia::initrd {
             // at or past the end, this was the last entry.
             u64 rounded = (size + (block_size - 1)) & ~static_cast<u64>(block_size - 1);
             u64 next    = data_off + rounded;
-            if (next >= a.len) {
+            if (next >= a.image.size()) {
                 return true;
             }
             off = static_cast<usize>(next);

@@ -36,6 +36,8 @@ namespace astia::initrd {
 
     /// An opened archive: a validated view over a tar image held in place.
     struct archive {
+        span<const u8> image;
+        // Compatibility views for existing in-kernel consumers.
         const u8* base = nullptr;
         usize     len  = 0;
     };
