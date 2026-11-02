@@ -3,6 +3,7 @@
 #include "exports.hpp"
 #include "types.hpp"
 #include <astia/common.hpp>
+#include <astia/span.hpp>
 
 // Kernel module registry.
 //
@@ -37,7 +38,10 @@ namespace astia::mod {
     ///
     /// `image` need not stay valid after the call: section contents are copied
     /// into frame-allocator memory.
-    const module* load_module(const void* image, usize size);
+    const module* load_module(span<const u8> image);
+    inline const module* load_module(const void* image, usize size) {
+        return load_module(span<const u8>(static_cast<const u8*>(image), size));
+    }
 
     /// Unload a module previously returned by load_module(). Frees the image
     /// allocation and drops the registry slot. Returns false if `mod` is not a

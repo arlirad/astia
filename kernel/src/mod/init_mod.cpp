@@ -31,7 +31,7 @@ namespace astia::mod {
         // Load one ELF image and run it, logging the outcome. `name` labels an
         // initrd file; when null the boot-module index `i` is used instead.
         void load_and_run(const void* data, usize size, const char* name, u64 i) {
-            const module* mod = load_module(data, size);
+            const module* mod = load_module(span<const u8>(static_cast<const u8*>(data), size));
             if (mod == nullptr) {
                 if (name != nullptr) {
                     logs::error("%s failed to load", name);

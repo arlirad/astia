@@ -46,8 +46,8 @@ namespace astia::mod {
 
     } // namespace
 
-    const module* load_module(const void* image, usize size) {
-        if (image == nullptr || size == 0 || used >= max_modules) {
+    const module* load_module(span<const u8> image) {
+        if (image.data() == nullptr || image.size() == 0 || used >= max_modules) {
             return nullptr;
         }
 
@@ -57,7 +57,7 @@ namespace astia::mod {
         e.resolve = image_resolve;
 
         elf::image img;
-        if (!elf::load(image, size, e, img)) {
+        if (!elf::load(image, e, img)) {
             return nullptr;
         }
 
