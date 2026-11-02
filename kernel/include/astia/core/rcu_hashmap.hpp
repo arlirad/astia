@@ -1,132 +1,184 @@
 #pragma once
-#include <astia/core/spinlock.hpp>
-#include <astia/mm/shptr.hpp>
+
 #include <astia/optional.hpp>
+#include <astia/mm/shptr.hpp>
+
 namespace astia::core {
+
+    /// Sharded immutable hashmap with lockless readers and CAS writers.
     template <typename Key, typename Value, usize Shards = 8, usize Retired = 8,
               typename Hash = u64 (*)(const Key&)>
     class rcu_hashmap {
+        static_assert(Shards != 0, "rcu_hashmap needs shards");
         static constexpr usize bucket_count = 16;
+
         struct node {
             Key             key;
             Value           value;
             mm::shptr<node> next;
+
             node(const Key& k, const Value& v, const mm::shptr<node>& n)
                 : key(k), value(v), next(n) {}
         };
         struct snapshot {
             mm::shptr<node> buckets[bucket_count]{};
         };
-        struct shard {
-            core::spinlock      writer;
-            mm::shptr<snapshot> current;
-            mm::shptr<snapshot> retired[Retired]{};
-            usize               retired_count = 0;
-            u32                 readers       = 0;
-            snapshot*           published     = nullptr;
+        struct retired_snapshot {
+            snapshot*        value;
+            retired_snapshot* next;
         };
+        struct shard {
+            mutable u32      readers = 0;
+            snapshot*         published = nullptr;
+            mutable retired_snapshot* retired = nullptr;
+        };
+
         Hash hash_;
         bool (*equal_)(const Key&, const Key&);
         mutable shard shards_[Shards];
-        usize         shard_of(const Key& k) const {
-            return hash_(k) % Shards;
+
+        usize shard_index(const Key& key) const {
+            return static_cast<usize>(hash_(key) % Shards);
         }
-        usize bucket_of(const Key& k) const {
-            return hash_(k) % bucket_count;
+        usize bucket_index(const Key& key) const {
+            return static_cast<usize>(hash_(key) % bucket_count);
         }
-        void reclaim(shard& s) {
-            if (__atomic_load_n(&s.readers, __ATOMIC_SEQ_CST) != 0)
+
+        void reclaim(shard& state) const {
+            if (__atomic_load_n(&state.readers, __ATOMIC_SEQ_CST) != 0)
                 return;
-            for (usize i = 0; i < s.retired_count; ++i)
-                s.retired[i] = {};
-            s.retired_count = 0;
+            auto* list = __atomic_exchange_n(&state.retired, nullptr, __ATOMIC_SEQ_CST);
+            while (list != nullptr) {
+                auto* next = list->next;
+                delete list->value;
+                delete list;
+                list = next;
+            }
         }
-        mm::shptr<snapshot> clone_without(const snapshot* old, const Key& key) {
-            auto out = mm::shptr<snapshot>(new snapshot{});
-            if (!out)
+
+        snapshot* clone_without(const snapshot* old, const Key& key) const {
+            auto* next = new snapshot{};
+            if (!next)
                 return {};
-            for (usize b = 0; b < bucket_count; ++b)
-                for (const node* n = old ? old->buckets[b].get() : nullptr; n;
-                     n             = n->next.get()) {
-                    if (equal_(n->key, key))
+            for (usize bucket = 0; bucket < bucket_count; ++bucket) {
+                const node* item = old == nullptr ? nullptr : old->buckets[bucket].get();
+                for (; item != nullptr; item = item->next.get()) {
+                    if (equal_(item->key, key))
                         continue;
-                    auto c = mm::shptr<node>(new node(n->key, n->value, out->buckets[b]));
-                    if (!c)
+                    auto copy = mm::shptr<node>(new node(item->key, item->value,
+                                                         next->buckets[bucket]));
+                    if (!copy)
                         return {};
-                    out->buckets[b] = static_cast<mm::shptr<node>&&>(c);
+                    next->buckets[bucket] = static_cast<mm::shptr<node>&&>(copy);
                 }
-            return out;
+            }
+            return next;
         }
-        bool publish(shard& s, mm::shptr<snapshot>&& next) {
-            auto old  = static_cast<mm::shptr<snapshot>&&>(s.current);
-            s.current = static_cast<mm::shptr<snapshot>&&>(next);
-            __atomic_store_n(&s.published, s.current.get(), __ATOMIC_SEQ_CST);
-            if (old)
-                s.retired[s.retired_count++] = static_cast<mm::shptr<snapshot>&&>(old);
-            reclaim(s);
-            return true;
+
+        void retire(shard& state, snapshot* old, retired_snapshot* record) const {
+            record->value = old;
+            auto* head = __atomic_load_n(&state.retired, __ATOMIC_RELAXED);
+            do {
+                record->next = head;
+            } while (!__atomic_compare_exchange_n(&state.retired, &head, record, false,
+                                                  __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
         }
 
         public:
         class read_guard {
-            const rcu_hashmap& map_;
-            usize              shard_;
-            snapshot*          snap_;
-            shard&             state() const {
-                return map_.shards_[shard_];
-            }
-
             public:
-            read_guard(const rcu_hashmap& m, usize s) : map_(m), shard_(s) {
-                __atomic_add_fetch(&state().readers, 1, __ATOMIC_SEQ_CST);
-                snap_ = __atomic_load_n(&state().published, __ATOMIC_SEQ_CST);
+            read_guard(const rcu_hashmap& map, usize shard_index)
+                : map_(map), shard_index_(shard_index) {
+                auto& state = map_.shards_[shard_index_];
+                __atomic_add_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                snapshot_ = __atomic_load_n(&state.published, __ATOMIC_SEQ_CST);
             }
             ~read_guard() {
-                __atomic_sub_fetch(&state().readers, 1, __ATOMIC_SEQ_CST);
+                __atomic_sub_fetch(&map_.shards_[shard_index_].readers, 1,
+                                   __ATOMIC_SEQ_CST);
             }
-            read_guard(const read_guard&) = delete;
-            const Value* find(const Key& k) const {
-                if (!snap_)
+            read_guard(const read_guard&)            = delete;
+            read_guard& operator=(const read_guard&) = delete;
+
+            const Value* find(const Key& key) const {
+                if (snapshot_ == nullptr)
                     return nullptr;
-                for (const node* n = snap_->buckets[map_.bucket_of(k)].get(); n;
-                     n             = n->next.get())
-                    if (map_.equal_(n->key, k))
-                        return &n->value;
+                for (const node* item = snapshot_->buckets[map_.bucket_index(key)].get();
+                     item != nullptr; item = item->next.get())
+                    if (map_.equal_(item->key, key))
+                        return &item->value;
                 return nullptr;
             }
+
+            private:
+            const rcu_hashmap& map_;
+            usize              shard_index_;
+            snapshot*          snapshot_ = nullptr;
         };
-        rcu_hashmap(Hash h, bool (*e)(const Key&, const Key&)) : hash_(h), equal_(e) {}
-        rcu_hashmap(const rcu_hashmap&) = delete;
-        optional<Value> find(const Key& k) const {
-            read_guard g(*this, shard_of(k));
-            auto       v = g.find(k);
-            return v ? optional<Value>(*v) : optional<Value>{};
+
+        rcu_hashmap(Hash hash, bool (*equal)(const Key&, const Key&))
+            : hash_(hash), equal_(equal) {}
+        rcu_hashmap(const rcu_hashmap&)            = delete;
+        rcu_hashmap& operator=(const rcu_hashmap&) = delete;
+
+        optional<Value> find(const Key& key) const {
+            read_guard guard(*this, shard_index(key));
+            const Value* value = guard.find(key);
+            return value == nullptr ? optional<Value>{} : optional<Value>(*value);
         }
-        bool insert_or_assign(const Key& k, const Value& v) {
-            shard&               s = shards_[shard_of(k)];
-            core::spinlock_guard l(s.writer);
-            reclaim(s);
-            if (s.current && s.readers && s.retired_count == Retired)
-                return false;
-            auto n = clone_without(s.current.get(), k);
-            if (!n)
-                return false;
-            auto x = mm::shptr<node>(new node(k, v, n->buckets[bucket_of(k)]));
-            if (!x)
-                return false;
-            n->buckets[bucket_of(k)] = static_cast<mm::shptr<node>&&>(x);
-            return publish(s, static_cast<mm::shptr<snapshot>&&>(n));
+
+        bool insert_or_assign(const Key& key, const Value& value) {
+            return update(key, value, false);
         }
-        bool erase(const Key& k) {
-            shard&               s = shards_[shard_of(k)];
-            core::spinlock_guard l(s.writer);
-            reclaim(s);
-            if (s.current && s.readers && s.retired_count == Retired)
-                return false;
-            auto n = clone_without(s.current.get(), k);
-            if (!n)
-                return false;
-            return publish(s, static_cast<mm::shptr<snapshot>&&>(n));
+
+        bool erase(const Key& key) {
+            return update(key, Value{}, true);
+        }
+
+        private:
+        bool update(const Key& key, const Value& value, bool remove) {
+            shard& state = shards_[shard_index(key)];
+            for (;;) {
+                reclaim(state);
+                __atomic_add_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                snapshot* old = __atomic_load_n(&state.published, __ATOMIC_SEQ_CST);
+
+                snapshot* next = clone_without(old, key);
+                auto record = new retired_snapshot{};
+                if (!next || record == nullptr) {
+                    delete next;
+                    delete record;
+                    __atomic_sub_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                    return false;
+                }
+                if (!remove) {
+                    const usize bucket = bucket_index(key);
+                    auto item = mm::shptr<node>(new node(key, value, next->buckets[bucket]));
+                    if (!item) {
+                        delete next;
+                        delete record;
+                        __atomic_sub_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                        return false;
+                    }
+                    next->buckets[bucket] = static_cast<mm::shptr<node>&&>(item);
+                }
+
+                snapshot* expected = old;
+                if (__atomic_compare_exchange_n(&state.published, &expected, next, false,
+                                                __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+                    if (old != nullptr)
+                        retire(state, old, record);
+                    else
+                        delete record;
+                    __atomic_sub_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                    return true;
+                }
+                delete record;
+                delete next;
+                __atomic_sub_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                // `next` still owns the failed candidate and releases it here.
+            }
         }
     };
-}
+
+} // namespace astia::core
