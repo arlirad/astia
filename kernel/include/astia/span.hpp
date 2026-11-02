@@ -22,6 +22,7 @@ namespace astia {
         usize length() const { return size_; }
         bool null() const { return data_ == nullptr; }
         bool empty() const { return size_ == 0; }
+        T& operator[](usize index) const { return data_[index]; }
 
         private:
         T*    data_ = nullptr;
