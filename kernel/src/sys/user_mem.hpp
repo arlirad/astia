@@ -8,6 +8,7 @@
 #include <astia/io.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/optional.hpp>
+#include <astia/span.hpp>
 
 /*
  * User-pointer hygiene for the syscall boundary.
@@ -64,74 +65,6 @@ namespace astia::sys {
     /// address into a pointer names itself, and that bytes() and string()
     /// are the only ways to name one — so a value that is not an address
     /// off the ABI has to say so at one grep-able call.
-    template <typename T>
-    class span {
-        public:
-        /// The null range: what a caller named when it named no memory at
-        /// all (an optional result slot that was passed as NULL).  Every
-        /// gate treats it as nothing to do, exactly as it treats any
-        /// zero-length range, so this says "absent" — it does not name an
-        /// address, and there is nothing behind it to reach.
-        constexpr span() = default;
-        constexpr span(T* data, usize size) : data_(data), size_(size) {}
-
-        constexpr T* data() const { return data_; }
-        constexpr usize size() const { return size_; }
-
-        /// A length-delimited range: the ordinary case, where the ABI — or
-        /// the syscall's own argument shape — says how many bytes are
-        /// meant.  Call it at the boundary; an address the kernel itself
-        /// computed halfway through is the caller lying, not the type
-        /// failing.
-        static span bytes(u64 address, usize length) {
-            return span(reinterpret_cast<T*>(address), length);
-        }
-
-        /// A NUL-terminated string.  Its extent is its terminator, not a
-        /// count, so it carries no length: the gate that walks it supplies
-        /// the bound, and length() is 0 — no gate may read it as a size.
-        static span string(u64 address) {
-            return span(reinterpret_cast<T*>(address), 0);
-        }
-
-        u64 address() const {
-            return reinterpret_cast<u64>(data_);
-        }
-        usize length() const {
-            return size_;
-        }
-
-        /// A null address: the ABI's "no such argument" for an optional
-        /// result slot (waitpid's status, thread_join's result).
-        bool null() const {
-            return data_ == nullptr;
-        }
-
-        /// No bytes to move.
-        bool empty() const {
-            return size_ == 0;
-        }
-
-        /// The `length` bytes starting `offset` bytes into this range —
-        /// walking a caller's array of pointers.  Pure arithmetic on a user
-        /// address: it claims no bound of its own, and the gate
-        /// re-validates whatever it is handed, so the loop bound stays the
-        /// caller's to get right.
-        span slice(usize offset, usize length) const {
-            // Do not let a wrapped sub-range turn into an unrelated address.
-            // The consumer will still perform the page-map check, but it
-            // must never be handed arithmetic that already overflowed.
-            if (offset > ~usize{0} - reinterpret_cast<usize>(data_))
-                return span(reinterpret_cast<T*>(~usize{0}), length);
-            return span(reinterpret_cast<T*>(reinterpret_cast<usize>(data_) + offset),
-                        length);
-        }
-
-        private:
-        T*    data_ = nullptr;
-        usize size_ = 0;
-    };
-
     template <typename T>
     class validated_user_span {
         template <typename>

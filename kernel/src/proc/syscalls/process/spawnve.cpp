@@ -19,7 +19,7 @@ namespace astia::proc::syscall {
     using namespace detail;
     i64 spawnve(u64 path_ptr, u64 argv_ptr, u64 envp_ptr) {
         char path[path_cap];
-        if (!sys::copy_in_string(sys::span<char>(path, sizeof path), sys::user_ptr<char>(path_ptr))) {
+        if (!sys::copy_in_string(span<char>(path, sizeof path), sys::user_ptr<char>(path_ptr))) {
             return -EFAULT;
         }
 

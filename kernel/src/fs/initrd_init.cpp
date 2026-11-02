@@ -31,7 +31,9 @@ namespace astia::fs {
         // any active address space, not just the kernel's own map
         // (a ring-3 spawnve reads the image through this fs).
         const void* data = mm::kernel_frames().to_virt(ramdisk.paddr);
-        if (!initrd::open(data, static_cast<usize>(ramdisk.size), archive)) {
+        if (!initrd::open(span<const u8>(static_cast<const u8*>(data),
+                                         static_cast<usize>(ramdisk.size)),
+                          archive)) {
             logs::error("ramdisk is not a ustar archive");
             return false;
         }

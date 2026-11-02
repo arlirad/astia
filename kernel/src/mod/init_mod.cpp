@@ -76,7 +76,9 @@ namespace astia::mod {
         if (ramdisk.paddr != 0 && ramdisk.size != 0) {
             const void*     data = mm::kernel_frames().to_virt(ramdisk.paddr);
             initrd::archive arc;
-            if (initrd::open(data, static_cast<usize>(ramdisk.size), arc)) {
+            if (initrd::open(span<const u8>(static_cast<const u8*>(data),
+                                            static_cast<usize>(ramdisk.size)),
+                             arc)) {
                 initrd_logs::info("%llu file(s)",
                                   static_cast<unsigned long long>(initrd::count(arc)));
                 initrd::each(arc, visit_initrd_file, nullptr);

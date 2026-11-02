@@ -9,7 +9,7 @@ namespace astia::proc::syscall {
         if (owner == nullptr)
             return -ESRCH;
         char copy[fs::path_max]{};
-        if (!sys::copy_in_string(sys::span<char>(copy, sizeof copy), sys::user_ptr<char>(path)))
+        if (!sys::copy_in_string(span<char>(copy, sizeof copy), sys::user_ptr<char>(path)))
             return -EFAULT;
         return owner->change_directory(copy);
     }

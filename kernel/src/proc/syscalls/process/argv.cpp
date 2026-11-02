@@ -46,7 +46,7 @@ namespace astia::proc::syscall::detail {
                 vec[i] = nullptr;
                 return 0;
             }
-            if (!sys::copy_in_string(sys::span<char>(pool, arg_cap),
+            if (!sys::copy_in_string(span<char>(pool, arg_cap),
                                      sys::user_ptr<char>(reinterpret_cast<u64>(element))))
                 return -EFAULT;
             vec[i] = pool;

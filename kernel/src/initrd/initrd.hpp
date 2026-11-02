@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/span.hpp>
 
 // A zero-copy reader for ustar (POSIX) tar archives, used to unpack an initrd.
 //
@@ -45,7 +46,10 @@ namespace astia::initrd {
     /// Open a tar image. Fails on anything too short to be an archive, or
     /// whose first block is neither a ustar header nor the end-of-archive
     /// marker.
-    bool open(const void* image, usize len, archive& out);
+    bool open(span<const u8> image, archive& out);
+    inline bool open(const void* image, usize length, archive& out) {
+        return open(span<const u8>(static_cast<const u8*>(image), length), out);
+    }
 
     /// Visit each regular file (non-empty) in the archive, in order. Stops
     /// early — returning false — if `visit` returns false. Returns true only

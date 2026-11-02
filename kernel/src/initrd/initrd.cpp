@@ -106,13 +106,13 @@ namespace astia::initrd {
 
     } // namespace
 
-    bool open(const void* image, usize len, archive& out) {
-        if (image == nullptr || len < block_size) {
+    bool open(span<const u8> image, archive& out) {
+        if (image.data() == nullptr || image.size() < block_size) {
             return false;
         }
         archive a;
-        a.base = static_cast<const u8*>(image);
-        a.len  = len;
+        a.base = image.data();
+        a.len  = image.size();
 
         // A valid archive begins with either a ustar header or, for an empty
         // one, the end-of-archive marker. Anything else is not a tar.
