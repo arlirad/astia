@@ -1,5 +1,6 @@
 #include "support/test.hpp"
 #include <astia/core/task.hpp>
+#include <astia/core/async_operation.hpp>
 
 namespace {
     astia::core::task<> three_steps(int& steps) {
@@ -26,6 +27,13 @@ namespace {
 
     astia::core::task<int> value_task() {
         co_return 42;
+    }
+
+    astia::core::task<int> waits_for_operation(astia::core::async_operation<int>& operation) {
+        auto result = co_await operation;
+        if (!result)
+            co_return result.error;
+        co_return result.value;
     }
 }
 
@@ -98,4 +106,15 @@ ASTIA_TEST(task_returns_typed_value) {
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(task.error() == astia::error_t::enone);
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 42);
+}
+
+ASTIA_TEST(async_operation_resumes_task_without_callback) {
+    astia::core::async_operation<int> operation;
+    auto task = waits_for_operation(operation);
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+    ASTIA_CHECK(operation.complete(77));
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(task.error() == astia::error_t::enone);
+    ASTIA_CHECK(task.value() != nullptr && *task.value() == 77);
 }
