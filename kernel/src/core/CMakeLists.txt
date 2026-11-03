@@ -1,6 +1,7 @@
 add_library(core STATIC
         init_core.cpp
         fiber.cpp
+        resume_queue.cpp
         rcu_runtime.cpp
 )
 

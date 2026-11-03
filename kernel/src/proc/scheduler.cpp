@@ -1,5 +1,6 @@
 #include "scheduler.hpp"
 #include <astia/core/rcu_runtime.hpp>
+#include <astia/core/resume_queue.hpp>
 
 #include "proc.hpp"
 #include <astia/arch/context.hpp>
@@ -432,6 +433,7 @@ namespace astia::proc::scheduler {
         arch::context_switch(previous->context(), next->context());
         core::system_rcu_quiescent(cpu_index);
         (void) core::system_rcu_poll();
+        (void) core::drain_resumes();
         // We are now running as `next`, still masked.  `previous` (and any
         // thread that deferred its own destruction in finish()) can no
         // longer run on its kernel stack, so dead threads queued by
