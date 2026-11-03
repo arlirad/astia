@@ -349,7 +349,7 @@ namespace astia::sys {
             const fs::file* key  = nullptr;
             u16             next = waiter_index_none;
         };
-        core::spinlock g_waiter_index_lock;
+        core::spinlock g_waiter_bucket_locks[waiter_index_buckets];
         u16            g_waiter_index_heads[waiter_index_buckets] = {
             waiter_index_none, waiter_index_none, waiter_index_none, waiter_index_none,
             waiter_index_none, waiter_index_none, waiter_index_none, waiter_index_none,
@@ -378,19 +378,19 @@ namespace astia::sys {
                                  const fs::file* key) {
             const u32 number = waiter_index_number(slot.pool_index, park_index);
             const u32 bucket = waiter_index_hash(key);
-            g_waiter_index_lock.lock();
+            g_waiter_bucket_locks[bucket].lock();
             g_waiter_index[number].key   = key;
             g_waiter_index[number].next  = g_waiter_index_heads[bucket];
             g_waiter_index_heads[bucket] = static_cast<u16>(number);
-            g_waiter_index_lock.unlock();
+            g_waiter_bucket_locks[bucket].unlock();
         }
 
         void waiter_index_remove(const ring_slot& slot, u32 park_index) {
             const u32 number = waiter_index_number(slot.pool_index, park_index);
-            g_waiter_index_lock.lock();
             const fs::file* key = g_waiter_index[number].key;
             if (key != nullptr) {
                 const u32 bucket = waiter_index_hash(key);
+                g_waiter_bucket_locks[bucket].lock();
                 u16*      link   = &g_waiter_index_heads[bucket];
                 while (*link != waiter_index_none) {
                     if (*link == number) {
@@ -400,8 +400,8 @@ namespace astia::sys {
                     link = &g_waiter_index[*link].next;
                 }
                 g_waiter_index[number] = {};
+                g_waiter_bucket_locks[bucket].unlock();
             }
-            g_waiter_index_lock.unlock();
         }
 
         u64 ready_generation() {
@@ -2221,13 +2221,14 @@ namespace astia::sys {
         note_device_ready(device);
         {
             arch::interrupt_guard index_gate;
-            g_waiter_index_lock.lock();
-            for (u16 n = g_waiter_index_heads[waiter_index_hash(device)];
+            const u32 bucket = waiter_index_hash(device);
+            g_waiter_bucket_locks[bucket].lock();
+            for (u16 n = g_waiter_index_heads[bucket];
                  n != waiter_index_none; n = g_waiter_index[n].next)
                 if (g_waiter_index[n].key == device)
                     indexed[n / parked_operation_slots][n % parked_operation_slots] =
                         true;
-            g_waiter_index_lock.unlock();
+            g_waiter_bucket_locks[bucket].unlock();
         }
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
@@ -2261,13 +2262,14 @@ namespace astia::sys {
         note_device_ready(dev);
         {
             arch::interrupt_guard index_gate;
-            g_waiter_index_lock.lock();
-            for (u16 n                     = g_waiter_index_heads[waiter_index_hash(dev)];
+            const u32 bucket = waiter_index_hash(dev);
+            g_waiter_bucket_locks[bucket].lock();
+            for (u16 n                     = g_waiter_index_heads[bucket];
                  n != waiter_index_none; n = g_waiter_index[n].next)
                 if (g_waiter_index[n].key == dev)
                     indexed[n / parked_operation_slots][n % parked_operation_slots] =
                         true;
-            g_waiter_index_lock.unlock();
+            g_waiter_bucket_locks[bucket].unlock();
         }
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
