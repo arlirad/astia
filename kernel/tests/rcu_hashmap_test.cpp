@@ -1,6 +1,7 @@
 #include "arena.hpp"
 #include "support/test.hpp"
 #include <astia/core/rcu_hashmap.hpp>
+#include <astia/core/rcu_vector.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
 
@@ -88,4 +89,39 @@ ASTIA_TEST(rcu_hashmap_supports_concurrent_readers_and_writers) {
     ASTIA_CHECK(!failed.load(std::memory_order_acquire));
     for (int key = 0; key < keys; ++key)
         ASTIA_CHECK(map.find(key));
+}
+
+ASTIA_TEST(rcu_vector_supports_concurrent_cas_writers) {
+    astia::core::rcu_vector<int, 16> vector;
+    std::atomic<bool> start{false};
+    std::atomic<bool> failed{false};
+    std::vector<std::thread> workers;
+    for (int writer = 0; writer < 4; ++writer) {
+        workers.emplace_back([&, writer] {
+            while (!start.load(std::memory_order_acquire))
+                std::this_thread::yield();
+            for (int round = 1; round <= 500; ++round) {
+                int values[4] = {writer, round, writer ^ round, 0x55aa};
+                if (!vector.replace(astia::span<const int>(values, 4)))
+                    failed.store(true, std::memory_order_release);
+            }
+        });
+    }
+    for (int reader = 0; reader < 8; ++reader) {
+        workers.emplace_back([&] {
+            while (!start.load(std::memory_order_acquire))
+                std::this_thread::yield();
+            for (int round = 0; round < 4000; ++round) {
+                astia::core::rcu_vector<int, 16>::read_guard guard(vector);
+                if (guard.size() != 0 && guard.size() != 4)
+                    failed.store(true, std::memory_order_release);
+                if (guard.size() == 4 && guard[3] != 0x55aa)
+                    failed.store(true, std::memory_order_release);
+            }
+        });
+    }
+    start.store(true, std::memory_order_release);
+    for (auto& worker : workers)
+        worker.join();
+    ASTIA_CHECK(!failed.load(std::memory_order_acquire));
 }
