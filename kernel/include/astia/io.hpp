@@ -2,6 +2,7 @@
 
 #include <astia/common.hpp>
 #include <astia/core/async_operation.hpp>
+#include <astia/mm/uptr.hpp>
 
 // The async operation seam: one in-flight I/O request and the state a
 // device needs to resume it.
@@ -91,8 +92,10 @@ namespace astia {
             return _complete;
         }
 
-        core::async_operation<i64>* completion() const { return _completion; }
-        void completion(core::async_operation<i64>* value) { _completion = value; }
+        core::async_operation<i64>* completion() const { return _completion.get(); }
+        void completion(mm::uptr<core::async_operation<i64>> value) {
+            _completion = static_cast<mm::uptr<core::async_operation<i64>>&&>(value);
+        }
         void complete(bool value) {
             _complete = value;
         }
@@ -115,7 +118,7 @@ namespace astia {
         io_direction _direction    = io_direction::input;
         u8           _stage        = 0;
         bool         _complete     = false;
-        core::async_operation<i64>* _completion = nullptr;
+        mm::uptr<core::async_operation<i64>> _completion;
     };
 
 } // namespace astia
