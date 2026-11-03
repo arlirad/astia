@@ -70,6 +70,7 @@ target_include_directories(astia_pseudo_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/
 find_package(Threads REQUIRED)
 astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)
 target_link_libraries(astia_mpmc_queue_test PRIVATE Threads::Threads)
+astia_add_host_test(astia_rcu_domain_test rcu_domain_test.cpp)
 
 # --- ELF fixtures: compile real images with the host toolchain and byte-embed
 # them, so the loader sees genuine gcc output rather than hand-written ELF.
