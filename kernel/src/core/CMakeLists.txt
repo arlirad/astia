@@ -1,5 +1,6 @@
 add_library(core STATIC
         init_core.cpp
+        rcu_runtime.cpp
 )
 
 target_include_directories(core PUBLIC
