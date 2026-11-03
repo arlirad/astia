@@ -1,10 +1,12 @@
 #pragma once
 
 #include <astia/api/aio.h>
+#include <astia/api/errno.h>
 #include <astia/common.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/mm/uptr.hpp>
 
 // Minimal kernel VFS foundation.  This is deliberately fixed-storage:
 // Permission metadata is enforced against owner bits.  Astia does not yet
@@ -320,6 +322,30 @@ namespace astia::fs {
         bool            _has_path = false;
         char            _path[path_max]{};
         mount*          _mount = nullptr;
+    };
+
+    /// Owns one in-flight kernel I/O operation. The request is stable for the
+    /// whole device flight; its completion is owned by the request itself.
+    class io_packet {
+        public:
+        io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
+                  io_direction direction, mm::uptr<core::async_operation<i64>> completion)
+            : file_(file), request_(buffer, length, offset, 0, direction) {
+            request_.completion(static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+        }
+
+        io_packet(const io_packet&)            = delete;
+        io_packet& operator=(const io_packet&) = delete;
+
+        long submit() { return file_ ? file_->submit(request_) : -EBADF; }
+        io_request& request() { return request_; }
+        const io_request& request() const { return request_; }
+        core::async_operation<i64>* completion() const { return request_.completion(); }
+        const mm::shptr<open_file>& file() const { return file_; }
+
+        private:
+        mm::shptr<open_file> file_;
+        io_request           request_;
     };
 
     /// Reset the fixed VFS tables.  Called by the `fs` init step before
