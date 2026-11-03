@@ -1,5 +1,6 @@
 add_library(core STATIC
         init_core.cpp
+        fiber.cpp
         rcu_runtime.cpp
 )
 
