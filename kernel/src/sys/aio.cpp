@@ -763,7 +763,14 @@ namespace astia::sys {
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
-            (void) cq_post(ring, s.user_data, static_cast<i32>(result));
+            if (p->request.completion() != nullptr) {
+                if (result < 0)
+                    p->request.completion()->fail(static_cast<error_t>(-result));
+                else
+                    p->request.completion()->complete(static_cast<i64>(result));
+            }
+            else
+                (void) cq_post(ring, s.user_data, static_cast<i32>(result));
             // Reap after the ring lock is released; this operation uses the
             // same park storage so its pins and open-file reference follow
             // the parked cleanup rule too.
@@ -790,7 +797,11 @@ namespace astia::sys {
                     op.resuming = false;
                     return;
                 }
-                if (cq_post(ring, op.request.user_data(), static_cast<i32>(ready)))
+                if (op.request.completion() != nullptr) {
+                    op.request.completion()->complete(static_cast<i64>(ready));
+                    op.done = true;
+                }
+                else if (cq_post(ring, op.request.user_data(), static_cast<i32>(ready)))
                     op.done = true;
                 op.resuming = false;
                 return;
@@ -803,7 +814,14 @@ namespace astia::sys {
             complete_recvfrom_address(op, result);
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.
-            if (cq_post(ring, op.request.user_data(), static_cast<i32>(result))) {
+            if (op.request.completion() != nullptr) {
+                if (result < 0)
+                    op.request.completion()->fail(static_cast<error_t>(-result));
+                else
+                    op.request.completion()->complete(static_cast<i64>(result));
+                op.done = true;
+            }
+            else if (cq_post(ring, op.request.user_data(), static_cast<i32>(result))) {
                 op.done = true;
             }
             op.resuming = false;
