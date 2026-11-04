@@ -431,6 +431,9 @@ namespace astia::proc::scheduler {
         }
         previous->gate_open(gate_open);
         arch::context_switch(previous->context(), next->context());
+        if (auto* current = proc::current_thread(); current != nullptr) {
+            current->sample_kernel_stack();
+        }
         core::system_rcu_quiescent(cpu_index);
         (void) core::system_rcu_poll();
         (void) core::drain_resumes();
