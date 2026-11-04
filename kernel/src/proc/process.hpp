@@ -8,6 +8,7 @@
 #include <astia/api/syscalls.h>
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
+#include <astia/core/task.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
@@ -16,6 +17,11 @@
 #include <astia/wait.hpp>
 
 namespace astia::proc {
+
+    struct exec_result {
+        u64 entry = 0;
+        u64 stack = 0;
+    };
 
     inline constexpr u32 max_processes                  = 64;
     inline constexpr u32 max_threads_per_process        = 16;
@@ -370,6 +376,9 @@ namespace astia::proc {
         bool exec_user_file(const mm::shptr<fs::open_file>& file, usize length,
                             char* const argv[], char* const envp[], u64* entry_out,
                             u64* stack_out);
+        core::task<exec_result>
+        exec_user_file_async(mm::shptr<fs::open_file> file, usize length,
+                             char* const argv[], char* const envp[]);
         bool load_user_file(const mm::shptr<fs::open_file>& file, usize length,
                             u64* entry_out);
 
@@ -394,6 +403,8 @@ namespace astia::proc {
                               mm::phys_region* region);
         bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
         void discard_image();
+        core::task<bool> load_user_file_async(const mm::shptr<fs::open_file>& file,
+                                              usize length, u64* entry_out);
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
                                   usize& mapping_pages);
         void replace_image(process& staging);
