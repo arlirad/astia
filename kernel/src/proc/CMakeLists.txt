@@ -1,4 +1,5 @@
 add_library(proc STATIC
+        elf_loader.cpp
         proc.cpp
         process.cpp
         exec.cpp
