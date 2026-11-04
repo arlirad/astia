@@ -62,16 +62,6 @@ namespace astia::elf {
     /// relocatable path consults this.
     using resolve_fn = u64 (*)(void* ctx, const char* name);
 
-    struct read_request {
-        u64   offset;
-        void* buffer;
-        usize length;
-        long  result;
-    };
-
-    /// Batch file reader. The callback must complete all requests before
-    /// returning; implementations may submit them as one I/O-ring batch.
-    using read_batch_fn = bool (*)(void* ctx, read_request* requests, usize count);
     using copy_fn       = bool (*)(void* ctx, u64 address, span<const u8> source);
     using unmap_fn      = void (*)(void* ctx, void* address, usize size);
     using async_read_fn = core::task<i64> (*)(void* ctx, span<u8> destination, u64 offset);
@@ -82,7 +72,6 @@ namespace astia::elf {
         void*         ctx        = nullptr;
         map_fn        map        = nullptr;
         resolve_fn    resolve    = nullptr;
-        read_batch_fn read_batch = nullptr;
         copy_fn       copy       = nullptr;
     };
 
@@ -159,8 +148,7 @@ namespace astia::elf {
     }
 
     /// Streaming executable loader. Reads only the ELF header/PHDR table and
-    /// then fetches PT_LOAD file ranges through env::read_batch.
-    bool load_executable_stream(const env& e, usize file_size, image& out);
+    /// then fetches PT_LOAD file ranges through the async environment.
     core::task<image> load_executable_stream(const async_env& e, usize file_size);
 
     /// Dispatch to the right loader based on kind_of(). Returns false for

@@ -233,6 +233,36 @@ namespace astia::proc {
         return optional<mm::shptr<process>>(child);
     }
 
+    core::task<mm::shptr<process>> spawnve_async(
+        process* parent, const mm::shptr<fs::open_file>& file, usize length,
+        char* const argv[], char* const envp[]) {
+        if (parent == nullptr || !file || length == 0)
+            co_return error_t::einval;
+
+        auto child = mm::share<process>(allocate_pid(), parent->pid(), file->path());
+        if (!child)
+            co_return error_t::enomem;
+        child->inherit_groups(*parent);
+        child->state(process_state::runnable);
+        if (!child->copy_descriptors_from(*parent))
+            co_return error_t::enomem;
+        child->close_on_exec_descriptors();
+
+        u64 entry = 0;
+        auto loaded = co_await child->load_user_file_async(file, length, &entry);
+        if (!loaded || !loaded.value)
+            co_return loaded.error == error_t::enone ? error_t::einval : loaded.error;
+
+        if (!register_process(child))
+            co_return error_t::eagain;
+        if (!child->create_user_thread(entry, argv, envp)) {
+            (void) unregister_process(child.get());
+            parent->wake_waiters();
+            co_return error_t::eagain;
+        }
+        co_return static_cast<mm::shptr<process>&&>(child);
+    }
+
     mm::shptr<process> find_process(pid_t id) {
         mm::shptr<process> values[max_processes];
         const u32          count = snapshot_registry(values);

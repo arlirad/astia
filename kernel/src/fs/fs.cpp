@@ -930,20 +930,6 @@ namespace astia::fs {
         return object->node()->touch(sec, nsec);
     }
 
-    bool read_batch(kernel_read* requests, usize count) {
-        if (requests == nullptr)
-            return false;
-        for (usize i = 0; i < count; ++i) {
-            if (requests[i].file == nullptr || requests[i].buffer == nullptr)
-                return false;
-            requests[i].result = requests[i].file->read(
-                requests[i].buffer, requests[i].length, requests[i].offset);
-            if (requests[i].result < 0)
-                return false;
-        }
-        return true;
-    }
-
     // The remaining file/open-file implementation stays in this TU.
     long file::read(void* buf, u32 len, u64 offset) {
         (void) buf;

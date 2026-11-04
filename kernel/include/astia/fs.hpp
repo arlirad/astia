@@ -398,16 +398,4 @@ namespace astia::fs {
     long read_unix_directory(const char* directory, mount* owner, u64 index, char* name,
                              u32 capacity, file_type* type);
 
-    struct kernel_read {
-        open_file* file;
-        void*      buffer;
-        u64        offset;
-        u32        length;
-        long       result;
-    };
-
-    /// Trusted kernel-side batch read. Buffers are kernel addresses; this
-    /// never enters the userspace pointer-validation path.
-    bool read_batch(kernel_read* requests, usize count);
-
 } // namespace astia::fs

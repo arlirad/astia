@@ -492,7 +492,10 @@ static inline long astia_io_destroy(astia_rings* ring) {
 }
 
 /* Submit up to to_submit SQEs from the shared tail and return immediately.
-   The CQ is the source of truth for operation completion. */
+   Each accepted, published SQE is consumed exactly once as the kernel
+   advances SQ head; repeating this kick without publishing does not resubmit
+   it. Distinct duplicate SQEs remain distinct operations. The CQ is the
+   source of truth for operation completion. */
 static inline long astia_io_submit(astia_rings* ring, uint32_t to_submit) {
     return astia_raw6(SYS_IO_SUBMIT, (long) ring, (long) to_submit, 0, 0, 0, 0);
 }

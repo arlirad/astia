@@ -373,14 +373,11 @@ namespace astia::proc {
             return exec_user_image(span<const u8>(static_cast<const u8*>(bytes), length),
                                    argv, envp, entry_out, stack_out);
         }
-        bool exec_user_file(const mm::shptr<fs::open_file>& file, usize length,
-                            char* const argv[], char* const envp[], u64* entry_out,
-                            u64* stack_out);
         core::task<exec_result>
         exec_user_file_async(mm::shptr<fs::open_file> file, usize length,
                              char* const argv[], char* const envp[]);
-        bool load_user_file(const mm::shptr<fs::open_file>& file, usize length,
-                            u64* entry_out);
+        core::task<bool> load_user_file_async(const mm::shptr<fs::open_file>& file,
+                                              usize length, u64* entry_out);
 
         /// Fork: the child's first thread, resuming `uctx` inside the
         /// parent's ring-3 call site with rax = 0.
@@ -403,8 +400,6 @@ namespace astia::proc {
                               mm::phys_region* region);
         bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
         void discard_image();
-        core::task<bool> load_user_file_async(const mm::shptr<fs::open_file>& file,
-                                              usize length, u64* entry_out);
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
                                   usize& mapping_pages);
         void replace_image(process& staging);

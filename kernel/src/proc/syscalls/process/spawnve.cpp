@@ -1,39 +1,103 @@
 #include "spawnve.hpp"
 
-#include "../../../ipc/futex.hpp"
-#include "../../../ipc/mapping.hpp"
-#include "../../mapping.hpp"
 #include "../../proc.hpp"
 #include "../../scheduler.hpp"
+#include "../syscall_continuation.hpp"
 #include "argv.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-#include <astia/api/aio.h>
 #include <astia/api/errno.h>
-#include <astia/api/syscalls.h>
 #include <astia/arch/context.hpp>
-#include <astia/arch/cpu.hpp>
 #include <astia/fs.hpp>
-#include <astia/log.hpp>
+#include <astia/mapping.hpp>
+#include <astia/mm/share.hpp>
 namespace astia::proc::syscall {
     using namespace detail;
+
+    namespace {
+        struct spawn_continuation {
+            syscall_continuation      syscall;
+            mm::shptr<fs::open_file>  file;
+            argument_staging          staging;
+            core::task<i64>           runner;
+
+            spawn_continuation(const arch::syscall_frame& input,
+                               const mm::shptr<process>& process_value,
+                               const mm::shptr<thread>& thread_value,
+                               const mm::shptr<fs::open_file>& file_value)
+                : syscall(input, process_value, thread_value), file(file_value) {}
+        };
+
+        core::task<i64> drive_spawn(
+            const mm::shptr<spawn_continuation>& continuation) {
+            auto result = co_await proc::spawnve_async(
+                continuation->syscall.owner(), continuation->file,
+                static_cast<usize>(continuation->file->size()),
+                continuation->staging.argv(), continuation->staging.envp());
+            if (!result) {
+                const i64 error = -astia::errno_value(result.error);
+                continuation->syscall.complete(error);
+                co_return result.error;
+            }
+            const i64 pid = static_cast<i64>(raw_id(result.value->pid()));
+            continuation->syscall.complete(pid);
+            co_return pid;
+        }
+    }
+
     i64 spawnve(u64 path_ptr, u64 argv_ptr, u64 envp_ptr) {
+        auto* owner = current_process();
+        auto* self  = current_thread();
+        if (owner == nullptr || self == nullptr)
+            return -ESRCH;
+
         char path[path_cap];
         if (!sys::copy_in_string(span<char>(path, sizeof path),
                                  sys::user_ptr<char>(path_ptr))) {
             return -EFAULT;
         }
 
-        argument_staging staging;
-        if (!staging.allocate()) {
+        auto staging = mm::share<spawn_continuation>(
+            arch::syscall_frame{}, mm::shptr<process>{}, mm::shptr<thread>{},
+            mm::shptr<fs::open_file>{});
+        if (!staging)
             return -ENOMEM;
-        }
-        i64 result = staging.copy(argv_ptr, envp_ptr);
-        if (result == 0) {
-            auto child = proc::spawnve(path, staging.argv(), staging.envp());
-            result     = child ? static_cast<i64>(raw_id(child.value->pid()))
-                               : -astia::errno_value(child.error);
-        }
+        if (!staging->staging.allocate())
+            return -ENOMEM;
+        i64 result = staging->staging.copy(argv_ptr, envp_ptr);
+        if (result != 0)
+            return result;
+
+        const fs::file_mode image_mode = fs::node_mode(path);
+        if (image_mode.exists() &&
+            !owner->can_access(image_mode, fs::node_uid(path), fs::node_gid(path),
+                               fs::permission_bits::execute))
+            return -EACCES;
+        auto file = fs::open_path(path);
+        if (!file)
+            return -ENOENT;
+        const long image_size = file->size();
+        if (image_size <= 0)
+            return -EINVAL;
+
+        auto owner_ref = retain_process(owner->pid());
+        auto self_ref  = owner->retain_thread(self);
+        if (!owner_ref || !self_ref)
+            return -ESRCH;
+        staging->syscall.bind(owner_ref, self_ref);
+        staging->file = file;
+
+        staging->runner = drive_spawn(staging);
+        if (!staging->runner.valid())
+            return -ENOMEM;
+        staging->runner.resume();
+        if (!staging->runner.done())
+            (void) staging->syscall.wait();
+        while (!staging->runner.done())
+            scheduler::yield();
+
+        result = staging->syscall.result();
+        staging->runner.reset();
         return result;
     }
 }

@@ -350,7 +350,10 @@ namespace astia::test {
         // A VFS node with a real size, so STATX has a success path whether
         // or not an initrd is mounted on this boot.
         struct sized_probe : fs::file {
+            mutable u32 stat_calls = 0;
+
             long size() const override {
+                ++stat_calls;
                 return 4096;
             }
         };
@@ -413,6 +416,65 @@ namespace astia::test {
                 logs::error("statx fail (fstat without descriptor)");
                 return false;
             }
+
+            // An SQE is consumed when io_submit accepts it, not when its CQE
+            // is reaped. Repeating the kick without publishing another SQE
+            // must therefore produce neither another completion nor effect.
+            probe_node.stat_calls = 0;
+            astia_sqe* request = astia_sqe_slot(ring);
+            if (request == nullptr) {
+                logs::error("io submit once fail (SQ slot)");
+                return false;
+            }
+            *request          = astia_sqe{};
+            request->op       = OP_STATX;
+            request->fd       = -1;
+            request->address  = reinterpret_cast<u64>(probe_path);
+            request->offset   = reinterpret_cast<u64>(&st);
+            request->length   = static_cast<u32>(sizeof(astia_stat));
+            request->user_data = 0xC0DE58;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || probe_node.stat_calls != 1 ||
+                astia_cq_ready(ring) != 1) {
+                logs::error("io submit once fail (first kick)");
+                return false;
+            }
+            if (sys::io_submit(ring, 1) != 0 || probe_node.stat_calls != 1 ||
+                astia_cq_ready(ring) != 1) {
+                logs::error("io submit once fail (repeat kick)");
+                return false;
+            }
+            astia_cqe* completion = astia_cq_peek(ring);
+            if (completion == nullptr || completion->user_data != 0xC0DE58) {
+                logs::error("io submit once fail (completion)");
+                return false;
+            }
+            astia_cq_consume(ring, 1);
+
+            request = astia_sqe_slot(ring);
+            if (request == nullptr) {
+                logs::error("io submit once fail (reuse SQ slot)");
+                return false;
+            }
+            *request          = astia_sqe{};
+            request->op       = OP_STATX;
+            request->fd       = -1;
+            request->address  = reinterpret_cast<u64>(probe_path);
+            request->offset   = reinterpret_cast<u64>(&st);
+            request->length   = static_cast<u32>(sizeof(astia_stat));
+            request->user_data = 0xC0DE59;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || probe_node.stat_calls != 2 ||
+                astia_cq_ready(ring) != 1) {
+                logs::error("io submit once fail (reuse kick)");
+                return false;
+            }
+            completion = astia_cq_peek(ring);
+            if (completion == nullptr || completion->user_data != 0xC0DE59) {
+                logs::error("io submit once fail (reuse completion)");
+                return false;
+            }
+            astia_cq_consume(ring, 1);
 
             (void) sys::io_destroy(ring);
             logs::info("statx ok");

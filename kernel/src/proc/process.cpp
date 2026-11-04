@@ -936,22 +936,6 @@ namespace astia::proc {
         return true;
     }
 
-    bool process::exec_user_file(const mm::shptr<fs::open_file>& file, usize length,
-                                 char* const argv[], char* const envp[], u64* entry_out,
-                                 u64* stack_out) {
-        process staging(pid_, parent_pid_, name_);
-        u64     entry = 0, stack = 0;
-        if (!staging.load_user_file(file, length, &entry) ||
-            !staging.build_user_stack(argv, envp, &stack))
-            return false;
-        close_on_exec_descriptors();
-        sys::io_exec_process(this);
-        replace_image(staging);
-        *entry_out = entry;
-        *stack_out = stack;
-        return true;
-    }
-
     core::task<exec_result> process::exec_user_file_async(
         mm::shptr<fs::open_file> file, usize length, char* const argv[],
         char* const envp[]) {
