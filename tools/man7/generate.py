@@ -337,27 +337,29 @@ def markdown_page(text: str, fallback_title: str) -> tuple[str, str]:
     return title, "".join(rendered)
 
 
-def architecture_pages(docs_root: Path) -> list[tuple[str, str, str]]:
+def overview_pages(docs_root: Path) -> list[tuple[str, str, str]]:
     pages = []
     if not docs_root.is_dir():
         return pages
-    for path in sorted(docs_root.glob("*.md")):
-        title, body = markdown_page(path.read_text(), path.stem)
-        slug = re.sub(r"[^a-z0-9]+", "-", path.stem.lower()).strip("-")
-        if slug:
-            pages.append((slug, title, body))
+    for path in sorted(docs_root.glob("*.7.md")):
+        name = path.name[:-len(".7.md")]
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
+            continue
+        title, body = markdown_page(path.read_text(), name)
+        pages.append((name, title, body))
     return pages
 
 
-def render_architecture(name: str, title: str, body: str) -> str:
+def render_overview(name: str, title: str, body: str) -> str:
+    page_title = f"{name}(7)"
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(title)} - Astia architecture</title>
+<title>{html.escape(page_title)} - Astia manual</title>
 <link rel="stylesheet" href="nodivia.css"></head>
 <body><main class="surface surface__flex">
 <article class="surface__level__1 surface__minor">
-<h1>{html.escape(title)}</h1>
+<h1>{html.escape(page_title)}</h1>
 <nav><a href="index.html">Astia manual index</a></nav>
 {body}
 </article></main></body></html>
@@ -475,7 +477,7 @@ def main() -> int:
         pages[(name, 2)] = (body, group)
 
     docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
-    architecture = architecture_pages(docs_root)
+    overviews = overview_pages(docs_root)
 
     args.output.mkdir(parents=True, exist_ok=True)
     # A deployment directory is commonly reused.  Remove only generated
@@ -484,16 +486,18 @@ def main() -> int:
     for old_page in args.output.glob("*.[23].html"):
         if old_page.name not in expected_pages:
             old_page.unlink()
-    expected_architecture = {f"architecture-{slug}.html" for slug, _, _ in architecture}
-    for old_page in args.output.glob("architecture-*.html"):
-        if old_page.name not in expected_architecture:
+    expected_overviews = {f"{name}.7.html" for name, _, _ in overviews}
+    for old_page in args.output.glob("*.7.html"):
+        if old_page.name not in expected_pages and old_page.name not in expected_overviews:
             old_page.unlink()
+    for old_page in args.output.glob("architecture-*.html"):
+        old_page.unlink()
     (args.output / "nodivia.css").write_text(args.css.read_text())
     for (name, section), (body, _) in sorted(pages.items()):
         (args.output / f"{name}.{section}.html").write_text(render(name, body, section))
-    for slug, title, body in architecture:
-        (args.output / f"architecture-{slug}.html").write_text(
-            render_architecture(slug, title, body)
+    for name, title, body in overviews:
+        (args.output / f"{name}.7.html").write_text(
+            render_overview(name, title, body)
         )
     groups_by_section: dict[int, dict[str, dict[str, list[tuple[str, int]]]]] = {}
     for (name, section), (_, group) in pages.items():
@@ -502,7 +506,11 @@ def main() -> int:
         groups_by_section.setdefault(section, {}).setdefault(root, {}).setdefault(child, []).append((name, section))
 
     grouped_parts = []
-    section_labels = {2: "MAN 2 - SYSTEM CALLS", 3: "MAN 3 - LIBC APIs"}
+    section_labels = {
+        2: "MAN 2 - SYSTEM CALLS",
+        3: "MAN 3 - LIBC APIs",
+        7: "MAN 7 - OVERVIEWS",
+    }
     for section, groups in sorted(groups_by_section.items()):
         section_body = []
         for root, children in sorted(groups.items()):
@@ -532,12 +540,12 @@ def main() -> int:
         grouped_parts.append(
             f"<section class='surface__level__0 man-section'><h2>{html.escape(label)}</h2>{''.join(section_body)}</section>"
         )
-    if architecture:
+    if overviews:
         grouped_parts.append(
-            "<section class='surface__level__0 man-section'><h2>ARCHITECTURE</h2><ul>"
+            "<section class='surface__level__0 man-section'><h2>MAN 7 - OVERVIEWS</h2><ul>"
             + "".join(
-                f"<li><a href='architecture-{html.escape(slug)}.html'>{html.escape(title)}</a></li>"
-                for slug, title, _ in architecture
+                f"<li><a href='{html.escape(name)}.7.html'>{html.escape(name)}(7)</a></li>"
+                for name, _, _ in overviews
             )
             + "</ul></section>"
         )

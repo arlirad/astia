@@ -1,7 +1,8 @@
-# Astia syscall and libc documentation
+# Astia syscall, libc, and overview documentation
 
-This file is the documentation contract for Astia syscall (section 2) and
-native libc filesystem/descriptor (section 3) man pages.
+This file is the documentation contract for Astia syscall (section 2), native
+libc filesystem/descriptor (section 3), and subsystem overview (section 7)
+man pages.
 
 ## Ownership and layout
 
@@ -111,29 +112,31 @@ The generator:
 
 - reads documented subsystem syscall headers;
 - discovers legacy handlers in `syscalls.cpp` files;
-- groups the index first by manual section (`MAN 2 - SYSTEM CALLS` and
-  `MAN 3 - LIBC APIs`), then by subsystem and optional subgroup;
+- groups the index first by manual section (`MAN 2 - SYSTEM CALLS`,
+  `MAN 3 - LIBC APIs`, and `MAN 7 - OVERVIEWS`), then by subsystem and
+  optional subgroup;
 - emits one HTML page per syscall;
 - copies the Nodivia-derived theme CSS;
 - supplies fallback return/error metadata for legacy handlers.
 - adds the native filesystem/descriptor APIs from the libc source root as
   section 3 pages, grouped separately from section 2 syscall pages;
 - links each generated page back to the combined manual index.
-- reads Markdown architecture pages from the repository `docs/*.md` directory
-  and writes them as `architecture-*.html` pages in a separate `ARCHITECTURE`
-  index group.
+- reads section 7 overview pages from the repository `docs/*.7.md` directory
+  and writes them as `<name>.7.html` pages in the `MAN 7 - OVERVIEWS` index
+  group.
 
-Architecture Markdown intentionally uses a dependency-free subset: ATX
-headings, paragraphs, fenced code blocks, and flat ordered or unordered lists.
-The first level-one heading is the page title. Inline backtick code is escaped
-and rendered as `<code>`; other inline Markdown is not interpreted. Use
-`--docs PATH` to generate from another architecture-document directory.
+Overview Markdown intentionally uses a dependency-free subset: ATX headings,
+paragraphs, fenced code blocks, and flat ordered or unordered lists. The first
+level-one heading is the page title. Inline backtick code is escaped and
+rendered as `<code>`; other inline Markdown is not interpreted. Use `--docs
+PATH` to generate from another overview-document directory.
 
 The index must never mix section 2 and section 3 links in a top-level manual
 section or subsystem group. Every section 2 page links as `<name>.2.html` and
 is titled `<name>(2)`; every section 3 page links as `<name>.3.html` and is
-titled `<name>(3)`. Pages with the same name in both sections are distinct
-pages and must both remain present.
+titled `<name>(3)`. Every section 7 overview links as `<name>.7.html` and is
+titled `<name>(7)`. Pages with the same name in different sections are
+distinct pages and must both remain present.
 
 New syscall-specific documentation takes precedence over fallback metadata.
 The section 3 API metadata is intentionally maintained against
@@ -176,7 +179,8 @@ After changing documentation, verify:
 ```bash
 python3 tools/man7/generate.py kernel/src /tmp/astia-man7 --docs docs
 grep -R "<h2>" /tmp/astia-man7/index.html
-find /tmp/astia-man7 -name 'architecture-*.html' -print
+find /tmp/astia-man7 -name '*.7.html' -print
+test "$(find /tmp/astia-man7 -maxdepth 1 -name '*.7.html' | wc -l)" -eq 4
 curl -fsS https://arlia.nodivia.pl/kill.html
 ```
 
@@ -198,3 +202,12 @@ intentional restrictions, rather than importing a generic POSIX contract.
 
 Use a non‑breaking hyphen in prose where a compound term needs punctuation.
 The ASCII hyphen remains reserved for ABI errno spellings such as `-EINVAL`.
+
+The current overview pages are:
+
+```text
+docs/task.7.md
+docs/aio.7.md
+docs/exec.7.md
+docs/rcu.7.md
+```
