@@ -14,6 +14,7 @@ namespace astia::core {
     class async_operation {
         enum class state : u8 {
             pending,
+            completing,
             completed,
             canceled,
         };
@@ -23,8 +24,10 @@ namespace astia::core {
         std::coroutine_handle<>  continuation_{};
 
         bool finished() const {
-            return __atomic_load_n(&state_, __ATOMIC_ACQUIRE) !=
-                   static_cast<u8>(state::pending);
+            u8 value = __atomic_load_n(&state_, __ATOMIC_ACQUIRE);
+            while (value == static_cast<u8>(state::completing))
+                value = __atomic_load_n(&state_, __ATOMIC_ACQUIRE);
+            return value != static_cast<u8>(state::pending);
         }
 
         void wake() {
@@ -42,86 +45,98 @@ namespace astia::core {
         }
 
         public:
+        class awaiter {
+            async_operation*       operation_;
+            std::coroutine_handle<> continuation_{};
+
+            public:
+            explicit awaiter(async_operation* operation) : operation_(operation) {}
+            awaiter(const awaiter&)            = delete;
+            awaiter& operator=(const awaiter&) = delete;
+            awaiter(awaiter&& other) noexcept
+                : operation_(other.operation_), continuation_(other.continuation_) {
+                other.operation_    = nullptr;
+                other.continuation_ = {};
+            }
+            ~awaiter() {
+                if (operation_ != nullptr)
+                    operation_->detach(continuation_);
+            }
+
+            bool await_ready() const noexcept { return operation_->finished(); }
+
+            bool await_suspend(std::coroutine_handle<> continuation) noexcept {
+                continuation_ = continuation;
+                return operation_->attach(continuation);
+            }
+
+            optional<T> await_resume() {
+                return static_cast<optional<T>&&>(operation_->result_);
+            }
+        };
+
         async_operation() = default;
         async_operation(const async_operation&)            = delete;
         async_operation& operator=(const async_operation&) = delete;
 
         bool complete(const T& value) {
-            u8 expected = static_cast<u8>(state::pending);
-            if (!__atomic_compare_exchange_n(&state_, &expected,
-                                              static_cast<u8>(state::completed), false,
-                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!begin_completion())
                 return false;
             result_ = optional<T>(value);
+            publish(state::completed);
             wake();
             return true;
         }
 
         bool complete(T&& value) {
-            u8 expected = static_cast<u8>(state::pending);
-            if (!__atomic_compare_exchange_n(&state_, &expected,
-                                              static_cast<u8>(state::completed), false,
-                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!begin_completion())
                 return false;
             result_ = optional<T>(static_cast<T&&>(value));
+            publish(state::completed);
             wake();
             return true;
         }
 
         bool fail(error_t error) {
-            u8 expected = static_cast<u8>(state::pending);
-            if (!__atomic_compare_exchange_n(&state_, &expected,
-                                              static_cast<u8>(state::completed), false,
-                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!begin_completion())
                 return false;
             result_ = optional<T>(error);
+            publish(state::completed);
             wake();
             return true;
         }
 
         bool cancel() {
-            u8 expected = static_cast<u8>(state::pending);
-            if (!__atomic_compare_exchange_n(&state_, &expected,
-                                              static_cast<u8>(state::canceled), false,
-                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!begin_completion())
                 return false;
             result_ = optional<T>(error_t::eagain);
+            publish(state::canceled);
             wake();
             return true;
         }
 
         bool complete_deferred(const T& value) {
-            u8 expected = static_cast<u8>(state::pending);
-            if (!__atomic_compare_exchange_n(&state_, &expected,
-                                              static_cast<u8>(state::completed), false,
-                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!begin_completion())
                 return false;
             result_ = optional<T>(value);
+            publish(state::completed);
             wake_deferred();
             return true;
         }
 
         bool fail_deferred(error_t error) {
-            u8 expected = static_cast<u8>(state::pending);
-            if (!__atomic_compare_exchange_n(&state_, &expected,
-                                              static_cast<u8>(state::completed), false,
-                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!begin_completion())
                 return false;
             result_ = optional<T>(error);
+            publish(state::completed);
             wake_deferred();
             return true;
         }
 
         bool await_ready() const noexcept { return finished(); }
 
-        bool await_suspend(std::coroutine_handle<> continuation) noexcept {
-            __atomic_store_n(reinterpret_cast<void**>(&continuation_),
-                             continuation.address(), __ATOMIC_RELEASE);
-            if (finished()) {
-                wake();
-                return false;
-            }
-            return true;
+        awaiter operator co_await() noexcept {
+            return awaiter(this);
         }
 
         optional<T> await_resume() {
@@ -129,6 +144,48 @@ namespace astia::core {
         }
 
         bool done() const { return finished(); }
+
+        private:
+        bool begin_completion() {
+            u8 expected = static_cast<u8>(state::pending);
+            if (!__atomic_compare_exchange_n(&state_, &expected,
+                                              static_cast<u8>(state::completing), false,
+                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return false;
+            return true;
+        }
+
+        void publish(state value) {
+            __atomic_store_n(&state_, static_cast<u8>(value), __ATOMIC_RELEASE);
+        }
+
+        bool attach(std::coroutine_handle<> continuation) noexcept {
+            if (finished())
+                return false;
+            void* expected = nullptr;
+            if (!__atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
+                                              &expected, continuation.address(), false,
+                                              __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+                return false;
+            if (finished()) {
+                void* value = continuation.address();
+                if (__atomic_compare_exchange_n(
+                        reinterpret_cast<void**>(&continuation_), &value, nullptr, false,
+                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                    return false;
+                return true;
+            }
+            return true;
+        }
+
+        void detach(std::coroutine_handle<> continuation) noexcept {
+            if (!continuation)
+                return;
+            void* expected = continuation.address();
+            (void) __atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
+                                               &expected, nullptr, false,
+                                               __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+        }
     };
 
 } // namespace astia::core
