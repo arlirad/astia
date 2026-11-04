@@ -2,8 +2,8 @@
 
 ## NAME
 
-`core::rcu_domain` — bounded epoch reclamation; `core::rcu_vector` and
-`core::rcu_hashmap` — immutable lockless snapshots.
+`core::rcu_domain` - bounded epoch reclamation; `core::rcu_vector` and
+`core::rcu_hashmap` - immutable lockless snapshots.
 
 ## SYNOPSIS
 

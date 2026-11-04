@@ -2,8 +2,8 @@
 
 ## NAME
 
-`core::rcu_domain` — ograniczone odzyskiwanie epokowe; `core::rcu_vector` i
-`core::rcu_hashmap` — niezmienne migawki bez blokad.
+`core::rcu_domain` - ograniczone odzyskiwanie epokowe; `core::rcu_vector` i
+`core::rcu_hashmap` - niezmienne migawki bez blokad.
 
 ## SYNOPSIS
 

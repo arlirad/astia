@@ -2,7 +2,7 @@
 
 ## NAME
 
-`execve(2)`, `elf::load_executable_stream()` — zastępuje obraz procesu obrazem
+`execve(2)`, `elf::load_executable_stream()` - zastępuje obraz procesu obrazem
 z pliku ELF, gdy wejście-wyjście jądra jest asynchroniczne.
 
 ## SYNOPSIS

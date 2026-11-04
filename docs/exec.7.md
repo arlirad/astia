@@ -2,7 +2,7 @@
 
 ## NAME
 
-`execve(2)`, `elf::load_executable_stream()` — replace a process image from an
+`execve(2)`, `elf::load_executable_stream()` - replace a process image from an
 ELF file while kernel I/O is asynchronous.
 
 ## SYNOPSIS

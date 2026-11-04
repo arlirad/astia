@@ -2,8 +2,8 @@
 
 ## NAME
 
-`core::task<T>`, `core::task<void>` — movable, stackless coroutine operations;
-`core::fiber` — stackful kernel execution context.
+`core::task<T>`, `core::task<void>` - movable, stackless coroutine operations;
+`core::fiber` - stackful kernel execution context.
 
 ## SYNOPSIS
 

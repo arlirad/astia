@@ -2,8 +2,8 @@
 
 ## NAME
 
-`core::async_operation<T>`, `fs::io_packet` — jednorazowe ukończenie
-wejścia-wyjścia jądra; Astia AIO — współdzielone pierścienie zgłoszeń i
+`core::async_operation<T>`, `fs::io_packet` - jednorazowe ukończenie
+wejścia-wyjścia jądra; Astia AIO - współdzielone pierścienie zgłoszeń i
 ukończeń.
 
 ## SYNOPSIS

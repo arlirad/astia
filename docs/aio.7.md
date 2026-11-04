@@ -2,8 +2,8 @@
 
 ## NAME
 
-`core::async_operation<T>`, `fs::io_packet` — one-shot kernel I/O completion;
-Astia AIO — shared submission and completion rings.
+`core::async_operation<T>`, `fs::io_packet` - one-shot kernel I/O completion;
+Astia AIO - shared submission and completion rings.
 
 ## SYNOPSIS
 

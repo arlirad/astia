@@ -2,8 +2,8 @@
 
 ## NAME
 
-`core::task<T>`, `core::task<void>` — przenośne, bezstosowe operacje
-korutynowe; `core::fiber` — stosowy kontekst wykonywania jądra.
+`core::task<T>`, `core::task<void>` - przenośne, bezstosowe operacje
+korutynowe; `core::fiber` - stosowy kontekst wykonywania jądra.
 
 ## SYNOPSIS
 
