@@ -13,4 +13,8 @@ namespace astia::fs {
     core::task<i64> async_write(const mm::shptr<open_file>& file, span<const u8> buffer,
                                  u64 offset = offset_current);
 
+    /// Read exactly the requested bytes or return an error/short-read result.
+    core::task<i64> async_read_exact(const mm::shptr<open_file>& file, span<u8> buffer,
+                                      u64 offset = offset_current);
+
 } // namespace astia::fs

@@ -40,4 +40,16 @@ namespace astia::fs {
                             static_cast<u32>(buffer.size()), offset, io_direction::output);
     }
 
+    core::task<i64> async_read_exact(const mm::shptr<open_file>& file, span<u8> buffer,
+                                     u64 offset) {
+        if (buffer.size() > static_cast<usize>(~u32{0}))
+            co_return error_t::erange;
+        auto result = co_await async_read(file, buffer, offset);
+        if (!result)
+            co_return result.error;
+        if (result.value != static_cast<i64>(buffer.size()))
+            co_return error_t::eio;
+        co_return result.value;
+    }
+
 } // namespace astia::fs
