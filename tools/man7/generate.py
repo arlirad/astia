@@ -244,6 +244,126 @@ def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
     return pages
 
 
+def markdown_inline(text: str) -> str:
+    escaped = html.escape(text, quote=False)
+    return re.sub(r"`([^`\n]+)`", r"<code>\1</code>", escaped)
+
+
+def markdown_page(text: str, fallback_title: str) -> tuple[str, str]:
+    lines = text.splitlines()
+    title = fallback_title.replace("-", " ").replace("_", " ").title()
+    rendered: list[str] = []
+    paragraph: list[str] = []
+    list_kind: str | None = None
+    list_items: list[str] = []
+    fence: list[str] | None = None
+    fence_language = ""
+    first_heading = True
+
+    def flush_paragraph() -> None:
+        if paragraph:
+            rendered.append(f"<p>{markdown_inline(' '.join(paragraph))}</p>")
+            paragraph.clear()
+
+    def flush_list() -> None:
+        nonlocal list_kind
+        if list_kind is not None:
+            items = "".join(f"<li>{item}</li>" for item in list_items)
+            rendered.append(f"<{list_kind}>{items}</{list_kind}>")
+            list_items.clear()
+            list_kind = None
+
+    for line in lines:
+        if fence is not None:
+            if re.match(r"^\s*```", line):
+                language = f' class="language-{html.escape(fence_language, quote=True)}"' if fence_language else ""
+                code = html.escape("\n".join(fence), quote=False)
+                rendered.append(f"<pre><code{language}>{code}</code></pre>")
+                fence = None
+                fence_language = ""
+            else:
+                fence.append(line)
+            continue
+
+        fence_match = re.match(r"^\s*```\s*([\w+-]*)\s*$", line)
+        if fence_match:
+            flush_paragraph()
+            flush_list()
+            fence = []
+            fence_language = fence_match.group(1)
+            continue
+
+        heading_match = re.match(r"^\s*(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if heading_match:
+            flush_paragraph()
+            flush_list()
+            level = len(heading_match.group(1))
+            heading = heading_match.group(2)
+            if first_heading and level == 1:
+                title = heading
+                first_heading = False
+                continue
+            first_heading = False
+            rendered.append(f"<h{level}>{markdown_inline(heading)}</h{level}>")
+            continue
+
+        item_match = re.match(r"^\s*([-+*]|\d+[.)])\s+(.+?)\s*$", line)
+        if item_match:
+            flush_paragraph()
+            kind = "ol" if item_match.group(1)[0].isdigit() else "ul"
+            if list_kind != kind:
+                flush_list()
+                list_kind = kind
+            list_items.append(markdown_inline(item_match.group(2)))
+            continue
+
+        if list_kind is not None and list_items and re.match(r"^\s{2,}\S", line):
+            list_items[-1] += " " + markdown_inline(line.strip())
+            continue
+
+        if not line.strip():
+            flush_paragraph()
+            flush_list()
+            continue
+
+        flush_list()
+        paragraph.append(line.strip())
+
+    if fence is not None:
+        code = html.escape("\n".join(fence), quote=False)
+        rendered.append(f"<pre><code>{code}</code></pre>")
+    flush_paragraph()
+    flush_list()
+    return title, "".join(rendered)
+
+
+def architecture_pages(docs_root: Path) -> list[tuple[str, str, str]]:
+    pages = []
+    if not docs_root.is_dir():
+        return pages
+    for path in sorted(docs_root.glob("*.md")):
+        title, body = markdown_page(path.read_text(), path.stem)
+        slug = re.sub(r"[^a-z0-9]+", "-", path.stem.lower()).strip("-")
+        if slug:
+            pages.append((slug, title, body))
+    return pages
+
+
+def render_architecture(name: str, title: str, body: str) -> str:
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(title)} - Astia architecture</title>
+<link rel="stylesheet" href="nodivia.css"></head>
+<body><main class="surface surface__flex">
+<article class="surface__level__1 surface__minor">
+<h1>{html.escape(title)}</h1>
+<nav><a href="index.html">Astia manual index</a></nav>
+{body}
+</article></main></body></html>
+"""
+
+
 def render(name: str, body: str, section: int) -> str:
     sections = []
     current = "DESCRIPTION"
@@ -321,6 +441,8 @@ def main() -> int:
     parser.add_argument("--css", type=Path, default=DEFAULT_CSS)
     parser.add_argument("--libc-source", type=Path, default=None,
                         help="libc source root (defaults to the repository libc directory)")
+    parser.add_argument("--docs", type=Path, default=None,
+                        help="architecture Markdown directory (defaults to repository docs)")
     args = parser.parse_args()
 
     pages: dict[tuple[str, int], tuple[str, str]] = {}
@@ -352,6 +474,9 @@ def main() -> int:
     for name, body, group in syscall_pages():
         pages[(name, 2)] = (body, group)
 
+    docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
+    architecture = architecture_pages(docs_root)
+
     args.output.mkdir(parents=True, exist_ok=True)
     # A deployment directory is commonly reused.  Remove only generated
     # section pages so a renamed or removed syscall cannot remain stale.
@@ -359,9 +484,17 @@ def main() -> int:
     for old_page in args.output.glob("*.[23].html"):
         if old_page.name not in expected_pages:
             old_page.unlink()
+    expected_architecture = {f"architecture-{slug}.html" for slug, _, _ in architecture}
+    for old_page in args.output.glob("architecture-*.html"):
+        if old_page.name not in expected_architecture:
+            old_page.unlink()
     (args.output / "nodivia.css").write_text(args.css.read_text())
     for (name, section), (body, _) in sorted(pages.items()):
         (args.output / f"{name}.{section}.html").write_text(render(name, body, section))
+    for slug, title, body in architecture:
+        (args.output / f"architecture-{slug}.html").write_text(
+            render_architecture(slug, title, body)
+        )
     groups_by_section: dict[int, dict[str, dict[str, list[tuple[str, int]]]]] = {}
     for (name, section), (_, group) in pages.items():
         parts = group.split("/", 1)
@@ -398,6 +531,15 @@ def main() -> int:
         label = section_labels.get(section, f"MAN {section}")
         grouped_parts.append(
             f"<section class='surface__level__0 man-section'><h2>{html.escape(label)}</h2>{''.join(section_body)}</section>"
+        )
+    if architecture:
+        grouped_parts.append(
+            "<section class='surface__level__0 man-section'><h2>ARCHITECTURE</h2><ul>"
+            + "".join(
+                f"<li><a href='architecture-{html.escape(slug)}.html'>{html.escape(title)}</a></li>"
+                for slug, title, _ in architecture
+            )
+            + "</ul></section>"
         )
     grouped = "".join(grouped_parts)
     (args.output / "index.html").write_text(

@@ -104,7 +104,7 @@ Bad:
 Generate the site from the complete kernel source tree:
 
 ```bash
-python3 tools/man7/generate.py kernel/src dist/man7
+python3 tools/man7/generate.py kernel/src dist/man7 --docs docs
 ```
 
 The generator:
@@ -119,6 +119,15 @@ The generator:
 - adds the native filesystem/descriptor APIs from the libc source root as
   section 3 pages, grouped separately from section 2 syscall pages;
 - links each generated page back to the combined manual index.
+- reads Markdown architecture pages from the repository `docs/*.md` directory
+  and writes them as `architecture-*.html` pages in a separate `ARCHITECTURE`
+  index group.
+
+Architecture Markdown intentionally uses a dependency-free subset: ATX
+headings, paragraphs, fenced code blocks, and flat ordered or unordered lists.
+The first level-one heading is the page title. Inline backtick code is escaped
+and rendered as `<code>`; other inline Markdown is not interpreted. Use
+`--docs PATH` to generate from another architecture-document directory.
 
 The index must never mix section 2 and section 3 links in a top-level manual
 section or subsystem group. Every section 2 page links as `<name>.2.html` and
@@ -165,8 +174,9 @@ The Arbiter site configuration is:
 After changing documentation, verify:
 
 ```bash
-python3 tools/man7/generate.py kernel/src /tmp/astia-man7
+python3 tools/man7/generate.py kernel/src /tmp/astia-man7 --docs docs
 grep -R "<h2>" /tmp/astia-man7/index.html
+find /tmp/astia-man7 -name 'architecture-*.html' -print
 curl -fsS https://arlia.nodivia.pl/kill.html
 ```
 
