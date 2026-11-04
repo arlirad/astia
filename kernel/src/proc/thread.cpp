@@ -10,6 +10,9 @@ namespace astia::proc {
 
     namespace {
         constexpr usize kernel_stack_bytes = 16 * 1024;
+        constexpr u8    kernel_stack_fill  = 0xA5;
+        constexpr u32   kernel_stack_sample_period = 16;
+        constexpr usize kernel_stack_sample_bytes  = 256;
 
         extern "C" [[noreturn]] void thread_trampoline() {
             thread* current = proc::current_thread();
@@ -38,6 +41,48 @@ namespace astia::proc {
         arch::context_destroy(context_);
     }
 
+    void thread::sample_kernel_stack() {
+        if (kernel_stack_ == nullptr || kernel_stack_size_ == 0) {
+            return;
+        }
+        if (kernel_stack_sample_count_ != 0) {
+            --kernel_stack_sample_count_;
+            return;
+        }
+        kernel_stack_sample_count_ = kernel_stack_sample_period - 1;
+        const auto* bytes = static_cast<const volatile u8*>(kernel_stack_);
+        const auto* words = static_cast<const volatile u64*>(kernel_stack_);
+        constexpr u64 fill_word = u64{0xA5A5A5A5A5A5A5A5};
+        const usize end = kernel_stack_scan_offset_;
+        const usize begin = end > kernel_stack_sample_bytes
+                                 ? end - kernel_stack_sample_bytes
+                                 : 0;
+        usize offset = begin;
+        while (offset + sizeof(u64) <= end) {
+            if (words[offset / sizeof(u64)] != fill_word) {
+                for (usize byte = offset; byte < offset + sizeof(u64); ++byte) {
+                    if (bytes[byte] != kernel_stack_fill) {
+                        const usize used = kernel_stack_size_ - byte;
+                        if (used > kernel_stack_high_water_) {
+                            kernel_stack_high_water_ = used;
+                        }
+                    }
+                }
+            }
+            offset += sizeof(u64);
+        }
+        while (offset < end) {
+            if (bytes[offset] != kernel_stack_fill) {
+                const usize used = kernel_stack_size_ - offset;
+                if (used > kernel_stack_high_water_) {
+                    kernel_stack_high_water_ = used;
+                }
+            }
+            ++offset;
+        }
+        kernel_stack_scan_offset_ = begin == 0 ? kernel_stack_size_ : begin;
+    }
+
     bool thread::allocate_kernel_stack() {
         auto stack = mm::heap::alloc(kernel_stack_bytes);
         if (!stack || context_ == nullptr) {
@@ -45,8 +90,12 @@ namespace astia::proc {
                 mm::heap::free(stack.value);
             return false;
         }
+        __builtin_memset(stack.value, kernel_stack_fill, kernel_stack_bytes);
         kernel_stack_      = stack.value;
         kernel_stack_size_ = kernel_stack_bytes;
+        kernel_stack_high_water_ = 0;
+        kernel_stack_sample_count_ = 0;
+        kernel_stack_scan_offset_ = kernel_stack_size_;
         kernel_stack_top_ =
             static_cast<u64>(reinterpret_cast<usize>(kernel_stack_)) + kernel_stack_size_;
         return true;
@@ -56,6 +105,9 @@ namespace astia::proc {
         mm::heap::free(kernel_stack_);
         kernel_stack_      = nullptr;
         kernel_stack_size_ = 0;
+        kernel_stack_high_water_ = 0;
+        kernel_stack_sample_count_ = 0;
+        kernel_stack_scan_offset_ = 0;
         kernel_stack_top_  = 0;
     }
 

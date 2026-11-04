@@ -116,6 +116,13 @@ namespace astia::proc {
         u64 kernel_stack_top() const {
             return kernel_stack_top_;
         }
+        usize kernel_stack_size() const {
+            return kernel_stack_size_;
+        }
+        usize kernel_stack_high_water_bytes() const {
+            return kernel_stack_high_water_;
+        }
+        void sample_kernel_stack();
         u64 user_stack_top() const {
             return user_stack_top_;
         }
@@ -204,6 +211,9 @@ namespace astia::proc {
         void*            entry_argument_       = nullptr;
         void*            kernel_stack_         = nullptr;
         usize            kernel_stack_size_    = 0;
+        usize            kernel_stack_high_water_ = 0;
+        usize            kernel_stack_scan_offset_ = 0;
+        u32              kernel_stack_sample_count_ = 0;
         thread*          joiner_               = nullptr;
         void*            result_               = nullptr;
         bool             detached_             = false;
