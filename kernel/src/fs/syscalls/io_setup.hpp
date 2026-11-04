@@ -18,7 +18,7 @@ namespace astia::fs::syscall {
     /// Return Value:
     ///     Returns zero and initializes *out on success. The returned ring
     ///     contains one shared submission and completion mapping. The SQ is
-    ///     submitted by publishing its tail and calling io_enter; CQEs are
+    ///     submitted by publishing its tail and calling io_submit; CQEs are
     ///     reaped by userspace by advancing the CQ head, without a syscall.
     ///
     /// Errors:

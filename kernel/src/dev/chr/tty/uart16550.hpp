@@ -20,7 +20,7 @@
 //   - The ring face: fds STDIN/STDOUT/STDERR are bound to the port by
 //     the uart16550_irq init step, so an OP_WRITE drains the UART and an
 //     OP_READ parks until the receive IRQ completes it.  That is the
-//     path userspace will hit once SYS_IO_ENTER lands.
+//     path userspace will hit through SYS_IO_SUBMIT.
 //
 // The whole object is constant-initialized — constexpr constructor,
 // vptr included — because this kernel runs no global constructors:

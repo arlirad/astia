@@ -15,8 +15,9 @@
  *     rings plus the SQE/CQE arrays.  Submitting and reaping are plain
  *     memory operations with acquire/release ordering; reaping costs zero
  *     syscalls.
- *   - One astia_io_enter() kick submits a whole batch (and may optionally
- *     wait).  Completions are read in batches straight out of the CQ.
+ *   - One astia_io_submit() kick submits a whole batch and returns
+ *     immediately.  Completions are read in batches straight out of the CQ;
+ *     SIGAIO notifies the owning process when CQEs become available.
  *   - Kernel and userspace own separate cache lines for every cursor:
  *     no false sharing on the hot path.
  *   - SQEs are consumed in place: no per-SQE copy-in, no index array.
@@ -42,16 +43,13 @@
  *   s->length    = n;
  *   s->user_data = 42;
  *   astia_sq_publish(r, 1);
- *   astia_io_enter(r, 1, 0, 0, NULL);              // kick: 1 syscall / batch
+ *   astia_io_submit(r, 1);                         // kick: 1 syscall / batch
  *
  *   astia_cqe* c;
  *   while ((c = astia_cq_peek(r))) {               // reap: 0 syscalls
  *       handle(c->user_data, c->result);
  *       astia_cq_consume(r, 1);
  *   }
- *
- *   astia_io_enter(r, 0, 1, ENTER_GETEVENTS, NULL);   // wait
- *
  * Sits on <astia/api/syscalls.h> (SYS_* numbers, astia_raw6 trap).
  */
 
@@ -124,7 +122,8 @@ typedef struct astia_cq_ring {
     uint32_t overflow; /* reserved; the kernel never drops completions */
     uint32_t mask;
     uint32_t entries;
-    uint32_t resv[2];
+    uint32_t notify_generation; /* kernel -> user SIGAIO generation */
+    uint32_t notify_ack;        /* user -> kernel acknowledged generation */
 } astia_cq_ring;
 
 /*
@@ -353,12 +352,6 @@ enum {
     CQF_MORE = 1u << 0, /* multishot op: another CQE will follow */
 };
 
-/* astia_io_enter flags */
-enum {
-    ENTER_GETEVENTS   = 1u << 0, /* wait for min_complete */
-    ENTER_ABS_TIMEOUT = 1u << 1, /* timeout is absolute monotonic */
-};
-
 /* astia_io_setup flags */
 enum {
     SETUP_SQPOLL = 1u << 0, /* kernel polls the SQ (feature-gated) */
@@ -498,15 +491,10 @@ static inline long astia_io_destroy(astia_rings* ring) {
     return astia_raw6(SYS_IO_DESTROY, (long) ring, 0, 0, 0, 0, 0);
 }
 
-/* Submit up to to_submit SQEs from the shared tail; if min_complete > 0,
-   wait until at least that many completions are visible (unreaped).
-   Returns the number of SQEs consumed, or -errno (an expired wait is
-   -ETIMEDOUT; submissions that already happened are not undone). */
-static inline long astia_io_enter(astia_rings* ring, uint32_t to_submit,
-                                  uint32_t min_complete, uint32_t flags,
-                                  const astia_timespec* timeout) {
-    return astia_raw6(SYS_IO_ENTER, (long) ring, (long) to_submit, (long) min_complete,
-                      (long) flags, (long) timeout, 0);
+/* Submit up to to_submit SQEs from the shared tail and return immediately.
+   The CQ is the source of truth for operation completion. */
+static inline long astia_io_submit(astia_rings* ring, uint32_t to_submit) {
+    return astia_raw6(SYS_IO_SUBMIT, (long) ring, (long) to_submit, 0, 0, 0, 0);
 }
 
 static inline long astia_io_register(astia_rings* ring, uint32_t opcode, const void* ptr,
@@ -540,7 +528,7 @@ static inline astia_cqe* astia_rings_cqes(astia_rings* r) {
     return (astia_cqe*) ((char*) r + r->cqes_off);
 }
 
-/* Unsubmitted SQ space (0 when the kernel must drain: kick io_enter). */
+/* Unsubmitted SQ space (0 when the kernel must drain: kick io_submit). */
 static inline uint32_t astia_sq_space(astia_rings* r) {
     astia_sq_ring* sq   = astia_rings_sq(r);
     uint32_t       tail = __atomic_load_n(&sq->tail, __ATOMIC_RELAXED);
@@ -548,7 +536,7 @@ static inline uint32_t astia_sq_space(astia_rings* r) {
     return sq->entries - (tail - head);
 }
 
-/* Next free SQE slot, or NULL when full (kick io_enter, then retry).
+/* Next free SQE slot, or NULL when full (kick io_submit, then retry).
    Fill it completely, then astia_sq_publish() — never publish first. */
 static inline astia_sqe* astia_sqe_slot(astia_rings* r) {
     astia_sq_ring* sq   = astia_rings_sq(r);
@@ -559,7 +547,7 @@ static inline astia_sqe* astia_sqe_slot(astia_rings* r) {
 }
 
 /* Publish n filled slots; takes effect for the kernel at the next
-   astia_io_enter() (or immediately for an SQPOLL thread). */
+   astia_io_submit() (or immediately for an SQPOLL thread). */
 static inline void astia_sq_publish(astia_rings* r, uint32_t n) {
     astia_sq_ring* sq   = astia_rings_sq(r);
     uint32_t       tail = __atomic_load_n(&sq->tail, __ATOMIC_RELAXED);
@@ -587,6 +575,10 @@ static inline void astia_cq_consume(astia_rings* r, uint32_t n) {
     astia_cq_ring* cq   = astia_rings_cq(r);
     uint32_t       head = __atomic_load_n(&cq->head, __ATOMIC_RELAXED);
     __atomic_store_n(&cq->head, head + n, __ATOMIC_RELEASE);
+    if (n != 0)
+        __atomic_store_n(&cq->notify_ack,
+                         __atomic_load_n(&cq->notify_generation, __ATOMIC_ACQUIRE),
+                         __ATOMIC_RELEASE);
 }
 
 #ifdef __cplusplus

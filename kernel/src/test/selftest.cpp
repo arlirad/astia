@@ -388,7 +388,7 @@ namespace astia::test {
                 s->length    = static_cast<u32>(sizeof(astia_stat));
                 s->user_data = statx_tag;
                 astia_sq_publish(ring, 1);
-                if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
+                if (sys::io_submit(ring, 1) < 0) {
                     return -EIO;
                 }
                 astia_cqe* c = astia_cq_peek(ring);

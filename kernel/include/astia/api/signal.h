@@ -21,6 +21,8 @@ typedef struct astia_x86_64_signal_context {
 #define ASTIA_SIG_DFL ((uintptr_t) 0)
 #define ASTIA_SIG_IGN ((uintptr_t) 1)
 
+#define ASTIA_SIGAIO 29
+
 enum {
     ASTIA_SIG_BLOCK   = 0,
     ASTIA_SIG_UNBLOCK = 1,

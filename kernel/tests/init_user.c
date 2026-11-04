@@ -15,8 +15,7 @@
  *   11-12 STATX in fstat form (address NULL) on that descriptor
  *   13-14 STATX in path form, same size as the fstat reading
  *   15    CLOSE
- *   16-17 io_enter waits that must run out of completions: nothing to
- *         reap, then a 10 ms budget that has to come back -ETIMEDOUT
+ *   16-17 io_submit with no SQEs returns without waiting for a completion
  *   18    io_destroy
  *   19    the startup frame proc::spawnve built on the entry stack:
  *         argc/argv/envp exactly as the kernel was handed them
@@ -57,17 +56,12 @@ static astia_sqe* fill(astia_rings* ring, uint32_t op, int32_t fd, uint64_t addr
     return s;
 }
 
-/* Publish the filled slot, kick it, and return the completion's result.
-   The budget only bounds a completion that is not already there: every
-   operation below completes inline in the dispatch. */
+/* Publish the filled slot, kick it, and return the completion's result. */
 static long kick(astia_rings* ring, uint64_t tag, long* rc_out) {
-    astia_timespec budget;
     astia_cqe*     c;
 
     astia_sq_publish(ring, 1);
-    budget.tv_sec  = 0;
-    budget.tv_nsec = 100000000L; /* 100 ms */
-    *rc_out        = astia_io_enter(ring, 1, 1, ENTER_GETEVENTS, &budget);
+    *rc_out        = astia_io_submit(ring, 1);
     if (*rc_out < 0)
         return *rc_out;
     c = astia_cq_peek(ring);
@@ -322,13 +316,10 @@ void c_main(const long* frame) {
     if (rc != 0)
         astia_exit(15);
 
-    /* --- waiting must run out, not hang: nothing to reap, then a
-           10 ms budget that has to expire as -ETIMEDOUT --------------- */
+    /* --- submit does not wait for a completion ----------------------- */
     if (astia_cq_peek(ring) != NULL)
         astia_exit(16);
-    budget.tv_sec  = 0;
-    budget.tv_nsec = 10000000L;
-    if (astia_io_enter(ring, 0, 1, ENTER_GETEVENTS, &budget) != -ETIMEDOUT)
+    if (astia_io_submit(ring, 0) != 0)
         astia_exit(17);
 
     if (astia_io_destroy(ring) != 0)

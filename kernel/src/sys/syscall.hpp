@@ -9,7 +9,7 @@ namespace astia::sys {
     enum class syscall_id : u32 {
         io_setup = 0,
         io_destroy,
-        io_enter,
+        io_submit,
         io_register,
         mmap,
         munmap,

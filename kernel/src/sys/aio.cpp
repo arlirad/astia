@@ -312,6 +312,8 @@ namespace astia::sys {
             u32            sq_entries;
             u32            cq_entries;
             u32            waiters;
+            bool           notify_pending;
+            u32            notify_signaled;
             u32            pool_index;
             parked_op      park[parked_operation_slots];
             parked_cleanup cleanup;
@@ -466,6 +468,8 @@ namespace astia::sys {
             slot.sq_entries = 0;
             slot.cq_entries = 0;
             slot.waiters    = 0;
+            slot.notify_pending  = false;
+            slot.notify_signaled = 0;
             slot.owner      = {};
             slot.used       = false;
         }
@@ -546,9 +550,23 @@ namespace astia::sys {
             slot.user_base = 0;
         }
 
+        void cq_retrigger(ring_slot& slot, astia_rings* ring) {
+            astia_cq_ring* cq = astia_rings_cq(ring);
+            const u32 acknowledged = __atomic_load_n(&cq->notify_ack, __ATOMIC_ACQUIRE);
+            if (slot.notify_pending && acknowledged == slot.notify_signaled)
+                slot.notify_pending = false;
+            if (!slot.notify_pending && astia_cq_ready(ring) != 0 && slot.owner) {
+                const u32 generation =
+                    __atomic_add_fetch(&cq->notify_generation, 1, __ATOMIC_ACQ_REL);
+                slot.notify_pending  = true;
+                slot.notify_signaled = generation;
+                (void) slot.owner->signals().send(signal_number::aio);
+            }
+        }
+
         bool cq_post(astia_rings* ring, u64 user_data, i32 result) {
             // The shared header is writable by userspace.  Parked completions
-            // may arrive after the validating io_enter, so never re-read its
+            // may arrive after the validating io_submit, so never re-read its
             // mutable offsets from an IRQ path.
             ring_slot* storage = nullptr;
             for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
@@ -574,6 +592,7 @@ namespace astia::sys {
             c->result    = result;
             c->flags     = 0;
             __atomic_store_n(&cq->tail, tail + 1, __ATOMIC_RELEASE);
+            cq_retrigger(*storage, storage_ring);
             return true;
         }
 
@@ -2104,15 +2123,10 @@ namespace astia::sys {
         return 0;
     }
 
-    long io_enter(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
-                  u64 timeout_ticks) {
+    long io_submit(astia_rings* ring, u32 to_submit) {
         ring_guard pool_guard(g_ring_pool_lock);
         ring_slot* slot = slot_of(ring);
         if (slot == nullptr || !ring_layout_ok(*slot, ring)) {
-            return -EINVAL;
-        }
-        constexpr u32 known = ENTER_GETEVENTS | ENTER_ABS_TIMEOUT;
-        if ((flags & ~known) != 0) {
             return -EINVAL;
         }
         ring_guard ring_lock_guard(slot->lock);
@@ -2143,88 +2157,11 @@ namespace astia::sys {
         // and exceed the 16 KiB stack budget.
         parked_cleanup& cleanup = slot->cleanup;
         reap_completed(*slot, cleanup);
+        cq_retrigger(*slot, rings_of(*slot));
 
-        if (min_complete == 0) {
-            ring_lock_guard.unlock();
-            cleanup.release();
-            return static_cast<long>(consumed);
-        }
-
-        u64 deadline = 0;
-        if (timeout_ticks != 0) {
-            const u64 now = arch::timer_ticks();
-            deadline = (flags & ENTER_ABS_TIMEOUT) ? timeout_ticks : now + timeout_ticks;
-        }
-        // Do not hold the ring while sleeping: the only way a parked request
-        // can make progress is for a device-ready path on another CPU to take
-        // it.  The waiter count keeps destroy/exit from freeing the slot in
-        // this interval.
-        ++slot->waiters;
         ring_lock_guard.unlock();
         cleanup.release();
-        pool_guard.unlock();
-        while (astia_cq_ready(ring) < min_complete) {
-            if (!arch::cpu::check_interrupts()) {
-                goto wait_eagain;
-            }
-            if (deadline != 0 && arch::timer_ticks() >= deadline) {
-                goto wait_timeout;
-            }
-            arch::cpu::halt();
-        }
-        {
-            ring_guard reacquire_pool(g_ring_pool_lock);
-            ring_guard reacquire_ring(slot->lock);
-            --slot->waiters;
-        }
         return static_cast<long>(consumed);
-
-    wait_eagain:
-        {
-            ring_guard reacquire_pool(g_ring_pool_lock);
-            ring_guard reacquire_ring(slot->lock);
-            --slot->waiters;
-        }
-        return -EAGAIN;
-    wait_timeout:
-        {
-            ring_guard reacquire_pool(g_ring_pool_lock);
-            ring_guard reacquire_ring(slot->lock);
-            --slot->waiters;
-        }
-        return -ETIMEDOUT;
-    }
-
-    long io_enter_abi(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
-                      const astia_timespec* timeout) {
-        u64 ticks = 0;
-        if (timeout != nullptr) {
-            const u64 hz = arch::timer_hz();
-            if (hz == 0) {
-                return -EIO;
-            }
-            if (timeout->tv_sec < 0 || timeout->tv_nsec < 0 ||
-                timeout->tv_nsec >= static_cast<i64>(nanoseconds_per_second)) {
-                return -EINVAL;
-            }
-            // Clamp before multiplying: a caller may hand any timespec, and
-            // anything beyond a year of waiting is the same as "very long".
-            constexpr u64 max_timeout_seconds = 365ull * 24 * 60 * 60;
-            constexpr u64 max_timeout_ns = max_timeout_seconds * nanoseconds_per_second;
-            const u64     ns_wanted =
-                static_cast<u64>(timeout->tv_sec) * nanoseconds_per_second +
-                static_cast<u64>(timeout->tv_nsec);
-            const u64 ns = ns_wanted > max_timeout_ns ? max_timeout_ns : ns_wanted;
-            // Split so no intermediate can overflow for any sane tick rate:
-            // whole seconds first, then the sub-second remainder rounded up.
-            ticks = (ns / nanoseconds_per_second) * hz +
-                    ((ns % nanoseconds_per_second) * hz + nanoseconds_per_second - 1) /
-                        nanoseconds_per_second;
-            if (ticks == 0) {
-                ticks = 1; // a non-zero request must not mean "unbounded"
-            }
-        }
-        return io_enter(ring, to_submit, min_complete, flags, ticks);
     }
 
     void io_device_ready(i32 fd) {
@@ -2264,6 +2201,7 @@ namespace astia::sys {
                     op.object->node().get() == device) {
                     resume_parked(rings_of(slot), op);
                 }
+                cq_retrigger(slot, rings_of(slot));
             }
         }
     }
@@ -2306,6 +2244,7 @@ namespace astia::sys {
                     op.object->node().get() == dev) {
                     resume_parked(rings_of(slot), op);
                 }
+                cq_retrigger(slot, rings_of(slot));
             }
         }
     }

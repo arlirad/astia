@@ -15,14 +15,14 @@
 // cannot satisfy at once parks at the device's own submit() stage; the
 // device later calls io_device_ready() (from its IRQ handler, say) and the
 // engine resumes that request.  That is the whole point of the shape:
-// io_enter never spins inside a device — the only waiting it does is on
-// completions, and that wait sleeps on hlt until an interrupt wakes it.
+// io_submit never waits inside a device. A completion is posted when the
+// device makes progress and SIGAIO notifies the owning process.
 //
 // Userspace: the pool lives in kernel .bss, which the higher half maps
 // supervisor-only, so io_setup for a *process* additionally aliases the
 // ring's frames into that process' user half and hands back the user
 // address.  In-kernel clients (no address space) receive the kernel
-// address.  Both are accepted by io_enter/io_destroy and address the same
+// address.  Both are accepted by io_submit/io_destroy and address the same
 // frames, so the cursor protocol is identical either way; io_destroy
 // drops the alias along with the slot.
 //
@@ -63,34 +63,10 @@ namespace astia::sys {
     /// the teardown (-EBUSY) so no completion can be orphaned.
     long io_destroy(astia_rings* ring);
 
-    /// Submit up to to_submit SQEs from the shared tail and, when
-    /// min_complete > 0, wait until that many completions are visible
-    /// (unreaped).  flags takes ENTER_GETEVENTS (redundant with
-    /// min_complete, accepted for ABI shape) and ENTER_ABS_TIMEOUT
-    /// (timeout_ticks is then an absolute tick deadline).  A relative
-    /// timeout of 0 waits unbounded.
-    ///
-    /// Returns the number of SQEs consumed, or -errno:
-    ///   -EINVAL    unknown flags / not a live ring
-    ///   -EAGAIN    a wait was asked for with the interrupt gate closed:
-    ///              the kernel cannot sleep for a completion then (kmain
-    ///              opens the gate before waiting; the syscall layer
-    ///              will manage this on behalf of userspace)
-    ///   -ETIMEDOUT the deadline passed; submissions that happened are
-    ///              not undone
-    long io_enter(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
-                  u64 timeout_ticks);
-
-    /// SYS_IO_ENTER shape of the same call: the ABI hands a userspace
-    /// astia_timespec* (NULL = wait unbounded), the engine speaks tick
-    /// deadlines.  Nanoseconds become ticks here — rounded up, and never
-    /// down to 0, because 0 is io_enter's "no deadline" sentinel — with
-    /// ENTER_ABS_TIMEOUT read as an absolute monotonic deadline (ticks
-    /// and CLOCK_MONOTONIC share the boot origin).  Returns what
-    /// io_enter returns, or -EIO/-EINVAL for a clockless arch or a
-    /// malformed timespec.
-    long io_enter_abi(astia_rings* ring, u32 to_submit, u32 min_complete, u32 flags,
-                      const astia_timespec* timeout);
+    /// Submit up to to_submit SQEs from the shared tail and return
+    /// immediately. Completion results are published in the CQ and
+    /// asynchronous completion notification is delivered as SIGAIO.
+    long io_submit(astia_rings* ring, u32 to_submit);
 
     /// Device-side nudge: "this fd may have data now."  The engine
     /// retries every op parked on the fd and posts the completions that

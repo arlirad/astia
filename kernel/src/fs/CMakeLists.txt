@@ -9,7 +9,7 @@ add_library(fs STATIC
         syscalls.cpp
         syscalls/io_setup.cpp
         syscalls/io_destroy.cpp
-        syscalls/io_enter.cpp
+        syscalls/io_submit.cpp
         syscalls/io_register.cpp
         syscalls/mount.cpp
         syscalls/unmount.cpp

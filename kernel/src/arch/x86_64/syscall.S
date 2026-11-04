@@ -35,7 +35,7 @@ astia_syscall_entry:
     movq %rsp, %rdi
     /* SYSCALL masked IF through FMASK; the saved user RFLAGS is on the
        frame and iretq restores it, so handlers run with interrupts
-       enabled — blocking syscalls (io_enter waits) must be able to
+       enabled — blocking syscalls must be able to
        halt-and-wake on timer ticks. */
     sti
     call astia_syscall_dispatch

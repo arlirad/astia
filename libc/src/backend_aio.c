@@ -11,8 +11,8 @@
  * is an SQE on an I/O ring.  Synchronous behavior is therefore built
  * here, one operation at a time:
  *
- *   fill SQE -> publish -> one astia_io_enter() that both kicks the
- *   kernel and waits -> reap the CQE by its user_data tag -> return
+ *   fill SQE -> publish -> one astia_io_submit() kick -> reap the CQE by
+ *   its user_data tag -> return
  *   cqe.result unchanged (negative = -errno: the port speaks the ABI's
  *   convention verbatim, file.c folds it into errno).
  *
@@ -111,9 +111,10 @@ static long settle(void) {
             }
             continue; /* not the tag we owe — keep reaping */
         }
-        rc = astia_io_enter(g_ring, 1, 1, ENTER_GETEVENTS, NULL);
+        rc = astia_io_submit(g_ring, 1);
         if (rc < 0)
             return rc;
+        (void) astia_yield();
     }
 }
 
@@ -144,7 +145,7 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     if (s == NULL) {
         /* Full SQ means the kernel has not drained earlier entries —
            kick it and retry once.  Unreachable while operations are 1:1. */
-        (void) astia_io_enter(r, 1, 0, 0, NULL);
+        (void) astia_io_submit(r, 1);
         s = astia_sqe_slot(r);
         if (s == NULL)
             return -EBUSY;
@@ -161,8 +162,7 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     s->user_data = tag;
     astia_sq_publish(r, 1);
 
-    /* kick + wait in a single syscall; the reaping below costs none */
-    rc = astia_io_enter(r, 1, 1, ENTER_GETEVENTS, NULL);
+    rc = astia_io_submit(r, 1);
     if (rc < 0) {
         /* The kick failed after publish: the SQE may or may not be in
            flight.  One retry — resubmitting an already-consumed entry
@@ -170,7 +170,7 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
            the next transaction settles it before touching the queue,
            so no operation is ever applied twice and no waiter can hang
            on a completion that will never come. */
-        rc = astia_io_enter(r, 1, 1, ENTER_GETEVENTS, NULL);
+        rc = astia_io_submit(r, 1);
         if (rc < 0) {
             g_inflight = tag;
             return rc;
@@ -180,11 +180,10 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     for (;;) {
         c = astia_cq_peek(r);
         if (c == NULL) {
-            /* The completion we waited for must be there; re-wait in
-               case a foreign entry consumed our slot in the count. */
-            rc = astia_io_enter(r, 0, 1, ENTER_GETEVENTS, NULL);
+            rc = astia_io_submit(r, 0);
             if (rc < 0)
                 return rc;
+            (void) astia_yield();
             continue;
         }
         if (c->user_data == tag) {
@@ -293,16 +292,16 @@ long __astia_fio_read_batch(struct astia_fio_batch_read* requests, size_t count)
         astia_sq_publish(r, 1);
     }
 
-    long rc =
-        astia_io_enter(r, (uint32_t) count, (uint32_t) count, ENTER_GETEVENTS, NULL);
+    long rc = astia_io_submit(r, (uint32_t) count);
     if (rc < 0)
         return rc;
     while (completed < count) {
         astia_cqe* c = astia_cq_peek(r);
         if (c == NULL) {
-            rc = astia_io_enter(r, 0, 1, ENTER_GETEVENTS, NULL);
+            rc = astia_io_submit(r, 0);
             if (rc < 0)
                 return rc;
+            (void) astia_yield();
             continue;
         }
         uint64_t tag = c->user_data;
@@ -547,16 +546,8 @@ long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
         astia_sq_publish(r, 1);
         ++submitted;
     }
-    astia_timespec  ts;
-    astia_timespec* tsp = NULL;
-    if (timeout_ms >= 0) {
-        ts.tv_sec  = timeout_ms / 1000;
-        ts.tv_nsec = (timeout_ms % 1000) * 1000000;
-        tsp        = &ts;
-    }
-    rc = astia_io_enter(r, (uint32_t) submitted, timeout_ms == 0 ? 0 : 1,
-                        timeout_ms == 0 ? 0 : ENTER_GETEVENTS, tsp);
-    if (rc < 0 && rc != -ETIMEDOUT)
+    rc = astia_io_submit(r, (uint32_t) submitted);
+    if (rc < 0)
         goto cancel;
     for (;;) {
         astia_cqe* c = astia_cq_peek(r);
@@ -591,7 +582,7 @@ cancel:
                 pending[i] = 0;
             }
         if (left)
-            (void) astia_io_enter(r, (uint32_t) left, 0, 0, NULL);
+            (void) astia_io_submit(r, (uint32_t) left);
         while (astia_cq_peek(r) != NULL) {
             astia_cqe* c = astia_cq_peek(r);
             for (size_t i = 0; i < count; ++i)

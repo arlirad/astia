@@ -131,7 +131,7 @@ namespace astia::dev {
             s->aux       = 0;
             s->user_data = ring_tag_open;
             astia_sq_publish(ring, 1);
-            if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
+            if (sys::io_submit(ring, 1) < 0) {
                 return "open kick failed";
             }
             astia_cqe* open_cqe = astia_cq_peek(ring);
@@ -153,7 +153,7 @@ namespace astia::dev {
             s->fd        = fd;
             s->user_data = ring_tag_dup;
             astia_sq_publish(ring, 1);
-            if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
+            if (sys::io_submit(ring, 1) < 0) {
                 return "dup kick failed";
             }
             astia_cqe* dup_cqe = astia_cq_peek(ring);
@@ -174,7 +174,7 @@ namespace astia::dev {
             s->offset    = 5;
             s->user_data = ring_tag_dup2;
             astia_sq_publish(ring, 1);
-            if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
+            if (sys::io_submit(ring, 1) < 0) {
                 return "dup2 kick failed";
             }
             astia_cqe* dup2_cqe = astia_cq_peek(ring);
@@ -200,7 +200,7 @@ namespace astia::dev {
                 s->user_data =
                     ring_tag_alias_close + static_cast<u64>(close_fd == dup_fd);
                 astia_sq_publish(ring, 1);
-                if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
+                if (sys::io_submit(ring, 1) < 0) {
                     return "alias close kick failed";
                 }
                 astia_cqe* c = astia_cq_peek(ring);
@@ -242,7 +242,7 @@ namespace astia::dev {
             // One kick submits both and waits for both completions; the
             // read's arrives from the receive interrupt, the write's
             // from the dispatch itself.  100 ticks is a generous second.
-            const long rc = sys::io_enter(ring, 2, 2, ENTER_GETEVENTS, 100);
+            const long rc = sys::io_submit(ring, 2);
             if (rc < 0) {
                 return "kick failed";
             }
@@ -281,7 +281,7 @@ namespace astia::dev {
                 s->user_data = ring_tag_collect + round;
                 astia_sq_publish(ring, 1);
 
-                const long r2 = sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100);
+                const long r2 = sys::io_submit(ring, 1);
                 if (r2 < 0) {
                     return "collect kick failed";
                 }
@@ -313,7 +313,7 @@ namespace astia::dev {
             s->fd        = fd;
             s->user_data = ring_tag_close;
             astia_sq_publish(ring, 1);
-            if (sys::io_enter(ring, 1, 1, ENTER_GETEVENTS, 100) < 0) {
+            if (sys::io_submit(ring, 1) < 0) {
                 return "close kick failed";
             }
             astia_cqe* close_cqe = astia_cq_peek(ring);

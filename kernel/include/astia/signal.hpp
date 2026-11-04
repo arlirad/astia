@@ -33,7 +33,8 @@ namespace astia {
         vtalrm = 26,
         prof   = 27,
         winch  = 28,
-        io     = 29,
+        aio    = 29,
+        io     = aio,
         pwr    = 30,
         sys    = 31,
     };
@@ -104,7 +105,7 @@ namespace astia {
         case signal_number::cont:
         case signal_number::urg:
         case signal_number::winch:
-        case signal_number::io:
+        case signal_number::aio:
             return signal_default::ignore;
         case signal_number::stop:
         case signal_number::tstp:

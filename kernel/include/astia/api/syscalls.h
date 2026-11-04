@@ -67,7 +67,7 @@ enum {
     /* ring management; the typed wrappers live in <astia/api/aio.h> */
     SYS_IO_SETUP    = 0,
     SYS_IO_DESTROY  = 1,
-    SYS_IO_ENTER    = 2,
+    SYS_IO_SUBMIT   = 2,
     SYS_IO_REGISTER = 3,
     /* never-blocking direct calls */
     SYS_MMAP             = 4,
