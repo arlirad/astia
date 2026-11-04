@@ -515,6 +515,50 @@ namespace astia::elf {
 
     namespace {
 
+        struct async_mapping {
+            const async_env& env;
+            void*             address;
+            usize             size;
+
+            void reset() {
+                if (address != nullptr) {
+                    env.unmap(env.ctx, address, size);
+                    address = nullptr;
+                }
+            }
+
+            void dismiss() { address = nullptr; }
+
+            ~async_mapping() { reset(); }
+        };
+
+        bool vaddr_range_to_off(const elf64_phdr* ph, u16 phnum, u64 vaddr, u64 size,
+                                usize len, u64& off) {
+            for (u16 i = 0; i < phnum; ++i) {
+                if (ph[i].p_type != pt_load ||
+                    !in_bounds(ph[i].p_offset, ph[i].p_filesz, len) ||
+                    vaddr < ph[i].p_vaddr ||
+                    vaddr - ph[i].p_vaddr > ph[i].p_filesz ||
+                    size > ph[i].p_filesz - (vaddr - ph[i].p_vaddr))
+                    continue;
+                off = ph[i].p_offset + (vaddr - ph[i].p_vaddr);
+                return true;
+            }
+            return false;
+        }
+
+        bool vaddr_range_in_load(const elf64_phdr* ph, u16 phnum, u64 vaddr,
+                                 u64 size) {
+            for (u16 i = 0; i < phnum; ++i) {
+                if (ph[i].p_type != pt_load || vaddr < ph[i].p_vaddr ||
+                    vaddr - ph[i].p_vaddr > ph[i].p_memsz ||
+                    size > ph[i].p_memsz - (vaddr - ph[i].p_vaddr))
+                    continue;
+                return true;
+            }
+            return false;
+        }
+
         // Translate a virtual address to a file offset using the PT_LOAD
         // segments (the only segments whose bytes live in the file).
         bool vaddr_to_off(const elf64_phdr* ph, u16 phnum, u64 vaddr, usize len,
@@ -863,6 +907,280 @@ namespace astia::elf {
         out.load_bias = bias;
         out.nsegs     = segment_count;
         return true;
+    }
+
+    core::task<image> load_executable_stream(const async_env& e, usize file_size) {
+        image result{};
+        constexpr usize read_chunk_size = 4096;
+        constexpr usize rela_chunk_size = sizeof(elf64_rela) * 170;
+
+        if (e.map == nullptr || e.unmap == nullptr || e.read == nullptr ||
+            file_size < sizeof(elf64_ehdr))
+            co_return error_t::einval;
+
+        elf64_ehdr header{};
+        auto header_read = co_await e.read(
+            e.ctx, span<u8>(reinterpret_cast<u8*>(&header), sizeof header), 0);
+        if (!header_read)
+            co_return header_read.error == error_t::enone ? error_t::eio : header_read.error;
+        if (header_read.value != static_cast<i64>(sizeof header))
+            co_return error_t::eio;
+
+        u16 type = 0;
+        if (!ident_type(
+                span<const u8>(reinterpret_cast<const u8*>(&header), sizeof header), type) ||
+            (type != et_exec && type != et_dyn) || header.e_phnum == 0 ||
+            header.e_phentsize != sizeof(elf64_phdr) ||
+            header.e_phnum > max_program_headers ||
+            !in_bounds(header.e_phoff,
+                       static_cast<u64>(header.e_phnum) * sizeof(elf64_phdr), file_size))
+            co_return error_t::einval;
+
+        elf64_phdr ph[max_program_headers]{};
+        const usize ph_bytes = static_cast<usize>(header.e_phnum) * sizeof(elf64_phdr);
+        auto ph_read = co_await e.read(
+            e.ctx, span<u8>(reinterpret_cast<u8*>(ph), ph_bytes), header.e_phoff);
+        if (!ph_read)
+            co_return ph_read.error == error_t::enone ? error_t::eio : ph_read.error;
+        if (ph_read.value != static_cast<i64>(ph_bytes))
+            co_return error_t::eio;
+
+        u64   min_vaddr = ~u64{0};
+        u64   max_end   = 0;
+        usize nsegs     = 0;
+        for (u16 i = 0; i < header.e_phnum; ++i) {
+            if (ph[i].p_type != pt_load)
+                continue;
+            if (nsegs >= max_segments || ph[i].p_memsz < ph[i].p_filesz ||
+                !in_bounds(ph[i].p_offset, ph[i].p_filesz, file_size) ||
+                ph[i].p_vaddr > ~u64{0} - ph[i].p_memsz)
+                co_return error_t::einval;
+            min_vaddr = ph[i].p_vaddr < min_vaddr ? ph[i].p_vaddr : min_vaddr;
+            const u64 end = ph[i].p_vaddr + ph[i].p_memsz;
+            max_end       = end > max_end ? end : max_end;
+            ++nsegs;
+        }
+        if (nsegs == 0 || min_vaddr == ~u64{0} || max_end <= min_vaddr ||
+            max_end > ~u64{0} - (page_size - 1))
+            co_return error_t::einval;
+
+        const u64 span_start = align_down(min_vaddr);
+        const u64 span_end   = align_up(max_end);
+        if (span_end <= span_start)
+            co_return error_t::einval;
+        const u64 image_span = span_end - span_start;
+        if (image_span > static_cast<u64>(~usize{0}))
+            co_return error_t::einval;
+
+        u64 rela_vaddr = 0;
+        u64 rela_size  = 0;
+        bool rela_tag   = false;
+        bool relasz_tag = false;
+        for (u16 i = 0; i < header.e_phnum; ++i) {
+            if (ph[i].p_type != pt_dynamic)
+                continue;
+            if (ph[i].p_filesz == 0 || ph[i].p_filesz % sizeof(elf64_dyn) != 0 ||
+                !in_bounds(ph[i].p_offset, ph[i].p_filesz, file_size))
+                co_return error_t::einval;
+
+            alignas(elf64_dyn) u8 buffer[read_chunk_size];
+            u64 offset = 0;
+            bool terminated = false;
+            while (offset < ph[i].p_filesz) {
+                const u64 remaining = ph[i].p_filesz - offset;
+                const usize length = remaining < read_chunk_size
+                                         ? static_cast<usize>(remaining)
+                                         : read_chunk_size;
+                auto read = co_await e.read(
+                    e.ctx, span<u8>(buffer, length), ph[i].p_offset + offset);
+                if (!read)
+                    co_return read.error == error_t::enone ? error_t::eio : read.error;
+                if (read.value != static_cast<i64>(length))
+                    co_return error_t::eio;
+                const usize count = length / sizeof(elf64_dyn);
+                const auto* entries = reinterpret_cast<const elf64_dyn*>(buffer);
+                for (usize k = 0; k < count; ++k) {
+                    if (entries[k].d_tag == dt_null) {
+                        terminated = true;
+                        break;
+                    }
+                    if (entries[k].d_tag == dt_rela) {
+                        rela_vaddr = entries[k].d_val;
+                        rela_tag = true;
+                    }
+                    else if (entries[k].d_tag == dt_relasz) {
+                        rela_size = entries[k].d_val;
+                        relasz_tag = true;
+                    }
+                    else if (entries[k].d_tag == dt_relaent) {
+                        if (entries[k].d_val != sizeof(elf64_rela))
+                            co_return error_t::einval;
+                    }
+                }
+                offset += length;
+                if (terminated)
+                    break;
+            }
+            if (!terminated)
+                co_return error_t::einval;
+            break;
+        }
+
+        if (rela_tag != relasz_tag || rela_size % sizeof(elf64_rela) != 0 ||
+            (rela_size != 0 && rela_vaddr == 0))
+            co_return error_t::einval;
+
+        u64 rela_offset = 0;
+        if (rela_vaddr != 0 && rela_size != 0) {
+            if (!vaddr_range_to_off(ph, header.e_phnum, rela_vaddr, rela_size, file_size,
+                                    rela_offset) ||
+                !in_bounds(rela_offset, rela_size, file_size))
+                co_return error_t::einval;
+        }
+
+        const bool fixed = type == et_exec;
+        void* mapped = e.map(e.ctx, span_start, static_cast<usize>(image_span),
+                             static_cast<usize>(page_size), fixed);
+        if (mapped == nullptr)
+            co_return error_t::enomem;
+        async_mapping mapping{e, mapped, static_cast<usize>(image_span)};
+        auto fail = [&mapping](error_t error) {
+            mapping.reset();
+            return error;
+        };
+        const u64 mapped_addr = reinterpret_cast<u64>(mapped);
+        if ((fixed && mapped_addr != span_start) || image_span > ~u64{0} - mapped_addr)
+            co_return fail(error_t::einval);
+        const u64 bias = mapped_addr - span_start;
+
+        if (e.copy == nullptr) {
+            auto* zero = static_cast<u8*>(mapped);
+            for (u64 i = 0; i < image_span; ++i)
+                zero[i] = 0;
+        }
+        else {
+            u8 zero[read_chunk_size] = {};
+            u64 cleared = 0;
+            while (cleared < image_span) {
+                const u64 remaining = image_span - cleared;
+                const usize length = remaining < read_chunk_size
+                                         ? static_cast<usize>(remaining)
+                                         : read_chunk_size;
+                if (!e.copy(e.ctx, mapped_addr + cleared, span<const u8>(zero, length)))
+                    co_return fail(error_t::eio);
+                cleared += length;
+            }
+        }
+
+        u8 segment_buffer[read_chunk_size];
+        usize segment_count = 0;
+        for (u16 i = 0; i < header.e_phnum; ++i) {
+            if (ph[i].p_type != pt_load)
+                continue;
+            const u64 destination = mapped_addr + (ph[i].p_vaddr - span_start);
+            u64       copied      = 0;
+            while (copied < ph[i].p_filesz) {
+                const u64 remaining = ph[i].p_filesz - copied;
+                const usize length = remaining < read_chunk_size
+                                         ? static_cast<usize>(remaining)
+                                         : read_chunk_size;
+                u8* destination_buffer = e.copy != nullptr
+                                             ? segment_buffer
+                                             : reinterpret_cast<u8*>(destination + copied);
+                auto read = co_await e.read(
+                    e.ctx, span<u8>(destination_buffer, length), ph[i].p_offset + copied);
+                if (!read)
+                    co_return fail(read.error == error_t::enone ? error_t::eio : read.error);
+                if (read.value != static_cast<i64>(length))
+                    co_return fail(error_t::eio);
+                if (e.copy != nullptr &&
+                    !e.copy(e.ctx, destination + copied,
+                            span<const u8>(segment_buffer, length)))
+                    co_return fail(error_t::eio);
+                copied += length;
+            }
+            result.segs[segment_count++] = {
+                ph[i].p_vaddr, ph[i].p_filesz, ph[i].p_memsz, ph[i].p_flags,
+                reinterpret_cast<void*>(destination)};
+        }
+
+        if (rela_vaddr != 0 && rela_size != 0) {
+            alignas(elf64_rela) u8 rela_buffer[rela_chunk_size];
+            u64 offset = 0;
+            while (offset < rela_size) {
+                const u64 remaining = rela_size - offset;
+                const usize length = remaining < rela_chunk_size
+                                         ? static_cast<usize>(remaining)
+                                         : rela_chunk_size;
+                auto read = co_await e.read(
+                    e.ctx, span<u8>(rela_buffer, length), rela_offset + offset);
+                if (!read)
+                    co_return fail(read.error == error_t::enone ? error_t::eio : read.error);
+                if (read.value != static_cast<i64>(length))
+                    co_return fail(error_t::eio);
+                const usize count = length / sizeof(elf64_rela);
+                const auto* entries = reinterpret_cast<const elf64_rela*>(rela_buffer);
+                for (usize k = 0; k < count; ++k) {
+                    const elf64_rela& relocation = entries[k];
+                    const u32 relocation_type = r_type(relocation.r_info);
+                    if (relocation_type == r_x86_64_none)
+                        continue;
+                    if (relocation_type != r_x86_64_relative)
+                        co_return fail(error_t::einval);
+                    const u64 location_vaddr = relocation.r_offset;
+                    if (location_vaddr < span_start || location_vaddr > span_end ||
+                        sizeof(u64) > span_end - location_vaddr ||
+                        !vaddr_range_in_load(ph, header.e_phnum, location_vaddr,
+                                             sizeof(u64)))
+                        co_return fail(error_t::einval);
+                    const u64 location = mapped_addr + (location_vaddr - span_start);
+                    const u64 value = bias + static_cast<u64>(relocation.r_addend);
+                    if (e.copy != nullptr) {
+                        u8 value_bytes[sizeof(value)];
+                        for (usize byte = 0; byte < sizeof(value); ++byte)
+                            value_bytes[byte] = static_cast<u8>(value >> (byte * 8));
+                        if (!e.copy(e.ctx, location,
+                                    span<const u8>(value_bytes, sizeof value_bytes)))
+                            co_return fail(error_t::eio);
+                    }
+                    else {
+                        *reinterpret_cast<u64*>(location) = value;
+                    }
+                }
+                offset += length;
+            }
+        }
+
+        bool tls_seen = false;
+        for (u16 i = 0; i < header.e_phnum; ++i) {
+            if (ph[i].p_type != pt_tls)
+                continue;
+            if (ph[i].p_filesz > ph[i].p_memsz ||
+                !in_bounds(ph[i].p_offset, ph[i].p_filesz, file_size) ||
+                (ph[i].p_align != 0 && (ph[i].p_align & (ph[i].p_align - 1)) != 0))
+                co_return fail(error_t::einval);
+            if (tls_seen)
+                co_return fail(error_t::einval);
+            tls_seen = true;
+            if (ph[i].p_memsz == 0)
+                continue;
+            result.tls_offset = ph[i].p_offset;
+            result.tls_filesz = ph[i].p_filesz;
+            result.tls_memsz  = ph[i].p_memsz;
+            result.tls_align  = ph[i].p_align;
+        }
+
+        if (header.e_entry < span_start || header.e_entry >= span_end ||
+            !vaddr_range_in_load(ph, header.e_phnum, header.e_entry, 1))
+            co_return fail(error_t::einval);
+        result.entry = reinterpret_cast<void*>(mapped_addr + (header.e_entry - span_start));
+        result.base      = mapped;
+        result.size      = static_cast<usize>(image_span);
+        result.loaded    = type == et_dyn ? kind::dyn : kind::executable;
+        result.load_bias = bias;
+        result.nsegs     = segment_count;
+        mapping.dismiss();
+        co_return result;
     }
 
     // ========================================================================

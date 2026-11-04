@@ -73,6 +73,7 @@ namespace astia::elf {
     /// returning; implementations may submit them as one I/O-ring batch.
     using read_batch_fn = bool (*)(void* ctx, read_request* requests, usize count);
     using copy_fn       = bool (*)(void* ctx, u64 address, span<const u8> source);
+    using unmap_fn      = void (*)(void* ctx, void* address, usize size);
     using async_read_fn = core::task<i64> (*)(void* ctx, span<u8> destination, u64 offset);
 
     /// Caller-supplied environment: where memory comes from and how symbols
@@ -91,6 +92,7 @@ namespace astia::elf {
         resolve_fn    resolve    = nullptr;
         async_read_fn read       = nullptr;
         copy_fn       copy       = nullptr;
+        unmap_fn      unmap      = nullptr;
     };
 
     /// One loaded PT_LOAD segment of an executable (relocatable images leave
