@@ -2,6 +2,7 @@
 
 #include <astia/common.hpp>
 #include <astia/span.hpp>
+#include <astia/core/task.hpp>
 
 // A freestanding x86-64 ELF loader, generic over the two shapes the kernel
 // actually consumes:
@@ -72,6 +73,7 @@ namespace astia::elf {
     /// returning; implementations may submit them as one I/O-ring batch.
     using read_batch_fn = bool (*)(void* ctx, read_request* requests, usize count);
     using copy_fn       = bool (*)(void* ctx, u64 address, span<const u8> source);
+    using async_read_fn = core::task<i64> (*)(void* ctx, span<u8> destination, u64 offset);
 
     /// Caller-supplied environment: where memory comes from and how symbols
     /// are resolved.
@@ -80,6 +82,14 @@ namespace astia::elf {
         map_fn        map        = nullptr;
         resolve_fn    resolve    = nullptr;
         read_batch_fn read_batch = nullptr;
+        copy_fn       copy       = nullptr;
+    };
+
+    struct async_env {
+        void*         ctx        = nullptr;
+        map_fn        map        = nullptr;
+        resolve_fn    resolve    = nullptr;
+        async_read_fn read       = nullptr;
         copy_fn       copy       = nullptr;
     };
 
@@ -149,6 +159,7 @@ namespace astia::elf {
     /// Streaming executable loader. Reads only the ELF header/PHDR table and
     /// then fetches PT_LOAD file ranges through env::read_batch.
     bool load_executable_stream(const env& e, usize file_size, image& out);
+    core::task<image> load_executable_stream(const async_env& e, usize file_size);
 
     /// Dispatch to the right loader based on kind_of(). Returns false for
     /// anything that is not a supported ELF image.
