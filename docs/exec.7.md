@@ -1,40 +1,75 @@
 # Asynchronous ELF loading and `execve`
 
-The process loader is stateful because executable bytes arrive asynchronously.
-It does not hold a filesystem or process lock across an await, and it builds a
-replacement image before publishing it as the process image.
+## NAME
 
-## Streaming ELF loader
+`execve(2)`, `elf::load_executable_stream()` — replace a process image from an
+ELF file while kernel I/O is asynchronous.
 
-`elf::load_executable_stream()` first reads the ELF header and program-header
-table through an `async_env`. It then reads each `PT_LOAD` file range in
-chunks, maps the segment pages, zero-fills the memory tail, applies the
-supported relative relocations, and records the entry point and load bias.
-The coroutine frame preserves the current phase, offsets, pending mapping, and
-read result while an I/O task is suspended.
+## SYNOPSIS
 
-The process uses a staging page map. Segment mappings and TLS are installed in
-that map, and every failure path unmaps pending ranges and releases their
-frames. Only after the complete image and its startup stack are valid does the
-process adopt the map. ET_EXEC uses its fixed address; ET_DYN receives an
-allocator-selected load bias. Unsupported or malformed images fail rather
-than producing a partial address space.
+```c
+long execve(const char *path, char *const argv[], char *const envp[]);
+```
 
-## The `execve` continuation
+```cpp
+core::task<elf::image> elf::load_executable_stream(
+    const elf::async_env&, usize file_size);
+```
+
+## DESCRIPTION
+
+`execve` is synchronous from userspace but asynchronous inside the kernel. The
+syscall does not return while its runner waits for file I/O; the calling kernel
+thread yields and the scheduler runs other work. The loader never publishes a
+partial replacement image.
+
+## OPERATION/DATA FLOW
+
+`elf::load_executable_stream()` reads the ELF header and program-header table,
+validates the image, then reads each `PT_LOAD` range in 4096-byte chunks. It
+maps the complete span, zero-fills its memory tail, applies supported
+`R_X86_64_RELATIVE` relocations, reads the static TLS template, and records the
+entry point and load bias. ET_EXEC uses its fixed address; ET_DYN receives an
+allocator-selected bias.
+
+The process first builds a staging page map. Segment pages, TLS, and the
+startup stack are prepared there. Failed reads, malformed metadata, unsupported
+relocations, mapping failures, and frame failures unmap pending ranges and
+release their frames. Only a complete image is adopted.
 
 The syscall copies the path, argument vector, and environment vector into an
-`exec_continuation` before starting asynchronous work. The continuation owns
-the retained process, thread, file, staged arguments, and runner task. The
-runner awaits `process::exec_user_file_async()`, which performs the streaming
-load and startup-stack construction.
+`exec_continuation`. Its runner awaits
+`process::exec_user_file_async()`. When loading and stack construction succeed,
+close-on-exec descriptors are processed, the old image is replaced, and the
+saved syscall frame is changed to the new entry point and stack. On failure,
+the old image remains in place and the syscall returns the error.
 
-While the runner waits for I/O, the syscall continuation parks the calling
-thread and the scheduler can run other work. Completion records either the
-negative errno or the new entry and stack. On success, close-on-exec
-descriptors are processed, the old image is replaced, and the saved syscall
-frame is changed to enter the new image. On failure, the old image remains in
-place and the continuation returns the error.
+## LIFETIME/OWNERSHIP
 
-The continuation allocation, staged argument copy, task-frame allocation, and
-image mappings are independent failure points. Each must be checked before
-the old process image is changed.
+The continuation retains the process, calling thread, open file, staged
+arguments, and runner task until completion. The staging process owns the new
+page map and mappings before replacement. The coroutine frame preserves loader
+state, offsets, pending mappings, and read results across awaits.
+
+The old image is not changed until the staged image and startup stack are
+valid. Cleanup on every failure path is required before the continuation and
+its retained references are released.
+
+## ERRORS
+
+Invalid or inaccessible path, argument, and environment pointers return
+`-EFAULT`. Continuation, argument-staging, coroutine-frame, page-map, physical
+frame, or image allocation failures return `-ENOMEM`. Missing files return
+`-ENOENT`; empty or invalid executable files return `-ENOEXEC` or the loader's
+mapped `-EINVAL`. File and device failures propagate their negative errno.
+
+No error path changes the old process image. A successful `execve` does not
+return to the old userspace instruction; it enters the new image with its new
+entry point and startup stack.
+
+## NOTES
+
+The streaming path supports ELF64 ET_EXEC and ET_DYN images and only the
+relocation forms accepted by the loader. TLS is materialized for the new
+process. Argument copying and every allocation are completed and checked before
+close-on-exec processing or image publication.

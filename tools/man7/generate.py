@@ -341,8 +341,8 @@ def overview_pages(docs_root: Path) -> list[tuple[str, str, str]]:
     pages = []
     if not docs_root.is_dir():
         return pages
-    for path in sorted(docs_root.glob("*.7.md")):
-        name = path.name[:-len(".7.md")]
+    for path in sorted(docs_root.glob("*.md")):
+        name = path.name[:-len(".7.md")] if path.name.endswith(".7.md") else path.stem
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
             continue
         title, body = markdown_page(path.read_text(), name)
@@ -350,17 +350,27 @@ def overview_pages(docs_root: Path) -> list[tuple[str, str, str]]:
     return pages
 
 
-def render_overview(name: str, title: str, body: str) -> str:
+def render_overview(name: str, title: str, body: str, language: str = "en",
+                    translated: bool = False) -> str:
     page_title = f"{name}(7)"
+    polish = language == "pl"
+    index_href = "../index.html" if polish else "index.html"
+    stylesheet_href = "../nodivia.css" if polish else "nodivia.css"
+    language_link = ""
+    if translated:
+        if polish:
+            language_link = f' · <a href="../{html.escape(name)}.7.html">English</a>'
+        else:
+            language_link = f' · <a href="pl/{html.escape(name)}.7.html">Polski</a>'
     return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="{html.escape(language)}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(page_title)} - Astia manual</title>
-<link rel="stylesheet" href="nodivia.css"></head>
+<link rel="stylesheet" href="{stylesheet_href}"></head>
 <body><main class="surface surface__flex">
 <article class="surface__level__1 surface__minor">
 <h1>{html.escape(page_title)}</h1>
-<nav><a href="index.html">Astia manual index</a></nav>
+<nav><a href="{index_href}">Astia manual index</a>{language_link}</nav>
 {body}
 </article></main></body></html>
 """
@@ -478,6 +488,8 @@ def main() -> int:
 
     docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
     overviews = overview_pages(docs_root)
+    polish_overviews = overview_pages(docs_root / "pl")
+    polish_names = {name for name, _, _ in polish_overviews}
 
     args.output.mkdir(parents=True, exist_ok=True)
     # A deployment directory is commonly reused.  Remove only generated
@@ -490,6 +502,12 @@ def main() -> int:
     for old_page in args.output.glob("*.7.html"):
         if old_page.name not in expected_pages and old_page.name not in expected_overviews:
             old_page.unlink()
+    polish_output = args.output / "pl"
+    polish_output.mkdir(parents=True, exist_ok=True)
+    expected_polish_overviews = {f"{name}.7.html" for name, _, _ in polish_overviews}
+    for old_page in polish_output.glob("*.7.html"):
+        if old_page.name not in expected_polish_overviews:
+            old_page.unlink()
     for old_page in args.output.glob("architecture-*.html"):
         old_page.unlink()
     (args.output / "nodivia.css").write_text(args.css.read_text())
@@ -497,7 +515,12 @@ def main() -> int:
         (args.output / f"{name}.{section}.html").write_text(render(name, body, section))
     for name, title, body in overviews:
         (args.output / f"{name}.7.html").write_text(
-            render_overview(name, title, body)
+            render_overview(name, title, body, translated=name in polish_names)
+        )
+    english_names = {name for name, _, _ in overviews}
+    for name, title, body in polish_overviews:
+        (polish_output / f"{name}.7.html").write_text(
+            render_overview(name, title, body, "pl", translated=name in english_names)
         )
     groups_by_section: dict[int, dict[str, dict[str, list[tuple[str, int]]]]] = {}
     for (name, section), (_, group) in pages.items():
@@ -546,6 +569,15 @@ def main() -> int:
             + "".join(
                 f"<li><a href='{html.escape(name)}.7.html'>{html.escape(name)}(7)</a></li>"
                 for name, _, _ in overviews
+            )
+            + "</ul></section>"
+        )
+    if polish_overviews:
+        grouped_parts.append(
+            "<section class='surface__level__0 man-section'><h2>MAN 7 - OVERVIEWS (PL)</h2><ul>"
+            + "".join(
+                f"<li><a href='pl/{html.escape(name)}.7.html'>{html.escape(name)}(7)</a></li>"
+                for name, _, _ in polish_overviews
             )
             + "</ul></section>"
         )

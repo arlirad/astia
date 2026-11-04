@@ -1,45 +1,73 @@
-# Kernel coroutines and fibers
+# Kernel coroutine tasks and fibers
 
-Astia uses C++20 coroutines for stackless asynchronous control flow. A
-`core::task<T>` owns a coroutine handle and starts suspended. The caller owns
-when to call `resume()`, and a task must not be resumed concurrently from more
-than one CPU. Awaiting a task links the child continuation to its parent; the
-child's final suspend returns to that continuation.
+## NAME
 
-## `task<T>` and `task<void>`
+`core::task<T>`, `core::task<void>` — movable, stackless coroutine operations;
+`core::fiber` — stackful kernel execution context.
 
-`task<T>` stores a returned value or an `error_t` in its promise. Its frame uses
-the ordinary allocation path. `task<void>` is the error-only form used by
-operations that do not return a value, and has the same suspended, movable,
-single-owner lifetime model.
-
-Both forms are stackless: local variables that must survive an await live in
-the coroutine frame, not on a private execution stack.
-
-## The `task<void>` frame pool
-
-`task<void>` allocates frames from a lock-free fixed pool of 32 slots, each
-limited to 2048 bytes. A frame larger than one slot or an exhausted pool cannot
-be allocated. Coroutine allocation failure is converted to a task carrying
-`error_t::enomem`; callers must check `valid()`, `done()`, or `error()` before
-assuming that a task can run. Destroying a task returns its pool slot.
+## SYNOPSIS
 
 ```cpp
-auto operation = start_operation();
-if (!operation.valid())
-    return operation.error();
-operation.resume();
+core::task<T> operation();
+core::task<void> operation_without_value();
+
+bool task.resume();
+bool task.done() const;
+bool task.valid() const;
+error_t task.error() const;
+
+bool fiber.start();
+bool fiber.resume();
+static bool fiber::yield();
 ```
 
-The pool bounds frame storage, not the memory held by objects referenced from a
-frame. Those objects still need explicit ownership and lifetime management.
+## DESCRIPTION
 
-## Stackful fibers
+Astia uses C++20 coroutines for stackless asynchronous control flow. A
+`core::task<T>` owns a coroutine handle and starts suspended. `task<T>` stores a
+returned value or an `error_t`; `task<void>` is the error-only form. Both are
+move-only and require one owner to decide when `resume()` is called.
 
-`core::fiber` is a different primitive. Starting a fiber allocates a separate
-16 KiB kernel stack and two architecture contexts. Its entry function can call
-ordinary code and yield from that stack with `fiber::yield()`. A fiber is
-owned by the CPU on which it starts; `resume()` and `yield()` reject migration
-and nested active fibers. Use a fiber when preserving a call stack is the
-requirement, and a task when suspension points can be represented by a
-coroutine frame.
+Locals that must survive an await live in the coroutine frame. Awaiting a task
+links its child continuation to its parent, and the child's final suspend
+returns to that continuation. A task must not be resumed concurrently by more
+than one CPU.
+
+## OPERATION
+
+`resume()` runs one step, or a waiting child, and returns false when the task is
+empty or done. `co_await` consumes the child result and destroys the child
+frame. `value()` exposes a completed `task<T>` value; `error()` and `failed()`
+report the promise result.
+
+`task<void>` coroutine frames use a lock-free pool of 32 slots, each limited to
+2048 bytes. `task<T>` frames use the ordinary allocation path. The pool bounds
+frame storage only; it does not own objects referenced by a frame.
+
+## LIFETIME/OWNERSHIP
+
+Destroying or resetting a task destroys its coroutine frame. Destroying a
+`task<void>` returns its slot to the pool. Moving transfers the sole task
+owner and clears the source. Referenced files, buffers, and other objects must
+remain valid for the whole operation unless the frame stores an owning handle.
+
+`core::fiber` is stackful. Starting one allocates a 16 KiB kernel stack and two
+architecture contexts. Its entry function may call ordinary code and suspend
+that call stack with `fiber::yield()`. The fiber remains owned by the CPU on
+which it starts.
+
+## ERRORS
+
+An oversized `task<void>` frame or an exhausted frame pool produces an invalid
+task carrying `error_t::enomem`. Check `valid()`, `done()`, or `error()` before
+resuming it; awaiting an allocation-failed task yields `error_t::enomem`.
+
+`fiber::start()`, `fiber::resume()`, and `fiber::yield()` return false for an
+invalid or completed operation, an invalid entry point, allocation or context
+failure, CPU migration, or a nested active fiber.
+
+## NOTES
+
+Use a task when suspension points fit a coroutine frame. Use a fiber when
+preserving a conventional call stack is the requirement. Neither primitive
+provides scheduling, cancellation, or cross-CPU migration by itself.
