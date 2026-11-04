@@ -1,4 +1,5 @@
 add_library(fs STATIC
+        fs_async.cpp
         fs.cpp
         devfs.cpp
         initrd_fs.cpp

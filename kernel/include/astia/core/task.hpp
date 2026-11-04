@@ -24,12 +24,9 @@ namespace astia::core {
             handle            waiting{};
 
             static void* operator new(usize size) noexcept {
-                return ::operator new(size, std::nothrow);
+                return ::operator new(size);
             }
             static void operator delete(void* value) noexcept { ::operator delete(value); }
-            static task get_return_object_on_allocation_failure() noexcept {
-                return task(error_t::enomem);
-            }
             task get_return_object() { return task(handle::from_promise(*this)); }
             std::suspend_always initial_suspend() const noexcept { return {}; }
             struct final_awaiter {
