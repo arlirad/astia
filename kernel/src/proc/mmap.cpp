@@ -73,7 +73,7 @@ namespace astia::proc {
         /// highest hole that fits below the ceiling — first-fit from
         /// the top keeps MORECORE-style growth monotonic.  0 = no
         /// room.
-        u64 place(mmap_region* list, u64 hint, u64 want) {
+        u64 place(mmap_region* list, u64 hint, u64 want, bool stack = false) {
             const u64 page_bytes = mm::phys_region::frame_size;
             auto      overlaps   = [&](u64 at) -> bool {
                 for (mmap_region* it = list; it != nullptr; it = it->next) {
@@ -83,8 +83,9 @@ namespace astia::proc {
                 }
                 return false;
             };
+            const u64 ceiling = stack ? user_address_limit : user_mmap_top;
             if (hint != 0 && (hint % page_bytes) == 0 && hint + want >= hint &&
-                hint + want <= user_mmap_top && !overlaps(hint)) {
+                hint + want <= ceiling && !overlaps(hint)) {
                 return hint;
             }
             // Top-down first-fit over every hole, base-ascending: each
@@ -181,7 +182,7 @@ namespace astia::proc {
         bool reserved = false;
         {
             arch::interrupt_spinlock_guard guard(mmap_lock_);
-            base = place(mmap_regions_, hint, pages * page_bytes);
+            base = place(mmap_regions_, hint, pages * page_bytes, stack);
             astia_rlimit address_limit{};
             (void) get_rlimit(RLIMIT_AS, &address_limit);
             if (base != 0 && pages * page_bytes <= address_limit.current &&

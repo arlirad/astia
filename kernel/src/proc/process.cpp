@@ -196,33 +196,31 @@ namespace astia::proc {
             return length;
         }
 
-        // Arch-neutral write into a user region that is mapped in the
-        // child but not active here.  The caller owns the physical
-        // frames backing the region, so they are reachable through the
-        // kernel's direct-map translation (mm::frame_allocator).
-        bool write_user(u64 base, const u64* frames, u32 frame_count, u64 vaddr,
+        bool write_user(process* owner, u64 base, u64 top, u64 vaddr,
                         const void* src, usize length) {
             const auto* bytes = static_cast<const u8*>(src);
             while (length != 0) {
-                if (vaddr < base) {
+                if (vaddr < base || vaddr >= top || length > top - vaddr) {
                     return false;
                 }
-                const u64 offset = vaddr - base;
-                if (offset / mm::frame_allocator::frame_size >= frame_count) {
+                const u64 page = vaddr & ~mm::page_mask;
+                if (owner == nullptr || owner->address_space() == nullptr ||
+                    (owner->address_space()->translate(page) == arch::page_map::invalid &&
+                     !owner->cow_fault(page, false))) {
                     return false;
                 }
-                auto* page = static_cast<u8*>(mm::kernel_frames().to_virt(
-                    frames[offset / mm::frame_allocator::frame_size]));
-                if (page == nullptr) {
+                const u64 phys = owner->address_space()->translate(page);
+                auto*       target = static_cast<u8*>(mm::kernel_frames().to_virt(phys));
+                if (target == nullptr) {
                     return false;
                 }
-                const usize within = offset % mm::frame_allocator::frame_size;
+                const usize within = static_cast<usize>(vaddr - page);
                 usize       chunk  = mm::frame_allocator::frame_size - within;
                 if (chunk > length) {
                     chunk = length;
                 }
                 for (usize i = 0; i < chunk; ++i) {
-                    page[within + i] = bytes[i];
+                    target[within + i] = bytes[i];
                 }
                 bytes += chunk;
                 vaddr += chunk;
@@ -231,9 +229,8 @@ namespace astia::proc {
             return true;
         }
 
-        bool write_user_u64(u64 base, const u64* frames, u32 frame_count, u64 vaddr,
-                            u64 value) {
-            return write_user(base, frames, frame_count, vaddr, &value, sizeof(value));
+        bool write_user_u64(process* owner, u64 base, u64 top, u64 vaddr, u64 value) {
+            return write_user(owner, base, top, vaddr, &value, sizeof(value));
         }
 
         // Build the userspace startup frame on the child's user stack.
@@ -247,7 +244,7 @@ namespace astia::proc {
         //
         // Pure data layout in plain C++; the architecture only consumes
         // the resulting stack pointer via context_prepare_user.
-        bool build_initial_stack(u64 base, u64 top, const u64* frames, u32 frame_count,
+        bool build_initial_stack(process* owner, u64 base, u64 top,
                                  const char* const* argv, u32 argc,
                                  const char* const* envp, u32 envc, u64* rsp_out) {
             u64 cursor = top;
@@ -262,8 +259,8 @@ namespace astia::proc {
                     return false;
                 }
                 cursor -= length + 1;
-                if (!write_user(base, frames, frame_count, cursor, text, length) ||
-                    !write_user(base, frames, frame_count, cursor + length, "", 1)) {
+                if (!write_user(owner, base, top, cursor, text, length) ||
+                    !write_user(owner, base, top, cursor + length, "", 1)) {
                     return false;
                 }
                 envp_address[i - 1] = cursor;
@@ -275,8 +272,8 @@ namespace astia::proc {
                     return false;
                 }
                 cursor -= length + 1;
-                if (!write_user(base, frames, frame_count, cursor, text, length) ||
-                    !write_user(base, frames, frame_count, cursor + length, "", 1)) {
+                if (!write_user(owner, base, top, cursor, text, length) ||
+                    !write_user(owner, base, top, cursor + length, "", 1)) {
                     return false;
                 }
                 argv_address[i - 1] = cursor;
@@ -294,31 +291,31 @@ namespace astia::proc {
             }
 
             u64 at = cursor;
-            if (!write_user_u64(base, frames, frame_count, at, argc)) {
+            if (!write_user_u64(owner, base, top, at, argc)) {
                 return false;
             }
             at += sizeof(u64);
             for (u32 i = 0; i < argc; ++i, at += sizeof(u64)) {
-                if (!write_user_u64(base, frames, frame_count, at, argv_address[i])) {
+                if (!write_user_u64(owner, base, top, at, argv_address[i])) {
                     return false;
                 }
             }
-            if (!write_user_u64(base, frames, frame_count, at, 0)) { // argv NULL
+            if (!write_user_u64(owner, base, top, at, 0)) { // argv NULL
                 return false;
             }
             at += sizeof(u64);
             for (u32 i = 0; i < envc; ++i, at += sizeof(u64)) {
-                if (!write_user_u64(base, frames, frame_count, at, envp_address[i])) {
+                if (!write_user_u64(owner, base, top, at, envp_address[i])) {
                     return false;
                 }
             }
-            if (!write_user_u64(base, frames, frame_count, at, 0)) { // envp NULL
+            if (!write_user_u64(owner, base, top, at, 0)) { // envp NULL
                 return false;
             }
             at += sizeof(u64);
             // auxv AT_NULL terminator (type = 0, value = 0).
-            if (!write_user_u64(base, frames, frame_count, at, 0) ||
-                !write_user_u64(base, frames, frame_count, at + sizeof(u64), 0)) {
+            if (!write_user_u64(owner, base, top, at, 0) ||
+                !write_user_u64(owner, base, top, at + sizeof(u64), 0)) {
                 return false;
             }
 
@@ -822,50 +819,13 @@ namespace astia::proc {
         const arch::page_map* caller_map =
             caller == nullptr ? nullptr : caller->address_space();
         address_space_->activate();
-        constexpr u32 stack_pages = static_cast<u32>(user_stack_bytes / mm::page_size);
-        const u64     stack_base  = user_stack_top - user_stack_bytes;
-        const u64 run = mm::kernel_frames().alloc(stack_pages, mm::frame_flags::zeroed);
-        if (run == mm::frame_allocator::invalid_frame)
-            return false;
-        u64 frames[stack_pages]{};
-        for (u32 i = 0; i < stack_pages; ++i) {
-            frames[i] = run + u64{i} * mm::page_size;
-            if (!address_space_->map_4k(stack_base + u64{i} * mm::page_size, frames[i],
-                                        arch::page_flags::present |
-                                            arch::page_flags::writable |
-                                            arch::page_flags::user)) {
-                // map_4k may have allocated intermediate page tables, but the
-                // leaf frames are still ours.  Do not strand the whole run on
-                // a partial stack construction failure.
-                for (u32 done = 0; done < i; ++done)
-                    address_space_->unmap(stack_base + u64{done} * mm::page_size);
-                mm::kernel_frames().release(run, stack_pages);
-                if (caller_map != nullptr)
-                    caller_map->activate();
-                else
-                    arch::kernel_page_map()->activate();
-                return false;
-            }
-        }
-        auto* region = mm::phys_region::adopt(run, stack_pages);
-        if (region == nullptr) {
-            // adopt() does not own the frame run when allocation of its
-            // bookkeeping fails.
-            for (u32 done = 0; done < stack_pages; ++done)
-                address_space_->unmap(stack_base + u64{done} * mm::page_size);
-            mm::kernel_frames().release(run, stack_pages);
-            if (caller_map != nullptr)
-                caller_map->activate();
-            else
-                arch::kernel_page_map()->activate();
-            return false;
-        }
-        if (!register_mapping(stack_base, stack_pages,
-                              map_protection::read | map_protection::write, region)) {
-            // register_mapping adopts the region only on success.
-            region->release_ref();
-            for (u32 done = 0; done < stack_pages; ++done)
-                address_space_->unmap(stack_base + u64{done} * mm::page_size);
+        const u64 stack_base = user_stack_top - user_stack_bytes;
+        const u64 stack = map_anonymous(
+            stack_base, user_stack_bytes, map_protection::read | map_protection::write,
+            map_flags::priv | map_flags::anonymous | map_flags::stack);
+        if (stack != stack_base) {
+            if (stack < user_address_limit)
+                unmap(stack, user_stack_bytes);
             if (caller_map != nullptr)
                 caller_map->activate();
             else
@@ -881,9 +841,8 @@ namespace astia::proc {
             argv_list[argc++] = name_;
         while (envp != nullptr && envc < max_env_entries && envp[envc] != nullptr)
             envp_list[envc] = envp[envc], ++envc;
-        const bool built =
-            build_initial_stack(stack_base, user_stack_top, frames, stack_pages,
-                                argv_list, argc, envp_list, envc, rsp_out);
+        const bool built = build_initial_stack(this, stack_base, user_stack_top, argv_list,
+                                               argc, envp_list, envc, rsp_out);
         if (caller_map != nullptr)
             caller_map->activate();
         else

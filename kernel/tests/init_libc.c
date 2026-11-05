@@ -29,6 +29,18 @@ static void* libc_thread_worker(void* opaque) {
     return (void*) (unsigned long) (errno == EINTR ? 0x1234 : 0x1235);
 }
 
+static void* libc_stack_worker(void* opaque) {
+    (void) opaque;
+    volatile unsigned char stack_pages[8 * 4096];
+    unsigned int            checksum = 0;
+    for (unsigned int page = 0; page < 8; ++page) {
+        stack_pages[page * 4096]        = (unsigned char) (page + 1);
+        stack_pages[page * 4096 + 4095] = (unsigned char) (page + 17);
+        checksum += stack_pages[page * 4096] + stack_pages[page * 4096 + 4095];
+    }
+    return (void*) (unsigned long) (checksum == 200 ? 0x4567 : 0x4568);
+}
+
 static volatile unsigned int libc_futex_word;
 static volatile int          libc_futex_ready;
 
@@ -239,6 +251,16 @@ int main(int argc, char** argv) {
             return 24;
         if (value != 42 || result != (void*) (unsigned long) 0x1234 || errno != EAGAIN)
             return 25;
+    }
+
+    {
+        pthread_t worker;
+        if (pthread_create(&worker, NULL, libc_stack_worker, NULL) != 0)
+            return 58;
+        void* result = NULL;
+        if (pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x4567)
+            return 59;
     }
 
     /* 26-27: futex value comparison and wake ABI. */
