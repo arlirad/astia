@@ -82,3 +82,53 @@ build system search the machine's native headers or libraries:
   CFLAGS='--sysroot=/tmp/astia-sysroot -ffreestanding -fno-builtin -mno-red-zone' \
   LDFLAGS='--sysroot=/tmp/astia-sysroot -nostdlib -static'
 ```
+
+## Run the Open POSIX tests
+
+The first conformance batch is sourced from LTP's external
+`testcases/open_posix_testsuite` checkout. It is not copied into Astia and the
+harness refuses modified or untracked source checkouts. Clone it outside this
+repository, then build Astia libc and an unpatched zsh checkout:
+
+```sh
+git clone --depth=1 https://github.com/linux-test-project/ltp.git /tmp/ltp
+toolchain/build-init-libc.sh
+git clone --depth=1 https://github.com/zsh-users/zsh.git /tmp/zsh
+ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build toolchain/build-zsh.sh
+```
+
+Run the initial process/signal batch under the Astia kernel and QEMU:
+
+```sh
+POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh
+```
+
+The initial batch is `kill/2-1`, a runnable null-signal test. It currently
+passes as `POSIX_TEST kill/2-1 PASS rc=0`. `getpid/1-1` is currently a
+header/API build blocker: Astia lacks the test framework's pthread mutex and
+cancellation declarations and the `sysconf`, `mkstemp`, and `ftruncate` APIs.
+`kill/1-1` is currently blocked because Astia's `stdio.h` does not provide
+`perror`. Both are retained as explicit build probes. Select one test or all
+direct C tests in one Open POSIX interface directory:
+
+```sh
+POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --test getpid/1-1
+POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --category kill
+POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --test kill/2-1
+POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --list
+```
+
+`POSIX_TEST_BUILD` selects the work directory (default
+`/tmp/astia-posix-tests`), and `POSIX_TEST_TIMEOUT` changes the QEMU timeout.
+The work directory retains compile logs, the packaged initrd, and
+`logs/qemu.log`. Each test emits `POSIX_TEST ... PASS`, `FAIL`, or
+`UNSUPPORTED`; only PASS and UNSUPPORTED make the harness succeed. These are
+Astia results from the cross-built binaries in QEMU, never host-POSIX results.
+
+The suite's full conformance, functional, and stress trees are not yet
+claimed. The exact first-batch scope and observed blockers are tracked in
+`toolchain/posix-expected-failures.txt`; expand the batch only after building
+and running a selected category against Astia.
+
+The existing `libc_malloc_test` timeout is an unrelated verification gate and
+is not changed by this harness.

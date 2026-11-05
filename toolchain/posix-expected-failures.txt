@@ -1,0 +1,4 @@
+getpid/1-1 | header/API build blocked: pthread_mutex_t/PTHREAD_MUTEX_INITIALIZER, pthread cancellation, sysconf, mkstemp, and ftruncate are absent from Astia headers/API
+kill/1-1 | build blocked: perror is absent from Astia stdio.h
+conformance/interfaces/kill/* | category build stops at kill/1-1; kill/2-1 is the first runnable signal test
+functional/* | not selected: Astia does not yet provide the suite's pthread, semaphore, timer, or message-queue support
