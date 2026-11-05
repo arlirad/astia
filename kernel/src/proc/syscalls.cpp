@@ -95,7 +95,8 @@ namespace astia::proc {
                 constexpr usize bytes = sizeof(astia_x86_64_signal_context_t) + 8;
                 if (frame.rsp < bytes || disposition.restorer == 0)
                     goto fatal_signal;
-                const u64 context = frame.rsp - sizeof(astia_x86_64_signal_context_t);
+                const u64 context =
+                    (frame.rsp - sizeof(astia_x86_64_signal_context_t)) & ~u64{0xf};
                 const u64 retaddr = context - 8;
                 if (!sys::user_span_ok(span<u8>::bytes(retaddr, bytes)) ||
                     !sys::user_span_ok(
