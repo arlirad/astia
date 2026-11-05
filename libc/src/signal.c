@@ -107,6 +107,14 @@ int kill(int pid, int signal_number) {
     return 0;
 }
 
+int killpg(int process_group, int signal_number) {
+    if (process_group < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    return kill(-process_group, signal_number);
+}
+
 int raise(int signal_number) {
     return kill((int) astia_getpid(), signal_number);
 }

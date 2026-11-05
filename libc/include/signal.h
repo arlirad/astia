@@ -63,6 +63,7 @@ int sigaction(int signal, const struct sigaction* action, struct sigaction* old_
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set);
 int sigwait(const sigset_t* set, int* signal);
 int kill(int pid, int signal);
+int killpg(int process_group, int signal);
 int raise(int signal);
 int sigsuspend(const sigset_t* mask);
 sighandler_t signal(int signal, sighandler_t handler);
