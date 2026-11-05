@@ -1,5 +1,7 @@
 #pragma once
 
+#include <astia/api/signal_stack.h>
+
 #include <stdint.h>
 
 /* User-facing signal disposition ABI. */
@@ -18,13 +20,6 @@ typedef struct astia_siginfo {
     uint32_t uid;
     int32_t  status;
 } astia_siginfo_t;
-
-typedef struct astia_stack {
-    uintptr_t sp;
-    uint64_t  size;
-    int32_t   flags;
-    int32_t   reserved;
-} astia_stack_t;
 
 typedef struct astia_x86_64_signal_context {
     uint64_t rax, rbx, rcx, rdx, rsi, rdi;
@@ -46,10 +41,6 @@ typedef struct astia_x86_64_signal_context {
 #define ASTIA_CLD_CONTINUED 6
 
 #define ASTIA_SIGAIO 29
-#define ASTIA_SS_ONSTACK 1
-#define ASTIA_SS_DISABLE 2
-#define ASTIA_MINSIGSTKSZ 2048
-
 enum {
     ASTIA_SIG_BLOCK   = 0,
     ASTIA_SIG_UNBLOCK = 1,

@@ -31,6 +31,7 @@
 
 #include "wait.h"
 #include <astia/api/errno.h>
+#include <astia/api/signal_stack.h>
 #include <astia/api/signal.h>
 
 #include <stdint.h>

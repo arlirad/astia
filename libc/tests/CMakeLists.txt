@@ -6,6 +6,17 @@
 # itself.
 find_package(Threads REQUIRED)
 
+add_library(libc_syscalls_header_alone OBJECT syscalls_header_alone.c)
+add_library(libc_syscalls_header_libc OBJECT syscalls_header_libc.c)
+target_include_directories(libc_syscalls_header_alone PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../kernel/include
+)
+target_include_directories(libc_syscalls_header_libc PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../kernel/include
+)
+
 # astia_libc deliberately hides its internal port references.  Give the
 # host seams the same visibility so the linker resolves those references to
 # the test port instead of extracting the real syscall backend from the
