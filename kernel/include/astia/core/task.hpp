@@ -8,19 +8,97 @@
 
 namespace astia::core {
 
+    namespace detail {
+        struct resume_context;
+    }
+
+    struct task_link;
+
+    namespace detail {
+        struct resume_context {
+            bool                    active = false;
+            std::coroutine_handle<> pending{};
+            task_link*              links = nullptr;
+        };
+    }
+
     struct task_link {
         std::coroutine_handle<> continuation{};
         std::coroutine_handle<> waiting{};
+        task_link*              parent = nullptr;
+        detail::resume_context* resume = nullptr;
+        task_link*              resume_previous = nullptr;
+        task_link*              resume_next = nullptr;
     };
 
-    struct task_promise_base {
-        task_link link{};
-    };
+    namespace detail {
+        inline void detach_resume_context(task_link& link) noexcept {
+            auto* context = link.resume;
+            if (context == nullptr)
+                return;
+            if (link.resume_previous != nullptr)
+                link.resume_previous->resume_next = link.resume_next;
+            else
+                context->links = link.resume_next;
+            if (link.resume_next != nullptr)
+                link.resume_next->resume_previous = link.resume_previous;
+            link.resume = nullptr;
+            link.resume_previous = nullptr;
+            link.resume_next = nullptr;
+        }
 
-    inline task_link& task_link_of(std::coroutine_handle<> coroutine) {
-        using handle = std::coroutine_handle<task_promise_base>;
-        return handle::from_address(coroutine.address()).promise().link;
-    }
+        inline void attach_resume_context(task_link& link, resume_context& context) noexcept {
+            if (link.resume == &context)
+                return;
+            detach_resume_context(link);
+            link.resume = &context;
+            link.resume_previous = nullptr;
+            link.resume_next = context.links;
+            if (context.links != nullptr)
+                context.links->resume_previous = &link;
+            context.links = &link;
+        }
+
+        inline resume_context* inherited_resume_context(task_link& link) noexcept {
+            if (link.resume != nullptr)
+                return link.resume;
+            for (auto* parent = link.parent; parent != nullptr; parent = parent->parent) {
+                if (parent->resume != nullptr)
+                    return parent->resume;
+            }
+            return nullptr;
+        }
+
+        inline void clear_resume_context(resume_context& context) noexcept {
+            while (context.links != nullptr)
+                detach_resume_context(*context.links);
+        }
+
+        inline void resume_task(task_link& link, std::coroutine_handle<> continuation) noexcept {
+            auto* context = inherited_resume_context(link);
+            if (context != nullptr && context->active) {
+                attach_resume_context(link, *context);
+                if (link.parent != nullptr)
+                    attach_resume_context(*link.parent, *context);
+                context->pending = continuation;
+                return;
+            }
+            resume_context local{};
+            context = &local;
+            context->active = true;
+            context->pending = continuation;
+            attach_resume_context(link, *context);
+            if (link.parent != nullptr)
+                attach_resume_context(*link.parent, *context);
+            while (context->pending) {
+                auto next = context->pending;
+                context->pending = {};
+                next.resume();
+            }
+            context->active = false;
+            clear_resume_context(*context);
+        }
+    } // namespace detail
 
     template <typename T = void>
     class task;
@@ -31,7 +109,8 @@ namespace astia::core {
         struct promise_type;
         using handle = std::coroutine_handle<promise_type>;
 
-        struct promise_type : task_promise_base {
+        struct promise_type {
+            task_link        link{};
             T               value{};
             error_t         result = error_t::enone;
 
@@ -44,9 +123,10 @@ namespace astia::core {
             struct final_awaiter {
                 bool await_ready() const noexcept { return false; }
                 std::coroutine_handle<> await_suspend(handle current) const noexcept {
-                    return current.promise().link.continuation
-                               ? current.promise().link.continuation
-                                                           : std::noop_coroutine();
+                    auto continuation = current.promise().link.continuation;
+                    if (continuation)
+                        detail::resume_task(current.promise().link, continuation);
+                    return std::noop_coroutine();
                 }
                 void await_resume() const noexcept {}
             };
@@ -54,6 +134,18 @@ namespace astia::core {
             void return_value(T value_) noexcept { value = static_cast<T&&>(value_); }
             void return_value(error_t error) noexcept { result = error; }
             void unhandled_exception() const noexcept { __builtin_trap(); }
+
+            template <typename U>
+            auto await_transform(task<U>&& child) noexcept {
+                auto result = static_cast<task<U>&&>(child).operator co_await();
+                result.parent_link = &link;
+                return result;
+            }
+
+            template <typename Awaitable>
+            decltype(auto) await_transform(Awaitable&& awaitable) noexcept {
+                return static_cast<Awaitable&&>(awaitable);
+            }
         };
 
         task() = default;
@@ -90,9 +182,9 @@ namespace astia::core {
         bool resume() {
             if (done())
                 return false;
-            if (coroutine_.promise().link.waiting &&
-                !coroutine_.promise().link.waiting.done())
-                coroutine_.promise().link.waiting.resume();
+            auto waiting = coroutine_.promise().link.waiting;
+            if (waiting && !waiting.done())
+                waiting.resume();
             else
                 coroutine_.resume();
             return true;
@@ -101,12 +193,28 @@ namespace astia::core {
         struct awaiter {
             handle coroutine;
             std::coroutine_handle<> parent;
+            task_link* parent_link;
+            awaiter(handle value, std::coroutine_handle<> caller, task_link* link) noexcept
+                : coroutine(value), parent(caller), parent_link(link) {}
+            awaiter(awaiter&& other) noexcept
+                : coroutine(other.coroutine), parent(other.parent),
+                  parent_link(other.parent_link) {
+                other.coroutine   = {};
+                other.parent      = {};
+                other.parent_link = nullptr;
+            }
+            awaiter(const awaiter&)            = delete;
+            awaiter& operator=(const awaiter&) = delete;
+            ~awaiter() { destroy_child(); }
             bool await_ready() const noexcept { return !coroutine || coroutine.done(); }
             std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller) noexcept {
                 parent = caller;
-                task_link_of(parent).waiting = coroutine;
+                if (parent_link)
+                    parent_link->waiting = coroutine;
+                coroutine.promise().link.parent = parent_link;
                 coroutine.promise().link.continuation = caller;
-                return coroutine;
+                detail::resume_task(coroutine.promise().link, coroutine);
+                return std::noop_coroutine();
             }
             optional<T> await_resume() noexcept {
                 if (!coroutine)
@@ -115,21 +223,31 @@ namespace astia::core {
                 optional<T> result = error == error_t::enone
                                          ? optional<T>(coroutine.promise().value)
                                          : optional<T>(error);
-                coroutine.destroy();
-                if (parent)
-                    task_link_of(parent).waiting = {};
-                coroutine = {};
+                destroy_child();
+                if (parent_link)
+                    parent_link->waiting = {};
                 return result;
+            }
+            void destroy_child() noexcept {
+                if (!coroutine)
+                    return;
+                coroutine.promise().link.continuation = {};
+                coroutine.promise().link.parent       = nullptr;
+                detail::detach_resume_context(coroutine.promise().link);
+                coroutine.destroy();
+                coroutine = {};
             }
         };
         awaiter operator co_await() && noexcept {
-            awaiter value{coroutine_, {}};
+            awaiter value{coroutine_, {}, nullptr};
             coroutine_ = {};
             return value;
         }
         void reset() {
-            if (coroutine_)
+            if (coroutine_) {
+                detail::detach_resume_context(coroutine_.promise().link);
                 coroutine_.destroy();
+            }
             coroutine_ = {};
         }
 
@@ -196,41 +314,69 @@ namespace astia::core {
         struct awaiter {
             handle coroutine;
             std::coroutine_handle<> parent;
+            task_link* parent_link;
+
+            awaiter(handle value, std::coroutine_handle<> caller, task_link* link) noexcept
+                : coroutine(value), parent(caller), parent_link(link) {}
+            awaiter(awaiter&& other) noexcept
+                : coroutine(other.coroutine), parent(other.parent),
+                  parent_link(other.parent_link) {
+                other.coroutine   = {};
+                other.parent      = {};
+                other.parent_link = nullptr;
+            }
+            awaiter(const awaiter&)            = delete;
+            awaiter& operator=(const awaiter&) = delete;
+            ~awaiter() { destroy_child(); }
 
             bool await_ready() const noexcept {
                 return !coroutine || coroutine.done();
             }
             std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller) noexcept {
                 parent = caller;
-                task_link_of(parent).waiting = coroutine;
+                if (parent_link)
+                    parent_link->waiting = coroutine;
+                coroutine.promise().link.parent = parent_link;
                 coroutine.promise().link.continuation = caller;
-                return coroutine;
+                detail::resume_task(coroutine.promise().link, coroutine);
+                return std::noop_coroutine();
             }
             error_t await_resume() noexcept {
                 if (!coroutine)
                     return error_t::enomem;
                 const error_t result = coroutine.promise().result;
+                destroy_child();
+                if (parent_link)
+                    parent_link->waiting = {};
+                return result;
+            }
+            void destroy_child() noexcept {
+                if (!coroutine)
+                    return;
+                coroutine.promise().link.continuation = {};
+                coroutine.promise().link.parent       = nullptr;
+                detail::detach_resume_context(coroutine.promise().link);
                 coroutine.destroy();
                 coroutine = {};
-                if (parent)
-                    task_link_of(parent).waiting = {};
-                return result;
             }
         };
 
         awaiter operator co_await() && noexcept {
-            awaiter result{coroutine_};
+            awaiter result{coroutine_, {}, nullptr};
             coroutine_ = {};
             return result;
         }
 
         void reset() {
-            if (coroutine_)
+            if (coroutine_) {
+                detail::detach_resume_context(coroutine_.promise().link);
                 coroutine_.destroy();
+            }
             coroutine_ = {};
         }
 
-        struct promise_type : task_promise_base {
+        struct promise_type {
+            task_link link{};
 
             static void* operator new(usize size) noexcept {
                 return allocate_frame(size);
@@ -251,9 +397,10 @@ namespace astia::core {
             struct final_awaiter {
                 bool await_ready() const noexcept { return false; }
                 std::coroutine_handle<> await_suspend(handle current) const noexcept {
-                    return current.promise().link.continuation
-                               ? current.promise().link.continuation
-                               : std::noop_coroutine();
+                    auto continuation = current.promise().link.continuation;
+                    if (continuation)
+                        detail::resume_task(current.promise().link, continuation);
+                    return std::noop_coroutine();
                 }
                 void await_resume() const noexcept {}
             };
@@ -261,6 +408,18 @@ namespace astia::core {
             void return_value(error_t error) noexcept { result = error; }
             void unhandled_exception() const noexcept { __builtin_trap(); }
             error_t result = error_t::enone;
+
+            template <typename U>
+            auto await_transform(task<U>&& child) noexcept {
+                auto result = static_cast<task<U>&&>(child).operator co_await();
+                result.parent_link = &link;
+                return result;
+            }
+
+            template <typename Awaitable>
+            decltype(auto) await_transform(Awaitable&& awaitable) noexcept {
+                return static_cast<Awaitable&&>(awaitable);
+            }
         };
 
         private:
@@ -326,18 +485,14 @@ namespace astia::core {
 
         static void release_frame(void* value) noexcept {
             u32 index = 0;
-            if (!owns_frame(value, index)) {
+            if (!owns_frame(value, index))
                 return;
-            }
             u32 head = __atomic_load_n(&frame_head_, __ATOMIC_RELAXED);
             do {
                 frame_pool_[index].next = head;
             } while (!__atomic_compare_exchange_n(&frame_head_, &head, index, false,
                                                   __ATOMIC_RELEASE, __ATOMIC_RELAXED));
         }
-
-        static void* operator new(usize size) noexcept { return allocate_frame(size); }
-        static void operator delete(void* value) noexcept { release_frame(value); }
 
         public:
         static u32 pooled_frame_allocations() {

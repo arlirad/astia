@@ -21,6 +21,8 @@ namespace astia::fs {
                 co_return static_cast<error_t>(-submitted);
             if (submitted > 0)
                 co_return static_cast<i64>(submitted);
+            if (packet.request().complete())
+                co_return 0;
             auto result = co_await *operation;
             if (!result)
                 co_return result.error;

@@ -1,8 +1,17 @@
 #include "support/test.hpp"
 #include <astia/core/task.hpp>
 #include <astia/core/async_operation.hpp>
+#include <astia/mm/shptr.hpp>
+
+namespace astia::proc {
+    struct process {};
+}
 
 namespace {
+    struct custom_value {
+        int value;
+    };
+
     astia::core::task<> three_steps(int& steps) {
         ++steps;
         co_await astia::core::yield();
@@ -34,6 +43,62 @@ namespace {
         if (!result)
             co_return result.error;
         co_return result.value;
+    }
+
+    astia::core::task<custom_value> custom_task(int value) {
+        co_return custom_value{value};
+    }
+
+    astia::core::task<int> awaits_custom_task() {
+        auto result = co_await custom_task(41);
+        if (!result)
+            co_return result.error;
+        co_return result.value.value + 1;
+    }
+
+    astia::core::task<custom_value> awaits_int_task() {
+        auto result = co_await value_task();
+        if (!result)
+            co_return result.error;
+        co_return custom_value{result.value + 1};
+    }
+
+    using process_ptr = astia::mm::shptr<astia::proc::process>;
+
+    astia::core::task<astia::i64> read_for_spawn(
+        astia::core::async_operation<astia::i64>& operation) {
+        auto result = co_await operation;
+        if (!result)
+            co_return result.error;
+        co_return result.value;
+    }
+
+    astia::core::task<bool> map_for_spawn(
+        astia::core::async_operation<astia::i64>& operation) {
+        auto result = co_await read_for_spawn(operation);
+        if (!result)
+            co_return result.error;
+        co_return result.value == 4096;
+    }
+
+    astia::core::task<process_ptr> spawn_for_test(
+        astia::core::async_operation<astia::i64>& operation,
+        astia::proc::process* process) {
+        auto result = co_await map_for_spawn(operation);
+        if (!result)
+            co_return result.error;
+        if (!result.value)
+            co_return astia::error_t::eio;
+        co_return process_ptr::borrowed(process);
+    }
+
+    astia::core::task<astia::i64> drive_spawn_for_test(
+        astia::core::async_operation<astia::i64>& operation,
+        astia::proc::process* process) {
+        auto result = co_await spawn_for_test(operation, process);
+        if (!result)
+            co_return result.error;
+        co_return result.value ? 1 : 0;
     }
 }
 
@@ -108,6 +173,20 @@ ASTIA_TEST(task_returns_typed_value) {
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 42);
 }
 
+ASTIA_TEST(task_links_are_type_erased) {
+    auto int_task = awaits_custom_task();
+    while (!int_task.done())
+        ASTIA_CHECK(int_task.resume());
+    ASTIA_CHECK(int_task.error() == astia::error_t::enone);
+    ASTIA_CHECK(int_task.value() != nullptr && *int_task.value() == 42);
+
+    auto custom_task = awaits_int_task();
+    while (!custom_task.done())
+        ASTIA_CHECK(custom_task.resume());
+    ASTIA_CHECK(custom_task.error() == astia::error_t::enone);
+    ASTIA_CHECK(custom_task.value() != nullptr && custom_task.value()->value == 43);
+}
+
 ASTIA_TEST(async_operation_resumes_task_without_callback) {
     astia::core::async_operation<int> operation;
     auto task = waits_for_operation(operation);
@@ -117,4 +196,17 @@ ASTIA_TEST(async_operation_resumes_task_without_callback) {
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(task.error() == astia::error_t::enone);
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 77);
+}
+
+ASTIA_TEST(task_cross_type_chain_transfers_once) {
+    astia::core::async_operation<astia::i64> operation;
+    astia::proc::process process;
+    auto task = drive_spawn_for_test(operation, &process);
+
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+    ASTIA_CHECK(operation.complete(4096));
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(task.error() == astia::error_t::enone);
+    ASTIA_CHECK(task.value() != nullptr && *task.value() == 1);
 }
