@@ -60,14 +60,42 @@ their ASTIA branches bypass zsh's native fork handshake and signal wait
 protocol.  Native zsh expects the libc/kernel `fork`, `waitpid`, `sigsuspend`,
 process-group, and signal-restorer ABI directly.
 
-For an interactive serial session:
+## Launch zsh in QEMU
+
+From a fresh checkout, the complete flow is one command:
 
 ```sh
-ZSH_SOURCE=/tmp/zsh toolchain/run-zsh-qemu.sh
+./toolchain/run-zsh-qemu.sh
 ```
 
-Run it directly from a terminal.  Piping an already-closed stdin into QEMU
-is treated as EOF by the shell, so the interactive session exits immediately.
+The launcher clones a clean upstream zsh checkout into
+`/tmp/astia-zsh-build/source`, builds the kernel preflight artifacts when the
+default runtime or initrd is absent, builds the Astia libc/sysroot and native
+coreutils, and starts QEMU.  `ZSH_SOURCE` may name an existing complete zsh
+checkout and `ZSH_BUILD` selects the reusable build directory:
+
+```sh
+ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build \
+  ./toolchain/run-zsh-qemu.sh
+```
+
+The launcher never patches the zsh checkout.  A source tree without generated
+`configure` is copied to a private build staging directory before zsh's
+bootstrap step.  It checks only the source files required by the build and
+does not require a generated or patched tree.
+
+This is an interactive TTY launcher: run it directly from a terminal.  Do not
+pipe it or redirect stdin; an already-closed stdin makes the zsh session exit
+immediately.  `ASTIA_KERNEL` and `ASTIA_INITRD` override the default kernel
+runtime and initrd paths independently.
+
+For a clean rebuild:
+
+```sh
+rm -rf /tmp/astia-zsh-build /tmp/astia-zsh-run
+rm -rf kernel/build-tests
+./toolchain/run-zsh-qemu.sh
+```
 
 The launcher also builds the native Astia coreutils from `coreutils/` and
 places them in `/bin` (`cat`, `echo`, `env`, `false`, `head`, `pwd`, `true`,
@@ -134,3 +162,17 @@ and running a selected category against Astia.
 
 The existing `libc_malloc_test` timeout is an unrelated verification gate and
 is not changed by this harness.
+
+## Run the noninteractive zsh regression
+
+The regression runner does not require a TTY.  Build its inputs, then run it
+with the explicit initrd path (the runner's QEMU stdin is never interactive):
+
+```sh
+git clone --depth=1 https://github.com/zsh-users/zsh.git /tmp/zsh
+kernel/scripts/test.sh kernel/build-tests
+ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build toolchain/build-zsh.sh
+ASTIA_KERNEL="$PWD/kernel/build-tests/src/astiakrn_runtime" \
+ASTIA_INITRD="$PWD/kernel/build-tests/tests/fixtures/boot_initrd.tar" \
+ZSH_BUILD=/tmp/astia-zsh-build toolchain/run-zsh-regression.sh
+```
