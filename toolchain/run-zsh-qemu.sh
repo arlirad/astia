@@ -4,14 +4,24 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 zsh_build=${ZSH_BUILD:-/tmp/astia-zsh-build}
 zsh_source=${ZSH_SOURCE:-$zsh_build/source}
-kernel=${ASTIA_KERNEL:-$root/kernel/build-tests/src/astiakrn_runtime}
-base_initrd=${ASTIA_INITRD:-$root/kernel/build-tests/tests/fixtures/boot_initrd.tar}
+kernel_build=$root/kernel/build-tests
+kernel=${ASTIA_KERNEL:-$kernel_build/src/astiakrn_runtime}
+base_initrd=${ASTIA_INITRD:-$kernel_build/tests/fixtures/boot_initrd.tar}
 work=${ASTIA_ZSH_RUN:-/tmp/astia-zsh-run}
+clean_build=${ASTIA_CLEAN_BUILD:-0}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 target=x86_64-unknown-elf
 resource_dir=$($clang --target=$target -print-resource-dir)
 sysroot=$zsh_build/sysroot
+
+case "$clean_build" in
+    0|1) ;;
+    *)
+        echo "ASTIA_CLEAN_BUILD must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
 
 command -v "$qemu" >/dev/null 2>&1 || {
     echo "QEMU executable not found: $qemu" >&2
@@ -23,6 +33,14 @@ if [ ! -t 0 ]; then
     echo "run this script directly from a terminal, not through a closed pipe" >&2
     exit 2
 fi
+
+if [ "$clean_build" = 1 ]; then
+    echo "Cleaning kernel, zsh, and launcher build directories." >&2
+    rm -rf "$kernel_build" "$zsh_build" "$work"
+fi
+
+echo "Running the incremental kernel preflight." >&2
+"$root/kernel/scripts/test.sh" "$kernel_build"
 
 if [ -e "$zsh_source" ] && [ ! -d "$zsh_source" ]; then
     echo "zsh source is not a directory: $zsh_source" >&2
@@ -70,12 +88,6 @@ fi
 
 mkdir -p "$zsh_build"
 ZSH_SOURCE="$zsh_build_source" ZSH_BUILD="$zsh_build" "$root/toolchain/build-zsh.sh"
-
-if { [ -z "${ASTIA_KERNEL:-}" ] && [ ! -x "$kernel" ]; } ||
-    { [ -z "${ASTIA_INITRD:-}" ] && [ ! -f "$base_initrd" ]; }; then
-    echo "Default kernel artifacts are missing; running the kernel preflight." >&2
-    "$root/kernel/scripts/test.sh" "$root/kernel/build-tests"
-fi
 
 if [ ! -x "$kernel" ]; then
     echo "Astia kernel runtime is missing or not executable: $kernel" >&2

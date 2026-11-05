@@ -68,11 +68,12 @@ From a fresh checkout, the complete flow is one command:
 ./toolchain/run-zsh-qemu.sh
 ```
 
-The launcher clones a clean upstream zsh checkout into
-`/tmp/astia-zsh-build/source`, builds the kernel preflight artifacts when the
-default runtime or initrd is absent, builds the Astia libc/sysroot and native
-coreutils, and starts QEMU.  `ZSH_SOURCE` may name an existing complete zsh
-checkout and `ZSH_BUILD` selects the reusable build directory:
+Every normal launch runs the incremental kernel preflight before building the
+userspace image, so source changes cannot leave the default runtime stale.  It
+then clones a clean upstream zsh checkout into `/tmp/astia-zsh-build/source`,
+builds the Astia libc/sysroot and native coreutils, and starts QEMU.
+`ZSH_SOURCE` may name an existing complete zsh checkout and `ZSH_BUILD` selects
+the reusable build directory:
 
 ```sh
 ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build \
@@ -89,13 +90,30 @@ pipe it or redirect stdin; an already-closed stdin makes the zsh session exit
 immediately.  `ASTIA_KERNEL` and `ASTIA_INITRD` override the default kernel
 runtime and initrd paths independently.
 
-For a clean rebuild:
+For a clean rebuild of the kernel runtime/initrd, zsh build, and launcher work
+directory, use the explicit clean mode:
 
 ```sh
-rm -rf /tmp/astia-zsh-build /tmp/astia-zsh-run
-rm -rf kernel/build-tests
-./toolchain/run-zsh-qemu.sh
+ASTIA_CLEAN_BUILD=1 ./toolchain/run-zsh-qemu.sh
 ```
+
+Clean mode regenerates compatible default kernel artifacts and builds an
+unpatched zsh checkout before launching QEMU.  `ASTIA_KERNEL` and
+`ASTIA_INITRD` remain selected when supplied; their files are not removed by a
+normal launch, and are only replaced if clean mode explicitly removes their
+containing build directory.  To reuse existing zsh and kernel artifacts while
+still doing the normal incremental preflight, use:
+
+```sh
+ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build \
+ASTIA_KERNEL="$PWD/kernel/build-tests/src/astiakrn_runtime" \
+ASTIA_INITRD="$PWD/kernel/build-tests/tests/fixtures/boot_initrd.tar" \
+  ./toolchain/run-zsh-qemu.sh
+```
+
+The previous launcher was not a clean build: it ran the kernel test only when
+an artifact was missing, so an existing stale `astiakrn_runtime` could be
+reused.
 
 The launcher also builds the native Astia coreutils from `coreutils/` and
 places them in `/bin` (`cat`, `echo`, `env`, `false`, `head`, `pwd`, `true`,
