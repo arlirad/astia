@@ -299,6 +299,7 @@ enum {
     OP_RECVFROM       = 38,
     OP_EVENTFD_CREATE = 39,
     OP_LINKAT         = 40,
+    OP_FTRUNCATE      = 41,
 };
 
 /* OP_EVENTFD_CREATE flags.  The initial counter is in SQE::offset. */

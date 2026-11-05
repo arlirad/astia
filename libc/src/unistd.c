@@ -140,6 +140,22 @@ int close(int fd) {
     }
     return (int) rc;
 }
+int ftruncate(int fd, off_t length) {
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    if (length < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    long rc = __astia_fio_ftruncate(fd, (uint64_t) length);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return 0;
+}
 int umount(const char* target) {
     long rc = astia_unmount(target);
     if (rc < 0) {
@@ -260,6 +276,55 @@ char* mktemp(char* template_name) {
     (void) template_name;
     errno = ENOSYS;
     return NULL;
+}
+int mkstemp(char* template_name) {
+    static unsigned long sequence;
+    static const char    alphabet[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    unsigned long        seed;
+    size_t                length;
+    int                   attempt;
+
+    if (template_name == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    length = strlen(template_name);
+    if (length < 6 || memcmp(template_name + length - 6, "XXXXXX", 6) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    seed = (unsigned long) getpid() ^ ++sequence;
+    for (attempt = 0; attempt < 100; ++attempt) {
+        unsigned long value = seed + (unsigned long) attempt;
+        for (size_t i = 0; i < 6; ++i) {
+            template_name[length - 1 - i] = alphabet[value % 36];
+            value /= 36;
+        }
+        int fd = open(template_name, O_RDWR | O_CREAT | O_EXCL, 0600);
+        if (fd >= 0)
+            return fd;
+        if (errno != EEXIST)
+            return -1;
+    }
+    errno = EEXIST;
+    return -1;
+}
+long sysconf(int name) {
+    switch (name) {
+    case _SC_PAGESIZE:
+        return 4096;
+    case _SC_MAPPED_FILES:
+        return 1;
+    case _SC_CLK_TCK:
+        return 100;
+    case _SC_OPEN_MAX:
+        return 64;
+    case _SC_CHILD_MAX:
+        return 64;
+    default:
+        errno = EINVAL;
+        return -1;
+    }
 }
 int getgroups(int count, gid_t groups[]) {
     long rc = astia_getgroups(count, (uint32_t*) groups);

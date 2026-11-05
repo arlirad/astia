@@ -322,6 +322,10 @@ long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n) {
     return transact(OP_WRITE, fd, off, buf, (uint32_t) n, 0, 0);
 }
 
+long __astia_fio_ftruncate(int fd, uint64_t length) {
+    return transact(OP_FTRUNCATE, fd, length, NULL, 0, 0, 0);
+}
+
 long __astia_fio_readv(int fd, uint64_t off, const struct iovec* iov, uint32_t count) {
     /* The layout assert above is what makes this cast sound; for
        READV/WRITEV the SQE's length is the entry *count*, and its

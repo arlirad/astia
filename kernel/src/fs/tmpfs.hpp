@@ -71,10 +71,7 @@ namespace astia::fs {
         mm::phys_region* memory_region() override {
             return storage_;
         }
-        void truncate() {
-            core::spinlock_guard guard(lock_);
-            size_ = 0;
-        }
+        long truncate(u64 length) override;
 
         private:
         mm::phys_region* storage_ = nullptr;

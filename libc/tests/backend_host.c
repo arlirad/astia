@@ -152,6 +152,11 @@ long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n) {
     return r >= 0 ? (long) r : -HOST_ERRNO;
 }
 
+long __astia_fio_ftruncate(int fd, uint64_t length) {
+    long r = syscall(SYS_ftruncate, fd, (off_t) length);
+    return r < 0 ? -HOST_ERRNO : r;
+}
+
 long __astia_fio_readv(int fd, uint64_t off, const struct iovec* iov, uint32_t count) {
     ssize_t r;
 

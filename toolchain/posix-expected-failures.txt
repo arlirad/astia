@@ -1,2 +1,2 @@
-getpid/1-1 | header/API build blocked: pthread_mutex_t/PTHREAD_MUTEX_INITIALIZER, pthread cancellation, sysconf, mkstemp, and ftruncate are absent from Astia headers/API
+getpid/1-1 | build blocked by test-framework-only pthread_mutex_t/PTHREAD_MUTEX_INITIALIZER and pthread cancellation APIs; sysconf (_SC_OPEN_MAX=64, _SC_CHILD_MAX=64, _SC_CLK_TCK=100), mkstemp, and ftruncate are implemented but the external framework still cannot compile
 functional/* | not selected: Astia does not yet provide the suite's pthread, semaphore, timer, or message-queue support

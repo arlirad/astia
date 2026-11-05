@@ -120,6 +120,18 @@ namespace astia::fs {
         return static_cast<long>(length);
     }
 
+    long tmpfs_file::truncate(u64 length) {
+        core::spinlock_guard guard(lock_);
+        const u64 capacity = tmpfs_max_pages * mm::phys_region::frame_size;
+        if (length > capacity)
+            return -ENOSPC;
+        auto* bytes = static_cast<u8*>(storage_->page_direct(0));
+        for (u64 i = size_; i < length; ++i)
+            bytes[i] = 0;
+        size_ = length;
+        return 0;
+    }
+
     long tmpfs_file::touch(u64 sec, u64 nsec) {
         core::spinlock_guard guard(lock_);
         mtime_sec_  = sec;
@@ -156,7 +168,7 @@ namespace astia::fs {
         }
         if (existing) {
             if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0)
-                existing->truncate();
+                existing->truncate(0);
             return mm::share<open_file>(existing, flags);
         }
         if ((flags & oflag_creat) == 0) {
@@ -209,7 +221,7 @@ namespace astia::fs {
             return mm::share<open_file>(object, flags);
         if (existing) {
             if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0)
-                existing->truncate();
+                existing->truncate(0);
             return mm::share<open_file>(existing, flags);
         }
         return {};

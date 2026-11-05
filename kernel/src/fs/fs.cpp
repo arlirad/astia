@@ -971,6 +971,10 @@ namespace astia::fs {
         return -ESPIPE;
     }
 
+    long file::truncate(u64) {
+        return -EINVAL;
+    }
+
     file_mode file::mode() const {
         return file_mode(file_type::regular, default_file_permissions);
     }
@@ -1171,6 +1175,11 @@ namespace astia::fs {
         if (!_object)
             return -EBADF;
         return dispatch_size(_object.get());
+    }
+    long open_file::truncate(u64 length) {
+        if (!_object)
+            return -EBADF;
+        return _object->truncate(length);
     }
     mm::phys_region* open_file::mapping() const {
         return _object ? dispatch_mapping(_object.get()) : nullptr;

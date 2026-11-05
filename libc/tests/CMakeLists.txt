@@ -20,6 +20,10 @@ foreach(_t string ctype stdlib malloc snprintf)
   add_test(NAME libc_${_t}_test COMMAND libc_${_t}_test)
 endforeach()
 
+add_executable(libc_posix_file_test posix_file_test.c backend_host.c)
+target_link_libraries(libc_posix_file_test PRIVATE astia_libc)
+add_test(NAME libc_posix_file_test COMMAND libc_posix_file_test)
+
 add_executable(libc_conformance_test conformance_test.c backend_host.c process_host.c time_host.c)
 target_link_libraries(libc_conformance_test PRIVATE astia_libc)
 add_test(NAME libc_conformance_test COMMAND libc_conformance_test)

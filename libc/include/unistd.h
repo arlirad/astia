@@ -45,6 +45,7 @@ int          setreuid(unsigned int real_uid, unsigned int effective_uid);
 int          setregid(unsigned int real_gid, unsigned int effective_gid);
 int          access(const char* path, int mode);
 int          close(int fd);
+int          ftruncate(int fd, off_t length);
 int          umount(const char* target);
 int          mount(const char* type, const char* target, const char* source);
 int          dup(int fd);
@@ -93,6 +94,8 @@ int  waitpid(int pid, int* status, int options);
 unsigned int alarm(unsigned int seconds);
 unsigned int sleep(unsigned int seconds);
 char*        mktemp(char* template_name);
+int          mkstemp(char* template_name);
+long         sysconf(int name);
 int          chdir(const char* path);
 unsigned int umask(unsigned int mode);
 char*        getcwd(char* buffer, unsigned long length);
@@ -102,6 +105,13 @@ void         _exit(int status) __attribute__((noreturn));
 #define X_OK 1
 #define W_OK 2
 #define R_OK 4
+
+#define _SC_PAGESIZE 1
+#define _SC_PAGE_SIZE _SC_PAGESIZE
+#define _SC_MAPPED_FILES 2
+#define _SC_CLK_TCK 3
+#define _SC_OPEN_MAX 4
+#define _SC_CHILD_MAX 5
 
 #ifdef __cplusplus
 }
