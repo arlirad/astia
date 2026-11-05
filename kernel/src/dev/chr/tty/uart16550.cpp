@@ -425,10 +425,12 @@ namespace astia::dev {
             return -EINVAL;
         }
         const u8 lcr     = _ports[reg_lcr];
+        const u8 ier     = _ports[reg_ier];
         _ports[reg_lcr]  = static_cast<u8>(lcr | lcr_dlab);
         _ports[reg_data] = static_cast<u8>(divisor & 0xFF);
         _ports[reg_ier]  = static_cast<u8>(divisor >> 8);
         _ports[reg_lcr]  = lcr;
+        _ports[reg_ier]  = ier;
         return 0;
     }
 
