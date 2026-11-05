@@ -100,6 +100,16 @@ namespace {
             co_return result.error;
         co_return result.value ? 1 : 0;
     }
+
+    astia::core::task<int> waits_for_deferred_operation(
+        astia::core::async_operation<int>& operation, int& resumed,
+        int* order = nullptr, astia::usize index = 0) {
+        (void) co_await operation;
+        ++resumed;
+        if (order != nullptr)
+            order[index] = resumed - 1;
+        co_return resumed;
+    }
 }
 
 ASTIA_TEST(task_runs_and_suspends_at_yield) {
@@ -209,4 +219,39 @@ ASTIA_TEST(task_cross_type_chain_transfers_once) {
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(task.error() == astia::error_t::enone);
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 1);
+}
+
+ASTIA_TEST(async_operation_deferred_queue_overflow_is_lossless) {
+    constexpr astia::usize count = 300;
+    astia::core::async_operation<int> operations[count];
+    astia::core::task<int> tasks[count];
+    int order[count];
+    int resumed = 0;
+
+    for (astia::usize i = 0; i < count; ++i) {
+        order[i] = -1;
+        tasks[i] = waits_for_deferred_operation(operations[i], resumed, order, i);
+        ASTIA_CHECK(tasks[i].resume());
+    }
+    for (astia::usize i = 0; i < count; ++i)
+        ASTIA_CHECK(operations[i].complete_deferred(static_cast<int>(i)));
+
+    ASTIA_CHECK(astia::core::drain_resumes(static_cast<astia::u32>(count)) == count);
+    ASTIA_CHECK(resumed == static_cast<int>(count));
+    for (astia::usize i = 0; i < count; ++i) {
+        ASTIA_CHECK(tasks[i].done());
+        ASTIA_CHECK(order[i] == static_cast<int>(i));
+    }
+}
+
+ASTIA_TEST(async_operation_deferred_completion_is_canceled_before_destroy) {
+    astia::core::async_operation<int> operation;
+    int resumed = 0;
+    auto task = waits_for_deferred_operation(operation, resumed);
+
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(operation.complete_deferred(7));
+    task.reset();
+    ASTIA_CHECK(astia::core::drain_resumes() == 0);
+    ASTIA_CHECK(resumed == 0);
 }

@@ -1,0 +1,106 @@
+# Async audit
+
+Audit target: `5a3a317` (focused async/coroutine/AIO paths). The deferred
+continuation and stale-handle findings below are fixed by this slice; the AIO
+CQ findings remain open.
+
+## Confirmed findings
+
+### Fixed — deferred wake drops a live continuation
+
+`kernel/include/astia/core/async_operation.hpp:40-45` exchanges the waiting
+coroutine handle before calling `schedule_resume()`, then discards the boolean
+return value. `kernel/src/core/resume_queue.cpp:11-16` uses a fixed 256-entry
+queue and returns `false` when the per-CPU queue is full (or the CPU index is
+invalid). There is no retry, fallback, or cancellation of the extracted
+handle. The operation is nevertheless published completed at
+`async_operation.hpp:118-134`.
+
+Focused probe `/tmp/opencode/deferred_drop_probe.cpp` supplied a
+`schedule_resume()` implementation that always returned false. It observed:
+`complete=1 op_done=1 task_done=0 resumed=0`.
+`/tmp/opencode/resume_queue_capacity_probe.cpp` independently filled the real
+`mpmc_queue<coroutine_handle<>, 256>`: 256 pushes succeeded and the 257th
+returned false. Existing focused CTest tests passed, but none exercise this
+failure path.
+
+### Fixed — queued continuation can outlive a destroyed task frame
+
+`async_operation::wake_deferred()` removes the handle from the operation and
+publishes it to the resume queue (`async_operation.hpp:40-45`). `task::reset()`
+then destroys the coroutine frame without removing handles already queued
+(`task.hpp:246-251` and `370-375`). `drain_resumes()` unconditionally resumes
+each queued handle (`resume_queue.cpp:18-27`). Therefore completion followed by
+task destruction before queue drain leaves a stale handle in the queue; a later
+drain resumes a destroyed frame. The same race exists between
+`async_operation::wake()`'s atomic exchange (`async_operation.hpp:33-38`) and
+awaiter destruction (`async_operation.hpp:61-64, 181-187`): if wake exchanges
+the handle and is preempted before `resume()`, destruction can destroy the
+frame and wake then resumes it.
+
+The deterministic probe `/tmp/opencode/deferred_destroy_probe.cpp` captured a
+queued handle, reset the task, and then invoked the queued handle. It completed
+without an ASan diagnostic, but that invocation is still unconditional use of
+a destroyed `std::coroutine_handle`; the source-level interleaving is
+deterministic and the behavior is undefined.
+
+### High — AIO can consume an inline SQE while losing a full-CQ completion
+
+In `kernel/src/sys/aio.cpp:791-797`, an inline operation calls `cq_post()` but
+ignores its result, then unconditionally sets `p->done = true`. `cq_post()`
+explicitly returns false when `tail - head >= cq->entries`
+(`aio.cpp:567-597`). Thus a valid inline READ/WRITE/etc. can consume its SQE,
+drop its only CQE, and be reclaimed with no retry. The CQ sizing does not make
+this unreachable: users may submit additional SQEs after advancing SQ head
+without consuming existing CQEs, and the CQ is independently bounded.
+
+### High — parked AIO completion can remain permanently stuck after CQ full
+
+For a parked operation with no coroutine completion, `resume_parked()` leaves
+the operation used when `cq_post()` fails (`kernel/src/sys/aio.cpp:833-846`).
+The operation has already completed at the device, but no result is retained.
+After userspace consumes CQEs there is no CQ-consumer wake path that retries
+this operation; `io_submit()` only reaps completed slots and retriggers
+notification (`aio.cpp:2164-2173`). It therefore requires a later device-ready
+nudge, which may never occur, leaving the SQE consumed and the operation
+parked indefinitely.
+
+### Medium — parked `fs_async` request has no destruction cancellation
+
+`fs_async.cpp:8-29` stores `io_packet` and its `io_request` inside the
+coroutine frame, then passes the request by reference to `open_file::submit()`.
+The request contract explicitly permits a parked device to retain that
+reference (`kernel/include/astia/io.hpp:22-38`). Destroying the owning task
+while it is awaiting (`task.hpp:246-251` / `370-375`) destroys the packet and
+completion, but there is no device cancellation handshake. A device retaining
+the parked request can subsequently dereference freed storage. This is a
+real lifetime violation of the documented `io_request` contract, even though
+the in-tree tty/pipe/socket implementations currently retain readiness state
+rather than a raw request pointer.
+
+## Call-site results
+
+- `async_operation::complete()/fail()/cancel()` use inline `wake()` by design
+  (`async_operation.hpp:82-116`) and are appropriate only for task context.
+- No production callsite invokes those methods from an IRQ/device-ready path.
+  The IRQ-ready path is `io_device_ready_context()` → `resume_parked()` and
+  its async-operation branches use `complete_deferred()/fail_deferred()` at
+  `aio.cpp:819-840`.
+- No direct coroutine `.resume()` appears in the IRQ-ready path. The only
+  resume in `resume_queue.cpp` is scheduler drain context.
+- `grep` found async-operation allocation only in `fs_async.cpp`; current AIO
+  `parked_op` requests are constructed without an async-operation completion,
+  so the deferred-completion branches in AIO are defensive/future-facing.
+
+## Verification
+
+Focused CTest run passed:
+
+```text
+ctest --test-dir /tmp/opencode/astia-kernel-tests --output-on-failure \
+  -R 'astia_(task|fs_async|mpmc_queue|aio)_test'
+```
+
+Result: 4/4 focused tests passed, including 300 deferred completions and
+completion-before-destroy. Full kernel CTest passed 32/32. The AIO findings
+remain untested by an injectable CQ-full harness and are outside this slice.

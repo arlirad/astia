@@ -5,6 +5,7 @@
 #include <astia/common.hpp>
 #include <astia/error.hpp>
 #include <astia/optional.hpp>
+#include <astia/core/resume_queue.hpp>
 
 namespace astia::core {
 
@@ -245,6 +246,7 @@ namespace astia::core {
         }
         void reset() {
             if (coroutine_) {
+                cancel_resume(coroutine_);
                 detail::detach_resume_context(coroutine_.promise().link);
                 coroutine_.destroy();
             }
@@ -369,6 +371,7 @@ namespace astia::core {
 
         void reset() {
             if (coroutine_) {
+                cancel_resume(coroutine_);
                 detail::detach_resume_context(coroutine_.promise().link);
                 coroutine_.destroy();
             }

@@ -3,6 +3,7 @@
 #include <astia/error.hpp>
 #include <astia/optional.hpp>
 #include <astia/core/resume_queue.hpp>
+#include <astia/core/spinlock.hpp>
 
 #include <coroutine>
 
@@ -21,6 +22,7 @@ namespace astia::core {
 
         optional<T>              result_;
         u8                       state_ = static_cast<u8>(state::pending);
+        u8                       deferred_inflight_ = 0;
         std::coroutine_handle<>  continuation_{};
 
         bool finished() const {
@@ -38,10 +40,13 @@ namespace astia::core {
         }
 
         void wake_deferred() {
+            __atomic_store_n(&deferred_inflight_, 1, __ATOMIC_RELEASE);
             auto continuation = __atomic_exchange_n(
                 reinterpret_cast<void**>(&continuation_), nullptr, __ATOMIC_ACQ_REL);
-            if (continuation != nullptr)
-                (void) schedule_resume(std::coroutine_handle<>::from_address(continuation));
+            if (continuation != nullptr &&
+                !schedule_resume(std::coroutine_handle<>::from_address(continuation)))
+                __builtin_trap();
+            __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
         }
 
         public:
@@ -182,9 +187,14 @@ namespace astia::core {
             if (!continuation)
                 return;
             void* expected = continuation.address();
-            (void) __atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
-                                               &expected, nullptr, false,
-                                               __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+            const bool detached = __atomic_compare_exchange_n(
+                reinterpret_cast<void**>(&continuation_), &expected, nullptr, false,
+                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+            if (!detached) {
+                while (__atomic_load_n(&deferred_inflight_, __ATOMIC_ACQUIRE) != 0)
+                    ASTIA_CPU_RELAX();
+            }
+            cancel_resume(continuation);
         }
     };
 

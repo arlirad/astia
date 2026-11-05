@@ -49,10 +49,16 @@ astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
-astia_add_host_test(astia_task_test task_test.cpp)
+astia_add_host_test(astia_task_test
+        task_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp
+)
 astia_add_host_test(astia_fs_async_test
         fs_async_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_async.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp
 )
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
@@ -142,6 +148,8 @@ astia_add_host_test(astia_elf_test
         ${_fixture_dyn_cpp}
         ${_fixture_exec_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp
 )
 
 # initrd: the ustar reader, against a tarball built by make_initrd.sh (three
