@@ -27,7 +27,10 @@ namespace astia::proc {
         /// defaults to NX).  The arch translates these into its native
         /// bits.
         arch::page_flags pte_flags(map_protection prot) {
-            auto flags = arch::page_flags::present | arch::page_flags::user;
+            auto flags = arch::page_flags::present;
+            if (prot != map_protection::none) {
+                flags = flags | arch::page_flags::user;
+            }
             if (has(prot, map_protection::write)) {
                 flags = flags | arch::page_flags::writable;
             }
@@ -557,6 +560,220 @@ namespace astia::proc {
         if (!tail_used)
             delete tail;
         return 0;
+    }
+
+    i32 process::protect(u64 addr, usize len, map_protection prot) {
+        if (address_space_ == nullptr || len == 0 ||
+            (addr % mm::phys_region::frame_size) != 0 ||
+            static_cast<u64>(len) > ~u64{0} - mm::page_mask) {
+            return -EINVAL;
+        }
+        const u64 page_bytes = mm::phys_region::frame_size;
+        const u64 pages = (static_cast<u64>(len) + mm::page_mask) / page_bytes;
+        if (pages == 0 || pages > (u64{1} << 20) ||
+            pages > (~u64{0} / page_bytes)) {
+            return -EINVAL;
+        }
+        const u64 first = addr;
+        const u64 last = addr + pages * page_bytes;
+        if (last < first || last > user_address_limit) {
+            return -EINVAL;
+        }
+
+        auto segment_mapped_pages = [&](const mmap_region& source, u64 base,
+                                        u64 end) -> usize {
+            if (!source.stack) {
+                return static_cast<usize>((end - base) / page_bytes);
+            }
+            const u64 frontier = source.end() - source.mapped_pages * page_bytes;
+            const u64 mapped = base > frontier ? base : frontier;
+            return mapped < end ? static_cast<usize>((end - mapped) / page_bytes) : 0;
+        };
+        auto release_nodes = [](mmap_region* nodes) {
+            while (nodes != nullptr) {
+                mmap_region* next = nodes->next;
+                delete nodes;
+                nodes = next;
+            }
+        };
+
+        for (;;) {
+            usize needed = 0;
+            bool valid = true;
+            {
+                arch::interrupt_spinlock_guard guard(mmap_lock_);
+                u64 cursor = first;
+                mmap_region* it = mmap_regions_;
+                while (cursor < last) {
+                    while (it != nullptr && it->end() <= cursor)
+                        it = it->next;
+                    if (it == nullptr || it->pending || it->base > cursor) {
+                        valid = false;
+                        break;
+                    }
+                    const u64 end = it->end() < last ? it->end() : last;
+                    if (cursor < it->base || end <= cursor) {
+                        valid = false;
+                        break;
+                    }
+                    if (cursor > it->base)
+                        ++needed;
+                    if (end < it->end())
+                        ++needed;
+                    cursor = end;
+                    it = it->next;
+                }
+            }
+            if (!valid)
+                return -EINVAL;
+
+            mmap_region* spare = nullptr;
+            usize spare_count = 0;
+            while (spare_count < needed) {
+                mmap_region* node = alloc_region();
+                if (node == nullptr) {
+                    release_nodes(spare);
+                    return -ENOMEM;
+                }
+                node->next = spare;
+                spare = node;
+                ++spare_count;
+            }
+
+            bool retry = false;
+            bool success = false;
+            {
+                arch::interrupt_spinlock_guard guard(mmap_lock_);
+                usize current_needed = 0;
+                u64 cursor = first;
+                mmap_region* it = mmap_regions_;
+                while (cursor < last) {
+                    while (it != nullptr && it->end() <= cursor)
+                        it = it->next;
+                    if (it == nullptr || it->pending || it->base > cursor) {
+                        retry = false;
+                        break;
+                    }
+                    const u64 end = it->end() < last ? it->end() : last;
+                    if (cursor > it->base)
+                        ++current_needed;
+                    if (end < it->end())
+                        ++current_needed;
+                    cursor = end;
+                    it = it->next;
+                }
+                if (cursor != last) {
+                    success = false;
+                }
+                else if (current_needed > spare_count) {
+                    retry = true;
+                }
+                else {
+                    cursor = first;
+                    it = mmap_regions_;
+                    bool protected_ok = true;
+                    while (cursor < last) {
+                        while (it != nullptr && it->end() <= cursor)
+                            it = it->next;
+                        const u64 end = it->end() < last ? it->end() : last;
+                        const u64 middle = cursor > it->base ? cursor : it->base;
+                        const usize page = static_cast<usize>(
+                            (middle - it->base) / page_bytes + it->region_page);
+                        const usize count = static_cast<usize>((end - middle) / page_bytes);
+                        for (usize offset = 0; offset < count; ++offset) {
+                            const u64 virt = middle + offset * page_bytes;
+                            if (address_space_->translate(virt) == arch::page_map::invalid)
+                                continue;
+                            auto flags = pte_flags(prot);
+                            if (!it->shared && has(prot, map_protection::write) &&
+                                !it->backing->uniquely_held(page + offset)) {
+                                flags = static_cast<arch::page_flags>(
+                                    static_cast<u64>(flags) &
+                                    ~static_cast<u64>(arch::page_flags::writable));
+                            }
+                            if (!address_space_->protect_4k(virt, flags)) {
+                                protected_ok = false;
+                                break;
+                            }
+                        }
+                        if (!protected_ok)
+                            break;
+                        cursor = end;
+                        it = it->next;
+                    }
+                    if (!protected_ok) {
+                        success = false;
+                    }
+                    else {
+                        cursor = first;
+                        it = mmap_regions_;
+                        while (cursor < last) {
+                            while (it != nullptr && it->end() <= cursor)
+                                it = it->next;
+                            const mmap_region source = *it;
+                            const u64 end = source.end() < last ? source.end() : last;
+                            const u64 middle = cursor > source.base ? cursor : source.base;
+                            const bool left = middle > source.base;
+                            const bool right = end < source.end();
+                            mmap_region* middle_node = it;
+                            mmap_region* right_node = nullptr;
+                            auto take_spare = [&]() {
+                                mmap_region* node = spare;
+                                spare = spare->next;
+                                node->next = nullptr;
+                                --spare_count;
+                                return node;
+                            };
+                            auto fill = [&](mmap_region* node, u64 base, u64 limit,
+                                            map_protection value, bool holds_ref) {
+                                *node = source;
+                                node->base = base;
+                                node->pages = static_cast<usize>((limit - base) / page_bytes);
+                                node->prot = value;
+                                node->mapped_pages = segment_mapped_pages(source, base, limit);
+                                node->holds_ref = holds_ref;
+                                node->region_page = source.region_page +
+                                    static_cast<usize>((base - source.base) / page_bytes);
+                                node->file_offset = source.file_offset + (base - source.base);
+                                node->pending = false;
+                                node->next = nullptr;
+                            };
+                            if (left) {
+                                middle_node = take_spare();
+                                right_node = right ? take_spare() : nullptr;
+                                fill(it, source.base, middle, source.prot, source.holds_ref);
+                                fill(middle_node, middle, end, prot, false);
+                                if (right_node != nullptr)
+                                    fill(right_node, end, source.end(), source.prot, false);
+                                it->next = middle_node;
+                                middle_node->next = right_node != nullptr ? right_node : source.next;
+                                if (right_node != nullptr)
+                                    right_node->next = source.next;
+                            }
+                            else {
+                                right_node = right ? take_spare() : nullptr;
+                                fill(middle_node, middle, end, prot, source.holds_ref);
+                                if (right_node != nullptr) {
+                                    fill(right_node, end, source.end(), source.prot, false);
+                                    middle_node->next = right_node;
+                                    right_node->next = source.next;
+                                }
+                                else {
+                                    middle_node->next = source.next;
+                                }
+                            }
+                            cursor = end;
+                            it = right_node != nullptr ? right_node->next : middle_node->next;
+                        }
+                        success = true;
+                    }
+                }
+            }
+            release_nodes(spare);
+            if (retry)
+                continue;
+            return success ? 0 : -ENOMEM;
+        }
     }
 
     bool process::register_mapping(u64 base, usize pages, map_protection prot,

@@ -12,6 +12,7 @@
 #include "syscalls/ipc/futex.hpp"
 #include "syscalls/kill.hpp"
 #include "syscalls/memory/mmap.hpp"
+#include "syscalls/memory/mprotect.hpp"
 #include "syscalls/memory/munmap.hpp"
 #include "syscalls/process/chdir.hpp"
 #include "syscalls/process/execve.hpp"
@@ -259,6 +260,7 @@ namespace astia::proc {
                sys::register_syscall<syscall::getrlimit>(sys::syscall_id::getrlimit) &&
                sys::register_syscall<syscall::setrlimit>(sys::syscall_id::setrlimit) &&
                sys::register_syscall<syscall::mmap>(sys::syscall_id::mmap) &&
+               sys::register_syscall<syscall::mprotect>(sys::syscall_id::mprotect) &&
                sys::register_syscall<syscall::munmap>(sys::syscall_id::munmap) &&
                sys::register_syscall<syscall::fork>(sys::syscall_id::fork) &&
                sys::register_syscall<syscall::futex>(sys::syscall_id::futex) &&

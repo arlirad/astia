@@ -316,6 +316,8 @@ namespace astia::proc {
         /// or a negated errno.  Unmapping never-mapped space succeeds.
         i32 unmap(u64 addr, usize len);
 
+        i32 protect(u64 addr, usize len, map_protection prot);
+
         /// The mmap_region covering `addr`, or nullptr — the entry
         /// point for the future user page-fault path.
         mmap_region* find_region(u64 addr);

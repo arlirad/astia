@@ -240,6 +240,32 @@ int main(int argc, char** argv) {
             return 8;
     }
 
+    {
+        unsigned char* pages =
+            mmap(NULL, 2 * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (pages == MAP_FAILED)
+            return 61;
+        pages[0] = 0x31;
+        pages[4096] = 0x32;
+        if (mprotect(pages, 4096, PROT_READ) != 0 || pages[0] != 0x31 ||
+            mprotect(pages + 4096, 4096, PROT_NONE) != 0 ||
+            mprotect(pages + 4096, 4096, PROT_READ | PROT_WRITE) != 0 ||
+            mprotect(pages, 4096, PROT_READ | PROT_WRITE) != 0)
+            return 62;
+        pages[0] = 0x41;
+        pages[4096] = 0x42;
+        errno = 0;
+        if (mprotect(pages + 1, 4096, PROT_READ) != -1 || errno != EINVAL)
+            return 63;
+        if (mprotect(pages, 2 * 4096, PROT_READ) != 0 ||
+            mprotect(pages, 2 * 4096, PROT_READ | PROT_WRITE) != 0)
+            return 64;
+        pages[0] = 0x51;
+        pages[4096] = 0x52;
+        if (munmap(pages, 2 * 4096) != 0)
+            return 65;
+    }
+
     /* 9-15: file-backed mmap — /sbin/init's bytes captured into a
        private mapping that outlives the descriptor */
     {

@@ -48,7 +48,10 @@ namespace astia::proc::syscall {
             return static_cast<i64>(process->map_anonymous(
                 addr, static_cast<usize>(length), mapped_prot.value, mapped_flags.value));
         }
-        if (fd < 0 || off < 0) {
+        if (fd < 0) {
+            return -EBADF;
+        }
+        if (off < 0) {
             return -EINVAL;
         }
         auto mapped_fd = mapper<fd_t>::from(fd);

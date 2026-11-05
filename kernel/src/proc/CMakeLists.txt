@@ -31,6 +31,7 @@ add_library(proc STATIC
         syscalls/process/fork.cpp
         syscalls/process/rlimit.cpp
         syscalls/memory/mmap.cpp
+        syscalls/memory/mprotect.cpp
         syscalls/memory/munmap.cpp
         syscalls/ipc/futex.cpp
         syscalls/thread/yield.cpp

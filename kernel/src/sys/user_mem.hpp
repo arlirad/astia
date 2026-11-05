@@ -28,10 +28,10 @@
  * Validation checks: non-null (for nonzero length), entirely below
  * kernel_base, and every page translate()s in the caller's address
  * space — which is the active map for the whole duration of a syscall.
- * It does not check page *permissions* (no mprotect enforcement yet),
- * and it is TOCTOU against a concurrent munmap from another thread of
- * the same process; a blocking syscall must therefore keep no user
- * pointer across the block (copy in first, copy out after), and an
+ * It does not check page *permissions*; mprotect enforcement remains in
+ * the hardware fault path. It is TOCTOU against a concurrent munmap from
+ * another thread of the same process; a blocking syscall must therefore keep
+ * no user pointer across the block (copy in first, copy out after), and an
  * operation that parks for a device must pin the range instead
  * (pin_user_span) so its frames outlive the mapping.
  *

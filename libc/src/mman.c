@@ -31,3 +31,12 @@ int munmap(void* addr, size_t len) {
     }
     return (int) rc;
 }
+
+int mprotect(void* addr, size_t len, int prot) {
+    long rc = astia_mprotect(addr, (uint64_t) len, (uint32_t) prot);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return (int) rc;
+}

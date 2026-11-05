@@ -410,6 +410,36 @@ namespace astia::arch {
         return true;
     }
 
+    bool page_map::protect_4k(vaddr_t virt, page_flags flags) {
+        if (!valid() || !is_canonical(virt) || (virt & 0xfff) != 0) {
+            return false;
+        }
+        if (pml4_index(virt) == recursive_slot) {
+            return false;
+        }
+
+        const u64 pml4e = root_table(*this)[pml4_index(virt)];
+        if ((pml4e & entry_present) == 0) {
+            return false;
+        }
+        const u64 pdpe =
+            next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
+        if ((pdpe & (entry_present | entry_huge)) != entry_present) {
+            return false;
+        }
+        const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
+        if ((pde & (entry_present | entry_huge)) != entry_present) {
+            return false;
+        }
+        u64& pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
+        if ((pte & entry_present) == 0) {
+            return false;
+        }
+        pte = (pte & address_mask) | to_leaf(flags);
+        invalidate(virt);
+        return true;
+    }
+
     paddr_t page_map::translate(vaddr_t virt) const {
         if (!valid() || !is_canonical(virt)) {
             return invalid;

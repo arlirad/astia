@@ -96,6 +96,8 @@ namespace astia::arch {
         /// touched (false); the parent's mappings are never touched.
         bool unmap(vaddr_t virt);
 
+        bool protect_4k(vaddr_t virt, page_flags flags);
+
         /// Virtual to physical, or invalid. Consults the parent when this
         /// map has no entry of its own.
         paddr_t translate(vaddr_t virt) const;
