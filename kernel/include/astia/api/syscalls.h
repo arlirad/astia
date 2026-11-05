@@ -116,6 +116,7 @@ enum {
     SYS_MOUNT            = 47,
     SYS_GETRLIMIT        = 48,
     SYS_SETRLIMIT        = 49,
+    SYS_SIGWAIT          = 50,
 };
 
 /* ------------------------------------------------------------------ */
@@ -364,6 +365,10 @@ static inline long astia_sigaction(int32_t signal, const astia_sigaction_t* next
 
 static inline long astia_sigprocmask(int32_t how, uint32_t set, uint32_t* old) {
     return astia_raw6(SYS_SIGPROCMASK, (long) how, (long) set, (long) old, 0, 0, 0);
+}
+
+static inline long astia_sigwait(const uint32_t* set, int32_t* signal) {
+    return astia_raw6(SYS_SIGWAIT, (long) set, (long) signal, 0, 0, 0, 0);
 }
 
 /* pid > 0: wait for that child; pid == -1: any child.  On success the

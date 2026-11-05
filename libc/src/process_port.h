@@ -16,6 +16,7 @@ long __astia_process_spawnve(const char* path, char* const argv[], char* const e
 long __astia_process_execve(const char* path, char* const argv[], char* const envp[]);
 long __astia_process_fork(void);
 long __astia_process_sigsuspend(const unsigned int* mask);
+long __astia_process_sigwait(const unsigned int* set, int* signal);
 long __astia_process_futex(unsigned int* address, unsigned int operation,
                            unsigned int value);
 long __astia_process_thread_create(void (*entry)(void*), void* stack_top, void* argument);

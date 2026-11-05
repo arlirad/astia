@@ -50,6 +50,20 @@ namespace astia {
             return static_cast<signal_number>(0);
         }
 
+        signal_number take_matching(signal_mask mask) {
+            signal_lock_guard guard(lock_);
+            const signal_mask available = pending_ & mask;
+            if (available == 0)
+                return static_cast<signal_number>(0);
+            for (u8 value = 1; value < signal_count; ++value) {
+                if ((available & (signal_mask{1} << value)) != 0) {
+                    pending_ &= ~(signal_mask{1} << value);
+                    return static_cast<signal_number>(value);
+                }
+            }
+            return static_cast<signal_number>(0);
+        }
+
         void block(signal_mask mask) {
             signal_lock_guard guard(lock_);
             blocked_ |= mask;

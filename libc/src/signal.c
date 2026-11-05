@@ -93,6 +93,11 @@ int sigprocmask(int how, const sigset_t* set, sigset_t* old_set) {
     return 0;
 }
 
+int sigwait(const sigset_t* set, int* signal) {
+    const long rc = __astia_process_sigwait(set, signal);
+    return rc < 0 ? (int) -rc : 0;
+}
+
 int kill(int pid, int signal_number) {
     const long rc = astia_kill(pid, signal_number);
     if (rc < 0) {

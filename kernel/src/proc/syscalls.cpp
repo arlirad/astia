@@ -25,6 +25,7 @@
 #include "syscalls/signal/sigprocmask.hpp"
 #include "syscalls/signal/sigreturn.hpp"
 #include "syscalls/signal/sigsuspend.hpp"
+#include "syscalls/signal/sigwait.hpp"
 #include "syscalls/thread/thread_create.hpp"
 #include "syscalls/thread/thread_create2.hpp"
 #include "syscalls/thread/thread_detach.hpp"
@@ -216,6 +217,7 @@ namespace astia::proc {
                sys::register_syscall<syscall::spawnve>(sys::syscall_id::spawnve) &&
                sys::register_syscall<syscall::execve>(sys::syscall_id::execve) &&
                sys::register_syscall<syscall::sigsuspend>(sys::syscall_id::sigsuspend) &&
+               sys::register_syscall<syscall::sigwait>(sys::syscall_id::sigwait) &&
                sys::register_syscall<syscall::getpgrp>(sys::syscall_id::getpgrp) &&
                sys::register_syscall<syscall::setpgid>(sys::syscall_id::setpgid) &&
                sys::register_syscall<syscall::setsid>(sys::syscall_id::setsid) &&

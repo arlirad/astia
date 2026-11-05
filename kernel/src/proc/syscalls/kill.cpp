@@ -2,6 +2,7 @@
 
 #include "../mapping.hpp"
 #include "../proc.hpp"
+#include "../signal_permission.hpp"
 #include <astia/api/errno.h>
 
 namespace astia::proc::syscall {
@@ -29,6 +30,12 @@ namespace astia::proc::syscall {
         auto target = retain_process(mapped_pid.value);
         if (!target)
             return -ESRCH;
+        auto* sender = current_process();
+        if (sender == nullptr)
+            return -ESRCH;
+        if (!signal_permission(sender->uid(), sender->euid(), target->uid(),
+                               target->euid()))
+            return -EPERM;
         if (signal_raw == 0)
             return 0;
         if (!target->signals().send(mapped_signal.value))

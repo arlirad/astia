@@ -39,6 +39,10 @@ long __astia_process_sigsuspend(const unsigned int* mask) {
     return astia_raw6(SYS_SIGSUSPEND, (long) mask, 0, 0, 0, 0, 0);
 }
 
+long __astia_process_sigwait(const unsigned int* set, int* signal) {
+    return astia_raw6(SYS_SIGWAIT, (long) set, (long) signal, 0, 0, 0, 0);
+}
+
 long __astia_process_futex(unsigned int* address, unsigned int operation,
                            unsigned int value) {
     return astia_futex((uint64_t*) address, operation, value, NULL, 0, NULL);

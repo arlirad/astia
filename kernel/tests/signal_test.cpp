@@ -2,6 +2,7 @@
 #include <astia/api/signal.h>
 
 #include <signal.hpp>
+#include "../src/proc/signal_permission.hpp"
 
 ASTIA_TEST(signal_state_queues_and_masks_signals) {
     astia::signal_state state;
@@ -12,6 +13,42 @@ ASTIA_TEST(signal_state_queues_and_masks_signals) {
     ASTIA_CHECK(state.take_unblocked() == static_cast<astia::signal_number>(0));
     state.unblock(astia::signal_bit(astia::signal_number::int_));
     ASTIA_CHECK(state.take_unblocked() == astia::signal_number::int_);
+}
+
+ASTIA_TEST(signal_state_sigwait_consumes_only_matching_signal) {
+    astia::signal_state state;
+    ASTIA_CHECK(state.send(astia::signal_number::int_));
+    ASTIA_CHECK(state.send(astia::signal_number::usr1));
+    ASTIA_CHECK(state.take_matching(astia::signal_bit(astia::signal_number::usr1)) ==
+                astia::signal_number::usr1);
+    ASTIA_CHECK(state.pending() == astia::signal_bit(astia::signal_number::int_));
+    ASTIA_CHECK(state.take_matching(astia::signal_bit(astia::signal_number::usr1)) ==
+                static_cast<astia::signal_number>(0));
+}
+
+ASTIA_TEST(signal_state_sigwait_restores_mask_and_preserves_pending_signal) {
+    astia::signal_state state;
+    const auto          prior = astia::signal_bit(astia::signal_number::term);
+    const auto          waited = astia::signal_bit(astia::signal_number::usr1);
+
+    state.set_blocked(prior);
+    ASTIA_CHECK(state.send(astia::signal_number::int_));
+    ASTIA_CHECK(state.send(astia::signal_number::usr1));
+    state.block(waited);
+    ASTIA_CHECK(state.blocked() == (prior | waited));
+    ASTIA_CHECK(state.take_matching(waited) == astia::signal_number::usr1);
+    ASTIA_CHECK(state.pending() == astia::signal_bit(astia::signal_number::int_));
+    state.set_blocked(prior);
+    ASTIA_CHECK(state.blocked() == prior);
+    ASTIA_CHECK(state.take_unblocked() == astia::signal_number::int_);
+}
+
+ASTIA_TEST(signal_permission_matches_process_credentials) {
+    ASTIA_CHECK(astia::proc::signal_permission(1, 1, 0, 0) == false);
+    ASTIA_CHECK(astia::proc::signal_permission(1, 1, 1, 0));
+    ASTIA_CHECK(astia::proc::signal_permission(1, 1, 0, 1));
+    ASTIA_CHECK(astia::proc::signal_permission(0, 1, 0, 1));
+    ASTIA_CHECK(astia::proc::signal_permission(1, 0, 0, 0));
 }
 
 ASTIA_TEST(signal_state_protects_uncatchable_signals) {

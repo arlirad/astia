@@ -70,3 +70,11 @@ add_test(NAME libc_descriptor_test COMMAND libc_descriptor_test)
 add_executable(libc_errno_test errno_test.c)
 target_link_libraries(libc_errno_test PRIVATE astia_libc Threads::Threads)
 add_test(NAME libc_errno_test COMMAND libc_errno_test)
+
+add_executable(libc_perror_test perror_test.c backend_host.c)
+target_link_libraries(libc_perror_test PRIVATE astia_libc)
+add_test(NAME libc_perror_test COMMAND libc_perror_test)
+
+add_executable(libc_sigwait_test sigwait_test.c backend_host.c process_host.c)
+target_link_libraries(libc_sigwait_test PRIVATE astia_libc)
+add_test(NAME libc_sigwait_test COMMAND libc_sigwait_test)

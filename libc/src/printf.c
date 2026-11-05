@@ -1,7 +1,10 @@
+#include <errno.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 static int emit_formatted(FILE* stream, const char* format, va_list ap) {
     va_list measure;
@@ -70,4 +73,34 @@ int puts(const char* s) {
 
 int putchar(int c) {
     return fputc(c, stdout);
+}
+
+static void write_all(int fd, const char* buffer, size_t length) {
+    while (length != 0) {
+        long written = write(fd, buffer, length);
+        if (written > 0) {
+            buffer += written;
+            length -= (size_t) written;
+        }
+        else if (written < 0 && errno == EINTR) {
+            continue;
+        }
+        else {
+            return;
+        }
+    }
+}
+
+void perror(const char* s) {
+    int         error = errno;
+    const char* message;
+
+    message = strerror(error);
+    if (s != NULL && *s != '\0') {
+        write_all(fileno(stderr), s, strlen(s));
+        write_all(fileno(stderr), ": ", 2);
+    }
+    write_all(fileno(stderr), message, strlen(message));
+    write_all(fileno(stderr), "\n", 1);
+    errno = error;
 }

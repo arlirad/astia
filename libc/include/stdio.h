@@ -108,6 +108,7 @@ int printf(const char* format, ...) ASTIA_PRINTF_FMT(1, 2);
 int fprintf(FILE* stream, const char* format, ...) ASTIA_PRINTF_FMT(2, 3);
 int puts(const char* s);
 int putchar(int c);
+void perror(const char* s);
 int vscanf(const char* format, va_list ap);
 int vsscanf(const char* input, const char* format, va_list ap);
 int vfscanf(FILE* stream, const char* format, va_list ap);
