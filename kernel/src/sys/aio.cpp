@@ -273,6 +273,9 @@ namespace astia::sys {
             u32                      poll_events           = 0;
             bool                     recvfrom_address      = false;
             u64                      recvfrom_address_user = 0;
+            bool                     pending_cqe           = false;
+            u64                      pending_user_data     = 0;
+            i32                      pending_result         = 0;
             i32                      fd;
             mm::shptr<fs::open_file> object;
             /// The caller's frames, held for the whole flight of the
@@ -701,6 +704,24 @@ namespace astia::sys {
 
         void resume_parked(astia_rings* ring, parked_op& op);
 
+        bool publish_pending(astia_rings* ring, parked_op& op) {
+            if (!op.pending_cqe)
+                return true;
+            if (!cq_post(ring, op.pending_user_data, op.pending_result))
+                return false;
+            op.pending_cqe = false;
+            op.done        = true;
+            return true;
+        }
+
+        void retry_pending(ring_slot& slot, astia_rings* ring) {
+            for (u32 i = 0; i < parked_operation_slots; ++i) {
+                parked_op& op = slot.park[i];
+                if (op.used && op.pending_cqe && !publish_pending(ring, op))
+                    break;
+            }
+        }
+
         /// Start one operation through the device's submit() seam.  The park
         /// slot is taken up front so the request sits at its final address
         /// before the device ever sees it: handing a device a stack-local
@@ -725,8 +746,7 @@ namespace astia::sys {
             if (p == nullptr) {
                 // Every slot is in flight.  Fail this op rather than stall
                 // the ring — same answer the pre-seam overflow gave.
-                (void) cq_post(ring, s.user_data, -EBUSY);
-                return true;
+                return cq_post(ring, s.user_data, -EBUSY);
             }
             p->used                  = true;
             p->done                  = false;
@@ -738,6 +758,9 @@ namespace astia::sys {
             p->socket_accept         = socket_accept;
             p->readiness             = false;
             p->poll_events           = 0;
+            p->pending_cqe           = false;
+            p->pending_user_data     = 0;
+            p->pending_result        = 0;
             p->recvfrom_address      = s.op == OP_RECVFROM;
             p->recvfrom_address_user = p->recvfrom_address ? s.offset : 0;
 
@@ -755,8 +778,13 @@ namespace astia::sys {
                     // Leave the resources in the slot until task context
                     // reaps it below; pin/file release must not run under the
                     // ring lock, even for a rejected submission.
-                    p->done = true;
-                    (void) cq_post(ring, s.user_data, static_cast<i32>(pinned));
+                    if (!cq_post(ring, s.user_data, static_cast<i32>(pinned))) {
+                        p->pending_cqe       = true;
+                        p->pending_user_data = s.user_data;
+                        p->pending_result    = static_cast<i32>(pinned);
+                    }
+                    else
+                        p->done = true;
                     return true;
                 }
             }
@@ -789,7 +817,12 @@ namespace astia::sys {
                     p->request.completion()->complete_deferred(static_cast<i64>(result));
             }
             else
-                (void) cq_post(ring, s.user_data, static_cast<i32>(result));
+                if (!cq_post(ring, s.user_data, static_cast<i32>(result))) {
+                    p->pending_cqe       = true;
+                    p->pending_user_data = s.user_data;
+                    p->pending_result    = static_cast<i32>(result);
+                    return true;
+                }
             // Reap after the ring lock is released; this operation uses the
             // same park storage so its pins and open-file reference follow
             // the parked cleanup rule too.
@@ -809,6 +842,11 @@ namespace astia::sys {
             if (op.resuming || op.done)
                 return;
             op.resuming = true;
+            if (op.pending_cqe) {
+                (void) publish_pending(ring, op);
+                op.resuming = false;
+                return;
+            }
             if (op.readiness) {
                 const u32 ready = op.object ? op.object->poll(op.poll_events)
                                             : static_cast<u32>(POLLNVAL);
@@ -820,7 +858,12 @@ namespace astia::sys {
                     op.request.completion()->complete_deferred(static_cast<i64>(ready));
                     op.done = true;
                 }
-                else if (cq_post(ring, op.request.user_data(), static_cast<i32>(ready)))
+                else if (!cq_post(ring, op.request.user_data(), static_cast<i32>(ready))) {
+                    op.pending_cqe       = true;
+                    op.pending_user_data = op.request.user_data();
+                    op.pending_result    = static_cast<i32>(ready);
+                }
+                else
                     op.done = true;
                 op.resuming = false;
                 return;
@@ -840,8 +883,10 @@ namespace astia::sys {
                     op.request.completion()->complete_deferred(static_cast<i64>(result));
                 op.done = true;
             }
-            else if (cq_post(ring, op.request.user_data(), static_cast<i32>(result))) {
-                op.done = true;
+            else if (!cq_post(ring, op.request.user_data(), static_cast<i32>(result))) {
+                op.pending_cqe       = true;
+                op.pending_user_data = op.request.user_data();
+                op.pending_result    = static_cast<i32>(result);
             }
             op.resuming = false;
         }
@@ -2146,6 +2191,8 @@ namespace astia::sys {
         // The ring lock pins the slot while the submitter runs.  The pool is
         // needed only for lookup/lifetime, not for dispatch or CQ work.
         pool_guard.release_lock();
+
+        retry_pending(*slot, rings_of(*slot));
 
         astia_sq_ring* sq       = astia_rings_sq(ring);
         const u32      tail     = __atomic_load_n(&sq->tail, __ATOMIC_ACQUIRE);

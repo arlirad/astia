@@ -351,13 +351,227 @@ namespace astia::test {
         // or not an initrd is mounted on this boot.
         struct sized_probe : fs::file {
             mutable u32 stat_calls = 0;
+            u32         submit_calls = 0;
 
             long size() const override {
                 ++stat_calls;
                 return 4096;
             }
+
+            long submit(io_request& request) override {
+                ++submit_calls;
+                return static_cast<long>(request.length());
+            }
         };
         sized_probe probe_node{};
+
+        struct parked_probe : fs::file {
+            bool ready = false;
+            u32  submit_calls = 0;
+
+            long submit(io_request& request) override {
+                ++submit_calls;
+                if (!ready)
+                    return 0;
+                if (request.direction() == io_direction::input && request.length() != 0)
+                    static_cast<u8*>(request.buffer())[0] = 0x5a;
+                return static_cast<long>(request.length());
+            }
+        } parked_node{};
+
+        bool cq_full_completion_checks() {
+            static const char parked_path[] = "/dev/aio_cq_full_probe";
+            constexpr u64 inline_tag = 0xC0DE60;
+            constexpr u64 parked_tag = 0xC0DE61;
+            if (fs::register_device(
+                    parked_path, mm::shptr<fs::file>::borrowed(&parked_node)) < 0) {
+                logs::error("aio CQ fail (probe node)");
+                return false;
+            }
+
+            astia_rings* ring = nullptr;
+            if (sys::io_setup(8, 0, &ring) < 0 || ring == nullptr) {
+                logs::error("aio CQ fail (ring)");
+                return false;
+            }
+            auto inline_file = fs::open("/dev/statx_probe");
+            auto* current    = proc::current_process();
+            fd_t  inline_fd{-1};
+            if (!inline_file || current == nullptr) {
+                logs::error("aio CQ fail (inline open)");
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
+                if (current->set_descriptor(fd_t{fd}, inline_file)) {
+                    inline_fd = fd_t{fd};
+                    break;
+                }
+            }
+            if (inline_fd.value < 0) {
+                logs::error("aio CQ fail (inline fd)");
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            auto fill_cq = [&](u64 tag) {
+                astia_cq_ring* cq = astia_rings_cq(ring);
+                for (u32 i = astia_cq_ready(ring); i < cq->entries; ++i) {
+                    astia_sqe* s = astia_sqe_slot(ring);
+                    if (s == nullptr)
+                        return false;
+                    *s           = astia_sqe{};
+                    s->op        = OP_NOP;
+                    s->user_data = tag + i;
+                    astia_sq_publish(ring, 1);
+                    if (sys::io_submit(ring, 1) != 1)
+                        return false;
+                }
+                return astia_cq_ready(ring) == cq->entries;
+            };
+
+            if (!fill_cq(0xF000)) {
+                logs::error("aio CQ fail (fill inline)");
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            probe_node.submit_calls = 0;
+            u8 inline_buffer = 0;
+            astia_sqe* s = astia_sqe_slot(ring);
+            if (s == nullptr) {
+                logs::error("aio CQ fail (inline SQ slot)");
+                current->clear_descriptor(inline_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            *s           = astia_sqe{};
+            s->op        = OP_READ;
+            s->fd        = inline_fd.value;
+            s->address   = reinterpret_cast<u64>(&inline_buffer);
+            s->length    = 1;
+            s->user_data = inline_tag;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || probe_node.submit_calls != 1 ||
+                astia_cq_ready(ring) != astia_rings_cq(ring)->entries) {
+                logs::error("aio CQ fail (inline retained)");
+                current->clear_descriptor(inline_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            astia_cq_consume(ring, 1);
+            if (sys::io_submit(ring, 0) != 0 || astia_cq_ready(ring) !=
+                                                     astia_rings_cq(ring)->entries) {
+                logs::error("aio CQ fail (inline retry)");
+                current->clear_descriptor(inline_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            for (u32 i = 1; i < astia_rings_cq(ring)->entries; ++i)
+                astia_cq_consume(ring, 1);
+            astia_cqe* c = astia_cq_peek(ring);
+            if (c == nullptr || c->user_data != inline_tag || c->result != 1) {
+                logs::error("aio CQ fail (inline CQE)");
+                current->clear_descriptor(inline_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            astia_cq_consume(ring, 1);
+            if (sys::io_submit(ring, 0) != 0 || astia_cq_ready(ring) != 0) {
+                logs::error("aio CQ fail (inline duplicate)");
+                current->clear_descriptor(inline_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            current->clear_descriptor(inline_fd);
+            inline_file = {};
+
+            auto parked_file = fs::open(parked_path);
+            if (!parked_file) {
+                logs::error("aio CQ fail (parked open)");
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            fd_t parked_fd{-1};
+            if (current == nullptr) {
+                logs::error("aio CQ fail (parked process)");
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
+                if (current->set_descriptor(fd_t{fd}, parked_file)) {
+                    parked_fd = fd_t{fd};
+                    break;
+                }
+            }
+            if (parked_fd.value < 0) {
+                logs::error("aio CQ fail (parked fd)");
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            u8 buffer = 0;
+            parked_node.ready        = false;
+            parked_node.submit_calls = 0;
+            s = astia_sqe_slot(ring);
+            if (s == nullptr) {
+                current->clear_descriptor(parked_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            *s           = astia_sqe{};
+            s->op        = OP_READ;
+            s->fd        = parked_fd.value;
+            s->address   = reinterpret_cast<u64>(&buffer);
+            s->length    = 1;
+            s->user_data = parked_tag;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 0 ||
+                parked_node.submit_calls != 1 || !fill_cq(0xF100)) {
+                logs::error("aio CQ fail (parked setup)");
+                current->clear_descriptor(parked_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            parked_node.ready = true;
+            sys::io_device_ready_context(&parked_node);
+            if (astia_cq_ready(ring) != astia_rings_cq(ring)->entries ||
+                parked_node.submit_calls != 2) {
+                logs::error("aio CQ fail (parked retained)");
+                current->clear_descriptor(parked_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            astia_cq_consume(ring, 1);
+            if (sys::io_submit(ring, 0) != 0 || astia_cq_ready(ring) !=
+                                                     astia_rings_cq(ring)->entries ||
+                parked_node.submit_calls != 2) {
+                logs::error("aio CQ fail (parked retry)");
+                current->clear_descriptor(parked_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            for (u32 i = 1; i < astia_rings_cq(ring)->entries; ++i)
+                astia_cq_consume(ring, 1);
+            c = astia_cq_peek(ring);
+            if (c == nullptr || c->user_data != parked_tag || c->result != 1 ||
+                buffer != 0x5a) {
+                logs::error("aio CQ fail (parked CQE)");
+                current->clear_descriptor(parked_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            astia_cq_consume(ring, 1);
+            if (sys::io_submit(ring, 0) != 0 || astia_cq_ready(ring) != 0 ||
+                parked_node.submit_calls != 2) {
+                logs::error("aio CQ fail (parked duplicate)");
+                current->clear_descriptor(parked_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            current->clear_descriptor(parked_fd);
+            parked_file = {};
+            (void) sys::io_destroy(ring);
+            logs::info("aio CQ full completion ok");
+            return true;
+        }
 
         // OP_STATX on a ring: the success path (both address forms) and the
         // errors the VFS can actually produce for them.
@@ -565,6 +779,9 @@ namespace astia::test {
             return false;
         }
         if (!statx_checks()) {
+            return false;
+        }
+        if (!cq_full_completion_checks()) {
             return false;
         }
         if (!mount_lifecycle_checks()) {

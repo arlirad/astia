@@ -1,8 +1,8 @@
 # Async audit
 
 Audit target: `5a3a317` (focused async/coroutine/AIO paths). The deferred
-continuation and stale-handle findings below are fixed by this slice; the AIO
-CQ findings remain open.
+continuation, stale-handle, and CQ-full completion findings below are fixed by
+the two async slices; the parked fs_async cancellation finding remains open.
 
 ## Confirmed findings
 
@@ -44,26 +44,17 @@ without an ASan diagnostic, but that invocation is still unconditional use of
 a destroyed `std::coroutine_handle`; the source-level interleaving is
 deterministic and the behavior is undefined.
 
-### High — AIO can consume an inline SQE while losing a full-CQ completion
+### Fixed — AIO can consume an inline SQE while losing a full-CQ completion
 
-In `kernel/src/sys/aio.cpp:791-797`, an inline operation calls `cq_post()` but
-ignores its result, then unconditionally sets `p->done = true`. `cq_post()`
-explicitly returns false when `tail - head >= cq->entries`
-(`aio.cpp:567-597`). Thus a valid inline READ/WRITE/etc. can consume its SQE,
-drop its only CQE, and be reclaimed with no retry. The CQ sizing does not make
-this unreachable: users may submit additional SQEs after advancing SQ head
-without consuming existing CQEs, and the CQ is independently bounded.
+`kernel/src/sys/aio.cpp` now stores the result in the fixed park slot when
+`cq_post()` reports a full CQ. The SQE is consumed exactly once, but the slot
+stays active until `io_submit(ring, 0)` retries publication successfully.
 
-### High — parked AIO completion can remain permanently stuck after CQ full
+### Fixed — parked AIO completion can remain permanently stuck after CQ full
 
-For a parked operation with no coroutine completion, `resume_parked()` leaves
-the operation used when `cq_post()` fails (`kernel/src/sys/aio.cpp:833-846`).
-The operation has already completed at the device, but no result is retained.
-After userspace consumes CQEs there is no CQ-consumer wake path that retries
-this operation; `io_submit()` only reaps completed slots and retriggers
-notification (`aio.cpp:2164-2173`). It therefore requires a later device-ready
-nudge, which may never occur, leaving the SQE consumed and the operation
-parked indefinitely.
+`resume_parked()` now stores the completed result instead of re-pumping the
+device. `io_submit(ring, 0)` retries all pending CQEs after userspace advances
+the CQ head, preserving one CQE and one device submission.
 
 ### Medium — parked `fs_async` request has no destruction cancellation
 
@@ -101,6 +92,7 @@ ctest --test-dir /tmp/opencode/astia-kernel-tests --output-on-failure \
   -R 'astia_(task|fs_async|mpmc_queue|aio)_test'
 ```
 
-Result: 4/4 focused tests passed, including 300 deferred completions and
-completion-before-destroy. Full kernel CTest passed 32/32. The AIO findings
-remain untested by an injectable CQ-full harness and are outside this slice.
+Result: focused async tests passed, including 300 deferred completions and
+completion-before-destroy. The kernel integration selftest covers full-CQ
+inline and parked completions, and full kernel CTest passed 32/32. The parked
+`fs_async` cancellation finding remains outside these slices.
