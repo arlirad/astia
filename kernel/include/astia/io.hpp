@@ -37,7 +37,13 @@
 // device whose work depends on something else (a filesystem waiting on a
 // block layer) blocks a *thread*, never the device.
 
+namespace astia::fs {
+    class io_packet;
+}
+
 namespace astia {
+
+    class io_flight;
 
     enum class io_direction : u8 {
         input,  // fill request.buffer() from the object
@@ -49,9 +55,9 @@ namespace astia {
         io_request() = default;
 
         io_request(void* buffer, u32 length, u64 offset, u64 user_data,
-                   io_direction direction)
+                   io_direction direction, io_flight* flight = nullptr)
             : _buffer(buffer), _length(length), _offset(offset), _user_data(user_data),
-              _direction(direction) {}
+              _direction(direction), _flight(flight) {}
 
         void* buffer() const {
             return _buffer;
@@ -109,6 +115,12 @@ namespace astia {
             _device_state = value;
         }
 
+        bool park_device();
+        bool canceled() const;
+        bool begin_device();
+        void end_device();
+        void acknowledge();
+
         private:
         void*        _buffer       = nullptr;
         u32          _length       = 0;
@@ -118,7 +130,146 @@ namespace astia {
         io_direction _direction    = io_direction::input;
         u8           _stage        = 0;
         bool         _complete     = false;
+        io_flight*   _flight       = nullptr;
         mm::uptr<core::async_operation<i64>> _completion;
     };
+
+    class io_flight {
+        enum class state : u8 {
+            owner,
+            parked,
+            active,
+            active_completed,
+            canceled,
+            completed,
+        };
+
+        io_request request_;
+        u32         refs_  = 1;
+        u8          state_ = static_cast<u8>(state::owner);
+
+        void release_ref() {
+            if (__atomic_sub_fetch(&refs_, 1, __ATOMIC_ACQ_REL) == 0)
+                delete this;
+        }
+
+        void cancel_owner() {
+            for (;;) {
+                const auto observed = static_cast<state>(
+                    __atomic_load_n(&state_, __ATOMIC_ACQUIRE));
+                if (observed == state::active || observed == state::active_completed) {
+                    ASTIA_CPU_RELAX();
+                    continue;
+                }
+                if (observed == state::owner || observed == state::parked) {
+                    u8 expected = static_cast<u8>(observed);
+                    if (__atomic_compare_exchange_n(
+                            &state_, &expected, static_cast<u8>(state::canceled), false,
+                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                        break;
+                    continue;
+                }
+                break;
+            }
+            release_ref();
+        }
+
+        friend class io_request;
+        friend class fs::io_packet;
+
+        public:
+        io_flight(void* buffer, u32 length, u64 offset, io_direction direction,
+                  mm::uptr<core::async_operation<i64>> completion)
+            : request_(buffer, length, offset, 0, direction, this) {
+            request_.completion(static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+        }
+
+        io_request& request() { return request_; }
+
+        bool park_device() {
+            u8 expected = static_cast<u8>(state::owner);
+            if (!__atomic_compare_exchange_n(&state_, &expected,
+                                              static_cast<u8>(state::parked), false,
+                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return false;
+            __atomic_add_fetch(&refs_, 1, __ATOMIC_RELAXED);
+            return true;
+        }
+
+        bool canceled() const {
+            return static_cast<state>(__atomic_load_n(&state_, __ATOMIC_ACQUIRE)) ==
+                   state::canceled;
+        }
+
+        bool begin_device() {
+            u8 expected = static_cast<u8>(state::parked);
+            return __atomic_compare_exchange_n(&state_, &expected,
+                                               static_cast<u8>(state::active), false,
+                                               __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+        }
+
+        void end_device() {
+            u8 expected = static_cast<u8>(state::active);
+            if (__atomic_compare_exchange_n(&state_, &expected,
+                                             static_cast<u8>(state::parked), false,
+                                             __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+                return;
+            if (expected == static_cast<u8>(state::active_completed)) {
+                u8 completed = static_cast<u8>(state::active_completed);
+                if (__atomic_compare_exchange_n(&state_, &completed,
+                                                 static_cast<u8>(state::completed), false,
+                                                 __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+                    release_ref();
+            }
+        }
+
+        void acknowledge() {
+            u8 observed = __atomic_load_n(&state_, __ATOMIC_ACQUIRE);
+            for (;;) {
+                const auto current = static_cast<state>(observed);
+                if (current == state::completed || current == state::owner)
+                    return;
+                if (current == state::active_completed)
+                    return;
+                if (current == state::active) {
+                    u8 expected = static_cast<u8>(state::active);
+                    if (__atomic_compare_exchange_n(
+                            &state_, &expected, static_cast<u8>(state::active_completed),
+                            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                        return;
+                    observed = expected;
+                    continue;
+                }
+                if (__atomic_compare_exchange_n(&state_, &observed,
+                                                 static_cast<u8>(state::completed), false,
+                                                 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                    release_ref();
+                    return;
+                }
+            }
+        }
+    };
+
+    inline bool io_request::park_device() {
+        return _flight != nullptr && _flight->park_device();
+    }
+
+    inline bool io_request::canceled() const {
+        return _flight != nullptr && _flight->canceled();
+    }
+
+    inline bool io_request::begin_device() {
+        return _flight != nullptr && _flight->begin_device();
+    }
+
+    inline void io_request::end_device() {
+        if (_flight != nullptr)
+            _flight->end_device();
+    }
+
+    inline void io_request::acknowledge() {
+        if (_flight != nullptr)
+            _flight->acknowledge();
+    }
 
 } // namespace astia

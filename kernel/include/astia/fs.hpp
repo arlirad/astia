@@ -332,22 +332,27 @@ namespace astia::fs {
         public:
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
                   io_direction direction, mm::uptr<core::async_operation<i64>> completion)
-            : file_(file), request_(buffer, length, offset, 0, direction) {
-            request_.completion(static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+            : file_(file), flight_(new io_flight(buffer, length, offset, direction,
+                                                 static_cast<mm::uptr<core::async_operation<i64>>&&>(completion))) {}
+
+        ~io_packet() {
+            if (flight_ != nullptr)
+                flight_->cancel_owner();
         }
 
         io_packet(const io_packet&)            = delete;
         io_packet& operator=(const io_packet&) = delete;
 
-        long submit() { return file_ ? file_->submit(request_) : -EBADF; }
-        io_request& request() { return request_; }
-        const io_request& request() const { return request_; }
-        core::async_operation<i64>* completion() const { return request_.completion(); }
+        explicit operator bool() const { return flight_ != nullptr; }
+        long submit() { return file_ && flight_ ? file_->submit(flight_->request()) : -EBADF; }
+        io_request& request() { return flight_->request(); }
+        const io_request& request() const { return flight_->request(); }
+        core::async_operation<i64>* completion() const { return request().completion(); }
         const mm::shptr<open_file>& file() const { return file_; }
 
         private:
         mm::shptr<open_file> file_;
-        io_request           request_;
+        io_flight*           flight_;
     };
 
     /// Reset the fixed VFS tables.  Called by the `fs` init step before

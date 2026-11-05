@@ -1,8 +1,8 @@
 # Async audit
 
 Audit target: `5a3a317` (focused async/coroutine/AIO paths). The deferred
-continuation, stale-handle, and CQ-full completion findings below are fixed by
-the two async slices; the parked fs_async cancellation finding remains open.
+continuation, stale-handle, CQ-full completion, and parked fs_async lifetime
+findings below are fixed by the async slices.
 
 ## Confirmed findings
 
@@ -56,18 +56,12 @@ stays active until `io_submit(ring, 0)` retries publication successfully.
 device. `io_submit(ring, 0)` retries all pending CQEs after userspace advances
 the CQ head, preserving one CQE and one device submission.
 
-### Medium — parked `fs_async` request has no destruction cancellation
+### Fixed — parked `fs_async` request has no destruction cancellation
 
-`fs_async.cpp:8-29` stores `io_packet` and its `io_request` inside the
-coroutine frame, then passes the request by reference to `open_file::submit()`.
-The request contract explicitly permits a parked device to retain that
-reference (`kernel/include/astia/io.hpp:22-38`). Destroying the owning task
-while it is awaiting (`task.hpp:246-251` / `370-375`) destroys the packet and
-completion, but there is no device cancellation handshake. A device retaining
-the parked request can subsequently dereference freed storage. This is a
-real lifetime violation of the documented `io_request` contract, even though
-the in-tree tty/pipe/socket implementations currently retain readiness state
-rather than a raw request pointer.
+`io_packet` now owns a heap-backed `io_flight` with explicit device retain,
+cancel, active-use, and acknowledgement states. Task destruction cancels the
+flight and releases only the owner reference; a parked device must
+acknowledge before request/completion storage is reclaimed.
 
 ## Call-site results
 
@@ -92,7 +86,7 @@ ctest --test-dir /tmp/opencode/astia-kernel-tests --output-on-failure \
   -R 'astia_(task|fs_async|mpmc_queue|aio)_test'
 ```
 
-Result: focused async tests passed, including 300 deferred completions and
-completion-before-destroy. The kernel integration selftest covers full-CQ
-inline and parked completions, and full kernel CTest passed 32/32. The parked
-`fs_async` cancellation finding remains outside these slices.
+Result: focused async tests passed, including 300 deferred completions,
+completion-before-destroy, inline fs_async completion, parked completion, and
+completion after task cancellation. The kernel integration selftest covers
+full-CQ inline and parked completions, and full kernel CTest passed 32/32.

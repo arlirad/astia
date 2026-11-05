@@ -13,16 +13,26 @@ namespace astia::fs {
                 new core::async_operation<i64>());
             if (!completion)
                 co_return error_t::enomem;
-            core::async_operation<i64>* operation = completion.get();
             io_packet packet(file, buffer, length, offset, direction,
                              static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+            if (!packet)
+                co_return error_t::enomem;
+            core::async_operation<i64>* operation = packet.completion();
+            if (!packet.request().park_device())
+                co_return error_t::eagain;
             const long submitted = packet.submit();
-            if (submitted < 0)
+            if (submitted < 0) {
+                packet.request().acknowledge();
                 co_return static_cast<error_t>(-submitted);
-            if (submitted > 0)
+            }
+            if (submitted > 0) {
+                packet.request().acknowledge();
                 co_return static_cast<i64>(submitted);
-            if (packet.request().complete())
+            }
+            if (packet.request().complete()) {
+                packet.request().acknowledge();
                 co_return 0;
+            }
             auto result = co_await *operation;
             if (!result)
                 co_return result.error;
