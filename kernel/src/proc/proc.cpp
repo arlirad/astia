@@ -493,8 +493,8 @@ namespace astia::proc {
                 if (!targets[i]->signals().send(value))
                     return -EINVAL;
                 if (is_uncatchable(value) ||
-                    targets[i]->signals().disposition(value).action !=
-                        signal_action::ignore)
+                    targets[i]->signals().disposition(value).action ==
+                        signal_action::default_action)
                     targets[i]->signal_state_change(value);
                 targets[i]->wake_signal_waiters();
             }
@@ -521,9 +521,11 @@ namespace astia::proc {
         arch::cpu::nointerrupts();
         i64 result = 0;
         for (;;) {
+            self->state(thread_state::blocked);
             if (!parent->add_waiter(self)) {
                 // Never block without a slot: child exit would have no way
                 // to wake this thread, leaving waitpid stuck forever.
+                self->state(thread_state::running);
                 result = -EAGAIN;
                 break;
             }
@@ -568,8 +570,10 @@ namespace astia::proc {
                 // Membership is removed under the registry lock, but the
                 // reference is moved out so a final release cannot destroy a
                 // process while that lock is held.
-                if (!take_registered(zombie_child, taken))
+                if (!take_registered(zombie_child, taken)) {
+                    self->state(thread_state::running);
                     continue;
+                }
                 // `taken` now owns the registry's reference; dropping it
                 // below runs ~process, which frees the address space
                 // and the dead threads' kernel stacks.  The child was
@@ -580,20 +584,24 @@ namespace astia::proc {
                 }
                 result = static_cast<i64>(raw_id(child_pid));
                 parent->remove_waiter(self);
+                self->state(thread_state::running);
                 taken = {};
                 break;
             }
             if (result != 0) {
                 parent->remove_waiter(self);
+                self->state(thread_state::running);
                 break;
             }
             if (!has_children) {
                 parent->remove_waiter(self);
+                self->state(thread_state::running);
                 result = -ECHILD;
                 break;
             }
             if (has_wait_option(options, wait_options::nohang)) {
                 parent->remove_waiter(self);
+                self->state(thread_state::running);
                 result = 0;
                 break;
             }
@@ -601,7 +609,6 @@ namespace astia::proc {
             // A live child exists: block until thread_exited() wakes us.
             // The wake clears our waiter slot, so it is re-added at the
             // top of the next scan.
-            self->state(thread_state::blocked);
             scheduler::yield();
         }
         arch::cpu::interrupts();

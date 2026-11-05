@@ -76,7 +76,7 @@ namespace astia::proc {
         /// This module's log source: the same one proc.cpp logs under.
         using logs = astia::log::context<"proc">;
 
-        void deliver_default_signal(arch::syscall_frame& raw_frame) {
+        void deliver_default_signal(arch::syscall_frame& raw_frame, i64 result) {
             auto* owner = current_process();
             auto* self  = current_thread();
             if (owner == nullptr || self == nullptr) {
@@ -103,7 +103,7 @@ namespace astia::proc {
                         span<u8>::bytes(reinterpret_cast<u64>(disposition.handler), 1)))
                     goto fatal_signal;
                 astia_x86_64_signal_context_t saved{
-                    frame.nr,  frame.rbx, frame.rip,    frame.a2,     frame.a1,
+                    static_cast<u64>(result), frame.rbx, frame.rip, frame.a2, frame.a1,
                     frame.a0,  frame.a4,  frame.a5,     frame.a3,     frame.rflags,
                     frame.r12, frame.r13, frame.r14,    frame.r15,    frame.rbp,
                     frame.rip, frame.rsp, frame.rflags, restore_mask, 0};

@@ -66,7 +66,7 @@ extern "C" long astia_syscall_dispatch(astia::arch::syscall_frame* frame) {
             frame->nr = ~astia::u64{2};
     }
     if (astia::sys::exit_hook != nullptr) {
-        astia::sys::exit_hook(*frame);
+        astia::sys::exit_hook(*frame, result);
     }
     return result;
 }

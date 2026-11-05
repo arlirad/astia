@@ -76,7 +76,7 @@ namespace astia::sys {
 
     /// The shape that one handler has: the image itself, no registers.
     using syscall_image_handler = i64 (*)(const arch::syscall_frame& frame);
-    using syscall_exit_hook     = void (*)(arch::syscall_frame& frame);
+    using syscall_exit_hook     = void (*)(arch::syscall_frame& frame, i64 result);
 
     namespace detail {
 
