@@ -39,6 +39,18 @@ static void* libc_futex_worker(void* opaque) {
     return (void*) (unsigned long) (rc == 0 ? 0x2345 : 0x2346);
 }
 
+static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
+static volatile int    libc_mutex_ready;
+
+static void* libc_mutex_worker(void* opaque) {
+    (void) opaque;
+    libc_mutex_ready = 1;
+    if (pthread_mutex_lock(&libc_mutex) != 0)
+        return (void*) (unsigned long) 0x3456;
+    pthread_mutex_unlock(&libc_mutex);
+    return (void*) (unsigned long) 0x3457;
+}
+
 int main(int argc, char** argv) {
     /* 1: TLS.  errno is _Thread_local, reached at a negative %fs
        offset — only correct if the kernel loaded the thread pointer
@@ -258,7 +270,54 @@ int main(int argc, char** argv) {
             return 30;
     }
 
-    /* 31-35: writable tmpfs plus MAP_SHARED.  The mapping names the
+    /* 31-38: the minimal futex-backed pthread mutex and cancellation state. */
+    {
+        int oldstate = -1;
+        int oldtype  = -1;
+        pthread_mutex_t mutex;
+        pthread_t worker;
+
+        if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldstate) != 0 ||
+            oldstate != PTHREAD_CANCEL_ENABLE ||
+            pthread_setcancelstate(oldstate, NULL) != 0 ||
+            pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, &oldtype) != 0 ||
+            oldtype != PTHREAD_CANCEL_DEFERRED ||
+            pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL) != ENOTSUP)
+            return 31;
+        if (pthread_mutex_init(&mutex, NULL) != 0 ||
+            pthread_mutex_lock(&mutex) != 0 ||
+            pthread_mutex_trylock(&mutex) != EBUSY ||
+            pthread_mutex_unlock(&mutex) != 0 ||
+            pthread_mutex_trylock(&mutex) != 0 ||
+            pthread_mutex_unlock(&mutex) != 0 ||
+            pthread_mutex_destroy(&mutex) != 0)
+            return 32;
+
+        libc_mutex_ready = 0;
+        if (pthread_mutex_lock(&libc_mutex) != 0 ||
+            pthread_create(&worker, NULL, libc_mutex_worker, NULL) != 0)
+            return 33;
+        while (!libc_mutex_ready)
+            sched_yield();
+        if (pthread_mutex_unlock(&libc_mutex) != 0)
+            return 34;
+        void* result = NULL;
+        if (pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x3457)
+            return 35;
+        if (pthread_mutex_lock(&libc_mutex) != 0 ||
+            pthread_mutex_destroy(&libc_mutex) != EBUSY)
+            return 36;
+        if (pthread_mutex_unlock(&libc_mutex) != 0 ||
+            pthread_mutex_destroy(&libc_mutex) != 0)
+            return 37;
+        if (pthread_mutex_lock(NULL) != EINVAL ||
+            pthread_mutex_unlock(NULL) != EINVAL ||
+            pthread_mutex_destroy(NULL) != EINVAL)
+            return 38;
+    }
+
+    /* 39-43: writable tmpfs plus MAP_SHARED.  The mapping names the
        tmpfs file's physical region directly, so a mapped write is
        immediately visible through a second open description. */
     {

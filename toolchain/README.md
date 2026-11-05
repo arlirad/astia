@@ -104,13 +104,11 @@ POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh
 ```
 
 The initial batch is `kill/2-1`, a runnable null-signal test. It currently
-passes as `POSIX_TEST kill/2-1 PASS rc=0`. `getpid/1-1` is currently a
-header/API build blocker: the test framework uses pthread mutex and
-cancellation declarations that Astia does not provide. The getpid semantics
-dependencies `sysconf`, `mkstemp`, and `ftruncate` are implemented; the
-selected test does not reach QEMU until that framework-only blocker is
-resolved without fake pthread behavior. Astia reports its actual limits via
-`sysconf`: 64 open descriptors, 64 processes, and 100 clock ticks per second.
+passes as `POSIX_TEST kill/2-1 PASS rc=0`. `getpid/1-1` now builds with
+Astia's pthread mutex and cancellation declarations. Its getpid semantics
+dependencies `sysconf`, `mkstemp`, and `ftruncate` are implemented. Astia
+reports its actual limits via `sysconf`: 64 open descriptors, 64 processes,
+and 100 clock ticks per second.
 `kill/1-1` is currently blocked because Astia's `stdio.h` does not provide
 `perror`. Both are retained as explicit build probes. Select one test or all
 direct C tests in one Open POSIX interface directory:

@@ -93,6 +93,77 @@ void pthread_exit(void* result) {
     __builtin_unreachable();
 }
 
+int pthread_mutex_init(pthread_mutex_t* mutex, const pthread_mutexattr_t* attr) {
+    (void) attr;
+    if (mutex == NULL)
+        return EINVAL;
+    __atomic_store_n(&mutex->state, 0, __ATOMIC_RELAXED);
+    return 0;
+}
+
+int pthread_mutex_destroy(pthread_mutex_t* mutex) {
+    if (mutex == NULL)
+        return EINVAL;
+    if (__atomic_load_n(&mutex->state, __ATOMIC_RELAXED) != 0)
+        return EBUSY;
+    return 0;
+}
+
+int pthread_mutex_lock(pthread_mutex_t* mutex) {
+    if (mutex == NULL)
+        return EINVAL;
+    for (;;) {
+        uint32_t expected = 0;
+        if (__atomic_compare_exchange_n(&mutex->state, &expected, 1, 0,
+                                        __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+            return 0;
+        (void) futex_wait(&mutex->state, 1);
+    }
+}
+
+int pthread_mutex_trylock(pthread_mutex_t* mutex) {
+    uint32_t expected = 0;
+
+    if (mutex == NULL)
+        return EINVAL;
+    if (__atomic_compare_exchange_n(&mutex->state, &expected, 1, 0,
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+        return 0;
+    return EBUSY;
+}
+
+int pthread_mutex_unlock(pthread_mutex_t* mutex) {
+    if (mutex == NULL)
+        return EINVAL;
+    if (__atomic_exchange_n(&mutex->state, 0, __ATOMIC_RELEASE) == 0)
+        return EPERM;
+    (void) futex_wake(&mutex->state, 1);
+    return 0;
+}
+
+static _Thread_local int pthread_cancel_state = PTHREAD_CANCEL_ENABLE;
+static _Thread_local int pthread_cancel_type  = PTHREAD_CANCEL_DEFERRED;
+
+int pthread_setcancelstate(int state, int* oldstate) {
+    if (state != PTHREAD_CANCEL_ENABLE && state != PTHREAD_CANCEL_DISABLE)
+        return EINVAL;
+    if (oldstate != NULL)
+        *oldstate = pthread_cancel_state;
+    pthread_cancel_state = state;
+    return 0;
+}
+
+int pthread_setcanceltype(int type, int* oldtype) {
+    if (type == PTHREAD_CANCEL_ASYNCHRONOUS)
+        return ENOTSUP;
+    if (type != PTHREAD_CANCEL_DEFERRED)
+        return EINVAL;
+    if (oldtype != NULL)
+        *oldtype = pthread_cancel_type;
+    pthread_cancel_type = type;
+    return 0;
+}
+
 int futex_wait(uint32_t* address, uint32_t expected) {
     long rc = __astia_process_futex(address, FUTEX_WAIT_PRIVATE, expected);
     if (rc < 0) {
