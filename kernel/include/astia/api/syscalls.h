@@ -118,6 +118,7 @@ enum {
     SYS_SETRLIMIT        = 49,
     SYS_SIGWAIT          = 50,
     SYS_SIGALTSTACK      = 51,
+    SYS_GETPGID          = 52,
 };
 
 /* ------------------------------------------------------------------ */
@@ -345,6 +346,10 @@ static inline long astia_process_snapshot(astia_process_info* out, uint32_t capa
 
 static inline long astia_getpgrp(void) {
     return astia_raw6(SYS_GETPGRP, 0, 0, 0, 0, 0, 0);
+}
+
+static inline long astia_getpgid(int32_t pid) {
+    return astia_raw6(SYS_GETPGID, (long) pid, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_setpgid(int32_t pid, int32_t pgid) {

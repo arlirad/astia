@@ -10,6 +10,7 @@ add_library(proc STATIC
         syscalls/getpid.cpp
         syscalls/gettid.cpp
         syscalls/getpgrp.cpp
+        syscalls/getpgid.cpp
         syscalls/setpgid.cpp
         syscalls/setsid.cpp
         syscalls/signal/sigaction.cpp

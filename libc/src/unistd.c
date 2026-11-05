@@ -383,15 +383,23 @@ int fcntl(int fd, int command, ...) {
     }
 }
 int getpgrp(void) {
-    long rc = astia_getpgrp();
+    long rc = __astia_process_getpgrp();
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
     }
     return (int) rc;
 }
+pid_t getpgid(pid_t pid) {
+    long rc = __astia_process_getpgid((int) pid);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return (pid_t) rc;
+}
 int setpgid(int pid, int process_group) {
-    long rc = astia_setpgid(pid, process_group);
+    long rc = __astia_process_setpgid(pid, process_group);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
@@ -414,8 +422,8 @@ pid_t getsid(pid_t pid) {
     }
     return (pid_t) rc;
 }
-int setpgrp(int pid, int process_group) {
-    return setpgid(pid, process_group);
+int setpgrp(void) {
+    return setpgid(0, 0);
 }
 pid_t tcgetpgrp(int fd) {
     int  process_group;

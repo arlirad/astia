@@ -322,6 +322,19 @@ namespace astia::proc {
         return owner == nullptr ? pgrp_t{} : owner->process_group();
     }
 
+    i64 getpgid(pid_t target) {
+        process* owner = current_process();
+        if (owner == nullptr)
+            return -ESRCH;
+        if (target == pid_t{})
+            return static_cast<i64>(raw_id(owner->process_group()));
+
+        mm::shptr<process> selected = retain_process(target);
+        if (!selected)
+            return -ESRCH;
+        return static_cast<i64>(raw_id(selected->process_group()));
+    }
+
     i64 getsid(pid_t target) {
         process* owner = current_process();
         if (owner == nullptr)

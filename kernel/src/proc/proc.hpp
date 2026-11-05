@@ -83,6 +83,7 @@ namespace astia::proc {
 
     /// Process-group/session operations for the calling process.
     pgrp_t getpgrp();
+    i64    getpgid(pid_t target);
     i64    getsid(pid_t target);
     /// Attach the supplied tty to the current session leader.
     i64 acquire_controlling_terminal(const mm::shptr<fs::open_file>& terminal);
