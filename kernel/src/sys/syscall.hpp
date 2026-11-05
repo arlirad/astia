@@ -58,6 +58,7 @@ namespace astia::sys {
         getrlimit,
         setrlimit,
         sigwait,
+        sigaltstack,
     };
 
     /// How many registers the ABI hands every trap — and so the most

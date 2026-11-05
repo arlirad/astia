@@ -10,6 +10,11 @@ extern "C" {
 typedef int          sig_atomic_t;
 typedef unsigned int sigset_t;
 typedef void (*sighandler_t)(int);
+typedef struct {
+    void*         ss_sp;
+    unsigned long ss_size;
+    int           ss_flags;
+} stack_t;
 
 struct sigaction {
     sighandler_t sa_handler;
@@ -21,6 +26,11 @@ struct sigaction {
 #define SIG_DFL ((sighandler_t) 0)
 #define SIG_IGN ((sighandler_t) 1)
 #define SIG_ERR ((sighandler_t) - 1)
+#define SA_ONSTACK 1
+#define SS_ONSTACK 1
+#define SS_DISABLE 2
+#define MINSIGSTKSZ 2048
+#define SIGSTKSZ 8192
 
 #define SIG_BLOCK 0
 #define SIG_UNBLOCK 1
@@ -60,6 +70,7 @@ struct sigaction {
 #define NSIG 32
 
 int sigaction(int signal, const struct sigaction* action, struct sigaction* old_action);
+int sigaltstack(const stack_t* stack, stack_t* old_stack);
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set);
 int sigwait(const sigset_t* set, int* signal);
 int kill(int pid, int signal);

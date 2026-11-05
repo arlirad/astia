@@ -84,6 +84,7 @@ namespace astia {
         signal_handler handler  = nullptr;
         u64            restorer = 0;
         signal_mask    mask     = 0;
+        u32            flags    = 0;
     };
 
     constexpr bool valid_signal(signal_number signal) {

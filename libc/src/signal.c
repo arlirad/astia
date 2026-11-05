@@ -83,6 +83,30 @@ int sigaction(int signal_number, const struct sigaction* action,
     return 0;
 }
 
+int sigaltstack(const stack_t* stack, stack_t* old_stack) {
+    astia_stack_t next;
+    astia_stack_t old;
+    const astia_stack_t* input = NULL;
+    if (stack != NULL) {
+        next.sp       = (uintptr_t) stack->ss_sp;
+        next.size     = stack->ss_size;
+        next.flags    = stack->ss_flags;
+        next.reserved = 0;
+        input         = &next;
+    }
+    const long rc = astia_sigaltstack(input, old_stack == NULL ? NULL : &old);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    if (old_stack != NULL) {
+        old_stack->ss_sp    = (void*) old.sp;
+        old_stack->ss_size  = old.size;
+        old_stack->ss_flags = old.flags;
+    }
+    return 0;
+}
+
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set) {
     const uint32_t value = set == NULL ? 0 : *set;
     const long     rc    = astia_sigprocmask(how, value, (uint32_t*) old_set);

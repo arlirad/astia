@@ -22,6 +22,7 @@
 #include "syscalls/setpgid.hpp"
 #include "syscalls/setsid.hpp"
 #include "syscalls/signal/sigaction.hpp"
+#include "syscalls/signal/sigaltstack.hpp"
 #include "syscalls/signal/sigprocmask.hpp"
 #include "syscalls/signal/sigreturn.hpp"
 #include "syscalls/signal/sigsuspend.hpp"
@@ -95,8 +96,22 @@ namespace astia::proc {
                 constexpr usize bytes = sizeof(astia_x86_64_signal_context_t) + 8;
                 if (frame.rsp < bytes || disposition.restorer == 0)
                     goto fatal_signal;
-                const u64 context =
-                    (frame.rsp - sizeof(astia_x86_64_signal_context_t)) & ~u64{0xf};
+                const bool use_alt_stack =
+                    (disposition.flags & ASTIA_SA_ONSTACK) != 0 &&
+                    !self->signal_stack_on_alt() &&
+                    self->signal_stack_flags() != ASTIA_SS_DISABLE;
+                u64 context = 0;
+                if (use_alt_stack) {
+                    const u64 top = self->signal_stack_sp() + self->signal_stack_size();
+                    if (top < self->signal_stack_sp() ||
+                        top < sizeof(astia_x86_64_signal_context_t) + 16)
+                        goto fatal_signal;
+                    context = (top - sizeof(astia_x86_64_signal_context_t)) & ~u64{0xf};
+                }
+                else {
+                    context =
+                        (frame.rsp - sizeof(astia_x86_64_signal_context_t)) & ~u64{0xf};
+                }
                 const u64 retaddr = context - 8;
                 if (!sys::user_span_ok(span<u8>::bytes(retaddr, bytes)) ||
                     !sys::user_span_ok(
@@ -106,7 +121,8 @@ namespace astia::proc {
                     static_cast<u64>(result), frame.rbx, frame.rip, frame.a2, frame.a1,
                     frame.a0,  frame.a4,  frame.a5,     frame.a3,     frame.rflags,
                     frame.r12, frame.r13, frame.r14,    frame.r15,    frame.rbp,
-                    frame.rip, frame.rsp, frame.rflags, restore_mask, 0};
+                    frame.rip, frame.rsp, frame.rflags, restore_mask,
+                    self->signal_stack_on_alt() ? 1u : 0u};
                 if (!sys::copy_out(span<u8>::bytes(context, sizeof saved), &saved) ||
                     !sys::copy_out(span<u8>::bytes(retaddr, 8), &disposition.restorer))
                     goto fatal_signal;
@@ -117,6 +133,8 @@ namespace astia::proc {
                 frame.rip = reinterpret_cast<u64>(disposition.handler);
                 frame.rsp = retaddr;
                 frame.rbx = frame.rbp = frame.r12 = frame.r13 = frame.r14 = frame.r15 = 0;
+                if (use_alt_stack)
+                    self->signal_stack_on_alt(true);
                 return;
             }
             if (default_action(signal) == signal_default::terminate ||
@@ -193,6 +211,7 @@ namespace astia::proc {
                sys::register_syscall<syscall::gettid>(sys::syscall_id::gettid) &&
                sys::register_syscall<syscall::kill>(sys::syscall_id::kill) &&
                sys::register_syscall<syscall::sigaction>(sys::syscall_id::sigaction) &&
+               sys::register_syscall<syscall::sigaltstack>(sys::syscall_id::sigaltstack) &&
                sys::register_syscall<syscall::sigreturn>(sys::syscall_id::sigreturn) &&
                sys::register_syscall<syscall::sigprocmask>(
                    sys::syscall_id::sigprocmask) &&

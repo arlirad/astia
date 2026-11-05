@@ -56,6 +56,7 @@ namespace astia::proc::syscall {
                 next_disposition.handler = reinterpret_cast<signal_handler>(next.handler);
                 next_disposition.restorer = next.restorer;
                 next_disposition.mask     = next.mask;
+                next_disposition.flags    = next.flags;
                 if (next_disposition.restorer == 0 ||
                     !sys::user_ptr<u8>(next_disposition.restorer).validate())
                     return -EFAULT;
@@ -71,7 +72,7 @@ namespace astia::proc::syscall {
             struct astia_sigaction out{};
             out.handler  = user_handler_value(old);
             out.mask     = old.mask;
-            out.flags    = 0;
+            out.flags    = old.flags;
             out.restorer = old.restorer;
             if (!old_range || !sys::copy_out(old_range.value.bytes(), &out)) {
                 return -EFAULT;

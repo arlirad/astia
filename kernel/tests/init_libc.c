@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,6 +55,22 @@ static void* libc_futex_worker(void* opaque) {
 static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile int    libc_mutex_ready;
 
+static volatile int altstack_calls;
+static volatile int altstack_failed;
+static stack_t       altstack_expected;
+
+static void altstack_handler(int signal_number) {
+    stack_t current;
+    (void) signal_number;
+    if (sigaltstack(NULL, &current) != 0 || current.ss_sp != altstack_expected.ss_sp ||
+        current.ss_size != altstack_expected.ss_size ||
+        (current.ss_flags & SS_ONSTACK) == 0)
+        altstack_failed = 1;
+    ++altstack_calls;
+    if (altstack_calls == 1)
+        raise(SIGUSR1);
+}
+
 static void* libc_mutex_worker(void* opaque) {
     (void) opaque;
     libc_mutex_ready = 1;
@@ -84,6 +101,31 @@ int main(int argc, char** argv) {
     const int pid = getpid();
     if (pid <= 0)
         return 4;
+    {
+        stack_t stack = {(void*) 0, 0, SS_DISABLE};
+        stack_t old;
+        struct sigaction action;
+        stack.ss_sp    = malloc(SIGSTKSZ);
+        stack.ss_size  = SIGSTKSZ;
+        stack.ss_flags = 0;
+        if (stack.ss_sp == NULL || sigaltstack(&stack, &old) != 0 ||
+            (old.ss_flags & SS_DISABLE) == 0)
+            return 58;
+        altstack_expected = stack;
+        action.sa_handler = altstack_handler;
+        action.sa_mask    = 0;
+        action.sa_flags   = SA_ONSTACK;
+        action.sa_restorer = 0;
+        if (sigaction(SIGUSR1, &action, NULL) != 0 || raise(SIGUSR1) != 0 ||
+            altstack_calls != 2 || altstack_failed)
+            return 59;
+        if (sigaltstack(NULL, &old) != 0 || old.ss_flags != 0)
+            return 60;
+        stack.ss_flags = SS_DISABLE;
+        if (sigaltstack(&stack, NULL) != 0)
+            return 61;
+        free(altstack_expected.ss_sp);
+    }
     if (getsid(pid) != getsid(0))
         return 54;
     errno = 0;

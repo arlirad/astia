@@ -117,6 +117,7 @@ enum {
     SYS_GETRLIMIT        = 48,
     SYS_SETRLIMIT        = 49,
     SYS_SIGWAIT          = 50,
+    SYS_SIGALTSTACK      = 51,
 };
 
 /* ------------------------------------------------------------------ */
@@ -292,6 +293,9 @@ static inline long astia_getpid(void) {
 
 static inline long astia_gettid(void) {
     return astia_raw6(SYS_GETTID, 0, 0, 0, 0, 0, 0);
+}
+static inline long astia_sigaltstack(const astia_stack_t* stack, astia_stack_t* old_stack) {
+    return astia_raw6(SYS_SIGALTSTACK, (long) stack, (long) old_stack, 0, 0, 0, 0);
 }
 static inline long astia_unmount(const char* target) {
     return astia_raw6(SYS_UNMOUNT, (long) target, 0, 0, 0, 0, 0);

@@ -13,6 +13,7 @@ add_library(proc STATIC
         syscalls/setpgid.cpp
         syscalls/setsid.cpp
         syscalls/signal/sigaction.cpp
+        syscalls/signal/sigaltstack.cpp
         syscalls/signal/sigreturn.cpp
         syscalls/signal/sigprocmask.cpp
         syscalls/signal/sigsuspend.cpp

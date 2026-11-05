@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/arch/context.hpp>
+#include <astia/api/signal.h>
 #include <astia/common.hpp>
 #include <astia/mm/shptr.hpp>
 
@@ -171,6 +172,26 @@ namespace astia::proc {
         void clear_signal_restore_mask() {
             signal_restore_armed_ = false;
         }
+        bool signal_stack_on_alt() const {
+            return signal_stack_on_alt_;
+        }
+        void signal_stack_on_alt(bool value) {
+            signal_stack_on_alt_ = value;
+        }
+        uintptr_t signal_stack_sp() const {
+            return signal_stack_sp_;
+        }
+        u64 signal_stack_size() const {
+            return signal_stack_size_;
+        }
+        i32 signal_stack_flags() const {
+            return signal_stack_flags_;
+        }
+        void signal_stack(uintptr_t sp, u64 size, i32 flags) {
+            signal_stack_sp_    = sp;
+            signal_stack_size_  = size;
+            signal_stack_flags_ = flags;
+        }
 
         void entry(u64 value) {
             entry_ = value;
@@ -224,6 +245,10 @@ namespace astia::proc {
         u32              cpu_owner_            = 0;
         u32              signal_restore_mask_  = 0;
         bool             signal_restore_armed_ = false;
+        uintptr_t        signal_stack_sp_      = 0;
+        u64              signal_stack_size_    = 0;
+        i32              signal_stack_flags_   = ASTIA_SS_DISABLE;
+        bool             signal_stack_on_alt_  = false;
     };
 
 } // namespace astia::proc
