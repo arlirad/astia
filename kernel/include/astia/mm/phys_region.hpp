@@ -26,6 +26,10 @@ namespace astia::mm {
         /// failure; the caller owns the single initial reference.
         static phys_region* create(usize page_count, bool zero);
 
+        /// Reserve page metadata without allocating its frames.  Pages are
+        /// materialized independently by ensure_page().
+        static phys_region* create_lazy(usize page_count);
+
         /// Adopt an already-allocated, contiguous frame run: `base` is
         /// its physical base and ownership transfers — the last
         /// release frees the frames like an allocated region.  Callers
@@ -71,6 +75,14 @@ namespace astia::mm {
         usize pages() const {
             return pages_;
         }
+
+        /// Physical base of a page, or invalid_frame when a lazy page has
+        /// not been materialized yet.
+        u64 page_base(usize index) const;
+
+        /// Materialize one lazy page.  `created` reports whether this call
+        /// allocated the frame rather than observing an existing one.
+        bool ensure_page(usize index, bool zero, bool* created = nullptr);
 
         /// Current reference count — introspection for tests.
         u32 references();
@@ -130,7 +142,7 @@ namespace astia::mm {
 
         void unlink_child(phys_region* target);
         void detach_parent(const phys_region* expected);
-        bool initialize(u64 base, usize pages);
+        bool initialize(u64 base, usize pages, bool lazy = false);
 
         core::spinlock lock_{};
         u64            base_        = 0;
@@ -138,6 +150,7 @@ namespace astia::mm {
         u32            refs_        = 1;
         u16*           page_refs_   = nullptr;
         u16*           dest_refs_   = nullptr; ///< in-flight destination pins
+        u64*           page_bases_  = nullptr; ///< non-null for lazy regions
         child*         children_    = nullptr;
         phys_region*   parent_      = nullptr;
         usize          parent_page_ = 0;

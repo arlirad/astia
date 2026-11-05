@@ -179,7 +179,7 @@ namespace astia::sys {
         if (base == 0) {
             return false;
         }
-        const proc::process*  owner = proc::current_process();
+        proc::process*        owner = proc::current_process();
         const arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
         if (space == nullptr) {
             return true; // kernel client: kernel pointers, as before
@@ -191,7 +191,10 @@ namespace astia::sys {
         const u64 last  = (base + range.length() - 1) & ~mm::page_mask;
         for (u64 page = first;; page += mm::page_size) {
             if (space->translate(page) == arch::page_map::invalid) {
-                return false;
+                if (!owner->cow_fault(page, false) ||
+                    space->translate(page) == arch::page_map::invalid) {
+                    return false;
+                }
             }
             if (page == last) {
                 return true;

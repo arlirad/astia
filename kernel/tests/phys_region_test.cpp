@@ -51,6 +51,28 @@ ASTIA_TEST(phys_region_create_adopts_frames) {
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
 
+ASTIA_TEST(phys_region_lazy_allocates_pages_on_demand) {
+    const auto before = init_world();
+    auto*      region = phys_region::create_lazy(4);
+    ASTIA_CHECK(region != nullptr);
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+    ASTIA_CHECK(region->page_base(0) == astia::mm::frame_allocator::invalid_frame);
+    ASTIA_CHECK(region->page_direct(0) == nullptr);
+
+    bool created = false;
+    ASTIA_CHECK(region->ensure_page(2, true, &created));
+    ASTIA_CHECK(created);
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 1);
+    ASTIA_CHECK(region->page_direct(2) != nullptr);
+    ASTIA_CHECK(region->ensure_page(2, true, &created));
+    ASTIA_CHECK(!created);
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 1);
+
+    ASTIA_CHECK(region->unmap_range(2, 1));
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
 ASTIA_TEST(phys_region_unique_until_shared) {
     init_world();
     auto* region = phys_region::create(2, true);

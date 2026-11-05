@@ -4,6 +4,10 @@
 #include <astia/fs.hpp>
 #include <astia/mapping.hpp>
 #include <astia/optional.hpp>
+#include <astia/api/syscalls.h>
+
+static_assert(MAP_STACK == 0x20000);
+static_assert((MAP_STACK & (MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS)) == 0);
 
 namespace {
 

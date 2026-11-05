@@ -18,14 +18,16 @@ namespace astia::proc {
         shared    = 0x01,
         priv      = 0x02,
         fixed     = 0x10,
-        anonymous = 0x20
+        anonymous = 0x20,
+        stack     = 0x20000
     };
     inline constexpr u32 valid_map_protection_bits =
         static_cast<u32>(map_protection::read) | static_cast<u32>(map_protection::write) |
         static_cast<u32>(map_protection::exec);
     inline constexpr u32 valid_map_flag_bits =
         static_cast<u32>(map_flags::shared) | static_cast<u32>(map_flags::priv) |
-        static_cast<u32>(map_flags::fixed) | static_cast<u32>(map_flags::anonymous);
+        static_cast<u32>(map_flags::fixed) | static_cast<u32>(map_flags::anonymous) |
+        static_cast<u32>(map_flags::stack);
     constexpr map_protection operator|(map_protection a, map_protection b) {
         return static_cast<map_protection>(static_cast<u32>(a) | static_cast<u32>(b));
     }
@@ -71,6 +73,8 @@ namespace astia::proc {
         // range.  It is not visible to lookup/fault/pin until page tables
         // have been installed and the transaction publishes it.
         bool             pending   = false;
+        bool             stack     = false;
+        usize            mapped_pages = 0;
         bool             holds_ref = false;
         mm::phys_region* backing   = nullptr;
         /// First page in `backing` represented by this VMA.  This is

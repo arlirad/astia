@@ -7,7 +7,7 @@ namespace astia::mm {
         constexpr u16 max_page_mappings = ~u16{0};
     } // namespace
 
-    bool phys_region::initialize(u64 base, usize pages) {
+    bool phys_region::initialize(u64 base, usize pages, bool lazy) {
         if (pages > (~usize{0}) / sizeof(u16)) {
             return false;
         }
@@ -20,16 +20,34 @@ namespace astia::mm {
             heap::free(storage.value);
             return false;
         }
+        void* page_bases = nullptr;
+        if (lazy) {
+            if (pages > (~usize{0}) / sizeof(u64)) {
+                heap::free(destinations.value);
+                heap::free(storage.value);
+                return false;
+            }
+            auto bases = heap::alloc(pages * sizeof(u64));
+            if (!bases) {
+                heap::free(destinations.value);
+                heap::free(storage.value);
+                return false;
+            }
+            page_bases = bases.value;
+        }
         base_      = base;
         pages_     = pages;
         page_refs_ = static_cast<u16*>(static_cast<void*>(storage.value));
         dest_refs_ = static_cast<u16*>(static_cast<void*>(destinations.value));
+        page_bases_ = static_cast<u64*>(page_bases);
         // A freshly-created/adopted region carries its initial
         // mapping reference.  This preserves the existing ownership
         // contract: the creator transfers that reference to its VMA.
         for (usize i = 0; i < pages; ++i) {
             page_refs_[i] = 1;
             dest_refs_[i] = 0;
+            if (page_bases_ != nullptr)
+                page_bases_[i] = frame_allocator::invalid_frame;
         }
         return true;
     }
@@ -49,6 +67,18 @@ namespace astia::mm {
                 delete region;
             }
             kernel_frames().release(base, page_count);
+            return nullptr;
+        }
+        return region;
+    }
+
+    phys_region* phys_region::create_lazy(usize page_count) {
+        if (page_count == 0) {
+            return nullptr;
+        }
+        auto* region = new phys_region{};
+        if (region == nullptr || !region->initialize(0, page_count, true)) {
+            delete region;
             return nullptr;
         }
         return region;
@@ -116,7 +146,14 @@ namespace astia::mm {
                 if (__atomic_compare_exchange_n(slot, &old, next, false, __ATOMIC_ACQ_REL,
                                                 __ATOMIC_ACQUIRE)) {
                     if (old == 1) {
-                        kernel_frames().release(base_ + (first + i) * frame_size);
+                        const u64 frame = page_base(first + i);
+                        if (frame != frame_allocator::invalid_frame) {
+                            if (page_bases_ != nullptr)
+                                __atomic_store_n(&page_bases_[first + i],
+                                                 frame_allocator::invalid_frame,
+                                                 __ATOMIC_RELEASE);
+                            kernel_frames().release(frame);
+                        }
                     }
                     break;
                 }
@@ -156,7 +193,42 @@ namespace astia::mm {
     }
 
     void* phys_region::page_direct(usize index) {
-        return kernel_frames().to_virt(base_ + index * frame_size);
+        const u64 frame = page_base(index);
+        return frame == frame_allocator::invalid_frame ? nullptr : kernel_frames().to_virt(frame);
+    }
+
+    u64 phys_region::page_base(usize index) const {
+        if (index >= pages_) {
+            return frame_allocator::invalid_frame;
+        }
+        if (page_bases_ != nullptr) {
+            return __atomic_load_n(&page_bases_[index], __ATOMIC_ACQUIRE);
+        }
+        return base_ + index * frame_size;
+    }
+
+    bool phys_region::ensure_page(usize index, bool zero, bool* created) {
+        if (created != nullptr)
+            *created = false;
+        if (index >= pages_) {
+            return false;
+        }
+        if (page_bases_ == nullptr) {
+            return page_base(index) != frame_allocator::invalid_frame;
+        }
+        core::spinlock_guard guard(lock_);
+        if (page_bases_[index] != frame_allocator::invalid_frame) {
+            return true;
+        }
+        const u64 frame = kernel_frames().alloc(1, zero ? frame_flags::zeroed
+                                                        : frame_flags::none);
+        if (frame == frame_allocator::invalid_frame) {
+            return false;
+        }
+        page_bases_[index] = frame;
+        if (created != nullptr)
+            *created = true;
+        return true;
     }
 
     void phys_region::release_ref() {
@@ -194,11 +266,19 @@ namespace astia::mm {
         for (usize i = 0; i < pages_; ++i) {
             u16 old = __atomic_exchange_n(&page_refs_[i], u16{0}, __ATOMIC_ACQ_REL);
             if (old != 0) {
-                kernel_frames().release(base_ + i * frame_size);
+                const u64 frame = page_base(i);
+                if (frame != frame_allocator::invalid_frame) {
+                    if (page_bases_ != nullptr)
+                        __atomic_store_n(&page_bases_[i], frame_allocator::invalid_frame,
+                                         __ATOMIC_RELEASE);
+                    kernel_frames().release(frame);
+                }
             }
         }
         heap::free(dest_refs_);
         dest_refs_ = nullptr;
+        heap::free(page_bases_);
+        page_bases_ = nullptr;
         heap::free(page_refs_);
         heap::free(this);
     }

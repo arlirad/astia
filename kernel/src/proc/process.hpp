@@ -409,7 +409,9 @@ namespace astia::proc {
         bool   install_mapping(u64 hint, usize pages, map_protection prot,
                                mm::phys_region*                region,
                                const mm::shptr<fs::open_file>& file, u64 file_offset,
-                               u64& base_out, usize region_page = 0, bool shared = false);
+                               u64& base_out, usize region_page = 0, bool shared = false,
+                               bool stack = false);
+        bool grow_stack(mmap_region* vma, u64 addr, bool write);
         pid_t  pid_;
         pid_t  parent_pid_;
         pgrp_t process_group_;

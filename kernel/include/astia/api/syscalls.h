@@ -178,6 +178,7 @@ enum {
     MAP_PRIVATE   = 0x02,
     MAP_FIXED     = 0x10,
     MAP_ANONYMOUS = 0x20, /* fd = -1, offset = 0 */
+    MAP_STACK     = 0x20000,
 };
 
 /* clocks */
