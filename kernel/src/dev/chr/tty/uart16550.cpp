@@ -363,8 +363,12 @@ namespace astia::dev {
     // Read and write are implemented by tty; this class only owns the UART.
 
     void uart16550::irq() {
+        const bool tx_ready = (_ports[reg_ier] & ier_tx_empty) != 0 &&
+                              (_ports[reg_lsr] & lsr_thre) != 0;
         rx_drain();
         tty_input_ready();
+        if (tx_ready)
+            sys::io_device_ready_context(&com1_file);
     }
 
     void uart16550::loopback(bool on) {
