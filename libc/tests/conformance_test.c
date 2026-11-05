@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <unistd.h>
 /* <unistd.h> is ours now (getpid/gettid); the one host call this test
  * needs is declared by hand, like every other host port here. */
 extern int unlink(const char* path);
@@ -188,6 +189,11 @@ static void test_utc_time(void) {
     CHECK(gettimeofday(NULL, NULL) == -1 && errno == EINVAL);
 }
 
+static void test_signal_surface(void) {
+    CHECK(STDOUT_FILENO == 1);
+    CHECK(sysconf(_SC_REALTIME_SIGNALS) == -1);
+}
+
 int main(void) {
     test_stream_helpers();
     test_conversions_and_strings();
@@ -197,5 +203,6 @@ int main(void) {
     test_process_hooks();
     test_wide_c_locale();
     test_utc_time();
+    test_signal_surface();
     return fails != 0;
 }

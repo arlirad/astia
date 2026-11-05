@@ -338,6 +338,7 @@ long sysconf(int name) {
         return 1;
     case _SC_CPUTIME:
     case _SC_THREAD_PROCESS_SHARED:
+    case _SC_REALTIME_SIGNALS:
         return -1;
     default:
         errno = EINVAL;
