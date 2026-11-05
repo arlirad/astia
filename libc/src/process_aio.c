@@ -15,6 +15,18 @@ long __astia_process_gettid(void) {
     return astia_gettid();
 }
 
+long __astia_process_getpgrp(void) {
+    return astia_getpgrp();
+}
+
+long __astia_process_getpgid(int pid) {
+    return astia_getpgid((int32_t) pid);
+}
+
+long __astia_process_setpgid(int pid, int process_group) {
+    return astia_setpgid((int32_t) pid, (int32_t) process_group);
+}
+
 long __astia_process_yield(void) {
     return astia_yield();
 }
@@ -35,8 +47,19 @@ long __astia_process_fork(void) {
     return astia_fork();
 }
 
-long __astia_process_sigsuspend(const unsigned int* mask) {
+__attribute__((weak)) long __astia_process_sigsuspend(const unsigned int* mask) {
     return astia_raw6(SYS_SIGSUSPEND, (long) mask, 0, 0, 0, 0, 0);
+}
+
+__attribute__((weak)) long
+__astia_process_sigaction(int signal, const astia_sigaction_t* action,
+                          astia_sigaction_t* old_action) {
+    return astia_sigaction(signal, action, old_action);
+}
+
+__attribute__((weak)) long
+__astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_set) {
+    return astia_sigprocmask(how, set, old_set);
 }
 
 long __astia_process_sigwait(const unsigned int* set, int* signal) {

@@ -7,15 +7,22 @@
  * Every function returns >= 0 or the negated error code, matching the
  * astia ABI convention. */
 #pragma GCC visibility push(default)
+#include <astia/api/signal.h>
 void                   __astia_process_exit(int status);
 long                   __astia_process_getpid(void);
 long                   __astia_process_gettid(void);
+long                   __astia_process_getpgrp(void);
+long                   __astia_process_getpgid(int pid);
+long                   __astia_process_setpgid(int pid, int process_group);
 long                   __astia_process_yield(void);
 long                   __astia_process_waitpid(int pid, int* status, int options);
 long __astia_process_spawnve(const char* path, char* const argv[], char* const envp[]);
 long __astia_process_execve(const char* path, char* const argv[], char* const envp[]);
 long __astia_process_fork(void);
 long __astia_process_sigsuspend(const unsigned int* mask);
+long __astia_process_sigaction(int signal, const struct astia_sigaction* action,
+                               struct astia_sigaction* old_action);
+long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_set);
 long __astia_process_sigwait(const unsigned int* set, int* signal);
 long __astia_process_futex(unsigned int* address, unsigned int operation,
                            unsigned int value);

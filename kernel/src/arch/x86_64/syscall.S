@@ -52,17 +52,15 @@ astia_syscall_entry:
     jmp .normal_return
 
 .signal_return:
-    /* Signal entry: frame.a0 is the signal number and the handler receives
-       it in RDI.  Keep it live while constructing the iret frame. */
+    /* Signal entry: frame.a0 is the signal number. */
     movq 8(%rsp), %rdi
-    xorl %esi, %esi
-    xorl %edx, %edx
+    movq 16(%rsp), %rsi
+    movq 24(%rsp), %rdx
     xorl %r10d, %r10d
     xorl %r8d, %r8d
     xorl %r9d, %r9d
     xorl %eax, %eax
-    movq 96(%rsp), %rsi
-    jmp .build_iret
+    jmp .build_iret_signal
 
 .sigreturn_return:
     /* sigreturn's C result is the interrupted user RAX; the remaining
@@ -79,14 +77,34 @@ astia_syscall_entry:
 
 .normal_return:
     movq 96(%rsp), %rsi
-    jmp .build_iret
+    jmp .build_iret_normal
 
-.build_iret:
+.build_iret_normal:
     movq 56(%rsp), %r12       /* user RIP */
     movq 64(%rsp), %r10       /* user RFLAGS */
     movq 72(%rsp), %r11       /* user RSP */
     movq 80(%rsp), %rbx
     movq 88(%rsp), %rbp
+    movq 104(%rsp), %r13
+    movq 112(%rsp), %r14
+    movq 120(%rsp), %r15
+    movq 96(%rsp), %rsi
+    addq $128, %rsp
+    pushq $0x1B
+    pushq %r11
+    pushq %r10
+    pushq $0x23
+    pushq %r12
+    movq %rsi, %r12
+    iretq
+
+.build_iret_signal:
+    movq 56(%rsp), %r12
+    movq 64(%rsp), %r10
+    movq 72(%rsp), %r11
+    movq 80(%rsp), %rbx
+    movq 88(%rsp), %rbp
+    movq 96(%rsp), %rax
     movq 104(%rsp), %r13
     movq 112(%rsp), %r14
     movq 120(%rsp), %r15
@@ -96,7 +114,7 @@ astia_syscall_entry:
     pushq %r10
     pushq $0x23
     pushq %r12
-    movq %rsi, %r12
+    movq %rax, %r12
     iretq
 
 .build_iret_sigreturn:

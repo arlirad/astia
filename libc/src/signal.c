@@ -63,7 +63,9 @@ int sigaction(int signal_number, const struct sigaction* action,
     astia_sigaction_t        next_value;
     const astia_sigaction_t* next = NULL;
     if (action != NULL) {
-        next_value.handler = (uintptr_t) action->sa_handler;
+        next_value.handler = (uintptr_t) ((action->sa_flags & SA_SIGINFO) != 0
+                                              ? (void*) action->sa_sigaction
+                                              : (void*) action->sa_handler);
         next_value.mask    = action->sa_mask;
         next_value.flags   = (uint32_t) action->sa_flags;
         /* sa_restorer is not part of the POSIX interface.  In particular,
@@ -75,7 +77,7 @@ int sigaction(int signal_number, const struct sigaction* action,
         next                = &next_value;
     }
     astia_sigaction_t* old = (astia_sigaction_t*) old_action;
-    const long         rc  = astia_sigaction(signal_number, next, old);
+    const long         rc  = __astia_process_sigaction(signal_number, next, old);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
@@ -109,7 +111,8 @@ int sigaltstack(const stack_t* stack, stack_t* old_stack) {
 
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set) {
     const uint32_t value = set == NULL ? 0 : *set;
-    const long     rc    = astia_sigprocmask(how, value, (uint32_t*) old_set);
+    const int      operation = set == NULL ? SIG_BLOCK : how;
+    const long rc = __astia_process_sigprocmask(operation, value, (uint32_t*) old_set);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
@@ -120,6 +123,20 @@ int sigprocmask(int how, const sigset_t* set, sigset_t* old_set) {
 int sigwait(const sigset_t* set, int* signal) {
     const long rc = __astia_process_sigwait(set, signal);
     return rc < 0 ? (int) -rc : 0;
+}
+
+int sigignore(int signal_number) {
+    struct sigaction action = {SIG_IGN, 0, 0, 0};
+    return sigaction(signal_number, &action, NULL);
+}
+
+int sigpause(int signal_number) {
+    sigset_t mask;
+    if (sigprocmask(SIG_BLOCK, NULL, &mask) < 0)
+        return -1;
+    if (sigdelset(&mask, signal_number) < 0)
+        return -1;
+    return sigsuspend(&mask);
 }
 
 int kill(int pid, int signal_number) {

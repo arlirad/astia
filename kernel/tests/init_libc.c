@@ -58,6 +58,16 @@ static volatile int    libc_mutex_ready;
 static volatile int altstack_calls;
 static volatile int altstack_failed;
 static stack_t       altstack_expected;
+static volatile int  child_info_seen;
+static siginfo_t     child_info;
+
+static void child_status_handler(int signal_number, siginfo_t* info, void* context) {
+    (void) context;
+    if (signal_number == SIGCHLD && info != NULL) {
+        child_info = *info;
+        child_info_seen = 1;
+    }
+}
 
 static void altstack_handler(int signal_number) {
     stack_t current;
@@ -134,6 +144,30 @@ int main(int argc, char** argv) {
     errno = 0;
     if (getsid(0x7fffffff) != (pid_t) -1 || errno != ESRCH)
         return 56;
+
+    {
+        struct sigaction action = {0};
+        action.sa_sigaction = child_status_handler;
+        action.sa_flags     = SA_SIGINFO;
+        sigemptyset(&action.sa_mask);
+        if (sigaction(SIGCHLD, &action, NULL) != 0)
+            return 62;
+        struct sigaction observed = {0};
+        if (sigaction(SIGCHLD, NULL, &observed) != 0 ||
+            (observed.sa_flags & SA_SIGINFO) == 0)
+            return 71;
+        const pid_t child = fork();
+        if (child < 0)
+            return 63;
+        if (child == 0)
+            _Exit(42);
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != (42 << 8) ||
+            !child_info_seen || child_info.si_signo != SIGCHLD ||
+            child_info.si_code != CLD_EXITED || child_info.si_pid != child ||
+            child_info.si_status != 42)
+            return 64;
+    }
 
     /* A login/session boundary is real kernel state, not a shell convention:
        a forked session leader detaches, cannot open /tty, then acquires the

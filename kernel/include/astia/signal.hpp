@@ -43,6 +43,15 @@ namespace astia {
     using signal_mask                 = u32;
     using signal_handler              = void (*)(int);
 
+    struct signal_info {
+        i32 signo       = 0;
+        i32 errno_value = 0;
+        i32 code        = 0;
+        i32 pid         = 0;
+        u32 uid         = 0;
+        i32 status      = 0;
+    };
+
     enum class signal_mask_operation : u8 {
         block,
         unblock,

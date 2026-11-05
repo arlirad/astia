@@ -390,7 +390,7 @@ namespace astia::proc {
         bool cow_fault(u64 addr, bool write);
 
         private:
-        void notify_parent_of_state_change();
+        void notify_parent_of_state_change(signal_info info = {});
 
         /// File the VMA entry for an already-mapped range [base, base
         /// + pages): `region` adopts the `pages` contiguous frames the

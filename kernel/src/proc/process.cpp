@@ -4,6 +4,7 @@
 #include "../sys/aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
+#include <astia/api/signal.h>
 #include <astia/api/syscalls.h>
 #include <astia/api/termios.h>
 #include <astia/arch/cpu.hpp>
@@ -530,14 +531,20 @@ namespace astia::proc {
         }
         // Waiters block on the *parent* (registered by proc::waitpid);
         // waking must happen on that object, not on the dying process.
-        notify_parent_of_state_change();
+        signal_info info{};
+        info.code   = termination_signal_ != 0 ? ASTIA_CLD_KILLED : ASTIA_CLD_EXITED;
+        info.pid    = static_cast<i32>(raw_id(pid_));
+        info.uid    = uid();
+        info.status = termination_signal_ != 0 ? termination_signal_ : exit_status_;
+        notify_parent_of_state_change(info);
     }
 
-    void process::notify_parent_of_state_change() {
+    void process::notify_parent_of_state_change(signal_info info) {
         mm::shptr<process> parent = retain_process(parent_pid_);
         if (!parent)
             return;
-        (void) parent->signals().send(signal_number::chld);
+        info.signo = static_cast<i32>(signal_number::chld);
+        (void) parent->signals().send(signal_number::chld, info);
         if (parent->address_space() != nullptr)
             parent->wake_signal_waiters();
         parent->wake_waiters();
@@ -562,7 +569,12 @@ namespace astia::proc {
             }
             for (u32 i = 0; i < count; ++i)
                 scheduler::wake(wake_list[i]);
-            notify_parent_of_state_change();
+            signal_info info{};
+            info.code   = ASTIA_CLD_CONTINUED;
+            info.pid    = static_cast<i32>(raw_id(pid_));
+            info.uid    = uid();
+            info.status = static_cast<i32>(signal_number::cont);
+            notify_parent_of_state_change(info);
             return;
         }
         if (signal != signal_number::stop && signal != signal_number::tstp &&
@@ -582,7 +594,12 @@ namespace astia::proc {
                     value->state(thread_state::blocked);
             }
         }
-        notify_parent_of_state_change();
+        signal_info info{};
+        info.code   = ASTIA_CLD_STOPPED;
+        info.pid    = static_cast<i32>(raw_id(pid_));
+        info.uid    = uid();
+        info.status = static_cast<i32>(signal);
+        notify_parent_of_state_change(info);
     }
 
     mm::shptr<thread> process::take_thread(thread* value) {

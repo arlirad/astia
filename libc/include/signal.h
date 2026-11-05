@@ -10,6 +10,15 @@ extern "C" {
 typedef int          sig_atomic_t;
 typedef unsigned int sigset_t;
 typedef void (*sighandler_t)(int);
+typedef struct siginfo {
+    int          si_signo;
+    int          si_errno;
+    int          si_code;
+    int          si_pid;
+    unsigned int si_uid;
+    int          si_status;
+} siginfo_t;
+typedef void (*sigaction_handler_t)(int, siginfo_t*, void*);
 typedef struct {
     void*         ss_sp;
     unsigned long ss_size;
@@ -17,7 +26,10 @@ typedef struct {
 } stack_t;
 
 struct sigaction {
-    sighandler_t sa_handler;
+    union {
+        sighandler_t        sa_handler;
+        sigaction_handler_t sa_sigaction;
+    };
     sigset_t     sa_mask;
     int          sa_flags;
     uintptr_t    sa_restorer;
@@ -27,6 +39,7 @@ struct sigaction {
 #define SIG_IGN ((sighandler_t) 1)
 #define SIG_ERR ((sighandler_t) - 1)
 #define SA_ONSTACK 1
+#define SA_SIGINFO 4
 #define SS_ONSTACK 1
 #define SS_DISABLE 2
 #define MINSIGSTKSZ 2048
@@ -69,10 +82,18 @@ struct sigaction {
 #define SIGSYS 31
 #define NSIG 32
 
+#define CLD_EXITED 1
+#define CLD_KILLED 2
+#define CLD_DUMPED 3
+#define CLD_STOPPED 5
+#define CLD_CONTINUED 6
+
 int sigaction(int signal, const struct sigaction* action, struct sigaction* old_action);
 int sigaltstack(const stack_t* stack, stack_t* old_stack);
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set);
 int sigwait(const sigset_t* set, int* signal);
+int sigignore(int signal);
+int sigpause(int signal);
 int kill(int pid, int signal);
 int killpg(int process_group, int signal);
 int raise(int signal);

@@ -19,7 +19,7 @@ namespace astia {
     /// Kernel-owned pending signal, mask, and disposition state.
     class signal_state {
         public:
-        bool send(signal_number signal) {
+        bool send(signal_number signal, signal_info info = {}) {
             if (!valid_signal(signal))
                 return false;
             signal_lock_guard guard(lock_);
@@ -30,11 +30,14 @@ namespace astia {
             if (signal != signal_number::chld && !is_uncatchable(signal) &&
                 dispositions_[static_cast<u8>(signal)].action == signal_action::ignore)
                 return true;
+            info.signo = static_cast<i32>(signal);
             pending_ |= signal_bit(signal);
+            infos_[static_cast<u8>(signal)] = info;
             return true;
         }
 
-        signal_number take_unblocked(signal_disposition* observed = nullptr) {
+        signal_number take_unblocked(signal_disposition* observed = nullptr,
+                                     signal_info* info = nullptr) {
             signal_lock_guard guard(lock_);
             const signal_mask available = pending_ & ~blocked_;
             if (available == 0)
@@ -44,6 +47,8 @@ namespace astia {
                     pending_ &= ~(signal_mask{1} << value);
                     if (observed != nullptr)
                         *observed = dispositions_[value];
+                    if (info != nullptr)
+                        *info = infos_[value];
                     return static_cast<signal_number>(value);
                 }
             }
@@ -118,6 +123,7 @@ namespace astia {
 
         private:
         signal_disposition     dispositions_[signal_count]{};
+        signal_info             infos_[signal_count]{};
         signal_mask            pending_ = 0;
         signal_mask            blocked_ = 0;
         mutable core::spinlock lock_{};

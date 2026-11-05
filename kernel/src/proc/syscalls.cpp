@@ -5,6 +5,7 @@
 #include "scheduler.hpp"
 #include "syscall.hpp"
 #include "syscalls/getpgrp.hpp"
+#include "syscalls/getpgid.hpp"
 #include "syscalls/getpid.hpp"
 #include "syscalls/gettid.hpp"
 #include "syscalls/ipc/futex.hpp"
@@ -84,7 +85,8 @@ namespace astia::proc {
                 return;
             }
             signal_disposition  disposition{};
-            const signal_number signal = owner->signals().take_unblocked(&disposition);
+            signal_info          info{};
+            const signal_number signal = owner->signals().take_unblocked(&disposition, &info);
             if (!valid_signal(signal)) {
                 return;
             }
@@ -93,7 +95,8 @@ namespace astia::proc {
                 suspended ? self->signal_restore_mask() : owner->signals().blocked();
             if (disposition.action == signal_action::handler) {
                 auto&           frame = raw_frame;
-                constexpr usize bytes = sizeof(astia_x86_64_signal_context_t) + 8;
+                constexpr usize bytes = sizeof(astia_x86_64_signal_context_t) +
+                                        sizeof(astia_siginfo_t) + 8;
                 if (frame.rsp < bytes || disposition.restorer == 0)
                     goto fatal_signal;
                 const bool use_alt_stack =
@@ -103,19 +106,25 @@ namespace astia::proc {
                 u64 context = 0;
                 if (use_alt_stack) {
                     const u64 top = self->signal_stack_sp() + self->signal_stack_size();
-                    if (top < self->signal_stack_sp() ||
-                        top < sizeof(astia_x86_64_signal_context_t) + 16)
+                    if (top < self->signal_stack_sp() || top < bytes)
                         goto fatal_signal;
-                    context = (top - sizeof(astia_x86_64_signal_context_t)) & ~u64{0xf};
+                    context = (top - bytes) & ~u64{0xf};
                 }
                 else {
-                    context =
-                        (frame.rsp - sizeof(astia_x86_64_signal_context_t)) & ~u64{0xf};
+                    context = (frame.rsp - bytes) & ~u64{0xf};
                 }
-                const u64 retaddr = context - 8;
+                const u64 info_address = context + sizeof(astia_x86_64_signal_context_t);
+                const u64 retaddr      = context - 8;
                 if (!sys::user_span_ok(span<u8>::bytes(retaddr, bytes)) ||
                     !sys::user_span_ok(
                         span<u8>::bytes(reinterpret_cast<u64>(disposition.handler), 1)))
+                    goto fatal_signal;
+                astia_siginfo_t user_info{
+                    info.signo, info.errno_value, info.code, info.pid, info.uid, info.status};
+                if (!sys::user_span_ok(
+                        span<u8>::bytes(info_address, sizeof(user_info))) ||
+                    !sys::copy_out(span<u8>::bytes(info_address, sizeof(user_info)),
+                                   &user_info))
                     goto fatal_signal;
                 astia_x86_64_signal_context_t saved{
                     static_cast<u64>(result), frame.rbx, frame.rip, frame.a2, frame.a1,
@@ -129,7 +138,9 @@ namespace astia::proc {
                 owner->signals().block(signal_bit(signal) | disposition.mask);
                 frame.nr = ~u64{0};
                 frame.a0 = static_cast<u64>(signal);
-                frame.a1 = frame.a2 = frame.a3 = frame.a4 = frame.a5 = 0;
+                frame.a1 = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0;
+                frame.a2 = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? context : 0;
+                frame.a3 = frame.a4 = frame.a5 = 0;
                 frame.rip = reinterpret_cast<u64>(disposition.handler);
                 frame.rsp = retaddr;
                 frame.rbx = frame.rbp = frame.r12 = frame.r13 = frame.r14 = frame.r15 = 0;
@@ -239,6 +250,7 @@ namespace astia::proc {
                sys::register_syscall<syscall::sigsuspend>(sys::syscall_id::sigsuspend) &&
                sys::register_syscall<syscall::sigwait>(sys::syscall_id::sigwait) &&
                sys::register_syscall<syscall::getpgrp>(sys::syscall_id::getpgrp) &&
+               sys::register_syscall<syscall::getpgid>(sys::syscall_id::getpgid) &&
                sys::register_syscall<syscall::setpgid>(sys::syscall_id::setpgid) &&
                sys::register_syscall<syscall::setsid>(sys::syscall_id::setsid) &&
                sys::register_syscall<syscall::getsid>(sys::syscall_id::getsid) &&

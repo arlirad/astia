@@ -35,6 +35,18 @@ long __astia_process_gettid(void) {
     return host_trap(SYS_gettid, 0, 0, 0, 0);
 }
 
+long __astia_process_getpgrp(void) {
+    return host_trap(SYS_getpgrp, 0, 0, 0, 0);
+}
+
+long __astia_process_getpgid(int pid) {
+    return host_trap(SYS_getpgid, pid, 0, 0, 0);
+}
+
+long __astia_process_setpgid(int pid, int process_group) {
+    return host_trap(SYS_setpgid, pid, process_group, 0, 0);
+}
+
 long __astia_process_yield(void) {
     return host_trap(SYS_sched_yield, 0, 0, 0, 0);
 }
@@ -72,4 +84,19 @@ long __astia_process_fork(void) {
     /* Raw host fork, not our fork(): by libc name it would bind to the
      * process.c wrapper above and recurse through this seam. */
     return host_trap(SYS_fork, 0, 0, 0, 0);
+}
+
+long __astia_process_sigaction(int signal, const astia_sigaction_t* action,
+                               astia_sigaction_t* old_action) {
+    (void) signal;
+    (void) action;
+    (void) old_action;
+    return -ENOSYS;
+}
+
+long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_set) {
+    (void) how;
+    (void) set;
+    (void) old_set;
+    return -ENOSYS;
 }
