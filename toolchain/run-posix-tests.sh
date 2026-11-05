@@ -155,7 +155,6 @@ while IFS= read -r test_name; do
     $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
         -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -o "$test_binary" \
         "$crt0" "$object" "$work/obj/common.o" "$sysroot/lib/libastia_libc.a" "$builtins"
-    printf '%s %s\n' "$test_name" "/bin/posix-$(printf '%s' "$test_name" | tr / _)" >>"$work/root/etc/posix-tests"
 done <"$selected"
 
 runner_object=$work/obj/posix-runner.o
@@ -170,27 +169,41 @@ ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$crt0" COREUTILS_BUILD="$work/coreutils" \
 cp "$work/coreutils/bin/"* "$work/root/bin/"
 tar cf "$work/initrd.tar" -C "$work/root" sbin bin etc
 
-log=$work/logs/qemu.log
-set +e
-timeout "$timeout_seconds" "$qemu" -m 128M -kernel "$kernel" -initrd "$work/initrd.tar" \
-    -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot
-qemu_status=$?
-set -e
-cat "$log"
-if [ "$qemu_status" -eq 124 ]; then
-    echo "POSIX QEMU TIMEOUT: $timeout_seconds seconds (log: $log)" >&2
+failed=0
+while IFS= read -r test_name; do
+    test_id=$(printf '%s' "$test_name" | tr / _)
+    printf '%s %s\n' "$test_name" "/bin/posix-$test_id" >"$work/root/etc/posix-tests"
+    test_initrd=$work/initrd-$test_id.tar
+    tar cf "$test_initrd" -C "$work/root" sbin bin etc
+    log=$work/logs/$test_id.qemu.log
+    set +e
+    timeout "$timeout_seconds" "$qemu" -m 128M -kernel "$kernel" -initrd "$test_initrd" \
+        -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot
+    qemu_status=$?
+    set -e
+    cat "$log"
+    if [ "$qemu_status" -eq 124 ]; then
+        printf 'POSIX_TEST %s FAIL timeout=%s\n' "$test_name" "$timeout_seconds" | tee -a "$log"
+        failed=1
+        continue
+    fi
+    if [ "$qemu_status" -ne 1 ]; then
+        printf 'POSIX_TEST %s FAIL qemu_status=%s\n' "$test_name" "$qemu_status" | tee -a "$log"
+        failed=1
+        continue
+    fi
+    if ! grep -q '^POSIX_TEST .* \(PASS\|UNSUPPORTED\) ' "$log"; then
+        printf 'POSIX_TEST %s FAIL no-result\n' "$test_name" | tee -a "$log"
+        failed=1
+        continue
+    fi
+    if grep -q '^POSIX_TEST .* FAIL ' "$log"; then
+        failed=1
+    fi
+done <"$selected"
+
+if [ "$failed" -ne 0 ]; then
+    echo "POSIX tests failed (logs: $work/logs)" >&2
     exit 1
 fi
-if [ "$qemu_status" -ne 1 ]; then
-    echo "POSIX QEMU failed with status $qemu_status (log: $log)" >&2
-    exit 1
-fi
-if grep -q '^POSIX_TEST .* FAIL ' "$log"; then
-    echo "POSIX tests failed (log: $log)" >&2
-    exit 1
-fi
-grep -q '^POSIX_TEST .* \(PASS\|UNSUPPORTED\) ' "$log" || {
-    echo "POSIX runner emitted no result (log: $log)" >&2
-    exit 1
-}
-echo "Astia POSIX results: $log"
+echo "Astia POSIX results: $work/logs"
