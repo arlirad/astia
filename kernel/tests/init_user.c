@@ -116,6 +116,10 @@ void c_main(const long* frame) {
 
     if (astia_getpid() < 0)
         astia_exit(1);
+    if (astia_getpid() == 1) {
+        if (astia_getppid() != 0)
+            astia_exit(1);
+    }
 
     /* --- direct calls: the clock ------------------------------------ */
     if (astia_clock_gettime(CLOCK_MONOTONIC, &first) != 0)

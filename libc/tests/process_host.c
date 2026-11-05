@@ -31,6 +31,10 @@ long __astia_process_getpid(void) {
     return host_trap(SYS_getpid, 0, 0, 0, 0);
 }
 
+long __astia_process_getppid(void) {
+    return host_trap(SYS_getppid, 0, 0, 0, 0);
+}
+
 long __astia_process_gettid(void) {
     return host_trap(SYS_gettid, 0, 0, 0, 0);
 }

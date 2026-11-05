@@ -47,8 +47,7 @@ int getpid(void) {
 }
 
 int getppid(void) {
-    errno = ENOSYS;
-    return -1;
+    return process_result(__astia_process_getppid());
 }
 
 int gettid(void) {

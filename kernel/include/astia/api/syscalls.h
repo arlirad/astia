@@ -119,6 +119,7 @@ enum {
     SYS_SIGWAIT          = 50,
     SYS_SIGALTSTACK      = 51,
     SYS_GETPGID          = 52,
+    SYS_GETPPID          = 53,
 };
 
 /* ------------------------------------------------------------------ */
@@ -290,6 +291,10 @@ static inline long astia_yield(void) {
 
 static inline long astia_getpid(void) {
     return astia_raw6(SYS_GETPID, 0, 0, 0, 0, 0, 0);
+}
+
+static inline long astia_getppid(void) {
+    return astia_raw6(SYS_GETPPID, 0, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_gettid(void) {

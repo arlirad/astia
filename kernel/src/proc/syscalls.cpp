@@ -7,6 +7,7 @@
 #include "syscalls/getpgrp.hpp"
 #include "syscalls/getpgid.hpp"
 #include "syscalls/getpid.hpp"
+#include "syscalls/getppid.hpp"
 #include "syscalls/gettid.hpp"
 #include "syscalls/ipc/futex.hpp"
 #include "syscalls/kill.hpp"
@@ -219,6 +220,7 @@ namespace astia::proc {
 
     bool register_syscalls() {
         return sys::register_syscall<syscall::getpid>(sys::syscall_id::getpid) &&
+               sys::register_syscall<syscall::getppid>(sys::syscall_id::getppid) &&
                sys::register_syscall<syscall::gettid>(sys::syscall_id::gettid) &&
                sys::register_syscall<syscall::kill>(sys::syscall_id::kill) &&
                sys::register_syscall<syscall::sigaction>(sys::syscall_id::sigaction) &&

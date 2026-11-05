@@ -11,6 +11,10 @@ long __astia_process_getpid(void) {
     return astia_getpid();
 }
 
+long __astia_process_getppid(void) {
+    return astia_getppid();
+}
+
 long __astia_process_gettid(void) {
     return astia_gettid();
 }

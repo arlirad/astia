@@ -34,6 +34,7 @@ int main(int argc, char** argv) {
         _Exit(9);
 
     CHECK(getpid() > 0);
+    CHECK(getppid() > 0);
     CHECK(gettid() > 0);
     CHECK(sched_yield() == 0);
 
@@ -51,6 +52,8 @@ int main(int argc, char** argv) {
     CHECK(child >= 0);
     if (child == 0)
         _Exit(7); /* our _Exit -> port -> host SYS_exit, no atexit */
+
+    CHECK(getppid() > 0);
 
     int status = -1;
     int reaped = waitpid(-1, &status, 0);
