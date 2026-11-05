@@ -472,8 +472,21 @@ namespace astia::dev {
     bool uart16550_ring_selftest() {
         console_puts("astia: uart16550 ring: start\n");
 
+        struct termios saved_termios{};
+        if (com1.ioctl(TCGETS, &saved_termios, sizeof(saved_termios)) < 0)
+            return false;
+        struct termios raw_termios = saved_termios;
+        raw_termios.c_iflag        = 0;
+        raw_termios.c_oflag        = 0;
+        raw_termios.c_lflag        = 0;
+        raw_termios.c_cc[VMIN]     = tty_defaults::min_bytes;
+        raw_termios.c_cc[VTIME]    = 0;
+        if (com1.ioctl(TCSETS, &raw_termios, sizeof(raw_termios)) < 0)
+            return false;
+
         astia_rings* ring = nullptr;
         if (sys::io_setup(8, 0, &ring) < 0 || ring == nullptr) {
+            (void) com1.ioctl(TCSETS, &saved_termios, sizeof(saved_termios));
             console_puts("astia: uart16550 ring: no ring\n");
             return false;
         }
@@ -498,8 +511,9 @@ namespace astia::dev {
             console_puts(why);
             console_puts("\n");
         }
+        const bool restored = com1.ioctl(TCSETS, &saved_termios, sizeof(saved_termios)) == 0;
         (void) sys::io_destroy(ring);
-        return why == nullptr;
+        return why == nullptr && restored;
     }
 
     void uart16550_console_puts(const char* text) {

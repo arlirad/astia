@@ -34,14 +34,10 @@ namespace astia::dev {
     class tty : public chrdev {
         public:
         constexpr tty(const char* name, unsigned flags) : chrdev(name, flags | dv_tty) {
-            // Raw console until something says otherwise: no line
-            // processing, 8 data bits, carrier always present, and
-            // the line at the rate the UART divisor table's default
-            // (divisor 1) provides.
-            _termios.c_iflag = 0;
-            _termios.c_oflag = 0;
+            _termios.c_iflag = ICRNL | IXON;
+            _termios.c_oflag = OPOST | ONLCR;
             _termios.c_cflag = CS8 | CREAD | CLOCAL;
-            _termios.c_lflag = 0;
+            _termios.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK;
             _termios.c_line  = 0;
             for (u32 i = 0; i < NCCS; ++i) {
                 _termios.c_cc[i] = 0;

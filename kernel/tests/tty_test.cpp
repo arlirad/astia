@@ -57,11 +57,29 @@ namespace {
 
 ASTIA_TEST(tty_raw_mode_delivers_bytes) {
     test_tty tty;
+    set_termios(tty, 0, 0, 0);
     char     result[4]{};
     tty.tty_receive('a');
     tty.tty_receive('\n');
     ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 2);
     ASTIA_CHECK(result[0] == 'a' && result[1] == '\n');
+}
+
+ASTIA_TEST(tty_default_termios_commits_carriage_return) {
+    test_tty tty;
+    struct termios value{};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
+    ASTIA_CHECK(value.c_iflag == (ICRNL | IXON));
+    ASTIA_CHECK(value.c_oflag == (OPOST | ONLCR));
+    ASTIA_CHECK(value.c_cflag == (CS8 | CREAD | CLOCAL));
+    ASTIA_CHECK(value.c_lflag == (ISIG | ICANON | ECHO | ECHOE | ECHOK));
+
+    char result[8]{};
+    tty.tty_receive('u');
+    tty.tty_receive('\r');
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 2);
+    ASTIA_CHECK(result[0] == 'u' && result[1] == '\n');
+    ASTIA_CHECK(tty.output == "u\n");
 }
 
 ASTIA_TEST(tty_noncanonical_vmin_waits_for_minimum) {
