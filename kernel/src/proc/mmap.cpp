@@ -1088,17 +1088,20 @@ namespace astia::proc {
             }
         }
 
-        auto* copy = back->split_page(backing_page);
+        auto* copy = back->copy_page(backing_page);
         if (copy == nullptr) {
             delete right;
             delete middle;
             return false; // out of frames: stay fatal
         }
         if (!address_space_->map_4k(virt, copy->base(), flags)) {
-            // split_page moved the faulting mapping's coverage to the
-            // child.  Restore the parent-page claim before discarding
-            // that child if the PTE replacement ever fails.
-            back->retain_mapping(backing_page, 1);
+            copy->release();
+            delete right;
+            delete middle;
+            return false;
+        }
+        if (!back->unmap_range(backing_page, 1)) {
+            (void) address_space_->map_4k(virt, back->page_base(backing_page), flags);
             copy->release();
             delete right;
             delete middle;
