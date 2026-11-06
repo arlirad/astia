@@ -1,6 +1,5 @@
 add_library(sys STATIC
         aio.cpp
-        aio_poll_stub.cpp
         syscall.cpp
         time.cpp
         init_sys.cpp

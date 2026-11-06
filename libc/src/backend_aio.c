@@ -519,6 +519,10 @@ long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
     return transact(OP_FCNTL, fd, 0, NULL, 0, (uint32_t) command, argument);
 }
 
+long __astia_fio_sleep(uint64_t nanoseconds) {
+    return transact(OP_SLEEP, -1, nanoseconds, NULL, 0, 0, 0);
+}
+
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
     astia_rings*  r;
     uint64_t      tags[IO_MAX_ENTRIES];

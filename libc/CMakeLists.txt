@@ -53,6 +53,7 @@ add_library(astia_libc STATIC
   src/termios.c
   src/time.c
   src/time_aio.c
+  src/time_sleep_aio.c
   src/times.c
   src/utsname.c
   src/unistd.c

@@ -340,6 +340,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/termios.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time_aio.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time_sleep_aio.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/times.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/unistd.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/utsname.c

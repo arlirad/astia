@@ -53,6 +53,7 @@ struct tms {
 #define CLOCK_BOOTTIME 2
 
 int        clock_gettime(int clock_id, struct timespec* result);
+int        nanosleep(const struct timespec* requested, struct timespec* remaining);
 time_t     time(time_t* result);
 clock_t    times(struct tms* result);
 int        timespec_get(struct timespec* result, int base);

@@ -74,6 +74,29 @@ static long kick(astia_rings* ring, uint64_t tag, long* rc_out) {
     return c->result;
 }
 
+static long kick_sleep(astia_rings* ring, uint64_t tag, long* rc_out) {
+    astia_cqe* c;
+    uint32_t   attempts;
+
+    astia_sq_publish(ring, 1);
+    *rc_out = astia_io_submit(ring, 1);
+    if (*rc_out < 0)
+        return *rc_out;
+    for (attempts = 0; attempts < 1000; ++attempts) {
+        c = astia_cq_peek(ring);
+        if (c != NULL && c->user_data == tag) {
+            long result = c->result;
+            astia_cq_consume(ring, 1);
+            *rc_out = 0;
+            return result;
+        }
+        if (astia_yield() < 0)
+            break;
+    }
+    *rc_out = -1;
+    return -1;
+}
+
 static int streq(const char* a, const char* b) {
     while (*a != '\0' && *a == *b) {
         ++a;
@@ -110,6 +133,7 @@ void c_main(const long* frame) {
     astia_timespec second;
     astia_timespec wall;
     astia_timespec budget;
+    astia_timespec slept;
     long           rc;
     long           fd;
     uint64_t       tag = 1;
@@ -139,6 +163,16 @@ void c_main(const long* frame) {
         astia_exit(6);
     if (ring->magic != RINGS_MAGIC)
         astia_exit(7);
+
+    /* --- OP_SLEEP completes from the timer hook --------------------- */
+    if (fill(ring, OP_SLEEP, -1, 0, 20000000, 0, tag) == NULL)
+        astia_exit(8);
+    if (kick_sleep(ring, tag++, &rc) != 0 || rc != 0)
+        astia_exit(8);
+    if (astia_clock_gettime(CLOCK_MONOTONIC, &slept) != 0 ||
+        slept.tv_sec < second.tv_sec ||
+        (slept.tv_sec == second.tv_sec && slept.tv_nsec <= second.tv_nsec))
+        astia_exit(8);
 
     /* --- OPENAT /sbin/init ------------------------------------------ */
     if (fill(ring, OP_OPENAT, -1, (uint64_t) (uintptr_t) "/sbin/init", 0, 0, tag) == NULL)

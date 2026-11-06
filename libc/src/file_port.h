@@ -104,6 +104,7 @@ long __astia_fio_pipe(int fds[2]);
 long __astia_fio_dup(int fd);
 long __astia_fio_dup2(int old_fd, int new_fd);
 long __astia_fio_fcntl(int fd, int command, unsigned int argument);
+long __astia_fio_sleep(uint64_t nanoseconds);
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms);
 long __astia_fio_eventfd(unsigned int initial_value, int flags);
 void __astia_fio_after_fork(void);

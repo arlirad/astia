@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 char** environ;
@@ -269,8 +270,15 @@ unsigned int alarm(unsigned int seconds) {
     return 0;
 }
 unsigned int sleep(unsigned int seconds) {
-    (void) seconds;
-    return 0;
+    struct timespec requested = {(time_t) seconds, 0};
+    struct timespec remaining;
+
+    if (nanosleep(&requested, &remaining) == 0)
+        return 0;
+    if (errno == EINTR)
+        return (unsigned int) remaining.tv_sec +
+               (remaining.tv_nsec != 0 ? 1u : 0u);
+    return seconds;
 }
 char* mktemp(char* template_name) {
     (void) template_name;

@@ -270,7 +270,9 @@ namespace astia::sys {
             bool                     control               = false;
             bool                     socket_accept         = false;
             bool                     readiness             = false;
+            bool                     sleeping              = false;
             u32                      poll_events           = 0;
+            u64                      sleep_deadline        = 0;
             bool                     recvfrom_address      = false;
             u64                      recvfrom_address_user = 0;
             bool                     pending_cqe           = false;
@@ -411,6 +413,15 @@ namespace astia::sys {
 
         u64 ready_generation() {
             return __atomic_load_n(&g_ready_generation, __ATOMIC_ACQUIRE);
+        }
+
+        u64 poll_now_ns() {
+            const u64 hz = arch::timer_hz();
+            if (hz == 0)
+                return 0;
+            const u64 ticks = arch::timer_ticks();
+            return (ticks / hz) * nanoseconds_per_second +
+                   (ticks % hz) * nanoseconds_per_second / hz;
         }
 
         void note_device_ready(const fs::file*) {
@@ -604,6 +615,22 @@ namespace astia::sys {
         // use interrupt masking as a substitute for cross-CPU serialization.
         bool cq_post_guarded(astia_rings* ring, u64 user_data, i32 result) {
             return cq_post(ring, user_data, result);
+        }
+
+        void complete_control(astia_rings* ring, parked_op& op, u32 result) {
+            if (op.done || op.pending_cqe)
+                return;
+            if (op.request.completion() != nullptr) {
+                op.request.completion()->complete_deferred(static_cast<i64>(result));
+                op.done = true;
+            }
+            else if (!cq_post(ring, op.request.user_data(), static_cast<i32>(result))) {
+                op.pending_cqe       = true;
+                op.pending_user_data = op.request.user_data();
+                op.pending_result    = static_cast<i32>(result);
+            }
+            else
+                op.done = true;
         }
 
         mm::shptr<fs::open_file> file_for(proc::process* current, i32 fd) {
@@ -1919,6 +1946,37 @@ namespace astia::sys {
             return true;
         }
 
+        bool handle_sleep(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
+            if (s.fd != -1 || s.address != 0 || s.length != 0 || s.op_flags != 0 ||
+                s.aux != 0)
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            if (arch::timer_hz() == 0)
+                return cq_post_guarded(ring, s.user_data, -EIO);
+            if (s.offset == 0)
+                return cq_post_guarded(ring, s.user_data, 0);
+
+            parked_op* p = nullptr;
+            for (u32 i = 0; i < parked_operation_slots; ++i) {
+                if (!slot.park[i].used) {
+                    p = &slot.park[i];
+                    break;
+                }
+            }
+            if (p == nullptr)
+                return cq_post_guarded(ring, s.user_data, -EBUSY);
+
+            const u64 now = poll_now_ns();
+            p->used           = true;
+            p->done           = false;
+            p->resuming       = false;
+            p->control        = true;
+            p->sleeping       = true;
+            p->sleep_deadline = UINT64_MAX - now < s.offset ? UINT64_MAX : now + s.offset;
+            p->fd             = -1;
+            p->request        = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
+            return true;
+        }
+
         bool handle_cancel(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             const u64 target = s.offset;
             for (u32 i = 0; i < parked_operation_slots; ++i) {
@@ -2029,6 +2087,9 @@ namespace astia::sys {
 
             case OP_POLL_ADD:
                 return handle_poll_add(slot, ring, s);
+
+            case OP_SLEEP:
+                return handle_sleep(slot, ring, s);
 
             case OP_EVENTFD_CREATE:
                 return handle_eventfd_create(ring, s);
@@ -2305,6 +2366,29 @@ namespace astia::sys {
                 }
                 cq_retrigger(slot, rings_of(slot));
             }
+        }
+    }
+
+    void io_poll_tick() {
+        if (arch::timer_hz() == 0)
+            return;
+        const u64 now = poll_now_ns();
+        for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+            ring_guard pool_guard(g_ring_pool_lock);
+            ring_slot* slot_ptr = g_slots[i];
+            if (slot_ptr == nullptr || !slot_ptr->used)
+                continue;
+            ring_slot& slot = *slot_ptr;
+            ring_guard ring_lock_guard(slot.lock);
+            pool_guard.release_lock();
+            astia_rings* ring = rings_of(slot);
+            retry_pending(slot, ring);
+            for (u32 p = 0; p < parked_operation_slots; ++p) {
+                parked_op& op = slot.park[p];
+                if (op.used && !op.done && op.sleeping && now >= op.sleep_deadline)
+                    complete_control(ring, op, 0);
+            }
+            cq_retrigger(slot, ring);
         }
     }
 

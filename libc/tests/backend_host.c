@@ -390,6 +390,11 @@ long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
     return rc < 0 ? -HOST_ERRNO : rc;
 }
 
+long __astia_fio_sleep(uint64_t nanoseconds) {
+    (void) nanoseconds;
+    return 0;
+}
+
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
     long rc;
 
