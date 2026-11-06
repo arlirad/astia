@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sched.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -37,6 +38,9 @@ int       pthread_join(pthread_t thread, void** result);
 int       pthread_detach(pthread_t thread);
 pthread_t pthread_self(void);
 void      pthread_exit(void* result) __attribute__((noreturn));
+int       pthread_kill(pthread_t thread, int signal_number);
+int       pthread_setschedparam(pthread_t thread, int policy,
+                                const struct sched_param* param);
 int       pthread_mutex_init(pthread_mutex_t* mutex, const pthread_mutexattr_t* attr);
 int       pthread_mutex_destroy(pthread_mutex_t* mutex);
 int       pthread_mutex_lock(pthread_mutex_t* mutex);

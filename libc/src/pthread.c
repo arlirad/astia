@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -86,6 +87,29 @@ int pthread_detach(pthread_t thread) {
 
 pthread_t pthread_self(void) {
     return (pthread_t) gettid();
+}
+
+int pthread_kill(pthread_t thread, int signal_number) {
+    if (signal_number < 0 || signal_number >= NSIG)
+        return EINVAL;
+    if (thread != pthread_self())
+        return ENOTSUP;
+    return raise(signal_number) == -1 ? errno : 0;
+}
+
+int pthread_setschedparam(pthread_t thread, int policy,
+                          const struct sched_param* param) {
+    if (param == NULL)
+        return EINVAL;
+    if (policy != SCHED_OTHER && policy != SCHED_FIFO && policy != SCHED_RR)
+        return EINVAL;
+    if (thread != pthread_self())
+        return ENOTSUP;
+    if (policy != SCHED_OTHER)
+        return ENOTSUP;
+    if (param->sched_priority != 0)
+        return EINVAL;
+    return 0;
 }
 
 void pthread_exit(void* result) {
