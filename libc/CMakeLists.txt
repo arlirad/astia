@@ -38,6 +38,7 @@ add_library(astia_libc STATIC
   src/path.c
   src/poll.c
   src/select.c
+  src/semaphore.c
   src/prctl.c
   src/rlimit.c
   src/printf.c
