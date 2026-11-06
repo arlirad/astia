@@ -102,6 +102,8 @@ namespace astia::mm {
         /// child from here on.  nullptr on allocation failure.
         phys_region* split_page(usize index);
 
+        phys_region* copy_page(usize index);
+
         /// True when page `index` has exactly one mapping left among
         /// this region's sharers — the caller's own — so writing it in
         /// place is safe.

@@ -329,6 +329,16 @@ namespace astia::mm {
     }
 
     phys_region* phys_region::split_page(usize index) {
+        auto* copy = copy_page(index);
+        if (copy == nullptr || !unmap_range(index, 1)) {
+            if (copy != nullptr)
+                copy->release();
+            return nullptr;
+        }
+        return copy;
+    }
+
+    phys_region* phys_region::copy_page(usize index) {
         // Keep a temporary atomic page claim while allocation and copying run
         // without lock_.  A concurrent unmap can consume its own claim, but
         // cannot free the source frame until this claim is dropped.
@@ -349,22 +359,16 @@ namespace astia::mm {
 
         const auto* source = static_cast<const u8*>(page_direct(index));
         auto*       target = static_cast<u8*>(copy->page_direct(0));
-        for (usize b = 0; b < frame_size; ++b) {
-            target[b] = source[b];
-        }
-
-        // The caller is moving one mapping from this page to `copy`.
-        // This makes split_page useful both to the kernel fault path and
-        // to the low-level phys_region tests without a separate global
-        // frame-use table.
-        if (!unmap_range(index, 1)) {
+        if (source == nullptr || target == nullptr) {
             (void) unmap_range(index, 1);
             heap::free(node.value);
             copy->release();
             return nullptr;
         }
-        // The first unmap moves one mapping to the child.  Drop the temporary
-        // claim only after the source bytes have been copied.
+        for (usize b = 0; b < frame_size; ++b) {
+            target[b] = source[b];
+        }
+
         (void) unmap_range(index, 1);
 
         auto* list_node = static_cast<child*>(static_cast<void*>(node.value));

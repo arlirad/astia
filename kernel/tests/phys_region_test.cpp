@@ -122,6 +122,34 @@ ASTIA_TEST(phys_region_split_page_copies_and_tracks) {
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
 
+ASTIA_TEST(phys_region_copy_page_is_reversible) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(1, true);
+    ASTIA_CHECK(region != nullptr);
+    static_cast<astia::u8*>(region->page_direct(0))[0] = 0x5a;
+
+    auto* copy = region->copy_page(0);
+    ASTIA_CHECK(copy != nullptr);
+    ASTIA_CHECK(region->uniquely_held(0));
+    ASTIA_CHECK(static_cast<astia::u8*>(copy->page_direct(0))[0] == 0x5a);
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 2);
+
+    copy->release();
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(phys_region_split_rejects_unmaterialized_page) {
+    const auto before = init_world();
+    auto*      region = phys_region::create_lazy(1);
+    ASTIA_CHECK(region != nullptr);
+    ASTIA_CHECK(region->split_page(0) == nullptr);
+    ASTIA_CHECK(region->copy_page(0) == nullptr);
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
 ASTIA_TEST(phys_region_reclaims_last_unmapped_page) {
     const auto before = init_world();
     auto*      region = phys_region::create(4, true);
