@@ -89,12 +89,24 @@ pthread_t pthread_self(void) {
     return (pthread_t) gettid();
 }
 
+int pthread_equal(pthread_t first, pthread_t second) {
+    return first == second;
+}
+
 int pthread_kill(pthread_t thread, int signal_number) {
     if (signal_number < 0 || signal_number >= NSIG)
         return EINVAL;
     if (thread != pthread_self())
         return ENOTSUP;
+    if (signal_number == 0)
+        return kill((int) getpid(), 0) == -1 ? errno : 0;
     return raise(signal_number) == -1 ? errno : 0;
+}
+
+int pthread_sigmask(int how, const sigset_t* set, sigset_t* old_set) {
+    if (sigprocmask(how, set, old_set) == 0)
+        return 0;
+    return errno;
 }
 
 int pthread_setschedparam(pthread_t thread, int policy,

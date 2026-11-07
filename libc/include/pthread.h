@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sched.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -37,8 +38,10 @@ int       pthread_create(pthread_t* thread, const pthread_attr_t* attr,
 int       pthread_join(pthread_t thread, void** result);
 int       pthread_detach(pthread_t thread);
 pthread_t pthread_self(void);
+int       pthread_equal(pthread_t first, pthread_t second);
 void      pthread_exit(void* result) __attribute__((noreturn));
 int       pthread_kill(pthread_t thread, int signal_number);
+int       pthread_sigmask(int how, const sigset_t* set, sigset_t* old_set);
 int       pthread_setschedparam(pthread_t thread, int policy,
                                 const struct sched_param* param);
 int       pthread_mutex_init(pthread_mutex_t* mutex, const pthread_mutexattr_t* attr);
