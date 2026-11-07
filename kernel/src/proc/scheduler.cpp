@@ -3,6 +3,7 @@
 #include <astia/core/resume_queue.hpp>
 
 #include "proc.hpp"
+#include "../sys/aio.hpp"
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
@@ -339,6 +340,7 @@ namespace astia::proc::scheduler {
     }
 
     void tick() {
+        sys::io_poll_tick();
         thread* current = proc::current_thread();
         if (current != nullptr && current->sched_class() == scheduling_class::normal) {
             current->charge_runtime(nice_charge(current->nice()));
