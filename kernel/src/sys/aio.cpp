@@ -161,7 +161,7 @@ namespace astia::sys {
         // The parent keeps its ring while two forked children perform their
         // pipe handshakes.  Exiting children release their private slots.
         constexpr u32 kernel_ring_slot_count = 4;
-        constexpr u32 parked_operation_slots = 16;
+        constexpr u32 parked_operation_slots = kernel_ring_max_entries;
 
         // Device submit paths may synchronously notify another parked request
         // (eventfd is one example).  Preserve the single owner rule while
@@ -2121,7 +2121,6 @@ namespace astia::sys {
                 }
                 visible = reinterpret_cast<astia_rings*>(user_address);
             }
-
             if (!sys::copy_out(
                     span<u8>::bytes(reinterpret_cast<u64>(out), sizeof visible),
                     &visible)) {

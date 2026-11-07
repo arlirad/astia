@@ -522,11 +522,28 @@ long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
     astia_rings*  r;
     uint64_t      tags[IO_MAX_ENTRIES];
+    uint64_t      cancel_tags[IO_MAX_ENTRIES];
     unsigned char pending[IO_MAX_ENTRIES] = {0};
-    size_t        submitted = 0, ready_count = 0;
-    long          rc;
-    if (count > IO_MAX_ENTRIES || (count != 0 && fds == NULL) || timeout_ms < -1)
+    uint64_t      sleep_tag = 0;
+    size_t        submitted = 0, pending_count = 0, ready_count = 0;
+    size_t        cancel_count = 0, cancel_submitted = 0, cancel_acks = 0;
+    long          rc = 0;
+    long          wait_error = 0;
+    int           sleep_pending = 0;
+    int           stop = 0;
+
+    if (count > RING_ENTRIES - (timeout_ms >= 0 ? 1u : 0u) ||
+        (count != 0 && fds == NULL) || timeout_ms < -1)
         return -EINVAL;
+    for (size_t i = 0; i < count; ++i)
+        fds[i].revents = 0;
+    if (count == 0) {
+        if (timeout_ms == 0)
+            return 0;
+        return __astia_fio_sleep(timeout_ms < 0
+                                     ? UINT64_MAX
+                                     : (uint64_t) (unsigned) timeout_ms * 1000000ull);
+    }
     rc = ring_ensure();
     if (rc < 0)
         return rc;
@@ -538,10 +555,13 @@ long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
     r = g_ring;
     for (size_t i = 0; i < count; ++i) {
         astia_sqe* s = astia_sqe_slot(r);
-        if (s == NULL)
-            return -EBUSY;
+        if (s == NULL) {
+            rc = -EBUSY;
+            goto cancel;
+        }
         tags[i]    = ++g_tag;
         pending[i] = 1;
+        ++pending_count;
         memset(s, 0, sizeof *s);
         s->op        = OP_POLL_ADD;
         s->fd        = fds[i].fd;
@@ -550,57 +570,149 @@ long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
         astia_sq_publish(r, 1);
         ++submitted;
     }
+    if (timeout_ms >= 0) {
+        astia_sqe* s = astia_sqe_slot(r);
+        if (s == NULL) {
+            rc = -EBUSY;
+            goto cancel;
+        }
+        sleep_tag     = ++g_tag;
+        sleep_pending = 1;
+        ++pending_count;
+        memset(s, 0, sizeof *s);
+        s->op        = OP_SLEEP;
+        s->offset    = (uint64_t) (unsigned) timeout_ms * 1000000ull;
+        s->user_data = sleep_tag;
+        astia_sq_publish(r, 1);
+        ++submitted;
+    }
     rc = astia_io_submit(r, (uint32_t) submitted);
     if (rc < 0)
         goto cancel;
-    for (;;) {
-        astia_cqe* c = astia_cq_peek(r);
-        if (c == NULL)
-            break;
-        for (size_t i = 0; i < count; ++i)
-            if (pending[i] && tags[i] == c->user_data) {
-                pending[i] = 0;
-                if (c->result >= 0) {
-                    fds[i].revents = (short) c->result;
-                    if (c->result)
-                        ++ready_count;
-                }
-                break;
-            }
-        astia_cq_consume(r, 1);
+    if ((size_t) rc != submitted) {
+        rc = -EBUSY;
+        goto cancel;
     }
-cancel:
-    {
-        size_t left = 0;
-        for (size_t i = 0; i < count; ++i)
-            if (pending[i]) {
-                astia_sqe* s = astia_sqe_slot(r);
-                if (s == NULL)
+    while (!stop && pending_count != 0) {
+        astia_cqe* c;
+        while (!stop && (c = astia_cq_peek(r)) != NULL) {
+            for (size_t i = 0; i < count; ++i) {
+                if (pending[i] && tags[i] == c->user_data) {
+                    pending[i] = 0;
+                    --pending_count;
+                    if (c->result < 0) {
+                        if (wait_error == 0)
+                            wait_error = c->result;
+                    }
+                    else {
+                        fds[i].revents = (short) c->result;
+                        if (c->result != 0) {
+                            ++ready_count;
+                            stop = 1;
+                        }
+                    }
                     break;
+                }
+            }
+            if (sleep_pending && sleep_tag == c->user_data) {
+                sleep_pending = 0;
+                --pending_count;
+                stop = 1;
+            }
+            astia_cq_consume(r, 1);
+        }
+        if (!stop) {
+            rc = astia_io_submit(r, 0);
+            if (rc < 0)
+                goto cancel;
+            (void) astia_yield();
+        }
+    }
+
+cancel:
+    for (size_t i = 0; i < count; ++i) {
+        if (!pending[i])
+            continue;
+        for (;;) {
+            astia_sqe* s = astia_sqe_slot(r);
+            if (s != NULL) {
                 memset(s, 0, sizeof *s);
                 s->op        = OP_CANCEL;
                 s->offset    = tags[i];
                 s->user_data = ++g_tag;
+                cancel_tags[cancel_count++] = s->user_data;
                 astia_sq_publish(r, 1);
-                ++left;
-                pending[i] = 0;
+                break;
             }
-        if (left)
-            (void) astia_io_submit(r, (uint32_t) left);
-        while (astia_cq_peek(r) != NULL) {
-            astia_cqe* c = astia_cq_peek(r);
-            for (size_t i = 0; i < count; ++i)
-                if (tags[i] == c->user_data && c->result >= 0) {
-                    fds[i].revents = (short) c->result;
-                    if (c->result)
+            rc = astia_io_submit(r, 0);
+            if (rc < 0)
+                goto cancel_wait;
+            (void) astia_yield();
+        }
+    }
+    if (sleep_pending) {
+        for (;;) {
+            astia_sqe* s = astia_sqe_slot(r);
+            if (s != NULL) {
+                memset(s, 0, sizeof *s);
+                s->op        = OP_CANCEL;
+                s->offset    = sleep_tag;
+                s->user_data = ++g_tag;
+                cancel_tags[cancel_count++] = s->user_data;
+                astia_sq_publish(r, 1);
+                break;
+            }
+            rc = astia_io_submit(r, 0);
+            if (rc < 0)
+                goto cancel_wait;
+            (void) astia_yield();
+        }
+    }
+cancel_wait:
+    while (cancel_submitted < cancel_count || pending_count != 0 ||
+           cancel_acks < cancel_count) {
+        if (cancel_submitted < cancel_count) {
+            rc = astia_io_submit(r, (uint32_t) (cancel_count - cancel_submitted));
+            if (rc < 0)
+                break;
+            cancel_submitted += (size_t) rc;
+        }
+        astia_cqe* c;
+        while ((c = astia_cq_peek(r)) != NULL) {
+            for (size_t i = 0; i < count; ++i) {
+                if (pending[i] && tags[i] == c->user_data) {
+                    pending[i] = 0;
+                    --pending_count;
+                    if (c->result >= 0 && c->result != 0) {
+                        fds[i].revents = (short) c->result;
                         ++ready_count;
+                    }
+                    else if (c->result < 0 && wait_error == 0)
+                        wait_error = c->result;
+                    break;
+                }
+            }
+            if (sleep_pending && sleep_tag == c->user_data) {
+                sleep_pending = 0;
+                --pending_count;
+            }
+            for (size_t i = 0; i < cancel_count; ++i)
+                if (cancel_tags[i] == c->user_data) {
+                    ++cancel_acks;
                     break;
                 }
             astia_cq_consume(r, 1);
         }
+        if (cancel_submitted == cancel_count && pending_count == 0 &&
+            cancel_acks == cancel_count)
+            break;
+        (void) astia_io_submit(r, 0);
+        (void) astia_yield();
     }
-    if (rc < 0 && rc != -ETIMEDOUT)
+    if (rc < 0 && ready_count == 0)
         return rc;
+    if (wait_error < 0 && ready_count == 0)
+        return wait_error;
     return (long) ready_count;
 }
 
