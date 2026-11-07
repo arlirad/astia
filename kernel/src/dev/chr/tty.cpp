@@ -196,11 +196,7 @@ namespace astia::dev {
             if ((_termios.c_iflag & IGNCR) != 0) {
                 return;
             }
-            /* Serial consoles commonly deliver Enter as CR.  Keep that
-               key useful after a raw-mode program (notably zsh) clears
-               ICRNL: zsh binds both CR and LF to accept-line, while a
-               bare CR otherwise only moves the host cursor to column zero. */
-            if ((_termios.c_iflag & ICRNL) != 0 || (_termios.c_lflag & ICANON) == 0) {
+            if ((_termios.c_iflag & ICRNL) != 0) {
                 byte = '\n';
             }
         }

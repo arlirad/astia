@@ -97,9 +97,10 @@ ASTIA_TEST(tty_raw_mode_delivers_bytes) {
     set_termios(tty, 0, 0, 0);
     char     result[4]{};
     tty.tty_receive('a');
+    tty.tty_receive('\r');
     tty.tty_receive('\n');
-    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 2);
-    ASTIA_CHECK(result[0] == 'a' && result[1] == '\n');
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 3);
+    ASTIA_CHECK(result[0] == 'a' && result[1] == '\r' && result[2] == '\n');
 }
 
 ASTIA_TEST(tty_default_termios_commits_carriage_return) {
