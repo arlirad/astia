@@ -58,6 +58,21 @@ static volatile int    libc_mutex_ready;
 static volatile int libc_cancel_join_started;
 static volatile int libc_cancel_join_release;
 
+static volatile int libc_signal_calls;
+static volatile int libc_signal_thread_release;
+
+static void libc_signal_handler(int signal_number) {
+    if (signal_number == SIGUSR2)
+        ++libc_signal_calls;
+}
+
+static void* libc_signal_thread_worker(void* opaque) {
+    (void) opaque;
+    while (!libc_signal_thread_release)
+        sched_yield();
+    return (void*) (unsigned long) 0x6789;
+}
+
 static void* libc_cancel_join_target(void* opaque) {
     (void) opaque;
     while (!libc_cancel_join_release)
@@ -484,6 +499,41 @@ int main(int argc, char** argv) {
         if (pthread_join(target, &result) != 0 ||
             result != (void*) (unsigned long) 0x5678)
             return 76;
+    }
+
+    {
+        struct sigaction action = {0};
+        sigset_t          blocked;
+        pthread_t         other;
+        void*             result = NULL;
+        libc_signal_calls = 0;
+        libc_signal_thread_release = 0;
+        action.sa_handler = libc_signal_handler;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGUSR2, &action, NULL) != 0)
+            return 77;
+        if (pthread_kill(pthread_self(), 0) != 0 ||
+            pthread_kill(pthread_self(), SIGUSR2) != 0 || libc_signal_calls != 1)
+            return 78;
+        if (sigemptyset(&blocked) != 0 || sigaddset(&blocked, SIGUSR2) != 0 ||
+            pthread_sigmask(SIG_BLOCK, &blocked, NULL) != 0)
+            return 79;
+        if (pthread_kill(pthread_self(), SIGUSR2) != 0 || libc_signal_calls != 1)
+            return 80;
+        if (pthread_sigmask(SIG_UNBLOCK, &blocked, NULL) != 0 || libc_signal_calls != 2)
+            return 81;
+        if (pthread_create(&other, NULL, libc_signal_thread_worker, NULL) != 0)
+            return 82;
+        int other_signal = pthread_kill(other, SIGUSR2);
+        int other_zero   = pthread_kill(other, 0);
+        if (other_signal != ENOTSUP || other_zero != 0)
+            return 83;
+        libc_signal_thread_release = 1;
+        if (pthread_join(other, &result) != 0 ||
+            result != (void*) (unsigned long) 0x6789)
+            return 84;
+        if (pthread_kill(other, 0) != ESRCH || pthread_kill(other, SIGUSR2) != ESRCH)
+            return 85;
     }
 
     /* 39-43: writable tmpfs plus MAP_SHARED.  The mapping names the

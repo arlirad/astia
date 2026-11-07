@@ -56,6 +56,9 @@ static void pthread_stack_record_remove(pthread_t tid) {
     pthread_mutex_lock(&pthread_stack_lock);
     for (size_t i = 0; i < pthread_stack_records; ++i) {
         if (pthread_stacks[i].active && pthread_stacks[i].tid == tid) {
+            pthread_stacks[i].tid    = 0;
+            pthread_stacks[i].stack  = NULL;
+            pthread_stacks[i].size   = 0;
             pthread_stacks[i].active = 0;
             break;
         }
@@ -150,10 +153,11 @@ int pthread_equal(pthread_t first, pthread_t second) {
 int pthread_kill(pthread_t thread, int signal_number) {
     if (signal_number < 0 || signal_number >= NSIG)
         return EINVAL;
-    if (signal_number == 0) {
-        long rc = __astia_process_thread_exists((unsigned long) thread);
-        return rc < 0 ? (int) -rc : 0;
-    }
+    long rc = __astia_process_thread_exists((unsigned long) thread);
+    if (rc < 0)
+        return (int) -rc;
+    if (signal_number == 0)
+        return 0;
     if (thread != pthread_self())
         return ENOTSUP;
     return raise(signal_number) == -1 ? errno : 0;
