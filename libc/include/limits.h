@@ -1,6 +1,8 @@
 #pragma once
 
+#ifndef PATH_MAX
 #define PATH_MAX 4096
+#endif
 #define NAME_MAX 255
 #define ARG_MAX 131072
 #define OPEN_MAX 64
