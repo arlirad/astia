@@ -121,6 +121,23 @@ namespace astia {
             return (pending_ & ~blocked_) != 0;
         }
 
+        bool has_unblocked_interrupting() const {
+            signal_lock_guard guard(lock_);
+            const signal_mask available = pending_ & ~blocked_;
+            for (u8 value = 1; value < signal_count; ++value) {
+                if ((available & (signal_mask{1} << value)) == 0)
+                    continue;
+                const auto signal = static_cast<signal_number>(value);
+                const auto disposition = dispositions_[value];
+                if (disposition.action == signal_action::ignore ||
+                    (disposition.action == signal_action::default_action &&
+                     default_action(signal) == signal_default::ignore))
+                    continue;
+                return true;
+            }
+            return false;
+        }
+
         private:
         signal_disposition     dispositions_[signal_count]{};
         signal_info             infos_[signal_count]{};

@@ -43,6 +43,10 @@ add_executable(libc_sleep_test sleep_test.c sleep_host.c backend_host.c)
 target_link_libraries(libc_sleep_test PRIVATE astia_libc)
 add_test(NAME libc_sleep_test COMMAND libc_sleep_test)
 
+add_executable(libc_alarm_test alarm_test.c alarm_host.c)
+target_link_libraries(libc_alarm_test PRIVATE astia_libc)
+add_test(NAME libc_alarm_test COMMAND libc_alarm_test)
+
 # The process API drives real host processes: identity, yield and a
 # forked child reaped through our waitpid wrapper.  Same object trick
 # as the FILE tests — process_host.c raw-syscalls the host in front of

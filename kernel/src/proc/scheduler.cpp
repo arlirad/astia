@@ -341,6 +341,7 @@ namespace astia::proc::scheduler {
 
     void tick() {
         sys::io_poll_tick();
+        proc::expire_alarms();
         thread* current = proc::current_thread();
         if (current != nullptr && current->sched_class() == scheduling_class::normal) {
             current->charge_runtime(nice_charge(current->nice()));

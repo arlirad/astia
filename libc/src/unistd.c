@@ -266,8 +266,12 @@ unsigned int umask(unsigned int mode) {
     return 0;
 }
 unsigned int alarm(unsigned int seconds) {
-    (void) seconds;
-    return 0;
+    const long rc = __astia_process_alarm(seconds);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return 0;
+    }
+    return (unsigned int) rc;
 }
 unsigned int sleep(unsigned int seconds) {
     struct timespec requested = {(time_t) seconds, 0};

@@ -61,6 +61,7 @@ namespace astia::sys {
         sigaltstack,
         getpgid,
         getppid,
+        alarm = 55,
     };
 
     /// How many registers the ABI hands every trap — and so the most

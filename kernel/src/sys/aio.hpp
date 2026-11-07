@@ -78,6 +78,7 @@ namespace astia::sys {
     /// dynamically opened `/dev/*` descriptors wake just like stdio.
     void io_device_ready_context(const io_device* dev);
     void io_device_ready_context_except(const io_device* dev, u64 user_data);
+    void io_interrupt_process(proc::process* owner, i32 result);
     void io_poll_tick();
     void io_exec_process(proc::process* owner);
     void io_exit_process(proc::process* owner);

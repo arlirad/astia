@@ -390,8 +390,22 @@ long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
     return rc < 0 ? -HOST_ERRNO : rc;
 }
 
-long __astia_fio_sleep(uint64_t nanoseconds) {
-    (void) nanoseconds;
+long __astia_fio_sleep(uint64_t nanoseconds, uint64_t* remaining_nanoseconds) {
+    struct host_timespec {
+        long tv_sec;
+        long tv_nsec;
+    } requested = {(long) (nanoseconds / 1000000000ull),
+                   (long) (nanoseconds % 1000000000ull)},
+                  remaining = {0, 0};
+    long rc = syscall(SYS_nanosleep, &requested, &remaining);
+    if (rc < 0) {
+        if (remaining_nanoseconds != NULL)
+            *remaining_nanoseconds = (uint64_t) remaining.tv_sec * 1000000000ull +
+                                     (uint64_t) remaining.tv_nsec;
+        return -HOST_ERRNO;
+    }
+    if (remaining_nanoseconds != NULL)
+        *remaining_nanoseconds = 0;
     return 0;
 }
 

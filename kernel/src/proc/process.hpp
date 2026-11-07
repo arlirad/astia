@@ -208,6 +208,8 @@ namespace astia::proc {
             __atomic_store_n(&continued_event_, 0, __ATOMIC_RELEASE);
         }
         void signal_state_change(signal_number signal);
+        i64 alarm(u32 seconds, u64 now, u32 hz);
+        void expire_alarm(u64 now);
         void signal_termination(signal_number signal) {
             termination_signal_ = static_cast<i32>(signal);
         }
@@ -433,6 +435,7 @@ namespace astia::proc {
         u8           stop_event_         = 0;
         u8           continued_event_    = 0;
         signal_state signals_{};
+        u64          alarm_deadline_     = 0;
 
         mm::shptr<thread>        threads_[max_threads_per_process];
         u32                      thread_count_ = 0;

@@ -121,6 +121,7 @@ enum {
     SYS_SIGALTSTACK      = 51,
     SYS_GETPGID          = 52,
     SYS_GETPPID          = 53,
+    SYS_ALARM            = 55,
 };
 
 /* ------------------------------------------------------------------ */
@@ -368,6 +369,10 @@ static inline long astia_setsid(void) {
 /* pid == 0 selects the caller; a positive PID selects that process. */
 static inline long astia_getsid(int32_t pid) {
     return astia_raw6(SYS_GETSID, (long) pid, 0, 0, 0, 0, 0);
+}
+
+static inline long astia_alarm(uint32_t seconds) {
+    return astia_raw6(SYS_ALARM, (long) seconds, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_kill(int32_t pid, int32_t signal) {

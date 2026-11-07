@@ -51,16 +51,24 @@ int clock_gettime(int clock_id, struct timespec* result) {
 }
 
 int nanosleep(const struct timespec* requested, struct timespec* remaining) {
-    long rc;
+    int64_t remaining_sec  = 0;
+    int64_t remaining_nsec = 0;
+    long    rc;
 
     if (requested == NULL || requested->tv_sec < 0 || requested->tv_nsec < 0 ||
         requested->tv_nsec >= 1000000000L) {
         errno = EINVAL;
         return -1;
     }
-    rc = __astia_time_nanosleep(requested->tv_sec, requested->tv_nsec);
+    rc = __astia_time_nanosleep(requested->tv_sec, requested->tv_nsec,
+                                remaining == NULL ? NULL : &remaining_sec,
+                                remaining == NULL ? NULL : &remaining_nsec);
     if (rc < 0) {
         errno = (int) -rc;
+        if (remaining != NULL && errno == EINTR) {
+            remaining->tv_sec  = (time_t) remaining_sec;
+            remaining->tv_nsec = (long) remaining_nsec;
+        }
         return -1;
     }
     if (remaining != NULL) {

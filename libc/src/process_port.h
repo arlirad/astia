@@ -12,6 +12,7 @@ void                   __astia_process_exit(int status);
 long                   __astia_process_getpid(void);
 long                   __astia_process_getppid(void);
 long                   __astia_process_gettid(void);
+long                   __astia_process_alarm(unsigned int seconds);
 long                   __astia_process_getpgrp(void);
 long                   __astia_process_getpgid(int pid);
 long                   __astia_process_setpgid(int pid, int process_group);

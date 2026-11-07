@@ -43,6 +43,29 @@ ASTIA_TEST(signal_state_sigwait_restores_mask_and_preserves_pending_signal) {
     ASTIA_CHECK(state.take_unblocked() == astia::signal_number::int_);
 }
 
+ASTIA_TEST(signal_state_default_sigchld_does_not_interrupt_waiters) {
+    astia::signal_state state;
+    ASTIA_CHECK(state.send(astia::signal_number::chld));
+    ASTIA_CHECK(!state.has_unblocked_interrupting());
+    ASTIA_CHECK(state.send(astia::signal_number::alrm));
+    ASTIA_CHECK(state.has_unblocked_interrupting());
+}
+
+ASTIA_TEST(signal_state_alarm_respects_ignore_and_block_mask) {
+    astia::signal_state state;
+    ASTIA_CHECK(state.disposition(astia::signal_number::alrm,
+                                  {astia::signal_action::ignore, nullptr}));
+    ASTIA_CHECK(state.send(astia::signal_number::alrm));
+    ASTIA_CHECK(!state.has_unblocked_interrupting());
+
+    astia::signal_state blocked;
+    blocked.block(astia::signal_bit(astia::signal_number::alrm));
+    ASTIA_CHECK(blocked.send(astia::signal_number::alrm));
+    ASTIA_CHECK(!blocked.has_unblocked_interrupting());
+    blocked.unblock(astia::signal_bit(astia::signal_number::alrm));
+    ASTIA_CHECK(blocked.has_unblocked_interrupting());
+}
+
 ASTIA_TEST(signal_permission_matches_process_credentials) {
     ASTIA_CHECK(astia::proc::signal_permission(1, 1, 0, 0) == false);
     ASTIA_CHECK(astia::proc::signal_permission(1, 1, 1, 0));

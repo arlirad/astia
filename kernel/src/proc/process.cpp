@@ -602,6 +602,36 @@ namespace astia::proc {
         notify_parent_of_state_change(info);
     }
 
+    i64 process::alarm(u32 seconds, u64 now, u32 hz) {
+        u64 next = 0;
+        if (seconds != 0) {
+            const u64 duration = static_cast<u64>(seconds) * hz;
+            next = UINT64_MAX - now < duration ? UINT64_MAX : now + duration;
+        }
+        const u64 previous = __atomic_exchange_n(&alarm_deadline_, next, __ATOMIC_ACQ_REL);
+        if (previous == 0 || previous <= now)
+            return 0;
+        const u64 remaining = previous - now;
+        return static_cast<i64>((remaining + hz - 1) / hz);
+    }
+
+    void process::expire_alarm(u64 now) {
+        if (state() == process_state::zombie || state() == process_state::dead)
+            return;
+        u64 deadline = __atomic_load_n(&alarm_deadline_, __ATOMIC_ACQUIRE);
+        while (deadline != 0 && deadline <= now) {
+            if (__atomic_compare_exchange_n(&alarm_deadline_, &deadline, 0, false,
+                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                (void) signals_.send(signal_number::alrm);
+                if (signals_.has_unblocked_interrupting())
+                    sys::io_interrupt_process(this, -EINTR);
+                wake_signal_waiters();
+                wake_waiters();
+                return;
+            }
+        }
+    }
+
     mm::shptr<thread> process::take_thread(thread* value) {
         arch::interrupt_spinlock_guard guard(lifecycle_lock_);
         for (u32 i = 0; i < max_threads_per_process; ++i) {

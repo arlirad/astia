@@ -6,6 +6,7 @@
 #include <astia/api/syscalls.h>
 #include <astia/api/termios.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/interrupts.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
@@ -154,6 +155,16 @@ namespace astia::proc {
         const u32 index = arch::cpu::current_index();
         if (index < scheduler::max_cpu_count)
             current[index] = value;
+    }
+
+    void expire_alarms() {
+        const u64 now = arch::timer_ticks();
+        mm::shptr<process> values[max_processes];
+        const u32 count = snapshot_registry(values);
+        for (u32 i = 0; i < count; ++i) {
+            if (is_live(values[i].get()))
+                values[i]->expire_alarm(now);
+        }
     }
 
     optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],
@@ -629,6 +640,13 @@ namespace astia::proc {
                 parent->remove_waiter(self);
                 self->state(thread_state::running);
                 result = 0;
+                break;
+            }
+
+            if (parent->signals().has_unblocked_interrupting()) {
+                parent->remove_waiter(self);
+                self->state(thread_state::running);
+                result = -EINTR;
                 break;
             }
 

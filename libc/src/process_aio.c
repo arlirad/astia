@@ -19,6 +19,10 @@ long __astia_process_gettid(void) {
     return astia_gettid();
 }
 
+__attribute__((weak)) long __astia_process_alarm(unsigned int seconds) {
+    return astia_alarm(seconds);
+}
+
 long __astia_process_getpgrp(void) {
     return astia_getpgrp();
 }

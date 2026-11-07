@@ -63,6 +63,7 @@ namespace astia::proc {
     bool unregister_process(process* value);
     i64  process_snapshot(u64 output, u32 capacity);
     void set_current_thread(thread* value);
+    void expire_alarms();
 
     /// Spawn an executable by VFS path.  argv/envp are materialized on
     /// the child's user stack as the standard startup frame

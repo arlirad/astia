@@ -519,8 +519,10 @@ long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
     return transact(OP_FCNTL, fd, 0, NULL, 0, (uint32_t) command, argument);
 }
 
-long __astia_fio_sleep(uint64_t nanoseconds) {
-    return transact(OP_SLEEP, -1, nanoseconds, NULL, 0, 0, 0);
+long __astia_fio_sleep(uint64_t nanoseconds, uint64_t* remaining_nanoseconds) {
+    return transact(OP_SLEEP, -1, nanoseconds, remaining_nanoseconds,
+                    remaining_nanoseconds == NULL ? 0 : sizeof *remaining_nanoseconds,
+                    0, 0);
 }
 
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
@@ -546,7 +548,8 @@ long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
             return 0;
         return __astia_fio_sleep(timeout_ms < 0
                                      ? UINT64_MAX
-                                     : (uint64_t) (unsigned) timeout_ms * 1000000ull);
+                                     : (uint64_t) (unsigned) timeout_ms * 1000000ull,
+                                 NULL);
     }
     rc = ring_ensure();
     if (rc < 0)
@@ -621,6 +624,8 @@ long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
             if (sleep_pending && sleep_tag == c->user_data) {
                 sleep_pending = 0;
                 --pending_count;
+                if (c->result < 0 && wait_error == 0)
+                    wait_error = c->result;
                 stop = 1;
             }
             astia_cq_consume(r, 1);
@@ -699,6 +704,8 @@ cancel_wait:
             if (sleep_pending && sleep_tag == c->user_data) {
                 sleep_pending = 0;
                 --pending_count;
+                if (c->result < 0 && wait_error == 0)
+                    wait_error = c->result;
             }
             for (size_t i = 0; i < cancel_count; ++i)
                 if (cancel_tags[i] == c->user_data) {
