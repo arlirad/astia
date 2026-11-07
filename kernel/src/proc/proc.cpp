@@ -391,33 +391,47 @@ namespace astia::proc {
         return signal_process_group(foreground, signal);
     }
 
-    bool terminal_read_allowed(pgrp_t foreground) {
-        process* owner = current_process();
-        if (owner == nullptr || foreground == pgrp_t{} ||
-            owner->process_group() == foreground)
-            return true;
-        // A real terminal stops the background group.  The scheduler does not
-        // yet expose stopped-child state to waitpid, so report the POSIX
-        // fallback error after queuing SIGTTIN rather than allowing a read
-        // from the wrong job.
-        (void) signal_process_group(owner->process_group(), signal_number::ttin);
-        return false;
+    namespace {
+        terminal_access_result terminal_background_access(process* owner,
+                                                          pgrp_t foreground,
+                                                          signal_number signal) {
+            if (owner == nullptr || foreground == pgrp_t{} ||
+                owner->process_group() == foreground)
+                return terminal_access_result::allowed;
+
+            const signal_mask bit = signal_bit(signal);
+            if ((owner->signals().blocked() & bit) != 0 ||
+                owner->signals().disposition(signal).action == signal_action::ignore)
+                return terminal_access_result::io_error;
+            if (signal_process_group(owner->process_group(), signal) < 0)
+                return terminal_access_result::io_error;
+            return owner->signals().disposition(signal).action == signal_action::handler
+                       ? terminal_access_result::interrupted
+                       : terminal_access_result::retry;
+        }
     }
 
-    bool terminal_write_allowed(pgrp_t foreground, bool tostop) {
+    terminal_access_result terminal_read_allowed(pgrp_t foreground) {
+        process* owner = current_process();
+        return terminal_background_access(owner, foreground, signal_number::ttin);
+    }
+
+    terminal_access_result terminal_write_allowed(pgrp_t foreground, bool tostop) {
         process* owner = current_process();
         if (owner == nullptr || foreground == pgrp_t{} ||
             owner->process_group() == foreground || !tostop)
-            return true;
-        (void) signal_process_group(owner->process_group(), signal_number::ttou);
-        return false;
+            return terminal_access_result::allowed;
+        return terminal_background_access(owner, foreground, signal_number::ttou);
     }
 
-    bool terminal_set_foreground_allowed(pgrp_t foreground) {
+    terminal_access_result terminal_set_foreground_allowed(pgrp_t foreground,
+                                                           pgrp_t requested) {
         process* owner = current_process();
         if (owner == nullptr)
-            return false;
-        return process_group_exists(foreground, owner->session());
+            return terminal_access_result::denied;
+        if (!process_group_exists(requested, owner->session()))
+            return terminal_access_result::denied;
+        return terminal_background_access(owner, foreground, signal_number::ttou);
     }
 
     i64 setpgid(pid_t pid, pgrp_t pgid) {
@@ -542,7 +556,6 @@ namespace astia::proc {
                 result = -EAGAIN;
                 break;
             }
-
             bool               has_children = false;
             mm::shptr<process> taken;
             mm::shptr<process> children[max_processes];

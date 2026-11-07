@@ -10,9 +10,10 @@
 // supplies these from proc.cpp; weak declarations preserve that small test
 // seam without making tty invent process identities.
 namespace astia::proc {
-    bool terminal_read_allowed(pgrp_t) __attribute__((weak));
-    bool terminal_write_allowed(pgrp_t, bool) __attribute__((weak));
-    bool terminal_set_foreground_allowed(pgrp_t) __attribute__((weak));
+    terminal_access_result terminal_read_allowed(pgrp_t) __attribute__((weak));
+    terminal_access_result terminal_write_allowed(pgrp_t, bool) __attribute__((weak));
+    terminal_access_result terminal_set_foreground_allowed(pgrp_t, pgrp_t)
+        __attribute__((weak));
     i64  terminal_signal_foreground(pgrp_t, signal_number) __attribute__((weak));
 }
 
@@ -29,6 +30,24 @@ namespace astia::dev {
         constexpr tcflag_t lflags[] = {ISIG, ICANON, ECHO, ECHOE, ECHOK, ECHONL};
     } // namespace
 
+    namespace {
+        long terminal_access_error(proc::terminal_access_result result,
+                                   long denied_error) {
+            switch (result) {
+            case proc::terminal_access_result::allowed:
+                return 0;
+            case proc::terminal_access_result::io_error:
+                return -EIO;
+            case proc::terminal_access_result::retry:
+            case proc::terminal_access_result::interrupted:
+                return -EINTR;
+            case proc::terminal_access_result::denied:
+                return denied_error;
+            }
+            return denied_error;
+        }
+    }
+
     long tty::read(void* buf, u32 len, u64 off) {
         (void) off;
         pgrp_t foreground;
@@ -36,9 +55,12 @@ namespace astia::dev {
             arch::interrupt_spinlock_guard guard(_state_lock);
             foreground = _foreground_pgrp;
         }
-        if (proc::terminal_read_allowed != nullptr &&
-            !proc::terminal_read_allowed(foreground))
-            return -EIO;
+        if (proc::terminal_read_allowed != nullptr) {
+            const auto access = proc::terminal_read_allowed(foreground);
+            const long error  = terminal_access_error(access, -EIO);
+            if (error != 0)
+                return error;
+        }
         arch::interrupt_spinlock_guard guard(_state_lock);
         auto*                          dst = static_cast<u8*>(buf);
         const u32 head                     = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
@@ -76,9 +98,12 @@ namespace astia::dev {
             output_stopped = _output_stopped;
             termios        = _termios;
         }
-        if (proc::terminal_write_allowed != nullptr &&
-            !proc::terminal_write_allowed(foreground, tostop))
-            return -EIO;
+        if (proc::terminal_write_allowed != nullptr) {
+            const auto access = proc::terminal_write_allowed(foreground, tostop);
+            const long error  = terminal_access_error(access, -EIO);
+            if (error != 0)
+                return error;
+        }
         if (output_stopped) {
             return 0;
         }
@@ -452,10 +477,20 @@ namespace astia::dev {
             if (argp == nullptr || size != sizeof(i32))
                 return -EINVAL;
             const i32 group = *static_cast<const i32*>(argp);
-            if (group <= 0 ||
-                (proc::terminal_set_foreground_allowed != nullptr &&
-                 !proc::terminal_set_foreground_allowed(pgrp_t{static_cast<u32>(group)})))
+            if (group <= 0)
                 return -EPERM;
+            if (proc::terminal_set_foreground_allowed != nullptr) {
+                pgrp_t foreground;
+                {
+                    arch::interrupt_spinlock_guard guard(_state_lock);
+                    foreground = _foreground_pgrp;
+                }
+                const auto access = proc::terminal_set_foreground_allowed(
+                    foreground, pgrp_t{static_cast<u32>(group)});
+                const long error = terminal_access_error(access, -EPERM);
+                if (error != 0)
+                    return error;
+            }
             {
                 arch::interrupt_spinlock_guard guard(_state_lock);
                 _foreground_pgrp = pgrp_t{static_cast<u32>(group)};

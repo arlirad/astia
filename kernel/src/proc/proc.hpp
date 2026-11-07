@@ -91,10 +91,19 @@ namespace astia::proc {
     bool process_group_exists(pgrp_t group, pid_t session);
     /// Terminal line-discipline hooks.  These deliberately operate on the
     /// caller's native process group rather than manufacturing IDs in tty.
+    enum class terminal_access_result : u8 {
+        allowed,
+        retry,
+        interrupted,
+        denied,
+        io_error,
+    };
+
     i64  terminal_signal_foreground(pgrp_t foreground, signal_number signal);
-    bool terminal_read_allowed(pgrp_t foreground);
-    bool terminal_write_allowed(pgrp_t foreground, bool tostop);
-    bool terminal_set_foreground_allowed(pgrp_t foreground);
+    terminal_access_result terminal_read_allowed(pgrp_t foreground);
+    terminal_access_result terminal_write_allowed(pgrp_t foreground, bool tostop);
+    terminal_access_result terminal_set_foreground_allowed(pgrp_t foreground,
+                                                           pgrp_t requested);
     mm::shptr<fs::open_file> controlling_terminal();
     bool                     has_controlling_terminal();
     i64                      setpgid(pid_t pid, pgrp_t pgid);

@@ -1,5 +1,6 @@
 #include "chr/tty.hpp"
 #include "support/test.hpp"
+#include "../src/proc/proc.hpp"
 #include <astia/arch/cpu.hpp>
 
 #include <string>
@@ -21,6 +22,23 @@ namespace astia::arch {
 } // namespace astia::arch
 
 namespace {
+
+    astia::proc::terminal_access_result read_access =
+        astia::proc::terminal_access_result::allowed;
+    astia::proc::terminal_access_result write_access =
+        astia::proc::terminal_access_result::allowed;
+    astia::proc::terminal_access_result set_access =
+        astia::proc::terminal_access_result::allowed;
+    astia::pgrp_t observed_foreground{};
+    astia::pgrp_t observed_requested{};
+
+    void reset_terminal_access() {
+        read_access           = astia::proc::terminal_access_result::allowed;
+        write_access          = astia::proc::terminal_access_result::allowed;
+        set_access            = astia::proc::terminal_access_result::allowed;
+        observed_foreground   = {};
+        observed_requested    = {};
+    }
 
     class test_tty final : public astia::dev::tty {
         public:
@@ -54,6 +72,25 @@ namespace {
     }
 
 } // namespace
+
+namespace astia::proc {
+
+    terminal_access_result terminal_read_allowed(pgrp_t) {
+        return ::read_access;
+    }
+
+    terminal_access_result terminal_write_allowed(pgrp_t, bool) {
+        return ::write_access;
+    }
+
+    terminal_access_result terminal_set_foreground_allowed(pgrp_t foreground,
+                                                            pgrp_t requested) {
+        ::observed_foreground = foreground;
+        ::observed_requested  = requested;
+        return ::set_access;
+    }
+
+} // namespace astia::proc
 
 ASTIA_TEST(tty_raw_mode_delivers_bytes) {
     test_tty tty;
@@ -222,4 +259,68 @@ ASTIA_TEST(tty_job_control_controls_and_signals_foreground_group) {
     tty.tty_receive('y');
     tty.tty_receive(astia::dev::tty_defaults::ctrl_c);
     ASTIA_CHECK(tty.last_signal == astia::dev::tty_defaults::ctrl_c);
+}
+
+ASTIA_TEST(tty_background_io_rejects_before_transfer) {
+    reset_terminal_access();
+    test_tty tty;
+    set_termios(tty, 0, 0, 0);
+    astia::i32 group = 9;
+    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group, sizeof(group)) == 0);
+
+    char input[2]{};
+    tty.tty_receive('x');
+    read_access = astia::proc::terminal_access_result::io_error;
+    ASTIA_CHECK(tty.read(input, sizeof(input), 0) == -EIO);
+    read_access = astia::proc::terminal_access_result::allowed;
+    ASTIA_CHECK(tty.read(input, sizeof(input), 0) == 1);
+    ASTIA_CHECK(input[0] == 'x');
+    tty.output.clear();
+
+    const char output[] = "y";
+    write_access = astia::proc::terminal_access_result::io_error;
+    ASTIA_CHECK(tty.write(output, 1, 0) == -EIO);
+    ASTIA_CHECK(tty.output.empty());
+    write_access = astia::proc::terminal_access_result::allowed;
+    ASTIA_CHECK(tty.write(output, 1, 0) == 1);
+    ASTIA_CHECK(tty.output == "y");
+}
+
+ASTIA_TEST(tty_background_signal_interrupts_io) {
+    reset_terminal_access();
+    test_tty tty;
+    set_termios(tty, 0, 0, 0);
+    astia::i32 group = 9;
+    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group, sizeof(group)) == 0);
+
+    char input[2]{};
+    tty.tty_receive('x');
+    read_access = astia::proc::terminal_access_result::interrupted;
+    ASTIA_CHECK(tty.read(input, sizeof(input), 0) == -EINTR);
+    tty.output.clear();
+    write_access = astia::proc::terminal_access_result::retry;
+    const char output[] = "y";
+    ASTIA_CHECK(tty.write(output, 1, 0) == -EINTR);
+    ASTIA_CHECK(tty.output.empty());
+}
+
+ASTIA_TEST(tty_tcsetpgrp_background_signal_is_not_applied) {
+    reset_terminal_access();
+    test_tty tty;
+    astia::i32 group = 7;
+    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group, sizeof(group)) == 0);
+    group      = 8;
+    set_access = astia::proc::terminal_access_result::io_error;
+    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group, sizeof(group)) == -EIO);
+    ASTIA_CHECK(observed_foreground == astia::pgrp_t{7});
+    ASTIA_CHECK(observed_requested == astia::pgrp_t{8});
+    group = 0;
+    ASTIA_CHECK(tty.ioctl(TIOCGPGRP, &group, sizeof(group)) == 0);
+    ASTIA_CHECK(group == 7);
+
+    set_access = astia::proc::terminal_access_result::interrupted;
+    group      = 8;
+    ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group, sizeof(group)) == -EINTR);
+    ASTIA_CHECK(tty.ioctl(TIOCGPGRP, &group, sizeof(group)) == 0);
+    ASTIA_CHECK(group == 7);
 }
