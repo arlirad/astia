@@ -76,13 +76,14 @@ static long kick(astia_rings* ring, uint64_t tag, long* rc_out) {
 
 static long kick_sleep(astia_rings* ring, uint64_t tag, long* rc_out) {
     astia_cqe* c;
-    uint32_t   attempts;
+    uint32_t   signal_set = (uint32_t) 1u << ASTIA_SIGAIO;
+    int32_t    signal;
 
     astia_sq_publish(ring, 1);
     *rc_out = astia_io_submit(ring, 1);
     if (*rc_out < 0)
         return *rc_out;
-    for (attempts = 0; attempts < 1000; ++attempts) {
+    for (;;) {
         c = astia_cq_peek(ring);
         if (c != NULL && c->user_data == tag) {
             long result = c->result;
@@ -90,7 +91,7 @@ static long kick_sleep(astia_rings* ring, uint64_t tag, long* rc_out) {
             *rc_out = 0;
             return result;
         }
-        if (astia_yield() < 0)
+        if (astia_sigwait(&signal_set, &signal) < 0)
             break;
     }
     *rc_out = -1;

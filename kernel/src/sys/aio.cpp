@@ -577,6 +577,7 @@ namespace astia::sys {
                 slot.notify_pending  = true;
                 slot.notify_signaled = generation;
                 (void) slot.owner->signals().send(signal_number::aio);
+                slot.owner->wake_signal_waiters();
             }
         }
 
