@@ -202,6 +202,22 @@ namespace astia::proc {
         void user_stack_top(u64 value) {
             user_stack_top_ = value;
         }
+        bool owns_user_stack() const {
+            return owns_user_stack_;
+        }
+        void owns_user_stack(bool value) {
+            owns_user_stack_ = value;
+        }
+        bool detached() const {
+            return detached_;
+        }
+        bool cancellation_pending() const {
+            return __atomic_load_n(&cancellation_pending_, __ATOMIC_ACQUIRE) != 0;
+        }
+        void request_cancellation() {
+            __atomic_store_n(&cancellation_pending_, 1, __ATOMIC_RELEASE);
+        }
+        bool wake_join_for_cancellation();
         void tls_mapping(u64 base, usize pages) {
             tls_mapping_base_  = base;
             tls_mapping_pages_ = pages;
@@ -238,6 +254,10 @@ namespace astia::proc {
         thread*          joiner_               = nullptr;
         void*            result_               = nullptr;
         bool             detached_             = false;
+        bool             owns_user_stack_      = false;
+        u8               cancellation_pending_ = 0;
+        thread*           joining_              = nullptr;
+        bool              join_cancel_wakeup_   = false;
         bool             idle_                 = false;
         bool             gate_open_            = true;
         bool             queued_               = false;

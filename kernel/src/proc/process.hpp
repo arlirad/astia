@@ -235,6 +235,8 @@ namespace astia::proc {
         /// Drop the process's owning reference to a thread.  Only safe
         /// when the target can no longer run (joined or deferred).
         void release_thread(thread* value);
+        void release_thread_stack(thread* value);
+        void release_thread_tls(thread* value);
         /// Threads blocked in proc::waitpid() for one of our children.
         bool add_waiter(thread* value);
         void remove_waiter(thread* value);
@@ -285,7 +287,7 @@ namespace astia::proc {
         /// supplied stack belongs to userspace (pthread_create maps it);
         /// `argument` becomes the new entry's first ABI argument.
         mm::shptr<thread> create_thread(u64 entry, u64 user_stack_top, u64 argument,
-                                        u64 argument1 = 0);
+                                        u64 argument1 = 0, bool owns_user_stack = false);
         /// Find a thread by its process-local tid, retaining it while a
         /// blocking join syscall operates on it.
         mm::shptr<thread>     thread_by_tid(tid_t id);

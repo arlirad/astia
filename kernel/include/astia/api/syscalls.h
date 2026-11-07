@@ -121,7 +121,11 @@ enum {
     SYS_SIGALTSTACK      = 51,
     SYS_GETPGID          = 52,
     SYS_GETPPID          = 53,
+    SYS_THREAD_CANCEL    = 54,
     SYS_ALARM            = 55,
+    SYS_THREAD_CREATE_OWNED = 56,
+    SYS_THREAD_CANCEL_PENDING = 57,
+    SYS_THREAD_EXISTS    = 58,
 };
 
 /* ------------------------------------------------------------------ */
@@ -443,6 +447,24 @@ static inline long astia_thread_create2(void (*entry)(void*, void*), void* stack
                                         void* argument0, void* argument1) {
     return astia_raw6(SYS_THREAD_CREATE2, (long) (uintptr_t) entry, (long) stack_top,
                       (long) argument0, (long) argument1, 0, 0);
+}
+
+static inline long astia_thread_create_owned(void (*entry)(void*, void*), void* stack_top,
+                                             void* argument0, void* argument1) {
+    return astia_raw6(SYS_THREAD_CREATE_OWNED, (long) (uintptr_t) entry,
+                      (long) stack_top, (long) argument0, (long) argument1, 0, 0);
+}
+
+static inline long astia_thread_cancel(uint32_t tid) {
+    return astia_raw6(SYS_THREAD_CANCEL, (long) tid, 0, 0, 0, 0, 0);
+}
+
+static inline long astia_thread_cancel_pending(void) {
+    return astia_raw6(SYS_THREAD_CANCEL_PENDING, 0, 0, 0, 0, 0, 0);
+}
+
+static inline long astia_thread_exists(uint32_t tid) {
+    return astia_raw6(SYS_THREAD_EXISTS, (long) tid, 0, 0, 0, 0, 0);
 }
 
 static inline void astia_thread_exit(void* result) {

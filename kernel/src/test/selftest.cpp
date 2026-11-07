@@ -207,6 +207,18 @@ namespace astia::test {
                 return false;
             }
 
+            auto exited = proc::scheduler::create_kernel(join_worker, nullptr);
+            if (!exited) {
+                logs::error("join: could not spawn pre-exited thread");
+                return false;
+            }
+            proc::scheduler::yield();
+            result = nullptr;
+            if (exited->join(&result) != 0 || result != reinterpret_cast<void*>(0x42)) {
+                logs::error("join: pre-exited target was not joinable");
+                return false;
+            }
+
             auto detached = proc::scheduler::create_kernel(join_worker, nullptr);
             if (!detached || detached->detach() != 0 || detached->join() != -EINVAL) {
                 logs::error("join: detached join was not rejected");

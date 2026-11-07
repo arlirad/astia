@@ -21,6 +21,48 @@ static void pthread_start_trampoline(void* function_value, void* argument) {
     __builtin_unreachable();
 }
 
+enum { pthread_stack_records = 16 };
+
+struct pthread_stack_record {
+    pthread_t tid;
+    void*     stack;
+    size_t    size;
+    int       active;
+};
+
+static pthread_mutex_t                  pthread_stack_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct pthread_stack_record      pthread_stacks[pthread_stack_records];
+static _Thread_local int pthread_cancel_state = PTHREAD_CANCEL_ENABLE;
+static _Thread_local int pthread_cancel_type  = PTHREAD_CANCEL_DEFERRED;
+
+static int pthread_stack_record_add(pthread_t tid, void* stack, size_t size) {
+    int result = EAGAIN;
+    pthread_mutex_lock(&pthread_stack_lock);
+    for (size_t i = 0; i < pthread_stack_records; ++i) {
+        if (!pthread_stacks[i].active) {
+            pthread_stacks[i].tid    = tid;
+            pthread_stacks[i].stack  = stack;
+            pthread_stacks[i].size   = size;
+            pthread_stacks[i].active = 1;
+            result = 0;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&pthread_stack_lock);
+    return result;
+}
+
+static void pthread_stack_record_remove(pthread_t tid) {
+    pthread_mutex_lock(&pthread_stack_lock);
+    for (size_t i = 0; i < pthread_stack_records; ++i) {
+        if (pthread_stacks[i].active && pthread_stacks[i].tid == tid) {
+            pthread_stacks[i].active = 0;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&pthread_stack_lock);
+}
+
 int pthread_attr_init(pthread_attr_t* attr) {
     if (attr == NULL)
         return EINVAL;
@@ -54,25 +96,36 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     if (stack == MAP_FAILED)
         return errno;
     unsigned long top = (unsigned long) stack + stack_size;
-    long tid = __astia_process_thread_create2(pthread_start_trampoline, (void*) top,
-                                              (void*) start_routine, argument);
+    long tid = __astia_process_thread_create_owned(pthread_start_trampoline, (void*) top,
+                                                   (void*) start_routine, argument);
     if (tid < 0) {
         munmap(stack, stack_size);
         errno = (int) -tid;
         return errno;
     }
     *thread = (pthread_t) tid;
-    /* v1 keeps the user stack until join; pthread_t carries only the
-       kernel tid, so a later stack registry can reclaim it. */
+    if (pthread_stack_record_add(*thread, stack, stack_size) != 0) {
+        (void) __astia_process_thread_detach((unsigned long) *thread);
+        errno = EAGAIN;
+        return EAGAIN;
+    }
     return 0;
 }
 
 int pthread_join(pthread_t thread, void** result) {
-    long rc = __astia_process_thread_join(thread, result);
+    pthread_testcancel();
+    long rc;
+    do {
+        rc = __astia_process_thread_join(thread, result);
+    } while (rc == -EINTR && pthread_cancel_state == PTHREAD_CANCEL_DISABLE);
     if (rc < 0) {
+        if (rc == -EINTR)
+            pthread_testcancel();
         errno = (int) -rc;
         return errno;
     }
+    pthread_stack_record_remove(thread);
+    pthread_testcancel();
     return 0;
 }
 
@@ -82,6 +135,7 @@ int pthread_detach(pthread_t thread) {
         errno = (int) -rc;
         return errno;
     }
+    pthread_stack_record_remove(thread);
     return 0;
 }
 
@@ -96,10 +150,12 @@ int pthread_equal(pthread_t first, pthread_t second) {
 int pthread_kill(pthread_t thread, int signal_number) {
     if (signal_number < 0 || signal_number >= NSIG)
         return EINVAL;
+    if (signal_number == 0) {
+        long rc = __astia_process_thread_exists((unsigned long) thread);
+        return rc < 0 ? (int) -rc : 0;
+    }
     if (thread != pthread_self())
         return ENOTSUP;
-    if (signal_number == 0)
-        return kill((int) getpid(), 0) == -1 ? errno : 0;
     return raise(signal_number) == -1 ? errno : 0;
 }
 
@@ -177,9 +233,6 @@ int pthread_mutex_unlock(pthread_mutex_t* mutex) {
     return 0;
 }
 
-static _Thread_local int pthread_cancel_state = PTHREAD_CANCEL_ENABLE;
-static _Thread_local int pthread_cancel_type  = PTHREAD_CANCEL_DEFERRED;
-
 int pthread_setcancelstate(int state, int* oldstate) {
     if (state != PTHREAD_CANCEL_ENABLE && state != PTHREAD_CANCEL_DISABLE)
         return EINVAL;
@@ -198,6 +251,18 @@ int pthread_setcanceltype(int type, int* oldtype) {
         *oldtype = pthread_cancel_type;
     pthread_cancel_type = type;
     return 0;
+}
+
+int pthread_cancel(pthread_t thread) {
+    long rc = __astia_process_thread_cancel((unsigned long) thread);
+    return rc < 0 ? (int) -rc : 0;
+}
+
+void pthread_testcancel(void) {
+    if (pthread_cancel_state != PTHREAD_CANCEL_ENABLE)
+        return;
+    if (__astia_process_thread_cancel_pending() > 0)
+        pthread_exit(PTHREAD_CANCELED);
 }
 
 int futex_wait(uint32_t* address, uint32_t expected) {

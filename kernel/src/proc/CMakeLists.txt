@@ -38,6 +38,10 @@ add_library(proc STATIC
         syscalls/thread/yield.cpp
         syscalls/thread/thread_create.cpp
         syscalls/thread/thread_create2.cpp
+        syscalls/thread/thread_create_owned.cpp
+        syscalls/thread/thread_cancel.cpp
+        syscalls/thread/thread_cancel_pending.cpp
+        syscalls/thread/thread_exists.cpp
         syscalls/thread/thread_exit.cpp
         syscalls/thread/thread_join.cpp
         syscalls/thread/thread_detach.cpp

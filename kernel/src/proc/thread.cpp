@@ -206,28 +206,57 @@ namespace astia::proc {
         if (current == this) {
             return -EDEADLK;
         }
-        if (detached_ || joiner_ != nullptr) {
-            return -EINVAL;
+        bool wait = false;
+        {
+            arch::interrupt_guard gate;
+            if (detached_ || joiner_ != nullptr) {
+                return -EINVAL;
+            }
+            joiner_ = current;
+            if (state_ == thread_state::dead) {
+                joiner_ = nullptr;
+            } else {
+                wait = true;
+                current->joining_ = this;
+                current->state(thread_state::blocked);
+                if (__atomic_exchange_n(&current->join_cancel_wakeup_, false,
+                                        __ATOMIC_ACQ_REL)) {
+                    current->joining_ = nullptr;
+                    joiner_            = nullptr;
+                    current->state(thread_state::running);
+                    wait                = false;
+                }
+            }
+            gate.unlock();
         }
-        if (state_ == thread_state::dead) {
-            if (result != nullptr)
-                *result = result_;
-            // The target can never run again; dropping the process's
-            // reference here is safe and reclaims the thread object
-            // once the caller's own references are gone too.
-            if (owner_ != nullptr)
-                owner_->release_thread(this);
-            return 0;
+        if (wait) {
+            scheduler::yield();
+            if (__atomic_exchange_n(&current->join_cancel_wakeup_, false,
+                                    __ATOMIC_ACQ_REL)) {
+                if (joiner_ == current)
+                    joiner_ = nullptr;
+                current->joining_ = nullptr;
+                return -EINTR;
+            }
         }
-
-        joiner_ = current;
-        current->state(thread_state::blocked);
-        scheduler::yield();
         if (result != nullptr)
             *result = result_;
+        current->joining_ = nullptr;
+        if (owner_ != nullptr)
+            owner_->release_thread_stack(this);
         if (owner_ != nullptr)
             owner_->release_thread(this);
         return 0;
+    }
+
+    bool thread::wake_join_for_cancellation() {
+        arch::interrupt_guard gate;
+        if (joining_ == nullptr)
+            return false;
+        join_cancel_wakeup_ = true;
+        if (state_ == thread_state::blocked)
+            (void) scheduler::wake(this);
+        return true;
     }
 
     long thread::detach() {
@@ -240,6 +269,7 @@ namespace astia::proc {
         // stack is no longer active in this case, so move the process-owned
         // reference to the deferred reaper just as finish() would have done.
         if (state_ == thread_state::dead && owner_ != nullptr) {
+            owner_->release_thread_stack(this);
             defer_dead_thread(owner_->take_thread(this));
         }
         return 0;

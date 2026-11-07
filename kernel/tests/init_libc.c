@@ -55,6 +55,25 @@ static void* libc_futex_worker(void* opaque) {
 static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile int    libc_mutex_ready;
 
+static volatile int libc_cancel_join_started;
+static volatile int libc_cancel_join_release;
+
+static void* libc_cancel_join_target(void* opaque) {
+    (void) opaque;
+    while (!libc_cancel_join_release)
+        sched_yield();
+    return (void*) (unsigned long) 0x5678;
+}
+
+static void* libc_cancel_joiner(void* opaque) {
+    pthread_t target = *(pthread_t*) opaque;
+    libc_cancel_join_started = 1;
+    void* result = NULL;
+    if (pthread_join(target, &result) != 0)
+        return (void*) (unsigned long) 0x5679;
+    return result;
+}
+
 static volatile int altstack_calls;
 static volatile int altstack_failed;
 static stack_t       altstack_expected;
@@ -439,6 +458,32 @@ int main(int argc, char** argv) {
             pthread_mutex_unlock(NULL) != EINVAL ||
             pthread_mutex_destroy(NULL) != EINVAL)
             return 38;
+    }
+
+    /* A deferred cancellation must wake a thread blocked in pthread_join,
+       and the interrupted join must leave its target joinable. */
+    {
+        pthread_t target;
+        pthread_t joiner;
+        libc_cancel_join_started = 0;
+        libc_cancel_join_release = 0;
+        if (pthread_create(&target, NULL, libc_cancel_join_target, NULL) != 0)
+            return 72;
+        if (pthread_create(&joiner, NULL, libc_cancel_joiner, &target) != 0)
+            return 73;
+        while (!libc_cancel_join_started)
+            sched_yield();
+        for (int i = 0; i < 4; ++i)
+            sched_yield();
+        if (pthread_cancel(joiner) != 0)
+            return 74;
+        void* result = NULL;
+        if (pthread_join(joiner, &result) != 0 || result != PTHREAD_CANCELED)
+            return 75;
+        libc_cancel_join_release = 1;
+        if (pthread_join(target, &result) != 0 ||
+            result != (void*) (unsigned long) 0x5678)
+            return 76;
     }
 
     /* 39-43: writable tmpfs plus MAP_SHARED.  The mapping names the

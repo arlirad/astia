@@ -89,6 +89,11 @@ long __astia_process_thread_create2(void (*entry)(void*, void*), void* stack_top
     return astia_thread_create2(entry, stack_top, argument0, argument1);
 }
 
+long __astia_process_thread_create_owned(void (*entry)(void*, void*), void* stack_top,
+                                         void* argument0, void* argument1) {
+    return astia_thread_create_owned(entry, stack_top, argument0, argument1);
+}
+
 void __astia_process_thread_exit(void* result) {
     astia_thread_exit(result);
 }
@@ -99,4 +104,16 @@ long __astia_process_thread_join(unsigned long tid, void** result) {
 
 long __astia_process_thread_detach(unsigned long tid) {
     return astia_thread_detach((uint32_t) tid);
+}
+
+long __astia_process_thread_cancel(unsigned long tid) {
+    return astia_thread_cancel((uint32_t) tid);
+}
+
+long __astia_process_thread_cancel_pending(void) {
+    return astia_thread_cancel_pending();
+}
+
+long __astia_process_thread_exists(unsigned long tid) {
+    return astia_thread_exists((uint32_t) tid);
 }

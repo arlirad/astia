@@ -29,6 +29,7 @@ typedef struct pthread_mutex_t {
 #define PTHREAD_CANCEL_DISABLE 1
 #define PTHREAD_CANCEL_DEFERRED 0
 #define PTHREAD_CANCEL_ASYNCHRONOUS 1
+#define PTHREAD_CANCELED ((void*) (uintptr_t) -1)
 
 int       pthread_attr_init(pthread_attr_t* attr);
 int       pthread_attr_destroy(pthread_attr_t* attr);
@@ -51,6 +52,8 @@ int       pthread_mutex_trylock(pthread_mutex_t* mutex);
 int       pthread_mutex_unlock(pthread_mutex_t* mutex);
 int       pthread_setcancelstate(int state, int* oldstate);
 int       pthread_setcanceltype(int type, int* oldtype);
+int       pthread_cancel(pthread_t thread);
+void      pthread_testcancel(void);
 
 #ifdef __cplusplus
 }

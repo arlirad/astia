@@ -33,6 +33,10 @@
 #include "syscalls/signal/sigwait.hpp"
 #include "syscalls/thread/thread_create.hpp"
 #include "syscalls/thread/thread_create2.hpp"
+#include "syscalls/thread/thread_create_owned.hpp"
+#include "syscalls/thread/thread_cancel.hpp"
+#include "syscalls/thread/thread_cancel_pending.hpp"
+#include "syscalls/thread/thread_exists.hpp"
 #include "syscalls/thread/thread_detach.hpp"
 #include "syscalls/thread/thread_exit.hpp"
 #include "syscalls/thread/thread_join.hpp"
@@ -276,6 +280,14 @@ namespace astia::proc {
                    sys::syscall_id::thread_detach) &&
                sys::register_syscall<syscall::thread_create2>(
                    sys::syscall_id::thread_create2) &&
+               sys::register_syscall<syscall::thread_cancel>(
+                   sys::syscall_id::thread_cancel) &&
+               sys::register_syscall<syscall::thread_create_owned>(
+                   sys::syscall_id::thread_create_owned) &&
+               sys::register_syscall<syscall::thread_cancel_pending>(
+                   sys::syscall_id::thread_cancel_pending) &&
+               sys::register_syscall<syscall::thread_exists>(
+                   sys::syscall_id::thread_exists) &&
                sys::register_exit_hook(deliver_default_signal) &&
                arch::register_user_fault_handler(user_fault);
     }

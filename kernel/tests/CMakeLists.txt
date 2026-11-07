@@ -384,10 +384,16 @@ if (ARCH STREQUAL "x86_64")
             set(_init_libc_image ${_cross_dir}/image/init_libc)
         else ()
             add_custom_command(
-                    OUTPUT ${_fix_dir}/init_libc
+                    OUTPUT ${_fix_dir}/crt0.o
+                    COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
                     COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                     -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                     -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                    COMMENT "Compiling userspace CRT0 fixture"
+            )
+            add_custom_command(
+                    OUTPUT ${_fix_dir}/init_libc
                     COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                     -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                     -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/include
@@ -398,7 +404,7 @@ if (ARCH STREQUAL "x86_64")
                     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -lgcc
                     -o ${_fix_dir}/init_libc ${_fix_dir}/crt0.o
                     ${_fix_dir}/init_libc_main.o $<TARGET_FILE:astia_userspace_libc>
-                    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                    DEPENDS ${_fix_dir}/crt0.o
                     ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c astia_userspace_libc
                     COMMENT "Linking libc-backed userspace image init_libc"
             )

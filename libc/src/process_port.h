@@ -31,7 +31,12 @@ long __astia_process_futex(unsigned int* address, unsigned int operation,
 long __astia_process_thread_create(void (*entry)(void*), void* stack_top, void* argument);
 long __astia_process_thread_create2(void (*entry)(void*, void*), void* stack_top,
                                     void* argument0, void* argument1);
+long __astia_process_thread_create_owned(void (*entry)(void*, void*), void* stack_top,
+                                         void* argument0, void* argument1);
 void __astia_process_thread_exit(void* result);
 long __astia_process_thread_join(unsigned long tid, void** result);
 long __astia_process_thread_detach(unsigned long tid);
+long __astia_process_thread_cancel(unsigned long tid);
+long __astia_process_thread_cancel_pending(void);
+long __astia_process_thread_exists(unsigned long tid);
 #pragma GCC visibility pop

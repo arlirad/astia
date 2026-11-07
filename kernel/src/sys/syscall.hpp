@@ -61,7 +61,11 @@ namespace astia::sys {
         sigaltstack,
         getpgid,
         getppid,
+        thread_cancel = 54,
         alarm = 55,
+        thread_create_owned = 56,
+        thread_cancel_pending = 57,
+        thread_exists = 58,
     };
 
     /// How many registers the ABI hands every trap — and so the most

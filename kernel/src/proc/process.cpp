@@ -482,6 +482,11 @@ namespace astia::proc {
     }
 
     void process::thread_exited(thread* value, i32 status) {
+        if (value != nullptr) {
+            release_thread_tls(value);
+            if (value->detached())
+                release_thread_stack(value);
+        }
         {
             arch::interrupt_spinlock_guard guard(lifecycle_lock_);
             if (state() == process_state::zombie || state() == process_state::dead) {
@@ -518,17 +523,6 @@ namespace astia::proc {
         // its ring is quiesced: a pipe writer left in a zombie would otherwise
         // keep readers blocked until the parent reaps it.
         descriptors_.clear_all();
-        // A dynamically-created thread owns a private static-TLS VMA.
-        // It is safe to remove after the thread has entered the kernel
-        // through pthread_exit: no user instruction will touch %fs
-        // again.  The initial process TLS remains process-owned and is
-        // reclaimed with the address space.
-        if (value != nullptr && value->tls_mapping_base() != 0 &&
-            value->tls_mapping_pages() != 0) {
-            unmap(value->tls_mapping_base(),
-                  value->tls_mapping_pages() * mm::phys_region::frame_size);
-            value->clear_tls_mapping();
-        }
         // Waiters block on the *parent* (registered by proc::waitpid);
         // waking must happen on that object, not on the dying process.
         signal_info info{};
@@ -671,6 +665,36 @@ namespace astia::proc {
                 }
             }
         }
+    }
+
+    void process::release_thread_tls(thread* value) {
+        if (value == nullptr || value->tls_mapping_base() == 0 ||
+            value->tls_mapping_pages() == 0)
+            return;
+        const u64 base = value->tls_mapping_base();
+        const usize bytes = value->tls_mapping_pages() * mm::phys_region::frame_size;
+        value->clear_tls_mapping();
+        (void) unmap(base, bytes);
+    }
+
+    void process::release_thread_stack(thread* value) {
+        if (value == nullptr || !value->owns_user_stack() || value->user_stack_top() == 0)
+            return;
+        u64 base = 0;
+        usize bytes = 0;
+        {
+            arch::interrupt_spinlock_guard guard(mmap_lock_);
+            for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
+                if (it->stack && it->covers(value->user_stack_top() - 1)) {
+                    base = it->base;
+                    bytes = static_cast<usize>(it->size());
+                    break;
+                }
+            }
+        }
+        if (base != 0 && bytes != 0)
+            (void) unmap(base, bytes);
+        value->owns_user_stack(false);
     }
 
     bool process::add_waiter(thread* value) {
@@ -987,7 +1011,7 @@ namespace astia::proc {
     }
 
     mm::shptr<thread> process::create_thread(u64 entry, u64 user_stack_top, u64 argument,
-                                             u64 argument1) {
+                                             u64 argument1, bool owns_user_stack) {
         if (address_space_ == nullptr || entry == 0 || user_stack_top == 0) {
             return {};
         }
@@ -1003,13 +1027,17 @@ namespace astia::proc {
             !value->prepare_user_start(entry, user_stack_top, fs_base, argument,
                                        argument1) ||
             !add_thread(value)) {
-            return {};
-        }
-        if (!scheduler::wake(value.get())) {
-            release_thread(value.get());
+            if (tls_base != 0 && tls_pages != 0)
+                (void) unmap(tls_base, tls_pages * mm::phys_region::frame_size);
             return {};
         }
         value->tls_mapping(tls_base, tls_pages);
+        value->owns_user_stack(owns_user_stack);
+        if (!scheduler::wake(value.get())) {
+            release_thread(value.get());
+            release_thread_tls(value.get());
+            return {};
+        }
         return value;
     }
 

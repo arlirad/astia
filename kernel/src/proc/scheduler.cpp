@@ -415,6 +415,7 @@ namespace astia::proc::scheduler {
                 restore_gate(gate_open);
                 return;
             }
+            enqueue(previous);
         }
         if (next == previous) {
             previous->state(thread_state::running);
