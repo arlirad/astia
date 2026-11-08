@@ -166,6 +166,27 @@ int sigwait(const sigset_t* set, int* signal) {
     return rc < 0 ? (int) -rc : 0;
 }
 
+static void astia_copy_siginfo(siginfo_t* destination, const astia_siginfo_t* source) {
+    destination->si_signo  = source->signo;
+    destination->si_errno  = source->errno_value;
+    destination->si_code   = source->code;
+    destination->si_pid    = source->pid;
+    destination->si_uid    = source->uid;
+    destination->si_status = source->status;
+}
+
+int sigwaitinfo(const sigset_t* set, siginfo_t* info) {
+    astia_siginfo_t observed = {0};
+    const long rc = __astia_process_sigtimedwait(set, info == NULL ? NULL : &observed, NULL);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    if (info != NULL)
+        astia_copy_siginfo(info, &observed);
+    return (int) rc;
+}
+
 int sigtimedwait(const sigset_t* set, siginfo_t* info, const struct timespec* timeout) {
     astia_siginfo_t observed = {0};
     astia_timespec  requested;
@@ -182,12 +203,7 @@ int sigtimedwait(const sigset_t* set, siginfo_t* info, const struct timespec* ti
         return -1;
     }
     if (info != NULL) {
-        info->si_signo  = observed.signo;
-        info->si_errno  = observed.errno_value;
-        info->si_code   = observed.code;
-        info->si_pid    = observed.pid;
-        info->si_uid    = observed.uid;
-        info->si_status = observed.status;
+        astia_copy_siginfo(info, &observed);
     }
     return (int) rc;
 }

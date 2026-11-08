@@ -56,11 +56,27 @@ int main(void) {
     CHECK(info.si_signo == SIGUSR1 && info.si_errno == 7 && info.si_code == 8 &&
           info.si_pid == 9 && info.si_uid == 10 && info.si_status == 11);
 
+    result = SIGUSR1;
+    CHECK(sigwaitinfo(&set, &info) == SIGUSR1);
+    CHECK(calls == 2);
+    CHECK(observed_set == &set);
+    CHECK(observed_info != NULL);
+    CHECK(observed_timeout == NULL);
+    CHECK(info.si_signo == SIGUSR1 && info.si_errno == 7 && info.si_code == 8 &&
+          info.si_pid == 9 && info.si_uid == 10 && info.si_status == 11);
+
     result = -EAGAIN;
     errno  = 0;
+    CHECK(sigwaitinfo(&set, NULL) == -1);
+    CHECK(errno == EAGAIN);
+    CHECK(calls == 3);
+    CHECK(observed_info == NULL);
+    CHECK(observed_timeout == NULL);
+
+    errno = 0;
     CHECK(sigtimedwait(&set, NULL, NULL) == -1);
     CHECK(errno == EAGAIN);
-    CHECK(calls == 2);
+    CHECK(calls == 4);
     CHECK(observed_info == NULL);
     CHECK(observed_timeout == NULL);
     return fails != 0;
