@@ -72,7 +72,7 @@ namespace astia {
             return static_cast<signal_number>(0);
         }
 
-        signal_number take_matching(signal_mask mask) {
+        signal_number take_matching(signal_mask mask, signal_info* info = nullptr) {
             signal_lock_guard guard(lock_);
             const signal_mask available = pending_ & mask;
             if (available == 0)
@@ -80,6 +80,8 @@ namespace astia {
             for (u8 value = 1; value < signal_count; ++value) {
                 if ((available & (signal_mask{1} << value)) != 0) {
                     pending_ &= ~(signal_mask{1} << value);
+                    if (info != nullptr)
+                        *info = infos_[value];
                     return static_cast<signal_number>(value);
                 }
             }

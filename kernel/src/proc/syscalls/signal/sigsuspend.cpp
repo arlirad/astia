@@ -37,9 +37,8 @@ namespace astia::proc::syscall {
         }
         while (!self->signals().has_unblocked_pending() &&
                !owner->signals().has_pending_for(~self->signals().blocked())) {
-            // Signal delivery is performed by the syscall exit hook.
-            self->state(thread_state::blocked);
-            scheduler::yield();
+            if (owner->block_signal_waiter(self))
+                scheduler::yield();
         }
         owner->remove_signal_waiter(self);
         // POSIX sigsuspend changes the mask only for the sleep.  Leaving

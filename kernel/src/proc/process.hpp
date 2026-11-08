@@ -251,7 +251,11 @@ namespace astia::proc {
         void remove_waiter(thread* value);
         void wake_waiters();
         bool add_signal_waiter(thread* value);
+        bool add_signal_waiter(thread* value, bool timed, u64 deadline);
+        bool block_signal_waiter(thread* value);
         void remove_signal_waiter(thread* value);
+        bool signal_waiter_timed_out(thread* value);
+        void expire_signal_waiters(u64 now);
         void wake_signal_waiters();
 
         bool              add_thread(const mm::shptr<thread>& value);

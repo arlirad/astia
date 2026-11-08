@@ -27,6 +27,8 @@ long __astia_process_sigaction(int signal, const struct astia_sigaction* action,
                                struct astia_sigaction* old_action);
 long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_set);
 long __astia_process_sigwait(const unsigned int* set, int* signal);
+long __astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info,
+                                  const void* timeout);
 long __astia_process_futex(unsigned int* address, unsigned int operation,
                            unsigned int value, const int64_t* timeout);
 long __astia_process_thread_create(void (*entry)(void*), void* stack_top, void* argument);

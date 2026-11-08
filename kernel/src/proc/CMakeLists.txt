@@ -22,6 +22,7 @@ add_library(proc STATIC
         syscalls/signal/sigprocmask.cpp
         syscalls/signal/sigsuspend.cpp
         syscalls/signal/sigwait.cpp
+        syscalls/signal/sigtimedwait.cpp
         syscalls/process/exit.cpp
         syscalls/process/waitpid.cpp
         syscalls/process/chdir.cpp

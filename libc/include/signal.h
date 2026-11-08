@@ -9,6 +9,7 @@ extern "C" {
 
 typedef int          sig_atomic_t;
 typedef unsigned int sigset_t;
+struct timespec;
 typedef void (*sighandler_t)(int);
 typedef struct siginfo {
     int          si_signo;
@@ -95,6 +96,7 @@ int sigaltstack(const stack_t* stack, stack_t* old_stack);
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set);
 int sigpending(sigset_t* set);
 int sigwait(const sigset_t* set, int* signal);
+int sigtimedwait(const sigset_t* set, siginfo_t* info, const struct timespec* timeout);
 int sigignore(int signal);
 int sigpause(int signal);
 int kill(int pid, int signal);

@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <signal.h>
+#include <time.h>
 #include <unistd.h>
 
 _Thread_local unsigned int __astia_signal_handler_depth;
@@ -163,6 +164,32 @@ int sigpending(sigset_t* set) {
 int sigwait(const sigset_t* set, int* signal) {
     const long rc = __astia_process_sigwait(set, signal);
     return rc < 0 ? (int) -rc : 0;
+}
+
+int sigtimedwait(const sigset_t* set, siginfo_t* info, const struct timespec* timeout) {
+    astia_siginfo_t observed = {0};
+    astia_timespec  requested;
+    const astia_timespec* requested_ptr = NULL;
+    if (timeout != NULL) {
+        requested.tv_sec  = timeout->tv_sec;
+        requested.tv_nsec = timeout->tv_nsec;
+        requested_ptr     = &requested;
+    }
+    const long rc = __astia_process_sigtimedwait(
+        set, info == NULL ? NULL : &observed, requested_ptr);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    if (info != NULL) {
+        info->si_signo  = observed.signo;
+        info->si_errno  = observed.errno_value;
+        info->si_code   = observed.code;
+        info->si_pid    = observed.pid;
+        info->si_uid    = observed.uid;
+        info->si_status = observed.status;
+    }
+    return (int) rc;
 }
 
 int sigignore(int signal_number) {

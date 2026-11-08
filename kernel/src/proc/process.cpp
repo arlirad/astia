@@ -787,9 +787,39 @@ namespace astia::proc {
         return signal_waiters_.add(value);
     }
 
+    bool process::add_signal_waiter(thread* value, bool timed, u64 deadline) {
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
+        return signal_waiters_.add(value, timed, deadline);
+    }
+
+    bool process::block_signal_waiter(thread* value) {
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
+        if (signal_waiters_.consume_wake(value))
+            return false;
+        value->state(thread_state::blocked);
+        return true;
+    }
+
     void process::remove_signal_waiter(thread* value) {
         arch::interrupt_spinlock_guard guard(process_wait_lock);
         signal_waiters_.remove(value);
+    }
+
+    bool process::signal_waiter_timed_out(thread* value) {
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
+        return signal_waiters_.timed_out(value);
+    }
+
+    void process::expire_signal_waiters(u64 now) {
+        thread* wake_list[max_signal_waiters_per_process];
+        u32     count;
+        {
+            arch::interrupt_spinlock_guard guard(process_wait_lock);
+            count = signal_waiters_.expire(now, wake_list, max_signal_waiters_per_process);
+        }
+        for (u32 i = 0; i < count; ++i)
+            if (wake_list[i]->state() == thread_state::blocked)
+                scheduler::wake(wake_list[i]);
     }
 
     void process::wake_signal_waiters() {
@@ -797,7 +827,7 @@ namespace astia::proc {
         u32     count;
         {
             arch::interrupt_spinlock_guard guard(process_wait_lock);
-            count = signal_waiters_.snapshot(wake_list, max_signal_waiters_per_process);
+            count = signal_waiters_.wake(wake_list, max_signal_waiters_per_process);
         }
         for (u32 i = 0; i < count; ++i)
             if (wake_list[i]->state() == thread_state::blocked)

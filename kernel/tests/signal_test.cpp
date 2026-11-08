@@ -58,6 +58,34 @@ ASTIA_TEST(signal_waiters_remain_registered_until_removed) {
     ASTIA_CHECK(observed[0] == second);
 }
 
+ASTIA_TEST(signal_waiters_expire_only_timed_entries) {
+    astia::proc::signal_waiter_registry waiters;
+    auto*                              timed = reinterpret_cast<astia::proc::thread*>(1);
+    auto*                              plain = reinterpret_cast<astia::proc::thread*>(2);
+    astia::proc::thread*               expired[2]{};
+
+    ASTIA_CHECK(waiters.add(timed, true, 10));
+    ASTIA_CHECK(waiters.add(plain));
+    ASTIA_CHECK(waiters.expire(9, expired, 2) == 0);
+    ASTIA_CHECK(waiters.expire(10, expired, 2) == 1);
+    ASTIA_CHECK(expired[0] == timed);
+    ASTIA_CHECK(waiters.timed_out(timed));
+    ASTIA_CHECK(waiters.expire(11, expired, 2) == 0);
+    ASTIA_CHECK(!waiters.timed_out(plain));
+}
+
+ASTIA_TEST(signal_waiters_publish_wakes_before_blocking) {
+    astia::proc::signal_waiter_registry waiters;
+    auto*                              first = reinterpret_cast<astia::proc::thread*>(1);
+    astia::proc::thread*               wake_list[1]{};
+
+    ASTIA_CHECK(waiters.add(first));
+    ASTIA_CHECK(waiters.wake(wake_list, 1) == 1);
+    ASTIA_CHECK(wake_list[0] == first);
+    ASTIA_CHECK(waiters.consume_wake(first));
+    ASTIA_CHECK(!waiters.consume_wake(first));
+}
+
 ASTIA_TEST(signal_state_sigwait_restores_mask_and_preserves_pending_signal) {
     astia::signal_state state;
     const auto          prior = astia::signal_bit(astia::signal_number::term);

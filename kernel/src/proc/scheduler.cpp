@@ -343,6 +343,7 @@ namespace astia::proc::scheduler {
     void tick() {
         sys::io_poll_tick();
         futex_tick();
+        proc::expire_signal_waiters();
         proc::expire_alarms();
         thread* current = proc::current_thread();
         if (current != nullptr && current->sched_class() == scheduling_class::normal) {

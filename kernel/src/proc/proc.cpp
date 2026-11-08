@@ -162,9 +162,25 @@ namespace astia::proc {
         mm::shptr<process> values[max_processes];
         const u32 count = snapshot_registry(values);
         for (u32 i = 0; i < count; ++i) {
-            if (is_live(values[i].get()))
+            if (is_live(values[i].get())) {
                 values[i]->expire_alarm(now);
+            }
         }
+    }
+
+    void expire_signal_waiters() {
+        const u64 hz = arch::timer_hz();
+        if (hz == 0)
+            return;
+        const u64 now = arch::timer_ticks();
+        const u64 monotonic_ns =
+            (now / hz) * nanoseconds_per_second +
+            (now % hz) * nanoseconds_per_second / hz;
+        mm::shptr<process> values[max_processes];
+        const u32 count = snapshot_registry(values);
+        for (u32 i = 0; i < count; ++i)
+            if (is_live(values[i].get()))
+                values[i]->expire_signal_waiters(monotonic_ns);
     }
 
     optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],

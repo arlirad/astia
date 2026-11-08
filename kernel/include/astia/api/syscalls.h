@@ -128,6 +128,7 @@ enum {
     SYS_THREAD_EXISTS    = 58,
     SYS_THREAD_KILL      = 59,
     SYS_SIGPENDING       = 60,
+    SYS_SIGTIMEDWAIT     = 61,
 };
 
 /* ------------------------------------------------------------------ */
@@ -397,6 +398,12 @@ static inline long astia_sigprocmask(int32_t how, uint32_t set, uint32_t* old) {
 
 static inline long astia_sigwait(const uint32_t* set, int32_t* signal) {
     return astia_raw6(SYS_SIGWAIT, (long) set, (long) signal, 0, 0, 0, 0);
+}
+
+static inline long astia_sigtimedwait(const uint32_t* set, astia_siginfo_t* info,
+                                      const astia_timespec* timeout) {
+    return astia_raw6(SYS_SIGTIMEDWAIT, (long) set, (long) info, (long) timeout,
+                      0, 0, 0);
 }
 
 /* pid > 0: wait for that child; pid == -1: any child.  On success the

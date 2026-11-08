@@ -102,6 +102,10 @@ add_executable(libc_sigwait_test sigwait_test.c backend_host.c process_host.c al
 target_link_libraries(libc_sigwait_test PRIVATE astia_libc_host)
 add_test(NAME libc_sigwait_test COMMAND libc_sigwait_test)
 
+add_executable(libc_sigtimedwait_test sigtimedwait_test.c)
+target_link_libraries(libc_sigtimedwait_test PRIVATE astia_libc)
+add_test(NAME libc_sigtimedwait_test COMMAND libc_sigtimedwait_test)
+
 add_executable(libc_process_group_test process_group_test.c process_host.c backend_host.c alarm_host.c)
 target_link_libraries(libc_process_group_test PRIVATE astia_libc_host)
 add_test(NAME libc_process_group_test COMMAND libc_process_group_test)

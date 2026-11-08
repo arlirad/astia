@@ -46,9 +46,10 @@ namespace astia::proc::syscall {
                 arch::cpu::interrupts();
                 return 0;
             }
-            self->state(thread_state::blocked);
-            scheduler::yield();
-            owner->remove_signal_waiter(self);
+            if (owner->block_signal_waiter(self)) {
+                scheduler::yield();
+                owner->remove_signal_waiter(self);
+            }
         }
     }
 
