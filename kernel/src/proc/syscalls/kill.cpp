@@ -4,6 +4,7 @@
 #include "../proc.hpp"
 #include "../signal_permission.hpp"
 #include <astia/api/errno.h>
+#include <astia/api/signal.h>
 
 namespace astia::proc::syscall {
 
@@ -21,7 +22,16 @@ namespace astia::proc::syscall {
                     return -EINVAL;
                 group = mapped_group.value;
             }
-            return signal_process_group(group, mapped_signal.value);
+            signal_info info{};
+            if (mapped_signal.value != signal_number{}) {
+                auto* sender = current_process();
+                if (sender == nullptr)
+                    return -ESRCH;
+                info.code = ASTIA_SI_USER;
+                info.pid  = static_cast<i32>(raw_id(sender->pid()));
+                info.uid  = sender->uid();
+            }
+            return signal_process_group(group, mapped_signal.value, info);
         }
 
         auto mapped_pid = mapper<pid_t>::from(pid_raw);
@@ -38,7 +48,11 @@ namespace astia::proc::syscall {
             return -EPERM;
         if (signal_raw == 0)
             return 0;
-        if (!target->signals().send(mapped_signal.value))
+        signal_info info{};
+        info.code = ASTIA_SI_USER;
+        info.pid  = static_cast<i32>(raw_id(sender->pid()));
+        info.uid  = sender->uid();
+        if (!target->signals().send(mapped_signal.value, info))
             return -EINVAL;
         target->interrupt_signal_io(mapped_signal.value);
         if (is_uncatchable(mapped_signal.value) ||

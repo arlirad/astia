@@ -150,12 +150,22 @@ static volatile int altstack_failed;
 static stack_t       altstack_expected;
 static volatile int  child_info_seen;
 static siginfo_t     child_info;
+static volatile int  user_signal_info_seen;
+static siginfo_t     user_signal_info;
 
 static void child_status_handler(int signal_number, siginfo_t* info, void* context) {
     (void) context;
     if (signal_number == SIGCHLD && info != NULL) {
         child_info = *info;
         child_info_seen = 1;
+    }
+}
+
+static void user_signal_info_handler(int signal_number, siginfo_t* info, void* context) {
+    (void) context;
+    if ((signal_number == SIGUSR2) && info != NULL) {
+        user_signal_info = *info;
+        user_signal_info_seen = 1;
     }
 }
 
@@ -257,6 +267,38 @@ int main(int argc, char** argv) {
             child_info.si_code != CLD_EXITED || child_info.si_pid != child ||
             child_info.si_status != 42)
             return 64;
+    }
+
+    {
+        struct sigaction action = {0};
+        action.sa_sigaction = user_signal_info_handler;
+        action.sa_flags     = SA_SIGINFO;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGUSR2, &action, NULL) != 0)
+            return 72;
+
+        const pid_t self = getpid();
+        const unsigned int uid = getuid();
+        user_signal_info_seen = 0;
+        if (kill(self, SIGUSR2) != 0 || !user_signal_info_seen ||
+            user_signal_info.si_signo != SIGUSR2 ||
+            user_signal_info.si_code != SI_USER ||
+            user_signal_info.si_pid != self || user_signal_info.si_uid != uid)
+            return 73;
+
+        user_signal_info_seen = 0;
+        if (raise(SIGUSR2) != 0 || !user_signal_info_seen ||
+            user_signal_info.si_signo != SIGUSR2 ||
+            user_signal_info.si_code != SI_USER ||
+            user_signal_info.si_pid != self || user_signal_info.si_uid != uid)
+            return 74;
+
+        user_signal_info_seen = 0;
+        if (kill(-getpgrp(), SIGUSR2) != 0 || !user_signal_info_seen ||
+            user_signal_info.si_signo != SIGUSR2 ||
+            user_signal_info.si_code != SI_USER ||
+            user_signal_info.si_pid != self || user_signal_info.si_uid != uid)
+            return 75;
     }
 
     /* A login/session boundary is real kernel state, not a shell convention:

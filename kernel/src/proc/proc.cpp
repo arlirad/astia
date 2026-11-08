@@ -529,7 +529,7 @@ namespace astia::proc {
         return static_cast<i64>(raw_id(owner->session()));
     }
 
-    i64 signal_process_group(pgrp_t group, signal_number value) {
+    i64 signal_process_group(pgrp_t group, signal_number value, signal_info info) {
         if (!valid_signal(value) && value != signal_number{})
             return -EINVAL;
         bool               found = false;
@@ -545,7 +545,7 @@ namespace astia::proc {
         }
         if (value != signal_number{}) {
             for (u32 i = 0; i < count; ++i) {
-                if (!targets[i]->signals().send(value))
+                if (!targets[i]->signals().send(value, info))
                     return -EINVAL;
                 targets[i]->interrupt_signal_io(value);
                 if (is_uncatchable(value) ||

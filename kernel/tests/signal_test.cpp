@@ -41,6 +41,20 @@ ASTIA_TEST(signal_state_repeated_wait_preserves_unmatched_signal) {
     ASTIA_CHECK(state.pending() == 0);
 }
 
+ASTIA_TEST(signal_state_preserves_user_signal_metadata) {
+    astia::signal_state state;
+    astia::signal_info  sent{static_cast<astia::i32>(astia::signal_number::usr1), 0,
+                             ASTIA_SI_USER, 123, 456, 0};
+    astia::signal_info  observed{};
+
+    ASTIA_CHECK(state.send(astia::signal_number::usr1, sent));
+    ASTIA_CHECK(state.take_unblocked(nullptr, &observed) == astia::signal_number::usr1);
+    ASTIA_CHECK(observed.signo == sent.signo);
+    ASTIA_CHECK(observed.code == ASTIA_SI_USER);
+    ASTIA_CHECK(observed.pid == 123);
+    ASTIA_CHECK(observed.uid == 456);
+}
+
 ASTIA_TEST(signal_waiters_remain_registered_until_removed) {
     astia::proc::signal_waiter_registry waiters;
     auto*                             first  = reinterpret_cast<astia::proc::thread*>(1);
