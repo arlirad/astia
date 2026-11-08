@@ -3,12 +3,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 /* <unistd.h> is ours now (getpid/gettid); the one host call this test
  * needs is declared by hand, like every other host port here. */
 extern int unlink(const char* path);
 #include <time.h>
+#include <sys/time.h>
 #include <wchar.h>
 #include <wctype.h>
+
+extern int __astia_time_host_clock_id;
 
 static int fails;
 static int exit_order;
@@ -167,6 +171,14 @@ static void test_utc_time(void) {
     CHECK(mktime(&value) == 0);
     CHECK(clock_gettime(CLOCK_REALTIME, &now) == 0 && now.tv_sec > 0);
     CHECK(timespec_get(&now, TIME_UTC) == TIME_UTC);
+
+    struct timeval timeval;
+    __astia_time_host_clock_id = -1;
+    CHECK(gettimeofday(&timeval, NULL) == 0 && timeval.tv_sec > 0 &&
+          timeval.tv_usec >= 0 && timeval.tv_usec < 1000000);
+    CHECK(__astia_time_host_clock_id == CLOCK_REALTIME);
+    errno = 0;
+    CHECK(gettimeofday(NULL, NULL) == -1 && errno == EINVAL);
 }
 
 int main(void) {

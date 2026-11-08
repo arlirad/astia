@@ -90,11 +90,14 @@ struct sigaction {
 #define CLD_DUMPED 3
 #define CLD_STOPPED 5
 #define CLD_CONTINUED 6
+#define SI_USER 0
 
 int sigaction(int signal, const struct sigaction* action, struct sigaction* old_action);
 int sigaltstack(const stack_t* stack, stack_t* old_stack);
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set);
 int sigpending(sigset_t* set);
+int sighold(int signal);
+int sigrelse(int signal);
 int sigwait(const sigset_t* set, int* signal);
 int sigwaitinfo(const sigset_t* set, siginfo_t* info);
 int sigtimedwait(const sigset_t* set, siginfo_t* info, const struct timespec* timeout);

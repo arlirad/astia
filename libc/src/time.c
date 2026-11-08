@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 #include <time.h>
 
 /* Days from 1970-01-01.  The era decomposition keeps negative timestamps
@@ -47,6 +48,20 @@ int clock_gettime(int clock_id, struct timespec* result) {
     }
     result->tv_sec  = sec;
     result->tv_nsec = (long) nsec;
+    return 0;
+}
+
+int gettimeofday(struct timeval* value, struct timezone* timezone) {
+    struct timespec now;
+    (void) timezone;
+    if (value == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (clock_gettime(CLOCK_REALTIME, &now) < 0)
+        return -1;
+    value->tv_sec  = (long) now.tv_sec;
+    value->tv_usec = now.tv_nsec / 1000;
     return 0;
 }
 

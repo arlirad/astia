@@ -61,6 +61,20 @@ int main(void) {
     CHECK(observed_set == 0);
     CHECK(old == ((1u << SIGUSR1) | (1u << SIGTERM)));
 
+    CHECK(sighold(SIGUSR1) == 0);
+    CHECK(observed_how == SIG_BLOCK);
+    CHECK(observed_set == (1u << SIGUSR1));
+    CHECK(sigrelse(SIGUSR1) == 0);
+    CHECK(observed_how == SIG_UNBLOCK);
+    CHECK(observed_set == (1u << SIGUSR1));
+
+    errno = 0;
+    CHECK(sighold(0) == -1 && errno == EINVAL);
+    errno = 0;
+    CHECK(sigrelse(NSIG) == -1 && errno == EINVAL);
+    errno = 0;
+    CHECK(sighold(16) == -1 && errno == EINVAL);
+
     errno = 0;
     CHECK(sigpause(SIGUSR1) == -1 && errno == EINTR);
     CHECK((suspend_mask & (1u << SIGUSR1)) == 0);

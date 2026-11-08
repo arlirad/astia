@@ -40,6 +40,7 @@ typedef struct astia_x86_64_signal_context {
 #define ASTIA_CLD_DUMPED    3
 #define ASTIA_CLD_STOPPED   5
 #define ASTIA_CLD_CONTINUED 6
+#define ASTIA_SI_USER       0
 
 #define ASTIA_SIGAIO 29
 enum {

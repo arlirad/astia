@@ -161,6 +161,32 @@ int sigpending(sigset_t* set) {
     return 0;
 }
 
+static int astia_valid_signal_number(int signal_number) {
+    return signal_number > 0 && signal_number < NSIG && signal_number != 16;
+}
+
+int sighold(int signal_number) {
+    sigset_t set;
+    if (!astia_valid_signal_number(signal_number)) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (sigemptyset(&set) < 0 || sigaddset(&set, signal_number) < 0)
+        return -1;
+    return sigprocmask(SIG_BLOCK, &set, NULL);
+}
+
+int sigrelse(int signal_number) {
+    sigset_t set;
+    if (!astia_valid_signal_number(signal_number)) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (sigemptyset(&set) < 0 || sigaddset(&set, signal_number) < 0)
+        return -1;
+    return sigprocmask(SIG_UNBLOCK, &set, NULL);
+}
+
 int sigwait(const sigset_t* set, int* signal) {
     const long rc = __astia_process_sigwait(set, signal);
     return rc < 0 ? (int) -rc : 0;
