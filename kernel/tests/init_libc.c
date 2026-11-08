@@ -123,6 +123,14 @@ static void* libc_barrier_worker(void* opaque) {
     return NULL;
 }
 
+static void* libc_alignment_worker(void* opaque) {
+    char buffer[32];
+    (void) opaque;
+    return (void*) (unsigned long) (snprintf(buffer, sizeof(buffer), "%s", "aligned") == 7
+                                        ? 0x789a
+                                        : 0x789b);
+}
+
 static volatile unsigned int libc_futex_word;
 static volatile int          libc_futex_ready;
 static volatile unsigned int libc_cross_futex_word;
@@ -814,6 +822,16 @@ int main(int argc, char** argv) {
             return 59;
     }
 
+    {
+        pthread_t worker;
+        if (pthread_create(&worker, NULL, libc_alignment_worker, NULL) != 0)
+            return 60;
+        void* result = NULL;
+        if (pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x789a)
+            return 61;
+    }
+
     /* 62-80: pthread attributes preserve their POSIX defaults, use a
        caller-owned stack without transferring its lifetime, and detach
        threads when requested.  Scheduling and contention-scope values
@@ -937,6 +955,7 @@ int main(int argc, char** argv) {
             pthread_barrier_destroy(&libc_barrier) != 0)
             return 156;
     }
+
 
     /* 26-27: futex value comparison and wake ABI. */
     {
