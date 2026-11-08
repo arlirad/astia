@@ -2,6 +2,7 @@
 #include <astia/api/signal.h>
 
 #include <signal.hpp>
+#include "../src/proc/signal_waiter_registry.hpp"
 #include "../src/proc/signal_permission.hpp"
 
 ASTIA_TEST(signal_state_queues_and_masks_signals) {
@@ -24,6 +25,37 @@ ASTIA_TEST(signal_state_sigwait_consumes_only_matching_signal) {
     ASTIA_CHECK(state.pending() == astia::signal_bit(astia::signal_number::int_));
     ASTIA_CHECK(state.take_matching(astia::signal_bit(astia::signal_number::usr1)) ==
                 static_cast<astia::signal_number>(0));
+}
+
+ASTIA_TEST(signal_state_repeated_wait_preserves_unmatched_signal) {
+    astia::signal_state state;
+    const auto          first  = astia::signal_bit(astia::signal_number::usr1);
+    const auto          second = astia::signal_bit(astia::signal_number::usr2);
+
+    ASTIA_CHECK(state.send(astia::signal_number::usr1));
+    ASTIA_CHECK(state.send(astia::signal_number::usr2));
+    ASTIA_CHECK(state.take_matching(second) == astia::signal_number::usr2);
+    ASTIA_CHECK(state.pending() == first);
+    ASTIA_CHECK(state.take_matching(second) == static_cast<astia::signal_number>(0));
+    ASTIA_CHECK(state.take_matching(first) == astia::signal_number::usr1);
+    ASTIA_CHECK(state.pending() == 0);
+}
+
+ASTIA_TEST(signal_waiters_remain_registered_until_removed) {
+    astia::proc::signal_waiter_registry waiters;
+    auto*                             first  = reinterpret_cast<astia::proc::thread*>(1);
+    auto*                             second = reinterpret_cast<astia::proc::thread*>(2);
+    astia::proc::thread*              observed[2]{};
+
+    ASTIA_CHECK(waiters.add(first));
+    ASTIA_CHECK(waiters.add(first));
+    ASTIA_CHECK(waiters.snapshot(observed, 2) == 1);
+    ASTIA_CHECK(observed[0] == first);
+    ASTIA_CHECK(waiters.add(second));
+    ASTIA_CHECK(waiters.snapshot(observed, 2) == 2);
+    waiters.remove(first);
+    ASTIA_CHECK(waiters.snapshot(observed, 2) == 1);
+    ASTIA_CHECK(observed[0] == second);
 }
 
 ASTIA_TEST(signal_state_sigwait_restores_mask_and_preserves_pending_signal) {

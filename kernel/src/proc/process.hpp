@@ -3,6 +3,7 @@
 #include "../ipc/signal.hpp"
 #include "fd_table.hpp"
 #include "mmap_region.hpp"
+#include "signal_waiter_registry.hpp"
 #include "thread.hpp"
 #include "user_layout.hpp"
 #include <astia/api/syscalls.h>
@@ -26,7 +27,7 @@ namespace astia::proc {
     inline constexpr u32 max_processes                  = 64;
     inline constexpr u32 max_threads_per_process        = 16;
     inline constexpr u32 max_waiters_per_process        = 4;
-    inline constexpr u32 max_signal_waiters_per_process = max_threads_per_process;
+    inline constexpr u32 max_signal_waiters_per_process = signal_waiter_capacity;
     inline constexpr u32 max_supplementary_groups       = 16;
 
     /// Reserved userspace TLS placement for process-created threads.
@@ -452,7 +453,7 @@ namespace astia::proc {
         mm::shptr<thread>        threads_[max_threads_per_process];
         u32                      thread_count_ = 0;
         thread*                  waiters_[max_waiters_per_process]{};
-        thread*                  signal_waiters_[max_signal_waiters_per_process]{};
+        signal_waiter_registry   signal_waiters_{};
         fd_table                 descriptors_;
         mm::uptr<arch::page_map> address_space_;
         u64                      tls_tp_ = 0;

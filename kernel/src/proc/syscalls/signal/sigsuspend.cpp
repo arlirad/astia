@@ -38,7 +38,6 @@ namespace astia::proc::syscall {
         while (!self->signals().has_unblocked_pending() &&
                !owner->signals().has_pending_for(~self->signals().blocked())) {
             // Signal delivery is performed by the syscall exit hook.
-            // Signal senders clear the registration before waking us.
             self->state(thread_state::blocked);
             scheduler::yield();
         }
