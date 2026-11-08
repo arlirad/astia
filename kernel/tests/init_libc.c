@@ -44,12 +44,21 @@ static void* libc_stack_worker(void* opaque) {
 
 static volatile unsigned int libc_futex_word;
 static volatile int          libc_futex_ready;
+static volatile unsigned int libc_cross_futex_word;
+static volatile int          libc_cross_futex_ready;
 
 static void* libc_futex_worker(void* opaque) {
     (void) opaque;
     libc_futex_ready = 1;
     const int rc     = futex_wait((unsigned int*) &libc_futex_word, 0);
     return (void*) (unsigned long) (rc == 0 ? 0x2345 : 0x2346);
+}
+
+static void* libc_cross_futex_worker(void* opaque) {
+    (void) opaque;
+    libc_cross_futex_ready = 1;
+    const int rc            = futex_wait((unsigned int*) &libc_cross_futex_word, 0);
+    return (void*) (unsigned long) (rc == 0 ? 0x3456 : 0x3457);
 }
 
 static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -426,6 +435,36 @@ int main(int argc, char** argv) {
         if (pthread_join(worker, &result) != 0 ||
             result != (void*) (unsigned long) 0x2345)
             return 30;
+    }
+
+    {
+        libc_cross_futex_word  = 0;
+        libc_cross_futex_ready = 0;
+        pthread_t worker;
+        if (pthread_create(&worker, NULL, libc_cross_futex_worker, NULL) != 0)
+            return 86;
+        while (!libc_cross_futex_ready)
+            sched_yield();
+        for (int i = 0; i < 16; ++i)
+            sched_yield();
+        const pid_t child = fork();
+        if (child < 0)
+            return 87;
+        if (child == 0)
+            _Exit(futex_wake((unsigned int*) &libc_cross_futex_word, 1) == 0 ? 0 : 1);
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 88;
+        int wake_result = 0;
+        for (int i = 0; i < 64 && wake_result == 0; ++i) {
+            wake_result = futex_wake((unsigned int*) &libc_cross_futex_word, 1);
+            if (wake_result == 0)
+                sched_yield();
+        }
+        void* result = NULL;
+        if (wake_result != 1 || pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x3456)
+            return 89;
     }
 
     /* 31-38: the minimal futex-backed pthread mutex and cancellation state. */

@@ -19,7 +19,7 @@ endif()
 
 add_compile_options(-Wall -Wextra -pedantic)
 
-add_library(astia_libc STATIC
+set(ASTIA_LIBC_SOURCES
   src/assert.c
   src/backend_aio.c
   src/ctype.c
@@ -33,7 +33,6 @@ add_library(astia_libc STATIC
   src/malloc.c
   src/mman.c
   src/process.c
-  src/process_aio.c
   src/pwd.c
   src/path.c
   src/poll.c
@@ -62,12 +61,18 @@ add_library(astia_libc STATIC
   src/wchar.c
 )
 
+add_library(astia_libc_objects OBJECT ${ASTIA_LIBC_SOURCES})
+add_library(astia_libc STATIC
+  $<TARGET_OBJECTS:astia_libc_objects>
+  src/process_aio.c
+)
+
 # Host tests intentionally use the host pthread implementation as a
 # thread source for errno/TLS checks.  The astia pthread object belongs
 # to the freestanding userspace image (kernel/tests adds it directly),
 # not to those host executables.
 if(NOT ASTIA_BUILD_TESTS)
-  target_sources(astia_libc PRIVATE src/pthread.c)
+  target_sources(astia_libc_objects PRIVATE src/pthread.c)
 endif()
 
 # backend_aio.c is the astia side of the file port: real syscall traps,
@@ -82,6 +87,10 @@ target_include_directories(astia_libc PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
 )
+target_include_directories(astia_libc_objects PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
+)
 
 # This archive always links *into* an executable (host tests, future
 # CRT) — never into a DSO — so nothing needs it exported, and exporting
@@ -91,6 +100,15 @@ target_include_directories(astia_libc PUBLIC
 # Hidden visibility keeps the two libcs in one process strictly
 # disjoint; static links inside the executable are unaffected.
 target_compile_options(astia_libc PRIVATE -fvisibility=hidden -fno-stack-protector)
+target_compile_options(astia_libc_objects PRIVATE -fvisibility=hidden -fno-stack-protector)
+
+if(ASTIA_BUILD_TESTS)
+  add_library(astia_libc_host STATIC $<TARGET_OBJECTS:astia_libc_objects>)
+  target_include_directories(astia_libc_host PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
+  )
+endif()
 
 # string.c *defines* the functions the optimizer likes to replace byte
 # loops with; -fno-builtin keeps a loop from ever becoming a call to the

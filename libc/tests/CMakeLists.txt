@@ -35,16 +35,16 @@ add_executable(libc_posix_file_test posix_file_test.c backend_host.c)
 target_link_libraries(libc_posix_file_test PRIVATE astia_libc)
 add_test(NAME libc_posix_file_test COMMAND libc_posix_file_test)
 
-add_executable(libc_conformance_test conformance_test.c backend_host.c process_host.c time_host.c)
-target_link_libraries(libc_conformance_test PRIVATE astia_libc)
+add_executable(libc_conformance_test conformance_test.c backend_host.c process_host.c time_host.c alarm_host.c)
+target_link_libraries(libc_conformance_test PRIVATE astia_libc_host)
 add_test(NAME libc_conformance_test COMMAND libc_conformance_test)
 
 add_executable(libc_sleep_test sleep_test.c sleep_host.c backend_host.c)
 target_link_libraries(libc_sleep_test PRIVATE astia_libc)
 add_test(NAME libc_sleep_test COMMAND libc_sleep_test)
 
-add_executable(libc_alarm_test alarm_test.c alarm_host.c)
-target_link_libraries(libc_alarm_test PRIVATE astia_libc)
+add_executable(libc_alarm_test alarm_test.c alarm_host.c backend_host.c process_host.c)
+target_link_libraries(libc_alarm_test PRIVATE astia_libc_host)
 add_test(NAME libc_alarm_test COMMAND libc_alarm_test)
 
 # The process API drives real host processes: identity, yield and a
@@ -52,12 +52,12 @@ add_test(NAME libc_alarm_test COMMAND libc_alarm_test)
 # as the FILE tests — process_host.c raw-syscalls the host in front of
 # the archive.  backend_host.c comes along so the CHECK messages have
 # a real write() behind them.
-add_executable(libc_process_test process_test.c process_host.c backend_host.c)
-target_link_libraries(libc_process_test PRIVATE astia_libc)
+add_executable(libc_process_test process_test.c process_host.c backend_host.c alarm_host.c)
+target_link_libraries(libc_process_test PRIVATE astia_libc_host)
 add_test(NAME libc_process_test COMMAND libc_process_test)
 
-add_executable(libc_pipeline_test pipeline_test.c backend_host.c process_host.c)
-target_link_libraries(libc_pipeline_test PRIVATE astia_libc)
+add_executable(libc_pipeline_test pipeline_test.c backend_host.c process_host.c alarm_host.c)
+target_link_libraries(libc_pipeline_test PRIVATE astia_libc_host)
 add_test(NAME libc_pipeline_test COMMAND libc_pipeline_test)
 
 # The FILE tests drive the whole stream layer against real files: the
@@ -98,18 +98,18 @@ add_executable(libc_perror_test perror_test.c backend_host.c)
 target_link_libraries(libc_perror_test PRIVATE astia_libc)
 add_test(NAME libc_perror_test COMMAND libc_perror_test)
 
-add_executable(libc_sigwait_test sigwait_test.c backend_host.c process_host.c)
-target_link_libraries(libc_sigwait_test PRIVATE astia_libc)
+add_executable(libc_sigwait_test sigwait_test.c backend_host.c process_host.c alarm_host.c)
+target_link_libraries(libc_sigwait_test PRIVATE astia_libc_host)
 add_test(NAME libc_sigwait_test COMMAND libc_sigwait_test)
 
-add_executable(libc_process_group_test process_group_test.c process_host.c backend_host.c)
-target_link_libraries(libc_process_group_test PRIVATE astia_libc)
+add_executable(libc_process_group_test process_group_test.c process_host.c backend_host.c alarm_host.c)
+target_link_libraries(libc_process_group_test PRIVATE astia_libc_host)
 add_test(NAME libc_process_group_test COMMAND libc_process_group_test)
 
 add_executable(libc_signal_api_test signal_api_test.c)
 target_link_libraries(libc_signal_api_test PRIVATE astia_libc)
 add_test(NAME libc_signal_api_test COMMAND libc_signal_api_test)
 
-add_executable(libc_semaphore_test semaphore_test.c semaphore_host.c)
-target_link_libraries(libc_semaphore_test PRIVATE astia_libc)
+add_executable(libc_semaphore_test semaphore_test.c semaphore_host.c backend_host.c process_host.c alarm_host.c)
+target_link_libraries(libc_semaphore_test PRIVATE astia_libc_host)
 add_test(NAME libc_semaphore_test COMMAND libc_semaphore_test)
