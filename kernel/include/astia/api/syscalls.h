@@ -199,7 +199,8 @@ enum {
     CLOCK_BOOTTIME  = 2,
 };
 
-/* futex ops (WAIT may sleep, WAKE never does) */
+/* futex ops (WAIT may sleep, WAKE never does).  A WAIT timeout is an
+ * absolute CLOCK_MONOTONIC astia_timespec. */
 enum {
     FUTEX_WAIT         = 0,
     FUTEX_WAKE         = 1,

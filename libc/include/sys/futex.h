@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <time.h>
 
 enum {
     FUTEX_WAIT_PRIVATE = 128,
@@ -15,6 +16,8 @@ extern "C" {
  * wait returns immediately with EAGAIN when the word no longer equals
  * expected; wake returns the number of waiters released. */
 int futex_wait(uint32_t* address, uint32_t expected);
+int futex_wait_until(uint32_t* address, uint32_t expected,
+                     const struct timespec* deadline);
 int futex_wake(uint32_t* address, uint32_t count);
 
 #ifdef __cplusplus

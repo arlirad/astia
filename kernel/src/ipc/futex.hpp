@@ -22,5 +22,6 @@ namespace astia::proc {
     /// destroyed.  Waiter slots retain their thread ownership independently,
     /// so a wake detached on another CPU cannot use a freed raw pointer.
     void futex_remove_process(process* owner);
+    void futex_tick();
 
 } // namespace astia::proc

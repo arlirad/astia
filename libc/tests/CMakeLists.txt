@@ -110,6 +110,6 @@ add_executable(libc_signal_api_test signal_api_test.c)
 target_link_libraries(libc_signal_api_test PRIVATE astia_libc)
 add_test(NAME libc_signal_api_test COMMAND libc_signal_api_test)
 
-add_executable(libc_semaphore_test semaphore_test.c semaphore_host.c backend_host.c process_host.c alarm_host.c)
+add_executable(libc_semaphore_test semaphore_test.c semaphore_host.c backend_host.c process_host.c alarm_host.c time_host.c)
 target_link_libraries(libc_semaphore_test PRIVATE astia_libc_host)
 add_test(NAME libc_semaphore_test COMMAND libc_semaphore_test)

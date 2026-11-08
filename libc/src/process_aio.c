@@ -75,8 +75,9 @@ __attribute__((weak)) long __astia_process_sigwait(const unsigned int* set, int*
 }
 
 long __astia_process_futex(unsigned int* address, unsigned int operation,
-                           unsigned int value) {
-    return astia_futex((uint64_t*) address, operation, value, NULL, 0, NULL);
+                           unsigned int value, const int64_t* timeout) {
+    return astia_futex((uint64_t*) address, operation, value,
+                       (const astia_timespec*) timeout, 0, NULL);
 }
 
 long __astia_process_thread_create(void (*entry)(void*), void* stack_top,

@@ -269,7 +269,18 @@ void pthread_testcancel(void) {
 }
 
 int futex_wait(uint32_t* address, uint32_t expected) {
-    long rc = __astia_process_futex(address, FUTEX_WAIT_PRIVATE, expected);
+    long rc = __astia_process_futex(address, FUTEX_WAIT_PRIVATE, expected, NULL);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return (int) rc;
+}
+
+int futex_wait_until(uint32_t* address, uint32_t expected,
+                     const struct timespec* deadline) {
+    long rc = __astia_process_futex(address, FUTEX_WAIT_PRIVATE, expected,
+                                    (const int64_t*) deadline);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
@@ -278,7 +289,7 @@ int futex_wait(uint32_t* address, uint32_t expected) {
 }
 
 int futex_wake(uint32_t* address, uint32_t count) {
-    long rc = __astia_process_futex(address, FUTEX_WAKE_PRIVATE, count);
+    long rc = __astia_process_futex(address, FUTEX_WAKE_PRIVATE, count, NULL);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;

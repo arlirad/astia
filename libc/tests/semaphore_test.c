@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <semaphore.h>
 #include <stdio.h>
+#include <time.h>
 
 static int fails;
 
@@ -19,6 +20,7 @@ static int fails;
     } while (0)
 
 static sem_t        blocked_sem;
+static sem_t        timed_sem;
 static volatile int worker_started;
 static volatile int worker_finished;
 
@@ -30,10 +32,18 @@ static void* worker(void* argument) {
     return NULL;
 }
 
+static void* timed_poster(void* argument) {
+    (void) argument;
+    CHECK(sem_post(&timed_sem) == 0);
+    return NULL;
+}
+
 int main(void) {
     sem_t sem = {0};
     int   value = -1;
     pthread_t thread;
+    struct timespec now;
+    struct timespec deadline;
 
     errno = 0;
     CHECK(sem_init(NULL, 0, 0) == -1 && errno == EINVAL);
@@ -72,6 +82,41 @@ int main(void) {
     CHECK(pthread_join(thread, NULL) == 0);
     CHECK(worker_finished);
     CHECK(sem_destroy(&blocked_sem) == 0);
+
+    CHECK(clock_gettime(CLOCK_REALTIME, &now) == 0);
+    deadline = now;
+    deadline.tv_sec += 1;
+    CHECK(sem_init(&timed_sem, 0, 1) == 0);
+    CHECK(sem_timedwait(&timed_sem, &deadline) == 0);
+    CHECK(sem_getvalue(&timed_sem, &value) == 0 && value == 0);
+    CHECK(sem_destroy(&timed_sem) == 0);
+
+    CHECK(clock_gettime(CLOCK_REALTIME, &now) == 0);
+    deadline = now;
+    deadline.tv_sec -= 1;
+    CHECK(sem_init(&timed_sem, 0, 0) == 0);
+    errno = 0;
+    CHECK(sem_timedwait(&timed_sem, &deadline) == -1 && errno == ETIMEDOUT);
+    CHECK(sem_getvalue(&timed_sem, &value) == 0 && value == 0);
+    CHECK(sem_destroy(&timed_sem) == 0);
+
+    CHECK(clock_gettime(CLOCK_REALTIME, &now) == 0);
+    deadline = now;
+    deadline.tv_nsec = -1;
+    CHECK(sem_init(&timed_sem, 0, 0) == 0);
+    errno = 0;
+    CHECK(sem_timedwait(&timed_sem, &deadline) == -1 && errno == EINVAL);
+    CHECK(sem_destroy(&timed_sem) == 0);
+
+    CHECK(clock_gettime(CLOCK_REALTIME, &now) == 0);
+    deadline = now;
+    deadline.tv_sec += 2;
+    CHECK(sem_init(&timed_sem, 0, 0) == 0);
+    CHECK(pthread_create(&thread, NULL, timed_poster, NULL) == 0);
+    CHECK(sem_timedwait(&timed_sem, &deadline) == 0);
+    CHECK(pthread_join(thread, NULL) == 0);
+    CHECK(sem_getvalue(&timed_sem, &value) == 0 && value == 0);
+    CHECK(sem_destroy(&timed_sem) == 0);
 
     errno = 0;
     CHECK(sem_post(&sem) == -1 && errno == EINVAL);
