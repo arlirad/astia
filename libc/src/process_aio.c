@@ -70,7 +70,7 @@ __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_set) {
     return astia_sigprocmask(how, set, old_set);
 }
 
-long __astia_process_sigwait(const unsigned int* set, int* signal) {
+__attribute__((weak)) long __astia_process_sigwait(const unsigned int* set, int* signal) {
     return astia_raw6(SYS_SIGWAIT, (long) set, (long) signal, 0, 0, 0, 0);
 }
 
