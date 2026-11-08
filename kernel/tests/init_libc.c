@@ -71,6 +71,9 @@ static volatile int libc_signal_calls;
 static volatile int libc_signal_target_seen;
 static volatile int libc_signal_thread_release;
 static pthread_t    libc_signal_target;
+static volatile int libc_signal_mask_ready;
+static volatile int libc_signal_mask_release;
+static volatile int libc_signal_mask_result;
 
 static void libc_signal_handler(int signal_number) {
     if (signal_number == SIGUSR2)
@@ -84,6 +87,27 @@ static void* libc_signal_thread_worker(void* opaque) {
     while (!libc_signal_thread_release)
         sched_yield();
     return (void*) (unsigned long) 0x6789;
+}
+
+static void* libc_signal_mask_worker(void* opaque) {
+    (void) opaque;
+    sigset_t blocked;
+    sigset_t pending;
+    libc_signal_mask_result = 0;
+    if (sigemptyset(&blocked) != 0 || sigaddset(&blocked, SIGUSR2) != 0 ||
+        pthread_sigmask(SIG_BLOCK, &blocked, NULL) != 0)
+        libc_signal_mask_result = 1;
+    libc_signal_mask_ready = 1;
+    while (!libc_signal_mask_release)
+        sched_yield();
+    if (libc_signal_mask_result == 0 &&
+        (pthread_kill(pthread_self(), SIGUSR2) != 0 || sigpending(&pending) != 0 ||
+         !sigismember(&pending, SIGUSR2)))
+        libc_signal_mask_result = 2;
+    if (libc_signal_mask_result == 0 &&
+        (pthread_sigmask(SIG_UNBLOCK, &blocked, NULL) != 0 || !libc_signal_target_seen))
+        libc_signal_mask_result = 3;
+    return (void*) (unsigned long) (libc_signal_mask_result == 0 ? 0x7890 : 0x7891);
 }
 
 static void* libc_cancel_join_target(void* opaque) {
@@ -597,6 +621,28 @@ int main(int argc, char** argv) {
             return 84;
         if (pthread_kill(other, 0) != ESRCH || pthread_kill(other, SIGUSR2) != ESRCH)
             return 85;
+    }
+
+    {
+        pthread_t worker;
+        void*     result = NULL;
+        libc_signal_calls       = 0;
+        libc_signal_target_seen = 0;
+        libc_signal_mask_ready = 0;
+        libc_signal_mask_release = 0;
+        libc_signal_mask_result = 0;
+        if (pthread_create(&worker, NULL, libc_signal_mask_worker, NULL) != 0)
+            return 90;
+        while (!libc_signal_mask_ready)
+            sched_yield();
+        libc_signal_target = worker;
+        if (libc_signal_mask_result != 0 || pthread_kill(pthread_self(), SIGUSR2) != 0 ||
+            libc_signal_calls != 1 || libc_signal_target_seen)
+            return 91;
+        libc_signal_mask_release = 1;
+        if (pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x7890)
+            return 92;
     }
 
     /* 39-43: writable tmpfs plus MAP_SHARED.  The mapping names the

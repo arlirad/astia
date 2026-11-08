@@ -166,11 +166,13 @@ POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --test kill/2-1
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --list
 ```
 
-The current signal limitations are explicit: `pthread_sigmask/*` remains
-blocked because Astia does not yet claim the full pthread signal-mask suite,
-and `pthread_equal/2-1` is retained because its stress test depends on
-additional pthread synchronization behavior. Target-thread `pthread_kill`
-delivery, null-signal liveness checks, and `sigpending` are supported.
+The current signal limitations are explicit: all compilable tests in
+`pthread_sigmask` and `sigpending` pass against Astia. The external LTP
+`pthread_sigmask/15-1.c` source omits `<pthread.h>` and is retained as a
+source compile blocker, not an Astia failure. `pthread_equal/2-1` is retained
+because its stress test depends on additional pthread synchronization
+behavior. Target-thread `pthread_kill` delivery, null-signal liveness checks,
+per-thread masks, and `sigpending` are supported.
 
 `POSIX_TEST_BUILD` selects the work directory (default
 `/tmp/astia-posix-tests`), and `POSIX_TEST_TIMEOUT` changes the QEMU timeout.
