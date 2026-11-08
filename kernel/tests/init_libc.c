@@ -247,6 +247,39 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
+        sigset_t          mask;
+        sigset_t          pending;
+        sigset_t          child_mask;
+        action.sa_handler = libc_one_shot_handler;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGUSR1, &action, NULL) != 0 ||
+            sigemptyset(&mask) != 0 || sigaddset(&mask, SIGUSR1) != 0 ||
+            sigprocmask(SIG_BLOCK, &mask, NULL) != 0 ||
+            kill(getpid(), SIGUSR1) != 0 || sigpending(&pending) != 0 ||
+            !sigismember(&pending, SIGUSR1))
+            return 102;
+        const pid_t child = fork();
+        if (child < 0)
+            return 103;
+        if (child == 0) {
+            if (sigprocmask(SIG_BLOCK, NULL, &child_mask) != 0 ||
+                !sigismember(&child_mask, SIGUSR1) || sigpending(&pending) != 0 ||
+                sigismember(&pending, SIGUSR1))
+                _Exit(104);
+            _Exit(0);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 105;
+        if (sigprocmask(SIG_UNBLOCK, &mask, NULL) != 0)
+            return 106;
+        action.sa_handler = SIG_DFL;
+        if (sigaction(SIGUSR1, &action, NULL) != 0)
+            return 107;
+    }
+
+    {
+        struct sigaction action = {0};
         action.sa_sigaction = child_status_handler;
         action.sa_flags     = SA_SIGINFO;
         sigemptyset(&action.sa_mask);

@@ -1195,11 +1195,13 @@ namespace astia::proc {
         return true;
     }
 
-    mm::shptr<thread> process::create_fork_thread(const arch::user_context& uctx) {
+    mm::shptr<thread> process::create_fork_thread(const arch::user_context& uctx,
+                                                  signal_mask blocked_signals) {
         auto value = mm::share<thread>(this, proc::allocate_tid());
         if (!value || !value->prepare_fork_user(uctx)) {
             return {};
         }
+        value->signals().set_blocked(blocked_signals);
         if (!add_thread(value)) {
             return {};
         }

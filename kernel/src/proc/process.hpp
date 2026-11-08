@@ -400,7 +400,8 @@ namespace astia::proc {
 
         /// Fork: the child's first thread, resuming `uctx` inside the
         /// parent's ring-3 call site with rax = 0.
-        mm::shptr<thread> create_fork_thread(const arch::user_context& uctx);
+        mm::shptr<thread> create_fork_thread(const arch::user_context& uctx,
+                                              signal_mask blocked_signals);
 
         /// Resolve a ring-3 write fault: a uniquely-held CoW page
         /// regains its write bit, otherwise the page is copied out and
