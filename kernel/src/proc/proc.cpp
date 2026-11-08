@@ -531,6 +531,7 @@ namespace astia::proc {
             for (u32 i = 0; i < count; ++i) {
                 if (!targets[i]->signals().send(value))
                     return -EINVAL;
+                targets[i]->interrupt_signal_io(value);
                 if (is_uncatchable(value) ||
                     targets[i]->signals().disposition(value).action ==
                         signal_action::default_action)

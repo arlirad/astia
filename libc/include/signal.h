@@ -40,6 +40,7 @@ struct sigaction {
 #define SIG_ERR ((sighandler_t) - 1)
 #define SA_ONSTACK 1
 #define SA_SIGINFO 4
+#define SA_RESTART 0x10000000
 #define SS_ONSTACK 1
 #define SS_DISABLE 2
 #define MINSIGSTKSZ 2048
@@ -77,6 +78,7 @@ struct sigaction {
 #define SIGPROF 27
 #define SIGWINCH 28
 #define SIGIO 29
+#define SIGPOLL SIGIO
 #define SIGAIO SIGIO
 #define SIGPWR 30
 #define SIGSYS 31

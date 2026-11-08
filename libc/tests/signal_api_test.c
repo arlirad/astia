@@ -44,10 +44,17 @@ long __astia_process_sigsuspend(const unsigned int* mask) {
 
 int main(void) {
     sigset_t old;
+    struct sigaction restart_action = {0};
 
     CHECK(sigignore(SIGUSR1) == 0);
     CHECK(observed_signal == SIGUSR1);
     CHECK(observed_action.sa_handler == SIG_IGN);
+
+    restart_action.sa_handler = SIG_DFL;
+    restart_action.sa_flags   = SA_RESTART;
+    CHECK(sigemptyset(&restart_action.sa_mask) == 0);
+    CHECK(sigaction(SIGUSR1, &restart_action, NULL) == 0);
+    CHECK(observed_action.sa_flags == SA_RESTART);
 
     CHECK(sigprocmask(SIG_SETMASK, NULL, &old) == 0);
     CHECK(observed_how == SIG_BLOCK);

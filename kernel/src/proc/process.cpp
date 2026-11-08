@@ -620,6 +620,25 @@ namespace astia::proc {
         notify_parent_of_state_change(info);
     }
 
+    void process::interrupt_signal_io(signal_number signal) {
+        const auto disposition = signals_.disposition(signal);
+        const bool interrupt =
+            disposition.action == signal_action::handler
+                ? (disposition.flags & ASTIA_SA_RESTART) == 0
+                : disposition.action == signal_action::default_action &&
+                      default_action(signal) != signal_default::ignore;
+        if (!interrupt)
+            return;
+        const signal_mask bit = signal_bit(signal);
+        for (u32 i = 0; i < max_threads_per_process; ++i) {
+            const auto value = thread_at(i);
+            if (value && (value->signals().blocked() & bit) == 0) {
+                sys::io_interrupt_process(this, -EINTR);
+                return;
+            }
+        }
+    }
+
     i64 process::alarm(u32 seconds, u64 now, u32 hz) {
         u64 next = 0;
         if (seconds != 0) {
