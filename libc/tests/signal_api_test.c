@@ -56,6 +56,10 @@ int main(void) {
     CHECK(sigaction(SIGUSR1, &restart_action, NULL) == 0);
     CHECK(observed_action.sa_flags == SA_RESTART);
 
+    restart_action.sa_flags = SA_NODEFER | SA_RESETHAND;
+    CHECK(sigaction(SIGUSR1, &restart_action, NULL) == 0);
+    CHECK(observed_action.sa_flags == (SA_NODEFER | SA_RESETHAND));
+
     CHECK(sigprocmask(SIG_SETMASK, NULL, &old) == 0);
     CHECK(observed_how == SIG_BLOCK);
     CHECK(observed_set == 0);

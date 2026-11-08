@@ -74,6 +74,25 @@ static pthread_t    libc_signal_target;
 static volatile int libc_signal_mask_ready;
 static volatile int libc_signal_mask_release;
 static volatile int libc_signal_mask_result;
+static volatile int libc_nodefer_depth;
+static volatile int libc_nodefer_max_depth;
+static volatile int libc_nodefer_calls;
+static volatile int libc_nodefer_failed;
+
+static void libc_nodefer_handler(int signal_number) {
+    (void) signal_number;
+    ++libc_nodefer_depth;
+    if (libc_nodefer_depth > libc_nodefer_max_depth)
+        libc_nodefer_max_depth = libc_nodefer_depth;
+    ++libc_nodefer_calls;
+    if (libc_nodefer_calls == 1 && raise(SIGUSR1) != 0)
+        libc_nodefer_failed = 1;
+    --libc_nodefer_depth;
+}
+
+static void libc_one_shot_handler(int signal_number) {
+    (void) signal_number;
+}
 
 static void libc_signal_handler(int signal_number) {
     if (signal_number == SIGUSR2)
@@ -643,6 +662,46 @@ int main(int argc, char** argv) {
         if (pthread_join(worker, &result) != 0 ||
             result != (void*) (unsigned long) 0x7890)
             return 92;
+    }
+
+    {
+        struct sigaction action = {0};
+        action.sa_handler = libc_nodefer_handler;
+        action.sa_flags = SA_NODEFER;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGUSR1, &action, NULL) != 0)
+            return 95;
+        libc_nodefer_depth = 0;
+        libc_nodefer_max_depth = 0;
+        libc_nodefer_calls = 0;
+        libc_nodefer_failed = 0;
+        if (raise(SIGUSR1) != 0 || libc_nodefer_calls != 2 ||
+            libc_nodefer_max_depth < 2 || libc_nodefer_failed != 0)
+            return 96;
+        action.sa_handler = SIG_DFL;
+        action.sa_flags = 0;
+        if (sigaction(SIGUSR1, &action, NULL) != 0)
+            return 97;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 98;
+        if (child == 0) {
+            struct sigaction action = {0};
+            action.sa_handler = libc_one_shot_handler;
+            action.sa_flags = SA_RESETHAND;
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGUSR2, &action, NULL) != 0 || raise(SIGUSR2) != 0)
+                _Exit(99);
+            raise(SIGUSR2);
+            _Exit(100);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child ||
+            (status & 0x7f) != SIGUSR2)
+            return 101;
     }
 
     /* 39-43: writable tmpfs plus MAP_SHARED.  The mapping names the

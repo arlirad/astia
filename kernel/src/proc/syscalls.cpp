@@ -155,7 +155,11 @@ namespace astia::proc {
                 if (!sys::copy_out(span<u8>::bytes(context, sizeof saved), &saved) ||
                     !sys::copy_out(span<u8>::bytes(retaddr, 8), &disposition.restorer))
                     goto fatal_signal;
-                self->signals().block(signal_bit(signal) | disposition.mask);
+                if ((disposition.flags & ASTIA_SA_RESETHAND) != 0)
+                    owner->signals().change_disposition(signal, {});
+                const signal_mask automatic_mask =
+                    (disposition.flags & ASTIA_SA_NODEFER) != 0 ? 0 : signal_bit(signal);
+                self->signals().block(automatic_mask | disposition.mask);
                 frame.nr = ~u64{0};
                 frame.a0 = static_cast<u64>(signal);
                 frame.a1 = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0;

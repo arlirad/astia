@@ -179,6 +179,8 @@ ASTIA_TEST(x86_64_signal_abi_keeps_register_order_and_frame_size) {
     ASTIA_CHECK(sizeof(astia_sigaction_t) == 24);
     ASTIA_CHECK(sizeof(astia_siginfo_t) == 24);
     ASTIA_CHECK(ASTIA_SA_SIGINFO == 4);
+    ASTIA_CHECK(ASTIA_SA_NODEFER == 0x40000000);
+    ASTIA_CHECK(ASTIA_SA_RESETHAND == 0x80000000u);
     ASTIA_CHECK(ASTIA_CLD_STOPPED == 5);
     ASTIA_CHECK(ASTIA_CLD_CONTINUED == 6);
 }
