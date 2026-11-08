@@ -107,6 +107,10 @@ void         _exit(int status) __attribute__((noreturn));
 #define W_OK 2
 #define R_OK 4
 
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
 #define _SC_PAGESIZE 1
 #define _SC_PAGE_SIZE _SC_PAGESIZE
 #define _SC_MAPPED_FILES 2

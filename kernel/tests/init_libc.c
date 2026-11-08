@@ -333,6 +333,19 @@ int main(int argc, char** argv) {
         image = fopen("/sbin/init", "r");
         if (image == NULL)
             return 14;
+        void* denied = mmap(NULL, 4096, PROT_WRITE, MAP_SHARED, fileno(image), 0);
+        int denied_errno = errno;
+        fclose(image);
+        if (denied != MAP_FAILED) {
+            munmap(denied, 4096);
+            return 92;
+        }
+        if (denied_errno != EACCES)
+            return 93;
+
+        image = fopen("/sbin/init", "r");
+        if (image == NULL)
+            return 94;
         void* shared = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fileno(image), 0);
         fclose(image);
         if (shared != MAP_FAILED || errno != ENOSYS)

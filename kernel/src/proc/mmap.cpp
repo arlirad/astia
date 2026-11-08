@@ -402,6 +402,15 @@ namespace astia::proc {
         if (file_size < 0) { // devices have no contents to map
             return -ENODEV;
         }
+        const u32 access_mode = file->flags() & fs::open_file_access_mask;
+        if (has(prot, map_protection::read) &&
+            access_mode == static_cast<u32>(fs::open_file_status_flags::write)) {
+            return -EACCES;
+        }
+        if (has(flags, map_flags::shared) && has(prot, map_protection::write) &&
+            access_mode == 0) {
+            return -EACCES;
+        }
 
         if (has(flags, map_flags::shared)) {
             auto* shared_region = file->mapping();
