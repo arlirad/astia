@@ -8,6 +8,7 @@
  * astia ABI convention. */
 #pragma GCC visibility push(default)
 #include <astia/api/signal.h>
+extern _Thread_local unsigned int __astia_signal_handler_depth;
 void                   __astia_process_exit(int status);
 long                   __astia_process_getpid(void);
 long                   __astia_process_getppid(void);
@@ -39,4 +40,6 @@ long __astia_process_thread_detach(unsigned long tid);
 long __astia_process_thread_cancel(unsigned long tid);
 long __astia_process_thread_cancel_pending(void);
 long __astia_process_thread_exists(unsigned long tid);
+long __astia_process_thread_kill(unsigned long tid, int signal);
+long __astia_process_sigpending(unsigned int* set);
 #pragma GCC visibility pop

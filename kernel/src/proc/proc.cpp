@@ -411,7 +411,8 @@ namespace astia::proc {
                 return terminal_access_result::allowed;
 
             const signal_mask bit = signal_bit(signal);
-            if ((owner->signals().blocked() & bit) != 0 ||
+            auto* self = current_thread();
+            if (self == nullptr || (self->signals().blocked() & bit) != 0 ||
                 owner->signals().disposition(signal).action == signal_action::ignore)
                 return terminal_access_result::io_error;
             if (signal_process_group(owner->process_group(), signal) < 0)
@@ -643,7 +644,7 @@ namespace astia::proc {
                 break;
             }
 
-            if (parent->signals().has_unblocked_interrupting()) {
+            if (parent->signals().has_unblocked_interrupting_for(self->signals().blocked())) {
                 parent->remove_waiter(self);
                 self->state(thread_state::running);
                 result = -EINTR;

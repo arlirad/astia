@@ -36,10 +36,27 @@ namespace astia {
             return true;
         }
 
+        bool send_pending(signal_number signal, signal_info info = {}) {
+            if (!valid_signal(signal))
+                return false;
+            signal_lock_guard guard(lock_);
+            info.signo = static_cast<i32>(signal);
+            pending_ |= signal_bit(signal);
+            infos_[static_cast<u8>(signal)] = info;
+            return true;
+        }
+
         signal_number take_unblocked(signal_disposition* observed = nullptr,
                                      signal_info* info = nullptr) {
+            const signal_mask blocked = this->blocked();
+            return take_unblocked_for(blocked, observed, info);
+        }
+
+        signal_number take_unblocked_for(signal_mask blocked,
+                                         signal_disposition* observed = nullptr,
+                                         signal_info* info = nullptr) {
             signal_lock_guard guard(lock_);
-            const signal_mask available = pending_ & ~blocked_;
+            const signal_mask available = pending_ & ~blocked;
             if (available == 0)
                 return static_cast<signal_number>(0);
             for (u8 value = 1; value < signal_count; ++value) {
@@ -67,6 +84,11 @@ namespace astia {
                 }
             }
             return static_cast<signal_number>(0);
+        }
+
+        bool has_pending_for(signal_mask mask) const {
+            signal_lock_guard guard(lock_);
+            return (pending_ & mask) != 0;
         }
 
         void block(signal_mask mask) {
@@ -122,8 +144,12 @@ namespace astia {
         }
 
         bool has_unblocked_interrupting() const {
+            return has_unblocked_interrupting_for(blocked());
+        }
+
+        bool has_unblocked_interrupting_for(signal_mask blocked) const {
             signal_lock_guard guard(lock_);
-            const signal_mask available = pending_ & ~blocked_;
+            const signal_mask available = pending_ & ~blocked;
             for (u8 value = 1; value < signal_count; ++value) {
                 if ((available & (signal_mask{1} << value)) == 0)
                     continue;

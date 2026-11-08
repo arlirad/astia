@@ -29,6 +29,7 @@
 #include "syscalls/signal/sigaltstack.hpp"
 #include "syscalls/signal/sigprocmask.hpp"
 #include "syscalls/signal/sigreturn.hpp"
+#include "syscalls/signal/sigpending.hpp"
 #include "syscalls/signal/sigsuspend.hpp"
 #include "syscalls/signal/sigwait.hpp"
 #include "syscalls/thread/thread_create.hpp"
@@ -37,6 +38,7 @@
 #include "syscalls/thread/thread_cancel.hpp"
 #include "syscalls/thread/thread_cancel_pending.hpp"
 #include "syscalls/thread/thread_exists.hpp"
+#include "syscalls/thread/thread_kill.hpp"
 #include "syscalls/thread/thread_detach.hpp"
 #include "syscalls/thread/thread_exit.hpp"
 #include "syscalls/thread/thread_join.hpp"
@@ -91,15 +93,25 @@ namespace astia::proc {
             if (owner == nullptr || self == nullptr) {
                 return;
             }
-            signal_disposition  disposition{};
-            signal_info          info{};
-            const signal_number signal = owner->signals().take_unblocked(&disposition, &info);
+            if (owner->process_exit_requested() && self->exit_requested()) {
+                self->exit(reinterpret_cast<void*>(static_cast<usize>(
+                    owner->requested_exit_status())));
+                __builtin_unreachable();
+            }
+            signal_disposition disposition{};
+            signal_info        info{};
+            signal_number      signal = self->signals().take_unblocked(nullptr, &info);
+            if (valid_signal(signal))
+                disposition = owner->signals().disposition(signal);
+            else
+                signal = owner->signals().take_unblocked_for(self->signals().blocked(),
+                                                             &disposition, &info);
             if (!valid_signal(signal)) {
                 return;
             }
             const bool suspended = self->has_signal_restore_mask();
             const u32  restore_mask =
-                suspended ? self->signal_restore_mask() : owner->signals().blocked();
+                suspended ? self->signal_restore_mask() : self->signals().blocked();
             if (disposition.action == signal_action::handler) {
                 auto&           frame = raw_frame;
                 constexpr usize bytes = sizeof(astia_x86_64_signal_context_t) +
@@ -142,7 +154,7 @@ namespace astia::proc {
                 if (!sys::copy_out(span<u8>::bytes(context, sizeof saved), &saved) ||
                     !sys::copy_out(span<u8>::bytes(retaddr, 8), &disposition.restorer))
                     goto fatal_signal;
-                owner->signals().block(signal_bit(signal) | disposition.mask);
+                self->signals().block(signal_bit(signal) | disposition.mask);
                 frame.nr = ~u64{0};
                 frame.a0 = static_cast<u64>(signal);
                 frame.a1 = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0;
@@ -169,7 +181,7 @@ namespace astia::proc {
                 // here must not requeue SIGTSTP forever (or turn SIGCONT
                 // into an ordinary ignored signal).
                 if (suspended) {
-                    owner->signals().set_blocked(restore_mask);
+                    self->signals().set_blocked(restore_mask);
                     self->clear_signal_restore_mask();
                 }
                 return;
@@ -179,7 +191,7 @@ namespace astia::proc {
             // shell has no explicit SIGCHLD disposition.
             if (default_action(signal) == signal_default::ignore) {
                 if (suspended) {
-                    owner->signals().set_blocked(restore_mask);
+                    self->signals().set_blocked(restore_mask);
                     self->clear_signal_restore_mask();
                 }
                 return;
@@ -233,6 +245,7 @@ namespace astia::proc {
                sys::register_syscall<syscall::sigaction>(sys::syscall_id::sigaction) &&
                sys::register_syscall<syscall::sigaltstack>(sys::syscall_id::sigaltstack) &&
                sys::register_syscall<syscall::sigreturn>(sys::syscall_id::sigreturn) &&
+               sys::register_syscall<syscall::sigpending>(sys::syscall_id::sigpending) &&
                sys::register_syscall<syscall::sigprocmask>(
                    sys::syscall_id::sigprocmask) &&
                sys::register_syscall<syscall::yield>(sys::syscall_id::yield) &&
@@ -288,6 +301,7 @@ namespace astia::proc {
                    sys::syscall_id::thread_cancel_pending) &&
                sys::register_syscall<syscall::thread_exists>(
                    sys::syscall_id::thread_exists) &&
+               sys::register_syscall<syscall::thread_kill>(sys::syscall_id::thread_kill) &&
                sys::register_exit_hook(deliver_default_signal) &&
                arch::register_user_fault_handler(user_fault);
     }

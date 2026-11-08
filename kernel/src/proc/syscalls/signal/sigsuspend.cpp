@@ -13,8 +13,8 @@
 namespace astia::proc::syscall {
 
     i64 sigsuspend(u64 mask_ptr) {
-        auto* owner = current_process();
         auto* self  = current_thread();
+        auto* owner = current_process();
         if (owner == nullptr || self == nullptr)
             return -ESRCH;
         const auto range = sys::user_ptr<u32>(mask_ptr).validate();
@@ -28,14 +28,15 @@ namespace astia::proc::syscall {
         // is blocked, so delivery cannot fall between the check and the
         // waiter registration.
         arch::cpu::nointerrupts();
-        const signal_mask previous_mask = owner->signals().blocked();
-        owner->signals().set_blocked(mask);
+        const signal_mask previous_mask = self->signals().blocked();
+        self->signals().set_blocked(mask);
         if (!owner->add_signal_waiter(self)) {
-            owner->signals().set_blocked(previous_mask);
+            self->signals().set_blocked(previous_mask);
             arch::cpu::interrupts();
             return -EAGAIN;
         }
-        while (!owner->signals().has_unblocked_pending()) {
+        while (!self->signals().has_unblocked_pending() &&
+               !owner->signals().has_pending_for(~self->signals().blocked())) {
             // Signal delivery is performed by the syscall exit hook.
             // Signal senders clear the registration before waking us.
             self->state(thread_state::blocked);

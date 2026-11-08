@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../ipc/signal.hpp"
 #include <astia/arch/context.hpp>
 #include <astia/api/signal.h>
 #include <astia/common.hpp>
@@ -172,6 +173,12 @@ namespace astia::proc {
         void clear_signal_restore_mask() {
             signal_restore_armed_ = false;
         }
+        signal_state& signals() {
+            return signals_;
+        }
+        const signal_state& signals() const {
+            return signals_;
+        }
         bool signal_stack_on_alt() const {
             return signal_stack_on_alt_;
         }
@@ -213,6 +220,12 @@ namespace astia::proc {
         }
         bool cancellation_pending() const {
             return __atomic_load_n(&cancellation_pending_, __ATOMIC_ACQUIRE) != 0;
+        }
+        bool exit_requested() const {
+            return __atomic_load_n(&exit_requested_, __ATOMIC_ACQUIRE) != 0;
+        }
+        void request_exit() {
+            __atomic_store_n(&exit_requested_, 1, __ATOMIC_RELEASE);
         }
         void request_cancellation() {
             __atomic_store_n(&cancellation_pending_, 1, __ATOMIC_RELEASE);
@@ -256,6 +269,7 @@ namespace astia::proc {
         bool             detached_             = false;
         bool             owns_user_stack_      = false;
         u8               cancellation_pending_ = 0;
+        u8               exit_requested_       = 0;
         thread*           joining_              = nullptr;
         bool              join_cancel_wakeup_   = false;
         bool             idle_                 = false;
@@ -265,6 +279,7 @@ namespace astia::proc {
         u32              cpu_owner_            = 0;
         u32              signal_restore_mask_  = 0;
         bool             signal_restore_armed_ = false;
+        signal_state     signals_{};
         uintptr_t        signal_stack_sp_      = 0;
         u64              signal_stack_size_    = 0;
         i32              signal_stack_flags_   = ASTIA_SS_DISABLE;

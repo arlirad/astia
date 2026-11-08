@@ -481,6 +481,30 @@ namespace astia::proc {
         return index < max_threads_per_process ? threads_[index] : mm::shptr<thread>{};
     }
 
+    void process::request_exit(thread* caller, i32 status) {
+        thread* wake_list[max_threads_per_process];
+        u32     count = 0;
+        {
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
+            if (!process_exit_requested()) {
+                __atomic_store_n(&requested_exit_status_, status, __ATOMIC_RELEASE);
+                __atomic_store_n(&exit_requested_, 1, __ATOMIC_RELEASE);
+            }
+            for (u32 i = 0; i < max_threads_per_process; ++i) {
+                thread* value = threads_[i].get();
+                if (value == nullptr || value == caller || value->state() == thread_state::dead)
+                    continue;
+                value->request_exit();
+                if (value->state() == thread_state::blocked)
+                    wake_list[count++] = value;
+            }
+        }
+        futex_remove_process(this);
+        sys::io_interrupt_process(this, -EINTR);
+        for (u32 i = 0; i < count; ++i)
+            scheduler::wake(wake_list[i]);
+    }
+
     void process::thread_exited(thread* value, i32 status) {
         if (value != nullptr) {
             release_thread_tls(value);
@@ -503,7 +527,7 @@ namespace astia::proc {
             if (any_alive) {
                 return;
             }
-            exit_status_ = status;
+            exit_status_ = process_exit_requested() ? requested_exit_status_ : status;
             state(process_state::zombie);
         }
         // Closing a session leader's terminal hangs up its foreground job.
@@ -617,7 +641,9 @@ namespace astia::proc {
             if (__atomic_compare_exchange_n(&alarm_deadline_, &deadline, 0, false,
                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
                 (void) signals_.send(signal_number::alrm);
-                if (signals_.has_unblocked_interrupting())
+                thread* self = proc::current_thread();
+                if (self != nullptr &&
+                    signals_.has_unblocked_interrupting_for(self->signals().blocked()))
                     sys::io_interrupt_process(this, -EINTR);
                 wake_signal_waiters();
                 wake_waiters();

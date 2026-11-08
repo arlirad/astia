@@ -6,6 +6,23 @@
 #include <signal.h>
 #include <unistd.h>
 
+_Thread_local unsigned int __astia_signal_handler_depth;
+static struct sigaction   astia_signal_actions[NSIG];
+
+static void astia_signal_dispatch(int signal_number, siginfo_t* info, void* context) {
+    const struct sigaction action = astia_signal_actions[signal_number];
+    ++__astia_signal_handler_depth;
+    if ((action.sa_flags & SA_SIGINFO) != 0) {
+        if (action.sa_sigaction != NULL)
+            action.sa_sigaction(signal_number, info, context);
+    }
+    else if (action.sa_handler != NULL && action.sa_handler != SIG_DFL &&
+             action.sa_handler != SIG_IGN) {
+        action.sa_handler(signal_number);
+    }
+    --__astia_signal_handler_depth;
+}
+
 __attribute__((noreturn, naked, visibility("hidden"))) void
 astia_signal_trampoline(void) {
     __asm__ volatile("leaq (%rsp), %rdi\n"
@@ -62,10 +79,19 @@ int sigaction(int signal_number, const struct sigaction* action,
               struct sigaction* old_action) {
     astia_sigaction_t        next_value;
     const astia_sigaction_t* next = NULL;
+    struct sigaction         previous = {0};
+    const int                 valid = signal_number > 0 && signal_number < NSIG;
+    if (!valid) {
+        errno = EINVAL;
+        return -1;
+    }
     if (action != NULL) {
         next_value.handler = (uintptr_t) ((action->sa_flags & SA_SIGINFO) != 0
                                               ? (void*) action->sa_sigaction
                                               : (void*) action->sa_handler);
+        if (next_value.handler != (uintptr_t) SIG_DFL &&
+            next_value.handler != (uintptr_t) SIG_IGN)
+            next_value.handler = (uintptr_t) &astia_signal_dispatch;
         next_value.mask    = action->sa_mask;
         next_value.flags   = (uint32_t) action->sa_flags;
         /* sa_restorer is not part of the POSIX interface.  In particular,
@@ -76,12 +102,17 @@ int sigaction(int signal_number, const struct sigaction* action,
         next_value.restorer = (uintptr_t) &astia_signal_trampoline;
         next                = &next_value;
     }
-    astia_sigaction_t* old = (astia_sigaction_t*) old_action;
-    const long         rc  = __astia_process_sigaction(signal_number, next, old);
+    if (old_action != NULL)
+        previous = astia_signal_actions[signal_number];
+    const long rc = __astia_process_sigaction(signal_number, next, NULL);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
     }
+    if (old_action != NULL)
+        *old_action = previous;
+    if (action != NULL)
+        astia_signal_actions[signal_number] = *action;
     return 0;
 }
 
@@ -113,6 +144,15 @@ int sigprocmask(int how, const sigset_t* set, sigset_t* old_set) {
     const uint32_t value = set == NULL ? 0 : *set;
     const int      operation = set == NULL ? SIG_BLOCK : how;
     const long rc = __astia_process_sigprocmask(operation, value, (uint32_t*) old_set);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return 0;
+}
+
+int sigpending(sigset_t* set) {
+    const long rc = __astia_process_sigpending((unsigned int*) set);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;

@@ -117,3 +117,11 @@ long __astia_process_thread_cancel_pending(void) {
 long __astia_process_thread_exists(unsigned long tid) {
     return astia_thread_exists((uint32_t) tid);
 }
+
+long __astia_process_thread_kill(unsigned long tid, int signal) {
+    return astia_thread_kill((uint32_t) tid, (int32_t) signal);
+}
+
+__attribute__((weak)) long __astia_process_sigpending(unsigned int* set) {
+    return astia_sigpending(set);
+}

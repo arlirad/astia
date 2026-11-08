@@ -24,18 +24,20 @@ namespace astia::proc::syscall {
             return -EFAULT;
 
         arch::cpu::nointerrupts();
-        const signal_mask previous_mask = owner->signals().blocked();
-        owner->signals().block(mask);
+        const signal_mask previous_mask = self->signals().blocked();
+        self->signals().block(mask);
         for (;;) {
             if (!owner->add_signal_waiter(self)) {
-                owner->signals().set_blocked(previous_mask);
+                self->signals().set_blocked(previous_mask);
                 arch::cpu::interrupts();
                 return -EAGAIN;
             }
-            const signal_number signal = owner->signals().take_matching(mask);
+            signal_number signal = self->signals().take_matching(mask);
+            if (!valid_signal(signal))
+                signal = owner->signals().take_matching(mask);
             if (valid_signal(signal)) {
                 owner->remove_signal_waiter(self);
-                owner->signals().set_blocked(previous_mask);
+                self->signals().set_blocked(previous_mask);
                 const i32 value = static_cast<i32>(signal);
                 if (!sys::copy_out(signal_range.value.bytes(), &value)) {
                     arch::cpu::interrupts();

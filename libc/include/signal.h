@@ -91,6 +91,7 @@ struct sigaction {
 int sigaction(int signal, const struct sigaction* action, struct sigaction* old_action);
 int sigaltstack(const stack_t* stack, stack_t* old_stack);
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set);
+int sigpending(sigset_t* set);
 int sigwait(const sigset_t* set, int* signal);
 int sigignore(int signal);
 int sigpause(int signal);

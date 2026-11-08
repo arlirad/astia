@@ -126,6 +126,8 @@ enum {
     SYS_THREAD_CREATE_OWNED = 56,
     SYS_THREAD_CANCEL_PENDING = 57,
     SYS_THREAD_EXISTS    = 58,
+    SYS_THREAD_KILL      = 59,
+    SYS_SIGPENDING       = 60,
 };
 
 /* ------------------------------------------------------------------ */
@@ -465,6 +467,12 @@ static inline long astia_thread_cancel_pending(void) {
 
 static inline long astia_thread_exists(uint32_t tid) {
     return astia_raw6(SYS_THREAD_EXISTS, (long) tid, 0, 0, 0, 0, 0);
+}
+static inline long astia_thread_kill(uint32_t tid, int32_t signal) {
+    return astia_raw6(SYS_THREAD_KILL, (long) tid, (long) signal, 0, 0, 0, 0);
+}
+static inline long astia_sigpending(uint32_t* set) {
+    return astia_raw6(SYS_SIGPENDING, (long) set, 0, 0, 0, 0, 0);
 }
 
 static inline void astia_thread_exit(void* result) {

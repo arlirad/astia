@@ -66,6 +66,8 @@ namespace astia::sys {
         thread_create_owned = 56,
         thread_cancel_pending = 57,
         thread_exists = 58,
+        thread_kill = 59,
+        sigpending = 60,
     };
 
     /// How many registers the ABI hands every trap — and so the most

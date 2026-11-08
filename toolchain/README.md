@@ -166,11 +166,11 @@ POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --test kill/2-1
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --list
 ```
 
-The current signal limitations are explicit: `sigpending/*` is blocked at
-compile time because Astia's `signal.h` does not declare `sigpending`, and
-`pthread_kill/1-1`, `pthread_kill/1-2`, and `pthread_kill/8-1` are expected
-unsupported because non-self signal delivery returns `ENOTSUP`. Null-signal
-liveness checks and delivery to the calling thread are supported.
+The current signal limitations are explicit: `pthread_sigmask/*` remains
+blocked because Astia does not yet claim the full pthread signal-mask suite,
+and `pthread_equal/2-1` is retained because its stress test depends on
+additional pthread synchronization behavior. Target-thread `pthread_kill`
+delivery, null-signal liveness checks, and `sigpending` are supported.
 
 `POSIX_TEST_BUILD` selects the work directory (default
 `/tmp/astia-posix-tests`), and `POSIX_TEST_TIMEOUT` changes the QEMU timeout.

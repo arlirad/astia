@@ -44,9 +44,8 @@ namespace astia::proc::syscall {
         frame.r13    = saved.r13;
         frame.r14    = saved.r14;
         frame.r15    = saved.r15;
-        if (auto* owner = current_process())
-            owner->signals().set_blocked(saved.blocked);
         if (auto* self = current_thread()) {
+            self->signals().set_blocked(saved.blocked);
             self->clear_signal_restore_mask();
             self->signal_stack_on_alt((saved.reserved & 1u) != 0);
         }

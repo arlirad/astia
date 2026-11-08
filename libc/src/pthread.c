@@ -158,9 +158,8 @@ int pthread_kill(pthread_t thread, int signal_number) {
         return (int) -rc;
     if (signal_number == 0)
         return 0;
-    if (thread != pthread_self())
-        return ENOTSUP;
-    return raise(signal_number) == -1 ? errno : 0;
+    rc = __astia_process_thread_kill((unsigned long) thread, signal_number);
+    return rc < 0 ? (int) -rc : 0;
 }
 
 int pthread_sigmask(int how, const sigset_t* set, sigset_t* old_set) {

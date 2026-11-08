@@ -225,6 +225,13 @@ namespace astia::proc {
         /// thread is gone the process becomes a zombie carrying `status`
         /// until its parent reaps it with proc::waitpid().
         void thread_exited(thread* value, i32 status);
+        void request_exit(thread* caller, i32 status);
+        bool process_exit_requested() const {
+            return __atomic_load_n(&exit_requested_, __ATOMIC_ACQUIRE) != 0;
+        }
+        i32 requested_exit_status() const {
+            return __atomic_load_n(&requested_exit_status_, __ATOMIC_ACQUIRE);
+        }
 
         /// Move the process's owning reference to a dead thread out of
         /// the thread table.  Used to defer destruction: the dying
@@ -436,6 +443,8 @@ namespace astia::proc {
         i32          stop_signal_        = 0;
         u8           stop_event_         = 0;
         u8           continued_event_    = 0;
+        u8           exit_requested_     = 0;
+        i32          requested_exit_status_ = 0;
         signal_state signals_{};
         u64          alarm_deadline_     = 0;
 

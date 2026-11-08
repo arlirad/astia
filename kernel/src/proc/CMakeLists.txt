@@ -18,6 +18,7 @@ add_library(proc STATIC
         syscalls/signal/sigaction.cpp
         syscalls/signal/sigaltstack.cpp
         syscalls/signal/sigreturn.cpp
+        syscalls/signal/sigpending.cpp
         syscalls/signal/sigprocmask.cpp
         syscalls/signal/sigsuspend.cpp
         syscalls/signal/sigwait.cpp
@@ -42,6 +43,7 @@ add_library(proc STATIC
         syscalls/thread/thread_cancel.cpp
         syscalls/thread/thread_cancel_pending.cpp
         syscalls/thread/thread_exists.cpp
+        syscalls/thread/thread_kill.cpp
         syscalls/thread/thread_exit.cpp
         syscalls/thread/thread_join.cpp
         syscalls/thread/thread_detach.cpp

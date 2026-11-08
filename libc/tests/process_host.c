@@ -104,3 +104,13 @@ long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_se
     (void) old_set;
     return -ENOSYS;
 }
+
+long __astia_process_sigpending(unsigned int* set) {
+    unsigned long host_set = 0;
+    long rc = syscall(SYS_rt_sigpending, &host_set, sizeof host_set);
+    if (rc == -1)
+        return -HOST_ERRNO;
+    if (set != NULL)
+        *set = (unsigned int) host_set;
+    return rc;
+}

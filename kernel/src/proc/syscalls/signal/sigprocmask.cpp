@@ -13,8 +13,8 @@
 namespace astia::proc::syscall {
 
     i64 sigprocmask(i32 how, signal_mask set, u64 old_ptr) {
-        auto* owner = current_process();
-        if (owner == nullptr) {
+        auto* self = current_thread();
+        if (self == nullptr) {
             return -ESRCH;
         }
         auto operation = mapper<signal_mask_operation>::from(how);
@@ -22,20 +22,20 @@ namespace astia::proc::syscall {
             return -EINVAL;
         if (old_ptr != 0) {
             const auto old_range = sys::user_ptr<u32>(old_ptr).validate();
-            const u32  old       = owner->signals().blocked();
+            const u32  old       = self->signals().blocked();
             if (!old_range || !sys::copy_out(old_range.value.bytes(), &old)) {
                 return -EFAULT;
             }
         }
         switch (operation.value) {
         case signal_mask_operation::block:
-            owner->signals().block(set);
+            self->signals().block(set);
             break;
         case signal_mask_operation::unblock:
-            owner->signals().unblock(set);
+            self->signals().unblock(set);
             break;
         case signal_mask_operation::setmask:
-            owner->signals().set_blocked(set);
+            self->signals().set_blocked(set);
             break;
         }
         return 0;

@@ -68,11 +68,15 @@ static volatile int libc_cancel_join_started;
 static volatile int libc_cancel_join_release;
 
 static volatile int libc_signal_calls;
+static volatile int libc_signal_target_seen;
 static volatile int libc_signal_thread_release;
+static pthread_t    libc_signal_target;
 
 static void libc_signal_handler(int signal_number) {
     if (signal_number == SIGUSR2)
         ++libc_signal_calls;
+    if (signal_number == SIGUSR2 && pthread_equal(pthread_self(), libc_signal_target))
+        libc_signal_target_seen = 1;
 }
 
 static void* libc_signal_thread_worker(void* opaque) {
@@ -559,6 +563,7 @@ int main(int argc, char** argv) {
         pthread_t         other;
         void*             result = NULL;
         libc_signal_calls = 0;
+        libc_signal_target_seen = 0;
         libc_signal_thread_release = 0;
         action.sa_handler = libc_signal_handler;
         if (sigemptyset(&action.sa_mask) != 0 ||
@@ -572,13 +577,19 @@ int main(int argc, char** argv) {
             return 79;
         if (pthread_kill(pthread_self(), SIGUSR2) != 0 || libc_signal_calls != 1)
             return 80;
+        sigset_t pending;
+        if (sigpending(&pending) != 0 || !sigismember(&pending, SIGUSR2))
+            return 86;
         if (pthread_sigmask(SIG_UNBLOCK, &blocked, NULL) != 0 || libc_signal_calls != 2)
             return 81;
         if (pthread_create(&other, NULL, libc_signal_thread_worker, NULL) != 0)
             return 82;
+        libc_signal_target = other;
         int other_signal = pthread_kill(other, SIGUSR2);
         int other_zero   = pthread_kill(other, 0);
-        if (other_signal != ENOTSUP || other_zero != 0)
+        for (int i = 0; other_signal == 0 && !libc_signal_target_seen && i < 1000; ++i)
+            sched_yield();
+        if (other_signal != 0 || other_zero != 0 || !libc_signal_target_seen)
             return 83;
         libc_signal_thread_release = 1;
         if (pthread_join(other, &result) != 0 ||
