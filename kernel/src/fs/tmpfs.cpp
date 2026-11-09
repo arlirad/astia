@@ -120,6 +120,44 @@ namespace astia::fs {
         return static_cast<long>(length);
     }
 
+    long tmpfs_file::sync_mapping(mm::phys_region* mapping, u64 offset, u64 length, u32) {
+        const u64 page_bytes = mm::phys_region::frame_size;
+        if (length == 0 || (offset % page_bytes) != 0 ||
+            (length % page_bytes) != 0 || offset > ~u64{0} - length ||
+            mapping != storage_ || storage_ == nullptr || offset >= tmpfs_max_pages * page_bytes) {
+            return -EINVAL;
+        }
+        if (length > tmpfs_max_pages * page_bytes - offset) {
+            return -EINVAL;
+        }
+        core::spinlock_guard guard(lock_);
+        const u64 range_end = offset + length;
+        for (u64 page_offset = 0; page_offset < length; page_offset += page_bytes) {
+            const u64 current = offset + page_offset;
+            const u64 page_end = current + page_bytes;
+            const u64 visible_start = current < size_ ? current : size_;
+            const u64 visible_end = page_end < size_ ? page_end : size_;
+            const auto* source = static_cast<const u8*>(mapping->page_direct(
+                static_cast<usize>(current / page_bytes)));
+            auto* target = static_cast<u8*>(storage_->page_direct(
+                static_cast<usize>(current / page_bytes)));
+            if (source == nullptr || target == nullptr)
+                return -EIO;
+            if (visible_start < visible_end) {
+                const u64 first = visible_start - current;
+                const u64 count = visible_end - visible_start;
+                for (u64 i = 0; i < count; ++i)
+                    target[first + i] = source[first + i];
+            }
+            const u64 zero_start = visible_end > current ? visible_end : current;
+            const u64 zero_end = page_end < range_end ? page_end : range_end;
+            for (u64 i = zero_start; i < zero_end; ++i)
+                target[i - current] = 0;
+        }
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        return 0;
+    }
+
     long tmpfs_file::truncate(u64 length) {
         core::spinlock_guard guard(lock_);
         const u64 capacity = tmpfs_max_pages * mm::phys_region::frame_size;

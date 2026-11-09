@@ -18,6 +18,8 @@ namespace astia::fs {
 
         long        read(void* buffer, u32 length, u64 offset) override;
         long        write(const void* buffer, u32 length, u64 offset) override;
+        long        sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
+                                 u32 flags) override;
         long        size() const override;
         const void* capability(file_capability kind) const override;
         u64         inode() const override {

@@ -40,3 +40,12 @@ int mprotect(void* addr, size_t len, int prot) {
     }
     return (int) rc;
 }
+
+int msync(void* addr, size_t len, int flags) {
+    long rc = astia_msync(addr, (uint64_t) len, (uint32_t) flags);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return (int) rc;
+}

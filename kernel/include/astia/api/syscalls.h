@@ -131,6 +131,7 @@ enum {
     SYS_SIGTIMEDWAIT     = 61,
     SYS_CLOCK_GETRES     = 62,
     SYS_THREAD_GETATTR   = 63,
+    SYS_MSYNC            = 64,
 };
 
 /* ------------------------------------------------------------------ */
@@ -200,6 +201,12 @@ enum {
     MAP_FIXED     = 0x10,
     MAP_ANONYMOUS = 0x20, /* fd = -1, offset = 0 */
     MAP_STACK     = 0x20000,
+};
+
+enum {
+    MS_ASYNC      = 0x01,
+    MS_INVALIDATE = 0x02,
+    MS_SYNC       = 0x04,
 };
 
 /* clocks */
@@ -287,6 +294,10 @@ static inline long astia_munmap(void* addr, uint64_t len) {
 
 static inline long astia_mprotect(void* addr, uint64_t len, uint32_t prot) {
     return astia_raw6(SYS_MPROTECT, (long) addr, (long) len, (long) prot, 0, 0, 0);
+}
+
+static inline long astia_msync(void* addr, uint64_t len, uint32_t flags) {
+    return astia_raw6(SYS_MSYNC, (long) addr, (long) len, (long) flags, 0, 0, 0);
 }
 
 static inline long astia_getrlimit(int32_t resource, astia_rlimit* limit) {

@@ -231,6 +231,8 @@ namespace astia::fs {
         virtual long             ioctl(u64 request, void* argp, usize size);
         virtual long             size() const;
         virtual long             truncate(u64 length);
+        virtual long             sync_mapping(mm::phys_region* mapping, u64 offset,
+                                               u64 length, u32 flags);
         virtual u64              inode() const;
         virtual u32              nlink() const;
         virtual file_mode        mode() const;
@@ -300,6 +302,8 @@ namespace astia::fs {
         long             ioctl(u64 request, void* argp, usize size);
         long             size() const;
         long             truncate(u64 length);
+        long             sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
+                                      u32 flags);
         mm::phys_region* mapping() const;
         file_mode        mode() const;
         const char*      path() const {

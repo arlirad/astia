@@ -975,6 +975,10 @@ namespace astia::fs {
         return -EINVAL;
     }
 
+    long file::sync_mapping(mm::phys_region*, u64, u64, u32) {
+        return -ENOSYS;
+    }
+
     file_mode file::mode() const {
         return file_mode(file_type::regular, default_file_permissions);
     }
@@ -1180,6 +1184,12 @@ namespace astia::fs {
         if (!_object)
             return -EBADF;
         return _object->truncate(length);
+    }
+    long open_file::sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
+                                 u32 flags) {
+        if (!_object)
+            return -EBADF;
+        return _object->sync_mapping(mapping, offset, length, flags);
     }
     mm::phys_region* open_file::mapping() const {
         return _object ? dispatch_mapping(_object.get()) : nullptr;

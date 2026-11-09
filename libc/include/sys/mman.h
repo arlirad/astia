@@ -20,6 +20,10 @@
 #define MAP_ANONYMOUS 0x20
 #define MAP_STACK 0x20000
 
+#define MS_ASYNC 0x01
+#define MS_INVALIDATE 0x02
+#define MS_SYNC 0x04
+
 #define MAP_FAILED ((void*) -1)
 
 #ifdef __cplusplus
@@ -29,6 +33,7 @@ extern "C" {
 void* mmap(void* addr, size_t len, int prot, int flags, int fd, long off);
 int   munmap(void* addr, size_t len);
 int   mprotect(void* addr, size_t len, int prot);
+int   msync(void* addr, size_t len, int flags);
 
 #ifdef __cplusplus
 }

@@ -345,6 +345,8 @@ namespace astia::proc {
 
         i32 protect(u64 addr, usize len, map_protection prot);
 
+        i32 msync(u64 addr, usize len, u32 flags);
+
         /// The mmap_region covering `addr`, or nullptr — the entry
         /// point for the future user page-fault path.
         mmap_region* find_region(u64 addr);

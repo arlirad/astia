@@ -1618,15 +1618,29 @@ int main(int argc, char** argv) {
         page[0] = 0x73;
         if (page[0] != 0x73)
             return 35;
+        if (msync(page, 4096, MS_SYNC) != 0)
+            return 36;
+        if (munmap(page, 4096) != 0)
+            return 37;
+        FILE* remap_file = fopen("/tmp/mmap_shared", "r");
+        if (remap_file == NULL)
+            return 38;
+        unsigned char* remapped =
+            mmap(NULL, 4096, PROT_READ, MAP_SHARED, fileno(remap_file), 0);
+        fclose(remap_file);
+        if (remapped == MAP_FAILED)
+            return 39;
+        if (remapped[0] != 0x73)
+            return 40;
+        if (munmap(remapped, 4096) != 0)
+            return 41;
         FILE* verify = fopen("/tmp/mmap_shared", "r");
         if (verify == NULL)
-            return 36;
+            return 42;
         unsigned char observed = 0;
         if (fread(&observed, 1, 1, verify) != 1 || observed != 0x73)
-            return 37;
+            return 43;
         fclose(verify);
-        if (munmap(page, 4096) != 0)
-            return 38;
     }
 
     /* 39-50: fork + interior munmap + CoW through the reference-less

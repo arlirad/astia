@@ -36,6 +36,7 @@ add_library(proc STATIC
         syscalls/memory/mmap.cpp
         syscalls/memory/mprotect.cpp
         syscalls/memory/munmap.cpp
+        syscalls/memory/msync.cpp
         syscalls/ipc/futex.cpp
         syscalls/thread/yield.cpp
         syscalls/thread/thread_create.cpp

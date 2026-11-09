@@ -15,6 +15,7 @@
 #include "syscalls/memory/mmap.hpp"
 #include "syscalls/memory/mprotect.hpp"
 #include "syscalls/memory/munmap.hpp"
+#include "syscalls/memory/msync.hpp"
 #include "syscalls/process/chdir.hpp"
 #include "syscalls/process/execve.hpp"
 #include "syscalls/process/exit.hpp"
@@ -366,6 +367,7 @@ namespace astia::proc {
                sys::register_syscall<syscall::mmap>(sys::syscall_id::mmap) &&
                sys::register_syscall<syscall::mprotect>(sys::syscall_id::mprotect) &&
                sys::register_syscall<syscall::munmap>(sys::syscall_id::munmap) &&
+               sys::register_syscall<syscall::msync>(sys::syscall_id::msync) &&
                sys::register_syscall<syscall::fork>(sys::syscall_id::fork) &&
                sys::register_syscall<syscall::futex>(sys::syscall_id::futex) &&
                sys::register_syscall<syscall::thread_create>(

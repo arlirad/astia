@@ -816,6 +816,127 @@ namespace astia::proc {
         }
     }
 
+    i32 process::msync(u64 addr, usize len, u32 flags) {
+        const u64 page_bytes = mm::phys_region::frame_size;
+        const u32 modes = flags & (MS_SYNC | MS_ASYNC);
+        if ((flags & ~(MS_SYNC | MS_ASYNC | MS_INVALIDATE)) != 0 ||
+            (modes != MS_SYNC && modes != MS_ASYNC)) {
+            return -EINVAL;
+        }
+        if (len == 0 || (addr % page_bytes) != 0 || len > ~u64{0} - mm::page_mask) {
+            return -EINVAL;
+        }
+        const u64 pages = (static_cast<u64>(len) + mm::page_mask) / page_bytes;
+        if (pages == 0 || pages > (u64{1} << 20) || pages > ~u64{0} / page_bytes) {
+            return -EINVAL;
+        }
+        const u64 last = addr + pages * page_bytes;
+        if (last < addr || last > user_address_limit) {
+            return -EINVAL;
+        }
+
+        struct sync_request {
+            mm::shptr<fs::open_file> file;
+            mm::phys_region*          mapping = nullptr;
+            u64                      offset = 0;
+            u64                      length = 0;
+        };
+
+        auto collect = [&](sync_request* requests, usize capacity, usize& count) -> i32 {
+            count = 0;
+            u64 cursor = addr;
+            mmap_region* it = mmap_regions_;
+            while (cursor < last) {
+                while (it != nullptr && it->end() <= cursor)
+                    it = it->next;
+                if (it == nullptr || it->pending || it->base > cursor)
+                    return -EINVAL;
+                const u64 end = it->end() < last ? it->end() : last;
+                if (end <= cursor)
+                    return -EINVAL;
+                if (it->shared) {
+                    if (!it->file)
+                        return -ENODEV;
+                    const u64 delta = cursor - it->base;
+                    if (it->file_offset > ~u64{0} - delta)
+                        return -EOVERFLOW;
+                    if (count == ~usize{0})
+                        return -ENOMEM;
+                    if (requests != nullptr && count < capacity) {
+                        requests[count].file = it->file;
+                        requests[count].mapping = it->backing;
+                        requests[count].offset = it->file_offset + delta;
+                        requests[count].length = end - cursor;
+                    }
+                    ++count;
+                }
+                cursor = end;
+                it = it->next;
+            }
+            return 0;
+        };
+
+        struct sync_request* requests = nullptr;
+        usize request_count = 0;
+        for (;;) {
+            usize needed = 0;
+            i32 result = 0;
+            {
+                arch::interrupt_spinlock_guard guard(mmap_lock_);
+                result = collect(nullptr, 0, needed);
+            }
+            if (result < 0)
+                return result;
+            if (needed != 0) {
+                if (needed > ~usize{0} / sizeof(sync_request))
+                    return -ENOMEM;
+                auto storage = mm::heap::alloc(needed * sizeof(sync_request));
+                if (!storage)
+                    return -ENOMEM;
+                requests = reinterpret_cast<sync_request*>(storage.value);
+                for (usize i = 0; i < needed; ++i)
+                    ::new (requests + i) sync_request{};
+            }
+            usize actual = 0;
+            {
+                arch::interrupt_spinlock_guard guard(mmap_lock_);
+                result = collect(requests, needed, actual);
+            }
+            if (result < 0) {
+                for (usize i = 0; i < needed; ++i)
+                    requests[i].~sync_request();
+                if (requests != nullptr)
+                    mm::heap::free(requests);
+                return result;
+            }
+            if (actual == needed) {
+                request_count = needed;
+                break;
+            }
+            for (usize i = 0; i < needed; ++i)
+                requests[i].~sync_request();
+            if (requests != nullptr)
+                mm::heap::free(requests);
+            requests = nullptr;
+        }
+
+        i32 result = 0;
+        for (usize i = 0; i < request_count; ++i) {
+            const long synced = requests[i].file->sync_mapping(requests[i].mapping,
+                                                               requests[i].offset,
+                                                               requests[i].length, flags);
+            if (synced < 0) {
+                result = static_cast<i32>(synced);
+                break;
+            }
+        }
+        for (usize i = 0; i < request_count; ++i)
+            requests[i].~sync_request();
+        if (requests != nullptr)
+            mm::heap::free(requests);
+        return result;
+    }
+
     bool process::register_mapping(u64 base, usize pages, map_protection prot,
                                    mm::phys_region* region) {
         // PTEs are the caller's job — exec segments, the user stack,
