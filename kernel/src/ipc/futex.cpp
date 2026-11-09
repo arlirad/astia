@@ -132,7 +132,7 @@ namespace astia::proc {
         return detach_waiter(target, nullptr, signal_number{});
     }
 
-    i64 futex_wait(u64 address, u32 expected, u64 timeout) {
+    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point) {
         auto*      owner     = current_process();
         auto*      self      = current_thread();
         const auto validated = sys::user_ptr<u32>(address).validate();
@@ -148,6 +148,8 @@ namespace astia::proc {
         // The validated range is what licenses this dereference: a futex
         // word is read and written in place, so it cannot be copied.
         auto* word = validated.value.get();
+        if (cancellation_point && self->cancellation_pending())
+            return -EINTR;
         u64    deadline = 0;
         if (timeout != 0) {
             astia_timespec abstime{};
@@ -178,6 +180,8 @@ namespace astia::proc {
             if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
                 return -EAGAIN;
             }
+            if (cancellation_point && self->cancellation_pending())
+                return -EINTR;
             if (deadline != 0 && deadline <= monotonic_now_ns())
                 return -ETIMEDOUT;
             if (!reserve_waiter()) {
@@ -207,6 +211,12 @@ namespace astia::proc {
                              static_cast<mm::shptr<process>&&>(owner_ref),
                              static_cast<mm::shptr<thread>&&>(retained)};
             self->state(thread_state::blocked);
+            if (cancellation_point && self->cancellation_pending()) {
+                bucket.waiters[slot] = {};
+                __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                self->state(thread_state::running);
+                return -EINTR;
+            }
         }
         scheduler::yield();
         // The wake path clears the slot before making us runnable.  On

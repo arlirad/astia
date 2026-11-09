@@ -44,6 +44,12 @@ typedef struct pthread_condattr_t {
     int clock;
 } pthread_condattr_t;
 
+typedef struct __pthread_cleanup_frame {
+    void (*routine)(void*);
+    void* arg;
+    struct __pthread_cleanup_frame* previous;
+} __pthread_cleanup_frame;
+
 #define PTHREAD_MUTEX_INITIALIZER { 0u }
 #define PTHREAD_COND_INITIALIZER { 0u }
 #define PTHREAD_ONCE_INIT 0ull
@@ -129,6 +135,20 @@ int       pthread_setcancelstate(int state, int* oldstate);
 int       pthread_setcanceltype(int type, int* oldtype);
 int       pthread_cancel(pthread_t thread);
 void      pthread_testcancel(void);
+int       __pthread_cancel_is_enabled(void);
+int       __pthread_cancel_pending(void);
+void      __pthread_cleanup_push(__pthread_cleanup_frame* frame,
+                                 void (*routine)(void*), void* arg);
+void      __pthread_cleanup_pop(__pthread_cleanup_frame* frame, int execute);
+
+#define pthread_cleanup_push(routine, arg)                                      \
+    do {                                                                        \
+        __pthread_cleanup_frame __pthread_cleanup_frame_instance;               \
+        __pthread_cleanup_push(&__pthread_cleanup_frame_instance, (routine),   \
+                               (arg));
+#define pthread_cleanup_pop(execute)                                            \
+        __pthread_cleanup_pop(&__pthread_cleanup_frame_instance, (execute));     \
+    } while (0)
 
 #ifdef __cplusplus
 }

@@ -38,6 +38,7 @@ struct pthread_key_state {
 static pthread_mutex_t             pthread_key_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct pthread_key_slot    pthread_keys[PTHREAD_KEYS_MAX];
 static _Thread_local struct pthread_key_state pthread_key_values;
+static _Thread_local __pthread_cleanup_frame* pthread_cleanup_top;
 
 static pthread_key_t pthread_key_token(size_t index, unsigned int generation) {
     return (pthread_key_t) ((generation << pthread_key_index_bits) | (index + 1));
@@ -93,9 +94,32 @@ static void pthread_key_run_destructors(void) {
     }
 }
 
+static void pthread_cleanup_run(void) {
+    while (pthread_cleanup_top != NULL) {
+        __pthread_cleanup_frame* frame = pthread_cleanup_top;
+        pthread_cleanup_top            = frame->previous;
+        frame->routine(frame->arg);
+    }
+}
+
+void __pthread_cleanup_push(__pthread_cleanup_frame* frame, void (*routine)(void*),
+                            void* arg) {
+    frame->routine  = routine;
+    frame->arg      = arg;
+    frame->previous = pthread_cleanup_top;
+    pthread_cleanup_top = frame;
+}
+
+void __pthread_cleanup_pop(__pthread_cleanup_frame* frame, int execute) {
+    pthread_cleanup_top = frame->previous;
+    if (execute)
+        frame->routine(frame->arg);
+}
+
 static void pthread_thread_exit(void* result) __attribute__((noreturn));
 
 static void pthread_thread_exit(void* result) {
+    pthread_cleanup_run();
     pthread_key_run_destructors();
     __astia_process_thread_exit(result);
     __builtin_unreachable();
@@ -858,6 +882,8 @@ int pthread_setcancelstate(int state, int* oldstate) {
     if (oldstate != NULL)
         *oldstate = pthread_cancel_state;
     pthread_cancel_state = state;
+    if (state == PTHREAD_CANCEL_ENABLE)
+        pthread_testcancel();
     return 0;
 }
 
@@ -884,8 +910,18 @@ void pthread_testcancel(void) {
         pthread_exit(PTHREAD_CANCELED);
 }
 
-int futex_wait(uint32_t* address, uint32_t expected) {
-    long rc = __astia_process_futex(address, FUTEX_WAIT_PRIVATE, expected, NULL);
+int __pthread_cancel_is_enabled(void) {
+    return pthread_cancel_state == PTHREAD_CANCEL_ENABLE;
+}
+
+int __pthread_cancel_pending(void) {
+    return __astia_process_thread_cancel_pending() > 0;
+}
+
+static int pthread_futex_wait(uint32_t* address, uint32_t expected, unsigned int operation,
+                              const struct timespec* deadline) {
+    long rc = __astia_process_futex(address, operation, expected,
+                                    (const int64_t*) deadline);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
@@ -893,15 +929,22 @@ int futex_wait(uint32_t* address, uint32_t expected) {
     return (int) rc;
 }
 
+int futex_wait(uint32_t* address, uint32_t expected) {
+    return pthread_futex_wait(address, expected, FUTEX_WAIT_PRIVATE, NULL);
+}
+
 int futex_wait_until(uint32_t* address, uint32_t expected,
                      const struct timespec* deadline) {
-    long rc = __astia_process_futex(address, FUTEX_WAIT_PRIVATE, expected,
-                                    (const int64_t*) deadline);
-    if (rc < 0) {
-        errno = (int) -rc;
-        return -1;
-    }
-    return (int) rc;
+    return pthread_futex_wait(address, expected, FUTEX_WAIT_PRIVATE, deadline);
+}
+
+int futex_wait_cancelable(uint32_t* address, uint32_t expected) {
+    return pthread_futex_wait(address, expected, FUTEX_WAIT_CANCELABLE_PRIVATE, NULL);
+}
+
+int futex_wait_cancelable_until(uint32_t* address, uint32_t expected,
+                                const struct timespec* deadline) {
+    return pthread_futex_wait(address, expected, FUTEX_WAIT_CANCELABLE_PRIVATE, deadline);
 }
 
 int futex_wake(uint32_t* address, uint32_t count) {

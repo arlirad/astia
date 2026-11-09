@@ -176,6 +176,28 @@ static void* libc_mutex_timed_probe(void* opaque) {
 
 static volatile int libc_cancel_join_started;
 static volatile int libc_cancel_join_release;
+static sem_t         libc_cancel_sem;
+static pthread_key_t libc_cancel_key;
+static volatile int  libc_cancel_sem_ready;
+static volatile int  libc_cancel_order;
+
+static void libc_cancel_cleanup_inner(void* opaque) {
+    (void) opaque;
+    if (libc_cancel_order == 0)
+        libc_cancel_order = 1;
+}
+
+static void libc_cancel_cleanup_outer(void* opaque) {
+    (void) opaque;
+    if (libc_cancel_order == 1)
+        libc_cancel_order = 2;
+}
+
+static void libc_cancel_destructor(void* opaque) {
+    (void) opaque;
+    if (libc_cancel_order == 2)
+        libc_cancel_order = 3;
+}
 
 static volatile int libc_signal_calls;
 static volatile int libc_signal_target_seen;
@@ -260,6 +282,21 @@ static void* libc_cancel_joiner(void* opaque) {
     void* result = NULL;
     if (pthread_join(target, &result) != 0)
         return (void*) (unsigned long) 0x5679;
+    return result;
+}
+
+static void* libc_cancel_sem_worker(void* opaque) {
+    void* result;
+    (void) opaque;
+    if (pthread_setspecific(libc_cancel_key, (void*) (uintptr_t) 1) != 0)
+        return (void*) (uintptr_t) 0x567a;
+    pthread_cleanup_push(libc_cancel_cleanup_outer, NULL);
+    pthread_cleanup_push(libc_cancel_cleanup_inner, NULL);
+    libc_cancel_sem_ready = 1;
+    result = sem_wait(&libc_cancel_sem) == 0 ? (void*) (uintptr_t) 0x567c
+                                              : (void*) (uintptr_t) 0x567b;
+    pthread_cleanup_pop(0);
+    pthread_cleanup_pop(0);
     return result;
 }
 
@@ -904,6 +941,25 @@ int main(int argc, char** argv) {
         if (pthread_join(target, &result) != 0 ||
             result != (void*) (unsigned long) 0x5678)
             return 76;
+    }
+
+    {
+        pthread_t worker;
+        void*     result = NULL;
+        libc_cancel_sem_ready = 0;
+        libc_cancel_order = 0;
+        if (sem_init(&libc_cancel_sem, 0, 0) != 0 ||
+            pthread_key_create(&libc_cancel_key, libc_cancel_destructor) != 0 ||
+            pthread_create(&worker, NULL, libc_cancel_sem_worker, NULL) != 0)
+            return 150;
+        while (!libc_cancel_sem_ready)
+            sched_yield();
+        if (pthread_cancel(worker) != 0 ||
+            pthread_join(worker, &result) != 0 || result != PTHREAD_CANCELED)
+            return 151;
+        if (libc_cancel_order != 3 || pthread_key_delete(libc_cancel_key) != 0 ||
+            sem_destroy(&libc_cancel_sem) != 0)
+            return 152;
     }
 
     {
