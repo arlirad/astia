@@ -113,6 +113,20 @@ namespace astia::proc {
             }
             return best;
         }
+
+        bool is_zero_device(const fs::open_file& file) {
+            const char* path = file.path();
+            static constexpr char zero_path[] = "/dev/zero";
+            if (path == nullptr)
+                return false;
+            usize i = 0;
+            while (zero_path[i] != '\0') {
+                if (path[i] != zero_path[i])
+                    return false;
+                ++i;
+            }
+            return path[i] == '\0';
+        }
     } // namespace
 
     mmap_region* process::find_region(u64 addr) {
@@ -400,7 +414,33 @@ namespace astia::proc {
         }
         const long file_size = file->size();
         if (file_size < 0) { // devices have no contents to map
-            return -ENODEV;
+            if (!has(flags, map_flags::priv) || !file->mode().is_character_device() ||
+                !is_zero_device(*file)) {
+                return -ENODEV;
+            }
+            const u32 access_mode = file->flags() & fs::open_file_access_mask;
+            if (has(prot, map_protection::read) &&
+                access_mode == static_cast<u32>(fs::open_file_status_flags::write)) {
+                return -EACCES;
+            }
+            auto* region = mm::phys_region::create(pages, true);
+            if (region == nullptr)
+                return -ENOMEM;
+            u64 base = 0;
+            if (!install_mapping(addr, pages, prot, region, {}, 0, base)) {
+                region->release();
+                return -ENOMEM;
+            }
+            return base;
+        }
+        const u32 access_mode = file->flags() & fs::open_file_access_mask;
+        if (has(prot, map_protection::read) &&
+            access_mode == static_cast<u32>(fs::open_file_status_flags::write)) {
+            return -EACCES;
+        }
+        if (has(flags, map_flags::shared) && has(prot, map_protection::write) &&
+            access_mode == 0) {
+            return -EACCES;
         }
 
         if (has(flags, map_flags::shared)) {

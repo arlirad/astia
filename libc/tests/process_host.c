@@ -104,3 +104,39 @@ long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_se
     (void) old_set;
     return -ENOSYS;
 }
+
+long __astia_process_sigpending(unsigned int* set) {
+    unsigned long host_set = 0;
+    long rc = syscall(SYS_rt_sigpending, &host_set, sizeof host_set);
+    if (rc == -1)
+        return -HOST_ERRNO;
+    if (set != NULL)
+        *set = (unsigned int) host_set;
+    return rc;
+}
+
+long __astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info,
+                                  const void* timeout) {
+    unsigned long host_set = set == NULL ? 0 : (unsigned long) *set;
+    struct {
+        int signo;
+        int errno_value;
+        int code;
+        int pid;
+        unsigned int uid;
+        int status;
+    } host_info;
+    long rc = syscall(SYS_rt_sigtimedwait, &host_set,
+                      info == NULL ? NULL : &host_info, timeout, sizeof host_set);
+    if (rc == -1)
+        return -HOST_ERRNO;
+    if (info != NULL) {
+        info->signo       = host_info.signo;
+        info->errno_value = host_info.errno_value;
+        info->code        = host_info.code;
+        info->pid         = host_info.pid;
+        info->uid         = host_info.uid;
+        info->status      = host_info.status;
+    }
+    return rc;
+}

@@ -272,6 +272,7 @@ namespace astia::sys {
             bool                     socket_accept         = false;
             bool                     readiness             = false;
             bool                     sleeping              = false;
+            bool                     sleep_absolute        = false;
             u32                      poll_events           = 0;
             u64                      sleep_deadline        = 0;
             u64                      sleep_remaining_user  = 0;
@@ -421,9 +422,13 @@ namespace astia::sys {
             const u64 hz = arch::timer_hz();
             if (hz == 0)
                 return 0;
-            const u64 ticks = arch::timer_ticks();
-            return (ticks / hz) * nanoseconds_per_second +
-                   (ticks % hz) * nanoseconds_per_second / hz;
+            const u64 ticks    = arch::timer_ticks();
+            const u64 seconds  = ticks / hz;
+            const u64 fraction = (ticks % hz) * nanoseconds_per_second / hz;
+            if (seconds > UINT64_MAX / nanoseconds_per_second)
+                return UINT64_MAX;
+            const u64 whole = seconds * nanoseconds_per_second;
+            return whole > UINT64_MAX - fraction ? UINT64_MAX : whole + fraction;
         }
 
         void note_device_ready(const fs::file*) {
@@ -620,14 +625,17 @@ namespace astia::sys {
             return cq_post(ring, user_data, result);
         }
 
-        void complete_control(astia_rings* ring, parked_op& op, i32 result) {
+        void complete_control(proc::process* owner, astia_rings* ring, parked_op& op,
+                              i32 result) {
             if (op.done || op.pending_cqe)
                 return;
-            if (result == -EINTR && op.sleeping && op.sleep_remaining_user != 0) {
+            if (result == -EINTR && op.sleeping && !op.sleep_absolute &&
+                op.sleep_remaining_user != 0) {
                 const u64 now       = poll_now_ns();
                 const u64 remaining = now >= op.sleep_deadline ? 0 : op.sleep_deadline - now;
-                if (!sys::copy_out(span<u8>::bytes(op.sleep_remaining_user, sizeof remaining),
-                                   &remaining))
+                if (!sys::copy_out_for(owner,
+                                       span<u8>::bytes(op.sleep_remaining_user, sizeof remaining),
+                                       &remaining))
                     result = -EFAULT;
             }
             if (op.request.completion() != nullptr) {
@@ -1964,7 +1972,7 @@ namespace astia::sys {
         bool handle_sleep(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             if (s.fd != -1 || (s.address == 0 ? s.length != 0
                                               : s.length != sizeof(u64)) ||
-                s.op_flags != 0 ||
+                (s.op_flags & ~SLEEP_ABSOLUTE) != 0 ||
                 s.aux != 0)
                 return cq_post_guarded(ring, s.user_data, -EINVAL);
             if (s.address != 0 &&
@@ -1972,7 +1980,9 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             if (arch::timer_hz() == 0)
                 return cq_post_guarded(ring, s.user_data, -EIO);
-            if (s.offset == 0)
+            const bool absolute = (s.op_flags & SLEEP_ABSOLUTE) != 0;
+            const u64  now      = poll_now_ns();
+            if ((!absolute && s.offset == 0) || (absolute && s.offset <= now))
                 return cq_post_guarded(ring, s.user_data, 0);
 
             parked_op* p = nullptr;
@@ -1985,15 +1995,17 @@ namespace astia::sys {
             if (p == nullptr)
                 return cq_post_guarded(ring, s.user_data, -EBUSY);
 
-            const u64 now = poll_now_ns();
             p->used           = true;
             p->done           = false;
             p->resuming       = false;
             p->control        = true;
             p->signal_interruptible = true;
             p->sleeping       = true;
-            p->sleep_deadline = UINT64_MAX - now < s.offset ? UINT64_MAX : now + s.offset;
-            p->sleep_remaining_user = s.address;
+            p->sleep_absolute = absolute;
+            p->sleep_deadline = absolute ? s.offset
+                                         : (UINT64_MAX - now < s.offset ? UINT64_MAX
+                                                                        : now + s.offset);
+            p->sleep_remaining_user = absolute ? 0 : s.address;
             p->fd             = -1;
             p->request        = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
             return true;
@@ -2406,7 +2418,7 @@ namespace astia::sys {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 parked_op& op = slot.park[p];
                 if (op.used && !op.done && op.signal_interruptible)
-                    complete_control(ring, op, result);
+                    complete_control(owner, ring, op, result);
             }
             cq_retrigger(slot, ring);
         }
@@ -2429,7 +2441,7 @@ namespace astia::sys {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 parked_op& op = slot.park[p];
                 if (op.used && !op.done && op.sleeping && now >= op.sleep_deadline)
-                    complete_control(ring, op, 0);
+                    complete_control(nullptr, ring, op, 0);
             }
             cq_retrigger(slot, ring);
         }

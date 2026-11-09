@@ -17,6 +17,10 @@
 
 #include <stddef.h> /* size_t: the compiler's, in both builds */
 
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

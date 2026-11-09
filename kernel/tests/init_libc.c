@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>
+#include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +31,55 @@ static void* libc_thread_worker(void* opaque) {
     return (void*) (unsigned long) (errno == EINTR ? 0x1234 : 0x1235);
 }
 
+struct libc_key_probe {
+    volatile unsigned int calls;
+    volatile unsigned int rearmed;
+    volatile int          set_result;
+};
+
+static pthread_key_t libc_key_probe_key;
+static volatile unsigned int libc_key_probe_ready;
+static volatile unsigned int libc_key_probe_release;
+
+static void libc_key_probe_destructor(void* opaque) {
+    struct libc_key_probe* probe = (struct libc_key_probe*) opaque;
+    ++probe->calls;
+    if (probe->calls == 1) {
+        probe->rearmed = 1;
+        probe->set_result = pthread_setspecific(libc_key_probe_key, probe);
+    }
+}
+
+static void* libc_key_probe_worker(void* opaque) {
+    struct libc_key_probe* probe = (struct libc_key_probe*) opaque;
+    probe->set_result = pthread_setspecific(libc_key_probe_key, probe);
+    if (probe->set_result == 0 && pthread_getspecific(libc_key_probe_key) != probe)
+        probe->set_result = EFAULT;
+    ++libc_key_probe_ready;
+    while (!libc_key_probe_release)
+        sched_yield();
+    return NULL;
+}
+
+static pthread_once_t    libc_once_control;
+static volatile int      libc_once_started;
+static volatile int      libc_once_release;
+static volatile unsigned libc_once_calls;
+
+static void libc_once_initializer(void) {
+    ++libc_once_calls;
+    libc_once_started = 1;
+    while (!libc_once_release)
+        sched_yield();
+}
+
+static void* libc_once_worker(void* opaque) {
+    (void) opaque;
+    return (void*) (unsigned long) (pthread_once(&libc_once_control, libc_once_initializer) == 0
+                                        ? 0x678a
+                                        : 0x678b);
+}
+
 static void* libc_stack_worker(void* opaque) {
     (void) opaque;
     volatile unsigned char stack_pages[8 * 4096];
@@ -40,6 +90,45 @@ static void* libc_stack_worker(void* opaque) {
         checksum += stack_pages[page * 4096] + stack_pages[page * 4096 + 4095];
     }
     return (void*) (unsigned long) (checksum == 200 ? 0x4567 : 0x4568);
+}
+
+static volatile int libc_detached_done;
+
+static void* libc_attr_worker(void* opaque) {
+    volatile unsigned char stack_probe[2048];
+    (void) opaque;
+    stack_probe[0] = 0x5a;
+    return (void*) (unsigned long) (stack_probe[0] == 0x5a ? 0x89ab : 0x89ac);
+}
+
+static void* libc_detached_attr_worker(void* opaque) {
+    (void) opaque;
+    libc_detached_done = 1;
+    return NULL;
+}
+
+static pthread_barrier_t libc_barrier;
+static volatile unsigned int libc_barrier_serials;
+static volatile int libc_barrier_failures;
+
+static void* libc_barrier_worker(void* opaque) {
+    (void) opaque;
+    for (unsigned int round = 0; round < 32; ++round) {
+        const int result = pthread_barrier_wait(&libc_barrier);
+        if (result == PTHREAD_BARRIER_SERIAL_THREAD)
+            __atomic_fetch_add(&libc_barrier_serials, 1, __ATOMIC_RELAXED);
+        else if (result != 0)
+            __atomic_fetch_add(&libc_barrier_failures, 1, __ATOMIC_RELAXED);
+    }
+    return NULL;
+}
+
+static void* libc_alignment_worker(void* opaque) {
+    char buffer[32];
+    (void) opaque;
+    return (void*) (unsigned long) (snprintf(buffer, sizeof(buffer), "%s", "aligned") == 7
+                                        ? 0x789a
+                                        : 0x789b);
 }
 
 static volatile unsigned int libc_futex_word;
@@ -63,16 +152,154 @@ static void* libc_cross_futex_worker(void* opaque) {
 
 static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile int    libc_mutex_ready;
+static pthread_mutex_t libc_mutex_probe;
+static pthread_mutex_t libc_cond_mutex;
+static pthread_cond_t  libc_cond;
+static volatile int    libc_cond_ready;
+static volatile int    libc_cond_go;
+static volatile int    libc_cond_result;
+
+static void* libc_cond_worker(void* opaque) {
+    (void) opaque;
+    if (pthread_mutex_lock(&libc_cond_mutex) != 0) {
+        libc_cond_result = 1;
+        return NULL;
+    }
+    libc_cond_ready = 1;
+    while (!libc_cond_go) {
+        libc_cond_result = pthread_cond_wait(&libc_cond, &libc_cond_mutex);
+        if (libc_cond_result != 0) {
+            pthread_mutex_unlock(&libc_cond_mutex);
+            return NULL;
+        }
+    }
+    libc_cond_result = pthread_mutex_unlock(&libc_cond_mutex);
+    return (void*) (unsigned long) 0x89ab;
+}
+
+static void* libc_cond_timeout_worker(void* opaque) {
+    struct timespec deadline;
+    (void) opaque;
+    if (pthread_mutex_lock(&libc_cond_mutex) != 0) {
+        libc_cond_result = 1;
+        return NULL;
+    }
+    libc_cond_ready = 1;
+    if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+        libc_cond_result = errno;
+        pthread_mutex_unlock(&libc_cond_mutex);
+        return NULL;
+    }
+    deadline.tv_sec++;
+    libc_cond_result = pthread_cond_timedwait(&libc_cond, &libc_cond_mutex, &deadline);
+    if (libc_cond_result == ETIMEDOUT && pthread_mutex_trylock(&libc_cond_mutex) == EBUSY)
+        libc_cond_result = pthread_mutex_unlock(&libc_cond_mutex);
+    return NULL;
+}
+
+struct libc_cond_clock_probe {
+    pthread_mutex_t mutex;
+    pthread_cond_t  cond;
+};
+
+static void* libc_cond_clock_worker(void* opaque) {
+    struct libc_cond_clock_probe* probe = (struct libc_cond_clock_probe*) opaque;
+    struct timespec               deadline;
+
+    if (pthread_mutex_lock(&probe->mutex) != 0 ||
+        clock_gettime(CLOCK_MONOTONIC, &deadline) != 0)
+        return (void*) (unsigned long) 0x8a00;
+    deadline.tv_sec++;
+    const int wait_result = pthread_cond_timedwait(&probe->cond, &probe->mutex, &deadline);
+    const int owns_mutex = pthread_mutex_trylock(&probe->mutex) == EBUSY;
+    if (!owns_mutex)
+        pthread_mutex_unlock(&probe->mutex);
+    if (wait_result != ETIMEDOUT || !owns_mutex || pthread_mutex_unlock(&probe->mutex) != 0)
+        return (void*) (unsigned long) 0x8a01;
+    return (void*) (unsigned long) 0x8a02;
+}
+
+static void* libc_mutex_owner_probe(void* opaque) {
+    pthread_mutex_t* mutex = (pthread_mutex_t*) opaque;
+    return (void*) (unsigned long) (pthread_mutex_unlock(mutex) == EPERM ? 0x9abc : 0x9abd);
+}
+
+static void* libc_mutex_timed_probe(void* opaque) {
+    struct timespec deadline;
+    pthread_mutex_t* mutex = (pthread_mutex_t*) opaque;
+    if (clock_gettime(CLOCK_REALTIME, &deadline) != 0)
+        return (void*) (unsigned long) 0x9abe;
+    deadline.tv_sec++;
+    return (void*) (unsigned long) (pthread_mutex_timedlock(mutex, &deadline) == ETIMEDOUT
+                                        ? 0x9abf
+                                        : 0x9ac0);
+}
 
 static volatile int libc_cancel_join_started;
 static volatile int libc_cancel_join_release;
+static sem_t         libc_cancel_sem;
+static pthread_key_t libc_cancel_key;
+static volatile int  libc_cancel_sem_ready;
+static volatile int  libc_cancel_order;
+
+static void libc_cancel_cleanup_inner(void* opaque) {
+    (void) opaque;
+    if (libc_cancel_order == 0)
+        libc_cancel_order = 1;
+}
+
+static void libc_cancel_cleanup_outer(void* opaque) {
+    (void) opaque;
+    if (libc_cancel_order == 1)
+        libc_cancel_order = 2;
+}
+
+static void libc_cancel_destructor(void* opaque) {
+    (void) opaque;
+    if (libc_cancel_order == 2)
+        libc_cancel_order = 3;
+}
 
 static volatile int libc_signal_calls;
+static volatile int libc_signal_target_seen;
 static volatile int libc_signal_thread_release;
+static pthread_t    libc_signal_target;
+static volatile int libc_signal_mask_ready;
+static volatile int libc_signal_mask_release;
+static volatile int libc_signal_mask_result;
+static volatile int libc_nodefer_depth;
+static volatile int libc_nodefer_max_depth;
+static volatile int libc_nodefer_calls;
+static volatile int libc_nodefer_failed;
+static sem_t        libc_signal_sem;
+static volatile int libc_signal_sem_calls;
+
+static void libc_signal_sem_handler(int signal_number) {
+    (void) signal_number;
+    ++libc_signal_sem_calls;
+    (void) sem_post(&libc_signal_sem);
+}
+
+static void libc_nodefer_handler(int signal_number) {
+    (void) signal_number;
+    ++libc_nodefer_depth;
+    if (libc_nodefer_depth > libc_nodefer_max_depth)
+        libc_nodefer_max_depth = libc_nodefer_depth;
+    ++libc_nodefer_calls;
+    if (libc_nodefer_calls == 1 && raise(SIGUSR1) != 0)
+        libc_nodefer_failed = 1;
+    --libc_nodefer_depth;
+}
+
+static void libc_one_shot_handler(int signal_number) {
+    (void) signal_number;
+}
 
 static void libc_signal_handler(int signal_number) {
     if (signal_number == SIGUSR2)
         ++libc_signal_calls;
+    if (signal_number == SIGUSR2 && pthread_equal(pthread_self(), libc_signal_target))
+        libc_signal_target_seen = 1;
 }
 
 static void* libc_signal_thread_worker(void* opaque) {
@@ -80,6 +307,27 @@ static void* libc_signal_thread_worker(void* opaque) {
     while (!libc_signal_thread_release)
         sched_yield();
     return (void*) (unsigned long) 0x6789;
+}
+
+static void* libc_signal_mask_worker(void* opaque) {
+    (void) opaque;
+    sigset_t blocked;
+    sigset_t pending;
+    libc_signal_mask_result = 0;
+    if (sigemptyset(&blocked) != 0 || sigaddset(&blocked, SIGUSR2) != 0 ||
+        pthread_sigmask(SIG_BLOCK, &blocked, NULL) != 0)
+        libc_signal_mask_result = 1;
+    libc_signal_mask_ready = 1;
+    while (!libc_signal_mask_release)
+        sched_yield();
+    if (libc_signal_mask_result == 0 &&
+        (pthread_kill(pthread_self(), SIGUSR2) != 0 || sigpending(&pending) != 0 ||
+         !sigismember(&pending, SIGUSR2)))
+        libc_signal_mask_result = 2;
+    if (libc_signal_mask_result == 0 &&
+        (pthread_sigmask(SIG_UNBLOCK, &blocked, NULL) != 0 || !libc_signal_target_seen))
+        libc_signal_mask_result = 3;
+    return (void*) (unsigned long) (libc_signal_mask_result == 0 ? 0x7890 : 0x7891);
 }
 
 static void* libc_cancel_join_target(void* opaque) {
@@ -98,17 +346,42 @@ static void* libc_cancel_joiner(void* opaque) {
     return result;
 }
 
+static void* libc_cancel_sem_worker(void* opaque) {
+    void* result;
+    (void) opaque;
+    if (pthread_setspecific(libc_cancel_key, (void*) (uintptr_t) 1) != 0)
+        return (void*) (uintptr_t) 0x567a;
+    pthread_cleanup_push(libc_cancel_cleanup_outer, NULL);
+    pthread_cleanup_push(libc_cancel_cleanup_inner, NULL);
+    libc_cancel_sem_ready = 1;
+    result = sem_wait(&libc_cancel_sem) == 0 ? (void*) (uintptr_t) 0x567c
+                                              : (void*) (uintptr_t) 0x567b;
+    pthread_cleanup_pop(0);
+    pthread_cleanup_pop(0);
+    return result;
+}
+
 static volatile int altstack_calls;
 static volatile int altstack_failed;
 static stack_t       altstack_expected;
 static volatile int  child_info_seen;
 static siginfo_t     child_info;
+static volatile int  user_signal_info_seen;
+static siginfo_t     user_signal_info;
 
 static void child_status_handler(int signal_number, siginfo_t* info, void* context) {
     (void) context;
     if (signal_number == SIGCHLD && info != NULL) {
         child_info = *info;
         child_info_seen = 1;
+    }
+}
+
+static void user_signal_info_handler(int signal_number, siginfo_t* info, void* context) {
+    (void) context;
+    if ((signal_number == SIGUSR2) && info != NULL) {
+        user_signal_info = *info;
+        user_signal_info_seen = 1;
     }
 }
 
@@ -190,6 +463,39 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
+        sigset_t          mask;
+        sigset_t          pending;
+        sigset_t          child_mask;
+        action.sa_handler = libc_one_shot_handler;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGUSR1, &action, NULL) != 0 ||
+            sigemptyset(&mask) != 0 || sigaddset(&mask, SIGUSR1) != 0 ||
+            sigprocmask(SIG_BLOCK, &mask, NULL) != 0 ||
+            kill(getpid(), SIGUSR1) != 0 || sigpending(&pending) != 0 ||
+            !sigismember(&pending, SIGUSR1))
+            return 102;
+        const pid_t child = fork();
+        if (child < 0)
+            return 103;
+        if (child == 0) {
+            if (sigprocmask(SIG_BLOCK, NULL, &child_mask) != 0 ||
+                !sigismember(&child_mask, SIGUSR1) || sigpending(&pending) != 0 ||
+                sigismember(&pending, SIGUSR1))
+                _Exit(104);
+            _Exit(0);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 105;
+        if (sigprocmask(SIG_UNBLOCK, &mask, NULL) != 0)
+            return 106;
+        action.sa_handler = SIG_DFL;
+        if (sigaction(SIGUSR1, &action, NULL) != 0)
+            return 107;
+    }
+
+    {
+        struct sigaction action = {0};
         action.sa_sigaction = child_status_handler;
         action.sa_flags     = SA_SIGINFO;
         sigemptyset(&action.sa_mask);
@@ -210,6 +516,38 @@ int main(int argc, char** argv) {
             child_info.si_code != CLD_EXITED || child_info.si_pid != child ||
             child_info.si_status != 42)
             return 64;
+    }
+
+    {
+        struct sigaction action = {0};
+        action.sa_sigaction = user_signal_info_handler;
+        action.sa_flags     = SA_SIGINFO;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGUSR2, &action, NULL) != 0)
+            return 72;
+
+        const pid_t self = getpid();
+        const unsigned int uid = getuid();
+        user_signal_info_seen = 0;
+        if (kill(self, SIGUSR2) != 0 || !user_signal_info_seen ||
+            user_signal_info.si_signo != SIGUSR2 ||
+            user_signal_info.si_code != SI_USER ||
+            user_signal_info.si_pid != self || user_signal_info.si_uid != uid)
+            return 73;
+
+        user_signal_info_seen = 0;
+        if (raise(SIGUSR2) != 0 || !user_signal_info_seen ||
+            user_signal_info.si_signo != SIGUSR2 ||
+            user_signal_info.si_code != SI_USER ||
+            user_signal_info.si_pid != self || user_signal_info.si_uid != uid)
+            return 74;
+
+        user_signal_info_seen = 0;
+        if (kill(-getpgrp(), SIGUSR2) != 0 || !user_signal_info_seen ||
+            user_signal_info.si_signo != SIGUSR2 ||
+            user_signal_info.si_code != SI_USER ||
+            user_signal_info.si_pid != self || user_signal_info.si_uid != uid)
+            return 75;
     }
 
     /* A login/session boundary is real kernel state, not a shell convention:
@@ -284,6 +622,24 @@ int main(int argc, char** argv) {
     }
 
     {
+        int zero_fd = open("/dev/zero", O_RDWR);
+        if (zero_fd < 0)
+            return 66;
+        unsigned char* first =
+            mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE, zero_fd, 0);
+        unsigned char* second =
+            mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE, zero_fd, 0);
+        if (first == MAP_FAILED || second == MAP_FAILED || first[0] != 0 ||
+            second[0] != 0)
+            return 67;
+        first[0] = 0xA5;
+        if (first[0] != 0xA5 || second[0] != 0)
+            return 68;
+        if (munmap(first, 4096) != 0 || munmap(second, 4096) != 0 || close(zero_fd) != 0)
+            return 69;
+    }
+
+    {
         unsigned char* pages =
             mmap(NULL, 2 * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (pages == MAP_FAILED)
@@ -333,6 +689,19 @@ int main(int argc, char** argv) {
         image = fopen("/sbin/init", "r");
         if (image == NULL)
             return 14;
+        void* denied = mmap(NULL, 4096, PROT_WRITE, MAP_SHARED, fileno(image), 0);
+        int denied_errno = errno;
+        fclose(image);
+        if (denied != MAP_FAILED) {
+            munmap(denied, 4096);
+            return 92;
+        }
+        if (denied_errno != EACCES)
+            return 93;
+
+        image = fopen("/sbin/init", "r");
+        if (image == NULL)
+            return 94;
         void* shared = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fileno(image), 0);
         fclose(image);
         if (shared != MAP_FAILED || errno != ENOSYS)
@@ -399,6 +768,69 @@ int main(int argc, char** argv) {
     }
 
     {
+        pthread_key_t old_key;
+        pthread_key_t new_key;
+        pthread_t workers[3];
+        struct libc_key_probe probes[3] = {0};
+        if (pthread_key_create(&libc_key_probe_key, libc_key_probe_destructor) != 0)
+            return 140;
+        libc_key_probe_ready = 0;
+        libc_key_probe_release = 0;
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_create(&workers[i], NULL, libc_key_probe_worker, &probes[i]) != 0)
+                return 141;
+        }
+        while (libc_key_probe_ready != 3)
+            sched_yield();
+        if (pthread_getspecific(libc_key_probe_key) != NULL)
+            return 142;
+        libc_key_probe_release = 1;
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_join(workers[i], NULL) != 0 || probes[i].calls != 2 ||
+                probes[i].rearmed == 0 || probes[i].set_result != 0)
+                return 143;
+        }
+        if (pthread_key_delete(libc_key_probe_key) != 0)
+            return 144;
+        if (pthread_key_create(&old_key, NULL) != 0 ||
+            pthread_setspecific(old_key, (void*) (unsigned long) 0x4567) != 0 ||
+            pthread_key_delete(old_key) != 0 || pthread_getspecific(old_key) != NULL ||
+            pthread_setspecific(old_key, (void*) (unsigned long) 0x5678) != EINVAL ||
+            pthread_key_create(&new_key, NULL) != 0 || new_key == old_key ||
+            pthread_setspecific(new_key, (void*) (unsigned long) 0x6789) != 0 ||
+            pthread_getspecific(new_key) != (void*) (unsigned long) 0x6789 ||
+            pthread_key_delete(new_key) != 0)
+            return 145;
+    }
+
+    {
+        pthread_t workers[4];
+        void*     result = NULL;
+        libc_once_control = PTHREAD_ONCE_INIT;
+        libc_once_started = 0;
+        libc_once_release = 0;
+        libc_once_calls = 0;
+        if (pthread_create(&workers[0], NULL, libc_once_worker, NULL) != 0)
+            return 118;
+        while (!libc_once_started)
+            sched_yield();
+        for (unsigned int i = 1; i < 4; ++i) {
+            if (pthread_create(&workers[i], NULL, libc_once_worker, NULL) != 0)
+                return 119;
+        }
+        for (int i = 0; i < 8; ++i)
+            sched_yield();
+        libc_once_release = 1;
+        for (unsigned int i = 0; i < 4; ++i) {
+            if (pthread_join(workers[i], &result) != 0 ||
+                result != (void*) (unsigned long) 0x678a)
+                return 120;
+        }
+        if (libc_once_calls != 1)
+            return 121;
+    }
+
+    {
         pthread_t worker;
         if (pthread_create(&worker, NULL, libc_stack_worker, NULL) != 0)
             return 58;
@@ -407,6 +839,141 @@ int main(int argc, char** argv) {
             result != (void*) (unsigned long) 0x4567)
             return 59;
     }
+
+    {
+        pthread_t worker;
+        if (pthread_create(&worker, NULL, libc_alignment_worker, NULL) != 0)
+            return 60;
+        void* result = NULL;
+        if (pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x789a)
+            return 61;
+    }
+
+    /* 62-80: pthread attributes preserve their POSIX defaults, use a
+       caller-owned stack without transferring its lifetime, and detach
+       threads when requested.  Scheduling and contention-scope values
+       report the only scheduler semantics this system implements. */
+    {
+        pthread_attr_t attr;
+        size_t         stack_size = 0;
+        void*          stack_addr = (void*) (unsigned long) 1;
+        int            value      = -1;
+        struct sched_param schedparam = {-1};
+        if (pthread_attr_init(&attr) != 0 ||
+            pthread_attr_getstacksize(&attr, &stack_size) != 0 ||
+            stack_size != 64 * 1024 ||
+            pthread_attr_getstackaddr(&attr, &stack_addr) != 0 || stack_addr != NULL ||
+            pthread_attr_getdetachstate(&attr, &value) != 0 ||
+            value != PTHREAD_CREATE_JOINABLE ||
+            pthread_attr_getinheritsched(&attr, &value) != 0 ||
+            value != PTHREAD_INHERIT_SCHED ||
+            pthread_attr_getscope(&attr, &value) != 0 || value != PTHREAD_SCOPE_PROCESS ||
+            pthread_attr_getschedpolicy(&attr, &value) != 0 || value != SCHED_OTHER ||
+            pthread_attr_getschedparam(&attr, &schedparam) != 0 ||
+            schedparam.sched_priority != 0)
+            return 62;
+
+        if (pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN + 1) != 0 ||
+            pthread_attr_getstacksize(&attr, &stack_size) != 0 ||
+            stack_size != PTHREAD_STACK_MIN + 1 ||
+            pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN - 1) != EINVAL)
+            return 63;
+
+        void* custom_stack = mmap(NULL, 32 * 1024, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+        if (custom_stack == MAP_FAILED)
+            return 64;
+        if (pthread_attr_setstack(&attr, custom_stack, 32 * 1024) != 0 ||
+            pthread_attr_getstack(&attr, &stack_addr, &stack_size) != 0 ||
+            stack_addr != custom_stack || stack_size != 32 * 1024)
+            return 65;
+
+        pthread_t worker;
+        void*     result = NULL;
+        if (pthread_create(&worker, &attr, libc_attr_worker, NULL) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x89ab)
+            return 66;
+        if (munmap(custom_stack, 32 * 1024) != 0)
+            return 67;
+
+        custom_stack = mmap(NULL, 32 * 1024, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+        if (custom_stack == MAP_FAILED ||
+            pthread_attr_setstackaddr(&attr, custom_stack) != 0 ||
+            pthread_attr_getstackaddr(&attr, &stack_addr) != 0 ||
+            stack_addr != custom_stack)
+            return 68;
+        result = NULL;
+        if (pthread_create(&worker, &attr, libc_attr_worker, NULL) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x89ab ||
+            munmap(custom_stack, 32 * 1024) != 0)
+            return 69;
+
+        if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0 ||
+            pthread_attr_getdetachstate(&attr, &value) != 0 ||
+            value != PTHREAD_CREATE_DETACHED ||
+            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE) != 0 ||
+            pthread_attr_getdetachstate(&attr, &value) != 0 ||
+            value != PTHREAD_CREATE_JOINABLE)
+            return 70;
+        if (pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED) != 0 ||
+            pthread_attr_getinheritsched(&attr, &value) != 0 ||
+            value != PTHREAD_EXPLICIT_SCHED ||
+            pthread_attr_setscope(&attr, PTHREAD_SCOPE_PROCESS) != 0 ||
+            pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM) != ENOTSUP ||
+            pthread_attr_setschedpolicy(&attr, SCHED_OTHER) != 0 ||
+            pthread_attr_setschedpolicy(&attr, SCHED_FIFO) != ENOTSUP ||
+            pthread_attr_setschedparam(&attr, &schedparam) != 0 ||
+            (schedparam.sched_priority = 1,
+             pthread_attr_setschedparam(&attr, &schedparam)) != ENOTSUP)
+            return 71;
+
+        custom_stack = mmap(NULL, 32 * 1024, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+        if (custom_stack == MAP_FAILED ||
+            pthread_attr_setstack(&attr, custom_stack, 32 * 1024) != 0)
+            return 72;
+        libc_detached_done = 0;
+        if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0 ||
+            pthread_create(&worker, &attr, libc_detached_attr_worker, NULL) != 0)
+            return 73;
+        for (unsigned int i = 0; i < 10000 && !libc_detached_done; ++i)
+            sched_yield();
+        if (!libc_detached_done || munmap(custom_stack, 32 * 1024) != 0)
+            return 74;
+        if (pthread_attr_destroy(&attr) != 0)
+            return 75;
+    }
+
+    {
+        pthread_t workers[3];
+        libc_barrier_serials = 0;
+        libc_barrier_failures = 0;
+        if (pthread_barrier_init(&libc_barrier, NULL, 4) != 0)
+            return 153;
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_create(&workers[i], NULL, libc_barrier_worker, NULL) != 0)
+                return 154;
+        }
+        for (unsigned int round = 0; round < 32; ++round) {
+            const int result = pthread_barrier_wait(&libc_barrier);
+            if (result == PTHREAD_BARRIER_SERIAL_THREAD)
+                __atomic_fetch_add(&libc_barrier_serials, 1, __ATOMIC_RELAXED);
+            else if (result != 0)
+                __atomic_fetch_add(&libc_barrier_failures, 1, __ATOMIC_RELAXED);
+        }
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_join(workers[i], NULL) != 0)
+                return 155;
+        }
+        if (libc_barrier_serials != 32 || libc_barrier_failures != 0 ||
+            pthread_barrier_destroy(&libc_barrier) != 0)
+            return 156;
+    }
+
 
     /* 26-27: futex value comparison and wake ABI. */
     {
@@ -514,6 +1081,56 @@ int main(int argc, char** argv) {
             return 38;
     }
 
+    {
+        pthread_mutexattr_t attr;
+        pthread_t            worker;
+        void*                result = NULL;
+        struct timespec      invalid = {0, -1};
+
+        if (pthread_mutexattr_init(&attr) != 0 ||
+            pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED) != ENOTSUP ||
+            pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT) != ENOTSUP ||
+            pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST) != ENOTSUP ||
+            pthread_mutexattr_setprioceiling(&attr, 1) != ENOTSUP ||
+            pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK) != 0 ||
+            pthread_mutex_init(&libc_mutex_probe, &attr) != 0)
+            return 90;
+        if (pthread_mutex_lock(&libc_mutex_probe) != 0 ||
+            pthread_mutex_lock(&libc_mutex_probe) != EDEADLK ||
+            pthread_create(&worker, NULL, libc_mutex_owner_probe, &libc_mutex_probe) != 0)
+            return 91;
+        if (pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x9abc ||
+            pthread_mutex_unlock(&libc_mutex_probe) != 0 ||
+            pthread_mutex_destroy(&libc_mutex_probe) != 0)
+            return 92;
+        if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0)
+            return 93;
+        if (pthread_mutex_init(&libc_mutex_probe, &attr) != 0)
+            return 93;
+        if (pthread_mutex_lock(&libc_mutex_probe) != 0)
+            return 93;
+        if (pthread_mutex_lock(&libc_mutex_probe) != 0)
+            return 93;
+        if (pthread_mutex_unlock(&libc_mutex_probe) != 0)
+            return 93;
+        if (pthread_mutex_unlock(&libc_mutex_probe) != 0)
+            return 93;
+        if (pthread_mutex_destroy(&libc_mutex_probe) != 0 ||
+            pthread_mutexattr_destroy(&attr) != 0)
+            return 93;
+
+        if (pthread_mutex_init(&libc_mutex_probe, NULL) != 0 ||
+            pthread_mutex_lock(&libc_mutex_probe) != 0 ||
+            pthread_mutex_timedlock(&libc_mutex_probe, &invalid) != EINVAL ||
+            pthread_create(&worker, NULL, libc_mutex_timed_probe, &libc_mutex_probe) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x9abf ||
+            pthread_mutex_unlock(&libc_mutex_probe) != 0 ||
+            pthread_mutex_destroy(&libc_mutex_probe) != 0)
+            return 94;
+    }
+
     /* A deferred cancellation must wake a thread blocked in pthread_join,
        and the interrupted join must leave its target joinable. */
     {
@@ -541,11 +1158,89 @@ int main(int argc, char** argv) {
     }
 
     {
+        pthread_t worker;
+        void*     result = NULL;
+        libc_cancel_sem_ready = 0;
+        libc_cancel_order = 0;
+        if (sem_init(&libc_cancel_sem, 0, 0) != 0 ||
+            pthread_key_create(&libc_cancel_key, libc_cancel_destructor) != 0 ||
+            pthread_create(&worker, NULL, libc_cancel_sem_worker, NULL) != 0)
+            return 150;
+        while (!libc_cancel_sem_ready)
+            sched_yield();
+        if (pthread_cancel(worker) != 0 ||
+            pthread_join(worker, &result) != 0 || result != PTHREAD_CANCELED)
+            return 151;
+        if (libc_cancel_order != 3 || pthread_key_delete(libc_cancel_key) != 0 ||
+            sem_destroy(&libc_cancel_sem) != 0)
+            return 152;
+    }
+
+    {
+        pthread_t worker;
+        void*     result = NULL;
+        libc_cond_ready = 0;
+        libc_cond_go = 0;
+        libc_cond_result = 0;
+        if (pthread_mutex_init(&libc_cond_mutex, NULL) != 0 ||
+            pthread_cond_init(&libc_cond, NULL) != 0 ||
+            pthread_create(&worker, NULL, libc_cond_worker, NULL) != 0)
+            return 112;
+        while (!libc_cond_ready)
+            sched_yield();
+        if (pthread_mutex_lock(&libc_cond_mutex) != 0)
+            return 113;
+        libc_cond_go = 1;
+        if (pthread_cond_signal(&libc_cond) != 0 ||
+            pthread_mutex_unlock(&libc_cond_mutex) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x89ab || libc_cond_result != 0)
+            return 114;
+        libc_cond_ready = 0;
+        libc_cond_result = 0;
+        if (pthread_create(&worker, NULL, libc_cond_timeout_worker, NULL) != 0)
+            return 115;
+        while (!libc_cond_ready)
+            sched_yield();
+        if (pthread_join(worker, &result) != 0 || libc_cond_result != 0)
+            return 116;
+        if (pthread_cond_destroy(&libc_cond) != 0 ||
+            pthread_mutex_destroy(&libc_cond_mutex) != 0)
+            return 117;
+    }
+
+    {
+        pthread_condattr_t attr;
+        struct libc_cond_clock_probe probe;
+        pthread_t worker;
+        void* result = NULL;
+        clockid_t clock_id;
+
+        if (pthread_condattr_init(&attr) != 0 ||
+            pthread_condattr_getclock(&attr, &clock_id) != 0 ||
+            clock_id != CLOCK_REALTIME ||
+            pthread_condattr_setclock(&attr, CLOCK_MONOTONIC) != 0 ||
+            pthread_condattr_getclock(&attr, &clock_id) != 0 ||
+            clock_id != CLOCK_MONOTONIC ||
+            pthread_condattr_setclock(&attr, CLOCK_BOOTTIME) != EINVAL ||
+            pthread_mutex_init(&probe.mutex, NULL) != 0 ||
+            pthread_cond_init(&probe.cond, &attr) != 0 ||
+            pthread_create(&worker, NULL, libc_cond_clock_worker, &probe) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x8a02 ||
+            pthread_cond_destroy(&probe.cond) != 0 ||
+            pthread_mutex_destroy(&probe.mutex) != 0 ||
+            pthread_condattr_destroy(&attr) != 0)
+            return 118;
+    }
+
+    {
         struct sigaction action = {0};
         sigset_t          blocked;
         pthread_t         other;
         void*             result = NULL;
         libc_signal_calls = 0;
+        libc_signal_target_seen = 0;
         libc_signal_thread_release = 0;
         action.sa_handler = libc_signal_handler;
         if (sigemptyset(&action.sa_mask) != 0 ||
@@ -559,13 +1254,19 @@ int main(int argc, char** argv) {
             return 79;
         if (pthread_kill(pthread_self(), SIGUSR2) != 0 || libc_signal_calls != 1)
             return 80;
+        sigset_t pending;
+        if (sigpending(&pending) != 0 || !sigismember(&pending, SIGUSR2))
+            return 86;
         if (pthread_sigmask(SIG_UNBLOCK, &blocked, NULL) != 0 || libc_signal_calls != 2)
             return 81;
         if (pthread_create(&other, NULL, libc_signal_thread_worker, NULL) != 0)
             return 82;
+        libc_signal_target = other;
         int other_signal = pthread_kill(other, SIGUSR2);
         int other_zero   = pthread_kill(other, 0);
-        if (other_signal != ENOTSUP || other_zero != 0)
+        for (int i = 0; other_signal == 0 && !libc_signal_target_seen && i < 1000; ++i)
+            sched_yield();
+        if (other_signal != 0 || other_zero != 0 || !libc_signal_target_seen)
             return 83;
         libc_signal_thread_release = 1;
         if (pthread_join(other, &result) != 0 ||
@@ -573,6 +1274,91 @@ int main(int argc, char** argv) {
             return 84;
         if (pthread_kill(other, 0) != ESRCH || pthread_kill(other, SIGUSR2) != ESRCH)
             return 85;
+    }
+
+    {
+        pthread_t worker;
+        void*     result = NULL;
+        libc_signal_calls       = 0;
+        libc_signal_target_seen = 0;
+        libc_signal_mask_ready = 0;
+        libc_signal_mask_release = 0;
+        libc_signal_mask_result = 0;
+        if (pthread_create(&worker, NULL, libc_signal_mask_worker, NULL) != 0)
+            return 90;
+        while (!libc_signal_mask_ready)
+            sched_yield();
+        libc_signal_target = worker;
+        if (libc_signal_mask_result != 0 || pthread_kill(pthread_self(), SIGUSR2) != 0 ||
+            libc_signal_calls != 1 || libc_signal_target_seen)
+            return 91;
+        libc_signal_mask_release = 1;
+        if (pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x7890)
+            return 92;
+    }
+
+    {
+        struct sigaction action = {0};
+        action.sa_handler = libc_nodefer_handler;
+        action.sa_flags = SA_NODEFER;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGUSR1, &action, NULL) != 0)
+            return 95;
+        libc_nodefer_depth = 0;
+        libc_nodefer_max_depth = 0;
+        libc_nodefer_calls = 0;
+        libc_nodefer_failed = 0;
+        if (raise(SIGUSR1) != 0 || libc_nodefer_calls != 2 ||
+            libc_nodefer_max_depth < 2 || libc_nodefer_failed != 0)
+            return 96;
+        action.sa_handler = SIG_DFL;
+        action.sa_flags = 0;
+        if (sigaction(SIGUSR1, &action, NULL) != 0)
+            return 97;
+    }
+
+    {
+        struct sigaction action = {0};
+        int              value  = -1;
+        action.sa_handler       = libc_signal_sem_handler;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGALRM, &action, NULL) != 0 ||
+            sem_init(&libc_signal_sem, 0, 0) != 0)
+            return 108;
+        libc_signal_sem_calls = 0;
+        alarm(1);
+        errno = 0;
+        if (sem_wait(&libc_signal_sem) != -1 || errno != EINTR ||
+            libc_signal_sem_calls != 1 || sem_getvalue(&libc_signal_sem, &value) != 0 ||
+            value != 1 || sem_trywait(&libc_signal_sem) != 0)
+            return 109;
+        alarm(0);
+        if (sem_destroy(&libc_signal_sem) != 0)
+            return 110;
+        action.sa_handler = SIG_DFL;
+        if (sigaction(SIGALRM, &action, NULL) != 0)
+            return 111;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 98;
+        if (child == 0) {
+            struct sigaction action = {0};
+            action.sa_handler = libc_one_shot_handler;
+            action.sa_flags = SA_RESETHAND;
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGUSR2, &action, NULL) != 0 || raise(SIGUSR2) != 0)
+                _Exit(99);
+            raise(SIGUSR2);
+            _Exit(100);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child ||
+            (status & 0x7f) != SIGUSR2)
+            return 101;
     }
 
     /* 39-43: writable tmpfs plus MAP_SHARED.  The mapping names the

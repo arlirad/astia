@@ -12,6 +12,10 @@ namespace astia::proc {
         if (parent->address_space() == nullptr) {
             return -EAGAIN;
         }
+        thread* parent_thread = current_thread();
+        if (parent_thread == nullptr) {
+            return -ESRCH;
+        }
 
         // The trap image carries registers but not the thread pointer —
         // the address space owns that, so the child's copy of the image
@@ -33,7 +37,7 @@ namespace astia::proc {
             // backing reference and descriptor its failed clone took.
             return -EAGAIN;
         }
-        if (!child->create_fork_thread(child_image)) {
+        if (!child->create_fork_thread(child_image, parent_thread->signals().blocked())) {
             (void) unregister_process(child.get());
             parent->wake_waiters();
             return -EAGAIN;

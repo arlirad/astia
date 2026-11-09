@@ -3,6 +3,7 @@
 #include "../ipc/signal.hpp"
 #include "fd_table.hpp"
 #include "mmap_region.hpp"
+#include "signal_waiter_registry.hpp"
 #include "thread.hpp"
 #include "user_layout.hpp"
 #include <astia/api/syscalls.h>
@@ -26,7 +27,7 @@ namespace astia::proc {
     inline constexpr u32 max_processes                  = 64;
     inline constexpr u32 max_threads_per_process        = 16;
     inline constexpr u32 max_waiters_per_process        = 4;
-    inline constexpr u32 max_signal_waiters_per_process = max_threads_per_process;
+    inline constexpr u32 max_signal_waiters_per_process = signal_waiter_capacity;
     inline constexpr u32 max_supplementary_groups       = 16;
 
     /// Reserved userspace TLS placement for process-created threads.
@@ -208,6 +209,7 @@ namespace astia::proc {
             __atomic_store_n(&continued_event_, 0, __ATOMIC_RELEASE);
         }
         void signal_state_change(signal_number signal);
+        void interrupt_signal_io(signal_number signal);
         i64 alarm(u32 seconds, u64 now, u32 hz);
         void expire_alarm(u64 now);
         void signal_termination(signal_number signal) {
@@ -225,6 +227,13 @@ namespace astia::proc {
         /// thread is gone the process becomes a zombie carrying `status`
         /// until its parent reaps it with proc::waitpid().
         void thread_exited(thread* value, i32 status);
+        void request_exit(thread* caller, i32 status);
+        bool process_exit_requested() const {
+            return __atomic_load_n(&exit_requested_, __ATOMIC_ACQUIRE) != 0;
+        }
+        i32 requested_exit_status() const {
+            return __atomic_load_n(&requested_exit_status_, __ATOMIC_ACQUIRE);
+        }
 
         /// Move the process's owning reference to a dead thread out of
         /// the thread table.  Used to defer destruction: the dying
@@ -242,7 +251,11 @@ namespace astia::proc {
         void remove_waiter(thread* value);
         void wake_waiters();
         bool add_signal_waiter(thread* value);
+        bool add_signal_waiter(thread* value, bool timed, u64 deadline);
+        bool block_signal_waiter(thread* value);
         void remove_signal_waiter(thread* value);
+        bool signal_waiter_timed_out(thread* value);
+        void expire_signal_waiters(u64 now);
         void wake_signal_waiters();
 
         bool              add_thread(const mm::shptr<thread>& value);
@@ -387,7 +400,8 @@ namespace astia::proc {
 
         /// Fork: the child's first thread, resuming `uctx` inside the
         /// parent's ring-3 call site with rax = 0.
-        mm::shptr<thread> create_fork_thread(const arch::user_context& uctx);
+        mm::shptr<thread> create_fork_thread(const arch::user_context& uctx,
+                                              signal_mask blocked_signals);
 
         /// Resolve a ring-3 write fault: a uniquely-held CoW page
         /// regains its write bit, otherwise the page is copied out and
@@ -436,13 +450,15 @@ namespace astia::proc {
         i32          stop_signal_        = 0;
         u8           stop_event_         = 0;
         u8           continued_event_    = 0;
+        u8           exit_requested_     = 0;
+        i32          requested_exit_status_ = 0;
         signal_state signals_{};
         u64          alarm_deadline_     = 0;
 
         mm::shptr<thread>        threads_[max_threads_per_process];
         u32                      thread_count_ = 0;
         thread*                  waiters_[max_waiters_per_process]{};
-        thread*                  signal_waiters_[max_signal_waiters_per_process]{};
+        signal_waiter_registry   signal_waiters_{};
         fd_table                 descriptors_;
         mm::uptr<arch::page_map> address_space_;
         u64                      tls_tp_ = 0;

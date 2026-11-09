@@ -481,6 +481,30 @@ namespace astia::proc {
         return index < max_threads_per_process ? threads_[index] : mm::shptr<thread>{};
     }
 
+    void process::request_exit(thread* caller, i32 status) {
+        thread* wake_list[max_threads_per_process];
+        u32     count = 0;
+        {
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
+            if (!process_exit_requested()) {
+                __atomic_store_n(&requested_exit_status_, status, __ATOMIC_RELEASE);
+                __atomic_store_n(&exit_requested_, 1, __ATOMIC_RELEASE);
+            }
+            for (u32 i = 0; i < max_threads_per_process; ++i) {
+                thread* value = threads_[i].get();
+                if (value == nullptr || value == caller || value->state() == thread_state::dead)
+                    continue;
+                value->request_exit();
+                if (value->state() == thread_state::blocked)
+                    wake_list[count++] = value;
+            }
+        }
+        futex_remove_process(this);
+        sys::io_interrupt_process(this, -EINTR);
+        for (u32 i = 0; i < count; ++i)
+            scheduler::wake(wake_list[i]);
+    }
+
     void process::thread_exited(thread* value, i32 status) {
         if (value != nullptr) {
             release_thread_tls(value);
@@ -503,7 +527,7 @@ namespace astia::proc {
             if (any_alive) {
                 return;
             }
-            exit_status_ = status;
+            exit_status_ = process_exit_requested() ? requested_exit_status_ : status;
             state(process_state::zombie);
         }
         // Closing a session leader's terminal hangs up its foreground job.
@@ -596,6 +620,26 @@ namespace astia::proc {
         notify_parent_of_state_change(info);
     }
 
+    void process::interrupt_signal_io(signal_number signal) {
+        const auto disposition = signals_.disposition(signal);
+        const bool interrupt =
+            disposition.action == signal_action::handler
+                ? (disposition.flags & ASTIA_SA_RESTART) == 0
+                : disposition.action == signal_action::default_action &&
+                      default_action(signal) != signal_default::ignore;
+        if (!interrupt)
+            return;
+        const signal_mask bit = signal_bit(signal);
+        for (u32 i = 0; i < max_threads_per_process; ++i) {
+            const auto value = thread_at(i);
+            if (value && (value->signals().blocked() & bit) == 0) {
+                sys::io_interrupt_process(this, -EINTR);
+                (void) futex_interrupt_process(this, signal);
+                return;
+            }
+        }
+    }
+
     i64 process::alarm(u32 seconds, u64 now, u32 hz) {
         u64 next = 0;
         if (seconds != 0) {
@@ -617,8 +661,7 @@ namespace astia::proc {
             if (__atomic_compare_exchange_n(&alarm_deadline_, &deadline, 0, false,
                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
                 (void) signals_.send(signal_number::alrm);
-                if (signals_.has_unblocked_interrupting())
-                    sys::io_interrupt_process(this, -EINTR);
+                interrupt_signal_io(signal_number::alrm);
                 wake_signal_waiters();
                 wake_waiters();
                 return;
@@ -738,43 +781,55 @@ namespace astia::proc {
     }
 
     bool process::add_signal_waiter(thread* value) {
-        if (value == nullptr) {
-            return false;
-        }
         arch::interrupt_spinlock_guard guard(process_wait_lock);
-        for (u32 i = 0; i < max_signal_waiters_per_process; ++i) {
-            if (signal_waiters_[i] == nullptr) {
-                signal_waiters_[i] = value;
-                return true;
-            }
-        }
-        return false;
+        return signal_waiters_.add(value);
+    }
+
+    bool process::add_signal_waiter(thread* value, bool timed, u64 deadline) {
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
+        return signal_waiters_.add(value, timed, deadline);
+    }
+
+    bool process::block_signal_waiter(thread* value) {
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
+        if (signal_waiters_.consume_wake(value))
+            return false;
+        value->state(thread_state::blocked);
+        return true;
     }
 
     void process::remove_signal_waiter(thread* value) {
         arch::interrupt_spinlock_guard guard(process_wait_lock);
-        for (u32 i = 0; i < max_signal_waiters_per_process; ++i) {
-            if (signal_waiters_[i] == value) {
-                signal_waiters_[i] = nullptr;
-            }
+        signal_waiters_.remove(value);
+    }
+
+    bool process::signal_waiter_timed_out(thread* value) {
+        arch::interrupt_spinlock_guard guard(process_wait_lock);
+        return signal_waiters_.timed_out(value);
+    }
+
+    void process::expire_signal_waiters(u64 now) {
+        thread* wake_list[max_signal_waiters_per_process];
+        u32     count;
+        {
+            arch::interrupt_spinlock_guard guard(process_wait_lock);
+            count = signal_waiters_.expire(now, wake_list, max_signal_waiters_per_process);
         }
+        for (u32 i = 0; i < count; ++i)
+            if (wake_list[i]->state() == thread_state::blocked)
+                scheduler::wake(wake_list[i]);
     }
 
     void process::wake_signal_waiters() {
         thread* wake_list[max_signal_waiters_per_process];
-        u32     count = 0;
+        u32     count;
         {
             arch::interrupt_spinlock_guard guard(process_wait_lock);
-            for (u32 i = 0; i < max_signal_waiters_per_process; ++i) {
-                if (signal_waiters_[i] != nullptr) {
-                    wake_list[count++] = signal_waiters_[i];
-                    signal_waiters_[i] = nullptr;
-                }
-            }
+            count = signal_waiters_.wake(wake_list, max_signal_waiters_per_process);
         }
-        for (u32 i = 0; i < count; ++i) {
-            scheduler::wake(wake_list[i]);
-        }
+        for (u32 i = 0; i < count; ++i)
+            if (wake_list[i]->state() == thread_state::blocked)
+                scheduler::wake(wake_list[i]);
     }
 
     bool process::install_standard_streams() {
@@ -1138,11 +1193,13 @@ namespace astia::proc {
         return true;
     }
 
-    mm::shptr<thread> process::create_fork_thread(const arch::user_context& uctx) {
+    mm::shptr<thread> process::create_fork_thread(const arch::user_context& uctx,
+                                                  signal_mask blocked_signals) {
         auto value = mm::share<thread>(this, proc::allocate_tid());
         if (!value || !value->prepare_fork_user(uctx)) {
             return {};
         }
+        value->signals().set_blocked(blocked_signals);
         if (!add_thread(value)) {
             return {};
         }

@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 #include <time.h>
 
 /* Days from 1970-01-01.  The era decomposition keeps negative timestamps
@@ -50,6 +51,44 @@ int clock_gettime(int clock_id, struct timespec* result) {
     return 0;
 }
 
+int clock_getres(int clock_id, struct timespec* result) {
+    int64_t sec;
+    int64_t nsec;
+    long    rc;
+
+    rc = __astia_time_clock_getres(clock_id, &sec, &nsec);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    if (result != NULL) {
+        result->tv_sec  = sec;
+        result->tv_nsec = (long) nsec;
+    }
+    return 0;
+}
+
+int clock_getcpuclockid(pid_t process_id, clockid_t* clock_id) {
+    (void) process_id;
+    if (clock_id == NULL)
+        return EINVAL;
+    return ENOSYS;
+}
+
+int gettimeofday(struct timeval* value, struct timezone* timezone) {
+    struct timespec now;
+    (void) timezone;
+    if (value == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (clock_gettime(CLOCK_REALTIME, &now) < 0)
+        return -1;
+    value->tv_sec  = (long) now.tv_sec;
+    value->tv_usec = now.tv_nsec / 1000;
+    return 0;
+}
+
 int nanosleep(const struct timespec* requested, struct timespec* remaining) {
     int64_t remaining_sec  = 0;
     int64_t remaining_nsec = 0;
@@ -72,6 +111,33 @@ int nanosleep(const struct timespec* requested, struct timespec* remaining) {
         return -1;
     }
     if (remaining != NULL) {
+        remaining->tv_sec  = 0;
+        remaining->tv_nsec = 0;
+    }
+    return 0;
+}
+
+int clock_nanosleep(int clock_id, int flags, const struct timespec* requested,
+                    struct timespec* remaining) {
+    int64_t remaining_sec  = 0;
+    int64_t remaining_nsec = 0;
+    long    rc;
+
+    if (requested == NULL || requested->tv_sec < 0 || requested->tv_nsec < 0 ||
+        requested->tv_nsec >= 1000000000L || (flags & ~TIMER_ABSTIME) != 0)
+        return EINVAL;
+    rc = __astia_time_clock_nanosleep(
+        clock_id, flags, requested->tv_sec, requested->tv_nsec,
+        (flags & TIMER_ABSTIME) == 0 && remaining != NULL ? &remaining_sec : NULL,
+        (flags & TIMER_ABSTIME) == 0 && remaining != NULL ? &remaining_nsec : NULL);
+    if (rc < 0) {
+        if (remaining != NULL && (flags & TIMER_ABSTIME) == 0 && rc == -EINTR) {
+            remaining->tv_sec  = (time_t) remaining_sec;
+            remaining->tv_nsec = (long) remaining_nsec;
+        }
+        return (int) -rc;
+    }
+    if (remaining != NULL && (flags & TIMER_ABSTIME) == 0) {
         remaining->tv_sec  = 0;
         remaining->tv_nsec = 0;
     }

@@ -18,6 +18,6 @@ namespace astia::proc::syscall {
     ///     -EAGAIN: The word no longer equals the expected value.
     ///     -EFAULT: The futex word is not accessible userspace memory.
     ///     -EINVAL: The operation is unknown.
-    ///     -ENOSYS: A timeout was requested but timed waits are not implemented.
+    ///     -ETIMEDOUT: The absolute CLOCK_MONOTONIC timeout elapsed.
     i64 futex(u64 address, u32 op, u32 expected, u64 timeout);
 }

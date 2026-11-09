@@ -63,6 +63,7 @@ namespace astia::proc {
     bool unregister_process(process* value);
     i64  process_snapshot(u64 output, u32 capacity);
     void set_current_thread(thread* value);
+    void expire_signal_waiters();
     void expire_alarms();
 
     /// Spawn an executable by VFS path.  argv/envp are materialized on
@@ -111,7 +112,8 @@ namespace astia::proc {
     i64                      setsid();
     /// Send a signal to every live member of a process group.  Signal zero
     /// only checks that the group has a live member.
-    i64 signal_process_group(pgrp_t group, signal_number signal);
+    i64 signal_process_group(pgrp_t group, signal_number signal,
+                             signal_info info = {});
 
     /// Wait for a child of the current process to exit and reap it.
     /// pid > 0 waits for that child, pid == -1 for any child.  Returns

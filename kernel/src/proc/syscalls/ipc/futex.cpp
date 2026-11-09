@@ -16,26 +16,24 @@
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
 namespace astia::proc {
-    i64 futex_wait(u64 address, u32 expected);
+    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point);
     i64 futex_wake(u64 address, u32 count);
 }
 
 namespace astia::proc::syscall {
 
     i64 futex(u64 address, u32 op, u32 expected, u64 timeout) {
-        auto operation = mapper<ipc::futex_operation>::from(op & ~ipc::futex_private_bit);
+        const bool cancellation_point = (op & ipc::futex_cancelable_bit) != 0;
+        auto operation = mapper<ipc::futex_operation>::from(
+            op & ~(ipc::futex_private_bit | ipc::futex_cancelable_bit));
         if (!operation)
             return -EINVAL;
-        // Timeouts are deliberately deferred: an untimed wait/wake
-        // is enough for the pthread join/lock substrate, while
-        // silently ignoring one would violate callers' expectations.
-        if (timeout != 0) {
-            return -ENOSYS;
-        }
         if (operation.value == ipc::futex_operation::wait) {
-            return proc::futex_wait(address, expected);
+            return proc::futex_wait(address, expected, timeout, cancellation_point);
         }
         if (operation.value == ipc::futex_operation::wake) {
+            if (timeout != 0)
+                return -EINVAL;
             return proc::futex_wake(address, expected);
         }
         return -EINVAL;

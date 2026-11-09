@@ -174,6 +174,19 @@ void c_main(const long* frame) {
         slept.tv_sec < second.tv_sec ||
         (slept.tv_sec == second.tv_sec && slept.tv_nsec <= second.tv_nsec))
         astia_exit(8);
+    {
+        const uint64_t deadline = (uint64_t) slept.tv_sec * 1000000000ull +
+                                  (uint64_t) slept.tv_nsec + 20000000ull;
+        astia_sqe*     absolute = fill(ring, OP_SLEEP, -1, 0, deadline, 0, tag);
+        if (absolute == NULL)
+            astia_exit(8);
+        absolute->op_flags = SLEEP_ABSOLUTE;
+        if (kick_sleep(ring, tag++, &rc) != 0 || rc != 0)
+            astia_exit(8);
+        if (astia_clock_gettime(CLOCK_MONOTONIC, &slept) != 0 ||
+            (uint64_t) slept.tv_sec * 1000000000ull + (uint64_t) slept.tv_nsec < deadline)
+            astia_exit(8);
+    }
 
     /* --- OPENAT /sbin/init ------------------------------------------ */
     if (fill(ring, OP_OPENAT, -1, (uint64_t) (uintptr_t) "/sbin/init", 0, 0, tag) == NULL)

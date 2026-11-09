@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sys/types.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -14,6 +16,10 @@ typedef int64_t time_t;
 #ifndef __clock_t_defined
 typedef long clock_t;
 #define __clock_t_defined 1
+#endif
+#ifndef __clockid_t_defined
+typedef int clockid_t;
+#define __clockid_t_defined 1
 #endif
 
 #ifndef _STRUCT_TIMESPEC
@@ -51,9 +57,14 @@ struct tms {
 #define CLOCK_MONOTONIC 0
 #define CLOCK_REALTIME 1
 #define CLOCK_BOOTTIME 2
+#define TIMER_ABSTIME 1
 
 int        clock_gettime(int clock_id, struct timespec* result);
+int        clock_getres(int clock_id, struct timespec* result);
+int        clock_getcpuclockid(pid_t process_id, clockid_t* clock_id);
 int        nanosleep(const struct timespec* requested, struct timespec* remaining);
+int        clock_nanosleep(int clock_id, int flags, const struct timespec* requested,
+                           struct timespec* remaining);
 time_t     time(time_t* result);
 clock_t    times(struct tms* result);
 int        timespec_get(struct timespec* result, int base);

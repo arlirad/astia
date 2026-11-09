@@ -1,5 +1,6 @@
 #include "proc.hpp"
 
+#include "../sys/aio.hpp"
 #include "../sys/user_mem.hpp"
 #include "scheduler.hpp"
 #include <astia/api/errno.h>
@@ -162,9 +163,25 @@ namespace astia::proc {
         mm::shptr<process> values[max_processes];
         const u32 count = snapshot_registry(values);
         for (u32 i = 0; i < count; ++i) {
-            if (is_live(values[i].get()))
+            if (is_live(values[i].get())) {
                 values[i]->expire_alarm(now);
+            }
         }
+    }
+
+    void expire_signal_waiters() {
+        const u64 hz = arch::timer_hz();
+        if (hz == 0)
+            return;
+        const u64 now = arch::timer_ticks();
+        const u64 monotonic_ns =
+            (now / hz) * nanoseconds_per_second +
+            (now % hz) * nanoseconds_per_second / hz;
+        mm::shptr<process> values[max_processes];
+        const u32 count = snapshot_registry(values);
+        for (u32 i = 0; i < count; ++i)
+            if (is_live(values[i].get()))
+                values[i]->expire_signal_waiters(monotonic_ns);
     }
 
     optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],
@@ -411,7 +428,8 @@ namespace astia::proc {
                 return terminal_access_result::allowed;
 
             const signal_mask bit = signal_bit(signal);
-            if ((owner->signals().blocked() & bit) != 0 ||
+            auto* self = current_thread();
+            if (self == nullptr || (self->signals().blocked() & bit) != 0 ||
                 owner->signals().disposition(signal).action == signal_action::ignore)
                 return terminal_access_result::io_error;
             if (signal_process_group(owner->process_group(), signal) < 0)
@@ -512,7 +530,7 @@ namespace astia::proc {
         return static_cast<i64>(raw_id(owner->session()));
     }
 
-    i64 signal_process_group(pgrp_t group, signal_number value) {
+    i64 signal_process_group(pgrp_t group, signal_number value, signal_info info) {
         if (!valid_signal(value) && value != signal_number{})
             return -EINVAL;
         bool               found = false;
@@ -528,12 +546,15 @@ namespace astia::proc {
         }
         if (value != signal_number{}) {
             for (u32 i = 0; i < count; ++i) {
-                if (!targets[i]->signals().send(value))
+                if (!targets[i]->signals().send(value, info))
                     return -EINVAL;
+                targets[i]->interrupt_signal_io(value);
                 if (is_uncatchable(value) ||
                     targets[i]->signals().disposition(value).action ==
                         signal_action::default_action)
                     targets[i]->signal_state_change(value);
+                if (targets[i]->signals().has_unblocked_interrupting())
+                    sys::io_interrupt_process(targets[i].get(), -EINTR);
                 targets[i]->wake_signal_waiters();
             }
         }
@@ -643,7 +664,7 @@ namespace astia::proc {
                 break;
             }
 
-            if (parent->signals().has_unblocked_interrupting()) {
+            if (parent->signals().has_unblocked_interrupting_for(self->signals().blocked())) {
                 parent->remove_waiter(self);
                 self->state(thread_state::running);
                 result = -EINTR;

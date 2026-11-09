@@ -9,6 +9,7 @@ extern "C" {
 
 typedef int          sig_atomic_t;
 typedef unsigned int sigset_t;
+struct timespec;
 typedef void (*sighandler_t)(int);
 typedef struct siginfo {
     int          si_signo;
@@ -40,6 +41,9 @@ struct sigaction {
 #define SIG_ERR ((sighandler_t) - 1)
 #define SA_ONSTACK 1
 #define SA_SIGINFO 4
+#define SA_RESTART 0x10000000
+#define SA_NODEFER 0x40000000
+#define SA_RESETHAND 0x80000000u
 #define SS_ONSTACK 1
 #define SS_DISABLE 2
 #define MINSIGSTKSZ 2048
@@ -77,6 +81,7 @@ struct sigaction {
 #define SIGPROF 27
 #define SIGWINCH 28
 #define SIGIO 29
+#define SIGPOLL SIGIO
 #define SIGAIO SIGIO
 #define SIGPWR 30
 #define SIGSYS 31
@@ -87,11 +92,17 @@ struct sigaction {
 #define CLD_DUMPED 3
 #define CLD_STOPPED 5
 #define CLD_CONTINUED 6
+#define SI_USER 0
 
 int sigaction(int signal, const struct sigaction* action, struct sigaction* old_action);
 int sigaltstack(const stack_t* stack, stack_t* old_stack);
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set);
+int sigpending(sigset_t* set);
+int sighold(int signal);
+int sigrelse(int signal);
 int sigwait(const sigset_t* set, int* signal);
+int sigwaitinfo(const sigset_t* set, siginfo_t* info);
+int sigtimedwait(const sigset_t* set, siginfo_t* info, const struct timespec* timeout);
 int sigignore(int signal);
 int sigpause(int signal);
 int kill(int pid, int signal);

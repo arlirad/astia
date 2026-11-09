@@ -331,6 +331,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/scanf.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/setjmp.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/signal.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/semaphore.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/socket.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/snprintf.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/stdlib.c

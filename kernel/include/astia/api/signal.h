@@ -33,12 +33,16 @@ typedef struct astia_x86_64_signal_context {
 #define ASTIA_SIG_IGN ((uintptr_t) 1)
 #define ASTIA_SA_ONSTACK 1
 #define ASTIA_SA_SIGINFO 4
+#define ASTIA_SA_RESTART 0x10000000
+#define ASTIA_SA_NODEFER 0x40000000
+#define ASTIA_SA_RESETHAND 0x80000000u
 
 #define ASTIA_CLD_EXITED    1
 #define ASTIA_CLD_KILLED    2
 #define ASTIA_CLD_DUMPED    3
 #define ASTIA_CLD_STOPPED   5
 #define ASTIA_CLD_CONTINUED 6
+#define ASTIA_SI_USER       0
 
 #define ASTIA_SIGAIO 29
 enum {

@@ -1,7 +1,13 @@
-functional/* | not selected: Astia does not yet provide the suite's pthread, semaphore, timer, or message-queue support
-pthread_kill/1-1 | expected unsupported: pthread_kill delivers signals only to the calling thread; non-self delivery returns ENOTSUP because the kernel signal queue is process-wide
-pthread_kill/1-2 | expected unsupported: pthread_kill delivers signals only to the calling thread; non-self delivery returns ENOTSUP because the kernel signal queue is process-wide
-pthread_kill/8-1 | expected unsupported: pthread_kill delivers signals only to the calling thread; non-self delivery returns ENOTSUP because the kernel signal queue is process-wide
-pthread_sigmask/* | Astia currently stores the signal mask in process-wide signal state rather than per-thread state
-pthread_equal/2-1 | pthread_equal stress test times out because Astia pthread signal-mask and semaphore behavior is process-wide
-sigpending/* | build blocked: Astia's signal.h does not declare sigpending and the pending-signal API is not implemented
+functional/* | not selected: Astia does not yet provide the suite's pthread, timer, or message-queue support
+sem_open/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
+sem_unlink/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
+sem_post/* | these cases use unsupported named semaphore APIs
+sem_wait/1-1 | this case uses unsupported named semaphore APIs
+sem_wait/1-2 | this case uses unsupported named semaphore APIs
+sem_wait/3-1 | this case uses unsupported named semaphore APIs
+sem_wait/5-1 | this case uses unsupported named semaphore APIs
+sem_wait/7-1 | this case uses unsupported named semaphore APIs
+sem_wait/11-1 | this case uses unsupported named semaphore APIs
+sem_wait/12-1 | this case uses unsupported named semaphore APIs
+pthread_sigmask/15-1 | External LTP source omits <pthread.h>, so this test is a source compile blocker rather than an Astia failure
+pthread_equal/2-1 | pthread_equal stress test times out because Astia pthread semaphore behavior is still incomplete

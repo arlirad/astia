@@ -8,6 +8,7 @@
  * astia ABI convention. */
 #pragma GCC visibility push(default)
 #include <astia/api/signal.h>
+extern _Thread_local unsigned int __astia_signal_handler_depth;
 void                   __astia_process_exit(int status);
 long                   __astia_process_getpid(void);
 long                   __astia_process_getppid(void);
@@ -26,8 +27,10 @@ long __astia_process_sigaction(int signal, const struct astia_sigaction* action,
                                struct astia_sigaction* old_action);
 long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_set);
 long __astia_process_sigwait(const unsigned int* set, int* signal);
+long __astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info,
+                                  const void* timeout);
 long __astia_process_futex(unsigned int* address, unsigned int operation,
-                           unsigned int value);
+                           unsigned int value, const int64_t* timeout);
 long __astia_process_thread_create(void (*entry)(void*), void* stack_top, void* argument);
 long __astia_process_thread_create2(void (*entry)(void*, void*), void* stack_top,
                                     void* argument0, void* argument1);
@@ -39,4 +42,6 @@ long __astia_process_thread_detach(unsigned long tid);
 long __astia_process_thread_cancel(unsigned long tid);
 long __astia_process_thread_cancel_pending(void);
 long __astia_process_thread_exists(unsigned long tid);
+long __astia_process_thread_kill(unsigned long tid, int signal);
+long __astia_process_sigpending(unsigned int* set);
 #pragma GCC visibility pop

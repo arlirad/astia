@@ -6,7 +6,9 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/interrupts.hpp>
 #include <astia/core/spinlock.hpp>
+#include <limits.h>
 
 namespace astia::proc {
 
@@ -19,6 +21,8 @@ namespace astia::proc {
         struct futex_waiter {
             process*           owner   = nullptr;
             u64                address = 0;
+            u64                deadline = 0;
+            i64*               result  = nullptr;
             mm::shptr<process> owner_ref;
             mm::shptr<thread>  value;
         };
@@ -39,6 +43,15 @@ namespace astia::proc {
             return buckets[hash];
         }
 
+        u64 monotonic_now_ns() {
+            const u64 hz = arch::timer_hz();
+            if (hz == 0)
+                return 0;
+            const u64 ticks = arch::timer_ticks();
+            return (ticks / hz) * nanoseconds_per_second +
+                   (ticks % hz) * nanoseconds_per_second / hz;
+        }
+
         bool reserve_waiter() {
             u32 count = __atomic_load_n(&waiter_count, __ATOMIC_RELAXED);
             while (count < futex_capacity &&
@@ -48,9 +61,78 @@ namespace astia::proc {
             return count < futex_capacity;
         }
 
+        bool detach_waiter(thread* target, process* owner, signal_number signal) {
+            if (target == nullptr || (owner == nullptr && signal != signal_number{}))
+                return false;
+            const signal_mask bit = signal == signal_number{} ? 0 : signal_bit(signal);
+            mm::shptr<thread> wake;
+            {
+                arch::interrupt_guard gate;
+                for (u32 bucket_index = 0; bucket_index < futex_bucket_count;
+                     ++bucket_index) {
+                    auto&                bucket = buckets[bucket_index];
+                    core::spinlock_guard lock(bucket.lock);
+                    for (u32 i = 0; i < futex_bucket_capacity; ++i) {
+                        auto& waiter = bucket.waiters[i];
+                        if (!waiter.value || waiter.value.get() != target ||
+                            (owner != nullptr && waiter.owner != owner) ||
+                            (bit != 0 && (target->signals().blocked() & bit) != 0))
+                            continue;
+                        if (waiter.result != nullptr)
+                            *waiter.result = -EINTR;
+                        wake = waiter.value;
+                        waiter = {};
+                        __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                        break;
+                    }
+                    if (wake)
+                        break;
+                }
+            }
+            if (!wake)
+                return false;
+            scheduler::wake(wake.get());
+            return true;
+        }
     } // namespace
 
-    i64 futex_wait(u64 address, u32 expected) {
+    bool futex_interrupt_process(process* owner, signal_number signal) {
+        if (owner == nullptr || !valid_signal(signal))
+            return false;
+        mm::shptr<thread> wake;
+        {
+            arch::interrupt_guard gate;
+            for (u32 bucket_index = 0; bucket_index < futex_bucket_count;
+                 ++bucket_index) {
+                auto&                bucket = buckets[bucket_index];
+                core::spinlock_guard lock(bucket.lock);
+                for (u32 i = 0; i < futex_bucket_capacity; ++i) {
+                    auto& waiter = bucket.waiters[i];
+                    if (!waiter.value || waiter.owner != owner ||
+                        (waiter.value->signals().blocked() & signal_bit(signal)) != 0)
+                        continue;
+                    if (waiter.result != nullptr)
+                        *waiter.result = -EINTR;
+                    wake = waiter.value;
+                    waiter = {};
+                    __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                    break;
+                }
+                if (wake)
+                    break;
+            }
+        }
+        if (!wake)
+            return false;
+        scheduler::wake(wake.get());
+        return true;
+    }
+
+    bool futex_interrupt_thread(thread* target) {
+        return detach_waiter(target, nullptr, signal_number{});
+    }
+
+    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point) {
         auto*      owner     = current_process();
         auto*      self      = current_thread();
         const auto validated = sys::user_ptr<u32>(address).validate();
@@ -66,6 +148,27 @@ namespace astia::proc {
         // The validated range is what licenses this dereference: a futex
         // word is read and written in place, so it cannot be copied.
         auto* word = validated.value.get();
+        if (cancellation_point && self->cancellation_pending())
+            return -EINTR;
+        u64    deadline = 0;
+        if (timeout != 0) {
+            astia_timespec abstime{};
+            const auto timeout_range = sys::user_ptr<astia_timespec>(timeout).validate();
+            if (!timeout_range || !sys::copy_in(&abstime, timeout_range.value.bytes()))
+                return -EFAULT;
+            if (abstime.tv_sec < 0 || abstime.tv_nsec < 0 || abstime.tv_nsec >= 1000000000)
+                return -EINVAL;
+            const u64 now = monotonic_now_ns();
+            if (now == 0 || static_cast<u64>(abstime.tv_sec) >
+                                 (UINT64_MAX - static_cast<u64>(abstime.tv_nsec)) /
+                                     nanoseconds_per_second)
+                return -EINVAL;
+            deadline = static_cast<u64>(abstime.tv_sec) * nanoseconds_per_second +
+                       static_cast<u64>(abstime.tv_nsec);
+            if (deadline <= now)
+                return -ETIMEDOUT;
+        }
+        i64 result = 0;
 
         // The value check and waiter publication are one critical
         // section.  With interrupts disabled, a same-CPU FUTEX_WAKE
@@ -77,6 +180,10 @@ namespace astia::proc {
             if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
                 return -EAGAIN;
             }
+            if (cancellation_point && self->cancellation_pending())
+                return -EINTR;
+            if (deadline != 0 && deadline <= monotonic_now_ns())
+                return -ETIMEDOUT;
             if (!reserve_waiter()) {
                 return -EAGAIN;
             }
@@ -100,15 +207,22 @@ namespace astia::proc {
                 return -EAGAIN;
             }
             bucket.waiters[slot] =
-                futex_waiter{owner, address, static_cast<mm::shptr<process>&&>(owner_ref),
+                futex_waiter{owner, address, deadline, &result,
+                             static_cast<mm::shptr<process>&&>(owner_ref),
                              static_cast<mm::shptr<thread>&&>(retained)};
             self->state(thread_state::blocked);
+            if (cancellation_point && self->cancellation_pending()) {
+                bucket.waiters[slot] = {};
+                __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                self->state(thread_state::running);
+                return -EINTR;
+            }
         }
         scheduler::yield();
         // The wake path clears the slot before making us runnable.  On
         // resume this syscall returns normally; no user pointer is held
         // across the block.
-        return 0;
+        return result;
     }
 
     i64 futex_wake(u64 address, u32 count) {
@@ -158,6 +272,33 @@ namespace astia::proc {
                     __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
                 }
             }
+        }
+    }
+
+    void futex_tick() {
+        const u64 now = monotonic_now_ns();
+        if (now == 0)
+            return;
+        arch::interrupt_guard gate;
+        for (u32 bucket_index = 0; bucket_index < futex_bucket_count; ++bucket_index) {
+            mm::shptr<thread> wake_list[futex_bucket_capacity];
+            u32                wake_count = 0;
+            auto&              bucket     = buckets[bucket_index];
+            {
+                core::spinlock_guard lock(bucket.lock);
+                for (u32 i = 0; i < futex_bucket_capacity; ++i) {
+                    auto& waiter = bucket.waiters[i];
+                    if (!waiter.value || waiter.deadline == 0 || waiter.deadline > now)
+                        continue;
+                    if (waiter.result != nullptr)
+                        *waiter.result = -ETIMEDOUT;
+                    wake_list[wake_count++] = waiter.value;
+                    waiter                   = {};
+                    __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                }
+            }
+            for (u32 i = 0; i < wake_count; ++i)
+                scheduler::wake(wake_list[i].get());
         }
     }
 

@@ -2,6 +2,7 @@
 
 #include "../../proc.hpp"
 #include "../../scheduler.hpp"
+#include "../../../ipc/futex.hpp"
 #include <astia/api/errno.h>
 
 namespace astia::proc::syscall {
@@ -15,6 +16,7 @@ namespace astia::proc::syscall {
             return -ESRCH;
         target->request_cancellation();
         target->wake_join_for_cancellation();
+        (void) futex_interrupt_thread(target.get());
         return 0;
     }
 

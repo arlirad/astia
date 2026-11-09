@@ -74,9 +74,16 @@ __attribute__((weak)) long __astia_process_sigwait(const unsigned int* set, int*
     return astia_raw6(SYS_SIGWAIT, (long) set, (long) signal, 0, 0, 0, 0);
 }
 
+__attribute__((weak)) long
+__astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info,
+                             const void* timeout) {
+    return astia_sigtimedwait(set, info, (const astia_timespec*) timeout);
+}
+
 long __astia_process_futex(unsigned int* address, unsigned int operation,
-                           unsigned int value) {
-    return astia_futex((uint64_t*) address, operation, value, NULL, 0, NULL);
+                           unsigned int value, const int64_t* timeout) {
+    return astia_futex((uint64_t*) address, operation, value,
+                       (const astia_timespec*) timeout, 0, NULL);
 }
 
 long __astia_process_thread_create(void (*entry)(void*), void* stack_top,
@@ -116,4 +123,12 @@ long __astia_process_thread_cancel_pending(void) {
 
 long __astia_process_thread_exists(unsigned long tid) {
     return astia_thread_exists((uint32_t) tid);
+}
+
+long __astia_process_thread_kill(unsigned long tid, int signal) {
+    return astia_thread_kill((uint32_t) tid, (int32_t) signal);
+}
+
+__attribute__((weak)) long __astia_process_sigpending(unsigned int* set) {
+    return astia_sigpending(set);
 }

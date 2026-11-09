@@ -126,6 +126,10 @@ enum {
     SYS_THREAD_CREATE_OWNED = 56,
     SYS_THREAD_CANCEL_PENDING = 57,
     SYS_THREAD_EXISTS    = 58,
+    SYS_THREAD_KILL      = 59,
+    SYS_SIGPENDING       = 60,
+    SYS_SIGTIMEDWAIT     = 61,
+    SYS_CLOCK_GETRES     = 62,
 };
 
 /* ------------------------------------------------------------------ */
@@ -197,13 +201,16 @@ enum {
     CLOCK_BOOTTIME  = 2,
 };
 
-/* futex ops (WAIT may sleep, WAKE never does) */
+/* futex ops (WAIT may sleep, WAKE never does).  A WAIT timeout is an
+ * absolute CLOCK_MONOTONIC astia_timespec. */
 enum {
     FUTEX_WAIT         = 0,
     FUTEX_WAKE         = 1,
     FUTEX_PRIVATE_FLAG = 128,
     FUTEX_WAIT_PRIVATE = 128,
     FUTEX_WAKE_PRIVATE = 129,
+    FUTEX_CANCELABLE_FLAG = 256,
+    FUTEX_WAIT_CANCELABLE_PRIVATE = 384,
 };
 
 /* standard streams */
@@ -284,6 +291,10 @@ static inline long astia_setrlimit(int32_t resource, const astia_rlimit* limit) 
 
 static inline long astia_clock_gettime(uint32_t clock_id, astia_timespec* out) {
     return astia_raw6(SYS_CLOCK_GETTIME, (long) clock_id, (long) out, 0, 0, 0, 0);
+}
+
+static inline long astia_clock_getres(uint32_t clock_id, astia_timespec* out) {
+    return astia_raw6(SYS_CLOCK_GETRES, (long) clock_id, (long) out, 0, 0, 0, 0);
 }
 
 ASTIA_NORETURN static inline void astia_exit(int32_t status) {
@@ -396,6 +407,12 @@ static inline long astia_sigwait(const uint32_t* set, int32_t* signal) {
     return astia_raw6(SYS_SIGWAIT, (long) set, (long) signal, 0, 0, 0, 0);
 }
 
+static inline long astia_sigtimedwait(const uint32_t* set, astia_siginfo_t* info,
+                                      const astia_timespec* timeout) {
+    return astia_raw6(SYS_SIGTIMEDWAIT, (long) set, (long) info, (long) timeout,
+                      0, 0, 0);
+}
+
 /* pid > 0: wait for that child; pid == -1: any child.  On success the
  * reaped pid is returned and *status (if non-null) receives the exit
  * status.  May block. */
@@ -465,6 +482,12 @@ static inline long astia_thread_cancel_pending(void) {
 
 static inline long astia_thread_exists(uint32_t tid) {
     return astia_raw6(SYS_THREAD_EXISTS, (long) tid, 0, 0, 0, 0, 0);
+}
+static inline long astia_thread_kill(uint32_t tid, int32_t signal) {
+    return astia_raw6(SYS_THREAD_KILL, (long) tid, (long) signal, 0, 0, 0, 0);
+}
+static inline long astia_sigpending(uint32_t* set) {
+    return astia_raw6(SYS_SIGPENDING, (long) set, 0, 0, 0, 0, 0);
 }
 
 static inline void astia_thread_exit(void* result) {

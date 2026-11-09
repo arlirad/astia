@@ -34,6 +34,10 @@ int main(void) {
     CHECK(sysconf(_SC_CLK_TCK) == 100);
     CHECK(sysconf(_SC_OPEN_MAX) == 64);
     CHECK(sysconf(_SC_CHILD_MAX) == 64);
+    CHECK(sysconf(_SC_CLOCK_SELECTION) == 1);
+    CHECK(sysconf(_SC_MONOTONIC_CLOCK) == 1);
+    CHECK(sysconf(_SC_CPUTIME) == -1);
+    CHECK(sysconf(_SC_THREAD_PROCESS_SHARED) == -1);
     errno = 0;
     CHECK(sysconf(-1) == -1 && errno == EINVAL);
     return failures != 0;

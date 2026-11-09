@@ -1,4 +1,5 @@
 #include "file_port.h"
+#include "process_port.h"
 #include <astia/api/aio.h>
 
 #include <fcntl.h>
@@ -16,11 +17,9 @@
  *   cqe.result unchanged (negative = -errno: the port speaks the ABI's
  *   convention verbatim, file.c folds it into errno).
  *
- * The ring is set up lazily on the first file call and shared process
- * wide.  Single producer by ABI — concurrent users would need the
- * external lock (astia_futex) that arrives with threads; until then all
- * stdio calls are serialized by the same "not thread-safe" rule as FILE
- * itself.
+ * The ring is set up lazily on the first file call in each thread. Signal
+ * handlers use a separate thread-local ring while an interrupted operation
+ * is still in flight.
  *
  * This translation unit only ever *executes* on astia (astia_raw6 is a
  * real trap there).  Host test binaries link tests/backend_host.c
@@ -65,9 +64,12 @@ ASTIA_STATIC_ASSERT(sizeof(struct iovec) == sizeof(astia_iovec) &&
                         offsetof(struct iovec, iov_len) == offsetof(astia_iovec, len),
                     "port iovec must be the ABI's astia_iovec");
 
-static astia_rings* g_ring;
-static uint64_t     g_tag;
-static uint64_t     g_inflight; /* 0: none.  Tag of an operation whose kick
+static _Thread_local astia_rings* g_ring;
+static _Thread_local uint64_t     g_tag;
+static _Thread_local astia_rings* g_signal_ring;
+static _Thread_local uint64_t     g_signal_tag;
+static _Thread_local int          g_signal_transaction;
+static _Thread_local uint64_t     g_inflight; /* 0: none.  Tag of an operation whose kick
                                    failed *after* publish: its submission
                                    state is unknown, so it must be settled
                                    before any new SQE is written —
@@ -75,6 +77,26 @@ static uint64_t     g_inflight; /* 0: none.  Tag of an operation whose kick
                                    the stale entry and wait on a completion
                                    that never comes, or an append could be
                                    applied twice. */
+static uint64_t     g_deferred_user_data[RING_ENTRIES];
+static int32_t      g_deferred_result[RING_ENTRIES];
+static size_t       g_deferred_count;
+
+static int deferred_result(uint64_t user_data, long* result) {
+    size_t i;
+
+    for (i = 0; i < g_deferred_count; ++i) {
+        if (g_deferred_user_data[i] == user_data) {
+            *result = g_deferred_result[i];
+            --g_deferred_count;
+            for (; i < g_deferred_count; ++i) {
+                g_deferred_user_data[i] = g_deferred_user_data[i + 1];
+                g_deferred_result[i]    = g_deferred_result[i + 1];
+            }
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static long ring_ensure(void) {
     if (g_ring == NULL) {
@@ -98,6 +120,12 @@ static long ring_ensure(void) {
  * then g_inflight stays set and the next transaction stops at this same
  * gate instead of compounding the unknown state. */
 static long settle(void) {
+    long result;
+
+    if (deferred_result(g_inflight, &result)) {
+        g_inflight = 0;
+        return 0;
+    }
     for (;;) {
         astia_cqe* c = astia_cq_peek(g_ring);
         long       rc;
@@ -128,6 +156,24 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     astia_cqe*   c;
     uint64_t     tag;
     long         rc;
+
+    if (__astia_signal_handler_depth != 0 && !g_signal_transaction) {
+        astia_rings* saved_ring = g_ring;
+        uint64_t     saved_tag = g_tag;
+        uint64_t     saved_inflight = g_inflight;
+        g_signal_transaction = 1;
+        g_ring = g_signal_ring;
+        g_tag = g_signal_tag;
+        g_inflight = 0;
+        rc = transact(op, fd, off, addr, len, op_flags, aux);
+        g_signal_ring = g_ring;
+        g_signal_tag = g_tag;
+        g_ring = saved_ring;
+        g_tag = saved_tag;
+        g_inflight = saved_inflight;
+        g_signal_transaction = 0;
+        return rc;
+    }
 
     rc = ring_ensure();
     if (rc < 0)
@@ -178,6 +224,8 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     }
 
     for (;;) {
+        if (deferred_result(tag, &rc))
+            return rc;
         c = astia_cq_peek(r);
         if (c == NULL) {
             rc = astia_io_submit(r, 0);
@@ -191,8 +239,11 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
             astia_cq_consume(r, 1);
             return rc;
         }
-        /* Defensive: with one operation in flight no foreign completion
-           can be pending; drop it rather than wedge the stream. */
+        if (g_deferred_count < RING_ENTRIES) {
+            g_deferred_user_data[g_deferred_count] = c->user_data;
+            g_deferred_result[g_deferred_count]    = c->result;
+            ++g_deferred_count;
+        }
         astia_cq_consume(r, 1);
     }
 }
@@ -203,6 +254,9 @@ void __astia_fio_prepare_exec(void) {
     g_ring     = NULL;
     g_inflight = 0;
     g_tag      = 0;
+    g_signal_ring = NULL;
+    g_signal_tag = 0;
+    g_deferred_count = 0;
 }
 
 void __astia_fio_prepare_fork(void) {
@@ -214,6 +268,9 @@ void __astia_fio_prepare_fork(void) {
     g_ring     = NULL;
     g_inflight = 0;
     g_tag      = 0;
+    g_signal_ring = NULL;
+    g_signal_tag = 0;
+    g_deferred_count = 0;
 }
 
 long __astia_fio_open(const char* path, int flags, int mode) {
@@ -525,6 +582,10 @@ long __astia_fio_sleep(uint64_t nanoseconds, uint64_t* remaining_nanoseconds) {
                     0, 0);
 }
 
+long __astia_fio_sleep_absolute(uint64_t deadline_nanoseconds) {
+    return transact(OP_SLEEP, -1, deadline_nanoseconds, NULL, 0, SLEEP_ABSOLUTE, 0);
+}
+
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
     astia_rings*  r;
     uint64_t      tags[IO_MAX_ENTRIES];
@@ -741,4 +802,5 @@ void __astia_fio_after_fork(void) {
     g_ring     = NULL;
     g_inflight = 0;
     g_tag      = 0;
+    g_deferred_count = 0;
 }
