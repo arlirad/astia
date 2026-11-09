@@ -28,6 +28,7 @@ namespace astia::proc {
             return -ENOMEM;
         }
         child->inherit_groups(*parent);
+        child->signals().inherit_dispositions_from(parent->signals());
         // create_fork_thread() queues the child immediately.  Publish its
         // initial state before that queue entry can run.
         child->state(process_state::runnable);

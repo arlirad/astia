@@ -1016,6 +1016,7 @@ namespace astia::proc {
             !staging.build_user_stack(argv, envp, &stack))
             return false;
         replace_image(staging);
+        signals_.reset_caught_for_exec();
         *entry_out = entry;
         *stack_out = stack;
         return true;
@@ -1038,6 +1039,7 @@ namespace astia::proc {
         close_on_exec_descriptors();
         sys::io_exec_process(this);
         replace_image(staging);
+        signals_.reset_caught_for_exec();
         co_return exec_result{entry, stack};
     }
 

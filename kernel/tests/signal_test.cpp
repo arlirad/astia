@@ -27,6 +27,44 @@ ASTIA_TEST(signal_state_sigwait_consumes_only_matching_signal) {
                 static_cast<astia::signal_number>(0));
 }
 
+ASTIA_TEST(signal_state_fork_inherits_dispositions_without_pending) {
+    astia::signal_state parent;
+    astia::signal_state child;
+    const auto           handler = reinterpret_cast<astia::signal_handler>(0x400123);
+
+    ASTIA_CHECK(parent.disposition(astia::signal_number::usr1,
+                                   {astia::signal_action::handler, handler, 0x12, 0x34}));
+    ASTIA_CHECK(parent.disposition(astia::signal_number::usr2,
+                                   {astia::signal_action::ignore, nullptr}));
+    ASTIA_CHECK(parent.send(astia::signal_number::usr1));
+    child.inherit_dispositions_from(parent);
+
+    const auto inherited_handler = child.disposition(astia::signal_number::usr1);
+    ASTIA_CHECK(inherited_handler.action == astia::signal_action::handler);
+    ASTIA_CHECK(inherited_handler.handler == handler);
+    ASTIA_CHECK(inherited_handler.restorer == 0x12);
+    ASTIA_CHECK(inherited_handler.mask == 0x34);
+    ASTIA_CHECK(child.disposition(astia::signal_number::usr2).action ==
+                astia::signal_action::ignore);
+    ASTIA_CHECK(child.pending() == 0);
+}
+
+ASTIA_TEST(signal_state_exec_resets_caught_and_preserves_ignored) {
+    astia::signal_state state;
+    const auto          handler = reinterpret_cast<astia::signal_handler>(0x400123);
+
+    ASTIA_CHECK(state.disposition(astia::signal_number::usr1,
+                                  {astia::signal_action::handler, handler}));
+    ASTIA_CHECK(state.disposition(astia::signal_number::usr2,
+                                  {astia::signal_action::ignore, nullptr}));
+    state.reset_caught_for_exec();
+
+    ASTIA_CHECK(state.disposition(astia::signal_number::usr1).action ==
+                astia::signal_action::default_action);
+    ASTIA_CHECK(state.disposition(astia::signal_number::usr2).action ==
+                astia::signal_action::ignore);
+}
+
 ASTIA_TEST(signal_state_repeated_wait_preserves_unmatched_signal) {
     astia::signal_state state;
     const auto          first  = astia::signal_bit(astia::signal_number::usr1);

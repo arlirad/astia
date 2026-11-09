@@ -407,6 +407,19 @@ static void* libc_mutex_worker(void* opaque) {
 }
 
 int main(int argc, char** argv) {
+    if (argc > 1 && strcmp(argv[1], "--exec-signal-check") == 0) {
+        sigset_t current;
+        sigset_t unblock;
+        if (sigprocmask(SIG_BLOCK, NULL, &current) != 0 ||
+            !sigismember(&current, SIGUSR1) || !sigismember(&current, SIGUSR2) ||
+            sigemptyset(&unblock) != 0 || sigaddset(&unblock, SIGUSR2) != 0 ||
+            sigprocmask(SIG_UNBLOCK, &unblock, NULL) != 0 || raise(SIGUSR2) != 0 ||
+            sigemptyset(&unblock) != 0 || sigaddset(&unblock, SIGUSR1) != 0 ||
+            sigprocmask(SIG_UNBLOCK, &unblock, NULL) != 0)
+            _Exit(120);
+        raise(SIGUSR1);
+        _Exit(121);
+    }
     /* 1: TLS.  errno is _Thread_local, reached at a negative %fs
        offset — only correct if the kernel loaded the thread pointer
        from the image's PT_TLS block. */
@@ -482,6 +495,8 @@ int main(int argc, char** argv) {
                 !sigismember(&child_mask, SIGUSR1) || sigpending(&pending) != 0 ||
                 sigismember(&pending, SIGUSR1))
                 _Exit(104);
+            if (sigprocmask(SIG_UNBLOCK, &mask, NULL) != 0 || raise(SIGUSR1) != 0)
+                _Exit(108);
             _Exit(0);
         }
         int status = 0;
@@ -492,6 +507,42 @@ int main(int argc, char** argv) {
         action.sa_handler = SIG_DFL;
         if (sigaction(SIGUSR1, &action, NULL) != 0)
             return 107;
+    }
+
+    {
+        struct sigaction caught = {0};
+        struct sigaction ignored = {0};
+        sigset_t          mask;
+        caught.sa_handler  = libc_one_shot_handler;
+        ignored.sa_handler = SIG_IGN;
+        if (sigemptyset(&caught.sa_mask) != 0 ||
+            sigemptyset(&ignored.sa_mask) != 0 ||
+            sigaction(SIGUSR1, &caught, NULL) != 0 ||
+            sigaction(SIGUSR2, &ignored, NULL) != 0 ||
+            sigemptyset(&mask) != 0 || sigaddset(&mask, SIGUSR1) != 0 ||
+            sigaddset(&mask, SIGUSR2) != 0 ||
+            sigprocmask(SIG_BLOCK, &mask, NULL) != 0)
+            return 122;
+        const pid_t child = fork();
+        if (child < 0)
+            return 123;
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/init_libc",
+                                  (char*) "--exec-signal-check", NULL};
+            execv(child_argv[0], child_argv);
+            _Exit(124);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGUSR1)
+            return 125;
+        if (sigprocmask(SIG_UNBLOCK, &mask, NULL) != 0)
+            return 126;
+        caught.sa_handler  = SIG_DFL;
+        ignored.sa_handler = SIG_DFL;
+        if (sigaction(SIGUSR1, &caught, NULL) != 0 ||
+            sigaction(SIGUSR2, &ignored, NULL) != 0)
+            return 127;
     }
 
     {

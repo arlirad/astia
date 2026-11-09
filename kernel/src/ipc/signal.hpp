@@ -121,6 +121,26 @@ namespace astia {
             return valid_signal(signal) ? dispositions_[static_cast<u8>(signal)]
                                         : signal_disposition{};
         }
+        void inherit_dispositions_from(const signal_state& source) {
+            signal_disposition inherited[signal_count]{};
+            {
+                signal_lock_guard guard(source.lock_);
+                for (u8 value = 0; value < signal_count; ++value)
+                    inherited[value] = source.dispositions_[value];
+            }
+            {
+                signal_lock_guard guard(lock_);
+                for (u8 value = 0; value < signal_count; ++value)
+                    dispositions_[value] = inherited[value];
+            }
+        }
+        void reset_caught_for_exec() {
+            signal_lock_guard guard(lock_);
+            for (u8 value = 1; value < signal_count; ++value) {
+                if (dispositions_[value].action == signal_action::handler)
+                    dispositions_[value] = {};
+            }
+        }
         bool disposition(signal_number signal, signal_disposition value) {
             if (!valid_signal(signal) || is_uncatchable(signal))
                 return false;
