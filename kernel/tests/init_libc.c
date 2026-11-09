@@ -619,6 +619,26 @@ int main(int argc, char** argv) {
     }
 
     {
+        const pid_t child = fork();
+        if (child < 0)
+            return 128;
+        if (child == 0) {
+            for (;;)
+                asm volatile("" ::: "memory");
+        }
+        int status = 0;
+        if (kill(child, SIGSTOP) != 0 ||
+            waitpid(child, &status, WUNTRACED) != child || !WIFSTOPPED(status))
+            return 129;
+        if (kill(child, SIGCONT) != 0 ||
+            waitpid(child, &status, WCONTINUED) != child || !WIFCONTINUED(status))
+            return 130;
+        if (kill(child, SIGKILL) != 0 || waitpid(child, &status, 0) != child ||
+            !WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL)
+            return 131;
+    }
+
+    {
         struct sigaction action = {0};
         action.sa_sigaction = child_status_handler;
         action.sa_flags     = SA_SIGINFO;

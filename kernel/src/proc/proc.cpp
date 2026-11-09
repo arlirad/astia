@@ -148,6 +148,15 @@ namespace astia::proc {
         return index < scheduler::max_cpu_count ? current[index] : nullptr;
     }
 
+    void terminate_current_if_killed() {
+        auto* self = current_thread();
+        if (self == nullptr || !self->kill_pending() || self->owner() == nullptr)
+            return;
+        self->owner()->signal_termination(signal_number::kill);
+        self->exit(reinterpret_cast<void*>(static_cast<usize>(
+            wait_signal_exit_status(static_cast<u8>(signal_number::kill)))));
+    }
+
     tid_t allocate_tid() {
         return __atomic_fetch_add(&next_tid, 1u, __ATOMIC_RELAXED);
     }
@@ -549,7 +558,11 @@ namespace astia::proc {
                 if (!targets[i]->signals().send(value, info))
                     return -EINVAL;
                 targets[i]->interrupt_signal_io(value);
-                if (is_uncatchable(value) ||
+                if (value == signal_number::kill) {
+                    targets[i]->signal_termination(signal_number::kill);
+                    targets[i]->request_kill();
+                }
+                else if (is_uncatchable(value) ||
                     targets[i]->signals().disposition(value).action ==
                         signal_action::default_action)
                     targets[i]->signal_state_change(value);

@@ -5,6 +5,7 @@
 #include "pic.hpp"
 #include "pit.hpp"
 #include "smp.hpp"
+#include "../../proc/proc.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
@@ -196,6 +197,11 @@ namespace astia::arch {
         }
         // Spurious LAPIC vector 0xFF and anything >= 49: no source, no EOI
         // (a spurious interrupt must not be acknowledged).
+    }
+
+    extern "C" void astia_interrupt_user_return(registers* frame) {
+        if (frame != nullptr && (frame->cs & 3) != 0)
+            proc::terminate_current_if_killed();
     }
 
     bool init_interrupts() {

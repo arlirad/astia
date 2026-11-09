@@ -620,6 +620,28 @@ namespace astia::proc {
         notify_parent_of_state_change(info);
     }
 
+    void process::request_kill() {
+        thread* wake_list[max_threads_per_process];
+        u32     count = 0;
+        {
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
+            if (state() == process_state::zombie || state() == process_state::dead)
+                return;
+            if (state() == process_state::stopped)
+                state(process_state::runnable);
+            for (u32 i = 0; i < max_threads_per_process; ++i) {
+                thread* value = threads_[i].get();
+                if (value == nullptr || value->state() == thread_state::dead)
+                    continue;
+                value->request_kill();
+                if (value->state() == thread_state::blocked)
+                    wake_list[count++] = value;
+            }
+        }
+        for (u32 i = 0; i < count; ++i)
+            scheduler::wake(wake_list[i]);
+    }
+
     void process::interrupt_signal_io(signal_number signal) {
         const auto disposition = signals_.disposition(signal);
         const bool interrupt =

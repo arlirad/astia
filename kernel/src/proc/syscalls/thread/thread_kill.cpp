@@ -39,7 +39,11 @@ namespace astia::proc::syscall {
         const bool futex_woken = interruptible &&
                                  (target->signals().blocked() & signal_bit(signal)) == 0 &&
                                  futex_interrupt_thread(target.get());
-        if (is_uncatchable(signal) || disposition.action == signal_action::default_action)
+        if (signal == signal_number::kill) {
+            owner->signal_termination(signal_number::kill);
+            owner->request_kill();
+        }
+        else if (is_uncatchable(signal) || disposition.action == signal_action::default_action)
             owner->signal_state_change(signal);
         owner->wake_signal_waiters();
         if (!futex_woken && target->state() == thread_state::blocked)
