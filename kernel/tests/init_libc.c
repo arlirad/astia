@@ -622,6 +622,24 @@ int main(int argc, char** argv) {
     }
 
     {
+        int zero_fd = open("/dev/zero", O_RDWR);
+        if (zero_fd < 0)
+            return 66;
+        unsigned char* first =
+            mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE, zero_fd, 0);
+        unsigned char* second =
+            mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE, zero_fd, 0);
+        if (first == MAP_FAILED || second == MAP_FAILED || first[0] != 0 ||
+            second[0] != 0)
+            return 67;
+        first[0] = 0xA5;
+        if (first[0] != 0xA5 || second[0] != 0)
+            return 68;
+        if (munmap(first, 4096) != 0 || munmap(second, 4096) != 0 || close(zero_fd) != 0)
+            return 69;
+    }
+
+    {
         unsigned char* pages =
             mmap(NULL, 2 * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (pages == MAP_FAILED)
