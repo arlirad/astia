@@ -11,7 +11,7 @@
 
 enum {
     default_stack_size  = 64 * 1024,
-    minimum_stack_size  = 16 * 1024,
+    minimum_stack_size  = PTHREAD_STACK_MIN,
     page_size           = 4096,
     page_alignment_mask = page_size - 1,
 };
@@ -130,56 +130,19 @@ static void pthread_start_trampoline(void* function_value, void* argument) {
     pthread_thread_exit(function(argument));
 }
 
-enum { pthread_stack_records = 16 };
-
-struct pthread_stack_record {
-    pthread_t tid;
-    void*     stack;
-    size_t    size;
-    int       active;
-};
-
-static pthread_mutex_t                  pthread_stack_lock = PTHREAD_MUTEX_INITIALIZER;
-static struct pthread_stack_record      pthread_stacks[pthread_stack_records];
 static _Thread_local int pthread_cancel_state = PTHREAD_CANCEL_ENABLE;
 static _Thread_local int pthread_cancel_type  = PTHREAD_CANCEL_DEFERRED;
-
-static int pthread_stack_record_add(pthread_t tid, void* stack, size_t size) {
-    int result = EAGAIN;
-    pthread_mutex_lock(&pthread_stack_lock);
-    for (size_t i = 0; i < pthread_stack_records; ++i) {
-        if (!pthread_stacks[i].active) {
-            pthread_stacks[i].tid    = tid;
-            pthread_stacks[i].stack  = stack;
-            pthread_stacks[i].size   = size;
-            pthread_stacks[i].active = 1;
-            result = 0;
-            break;
-        }
-    }
-    pthread_mutex_unlock(&pthread_stack_lock);
-    return result;
-}
-
-static void pthread_stack_record_remove(pthread_t tid) {
-    pthread_mutex_lock(&pthread_stack_lock);
-    for (size_t i = 0; i < pthread_stack_records; ++i) {
-        if (pthread_stacks[i].active && pthread_stacks[i].tid == tid) {
-            pthread_stacks[i].tid    = 0;
-            pthread_stacks[i].stack  = NULL;
-            pthread_stacks[i].size   = 0;
-            pthread_stacks[i].active = 0;
-            break;
-        }
-    }
-    pthread_mutex_unlock(&pthread_stack_lock);
-}
 
 int pthread_attr_init(pthread_attr_t* attr) {
     if (attr == NULL)
         return EINVAL;
-    attr->stack_size = default_stack_size;
+    attr->stack_addr  = NULL;
+    attr->stack_size  = default_stack_size;
     attr->detachstate = PTHREAD_CREATE_JOINABLE;
+    attr->inheritsched = PTHREAD_INHERIT_SCHED;
+    attr->scope        = PTHREAD_SCOPE_PROCESS;
+    attr->schedpolicy  = SCHED_OTHER;
+    attr->schedparam.sched_priority = 0;
     return 0;
 }
 
@@ -194,13 +157,124 @@ int pthread_attr_setstacksize(pthread_attr_t* attr, size_t size) {
     return 0;
 }
 
+int pthread_attr_getstacksize(const pthread_attr_t* attr, size_t* size) {
+    if (attr == NULL || size == NULL)
+        return EINVAL;
+    *size = attr->stack_size;
+    return 0;
+}
+
+int pthread_attr_setstackaddr(pthread_attr_t* attr, void* stack_addr) {
+    if (attr == NULL || stack_addr == NULL ||
+        ((uintptr_t) stack_addr & (sizeof(void*) * 2 - 1)) != 0)
+        return EINVAL;
+    attr->stack_addr = stack_addr;
+    return 0;
+}
+
+int pthread_attr_getstackaddr(const pthread_attr_t* attr, void** stack_addr) {
+    if (attr == NULL || stack_addr == NULL)
+        return EINVAL;
+    *stack_addr = attr->stack_addr;
+    return 0;
+}
+
+int pthread_attr_setstack(pthread_attr_t* attr, void* stack_addr, size_t size) {
+    if (attr == NULL || stack_addr == NULL || size < minimum_stack_size ||
+        ((uintptr_t) stack_addr & (sizeof(void*) * 2 - 1)) != 0 ||
+        size > (size_t) -1 - (uintptr_t) stack_addr ||
+        (((uintptr_t) stack_addr + size) & (sizeof(void*) * 2 - 1)) != 0)
+        return EINVAL;
+    attr->stack_addr = stack_addr;
+    attr->stack_size = size;
+    return 0;
+}
+
+int pthread_attr_getstack(const pthread_attr_t* attr, void** stack_addr, size_t* size) {
+    if (attr == NULL || stack_addr == NULL || size == NULL)
+        return EINVAL;
+    *stack_addr = attr->stack_addr;
+    *size       = attr->stack_size;
+    return 0;
+}
+
+int pthread_attr_getdetachstate(const pthread_attr_t* attr, int* detachstate) {
+    if (attr == NULL || detachstate == NULL)
+        return EINVAL;
+    *detachstate = attr->detachstate;
+    return 0;
+}
+
 int pthread_attr_setdetachstate(pthread_attr_t* attr, int detachstate) {
     if (attr == NULL || (detachstate != PTHREAD_CREATE_JOINABLE &&
                          detachstate != PTHREAD_CREATE_DETACHED))
         return EINVAL;
-    if (detachstate == PTHREAD_CREATE_DETACHED)
-        return ENOTSUP;
     attr->detachstate = detachstate;
+    return 0;
+}
+
+int pthread_attr_getinheritsched(const pthread_attr_t* attr, int* inheritsched) {
+    if (attr == NULL || inheritsched == NULL)
+        return EINVAL;
+    *inheritsched = attr->inheritsched;
+    return 0;
+}
+
+int pthread_attr_setinheritsched(pthread_attr_t* attr, int inheritsched) {
+    if (attr == NULL || (inheritsched != PTHREAD_INHERIT_SCHED &&
+                         inheritsched != PTHREAD_EXPLICIT_SCHED))
+        return EINVAL;
+    attr->inheritsched = inheritsched;
+    return 0;
+}
+
+int pthread_attr_getscope(const pthread_attr_t* attr, int* scope) {
+    if (attr == NULL || scope == NULL)
+        return EINVAL;
+    *scope = attr->scope;
+    return 0;
+}
+
+int pthread_attr_setscope(pthread_attr_t* attr, int scope) {
+    if (attr == NULL || (scope != PTHREAD_SCOPE_PROCESS && scope != PTHREAD_SCOPE_SYSTEM))
+        return EINVAL;
+    if (scope == PTHREAD_SCOPE_SYSTEM)
+        return ENOTSUP;
+    attr->scope = scope;
+    return 0;
+}
+
+int pthread_attr_getschedpolicy(const pthread_attr_t* attr, int* policy) {
+    if (attr == NULL || policy == NULL)
+        return EINVAL;
+    *policy = attr->schedpolicy;
+    return 0;
+}
+
+int pthread_attr_setschedpolicy(pthread_attr_t* attr, int policy) {
+    if (attr == NULL)
+        return EINVAL;
+    if (policy != SCHED_OTHER && policy != SCHED_FIFO && policy != SCHED_RR)
+        return EINVAL;
+    if (policy != SCHED_OTHER)
+        return ENOTSUP;
+    attr->schedpolicy = policy;
+    return 0;
+}
+
+int pthread_attr_getschedparam(const pthread_attr_t* attr, struct sched_param* param) {
+    if (attr == NULL || param == NULL)
+        return EINVAL;
+    *param = attr->schedparam;
+    return 0;
+}
+
+int pthread_attr_setschedparam(pthread_attr_t* attr, const struct sched_param* param) {
+    if (attr == NULL || param == NULL)
+        return EINVAL;
+    if (param->sched_priority != 0)
+        return ENOTSUP;
+    attr->schedparam = *param;
     return 0;
 }
 
@@ -208,12 +282,35 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
                    void* (*start_routine)(void*), void*     argument) {
     if (thread == NULL || start_routine == NULL)
         return EINVAL;
+    void* stack_addr = attr == NULL ? NULL : attr->stack_addr;
     size_t stack_size = attr == NULL ? default_stack_size : attr->stack_size;
+    int detachstate = attr == NULL ? PTHREAD_CREATE_JOINABLE : attr->detachstate;
     if (stack_size < minimum_stack_size)
         return EINVAL;
+    if (stack_addr != NULL) {
+        if (stack_size > (size_t) -1 - (uintptr_t) stack_addr)
+            return EINVAL;
+        unsigned long top = (unsigned long) stack_addr + stack_size;
+        if ((top & (sizeof(void*) * 2 - 1)) != 0)
+            return EINVAL;
+        long tid = __astia_process_thread_create2(pthread_start_trampoline, (void*) top,
+                                                  (void*) start_routine, argument);
+        if (tid < 0) {
+            errno = (int) -tid;
+            return errno == EFAULT ? EINVAL : errno;
+        }
+        *thread = (pthread_t) tid;
+        if (detachstate == PTHREAD_CREATE_DETACHED) {
+            long rc = __astia_process_thread_detach((unsigned long) *thread);
+            if (rc < 0)
+                return (int) -rc;
+        }
+        return 0;
+    }
+
     if (stack_size > (size_t) -1 - page_alignment_mask)
         return EINVAL;
-    stack_size  = (stack_size + page_alignment_mask) & ~(size_t) page_alignment_mask;
+    stack_size = (stack_size + page_alignment_mask) & ~(size_t) page_alignment_mask;
     void* stack = mmap(NULL, stack_size, PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
     if (stack == MAP_FAILED)
@@ -227,10 +324,10 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
         return errno;
     }
     *thread = (pthread_t) tid;
-    if (pthread_stack_record_add(*thread, stack, stack_size) != 0) {
-        (void) __astia_process_thread_detach((unsigned long) *thread);
-        errno = EAGAIN;
-        return EAGAIN;
+    if (detachstate == PTHREAD_CREATE_DETACHED) {
+        long rc = __astia_process_thread_detach((unsigned long) *thread);
+        if (rc < 0)
+            return (int) -rc;
     }
     return 0;
 }
@@ -247,7 +344,6 @@ int pthread_join(pthread_t thread, void** result) {
         errno = (int) -rc;
         return errno;
     }
-    pthread_stack_record_remove(thread);
     pthread_testcancel();
     return 0;
 }
@@ -258,7 +354,6 @@ int pthread_detach(pthread_t thread) {
         errno = (int) -rc;
         return errno;
     }
-    pthread_stack_record_remove(thread);
     return 0;
 }
 

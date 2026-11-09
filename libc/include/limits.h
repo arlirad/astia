@@ -14,3 +14,6 @@
 #define ULLONG_MAX 0xffffffffffffffffULL
 #define INT_MAX 0x7fffffff
 #define INT_MIN (-INT_MAX - 1)
+#ifndef PTHREAD_STACK_MIN
+#define PTHREAD_STACK_MIN (16 * 1024)
+#endif

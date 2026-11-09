@@ -92,6 +92,21 @@ static void* libc_stack_worker(void* opaque) {
     return (void*) (unsigned long) (checksum == 200 ? 0x4567 : 0x4568);
 }
 
+static volatile int libc_detached_done;
+
+static void* libc_attr_worker(void* opaque) {
+    volatile unsigned char stack_probe[2048];
+    (void) opaque;
+    stack_probe[0] = 0x5a;
+    return (void*) (unsigned long) (stack_probe[0] == 0x5a ? 0x89ab : 0x89ac);
+}
+
+static void* libc_detached_attr_worker(void* opaque) {
+    (void) opaque;
+    libc_detached_done = 1;
+    return NULL;
+}
+
 static pthread_barrier_t libc_barrier;
 static volatile unsigned int libc_barrier_serials;
 static volatile int libc_barrier_failures;
@@ -797,6 +812,104 @@ int main(int argc, char** argv) {
         if (pthread_join(worker, &result) != 0 ||
             result != (void*) (unsigned long) 0x4567)
             return 59;
+    }
+
+    /* 62-80: pthread attributes preserve their POSIX defaults, use a
+       caller-owned stack without transferring its lifetime, and detach
+       threads when requested.  Scheduling and contention-scope values
+       report the only scheduler semantics this system implements. */
+    {
+        pthread_attr_t attr;
+        size_t         stack_size = 0;
+        void*          stack_addr = (void*) (unsigned long) 1;
+        int            value      = -1;
+        struct sched_param schedparam = {-1};
+        if (pthread_attr_init(&attr) != 0 ||
+            pthread_attr_getstacksize(&attr, &stack_size) != 0 ||
+            stack_size != 64 * 1024 ||
+            pthread_attr_getstackaddr(&attr, &stack_addr) != 0 || stack_addr != NULL ||
+            pthread_attr_getdetachstate(&attr, &value) != 0 ||
+            value != PTHREAD_CREATE_JOINABLE ||
+            pthread_attr_getinheritsched(&attr, &value) != 0 ||
+            value != PTHREAD_INHERIT_SCHED ||
+            pthread_attr_getscope(&attr, &value) != 0 || value != PTHREAD_SCOPE_PROCESS ||
+            pthread_attr_getschedpolicy(&attr, &value) != 0 || value != SCHED_OTHER ||
+            pthread_attr_getschedparam(&attr, &schedparam) != 0 ||
+            schedparam.sched_priority != 0)
+            return 62;
+
+        if (pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN + 1) != 0 ||
+            pthread_attr_getstacksize(&attr, &stack_size) != 0 ||
+            stack_size != PTHREAD_STACK_MIN + 1 ||
+            pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN - 1) != EINVAL)
+            return 63;
+
+        void* custom_stack = mmap(NULL, 32 * 1024, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+        if (custom_stack == MAP_FAILED)
+            return 64;
+        if (pthread_attr_setstack(&attr, custom_stack, 32 * 1024) != 0 ||
+            pthread_attr_getstack(&attr, &stack_addr, &stack_size) != 0 ||
+            stack_addr != custom_stack || stack_size != 32 * 1024)
+            return 65;
+
+        pthread_t worker;
+        void*     result = NULL;
+        if (pthread_create(&worker, &attr, libc_attr_worker, NULL) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x89ab)
+            return 66;
+        if (munmap(custom_stack, 32 * 1024) != 0)
+            return 67;
+
+        custom_stack = mmap(NULL, 32 * 1024, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+        if (custom_stack == MAP_FAILED ||
+            pthread_attr_setstackaddr(&attr, custom_stack) != 0 ||
+            pthread_attr_getstackaddr(&attr, &stack_addr) != 0 ||
+            stack_addr != custom_stack)
+            return 68;
+        result = NULL;
+        if (pthread_create(&worker, &attr, libc_attr_worker, NULL) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x89ab ||
+            munmap(custom_stack, 32 * 1024) != 0)
+            return 69;
+
+        if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0 ||
+            pthread_attr_getdetachstate(&attr, &value) != 0 ||
+            value != PTHREAD_CREATE_DETACHED ||
+            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE) != 0 ||
+            pthread_attr_getdetachstate(&attr, &value) != 0 ||
+            value != PTHREAD_CREATE_JOINABLE)
+            return 70;
+        if (pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED) != 0 ||
+            pthread_attr_getinheritsched(&attr, &value) != 0 ||
+            value != PTHREAD_EXPLICIT_SCHED ||
+            pthread_attr_setscope(&attr, PTHREAD_SCOPE_PROCESS) != 0 ||
+            pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM) != ENOTSUP ||
+            pthread_attr_setschedpolicy(&attr, SCHED_OTHER) != 0 ||
+            pthread_attr_setschedpolicy(&attr, SCHED_FIFO) != ENOTSUP ||
+            pthread_attr_setschedparam(&attr, &schedparam) != 0 ||
+            (schedparam.sched_priority = 1,
+             pthread_attr_setschedparam(&attr, &schedparam)) != ENOTSUP)
+            return 71;
+
+        custom_stack = mmap(NULL, 32 * 1024, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+        if (custom_stack == MAP_FAILED ||
+            pthread_attr_setstack(&attr, custom_stack, 32 * 1024) != 0)
+            return 72;
+        libc_detached_done = 0;
+        if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0 ||
+            pthread_create(&worker, &attr, libc_detached_attr_worker, NULL) != 0)
+            return 73;
+        for (unsigned int i = 0; i < 10000 && !libc_detached_done; ++i)
+            sched_yield();
+        if (!libc_detached_done || munmap(custom_stack, 32 * 1024) != 0)
+            return 74;
+        if (pthread_attr_destroy(&attr) != 0)
+            return 75;
     }
 
     {

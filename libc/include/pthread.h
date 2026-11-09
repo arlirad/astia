@@ -15,8 +15,13 @@ typedef unsigned int  pthread_key_t;
 typedef uint64_t      pthread_once_t;
 
 typedef struct pthread_attr_t {
-    size_t stack_size;
-    int    detachstate;
+    void*              stack_addr;
+    size_t             stack_size;
+    int                detachstate;
+    int                inheritsched;
+    int                scope;
+    int                schedpolicy;
+    struct sched_param schedparam;
 } pthread_attr_t;
 
 typedef struct pthread_mutexattr_t {
@@ -79,6 +84,13 @@ typedef struct __pthread_cleanup_frame {
 #define PTHREAD_MUTEX_ROBUST 1
 #define PTHREAD_CREATE_JOINABLE 0
 #define PTHREAD_CREATE_DETACHED 1
+#define PTHREAD_INHERIT_SCHED 0
+#define PTHREAD_EXPLICIT_SCHED 1
+#define PTHREAD_SCOPE_PROCESS 0
+#define PTHREAD_SCOPE_SYSTEM 1
+#ifndef PTHREAD_STACK_MIN
+#define PTHREAD_STACK_MIN (16 * 1024)
+#endif
 #define PTHREAD_KEYS_MAX 128
 #define PTHREAD_DESTRUCTOR_ITERATIONS 4
 #define PTHREAD_BARRIER_SERIAL_THREAD (-1)
@@ -91,8 +103,25 @@ typedef struct __pthread_cleanup_frame {
 
 int       pthread_attr_init(pthread_attr_t* attr);
 int       pthread_attr_destroy(pthread_attr_t* attr);
+int       pthread_attr_getdetachstate(const pthread_attr_t* attr, int* detachstate);
 int       pthread_attr_setstacksize(pthread_attr_t* attr, size_t size);
+int       pthread_attr_getstacksize(const pthread_attr_t* attr, size_t* size);
+int       pthread_attr_setstackaddr(pthread_attr_t* attr, void* stack_addr);
+int       pthread_attr_getstackaddr(const pthread_attr_t* attr, void** stack_addr);
+int       pthread_attr_setstack(pthread_attr_t* attr, void* stack_addr, size_t size);
+int       pthread_attr_getstack(const pthread_attr_t* attr, void** stack_addr,
+                                size_t* size);
 int       pthread_attr_setdetachstate(pthread_attr_t* attr, int detachstate);
+int       pthread_attr_getinheritsched(const pthread_attr_t* attr, int* inheritsched);
+int       pthread_attr_setinheritsched(pthread_attr_t* attr, int inheritsched);
+int       pthread_attr_getscope(const pthread_attr_t* attr, int* scope);
+int       pthread_attr_setscope(pthread_attr_t* attr, int scope);
+int       pthread_attr_getschedpolicy(const pthread_attr_t* attr, int* policy);
+int       pthread_attr_setschedpolicy(pthread_attr_t* attr, int policy);
+int       pthread_attr_getschedparam(const pthread_attr_t* attr,
+                                     struct sched_param* param);
+int       pthread_attr_setschedparam(pthread_attr_t* attr,
+                                     const struct sched_param* param);
 int       pthread_create(pthread_t* thread, const pthread_attr_t* attr,
                          void* (*start_routine)(void*), void*     argument);
 int       pthread_join(pthread_t thread, void** result);
