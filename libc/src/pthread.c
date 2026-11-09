@@ -162,6 +162,51 @@ int pthread_equal(pthread_t first, pthread_t second) {
     return first == second;
 }
 
+enum {
+    pthread_once_running = 1,
+};
+
+static uint64_t pthread_once_running_state(int pid) {
+    return ((uint64_t) (uint32_t) pid << 32) | pthread_once_running;
+}
+
+int pthread_once(pthread_once_t* once_control, void (*init_routine)(void)) {
+    const int      pid     = getpid();
+    const uint64_t running = pthread_once_running_state(pid);
+
+    if (once_control == NULL || init_routine == NULL || pid <= 0)
+        return EINVAL;
+
+    for (;;) {
+        uint64_t state = __atomic_load_n(once_control, __ATOMIC_ACQUIRE);
+        if (state == UINT64_MAX)
+            return 0;
+        if (state == 0) {
+            uint64_t expected = 0;
+            if (__atomic_compare_exchange_n(once_control, &expected, running, 0,
+                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                break;
+            continue;
+        }
+        if ((int) (uint32_t) (state >> 32) != pid) {
+            uint64_t expected = state;
+            if (__atomic_compare_exchange_n(once_control, &expected, running, 0,
+                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                break;
+            continue;
+        }
+        int result = futex_wait((uint32_t*) once_control, pthread_once_running);
+        if (result == 0 || (result < 0 && (errno == EAGAIN || errno == EINTR)))
+            continue;
+        return errno;
+    }
+
+    init_routine();
+    __atomic_store_n(once_control, UINT64_MAX, __ATOMIC_RELEASE);
+    (void) futex_wake((uint32_t*) once_control, UINT32_MAX);
+    return 0;
+}
+
 int pthread_kill(pthread_t thread, int signal_number) {
     if (signal_number < 0 || signal_number >= NSIG)
         return EINVAL;

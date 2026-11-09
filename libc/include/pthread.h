@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 typedef unsigned long pthread_t;
+typedef uint64_t      pthread_once_t;
 
 typedef struct pthread_attr_t {
     size_t stack_size;
@@ -44,6 +45,7 @@ typedef struct pthread_condattr_t {
 
 #define PTHREAD_MUTEX_INITIALIZER { 0u }
 #define PTHREAD_COND_INITIALIZER { 0u }
+#define PTHREAD_ONCE_INIT 0ull
 #define PTHREAD_PROCESS_PRIVATE 0
 #define PTHREAD_PROCESS_SHARED 1
 #define PTHREAD_MUTEX_NORMAL 0
@@ -74,6 +76,7 @@ int       pthread_join(pthread_t thread, void** result);
 int       pthread_detach(pthread_t thread);
 pthread_t pthread_self(void);
 int       pthread_equal(pthread_t first, pthread_t second);
+int       pthread_once(pthread_once_t* once_control, void (*init_routine)(void));
 void      pthread_exit(void* result) __attribute__((noreturn));
 int       pthread_kill(pthread_t thread, int signal_number);
 int       pthread_sigmask(int how, const sigset_t* set, sigset_t* old_set);

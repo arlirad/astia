@@ -31,6 +31,25 @@ static void* libc_thread_worker(void* opaque) {
     return (void*) (unsigned long) (errno == EINTR ? 0x1234 : 0x1235);
 }
 
+static pthread_once_t    libc_once_control;
+static volatile int      libc_once_started;
+static volatile int      libc_once_release;
+static volatile unsigned libc_once_calls;
+
+static void libc_once_initializer(void) {
+    ++libc_once_calls;
+    libc_once_started = 1;
+    while (!libc_once_release)
+        sched_yield();
+}
+
+static void* libc_once_worker(void* opaque) {
+    (void) opaque;
+    return (void*) (unsigned long) (pthread_once(&libc_once_control, libc_once_initializer) == 0
+                                        ? 0x678a
+                                        : 0x678b);
+}
+
 static void* libc_stack_worker(void* opaque) {
     (void) opaque;
     volatile unsigned char stack_pages[8 * 4096];
@@ -600,6 +619,33 @@ int main(int argc, char** argv) {
             return 24;
         if (value != 42 || result != (void*) (unsigned long) 0x1234 || errno != EAGAIN)
             return 25;
+    }
+
+    {
+        pthread_t workers[4];
+        void*     result = NULL;
+        libc_once_control = PTHREAD_ONCE_INIT;
+        libc_once_started = 0;
+        libc_once_release = 0;
+        libc_once_calls = 0;
+        if (pthread_create(&workers[0], NULL, libc_once_worker, NULL) != 0)
+            return 118;
+        while (!libc_once_started)
+            sched_yield();
+        for (unsigned int i = 1; i < 4; ++i) {
+            if (pthread_create(&workers[i], NULL, libc_once_worker, NULL) != 0)
+                return 119;
+        }
+        for (int i = 0; i < 8; ++i)
+            sched_yield();
+        libc_once_release = 1;
+        for (unsigned int i = 0; i < 4; ++i) {
+            if (pthread_join(workers[i], &result) != 0 ||
+                result != (void*) (unsigned long) 0x678a)
+                return 120;
+        }
+        if (libc_once_calls != 1)
+            return 121;
     }
 
     {
