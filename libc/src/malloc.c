@@ -1,4 +1,6 @@
+#include <errno.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
 /*
@@ -39,15 +41,25 @@ struct blk {
     struct blk* bk;
 };
 
+struct aligned_meta {
+    size_t magic;
+    void*  base;
+    void*  user;
+};
+
 #define HDR sizeof(struct blk)
 
 _Static_assert(HDR % ALIGN_MIN == 0, "header must keep payloads aligned");
+_Static_assert(HDR >= sizeof(struct aligned_meta),
+               "allocation metadata probe must fit in the block header");
 _Static_assert(ARENA_SIZE > HDR + ALIGN_MIN, "arena must hold one block");
 
 static _Alignas(ALIGN_MIN) unsigned char arena[ARENA_SIZE];
 
 static struct blk* free_list; /* first fit, newest at the head */
 static int         arena_ready;
+
+#define ALIGNED_META_MAGIC ((size_t) 0x41535449414d454du)
 
 static void arena_init(void) {
     struct blk* b = (struct blk*) (void*) arena;
@@ -164,9 +176,56 @@ void* malloc(size_t size) {
 }
 
 void free(void* ptr) {
+    struct aligned_meta meta;
+
     if (ptr == NULL)
         return; /* free(NULL) is a no-op, per the standard */
+
+    memcpy(&meta, (char*) ptr - sizeof meta, sizeof meta);
+    if (meta.magic == ALIGNED_META_MAGIC && meta.user == ptr &&
+        meta.base != NULL && (uintptr_t) meta.base % ALIGN_MIN == 0 &&
+        (uintptr_t) meta.base < (uintptr_t) ptr)
+        ptr = meta.base;
     release((struct blk*) ((char*) ptr - HDR));
+}
+
+int posix_memalign(void** memptr, size_t alignment, size_t size) {
+    size_t                 overhead;
+    size_t                 request;
+    void*                  base;
+    uintptr_t              candidate;
+    uintptr_t              aligned;
+    struct aligned_meta*   meta;
+
+    if (memptr == NULL || alignment == 0 ||
+        (alignment & (alignment - 1)) != 0 ||
+        alignment % sizeof(void*) != 0)
+        return EINVAL;
+
+    if (alignment - 1 > (size_t) -1 - sizeof(struct aligned_meta))
+        return ENOMEM;
+    overhead = sizeof(struct aligned_meta) + alignment - 1;
+    if (size > (size_t) -1 - overhead)
+        return ENOMEM;
+
+    request = size + overhead;
+    base    = malloc(request);
+    if (base == NULL)
+        return ENOMEM;
+
+    candidate = (uintptr_t) base + sizeof(struct aligned_meta);
+    if (candidate < (uintptr_t) base ||
+        candidate > (uintptr_t) -1 - (alignment - 1)) {
+        free(base);
+        return ENOMEM;
+    }
+    aligned = (candidate + alignment - 1) & ~(uintptr_t) (alignment - 1);
+    meta    = (struct aligned_meta*) (aligned - sizeof *meta);
+    meta->magic = ALIGNED_META_MAGIC;
+    meta->base  = base;
+    meta->user  = (void*) aligned;
+    *memptr     = meta->user;
+    return 0;
 }
 
 void* calloc(size_t nmemb, size_t size) {

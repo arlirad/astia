@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,6 +73,36 @@ static void test_calloc(void) {
     c = calloc(zero, 8);
     CHECK(c != NULL); /* malloc(0) semantics */
     free(c);
+}
+
+static void test_posix_memalign(void) {
+    static const size_t alignments[] = {sizeof(void*), 16, 32, 4096};
+    void*               p;
+    void*               unchanged = (void*) (uintptr_t) 0x1234;
+
+    for (size_t i = 0; i < sizeof alignments / sizeof alignments[0]; i++) {
+        p = NULL;
+        CHECK(posix_memalign(&p, alignments[i], 37) == 0);
+        CHECK(p != NULL);
+        if (p) {
+            CHECK(((uintptr_t) p % alignments[i]) == 0);
+            memset(p, 0xa5, 37);
+            free(p);
+        }
+    }
+
+    p = unchanged;
+    CHECK(posix_memalign(&p, 0, 1) == EINVAL);
+    CHECK(p == unchanged);
+    CHECK(posix_memalign(&p, 3, 1) == EINVAL);
+    CHECK(p == unchanged);
+    CHECK(posix_memalign(&p, 24, 1) == EINVAL);
+    CHECK(p == unchanged);
+    CHECK(posix_memalign(NULL, sizeof(void*), 1) == EINVAL);
+
+    p = unchanged;
+    CHECK(posix_memalign(&p, sizeof(void*), (size_t) -1) == ENOMEM);
+    CHECK(p == unchanged);
 }
 
 static void test_realloc(void) {
@@ -245,6 +276,7 @@ int main(void) {
     test_alignment_and_content();
     test_zero_and_null();
     test_calloc();
+    test_posix_memalign();
     test_realloc();
     test_coalesce(); /* needs a drained arena */
     test_exhaustion();
