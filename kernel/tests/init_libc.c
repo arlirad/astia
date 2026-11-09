@@ -169,6 +169,17 @@ static void* libc_detached_attr_worker(void* opaque) {
     return NULL;
 }
 
+static volatile unsigned int libc_lifecycle_done;
+
+static void* libc_lifecycle_worker(void* opaque) {
+    volatile unsigned char stack_probe[4096];
+    const unsigned char value = opaque == NULL ? 0x5a : 0xa5;
+    for (unsigned int i = 0; i < sizeof(stack_probe); i += 4096)
+        stack_probe[i] = value;
+    ++libc_lifecycle_done;
+    return (void*) (unsigned long) (stack_probe[0] == value ? 0xace1 : 0xace2);
+}
+
 static pthread_barrier_t libc_barrier;
 static volatile unsigned int libc_barrier_serials;
 static volatile int libc_barrier_failures;
@@ -878,6 +889,38 @@ int main(int argc, char** argv) {
             return 24;
         if (value != 42 || result != (void*) (unsigned long) 0x1234 || errno != EAGAIN)
             return 25;
+    }
+
+    {
+        for (unsigned int i = 0; i < 32; ++i) {
+            pthread_t worker;
+            void*     result = NULL;
+            if (pthread_create(&worker, NULL, libc_lifecycle_worker,
+                               NULL) != 0)
+                return 240 + errno;
+            if (pthread_join(worker, &result) != 0)
+                return 185 + (int) i;
+            if (result != (void*) (unsigned long) 0xace1)
+                return 217 + (int) i;
+        }
+        libc_lifecycle_done = 0;
+        for (unsigned int i = 0; i < 32; ++i) {
+            pthread_t worker;
+            if (pthread_create(&worker, NULL, libc_lifecycle_worker,
+                               NULL) != 0 ||
+                pthread_detach(worker) != 0)
+                return 154;
+        }
+        while (libc_lifecycle_done != 32)
+            sched_yield();
+        for (unsigned int i = 0; i < 32; ++i) {
+            pthread_t worker;
+            if (pthread_create(&worker, NULL, libc_lifecycle_worker,
+                               NULL) != 0)
+                return 155;
+            if (pthread_detach(worker) != 0 || pthread_join(worker, NULL) == 0)
+                return 156;
+        }
     }
 
     {

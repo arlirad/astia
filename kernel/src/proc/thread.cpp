@@ -189,12 +189,23 @@ namespace astia::proc {
             // otherwise leak.  Hand it to the deferred reaper — we are
             // still running on this thread's own kernel stack, so it
             // must not be destroyed right here.
-            if (joiner_ == nullptr && detached()) {
+            thread* joiner = nullptr;
+            bool    reclaim = false;
+            {
+                arch::interrupt_spinlock_guard guard(lifecycle_lock_);
+                joiner  = joiner_;
+                reclaim = joiner == nullptr && detached();
+                if (joiner != nullptr)
+                    scheduler::wake(joiner);
+            }
+            if (reclaim) {
                 defer_dead_thread(owner_->take_thread(this));
             }
         }
-        if (joiner_ != nullptr) {
-            scheduler::wake(joiner_);
+        else {
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
+            if (joiner_ != nullptr)
+                scheduler::wake(joiner_);
         }
         scheduler::yield();
         for (;;) {
@@ -204,72 +215,85 @@ namespace astia::proc {
 
     long thread::join(void** result) {
         thread* current = proc::current_thread();
+        if (current == nullptr) {
+            return -ESRCH;
+        }
         if (current == this) {
             return -EDEADLK;
         }
         bool wait = false;
         {
-            arch::interrupt_guard gate;
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
             if (detached() || joiner_ != nullptr) {
                 return -EINVAL;
             }
             joiner_ = current;
-            if (state() == thread_state::dead) {
-                joiner_ = nullptr;
-            } else {
+            if (state() != thread_state::dead) {
                 wait = true;
-                current->joining_ = this;
+                __atomic_store_n(&current->joining_, this, __ATOMIC_RELEASE);
                 current->state(thread_state::blocked);
                 if (__atomic_exchange_n(&current->join_cancel_wakeup_, false,
                                         __ATOMIC_ACQ_REL)) {
-                    current->joining_ = nullptr;
+                    __atomic_store_n(&current->joining_, static_cast<thread*>(nullptr),
+                                     __ATOMIC_RELEASE);
                     joiner_            = nullptr;
                     current->state(thread_state::running);
                     wait                = false;
                 }
             }
-            gate.unlock();
         }
         if (wait) {
             scheduler::yield();
             if (__atomic_exchange_n(&current->join_cancel_wakeup_, false,
                                     __ATOMIC_ACQ_REL)) {
+                arch::interrupt_spinlock_guard guard(lifecycle_lock_);
                 if (joiner_ == current)
                     joiner_ = nullptr;
-                current->joining_ = nullptr;
+                __atomic_store_n(&current->joining_, static_cast<thread*>(nullptr),
+                                 __ATOMIC_RELEASE);
                 return -EINTR;
             }
         }
         if (result != nullptr)
             *result = result_;
-        current->joining_ = nullptr;
+        __atomic_store_n(&current->joining_, static_cast<thread*>(nullptr),
+                         __ATOMIC_RELEASE);
         if (owner_ != nullptr)
             owner_->release_thread_stack(this);
         if (owner_ != nullptr)
-            owner_->release_thread(this);
+            defer_dead_thread(owner_->take_thread(this));
         return 0;
     }
 
     bool thread::wake_join_for_cancellation() {
         arch::interrupt_guard gate;
-        if (joining_ == nullptr)
+        thread* target = __atomic_load_n(&joining_, __ATOMIC_ACQUIRE);
+        if (target == nullptr)
             return false;
-        join_cancel_wakeup_ = true;
+        arch::interrupt_spinlock_guard target_guard(target->lifecycle_lock_);
+        if (__atomic_load_n(&joining_, __ATOMIC_ACQUIRE) != target)
+            return false;
+        __atomic_store_n(&join_cancel_wakeup_, true, __ATOMIC_RELEASE);
         if (state() == thread_state::blocked)
             (void) scheduler::wake(this);
         return true;
     }
 
     long thread::detach() {
-        if (joiner_ != nullptr) {
-            return -EINVAL;
+        bool dead = false;
+        {
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
+            if (detached() || joiner_ != nullptr) {
+                return -EINVAL;
+            }
+            __atomic_store_n(&detached_, 1, __ATOMIC_RELEASE);
+            dead = state() == thread_state::dead;
         }
-        __atomic_store_n(&detached_, 1, __ATOMIC_RELEASE);
         // A fire-and-forget kernel thread can finish before its creator gets
         // to detach it (especially when it is queued on another CPU).  Its
         // stack is no longer active in this case, so move the process-owned
         // reference to the deferred reaper just as finish() would have done.
-        if (state() == thread_state::dead && owner_ != nullptr) {
+        if (dead && owner_ != nullptr) {
             owner_->release_thread_stack(this);
             defer_dead_thread(owner_->take_thread(this));
         }

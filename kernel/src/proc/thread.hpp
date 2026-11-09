@@ -4,6 +4,7 @@
 #include <astia/arch/context.hpp>
 #include <astia/api/signal.h>
 #include <astia/common.hpp>
+#include <astia/core/spinlock.hpp>
 #include <astia/mm/shptr.hpp>
 
 namespace astia::proc {
@@ -306,6 +307,7 @@ namespace astia::proc {
         bool             gate_open_            = true;
         bool             queued_               = false;
         bool             migratable_           = false;
+        core::spinlock   lifecycle_lock_       = {};
         u32              cpu_owner_            = 0;
         u32              signal_restore_mask_  = 0;
         bool             signal_restore_armed_ = false;
