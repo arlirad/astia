@@ -3,6 +3,7 @@
 #include <sys/mman.h>
 
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -234,6 +235,168 @@ int pthread_mutex_unlock(pthread_mutex_t* mutex) {
         return EPERM;
     (void) futex_wake(&mutex->state, 1);
     return 0;
+}
+
+static int pthread_cond_valid(const pthread_cond_t* cond) {
+    return cond != NULL && __atomic_load_n(&cond->sequence, __ATOMIC_ACQUIRE) != UINT32_MAX;
+}
+
+static int pthread_cond_wake(pthread_cond_t* cond, uint32_t count) {
+    uint32_t sequence;
+
+    if (!pthread_cond_valid(cond))
+        return EINVAL;
+    for (;;) {
+        sequence = __atomic_load_n(&cond->sequence, __ATOMIC_RELAXED);
+        if (sequence == UINT32_MAX)
+            return EINVAL;
+        const uint32_t next = sequence == UINT32_MAX - 1 ? 0 : sequence + 1;
+        if (__atomic_compare_exchange_n(&cond->sequence, &sequence, next, 0,
+                                        __ATOMIC_RELEASE, __ATOMIC_RELAXED))
+            break;
+    }
+    (void) futex_wake(&cond->sequence, count);
+    return 0;
+}
+
+int pthread_condattr_init(pthread_condattr_t* attr) {
+    if (attr == NULL)
+        return EINVAL;
+    attr->pshared = PTHREAD_PROCESS_PRIVATE;
+    attr->clock   = CLOCK_REALTIME;
+    return 0;
+}
+
+int pthread_condattr_destroy(pthread_condattr_t* attr) {
+    return attr == NULL ? EINVAL : 0;
+}
+
+int pthread_condattr_getpshared(const pthread_condattr_t* attr, int* pshared) {
+    if (attr == NULL || pshared == NULL)
+        return EINVAL;
+    *pshared = attr->pshared;
+    return 0;
+}
+
+int pthread_condattr_setpshared(pthread_condattr_t* attr, int pshared) {
+    if (attr == NULL || (pshared != PTHREAD_PROCESS_PRIVATE &&
+                         pshared != PTHREAD_PROCESS_SHARED))
+        return EINVAL;
+    if (pshared == PTHREAD_PROCESS_SHARED)
+        return ENOTSUP;
+    attr->pshared = pshared;
+    return 0;
+}
+
+int pthread_condattr_getclock(const pthread_condattr_t* attr, clockid_t* clock_id) {
+    if (attr == NULL || clock_id == NULL)
+        return EINVAL;
+    *clock_id = attr->clock;
+    return 0;
+}
+
+int pthread_condattr_setclock(pthread_condattr_t* attr, clockid_t clock_id) {
+    if (attr == NULL)
+        return EINVAL;
+    if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
+        return EINVAL;
+    if (clock_id == CLOCK_MONOTONIC)
+        return ENOTSUP;
+    attr->clock = clock_id;
+    return 0;
+}
+
+int pthread_cond_init(pthread_cond_t* cond, const pthread_condattr_t* attr) {
+    if (cond == NULL)
+        return EINVAL;
+    if (attr != NULL && (attr->pshared != PTHREAD_PROCESS_PRIVATE ||
+                         attr->clock != CLOCK_REALTIME))
+        return ENOTSUP;
+    __atomic_store_n(&cond->sequence, 0, __ATOMIC_RELAXED);
+    return 0;
+}
+
+int pthread_cond_destroy(pthread_cond_t* cond) {
+    if (!pthread_cond_valid(cond))
+        return EINVAL;
+    __atomic_store_n(&cond->sequence, UINT32_MAX, __ATOMIC_RELEASE);
+    return 0;
+}
+
+static int pthread_cond_wait_until(pthread_cond_t* cond, pthread_mutex_t* mutex,
+                                   const struct timespec* deadline) {
+    uint32_t sequence;
+    int      result = 0;
+
+    if (!pthread_cond_valid(cond) || mutex == NULL)
+        return EINVAL;
+    if (deadline != NULL && (deadline->tv_sec < 0 || deadline->tv_nsec < 0 ||
+                             deadline->tv_nsec >= 1000000000L))
+        return EINVAL;
+    sequence = __atomic_load_n(&cond->sequence, __ATOMIC_ACQUIRE);
+    if (pthread_mutex_unlock(mutex) != 0)
+        return EPERM;
+    for (;;) {
+        int rc = deadline == NULL ? futex_wait(&cond->sequence, sequence)
+                                  : futex_wait_until(&cond->sequence, sequence, deadline);
+        if (rc == 0 || (rc < 0 && errno == EAGAIN))
+            break;
+        if (rc < 0 && errno == EINTR)
+            continue;
+        result = errno;
+        break;
+    }
+    if (pthread_mutex_lock(mutex) != 0)
+        return EPERM;
+    return result;
+}
+
+int pthread_cond_wait(pthread_cond_t* cond, pthread_mutex_t* mutex) {
+    return pthread_cond_wait_until(cond, mutex, NULL);
+}
+
+int pthread_cond_timedwait(pthread_cond_t* cond, pthread_mutex_t* mutex,
+                           const struct timespec* abstime) {
+    struct timespec realtime;
+    struct timespec monotonic;
+    struct timespec deadline;
+    int64_t         seconds;
+    int64_t         nanoseconds;
+
+    if (abstime == NULL || abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000L)
+        return EINVAL;
+    if (clock_gettime(CLOCK_REALTIME, &realtime) != 0 ||
+        clock_gettime(CLOCK_MONOTONIC, &monotonic) != 0)
+        return errno;
+    seconds     = abstime->tv_sec - realtime.tv_sec;
+    nanoseconds = abstime->tv_nsec - realtime.tv_nsec;
+    if (nanoseconds < 0) {
+        seconds--;
+        nanoseconds += 1000000000L;
+    }
+    if (seconds <= 0 && nanoseconds <= 0) {
+        deadline = monotonic;
+    } else {
+        if (seconds < 0 || monotonic.tv_sec > INT64_MAX - seconds)
+            deadline = monotonic;
+        else {
+            deadline.tv_sec  = monotonic.tv_sec + seconds;
+            deadline.tv_nsec = monotonic.tv_nsec + nanoseconds;
+            if (deadline.tv_nsec >= 1000000000L) {
+                deadline.tv_sec++;
+                deadline.tv_nsec -= 1000000000L;
+            }
+        }
+    }
+    return pthread_cond_wait_until(cond, mutex, &deadline);
+}
+
+int pthread_cond_signal(pthread_cond_t* cond) {
+    return pthread_cond_wake(cond, 1);
+}
+
+int pthread_cond_broadcast(pthread_cond_t* cond) {
+    return pthread_cond_wake(cond, UINT32_MAX);
 }
 
 int pthread_setcancelstate(int state, int* oldstate) {

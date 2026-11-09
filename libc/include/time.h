@@ -15,6 +15,7 @@ typedef int64_t time_t;
 typedef long clock_t;
 #define __clock_t_defined 1
 #endif
+typedef int clockid_t;
 
 #ifndef _STRUCT_TIMESPEC
 #define _STRUCT_TIMESPEC 1

@@ -64,6 +64,49 @@ static void* libc_cross_futex_worker(void* opaque) {
 
 static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile int    libc_mutex_ready;
+static pthread_mutex_t libc_cond_mutex;
+static pthread_cond_t  libc_cond;
+static volatile int    libc_cond_ready;
+static volatile int    libc_cond_go;
+static volatile int    libc_cond_result;
+
+static void* libc_cond_worker(void* opaque) {
+    (void) opaque;
+    if (pthread_mutex_lock(&libc_cond_mutex) != 0) {
+        libc_cond_result = 1;
+        return NULL;
+    }
+    libc_cond_ready = 1;
+    while (!libc_cond_go) {
+        libc_cond_result = pthread_cond_wait(&libc_cond, &libc_cond_mutex);
+        if (libc_cond_result != 0) {
+            pthread_mutex_unlock(&libc_cond_mutex);
+            return NULL;
+        }
+    }
+    libc_cond_result = pthread_mutex_unlock(&libc_cond_mutex);
+    return (void*) (unsigned long) 0x89ab;
+}
+
+static void* libc_cond_timeout_worker(void* opaque) {
+    struct timespec deadline;
+    (void) opaque;
+    if (pthread_mutex_lock(&libc_cond_mutex) != 0) {
+        libc_cond_result = 1;
+        return NULL;
+    }
+    libc_cond_ready = 1;
+    if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+        libc_cond_result = errno;
+        pthread_mutex_unlock(&libc_cond_mutex);
+        return NULL;
+    }
+    deadline.tv_sec++;
+    libc_cond_result = pthread_cond_timedwait(&libc_cond, &libc_cond_mutex, &deadline);
+    if (libc_cond_result == ETIMEDOUT && pthread_mutex_trylock(&libc_cond_mutex) == EBUSY)
+        libc_cond_result = pthread_mutex_unlock(&libc_cond_mutex);
+    return NULL;
+}
 
 static volatile int libc_cancel_join_started;
 static volatile int libc_cancel_join_release;
@@ -682,6 +725,39 @@ int main(int argc, char** argv) {
         if (pthread_join(target, &result) != 0 ||
             result != (void*) (unsigned long) 0x5678)
             return 76;
+    }
+
+    {
+        pthread_t worker;
+        void*     result = NULL;
+        libc_cond_ready = 0;
+        libc_cond_go = 0;
+        libc_cond_result = 0;
+        if (pthread_mutex_init(&libc_cond_mutex, NULL) != 0 ||
+            pthread_cond_init(&libc_cond, NULL) != 0 ||
+            pthread_create(&worker, NULL, libc_cond_worker, NULL) != 0)
+            return 112;
+        while (!libc_cond_ready)
+            sched_yield();
+        if (pthread_mutex_lock(&libc_cond_mutex) != 0)
+            return 113;
+        libc_cond_go = 1;
+        if (pthread_cond_signal(&libc_cond) != 0 ||
+            pthread_mutex_unlock(&libc_cond_mutex) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x89ab || libc_cond_result != 0)
+            return 114;
+        libc_cond_ready = 0;
+        libc_cond_result = 0;
+        if (pthread_create(&worker, NULL, libc_cond_timeout_worker, NULL) != 0)
+            return 115;
+        while (!libc_cond_ready)
+            sched_yield();
+        if (pthread_join(worker, &result) != 0 || libc_cond_result != 0)
+            return 116;
+        if (pthread_cond_destroy(&libc_cond) != 0 ||
+            pthread_mutex_destroy(&libc_cond_mutex) != 0)
+            return 117;
     }
 
     {
