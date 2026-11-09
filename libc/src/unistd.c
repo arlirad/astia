@@ -327,6 +327,8 @@ long sysconf(int name) {
         return 4096;
     case _SC_MAPPED_FILES:
         return 1;
+    case _SC_MEMORY_PROTECTION:
+        return _POSIX_MEMORY_PROTECTION;
     case _SC_CLK_TCK:
         return 100;
     case _SC_OPEN_MAX:

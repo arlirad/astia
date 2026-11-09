@@ -445,8 +445,10 @@ namespace astia::proc {
 
         if (has(flags, map_flags::shared)) {
             auto* shared_region = file->mapping();
+            if (off >= static_cast<u64>(file_size) && prot != map_protection::none) {
+                return -ENXIO;
+            }
             if (shared_region == nullptr || off + want < off ||
-                off >= static_cast<u64>(file_size) ||
                 off / page_bytes + pages > shared_region->pages()) {
                 return -ENOSYS;
             }

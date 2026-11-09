@@ -31,6 +31,8 @@ int main(void) {
     }
     CHECK(sysconf(_SC_PAGESIZE) == 4096);
     CHECK(sysconf(_SC_MAPPED_FILES) > 0);
+    CHECK(_POSIX_MEMORY_PROTECTION == 200809L);
+    CHECK(sysconf(_SC_MEMORY_PROTECTION) == 200809L);
     CHECK(sysconf(_SC_CLK_TCK) == 100);
     CHECK(sysconf(_SC_OPEN_MAX) == 64);
     CHECK(sysconf(_SC_CHILD_MAX) == 64);

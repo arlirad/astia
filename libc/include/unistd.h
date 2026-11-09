@@ -116,6 +116,7 @@ void         _exit(int status) __attribute__((noreturn));
 #define _SC_OPEN_MAX 4
 #define _SC_REALTIME_SIGNALS 9
 #define _SC_MAPPED_FILES 17
+#define _SC_MEMORY_PROTECTION 19
 #define _SC_PAGESIZE 30
 #define _SC_PAGE_SIZE _SC_PAGESIZE
 #define _SC_THREAD_PROCESS_SHARED 82
@@ -124,6 +125,7 @@ void         _exit(int status) __attribute__((noreturn));
 #define _SC_MONOTONIC_CLOCK 149
 
 #define _POSIX_CPUTIME (-1L)
+#define _POSIX_MEMORY_PROTECTION 200809L
 #define _POSIX_THREAD_PROCESS_SHARED (-1L)
 #define _POSIX_CLOCK_SELECTION 200809L
 #define _POSIX_MONOTONIC_CLOCK 200809L
