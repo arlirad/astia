@@ -152,9 +152,13 @@ namespace astia::proc {
         auto* self = current_thread();
         if (self == nullptr || !self->kill_pending() || self->owner() == nullptr)
             return;
-        self->owner()->signal_termination(signal_number::kill);
+        auto* owner = self->owner();
+        const signal_number signal = owner->termination_signal() == signal_number{}
+                                         ? signal_number::kill
+                                         : owner->termination_signal();
+        owner->signal_termination(signal);
         self->exit(reinterpret_cast<void*>(static_cast<usize>(
-            wait_signal_exit_status(static_cast<u8>(signal_number::kill)))));
+            wait_signal_exit_status(static_cast<u8>(signal)))));
     }
 
     tid_t allocate_tid() {

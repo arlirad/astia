@@ -1942,6 +1942,37 @@ int main(int argc, char** argv) {
             return 54;
     }
 
+    {
+        const pid_t fault_child = fork();
+        if (fault_child < 0)
+            return 155;
+        if (fault_child == 0) {
+            unsigned char* page = mmap(NULL, 4096, PROT_NONE,
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (page == MAP_FAILED)
+                _Exit(156);
+            *(volatile unsigned char*) page = 1;
+            _Exit(157);
+        }
+        int status = 0;
+        if (waitpid(fault_child, &status, 0) != fault_child ||
+            (status & 0x7f) != SIGSEGV)
+            return 158;
+
+        const pid_t worker = fork();
+        if (worker < 0)
+            return 159;
+        if (worker == 0) {
+            for (;;)
+                asm volatile("" ::: "memory");
+        }
+        if (kill(worker, SIGSTOP) != 0 ||
+            waitpid(worker, &status, WUNTRACED) != worker || !WIFSTOPPED(status) ||
+            kill(worker, SIGKILL) != 0 || waitpid(worker, &status, 0) != worker ||
+            !WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL)
+            return 160;
+    }
+
     /* 52-60: the public scatter/gather pair over a real file.  writev()
        sends two entries; a fresh open description reads them back
        through three, the middle one empty, so the bytes have to land in

@@ -252,9 +252,8 @@ namespace astia::proc {
             constexpr auto signal = signal_number::segv;
             const auto fatal_signal = [&]() -> bool {
                 owner->signal_termination(signal);
-                self->exit(reinterpret_cast<void*>(static_cast<usize>(
-                    wait_signal_exit_status(static_cast<u8>(signal)))));
-                __builtin_unreachable();
+                self->request_kill();
+                return true;
             };
             const auto disposition = owner->signals().disposition(signal);
             if (disposition.action != signal_action::handler) {

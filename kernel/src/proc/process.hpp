@@ -216,6 +216,9 @@ namespace astia::proc {
         void signal_termination(signal_number signal) {
             termination_signal_ = static_cast<i32>(signal);
         }
+        signal_number termination_signal() const {
+            return static_cast<signal_number>(termination_signal_);
+        }
 
         signal_state& signals() {
             return signals_;
