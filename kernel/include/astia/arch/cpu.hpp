@@ -88,6 +88,14 @@ namespace astia::arch {
             }
         }
 
+        bool was_open() const {
+            return open_;
+        }
+
+        void release_masked() {
+            open_ = false;
+        }
+
         private:
         bool open_; // was the gate open when we masked it?
     };

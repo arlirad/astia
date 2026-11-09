@@ -25,6 +25,8 @@ namespace astia::test {
 
         volatile u32 scheduler_counts[2]{};
         volatile u32 scheduler_gate_result = 0;
+        volatile u32 scheduler_wake_phase  = 0;
+        volatile u32 scheduler_wake_result = 0;
         volatile u32 ap_work_seen       = 0;
         volatile u32 ap_stress_done     = 0;
         volatile u32 ap_stress_cpu_mask = 0;
@@ -50,6 +52,27 @@ namespace astia::test {
                              arch::cpu::check_interrupts() ? 2u : 1u,
                              __ATOMIC_RELEASE);
             arch::cpu::interrupts();
+        }
+
+        void scheduler_wake_worker(void*) {
+            arch::cpu::nointerrupts();
+            proc::current_thread()->state(proc::thread_state::blocked);
+            __atomic_store_n(&scheduler_wake_phase, 1u, __ATOMIC_RELEASE);
+            proc::scheduler::yield();
+            __atomic_store_n(&scheduler_wake_result,
+                             arch::cpu::check_interrupts() ? 2u : 1u,
+                             __ATOMIC_RELEASE);
+            arch::cpu::interrupts();
+        }
+
+        void scheduler_waker(void* argument) {
+            auto* target = static_cast<proc::thread*>(argument);
+            while (__atomic_load_n(&scheduler_wake_phase, __ATOMIC_ACQUIRE) == 0)
+                proc::scheduler::yield();
+            if (!proc::scheduler::wake(target)) {
+                __atomic_store_n(&scheduler_wake_result, 3u, __ATOMIC_RELEASE);
+            }
+            proc::current_thread()->exit();
         }
 
         void ap_scheduler_worker(void*) {
@@ -179,6 +202,39 @@ namespace astia::test {
                     arch::cpu::nointerrupts();
                 }
                 logs::error("scheduler: worker gate=%u", masked_result);
+                return false;
+            }
+            scheduler_wake_phase  = 0;
+            scheduler_wake_result = 0;
+            auto wake_target = proc::scheduler::create_kernel(
+                scheduler_wake_worker, nullptr, proc::scheduling_class::realtime, 0, 1);
+            if (!wake_target || !proc::scheduler::spawn_kernel(scheduler_waker,
+                                                               wake_target.get())) {
+                if (!gate_open) {
+                    arch::cpu::nointerrupts();
+                }
+                logs::error("scheduler: could not spawn wake workers");
+                return false;
+            }
+            for (u32 i = 0;
+                 i < 16 && __atomic_load_n(&scheduler_wake_result, __ATOMIC_ACQUIRE) == 0;
+                 ++i) {
+                proc::scheduler::yield();
+            }
+            const u32 wake_result =
+                __atomic_load_n(&scheduler_wake_result, __ATOMIC_ACQUIRE);
+            if (wake_result != 1) {
+                if (!gate_open) {
+                    arch::cpu::nointerrupts();
+                }
+                logs::error("scheduler: wake gate=%u", wake_result);
+                return false;
+            }
+            if (wake_target->detach() != 0) {
+                if (!gate_open) {
+                    arch::cpu::nointerrupts();
+                }
+                logs::error("scheduler: wake target detach failed");
                 return false;
             }
             scheduler_counts[0] = 0;

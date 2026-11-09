@@ -364,31 +364,17 @@ namespace astia::proc::scheduler {
             return;
         }
 
-        // Remember the caller's gate before masking it.  The value is kept
-        // locally until the switch is committed, so an interrupt in this
-        // small entry window cannot overwrite the resume state of a later
-        // switch.  Blocking protocols such as waitpid and futex yield
-        // masked and therefore resume masked.
-        const bool gate_open = arch::cpu::check_interrupts();
+        arch::interrupt_guard gate;
+        const bool            gate_open = gate.was_open();
         if (gate_open && previous->sched_class() == scheduling_class::normal) {
             previous->charge_runtime(nice_charge(previous->nice()));
         }
-
-        // This body must run to completion.  It saves the live context
-        // into `previous` and, on the way back in, hands the resumed
-        // thread its gate.  A timer frame landing between the enqueue
-        // below and the switch would run all of it a second time on this
-        // same stack, and the second save would park `next`'s context on
-        // `previous`'s kernel stack — after which two threads share one
-        // stack.  So the gate stays shut until the switch has happened.
-        arch::cpu::nointerrupts();
 
         if (!previous->idle() && (previous->state() == thread_state::running ||
                                   previous->state() == thread_state::runnable)) {
             previous->state(thread_state::runnable);
             if (!enqueue(previous)) {
                 previous->state(thread_state::running);
-                restore_gate(gate_open);
                 return;
             }
         }
@@ -404,7 +390,6 @@ namespace astia::proc::scheduler {
             if (previous->state() != thread_state::dead) {
                 previous->state(thread_state::running);
             }
-            restore_gate(gate_open);
             return;
         }
         if (next == previous && gate_open) {
@@ -415,14 +400,12 @@ namespace astia::proc::scheduler {
             next = select_next(cpu_index);
             if (next == nullptr) {
                 previous->state(thread_state::running);
-                restore_gate(gate_open);
                 return;
             }
             enqueue(previous);
         }
         if (next == previous) {
             previous->state(thread_state::running);
-            restore_gate(gate_open);
             return;
         }
         next->state(thread_state::running);
@@ -437,6 +420,7 @@ namespace astia::proc::scheduler {
             arch::cpu::set_kernel_stack(next->kernel_stack_top());
         }
         previous->gate_open(gate_open);
+        gate.release_masked();
         arch::context_switch(previous->context(), next->context());
         if (auto* current = proc::current_thread(); current != nullptr) {
             current->sample_kernel_stack();
