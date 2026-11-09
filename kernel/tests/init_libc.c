@@ -174,6 +174,28 @@ static void* libc_cond_timeout_worker(void* opaque) {
     return NULL;
 }
 
+struct libc_cond_clock_probe {
+    pthread_mutex_t mutex;
+    pthread_cond_t  cond;
+};
+
+static void* libc_cond_clock_worker(void* opaque) {
+    struct libc_cond_clock_probe* probe = (struct libc_cond_clock_probe*) opaque;
+    struct timespec               deadline;
+
+    if (pthread_mutex_lock(&probe->mutex) != 0 ||
+        clock_gettime(CLOCK_MONOTONIC, &deadline) != 0)
+        return (void*) (unsigned long) 0x8a00;
+    deadline.tv_sec++;
+    const int wait_result = pthread_cond_timedwait(&probe->cond, &probe->mutex, &deadline);
+    const int owns_mutex = pthread_mutex_trylock(&probe->mutex) == EBUSY;
+    if (!owns_mutex)
+        pthread_mutex_unlock(&probe->mutex);
+    if (wait_result != ETIMEDOUT || !owns_mutex || pthread_mutex_unlock(&probe->mutex) != 0)
+        return (void*) (unsigned long) 0x8a01;
+    return (void*) (unsigned long) 0x8a02;
+}
+
 static void* libc_mutex_owner_probe(void* opaque) {
     pthread_mutex_t* mutex = (pthread_mutex_t*) opaque;
     return (void*) (unsigned long) (pthread_mutex_unlock(mutex) == EPERM ? 0x9abc : 0x9abd);
@@ -1035,6 +1057,31 @@ int main(int argc, char** argv) {
         if (pthread_cond_destroy(&libc_cond) != 0 ||
             pthread_mutex_destroy(&libc_cond_mutex) != 0)
             return 117;
+    }
+
+    {
+        pthread_condattr_t attr;
+        struct libc_cond_clock_probe probe;
+        pthread_t worker;
+        void* result = NULL;
+        clockid_t clock_id;
+
+        if (pthread_condattr_init(&attr) != 0 ||
+            pthread_condattr_getclock(&attr, &clock_id) != 0 ||
+            clock_id != CLOCK_REALTIME ||
+            pthread_condattr_setclock(&attr, CLOCK_MONOTONIC) != 0 ||
+            pthread_condattr_getclock(&attr, &clock_id) != 0 ||
+            clock_id != CLOCK_MONOTONIC ||
+            pthread_condattr_setclock(&attr, CLOCK_BOOTTIME) != EINVAL ||
+            pthread_mutex_init(&probe.mutex, NULL) != 0 ||
+            pthread_cond_init(&probe.cond, &attr) != 0 ||
+            pthread_create(&worker, NULL, libc_cond_clock_worker, &probe) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x8a02 ||
+            pthread_cond_destroy(&probe.cond) != 0 ||
+            pthread_mutex_destroy(&probe.mutex) != 0 ||
+            pthread_condattr_destroy(&attr) != 0)
+            return 118;
     }
 
     {

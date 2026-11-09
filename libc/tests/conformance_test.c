@@ -170,6 +170,13 @@ static void test_utc_time(void) {
     CHECK(strcmp(text, "1970-01-01 00:00:00") == 0);
     CHECK(mktime(&value) == 0);
     CHECK(clock_gettime(CLOCK_REALTIME, &now) == 0 && now.tv_sec > 0);
+    CHECK(clock_getres(CLOCK_REALTIME, &now) == 0 && now.tv_sec == 0 &&
+          now.tv_nsec > 0 && now.tv_nsec < 1000000000L);
+    CHECK(clock_getres(CLOCK_MONOTONIC, &now) == 0 && now.tv_sec == 0 &&
+          now.tv_nsec > 0 && now.tv_nsec < 1000000000L);
+    errno = 0;
+    CHECK(clock_getres(CLOCK_BOOTTIME, &now) == -1 && errno == EINVAL);
+    CHECK(clock_getres(CLOCK_REALTIME, NULL) == 0);
     CHECK(timespec_get(&now, TIME_UTC) == TIME_UTC);
 
     struct timeval timeval;

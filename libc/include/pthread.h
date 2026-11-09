@@ -37,6 +37,7 @@ typedef struct pthread_mutex_t {
 
 typedef struct pthread_cond_t {
     uint32_t sequence;
+    int      clock;
 } pthread_cond_t;
 
 typedef struct pthread_condattr_t {
@@ -63,7 +64,7 @@ typedef struct __pthread_cleanup_frame {
 } __pthread_cleanup_frame;
 
 #define PTHREAD_MUTEX_INITIALIZER { 0u }
-#define PTHREAD_COND_INITIALIZER { 0u }
+#define PTHREAD_COND_INITIALIZER { 0u, CLOCK_REALTIME }
 #define PTHREAD_ONCE_INIT 0ull
 #define PTHREAD_PROCESS_PRIVATE 0
 #define PTHREAD_PROCESS_SHARED 1

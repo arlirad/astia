@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sys/types.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -54,6 +56,8 @@ struct tms {
 #define CLOCK_BOOTTIME 2
 
 int        clock_gettime(int clock_id, struct timespec* result);
+int        clock_getres(int clock_id, struct timespec* result);
+int        clock_getcpuclockid(pid_t process_id, clockid_t* clock_id);
 int        nanosleep(const struct timespec* requested, struct timespec* remaining);
 time_t     time(time_t* result);
 clock_t    times(struct tms* result);

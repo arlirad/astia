@@ -715,7 +715,8 @@ int pthread_mutex_setprioceiling(pthread_mutex_t* mutex, int prioceiling,
 }
 
 static int pthread_cond_valid(const pthread_cond_t* cond) {
-    return cond != NULL && __atomic_load_n(&cond->sequence, __ATOMIC_ACQUIRE) != UINT32_MAX;
+    return cond != NULL && __atomic_load_n(&cond->sequence, __ATOMIC_ACQUIRE) != UINT32_MAX &&
+           (cond->clock == CLOCK_REALTIME || cond->clock == CLOCK_MONOTONIC);
 }
 
 static int pthread_cond_wake(pthread_cond_t* cond, uint32_t count) {
@@ -777,19 +778,24 @@ int pthread_condattr_setclock(pthread_condattr_t* attr, clockid_t clock_id) {
         return EINVAL;
     if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
         return EINVAL;
-    if (clock_id == CLOCK_MONOTONIC)
-        return ENOTSUP;
     attr->clock = clock_id;
     return 0;
 }
 
 int pthread_cond_init(pthread_cond_t* cond, const pthread_condattr_t* attr) {
+    int clock = CLOCK_REALTIME;
+
     if (cond == NULL)
         return EINVAL;
-    if (attr != NULL && (attr->pshared != PTHREAD_PROCESS_PRIVATE ||
-                         attr->clock != CLOCK_REALTIME))
-        return ENOTSUP;
+    if (attr != NULL) {
+        if (attr->pshared != PTHREAD_PROCESS_PRIVATE)
+            return ENOTSUP;
+        if (attr->clock != CLOCK_REALTIME && attr->clock != CLOCK_MONOTONIC)
+            return EINVAL;
+        clock = attr->clock;
+    }
     __atomic_store_n(&cond->sequence, 0, __ATOMIC_RELAXED);
+    cond->clock = clock;
     return 0;
 }
 
@@ -807,8 +813,7 @@ static int pthread_cond_wait_until(pthread_cond_t* cond, pthread_mutex_t* mutex,
 
     if (!pthread_cond_valid(cond) || mutex == NULL)
         return EINVAL;
-    if (deadline != NULL && (deadline->tv_sec < 0 || deadline->tv_nsec < 0 ||
-                             deadline->tv_nsec >= 1000000000L))
+    if (deadline != NULL && (deadline->tv_nsec < 0 || deadline->tv_nsec >= 1000000000L))
         return EINVAL;
     sequence = __atomic_load_n(&cond->sequence, __ATOMIC_ACQUIRE);
     if (pthread_mutex_unlock(mutex) != 0)
@@ -840,30 +845,39 @@ int pthread_cond_timedwait(pthread_cond_t* cond, pthread_mutex_t* mutex,
     int64_t         seconds;
     int64_t         nanoseconds;
 
-    if (abstime == NULL || abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000L)
+    if (!pthread_cond_valid(cond) || mutex == NULL || abstime == NULL ||
+        abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000L)
         return EINVAL;
+    if (cond->clock == CLOCK_MONOTONIC) {
+        if (abstime->tv_sec >= 0) {
+            deadline = *abstime;
+            return pthread_cond_wait_until(cond, mutex, &deadline);
+        }
+        if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0)
+            return errno;
+        return pthread_cond_wait_until(cond, mutex, &deadline);
+    }
     if (clock_gettime(CLOCK_REALTIME, &realtime) != 0 ||
         clock_gettime(CLOCK_MONOTONIC, &monotonic) != 0)
         return errno;
+    if (abstime->tv_sec < realtime.tv_sec ||
+        (abstime->tv_sec == realtime.tv_sec && abstime->tv_nsec <= realtime.tv_nsec))
+        return pthread_cond_wait_until(cond, mutex, &monotonic);
     seconds     = abstime->tv_sec - realtime.tv_sec;
     nanoseconds = abstime->tv_nsec - realtime.tv_nsec;
     if (nanoseconds < 0) {
         seconds--;
         nanoseconds += 1000000000L;
     }
-    if (seconds <= 0 && nanoseconds <= 0) {
-        deadline = monotonic;
-    } else {
-        if (seconds < 0 || monotonic.tv_sec > INT64_MAX - seconds)
-            deadline = monotonic;
-        else {
-            deadline.tv_sec  = monotonic.tv_sec + seconds;
-            deadline.tv_nsec = monotonic.tv_nsec + nanoseconds;
-            if (deadline.tv_nsec >= 1000000000L) {
-                deadline.tv_sec++;
-                deadline.tv_nsec -= 1000000000L;
-            }
-        }
+    if (seconds > INT64_MAX - monotonic.tv_sec)
+        return EINVAL;
+    deadline.tv_sec  = monotonic.tv_sec + seconds;
+    deadline.tv_nsec = monotonic.tv_nsec + nanoseconds;
+    if (deadline.tv_nsec >= 1000000000L) {
+        if (deadline.tv_sec == INT64_MAX)
+            return EINVAL;
+        deadline.tv_sec++;
+        deadline.tv_nsec -= 1000000000L;
     }
     return pthread_cond_wait_until(cond, mutex, &deadline);
 }

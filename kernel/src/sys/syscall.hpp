@@ -69,6 +69,7 @@ namespace astia::sys {
         thread_kill = 59,
         sigpending = 60,
         sigtimedwait = 61,
+        clock_getres = 62,
     };
 
     /// How many registers the ABI hands every trap — and so the most

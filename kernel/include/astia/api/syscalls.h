@@ -129,6 +129,7 @@ enum {
     SYS_THREAD_KILL      = 59,
     SYS_SIGPENDING       = 60,
     SYS_SIGTIMEDWAIT     = 61,
+    SYS_CLOCK_GETRES     = 62,
 };
 
 /* ------------------------------------------------------------------ */
@@ -290,6 +291,10 @@ static inline long astia_setrlimit(int32_t resource, const astia_rlimit* limit) 
 
 static inline long astia_clock_gettime(uint32_t clock_id, astia_timespec* out) {
     return astia_raw6(SYS_CLOCK_GETTIME, (long) clock_id, (long) out, 0, 0, 0, 0);
+}
+
+static inline long astia_clock_getres(uint32_t clock_id, astia_timespec* out) {
+    return astia_raw6(SYS_CLOCK_GETRES, (long) clock_id, (long) out, 0, 0, 0, 0);
 }
 
 ASTIA_NORETURN static inline void astia_exit(int32_t status) {

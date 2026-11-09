@@ -333,6 +333,12 @@ long sysconf(int name) {
         return 64;
     case _SC_CHILD_MAX:
         return 64;
+    case _SC_CLOCK_SELECTION:
+    case _SC_MONOTONIC_CLOCK:
+        return 1;
+    case _SC_CPUTIME:
+    case _SC_THREAD_PROCESS_SHARED:
+        return -1;
     default:
         errno = EINVAL;
         return -1;

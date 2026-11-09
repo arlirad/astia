@@ -51,6 +51,30 @@ int clock_gettime(int clock_id, struct timespec* result) {
     return 0;
 }
 
+int clock_getres(int clock_id, struct timespec* result) {
+    int64_t sec;
+    int64_t nsec;
+    long    rc;
+
+    rc = __astia_time_clock_getres(clock_id, &sec, &nsec);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    if (result != NULL) {
+        result->tv_sec  = sec;
+        result->tv_nsec = (long) nsec;
+    }
+    return 0;
+}
+
+int clock_getcpuclockid(pid_t process_id, clockid_t* clock_id) {
+    (void) process_id;
+    if (clock_id == NULL)
+        return EINVAL;
+    return ENOSYS;
+}
+
 int gettimeofday(struct timeval* value, struct timezone* timezone) {
     struct timespec now;
     (void) timezone;

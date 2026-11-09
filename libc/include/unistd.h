@@ -111,12 +111,21 @@ void         _exit(int status) __attribute__((noreturn));
 #define STDOUT_FILENO 1
 #define STDERR_FILENO 2
 
-#define _SC_PAGESIZE 1
-#define _SC_PAGE_SIZE _SC_PAGESIZE
-#define _SC_MAPPED_FILES 2
-#define _SC_CLK_TCK 3
+#define _SC_CHILD_MAX 1
+#define _SC_CLK_TCK 2
 #define _SC_OPEN_MAX 4
-#define _SC_CHILD_MAX 5
+#define _SC_MAPPED_FILES 17
+#define _SC_PAGESIZE 30
+#define _SC_PAGE_SIZE _SC_PAGESIZE
+#define _SC_THREAD_PROCESS_SHARED 82
+#define _SC_CLOCK_SELECTION 137
+#define _SC_CPUTIME 138
+#define _SC_MONOTONIC_CLOCK 149
+
+#define _POSIX_CPUTIME (-1L)
+#define _POSIX_THREAD_PROCESS_SHARED (-1L)
+#define _POSIX_CLOCK_SELECTION 200809L
+#define _POSIX_MONOTONIC_CLOCK 200809L
 
 #ifdef __cplusplus
 }
