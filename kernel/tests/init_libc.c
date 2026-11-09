@@ -64,6 +64,7 @@ static void* libc_cross_futex_worker(void* opaque) {
 
 static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile int    libc_mutex_ready;
+static pthread_mutex_t libc_mutex_probe;
 static pthread_mutex_t libc_cond_mutex;
 static pthread_cond_t  libc_cond;
 static volatile int    libc_cond_ready;
@@ -106,6 +107,22 @@ static void* libc_cond_timeout_worker(void* opaque) {
     if (libc_cond_result == ETIMEDOUT && pthread_mutex_trylock(&libc_cond_mutex) == EBUSY)
         libc_cond_result = pthread_mutex_unlock(&libc_cond_mutex);
     return NULL;
+}
+
+static void* libc_mutex_owner_probe(void* opaque) {
+    pthread_mutex_t* mutex = (pthread_mutex_t*) opaque;
+    return (void*) (unsigned long) (pthread_mutex_unlock(mutex) == EPERM ? 0x9abc : 0x9abd);
+}
+
+static void* libc_mutex_timed_probe(void* opaque) {
+    struct timespec deadline;
+    pthread_mutex_t* mutex = (pthread_mutex_t*) opaque;
+    if (clock_gettime(CLOCK_REALTIME, &deadline) != 0)
+        return (void*) (unsigned long) 0x9abe;
+    deadline.tv_sec++;
+    return (void*) (unsigned long) (pthread_mutex_timedlock(mutex, &deadline) == ETIMEDOUT
+                                        ? 0x9abf
+                                        : 0x9ac0);
 }
 
 static volatile int libc_cancel_join_started;
@@ -699,6 +716,56 @@ int main(int argc, char** argv) {
             pthread_mutex_unlock(NULL) != EINVAL ||
             pthread_mutex_destroy(NULL) != EINVAL)
             return 38;
+    }
+
+    {
+        pthread_mutexattr_t attr;
+        pthread_t            worker;
+        void*                result = NULL;
+        struct timespec      invalid = {0, -1};
+
+        if (pthread_mutexattr_init(&attr) != 0 ||
+            pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED) != ENOTSUP ||
+            pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT) != ENOTSUP ||
+            pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST) != ENOTSUP ||
+            pthread_mutexattr_setprioceiling(&attr, 1) != ENOTSUP ||
+            pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK) != 0 ||
+            pthread_mutex_init(&libc_mutex_probe, &attr) != 0)
+            return 90;
+        if (pthread_mutex_lock(&libc_mutex_probe) != 0 ||
+            pthread_mutex_lock(&libc_mutex_probe) != EDEADLK ||
+            pthread_create(&worker, NULL, libc_mutex_owner_probe, &libc_mutex_probe) != 0)
+            return 91;
+        if (pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x9abc ||
+            pthread_mutex_unlock(&libc_mutex_probe) != 0 ||
+            pthread_mutex_destroy(&libc_mutex_probe) != 0)
+            return 92;
+        if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0)
+            return 93;
+        if (pthread_mutex_init(&libc_mutex_probe, &attr) != 0)
+            return 93;
+        if (pthread_mutex_lock(&libc_mutex_probe) != 0)
+            return 93;
+        if (pthread_mutex_lock(&libc_mutex_probe) != 0)
+            return 93;
+        if (pthread_mutex_unlock(&libc_mutex_probe) != 0)
+            return 93;
+        if (pthread_mutex_unlock(&libc_mutex_probe) != 0)
+            return 93;
+        if (pthread_mutex_destroy(&libc_mutex_probe) != 0 ||
+            pthread_mutexattr_destroy(&attr) != 0)
+            return 93;
+
+        if (pthread_mutex_init(&libc_mutex_probe, NULL) != 0 ||
+            pthread_mutex_lock(&libc_mutex_probe) != 0 ||
+            pthread_mutex_timedlock(&libc_mutex_probe, &invalid) != EINVAL ||
+            pthread_create(&worker, NULL, libc_mutex_timed_probe, &libc_mutex_probe) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x9abf ||
+            pthread_mutex_unlock(&libc_mutex_probe) != 0 ||
+            pthread_mutex_destroy(&libc_mutex_probe) != 0)
+            return 94;
     }
 
     /* A deferred cancellation must wake a thread blocked in pthread_join,

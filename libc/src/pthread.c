@@ -71,6 +71,7 @@ int pthread_attr_init(pthread_attr_t* attr) {
     if (attr == NULL)
         return EINVAL;
     attr->stack_size = default_stack_size;
+    attr->detachstate = PTHREAD_CREATE_JOINABLE;
     return 0;
 }
 
@@ -82,6 +83,16 @@ int pthread_attr_setstacksize(pthread_attr_t* attr, size_t size) {
     if (attr == NULL || size < minimum_stack_size)
         return EINVAL;
     attr->stack_size = size;
+    return 0;
+}
+
+int pthread_attr_setdetachstate(pthread_attr_t* attr, int detachstate) {
+    if (attr == NULL || (detachstate != PTHREAD_CREATE_JOINABLE &&
+                         detachstate != PTHREAD_CREATE_DETACHED))
+        return EINVAL;
+    if (detachstate == PTHREAD_CREATE_DETACHED)
+        return ENOTSUP;
+    attr->detachstate = detachstate;
     return 0;
 }
 
@@ -189,11 +200,118 @@ void pthread_exit(void* result) {
     __builtin_unreachable();
 }
 
+enum { pthread_mutexattr_magic = 0x4d415454u };
+
+static int pthread_mutexattr_valid(const pthread_mutexattr_t* attr) {
+    return attr != NULL &&
+           __atomic_load_n(&attr->magic, __ATOMIC_ACQUIRE) == pthread_mutexattr_magic;
+}
+
+static int pthread_mutex_type_valid(int type) {
+    return type == PTHREAD_MUTEX_NORMAL || type == PTHREAD_MUTEX_RECURSIVE ||
+           type == PTHREAD_MUTEX_ERRORCHECK;
+}
+
+static int pthread_mutex_owner(const pthread_mutex_t* mutex, pthread_t owner) {
+    return __atomic_load_n(&mutex->owner, __ATOMIC_ACQUIRE) == owner;
+}
+
+static int pthread_mutex_relock(pthread_mutex_t* mutex, pthread_t owner, int try_only,
+                                int* owned) {
+    const int type = (int) __atomic_load_n(&mutex->type, __ATOMIC_RELAXED);
+
+    *owned = pthread_mutex_owner(mutex, owner);
+    if (!*owned)
+        return 0;
+    if (type == PTHREAD_MUTEX_RECURSIVE) {
+        const uint32_t recursion = __atomic_load_n(&mutex->recursion, __ATOMIC_RELAXED);
+        if (recursion == UINT32_MAX)
+            return EAGAIN;
+        __atomic_store_n(&mutex->recursion, recursion + 1, __ATOMIC_RELAXED);
+        return 0;
+    }
+    return type == PTHREAD_MUTEX_ERRORCHECK ? (try_only ? EBUSY : EDEADLK) : 0;
+}
+
+static int pthread_mutex_lock_until(pthread_mutex_t* mutex,
+                                    const struct timespec* deadline) {
+    const pthread_t owner = pthread_self();
+
+    for (;;) {
+        uint32_t expected = 0;
+        if (__atomic_compare_exchange_n(&mutex->state, &expected, 1, 0,
+                                        __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            __atomic_store_n(&mutex->owner, owner, __ATOMIC_RELEASE);
+            __atomic_store_n(&mutex->recursion, 1, __ATOMIC_RELAXED);
+            return 0;
+        }
+        const int type = (int) __atomic_load_n(&mutex->type, __ATOMIC_RELAXED);
+        if (type == PTHREAD_MUTEX_RECURSIVE || type == PTHREAD_MUTEX_ERRORCHECK) {
+            int owned;
+            const int relock = pthread_mutex_relock(mutex, owner, 0, &owned);
+            if (owned)
+                return relock;
+        }
+        int result = deadline == NULL ? futex_wait(&mutex->state, 1)
+                                      : futex_wait_until(&mutex->state, 1, deadline);
+        if (result == 0 || (result < 0 && errno == EAGAIN))
+            continue;
+        if (result < 0 && errno == EINTR)
+            continue;
+        return result < 0 ? errno : 0;
+    }
+}
+
+static int pthread_mutex_deadline(const struct timespec* abstime,
+                                  struct timespec* deadline) {
+    struct timespec realtime;
+    struct timespec monotonic;
+    int64_t         seconds;
+    int64_t         nanoseconds;
+
+    if (abstime == NULL || abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000L)
+        return EINVAL;
+    if (clock_gettime(CLOCK_REALTIME, &realtime) != 0 ||
+        clock_gettime(CLOCK_MONOTONIC, &monotonic) != 0)
+        return errno;
+    seconds     = (int64_t) abstime->tv_sec - (int64_t) realtime.tv_sec;
+    nanoseconds = (int64_t) abstime->tv_nsec - (int64_t) realtime.tv_nsec;
+    if (nanoseconds < 0) {
+        seconds--;
+        nanoseconds += 1000000000L;
+    }
+    if (seconds < 0 || (seconds == 0 && nanoseconds == 0)) {
+        *deadline = monotonic;
+        return 0;
+    }
+    if (seconds > INT64_MAX - (int64_t) monotonic.tv_sec)
+        return EINVAL;
+    deadline->tv_sec  = monotonic.tv_sec + seconds;
+    deadline->tv_nsec = monotonic.tv_nsec + nanoseconds;
+    if (deadline->tv_nsec >= 1000000000L) {
+        deadline->tv_sec++;
+        deadline->tv_nsec -= 1000000000L;
+    }
+    return 0;
+}
+
 int pthread_mutex_init(pthread_mutex_t* mutex, const pthread_mutexattr_t* attr) {
-    (void) attr;
     if (mutex == NULL)
         return EINVAL;
+    if (attr != NULL) {
+        if (!pthread_mutexattr_valid(attr))
+            return EINVAL;
+        if (attr->pshared == PTHREAD_PROCESS_SHARED ||
+            attr->protocol != PTHREAD_PRIO_NONE || attr->robust != PTHREAD_MUTEX_STALLED)
+            return ENOTSUP;
+        if (!pthread_mutex_type_valid(attr->type))
+            return EINVAL;
+    }
     __atomic_store_n(&mutex->state, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&mutex->type, attr == NULL ? PTHREAD_MUTEX_DEFAULT : attr->type,
+                     __ATOMIC_RELAXED);
+    __atomic_store_n(&mutex->owner, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&mutex->recursion, 0, __ATOMIC_RELAXED);
     return 0;
 }
 
@@ -208,13 +326,7 @@ int pthread_mutex_destroy(pthread_mutex_t* mutex) {
 int pthread_mutex_lock(pthread_mutex_t* mutex) {
     if (mutex == NULL)
         return EINVAL;
-    for (;;) {
-        uint32_t expected = 0;
-        if (__atomic_compare_exchange_n(&mutex->state, &expected, 1, 0,
-                                        __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
-            return 0;
-        (void) futex_wait(&mutex->state, 1);
-    }
+    return pthread_mutex_lock_until(mutex, NULL);
 }
 
 int pthread_mutex_trylock(pthread_mutex_t* mutex) {
@@ -223,18 +335,162 @@ int pthread_mutex_trylock(pthread_mutex_t* mutex) {
     if (mutex == NULL)
         return EINVAL;
     if (__atomic_compare_exchange_n(&mutex->state, &expected, 1, 0,
-                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+        __atomic_store_n(&mutex->owner, pthread_self(), __ATOMIC_RELEASE);
+        __atomic_store_n(&mutex->recursion, 1, __ATOMIC_RELAXED);
         return 0;
+    }
+    if (__atomic_load_n(&mutex->type, __ATOMIC_RELAXED) == PTHREAD_MUTEX_RECURSIVE ||
+        __atomic_load_n(&mutex->type, __ATOMIC_RELAXED) == PTHREAD_MUTEX_ERRORCHECK) {
+        int owned;
+        const int relock = pthread_mutex_relock(mutex, pthread_self(), 1, &owned);
+        if (owned)
+            return relock;
+    }
     return EBUSY;
 }
 
 int pthread_mutex_unlock(pthread_mutex_t* mutex) {
+    const pthread_t owner = pthread_self();
+
     if (mutex == NULL)
         return EINVAL;
-    if (__atomic_exchange_n(&mutex->state, 0, __ATOMIC_RELEASE) == 0)
+    if (__atomic_load_n(&mutex->state, __ATOMIC_ACQUIRE) == 0 ||
+        !pthread_mutex_owner(mutex, owner))
         return EPERM;
+    if (__atomic_load_n(&mutex->type, __ATOMIC_RELAXED) == PTHREAD_MUTEX_RECURSIVE) {
+        const uint32_t recursion = __atomic_load_n(&mutex->recursion, __ATOMIC_RELAXED);
+        if (recursion > 1) {
+            __atomic_store_n(&mutex->recursion, recursion - 1, __ATOMIC_RELAXED);
+            return 0;
+        }
+    }
+    __atomic_store_n(&mutex->owner, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&mutex->recursion, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&mutex->state, 0, __ATOMIC_RELEASE);
     (void) futex_wake(&mutex->state, 1);
     return 0;
+}
+
+int pthread_mutex_timedlock(pthread_mutex_t* mutex, const struct timespec* abstime) {
+    struct timespec deadline;
+    int             result;
+
+    if (mutex == NULL)
+        return EINVAL;
+    result = pthread_mutex_deadline(abstime, &deadline);
+    if (result != 0)
+        return result;
+    return pthread_mutex_lock_until(mutex, &deadline);
+}
+
+int pthread_mutexattr_init(pthread_mutexattr_t* attr) {
+    if (attr == NULL)
+        return EINVAL;
+    attr->pshared     = PTHREAD_PROCESS_PRIVATE;
+    attr->type        = PTHREAD_MUTEX_DEFAULT;
+    attr->protocol    = PTHREAD_PRIO_NONE;
+    attr->prioceiling = 0;
+    attr->robust      = PTHREAD_MUTEX_STALLED;
+    __atomic_store_n(&attr->magic, pthread_mutexattr_magic, __ATOMIC_RELEASE);
+    return 0;
+}
+
+int pthread_mutexattr_destroy(pthread_mutexattr_t* attr) {
+    if (!pthread_mutexattr_valid(attr))
+        return EINVAL;
+    __atomic_store_n(&attr->magic, 0, __ATOMIC_RELEASE);
+    return 0;
+}
+
+int pthread_mutexattr_getpshared(const pthread_mutexattr_t* attr, int* pshared) {
+    if (!pthread_mutexattr_valid(attr) || pshared == NULL)
+        return EINVAL;
+    *pshared = attr->pshared;
+    return 0;
+}
+
+int pthread_mutexattr_setpshared(pthread_mutexattr_t* attr, int pshared) {
+    if (!pthread_mutexattr_valid(attr) ||
+        (pshared != PTHREAD_PROCESS_PRIVATE && pshared != PTHREAD_PROCESS_SHARED))
+        return EINVAL;
+    if (pshared == PTHREAD_PROCESS_SHARED)
+        return ENOTSUP;
+    attr->pshared = pshared;
+    return 0;
+}
+
+int pthread_mutexattr_gettype(const pthread_mutexattr_t* attr, int* type) {
+    if (!pthread_mutexattr_valid(attr) || type == NULL)
+        return EINVAL;
+    *type = attr->type;
+    return 0;
+}
+
+int pthread_mutexattr_settype(pthread_mutexattr_t* attr, int type) {
+    if (!pthread_mutexattr_valid(attr) || !pthread_mutex_type_valid(type))
+        return EINVAL;
+    attr->type = type;
+    return 0;
+}
+
+int pthread_mutexattr_getprotocol(const pthread_mutexattr_t* attr, int* protocol) {
+    if (!pthread_mutexattr_valid(attr) || protocol == NULL)
+        return EINVAL;
+    *protocol = attr->protocol;
+    return 0;
+}
+
+int pthread_mutexattr_setprotocol(pthread_mutexattr_t* attr, int protocol) {
+    if (!pthread_mutexattr_valid(attr) ||
+        (protocol != PTHREAD_PRIO_NONE && protocol != PTHREAD_PRIO_INHERIT &&
+         protocol != PTHREAD_PRIO_PROTECT))
+        return EINVAL;
+    if (protocol != PTHREAD_PRIO_NONE)
+        return ENOTSUP;
+    attr->protocol = protocol;
+    return 0;
+}
+
+int pthread_mutexattr_getprioceiling(const pthread_mutexattr_t* attr, int* prioceiling) {
+    if (!pthread_mutexattr_valid(attr) || prioceiling == NULL)
+        return EINVAL;
+    return ENOTSUP;
+}
+
+int pthread_mutexattr_setprioceiling(pthread_mutexattr_t* attr, int prioceiling) {
+    (void) prioceiling;
+    return pthread_mutexattr_valid(attr) ? ENOTSUP : EINVAL;
+}
+
+int pthread_mutexattr_getrobust(const pthread_mutexattr_t* attr, int* robust) {
+    if (!pthread_mutexattr_valid(attr) || robust == NULL)
+        return EINVAL;
+    *robust = attr->robust;
+    return 0;
+}
+
+int pthread_mutexattr_setrobust(pthread_mutexattr_t* attr, int robust) {
+    if (!pthread_mutexattr_valid(attr) ||
+        (robust != PTHREAD_MUTEX_STALLED && robust != PTHREAD_MUTEX_ROBUST))
+        return EINVAL;
+    if (robust == PTHREAD_MUTEX_ROBUST)
+        return ENOTSUP;
+    attr->robust = robust;
+    return 0;
+}
+
+int pthread_mutex_getprioceiling(const pthread_mutex_t* mutex, int* prioceiling) {
+    if (mutex == NULL || prioceiling == NULL)
+        return EINVAL;
+    return ENOTSUP;
+}
+
+int pthread_mutex_setprioceiling(pthread_mutex_t* mutex, int prioceiling,
+                                  int* old_ceiling) {
+    (void) prioceiling;
+    (void) old_ceiling;
+    return mutex == NULL ? EINVAL : ENOTSUP;
 }
 
 static int pthread_cond_valid(const pthread_cond_t* cond) {
