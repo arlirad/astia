@@ -149,8 +149,8 @@ Run the initial process/signal batch under the Astia kernel and QEMU:
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh
 ```
 
-The initial batch is `kill/2-1`, a runnable null-signal test. It currently
-passes as `POSIX_TEST kill/2-1 PASS rc=0`. `getpid/1-1` now builds with
+The initial batch is `fork/4-1`, `fork/9-1`, and `kill/2-1`. The fork tests
+cover process creation and the POSIX alarm reset rule; `getpid/1-1` now builds with
 Astia's pthread mutex and cancellation declarations. Its getpid semantics
 dependencies `sysconf`, `mkstemp`, and `ftruncate` are implemented. Astia
 reports its actual limits via `sysconf`: 64 open descriptors, 64 processes,
