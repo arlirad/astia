@@ -62,6 +62,10 @@ typedef struct pthread_barrierattr_t {
     int pshared;
 } pthread_barrierattr_t;
 
+typedef struct pthread_spinlock_t {
+    pthread_t owner;
+} pthread_spinlock_t;
+
 typedef struct __pthread_cleanup_frame {
     void (*routine)(void*);
     void* arg;
@@ -162,6 +166,11 @@ int       pthread_mutexattr_setrobust(pthread_mutexattr_t* attr, int robust);
 int       pthread_mutex_getprioceiling(const pthread_mutex_t* mutex, int* prioceiling);
 int       pthread_mutex_setprioceiling(pthread_mutex_t* mutex, int prioceiling,
                                        int* old_ceiling);
+int       pthread_spin_init(pthread_spinlock_t* lock, int pshared);
+int       pthread_spin_destroy(pthread_spinlock_t* lock);
+int       pthread_spin_lock(pthread_spinlock_t* lock);
+int       pthread_spin_trylock(pthread_spinlock_t* lock);
+int       pthread_spin_unlock(pthread_spinlock_t* lock);
 int       pthread_condattr_init(pthread_condattr_t* attr);
 int       pthread_condattr_destroy(pthread_condattr_t* attr);
 int       pthread_condattr_getpshared(const pthread_condattr_t* attr, int* pshared);

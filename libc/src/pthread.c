@@ -840,6 +840,66 @@ int pthread_mutex_setprioceiling(pthread_mutex_t* mutex, int prioceiling,
     return mutex == NULL ? EINVAL : ENOTSUP;
 }
 
+static int pthread_spin_acquire(pthread_spinlock_t* lock, int try_only) {
+    const pthread_t owner = pthread_self();
+    unsigned int    backoff = 1;
+
+    for (;;) {
+        pthread_t expected = 0;
+        if (__atomic_compare_exchange_n(&lock->owner, &expected, owner, 0,
+                                        __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+            return 0;
+        if (try_only)
+            return EBUSY;
+        for (unsigned int attempt = 0; attempt < backoff; ++attempt)
+            sched_yield();
+        if (backoff < 64)
+            backoff *= 2;
+    }
+}
+
+int pthread_spin_init(pthread_spinlock_t* lock, int pshared) {
+    if (lock == NULL)
+        return EINVAL;
+    if (pshared == PTHREAD_PROCESS_SHARED)
+        return ENOTSUP;
+    if (pshared != PTHREAD_PROCESS_PRIVATE)
+        return EINVAL;
+    __atomic_store_n(&lock->owner, 0, __ATOMIC_RELAXED);
+    return 0;
+}
+
+int pthread_spin_destroy(pthread_spinlock_t* lock) {
+    if (lock == NULL)
+        return EINVAL;
+    return __atomic_load_n(&lock->owner, __ATOMIC_ACQUIRE) == 0 ? 0 : EBUSY;
+}
+
+int pthread_spin_lock(pthread_spinlock_t* lock) {
+    if (lock == NULL)
+        return EINVAL;
+    return pthread_spin_acquire(lock, 0);
+}
+
+int pthread_spin_trylock(pthread_spinlock_t* lock) {
+    if (lock == NULL)
+        return EINVAL;
+    return pthread_spin_acquire(lock, 1);
+}
+
+int pthread_spin_unlock(pthread_spinlock_t* lock) {
+    const pthread_t owner = pthread_self();
+    pthread_t       expected;
+
+    if (lock == NULL)
+        return EINVAL;
+    expected = owner;
+    return __atomic_compare_exchange_n(&lock->owner, &expected, 0, 0,
+                                       __ATOMIC_RELEASE, __ATOMIC_RELAXED)
+               ? 0
+               : EPERM;
+}
+
 static int pthread_cond_valid(const pthread_cond_t* cond) {
     return cond != NULL && __atomic_load_n(&cond->sequence, __ATOMIC_ACQUIRE) != UINT32_MAX &&
            (cond->clock == CLOCK_REALTIME || cond->clock == CLOCK_MONOTONIC);

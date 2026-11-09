@@ -228,6 +228,33 @@ static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile int    libc_mutex_ready;
 static pthread_mutex_t libc_mutex_probe;
 static pthread_mutex_t libc_cond_mutex;
+static pthread_spinlock_t libc_spinlock;
+
+struct libc_spin_probe {
+    volatile unsigned int count;
+    volatile int          failure;
+};
+
+static void* libc_spin_worker(void* opaque) {
+    struct libc_spin_probe* probe = (struct libc_spin_probe*) opaque;
+    const struct timespec delay = {0, 1000000};
+
+    for (unsigned int round = 0; round < 16; ++round) {
+        if (pthread_spin_lock(&libc_spinlock) != 0) {
+            probe->failure = 1;
+            return NULL;
+        }
+        ++probe->count;
+        if ((round & 3) == 0)
+            nanosleep(&delay, NULL);
+        if (pthread_spin_unlock(&libc_spinlock) != 0) {
+            probe->failure = 1;
+            return NULL;
+        }
+    }
+    return NULL;
+}
+
 static pthread_cond_t  libc_cond;
 static volatile int    libc_cond_ready;
 static volatile int    libc_cond_go;
@@ -1499,6 +1526,39 @@ int main(int argc, char** argv) {
             pthread_mutex_unlock(&libc_mutex_probe) != 0 ||
             pthread_mutex_destroy(&libc_mutex_probe) != 0)
             return 94;
+    }
+
+    {
+        struct libc_spin_probe probe = {0};
+        pthread_t              workers[3];
+        const struct timespec  delay = {0, 1000000};
+
+        if (pthread_spin_init(NULL, PTHREAD_PROCESS_PRIVATE) != EINVAL ||
+            pthread_spin_init(&libc_spinlock, PTHREAD_PROCESS_SHARED) != ENOTSUP ||
+            pthread_spin_init(&libc_spinlock, -1) != EINVAL ||
+            pthread_spin_init(&libc_spinlock, PTHREAD_PROCESS_PRIVATE) != 0 ||
+            pthread_spin_lock(NULL) != EINVAL ||
+            pthread_spin_trylock(NULL) != EINVAL ||
+            pthread_spin_unlock(NULL) != EINVAL ||
+            pthread_spin_destroy(NULL) != EINVAL)
+            return 161;
+        if (pthread_spin_lock(&libc_spinlock) != 0 ||
+            pthread_spin_trylock(&libc_spinlock) != EBUSY ||
+            pthread_spin_destroy(&libc_spinlock) != EBUSY)
+            return 162;
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_create(&workers[i], NULL, libc_spin_worker, &probe) != 0)
+                return 163;
+        }
+        if (nanosleep(&delay, NULL) != 0 || pthread_spin_unlock(&libc_spinlock) != 0)
+            return 164;
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_join(workers[i], NULL) != 0)
+                return 165;
+        }
+        if (probe.failure != 0 || probe.count != 3 * 16 ||
+            pthread_spin_destroy(&libc_spinlock) != 0)
+            return 166;
     }
 
     /* A deferred cancellation must wake a thread blocked in pthread_join,
