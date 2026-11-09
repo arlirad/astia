@@ -150,6 +150,32 @@ ASTIA_TEST(phys_region_split_rejects_unmaterialized_page) {
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
 
+ASTIA_TEST(phys_region_copy_page_rolls_back_on_allocation_failure) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(1, true);
+    ASTIA_CHECK(region != nullptr);
+    const auto frame = region->page_base(0);
+    const auto used  = astia::mm::heap::used();
+    void*      held[4096]{};
+    astia::usize held_count = 0;
+    while (held_count < sizeof held / sizeof held[0]) {
+        auto block = astia::mm::heap::alloc(16);
+        if (!block)
+            break;
+        held[held_count++] = block.value;
+    }
+    ASTIA_CHECK(astia::mm::heap::used() > used);
+    ASTIA_CHECK(region->copy_page(0) == nullptr);
+    ASTIA_CHECK(region->page_base(0) == frame);
+    ASTIA_CHECK(region->uniquely_held(0));
+    ASTIA_CHECK(region->references() == 1);
+    for (astia::usize i = 0; i < held_count; ++i)
+        astia::mm::heap::free(held[i]);
+    ASTIA_CHECK(astia::mm::heap::used() == used);
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
 ASTIA_TEST(phys_region_reclaims_last_unmapped_page) {
     const auto before = init_world();
     auto*      region = phys_region::create(4, true);
