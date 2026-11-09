@@ -259,6 +259,42 @@ static pthread_cond_t  libc_cond;
 static volatile int    libc_cond_ready;
 static volatile int    libc_cond_go;
 static volatile int    libc_cond_result;
+static pthread_mutex_t libc_cancel_cond_mutex;
+static pthread_cond_t  libc_cancel_cond;
+static sem_t            libc_cancel_cond_cleanup_sem;
+static volatile int    libc_cancel_cond_ready;
+static volatile int    libc_cancel_cond_cleanup_called;
+static volatile int    libc_cancel_cond_cleanup_owned;
+
+static void libc_cancel_cond_cleanup(void* opaque) {
+    pthread_mutex_t* mutex = (pthread_mutex_t*) opaque;
+    const int        result = pthread_mutex_trylock(mutex);
+
+    libc_cancel_cond_cleanup_called = 1;
+    libc_cancel_cond_cleanup_owned  = result == EBUSY;
+    if (sem_wait(&libc_cancel_cond_cleanup_sem) != 0)
+        libc_cancel_cond_cleanup_owned = 0;
+    if (result == 0 || result == EBUSY)
+        pthread_mutex_unlock(mutex);
+}
+
+static void* libc_cancel_cond_worker(void* opaque) {
+    int wait_result;
+
+    (void) opaque;
+    if (pthread_mutex_lock(&libc_cancel_cond_mutex) != 0)
+        return (void*) (unsigned long) 0x8a03;
+    libc_cancel_cond_ready = 1;
+    pthread_cleanup_push(libc_cancel_cond_cleanup, &libc_cancel_cond_mutex);
+    wait_result = pthread_cond_wait(&libc_cancel_cond, &libc_cancel_cond_mutex);
+    pthread_cleanup_pop(0);
+    if (wait_result != 0) {
+        pthread_mutex_unlock(&libc_cancel_cond_mutex);
+        return (void*) (unsigned long) 0x8a04;
+    }
+    pthread_mutex_unlock(&libc_cancel_cond_mutex);
+    return (void*) (unsigned long) 0x8a05;
+}
 
 static void* libc_cond_worker(void* opaque) {
     (void) opaque;
@@ -1863,6 +1899,30 @@ int main(int argc, char** argv) {
             pthread_mutex_destroy(&probe.mutex) != 0 ||
             pthread_condattr_destroy(&attr) != 0)
             return 118;
+    }
+
+    {
+        pthread_t worker;
+        void*     result = NULL;
+        libc_cancel_cond_ready          = 0;
+        libc_cancel_cond_cleanup_called = 0;
+        libc_cancel_cond_cleanup_owned  = 0;
+        if (sem_init(&libc_cancel_cond_cleanup_sem, 0, 1) != 0 ||
+            pthread_mutex_init(&libc_cancel_cond_mutex, NULL) != 0 ||
+            pthread_cond_init(&libc_cancel_cond, NULL) != 0 ||
+            pthread_create(&worker, NULL, libc_cancel_cond_worker, NULL) != 0)
+            return 153;
+        while (!libc_cancel_cond_ready)
+            sched_yield();
+        if (pthread_mutex_lock(&libc_cancel_cond_mutex) != 0 ||
+            pthread_cancel(worker) != 0 ||
+            pthread_mutex_unlock(&libc_cancel_cond_mutex) != 0 ||
+            pthread_join(worker, &result) != 0 ||
+            result != PTHREAD_CANCELED || !libc_cancel_cond_cleanup_called ||
+            !libc_cancel_cond_cleanup_owned || pthread_cond_destroy(&libc_cancel_cond) != 0 ||
+            pthread_mutex_destroy(&libc_cancel_cond_mutex) != 0 ||
+            sem_destroy(&libc_cancel_cond_cleanup_sem) != 0)
+            return 154;
     }
 
     {

@@ -325,6 +325,8 @@ long sysconf(int name) {
     switch (name) {
     case _SC_PAGESIZE:
         return 4096;
+    case _SC_THREAD_STACK_MIN:
+        return 16 * 1024;
     case _SC_MAPPED_FILES:
         return 1;
     case _SC_MEMORY_PROTECTION:

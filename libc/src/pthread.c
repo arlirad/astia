@@ -109,6 +109,9 @@ static void pthread_cleanup_run(void) {
     }
 }
 
+static _Thread_local int pthread_cancel_state = PTHREAD_CANCEL_ENABLE;
+static _Thread_local int pthread_cancel_type  = PTHREAD_CANCEL_DEFERRED;
+
 void __pthread_cleanup_push(__pthread_cleanup_frame* frame, void (*routine)(void*),
                             void* arg) {
     frame->routine  = routine;
@@ -126,6 +129,7 @@ void __pthread_cleanup_pop(__pthread_cleanup_frame* frame, int execute) {
 static void pthread_thread_exit(void* result) __attribute__((noreturn));
 
 static void pthread_thread_exit(void* result) {
+    pthread_cancel_state = PTHREAD_CANCEL_DISABLE;
     pthread_cleanup_run();
     pthread_key_run_destructors();
     __astia_process_thread_exit(result);
@@ -136,9 +140,6 @@ static void pthread_start_trampoline(void* function_value, void* argument) {
     void* (*function)(void*) = (void* (*)(void*) ) function_value;
     pthread_thread_exit(function(argument));
 }
-
-static _Thread_local int pthread_cancel_state = PTHREAD_CANCEL_ENABLE;
-static _Thread_local int pthread_cancel_type  = PTHREAD_CANCEL_DEFERRED;
 
 int pthread_attr_init(pthread_attr_t* attr) {
     if (attr == NULL)
@@ -1321,26 +1322,40 @@ static int pthread_cond_wait_until(pthread_cond_t* cond, pthread_mutex_t* mutex,
                                    const struct timespec* deadline) {
     uint32_t sequence;
     int      result = 0;
+    const int cancellation_point = __pthread_cancel_is_enabled();
 
     if (!pthread_cond_valid(cond) || mutex == NULL)
         return EINVAL;
     if (deadline != NULL && (deadline->tv_nsec < 0 || deadline->tv_nsec >= 1000000000L))
         return EINVAL;
+    if (cancellation_point)
+        pthread_testcancel();
     sequence = __atomic_load_n(&cond->sequence, __ATOMIC_ACQUIRE);
     if (pthread_mutex_unlock(mutex) != 0)
         return EPERM;
     for (;;) {
-        int rc = deadline == NULL ? futex_wait(&cond->sequence, sequence)
-                                  : futex_wait_until(&cond->sequence, sequence, deadline);
+        int rc = deadline == NULL
+                     ? (cancellation_point ? futex_wait_cancelable(&cond->sequence, sequence)
+                                            : futex_wait(&cond->sequence, sequence))
+                     : (cancellation_point
+                            ? futex_wait_cancelable_until(&cond->sequence, sequence, deadline)
+                            : futex_wait_until(&cond->sequence, sequence, deadline));
         if (rc == 0 || (rc < 0 && errno == EAGAIN))
             break;
-        if (rc < 0 && errno == EINTR)
+        if (rc < 0 && errno == EINTR) {
+            if (cancellation_point && __pthread_cancel_pending()) {
+                result = EINTR;
+                break;
+            }
             continue;
+        }
         result = errno;
         break;
     }
     if (pthread_mutex_lock(mutex) != 0)
         return EPERM;
+    if (cancellation_point)
+        pthread_testcancel();
     return result;
 }
 

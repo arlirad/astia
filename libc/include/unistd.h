@@ -119,6 +119,7 @@ void         _exit(int status) __attribute__((noreturn));
 #define _SC_MEMORY_PROTECTION 19
 #define _SC_PAGESIZE 30
 #define _SC_PAGE_SIZE _SC_PAGESIZE
+#define _SC_THREAD_STACK_MIN 75
 #define _SC_THREAD_PROCESS_SHARED 82
 #define _SC_CLOCK_SELECTION 137
 #define _SC_CPUTIME 138
