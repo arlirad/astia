@@ -439,6 +439,7 @@ static volatile int altstack_calls;
 static volatile int altstack_failed;
 static stack_t       altstack_expected;
 static volatile int  child_info_seen;
+static volatile unsigned int child_status_calls;
 static siginfo_t     child_info;
 static volatile int  user_signal_info_seen;
 static siginfo_t     user_signal_info;
@@ -461,6 +462,7 @@ static void returning_page_fault_handler(int signal_number) {
 static void child_status_handler(int signal_number, siginfo_t* info, void* context) {
     (void) context;
     if (signal_number == SIGCHLD && info != NULL) {
+        ++child_status_calls;
         child_info = *info;
         child_info_seen = 1;
     }
@@ -698,6 +700,41 @@ int main(int argc, char** argv) {
             child_info.si_code != CLD_EXITED || child_info.si_pid != child ||
             child_info.si_status != 42)
             return 64;
+    }
+
+    {
+        struct sigaction action = {0};
+        action.sa_sigaction = child_status_handler;
+        action.sa_flags     = SA_SIGINFO | SA_NOCLDSTOP;
+        if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGCHLD, &action, NULL) != 0)
+            return 132;
+        child_status_calls = 0;
+        child_info_seen    = 0;
+        const pid_t child = fork();
+        if (child < 0)
+            return 133;
+        if (child == 0) {
+            for (;;)
+                asm volatile("" ::: "memory");
+        }
+        int status = 0;
+        if (kill(child, SIGSTOP) != 0 ||
+            waitpid(child, &status, WUNTRACED) != child || !WIFSTOPPED(status) ||
+            child_status_calls != 0)
+            return 134;
+        if (kill(child, SIGCONT) != 0 ||
+            waitpid(child, &status, WCONTINUED) != child || !WIFCONTINUED(status) ||
+            child_status_calls != 0)
+            return 135;
+        if (kill(child, SIGKILL) != 0 || waitpid(child, &status, 0) != child ||
+            !WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL ||
+            child_status_calls != 1 || !child_info_seen ||
+            child_info.si_code != CLD_KILLED || child_info.si_pid != child)
+            return 136;
+        action.sa_sigaction = NULL;
+        action.sa_flags     = 0;
+        if (sigaction(SIGCHLD, &action, NULL) != 0)
+            return 137;
     }
 
     {

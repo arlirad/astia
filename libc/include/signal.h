@@ -43,6 +43,7 @@ struct sigaction {
 #define SA_ONSTACK 1
 #define SA_NOCLDWAIT 2
 #define SA_SIGINFO 4
+#define SA_NOCLDSTOP 8
 #define SA_RESTART 0x10000000
 #define SA_NODEFER 0x40000000
 #define SA_RESETHAND 0x80000000u

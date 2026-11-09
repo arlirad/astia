@@ -630,9 +630,14 @@ namespace astia::proc {
         if (!parent)
             return;
         info.signo = static_cast<i32>(signal_number::chld);
-        (void) parent->signals().send(signal_number::chld, info);
-        if (parent->address_space() != nullptr)
-            parent->wake_signal_waiters();
+        const bool stop_or_continue = info.code == ASTIA_CLD_STOPPED ||
+                                      info.code == ASTIA_CLD_CONTINUED;
+        const auto disposition = parent->signals().disposition(signal_number::chld);
+        if (!stop_or_continue || (disposition.flags & ASTIA_SA_NOCLDSTOP) == 0) {
+            (void) parent->signals().send(signal_number::chld, info);
+            if (parent->address_space() != nullptr)
+                parent->wake_signal_waiters();
+        }
         parent->wake_waiters();
     }
 
