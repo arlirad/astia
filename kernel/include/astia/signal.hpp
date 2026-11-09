@@ -50,6 +50,7 @@ namespace astia {
         i32 pid         = 0;
         u32 uid         = 0;
         i32 status      = 0;
+        u64 addr        = 0;
     };
 
     enum class signal_mask_operation : u8 {

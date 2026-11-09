@@ -18,6 +18,7 @@ typedef struct siginfo {
     int          si_pid;
     unsigned int si_uid;
     int          si_status;
+    void*        si_addr;
 } siginfo_t;
 typedef void (*sigaction_handler_t)(int, siginfo_t*, void*);
 typedef struct {
@@ -93,6 +94,8 @@ struct sigaction {
 #define CLD_STOPPED 5
 #define CLD_CONTINUED 6
 #define SI_USER 0
+#define SEGV_MAPERR 1
+#define SEGV_ACCERR 2
 
 int sigaction(int signal, const struct sigaction* action, struct sigaction* old_action);
 int sigaltstack(const stack_t* stack, stack_t* old_stack);

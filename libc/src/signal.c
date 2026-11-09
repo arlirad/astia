@@ -199,6 +199,7 @@ static void astia_copy_siginfo(siginfo_t* destination, const astia_siginfo_t* so
     destination->si_pid    = source->pid;
     destination->si_uid    = source->uid;
     destination->si_status = source->status;
+    destination->si_addr   = (void*) source->addr;
 }
 
 int sigwaitinfo(const sigset_t* set, siginfo_t* info) {

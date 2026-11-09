@@ -21,6 +21,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -441,6 +442,21 @@ static volatile int  child_info_seen;
 static siginfo_t     child_info;
 static volatile int  user_signal_info_seen;
 static siginfo_t     user_signal_info;
+static volatile uintptr_t fault_expected_addr;
+static volatile int        fault_expected_code;
+
+static void page_fault_handler(int signal_number, siginfo_t* info, void* context) {
+    (void) context;
+    if (signal_number == SIGSEGV && info != NULL &&
+        info->si_code == fault_expected_code &&
+        (uintptr_t) info->si_addr == fault_expected_addr)
+        _Exit(42);
+    _Exit(43);
+}
+
+static void returning_page_fault_handler(int signal_number) {
+    (void) signal_number;
+}
 
 static void child_status_handler(int signal_number, siginfo_t* info, void* context) {
     (void) context;
@@ -480,6 +496,12 @@ static void* libc_mutex_worker(void* opaque) {
 }
 
 int main(int argc, char** argv) {
+    if (argc > 1 && strcmp(argv[1], "--exec-altstack-check") == 0) {
+        stack_t current;
+        if (sigaltstack(NULL, &current) != 0 || current.ss_flags != SS_DISABLE)
+            _Exit(122);
+        _Exit(0);
+    }
     if (argc > 1 && strcmp(argv[1], "--exec-signal-check") == 0) {
         sigset_t current;
         sigset_t unblock;
@@ -513,6 +535,22 @@ int main(int argc, char** argv) {
     const int pid = getpid();
     if (pid <= 0)
         return 4;
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 5;
+        if (child == 0) {
+            stack_t alternate = {(void*) 0, SIGSTKSZ, 0};
+            alternate.ss_sp = malloc(SIGSTKSZ);
+            if (alternate.ss_sp == NULL || sigaltstack(&alternate, NULL) != 0)
+                _Exit(123);
+            execl(argv[0], argv[0], "--exec-altstack-check", NULL);
+            _Exit(124);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 6;
+    }
     {
         stack_t stack = {(void*) 0, 0, SS_DISABLE};
         stack_t old;
@@ -1660,6 +1698,101 @@ int main(int argc, char** argv) {
         }
         if (munmap(q, 4 * 4096) != 0)
             return 50;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 51;
+        if (child == 0) {
+            struct sigaction action = {0};
+            action.sa_sigaction = page_fault_handler;
+            action.sa_flags     = SA_SIGINFO;
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGSEGV, &action, NULL) != 0)
+                _Exit(40);
+            unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (page == MAP_FAILED)
+                _Exit(41);
+            fault_expected_addr = (uintptr_t) page;
+            fault_expected_code = SEGV_MAPERR;
+            if (munmap(page, 4096) != 0)
+                _Exit(42);
+            *(volatile unsigned char*) page = 1;
+            _Exit(44);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != (42 << 8))
+            return 51;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 52;
+        if (child == 0) {
+            struct sigaction action = {0};
+            action.sa_sigaction = page_fault_handler;
+            action.sa_flags     = SA_SIGINFO;
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGSEGV, &action, NULL) != 0)
+                _Exit(45);
+            unsigned char* page = mmap(NULL, 4096, PROT_READ,
+                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (page == MAP_FAILED)
+                _Exit(46);
+            fault_expected_addr = (uintptr_t) page;
+            fault_expected_code = SEGV_ACCERR;
+            *(volatile unsigned char*) page = 1;
+            _Exit(47);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != (42 << 8))
+            return 52;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 53;
+        if (child == 0) {
+            struct sigaction action = {0};
+            action.sa_handler = returning_page_fault_handler;
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGSEGV, &action, NULL) != 0)
+                _Exit(48);
+            unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (page == MAP_FAILED)
+                _Exit(49);
+            if (munmap(page, 4096) != 0)
+                _Exit(50);
+            *(volatile unsigned char*) page = 1;
+            _Exit(51);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || (status & 0x7f) != SIGSEGV)
+            return 53;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 54;
+        if (child == 0) {
+            unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (page == MAP_FAILED)
+                _Exit(52);
+            if (munmap(page, 4096) != 0)
+                _Exit(53);
+            *(volatile unsigned char*) page = 1;
+            _Exit(54);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || (status & 0x7f) != SIGSEGV)
+            return 54;
     }
 
     /* 52-60: the public scatter/gather pair over a real file.  writev()

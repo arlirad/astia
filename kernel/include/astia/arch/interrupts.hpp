@@ -4,6 +4,13 @@
 
 namespace astia::arch {
 
+    struct interrupt_frame {
+        u64 r15, r14, r13, r12, r11, r10, r9, r8;
+        u64 rdi, rsi, rbp, rbx, rdx, rcx, rax;
+        u64 vector, error;
+        u64 rip, cs, rflags, rsp, ss;
+    };
+
     /// Arm maskable-interrupt delivery on the boot CPU, provided by the
     /// selected arch (src/arch/<arch>/interrupts.cpp): install the arch's
     /// interrupt table with handlers for CPU exceptions and device IRQs, and
@@ -52,6 +59,8 @@ namespace astia::arch {
     /// re-executes; false = genuine violation, stays fatal.
     using user_fault_handler = bool (*)(u64 addr, bool write);
     bool register_user_fault_handler(user_fault_handler handler);
+    using user_fault_signal_handler = bool (*)(interrupt_frame* frame, u64 addr, u64 error);
+    bool register_user_fault_signal_handler(user_fault_signal_handler handler);
     void load_interrupts();
 
     /// Handler for one maskable device IRQ line, provided by the driver

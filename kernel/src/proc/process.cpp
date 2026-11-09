@@ -1033,6 +1033,16 @@ namespace astia::proc {
         }
     }
 
+    void process::reset_signal_stacks_for_exec() {
+        for (u32 i = 0; i < max_threads_per_process; ++i) {
+            const auto value = thread_at(i);
+            if (value) {
+                value->signal_stack(0, 0, ASTIA_SS_DISABLE);
+                value->signal_stack_on_alt(false);
+            }
+        }
+    }
+
     bool process::exec_user_image(span<const u8> bytes, char* const argv[],
                                   char* const envp[], u64* entry_out, u64* stack_out) {
         process staging(pid_, parent_pid_, name_);
@@ -1042,6 +1052,7 @@ namespace astia::proc {
             return false;
         replace_image(staging);
         signals_.reset_caught_for_exec();
+        reset_signal_stacks_for_exec();
         *entry_out = entry;
         *stack_out = stack;
         return true;
@@ -1065,6 +1076,7 @@ namespace astia::proc {
         sys::io_exec_process(this);
         replace_image(staging);
         signals_.reset_caught_for_exec();
+        reset_signal_stacks_for_exec();
         co_return exec_result{entry, stack};
     }
 

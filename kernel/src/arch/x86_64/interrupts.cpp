@@ -41,14 +41,6 @@ namespace astia::arch {
         /// isrs.S (last pushed first): GPRs, then vector/error, then the
         /// CPU-pushed iretq frame. RSP/SS are absent — we never leave ring
         /// 0, so the CPU does not push them.
-        struct registers {
-            u64 r15, r14, r13, r12, r11, r10, r9, r8;
-            u64 rdi, rsi, rbp, rbx, rdx, rcx, rax;
-            u64 vector, error;
-            u64 rip, cs, rflags;
-        };
-        static_assert(sizeof(registers) == 20 * 8);
-
         struct idt_entry {
             u16 offset_low;
             u16 selector;
@@ -86,11 +78,12 @@ namespace astia::arch {
         // The process layer's copy-on-write resolver; null until proc
         // registers one (no user processes can fault before then).
         user_fault_handler page_fault_resolver = nullptr;
+        user_fault_signal_handler page_fault_signal_handler = nullptr;
 
         /// This module's log source.
         using logs = astia::log::context<"arch">;
 
-        [[noreturn]] void fatal_exception(const registers& regs) {
+        [[noreturn]] void fatal_exception(const interrupt_frame& regs) {
             static const char* const names[32] = {
                 "#DE", "#DB", "NMI", "#BP", "#OF", "#BR", "#UD", "#NM",
                 "#DF", "res", "#TS", "#NP", "#SS", "#GP", "#PF", "res",
@@ -128,7 +121,15 @@ namespace astia::arch {
         return true;
     }
 
-    extern "C" void interrupt_dispatch(registers* frame) {
+    bool register_user_fault_signal_handler(user_fault_signal_handler handler) {
+        if (handler == nullptr || page_fault_signal_handler != nullptr) {
+            return false;
+        }
+        page_fault_signal_handler = handler;
+        return true;
+    }
+
+    extern "C" void interrupt_dispatch(interrupt_frame* frame) {
         using x86_64::lapic;
         using x86_64::pic;
 
@@ -160,6 +161,14 @@ namespace astia::arch {
                 asm volatile("mov %%cr2, %0" : "=r"(cr2));
                 if (page_fault_resolver(cr2, (frame->error & 2) != 0)) {
                     return; // repaired: the faulting instruction re-runs
+                }
+            }
+            if (vector == 14 && page_fault_signal_handler != nullptr &&
+                (frame->cs & 3) != 0) {
+                u64 cr2;
+                asm volatile("mov %%cr2, %0" : "=r"(cr2));
+                if (page_fault_signal_handler(frame, cr2, frame->error)) {
+                    return;
                 }
             }
             fatal_exception(*frame); // [[noreturn]]
@@ -199,7 +208,7 @@ namespace astia::arch {
         // (a spurious interrupt must not be acknowledged).
     }
 
-    extern "C" void astia_interrupt_user_return(registers* frame) {
+    extern "C" void astia_interrupt_user_return(interrupt_frame* frame) {
         if (frame != nullptr && (frame->cs & 3) != 0)
             proc::terminate_current_if_killed();
     }

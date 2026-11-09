@@ -19,6 +19,7 @@ typedef struct astia_siginfo {
     int32_t  pid;
     uint32_t uid;
     int32_t  status;
+    uintptr_t addr;
 } astia_siginfo_t;
 
 typedef struct astia_x86_64_signal_context {
@@ -27,6 +28,7 @@ typedef struct astia_x86_64_signal_context {
     uint64_t rip, rsp, rflags;
     uint32_t blocked;
     uint32_t reserved;
+    uint64_t fault_rip;
 } astia_x86_64_signal_context_t;
 
 #define ASTIA_SIG_DFL ((uintptr_t) 0)
@@ -43,6 +45,8 @@ typedef struct astia_x86_64_signal_context {
 #define ASTIA_CLD_STOPPED   5
 #define ASTIA_CLD_CONTINUED 6
 #define ASTIA_SI_USER       0
+#define ASTIA_SEGV_MAPERR   1
+#define ASTIA_SEGV_ACCERR   2
 
 #define ASTIA_SIGAIO 29
 enum {

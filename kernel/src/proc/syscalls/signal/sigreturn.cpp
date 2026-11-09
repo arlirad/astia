@@ -27,6 +27,16 @@ namespace astia::proc::syscall {
         if (saved.rip == 0 || saved.rsp == 0 || saved.rip >= arch::kernel_base ||
             saved.rsp >= arch::kernel_base || (saved.rflags & user_interrupt_flag) == 0)
             return -EFAULT;
+        if ((saved.reserved & 2u) != 0 && saved.rip == saved.fault_rip) {
+            if (auto* self = current_thread()) {
+                if (auto* owner = self->owner())
+                    owner->signal_termination(signal_number::segv);
+                self->exit(reinterpret_cast<void*>(static_cast<usize>(
+                    wait_signal_exit_status(static_cast<u8>(signal_number::segv)))));
+                __builtin_unreachable();
+            }
+            return -ESRCH;
+        }
         auto& frame  = const_cast<arch::syscall_frame&>(input);
         frame.nr     = ~u64{1};
         frame.a0     = saved.rdi;
