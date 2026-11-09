@@ -146,6 +146,12 @@ namespace astia::proc {
             dead_storage[sizeof(mm::shptr<thread>) * dead_capacity];
         mm::shptr<thread>* dead_queue = nullptr;
         u32                dead_count = 0;
+
+        inline constexpr u32 dead_process_capacity = max_processes * 4;
+        alignas(mm::shptr<process>) u8
+            dead_process_storage[sizeof(mm::shptr<process>) * dead_process_capacity];
+        mm::shptr<process>* dead_process_queue = nullptr;
+        u32                 dead_process_count = 0;
     }
 
     void defer_dead_thread(const mm::shptr<thread>& value) {
@@ -183,6 +189,43 @@ namespace astia::proc {
         // Dropping the last reference runs ~thread, which frees the
         // dead thread's kernel stack.  Safe here: the scheduler has
         // already switched away from any context these ran on.
+        for (u32 i = 0; i < count; ++i) {
+            pending[i] = {};
+        }
+    }
+
+    bool defer_dead_process(const mm::shptr<process>& value) {
+        if (!value) {
+            return false;
+        }
+        arch::interrupt_spinlock_guard guard(dead_thread_lock);
+        if (dead_process_queue == nullptr) {
+            dead_process_queue =
+                ::new (dead_process_storage) mm::shptr<process>[dead_process_capacity];
+        }
+        if (dead_process_count == dead_process_capacity) {
+            return false;
+        }
+        dead_process_queue[dead_process_count++] = value;
+        return true;
+    }
+
+    void reap_dead_processes() {
+        if (dead_process_queue == nullptr) {
+            return;
+        }
+        mm::shptr<process> pending[dead_process_capacity];
+        u32 count = 0;
+        {
+            arch::interrupt_spinlock_guard guard(dead_thread_lock);
+            for (u32 i = 0; i < dead_process_count; ++i) {
+                pending[i] =
+                    static_cast<mm::shptr<process>&&>(dead_process_queue[i]);
+                dead_process_queue[i] = {};
+            }
+            count               = dead_process_count;
+            dead_process_count = 0;
+        }
         for (u32 i = 0; i < count; ++i) {
             pending[i] = {};
         }
@@ -505,7 +548,7 @@ namespace astia::proc {
             scheduler::wake(wake_list[i]);
     }
 
-    void process::thread_exited(thread* value, i32 status) {
+    bool process::thread_exited(thread* value, i32 status) {
         if (value != nullptr) {
             release_thread_tls(value);
             if (value->detached())
@@ -514,21 +557,37 @@ namespace astia::proc {
         {
             arch::interrupt_spinlock_guard guard(lifecycle_lock_);
             if (state() == process_state::zombie || state() == process_state::dead) {
-                return;
+                return false;
             }
-            bool any_alive = false;
             for (u32 i = 0; i < max_threads_per_process; ++i) {
                 if (threads_[i] && threads_[i].get() != value &&
                     threads_[i]->state() != thread_state::dead) {
-                    any_alive = true;
-                    break;
+                    return false;
                 }
             }
-            if (any_alive) {
-                return;
-            }
             exit_status_ = process_exit_requested() ? requested_exit_status_ : status;
-            state(process_state::zombie);
+        }
+
+        bool discard_status = false;
+        if (auto parent = retain_process(parent_pid_)) {
+            const auto disposition = parent->signals().disposition(signal_number::chld);
+            discard_status = (disposition.flags & ASTIA_SA_NOCLDWAIT) != 0;
+        }
+        mm::shptr<process> deferred;
+        if (discard_status) {
+            deferred = retain_process(pid_);
+            if (!deferred) {
+                discard_status = false;
+            }
+            else {
+                if (!defer_dead_process(deferred)) {
+                    discard_status = false;
+                }
+            }
+        }
+        {
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
+            state(discard_status ? process_state::dead : process_state::zombie);
         }
         // Closing a session leader's terminal hangs up its foreground job.
         // Do this before dropping descriptors so the terminal's foreground
@@ -554,7 +613,16 @@ namespace astia::proc {
         info.pid    = static_cast<i32>(raw_id(pid_));
         info.uid    = uid();
         info.status = termination_signal_ != 0 ? termination_signal_ : exit_status_;
+        if (discard_status && unregister_process(this)) {
+            notify_parent_of_state_change(info);
+            return true;
+        }
+        if (discard_status) {
+            arch::interrupt_spinlock_guard guard(lifecycle_lock_);
+            state(process_state::zombie);
+        }
         notify_parent_of_state_change(info);
+        return false;
     }
 
     void process::notify_parent_of_state_change(signal_info info) {

@@ -435,6 +435,7 @@ namespace astia::proc::scheduler {
         // shut, because the heap this frees into is shared with this very
         // path.
         proc::reap_dead_threads();
+        proc::reap_dead_processes();
         restore_gate(previous->gate_open());
     }
 

@@ -182,8 +182,9 @@ namespace astia::proc {
         arch::cpu::nointerrupts();
         state(thread_state::dead);
         if (owner_ != nullptr) {
-            owner_->thread_exited(this,
-                                  static_cast<i32>(reinterpret_cast<usize>(result_)));
+            const bool owner_reaped =
+                owner_->thread_exited(this,
+                                      static_cast<i32>(reinterpret_cast<usize>(result_)));
             // A detached thread with nobody to join it has no owner for
             // its destruction: the process's owning reference would
             // otherwise leak.  Hand it to the deferred reaper — we are
@@ -198,7 +199,7 @@ namespace astia::proc {
                 if (joiner != nullptr)
                     scheduler::wake(joiner);
             }
-            if (reclaim) {
+            if (reclaim && !owner_reaped) {
                 defer_dead_thread(owner_->take_thread(this));
             }
         }

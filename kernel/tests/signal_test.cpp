@@ -231,6 +231,7 @@ ASTIA_TEST(x86_64_signal_abi_keeps_register_order_and_frame_size) {
     ASTIA_CHECK(offsetof(astia_x86_64_signal_context_t, fault_rip) == 152);
     ASTIA_CHECK(sizeof(astia_sigaction_t) == 24);
     ASTIA_CHECK(sizeof(astia_siginfo_t) == 32);
+    ASTIA_CHECK(ASTIA_SA_NOCLDWAIT == 2);
     ASTIA_CHECK(ASTIA_SA_SIGINFO == 4);
     ASTIA_CHECK(ASTIA_SA_NODEFER == 0x40000000);
     ASTIA_CHECK(ASTIA_SA_RESETHAND == 0x80000000u);

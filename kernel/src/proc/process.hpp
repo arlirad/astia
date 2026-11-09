@@ -227,7 +227,7 @@ namespace astia::proc {
         /// Called by a thread that is exiting.  When the last live
         /// thread is gone the process becomes a zombie carrying `status`
         /// until its parent reaps it with proc::waitpid().
-        void thread_exited(thread* value, i32 status);
+        bool thread_exited(thread* value, i32 status);
         void request_exit(thread* caller, i32 status);
         bool process_exit_requested() const {
             return __atomic_load_n(&exit_requested_, __ATOMIC_ACQUIRE) != 0;
@@ -499,5 +499,7 @@ namespace astia::proc {
     /// after switching away from a context, where no queued thread can
     /// still be running on its own stack.
     void reap_dead_threads();
+    bool defer_dead_process(const mm::shptr<process>& value);
+    void reap_dead_processes();
 
 } // namespace astia::proc

@@ -702,6 +702,28 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
+        action.sa_handler = returning_page_fault_handler;
+        action.sa_flags   = SA_NOCLDWAIT;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGCHLD, &action, NULL) != 0)
+            return 75;
+        const pid_t child = fork();
+        if (child < 0)
+            return 76;
+        if (child == 0)
+            _Exit(0);
+        int status = 0;
+        errno      = 0;
+        if (waitpid(child, &status, 0) != -1 || errno != ECHILD)
+            return 77;
+        action.sa_handler = SIG_DFL;
+        action.sa_flags   = 0;
+        if (sigaction(SIGCHLD, &action, NULL) != 0)
+            return 78;
+    }
+
+    {
+        struct sigaction action = {0};
         action.sa_sigaction = user_signal_info_handler;
         action.sa_flags     = SA_SIGINFO;
         if (sigemptyset(&action.sa_mask) != 0 ||
