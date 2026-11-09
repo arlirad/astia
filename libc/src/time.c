@@ -117,6 +117,33 @@ int nanosleep(const struct timespec* requested, struct timespec* remaining) {
     return 0;
 }
 
+int clock_nanosleep(int clock_id, int flags, const struct timespec* requested,
+                    struct timespec* remaining) {
+    int64_t remaining_sec  = 0;
+    int64_t remaining_nsec = 0;
+    long    rc;
+
+    if (requested == NULL || requested->tv_sec < 0 || requested->tv_nsec < 0 ||
+        requested->tv_nsec >= 1000000000L || (flags & ~TIMER_ABSTIME) != 0)
+        return EINVAL;
+    rc = __astia_time_clock_nanosleep(
+        clock_id, flags, requested->tv_sec, requested->tv_nsec,
+        (flags & TIMER_ABSTIME) == 0 && remaining != NULL ? &remaining_sec : NULL,
+        (flags & TIMER_ABSTIME) == 0 && remaining != NULL ? &remaining_nsec : NULL);
+    if (rc < 0) {
+        if (remaining != NULL && (flags & TIMER_ABSTIME) == 0 && rc == -EINTR) {
+            remaining->tv_sec  = (time_t) remaining_sec;
+            remaining->tv_nsec = (long) remaining_nsec;
+        }
+        return (int) -rc;
+    }
+    if (remaining != NULL && (flags & TIMER_ABSTIME) == 0) {
+        remaining->tv_sec  = 0;
+        remaining->tv_nsec = 0;
+    }
+    return 0;
+}
+
 time_t time(time_t* result) {
     struct timespec now;
 

@@ -171,7 +171,7 @@ namespace astia::sys {
     /// kernel_base and every page must translate in the caller's address
     /// space.  A zero length is vacuously valid; a null base with nonzero
     /// length is not.
-    inline bool user_span_ok(span<u8> range) {
+    inline bool user_span_ok_for(proc::process* owner, span<u8> range) {
         if (range.length() == 0) {
             return true;
         }
@@ -179,7 +179,6 @@ namespace astia::sys {
         if (base == 0) {
             return false;
         }
-        proc::process*        owner = proc::current_process();
         const arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
         if (space == nullptr) {
             return true; // kernel client: kernel pointers, as before
@@ -200,6 +199,10 @@ namespace astia::sys {
                 return true;
             }
         }
+    }
+
+    inline bool user_span_ok(span<u8> range) {
+        return user_span_ok_for(proc::current_process(), range);
     }
 
     template <typename T>
@@ -254,14 +257,14 @@ namespace astia::sys {
     /// from the range; `source` must be at least that long (a kernel local,
     /// so that much is the caller's own promise).  Returns false, writing
     /// nothing, if the range fails validation.
-    inline bool copy_out(span<u8> destination, const void* source) {
+    inline bool copy_out_for(proc::process* owner, span<u8> destination, const void* source) {
         // Besides avoiding a meaningless source dereference, this keeps the
         // page walk below from turning an empty range into address-1.  Empty
         // optional output slots are valid and must be a no-op.
         if (destination.empty()) {
             return true;
         }
-        if (!user_span_ok(destination)) {
+        if (!user_span_ok_for(owner, destination)) {
             return false;
         }
         // A forked child's private writable mappings are read-only until the
@@ -269,20 +272,35 @@ namespace astia::sys {
         // cannot enter the ring-3 page-fault path if the destination still
         // carries that CoW protection.  Resolve each page explicitly before
         // taking the user address as a writable pointer.
-        proc::process* owner = proc::current_process();
         if (owner != nullptr && owner->address_space() != nullptr) {
             const u64 first = destination.address() & ~mm::page_mask;
             const u64 last =
                 (destination.address() + destination.length() - 1) & ~mm::page_mask;
             for (u64 page = first;; page += mm::page_size) {
-                if (!owner->address_space()->writable(page) &&
-                    !owner->cow_fault(page, true)) {
+                if (!owner->address_space()->writable(page) && !owner->cow_fault(page, true)) {
                     return false;
                 }
-                if (page == last) {
+                if (page == last)
                     break;
-                }
             }
+            const auto* from = static_cast<const u8*>(source);
+            usize       copied = 0;
+            while (copied < destination.length()) {
+                const u64 address = destination.address() + copied;
+                const u64 page    = address & ~mm::page_mask;
+                auto* target = static_cast<u8*>(mm::kernel_frames().to_virt(
+                    owner->address_space()->translate(page)));
+                if (target == nullptr)
+                    return false;
+                const usize within = static_cast<usize>(address - page);
+                usize       chunk  = mm::page_size - within;
+                if (chunk > destination.length() - copied)
+                    chunk = destination.length() - copied;
+                for (usize i = 0; i < chunk; ++i)
+                    target[within + i] = from[copied + i];
+                copied += chunk;
+            }
+            return true;
         }
         auto*       to   = reinterpret_cast<u8*>(destination.address());
         const auto* from = static_cast<const u8*>(source);
@@ -290,6 +308,10 @@ namespace astia::sys {
             to[i] = from[i];
         }
         return true;
+    }
+
+    inline bool copy_out(span<u8> destination, const void* source) {
+        return copy_out_for(proc::current_process(), destination, source);
     }
 
     /// Copy in from a validated user range into the kernel.

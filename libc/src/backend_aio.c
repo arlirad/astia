@@ -77,6 +77,26 @@ static _Thread_local uint64_t     g_inflight; /* 0: none.  Tag of an operation w
                                    the stale entry and wait on a completion
                                    that never comes, or an append could be
                                    applied twice. */
+static uint64_t     g_deferred_user_data[RING_ENTRIES];
+static int32_t      g_deferred_result[RING_ENTRIES];
+static size_t       g_deferred_count;
+
+static int deferred_result(uint64_t user_data, long* result) {
+    size_t i;
+
+    for (i = 0; i < g_deferred_count; ++i) {
+        if (g_deferred_user_data[i] == user_data) {
+            *result = g_deferred_result[i];
+            --g_deferred_count;
+            for (; i < g_deferred_count; ++i) {
+                g_deferred_user_data[i] = g_deferred_user_data[i + 1];
+                g_deferred_result[i]    = g_deferred_result[i + 1];
+            }
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static long ring_ensure(void) {
     if (g_ring == NULL) {
@@ -100,6 +120,12 @@ static long ring_ensure(void) {
  * then g_inflight stays set and the next transaction stops at this same
  * gate instead of compounding the unknown state. */
 static long settle(void) {
+    long result;
+
+    if (deferred_result(g_inflight, &result)) {
+        g_inflight = 0;
+        return 0;
+    }
     for (;;) {
         astia_cqe* c = astia_cq_peek(g_ring);
         long       rc;
@@ -198,6 +224,8 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     }
 
     for (;;) {
+        if (deferred_result(tag, &rc))
+            return rc;
         c = astia_cq_peek(r);
         if (c == NULL) {
             rc = astia_io_submit(r, 0);
@@ -211,8 +239,11 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
             astia_cq_consume(r, 1);
             return rc;
         }
-        /* Defensive: with one operation in flight no foreign completion
-           can be pending; drop it rather than wedge the stream. */
+        if (g_deferred_count < RING_ENTRIES) {
+            g_deferred_user_data[g_deferred_count] = c->user_data;
+            g_deferred_result[g_deferred_count]    = c->result;
+            ++g_deferred_count;
+        }
         astia_cq_consume(r, 1);
     }
 }
@@ -225,6 +256,7 @@ void __astia_fio_prepare_exec(void) {
     g_tag      = 0;
     g_signal_ring = NULL;
     g_signal_tag = 0;
+    g_deferred_count = 0;
 }
 
 void __astia_fio_prepare_fork(void) {
@@ -238,6 +270,7 @@ void __astia_fio_prepare_fork(void) {
     g_tag      = 0;
     g_signal_ring = NULL;
     g_signal_tag = 0;
+    g_deferred_count = 0;
 }
 
 long __astia_fio_open(const char* path, int flags, int mode) {
@@ -549,6 +582,10 @@ long __astia_fio_sleep(uint64_t nanoseconds, uint64_t* remaining_nanoseconds) {
                     0, 0);
 }
 
+long __astia_fio_sleep_absolute(uint64_t deadline_nanoseconds) {
+    return transact(OP_SLEEP, -1, deadline_nanoseconds, NULL, 0, SLEEP_ABSOLUTE, 0);
+}
+
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
     astia_rings*  r;
     uint64_t      tags[IO_MAX_ENTRIES];
@@ -765,4 +802,5 @@ void __astia_fio_after_fork(void) {
     g_ring     = NULL;
     g_inflight = 0;
     g_tag      = 0;
+    g_deferred_count = 0;
 }

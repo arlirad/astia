@@ -39,7 +39,7 @@ add_executable(libc_conformance_test conformance_test.c backend_host.c process_h
 target_link_libraries(libc_conformance_test PRIVATE astia_libc_host)
 add_test(NAME libc_conformance_test COMMAND libc_conformance_test)
 
-add_executable(libc_sleep_test sleep_test.c sleep_host.c backend_host.c)
+add_executable(libc_sleep_test sleep_test.c sleep_host.c backend_host.c time_host.c)
 target_link_libraries(libc_sleep_test PRIVATE astia_libc)
 add_test(NAME libc_sleep_test COMMAND libc_sleep_test)
 

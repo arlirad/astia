@@ -49,6 +49,11 @@ extern ssize_t pread(int fd, void* buf, size_t count, off_t offset);
 extern ssize_t pwrite(int fd, const void* buf, size_t count, off_t offset);
 extern int     close(int fd);
 
+struct host_timespec {
+    long tv_sec;
+    long tv_nsec;
+};
+
 /* ESPIPE and friends: the ABI's codes, numerically identical to the
    host's for everything this port compares (ENOENT, EINVAL, EBADF,
    ESPIPE all match Linux).  Bare `errno` stays untouched — this file
@@ -391,12 +396,9 @@ long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
 }
 
 long __astia_fio_sleep(uint64_t nanoseconds, uint64_t* remaining_nanoseconds) {
-    struct host_timespec {
-        long tv_sec;
-        long tv_nsec;
-    } requested = {(long) (nanoseconds / 1000000000ull),
-                   (long) (nanoseconds % 1000000000ull)},
-                  remaining = {0, 0};
+    struct host_timespec requested = {(long) (nanoseconds / 1000000000ull),
+                                      (long) (nanoseconds % 1000000000ull)},
+                              remaining = {0, 0};
     long rc = syscall(SYS_nanosleep, &requested, &remaining);
     if (rc < 0) {
         if (remaining_nanoseconds != NULL)
@@ -407,6 +409,14 @@ long __astia_fio_sleep(uint64_t nanoseconds, uint64_t* remaining_nanoseconds) {
     if (remaining_nanoseconds != NULL)
         *remaining_nanoseconds = 0;
     return 0;
+}
+
+long __astia_fio_sleep_absolute(uint64_t deadline_nanoseconds) {
+    struct host_timespec deadline = {(long) (deadline_nanoseconds / 1000000000ull),
+                                     (long) (deadline_nanoseconds % 1000000000ull)};
+    long                 rc       = syscall(SYS_clock_nanosleep, 1, 1, &deadline, NULL);
+
+    return rc < 0 ? -HOST_ERRNO : 0;
 }
 
 long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {

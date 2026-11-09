@@ -1,5 +1,6 @@
 #include "kill.hpp"
 
+#include "../../sys/aio.hpp"
 #include "../mapping.hpp"
 #include "../proc.hpp"
 #include "../signal_permission.hpp"
@@ -59,6 +60,8 @@ namespace astia::proc::syscall {
             target->signals().disposition(mapped_signal.value).action ==
                 signal_action::default_action)
             target->signal_state_change(mapped_signal.value);
+        if (target->signals().has_unblocked_interrupting())
+            sys::io_interrupt_process(target.get(), -EINTR);
         target->wake_signal_waiters();
         return 0;
     }

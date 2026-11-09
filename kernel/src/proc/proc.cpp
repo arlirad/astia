@@ -1,5 +1,6 @@
 #include "proc.hpp"
 
+#include "../sys/aio.hpp"
 #include "../sys/user_mem.hpp"
 #include "scheduler.hpp"
 #include <astia/api/errno.h>
@@ -552,6 +553,8 @@ namespace astia::proc {
                     targets[i]->signals().disposition(value).action ==
                         signal_action::default_action)
                     targets[i]->signal_state_change(value);
+                if (targets[i]->signals().has_unblocked_interrupting())
+                    sys::io_interrupt_process(targets[i].get(), -EINTR);
                 targets[i]->wake_signal_waiters();
             }
         }

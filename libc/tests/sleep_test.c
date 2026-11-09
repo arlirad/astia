@@ -26,12 +26,24 @@ int main(void) {
     if (nanosleep(&request, &remaining) != -1 || errno != EINTR ||
         sleep_host_calls != 2 || remaining.tv_sec != 2 || remaining.tv_nsec != 3)
         return 1;
+    if (clock_nanosleep(CLOCK_REALTIME, 0, &request, &remaining) != EINTR ||
+        sleep_host_calls != 3 || remaining.tv_sec != 2 || remaining.tv_nsec != 3)
+        return 1;
     sleep_host_result = 0;
-    if (sleep(7) != 0 || sleep_host_calls != 3 || sleep_host_sec != 7 ||
+    if (sleep(7) != 0 || sleep_host_calls != 4 || sleep_host_sec != 7 ||
         sleep_host_nsec != 0)
         return 1;
+    request.tv_sec    = 0;
+    request.tv_nsec   = 0;
+    remaining.tv_sec  = 9;
+    remaining.tv_nsec = 9;
+    if (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &request, &remaining) != 0 ||
+        remaining.tv_sec != 9 || remaining.tv_nsec != 9)
+        return 1;
+    if (clock_nanosleep(9999, 0, &request, NULL) != EINVAL)
+        return 1;
     request.tv_nsec = 1000000000L;
-    if (nanosleep(&request, NULL) != -1 || errno != EINVAL || sleep_host_calls != 3)
+    if (nanosleep(&request, NULL) != -1 || errno != EINVAL || sleep_host_calls != 4)
         return 1;
     puts("sleep tests ok");
     return 0;
