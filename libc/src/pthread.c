@@ -840,6 +840,331 @@ int pthread_mutex_setprioceiling(pthread_mutex_t* mutex, int prioceiling,
     return mutex == NULL ? EINVAL : ENOTSUP;
 }
 
+static const uint32_t pthread_rwlock_magic     = 0x52574c4bu;
+static const uint32_t pthread_rwlock_destroyed = UINT32_MAX;
+
+static int pthread_rwlockattr_valid(const pthread_rwlockattr_t* attr) {
+    return attr != NULL &&
+           __atomic_load_n(&attr->magic, __ATOMIC_ACQUIRE) == pthread_rwlock_magic;
+}
+
+static int pthread_rwlock_valid(const pthread_rwlock_t* rwlock) {
+    const uint32_t magic = rwlock == NULL
+                               ? pthread_rwlock_destroyed
+                               : __atomic_load_n(&rwlock->magic, __ATOMIC_ACQUIRE);
+    return magic == pthread_rwlock_magic;
+}
+
+static void pthread_rwlock_gate_lock(pthread_rwlock_t* rwlock) {
+    for (;;) {
+        uint32_t expected = 0;
+        if (__atomic_compare_exchange_n(&rwlock->gate, &expected, 1, 0,
+                                        __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+            return;
+        sched_yield();
+    }
+}
+
+static void pthread_rwlock_gate_unlock(pthread_rwlock_t* rwlock) {
+    __atomic_store_n(&rwlock->gate, 0, __ATOMIC_RELEASE);
+}
+
+static int pthread_rwlock_reader_index(const pthread_rwlock_t* rwlock, pthread_t owner) {
+    for (unsigned int index = 0;
+         index < sizeof rwlock->readers_owned / sizeof rwlock->readers_owned[0]; ++index)
+        if (rwlock->readers_owned[index].owner == owner)
+            return (int) index;
+    return -1;
+}
+
+static int pthread_rwlock_reader_slot(const pthread_rwlock_t* rwlock) {
+    for (unsigned int index = 0;
+        index < sizeof rwlock->readers_owned / sizeof rwlock->readers_owned[0]; ++index)
+        if (rwlock->readers_owned[index].owner == 0)
+            return (int) index;
+    return -1;
+}
+
+static int pthread_rwlock_reader_add_locked(pthread_rwlock_t* rwlock, pthread_t owner) {
+    int index = pthread_rwlock_reader_index(rwlock, owner);
+
+    if (index < 0)
+        index = pthread_rwlock_reader_slot(rwlock);
+    if (index < 0)
+        return EAGAIN;
+    if (rwlock->readers_owned[index].owner == 0)
+        rwlock->readers_owned[index].owner = owner;
+    if (rwlock->readers_owned[index].count == UINT32_MAX)
+        return EAGAIN;
+    ++rwlock->readers_owned[index].count;
+    return 0;
+}
+
+static void pthread_rwlock_reader_remove_locked(pthread_rwlock_t* rwlock, int index) {
+    if (--rwlock->readers_owned[index].count == 0)
+        rwlock->readers_owned[index].owner = 0;
+}
+
+static void pthread_rwlock_wake_locked(pthread_rwlock_t* rwlock) {
+    uint32_t count;
+
+    if (rwlock->writer_active != 0 || rwlock->readers != 0)
+        return;
+    if (rwlock->waiting_writers != 0)
+        count = 1;
+    else if (rwlock->waiting_readers != 0)
+        count = UINT32_MAX;
+    else
+        return;
+    __atomic_fetch_add(&rwlock->sequence, 1, __ATOMIC_RELEASE);
+    (void) futex_wake(&rwlock->sequence, count);
+}
+
+static void pthread_rwlock_waiter_remove_locked(pthread_rwlock_t* rwlock, int write,
+                                                int* registered) {
+    if (*registered == 0)
+        return;
+    if (write)
+        --rwlock->waiting_writers;
+    else
+        --rwlock->waiting_readers;
+    *registered = 0;
+    pthread_rwlock_wake_locked(rwlock);
+}
+
+static int pthread_rwlock_lock_until(pthread_rwlock_t* rwlock, int write,
+                                     const struct timespec* deadline, int try_only) {
+    const pthread_t owner = pthread_self();
+    int             registered = 0;
+    int             hold_index;
+    int             result;
+
+    if (!pthread_rwlock_valid(rwlock))
+        return EINVAL;
+    for (;;) {
+        pthread_rwlock_gate_lock(rwlock);
+        hold_index = pthread_rwlock_reader_index(rwlock, owner);
+        if (rwlock->writer_active != 0 && rwlock->writer == owner) {
+            pthread_rwlock_gate_unlock(rwlock);
+            return write ? (try_only ? EBUSY : EDEADLK) : EDEADLK;
+        }
+        if (write && hold_index >= 0 && rwlock->writer_active == 0) {
+            pthread_rwlock_gate_unlock(rwlock);
+            return try_only ? EBUSY : EDEADLK;
+        }
+        if (!write && rwlock->writer_active == 0 &&
+            (rwlock->waiting_writers == 0 || hold_index >= 0)) {
+            if (rwlock->readers == UINT32_MAX) {
+                pthread_rwlock_gate_unlock(rwlock);
+                return EAGAIN;
+            }
+            if (hold_index < 0 &&
+                pthread_rwlock_reader_slot(rwlock) < 0) {
+                pthread_rwlock_gate_unlock(rwlock);
+                return EAGAIN;
+            }
+            ++rwlock->readers;
+            pthread_rwlock_waiter_remove_locked(rwlock, 0, &registered);
+            result = pthread_rwlock_reader_add_locked(rwlock, owner);
+            if (result != 0) {
+                --rwlock->readers;
+                pthread_rwlock_gate_unlock(rwlock);
+                return result;
+            }
+            if (rwlock->waiting_writers == 0 && rwlock->waiting_readers != 0)
+                pthread_rwlock_wake_locked(rwlock);
+            pthread_rwlock_gate_unlock(rwlock);
+            return 0;
+        }
+        if (write && rwlock->writer_active == 0 && rwlock->readers == 0 &&
+            rwlock->waiting_writers == (registered ? 1u : 0u)) {
+            rwlock->writer = owner;
+            rwlock->writer_active = 1;
+            pthread_rwlock_waiter_remove_locked(rwlock, 1, &registered);
+            pthread_rwlock_gate_unlock(rwlock);
+            return 0;
+        }
+        if (try_only) {
+            pthread_rwlock_gate_unlock(rwlock);
+            return EBUSY;
+        }
+        if (!registered) {
+            if (write) {
+                if (rwlock->waiting_writers == UINT32_MAX) {
+                    pthread_rwlock_gate_unlock(rwlock);
+                    return EAGAIN;
+                }
+                ++rwlock->waiting_writers;
+            } else {
+                if (rwlock->waiting_readers == UINT32_MAX) {
+                    pthread_rwlock_gate_unlock(rwlock);
+                    return EAGAIN;
+                }
+                ++rwlock->waiting_readers;
+            }
+            registered = 1;
+        }
+        const uint32_t sequence = __atomic_load_n(&rwlock->sequence, __ATOMIC_RELAXED);
+        pthread_rwlock_gate_unlock(rwlock);
+        result = deadline == NULL ? futex_wait(&rwlock->sequence, sequence)
+                                  : futex_wait_until(&rwlock->sequence, sequence, deadline);
+        if (result == 0 || (result < 0 && errno == EAGAIN) ||
+            (result < 0 && errno == EINTR))
+            continue;
+        if (result < 0 && errno == ETIMEDOUT)
+            result = ETIMEDOUT;
+        else if (result < 0)
+            result = errno;
+        else
+            result = 0;
+        if (result != 0) {
+            pthread_rwlock_gate_lock(rwlock);
+            pthread_rwlock_waiter_remove_locked(rwlock, write, &registered);
+            pthread_rwlock_gate_unlock(rwlock);
+            return result;
+        }
+    }
+}
+
+int pthread_rwlockattr_init(pthread_rwlockattr_t* attr) {
+    if (attr == NULL)
+        return EINVAL;
+    attr->pshared = PTHREAD_PROCESS_PRIVATE;
+    __atomic_store_n(&attr->magic, pthread_rwlock_magic, __ATOMIC_RELEASE);
+    return 0;
+}
+
+int pthread_rwlockattr_destroy(pthread_rwlockattr_t* attr) {
+    if (!pthread_rwlockattr_valid(attr))
+        return EINVAL;
+    __atomic_store_n(&attr->magic, 0, __ATOMIC_RELEASE);
+    return 0;
+}
+
+int pthread_rwlockattr_getpshared(const pthread_rwlockattr_t* attr, int* pshared) {
+    if (!pthread_rwlockattr_valid(attr) || pshared == NULL)
+        return EINVAL;
+    *pshared = attr->pshared;
+    return 0;
+}
+
+int pthread_rwlockattr_setpshared(pthread_rwlockattr_t* attr, int pshared) {
+    if (!pthread_rwlockattr_valid(attr) ||
+        (pshared != PTHREAD_PROCESS_PRIVATE && pshared != PTHREAD_PROCESS_SHARED))
+        return EINVAL;
+    if (pshared == PTHREAD_PROCESS_SHARED)
+        return ENOTSUP;
+    attr->pshared = pshared;
+    return 0;
+}
+
+int pthread_rwlock_init(pthread_rwlock_t* rwlock, const pthread_rwlockattr_t* attr) {
+    if (rwlock == NULL)
+        return EINVAL;
+    if (attr != NULL) {
+        if (!pthread_rwlockattr_valid(attr))
+            return EINVAL;
+        if (attr->pshared == PTHREAD_PROCESS_SHARED)
+            return ENOTSUP;
+    }
+    __atomic_store_n(&rwlock->gate, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&rwlock->sequence, 0, __ATOMIC_RELAXED);
+    rwlock->readers = 0;
+    rwlock->waiting_readers = 0;
+    rwlock->waiting_writers = 0;
+    rwlock->writer = 0;
+    rwlock->writer_active = 0;
+    for (unsigned int index = 0;
+         index < sizeof rwlock->readers_owned / sizeof rwlock->readers_owned[0]; ++index) {
+        rwlock->readers_owned[index].owner = 0;
+        rwlock->readers_owned[index].count = 0;
+    }
+    __atomic_store_n(&rwlock->magic, pthread_rwlock_magic, __ATOMIC_RELEASE);
+    return 0;
+}
+
+int pthread_rwlock_destroy(pthread_rwlock_t* rwlock) {
+    if (!pthread_rwlock_valid(rwlock))
+        return EINVAL;
+    pthread_rwlock_gate_lock(rwlock);
+    if (rwlock->writer_active != 0 || rwlock->readers != 0 ||
+        rwlock->waiting_readers != 0 || rwlock->waiting_writers != 0) {
+        pthread_rwlock_gate_unlock(rwlock);
+        return EBUSY;
+    }
+    __atomic_store_n(&rwlock->magic, pthread_rwlock_destroyed, __ATOMIC_RELEASE);
+    pthread_rwlock_gate_unlock(rwlock);
+    return 0;
+}
+
+int pthread_rwlock_rdlock(pthread_rwlock_t* rwlock) {
+    return pthread_rwlock_lock_until(rwlock, 0, NULL, 0);
+}
+
+int pthread_rwlock_tryrdlock(pthread_rwlock_t* rwlock) {
+    return pthread_rwlock_lock_until(rwlock, 0, NULL, 1);
+}
+
+int pthread_rwlock_timedrdlock(pthread_rwlock_t* rwlock,
+                               const struct timespec* abstime) {
+    struct timespec deadline;
+    int             result;
+
+    if (!pthread_rwlock_valid(rwlock))
+        return EINVAL;
+    result = pthread_mutex_deadline(abstime, &deadline);
+    return result != 0 ? result : pthread_rwlock_lock_until(rwlock, 0, &deadline, 0);
+}
+
+int pthread_rwlock_wrlock(pthread_rwlock_t* rwlock) {
+    return pthread_rwlock_lock_until(rwlock, 1, NULL, 0);
+}
+
+int pthread_rwlock_trywrlock(pthread_rwlock_t* rwlock) {
+    return pthread_rwlock_lock_until(rwlock, 1, NULL, 1);
+}
+
+int pthread_rwlock_timedwrlock(pthread_rwlock_t* rwlock,
+                               const struct timespec* abstime) {
+    struct timespec deadline;
+    int             result;
+
+    if (!pthread_rwlock_valid(rwlock))
+        return EINVAL;
+    result = pthread_mutex_deadline(abstime, &deadline);
+    return result != 0 ? result : pthread_rwlock_lock_until(rwlock, 1, &deadline, 0);
+}
+
+int pthread_rwlock_unlock(pthread_rwlock_t* rwlock) {
+    const pthread_t owner = pthread_self();
+    int             index;
+
+    if (!pthread_rwlock_valid(rwlock))
+        return EINVAL;
+    pthread_rwlock_gate_lock(rwlock);
+    if (rwlock->writer_active != 0) {
+        if (rwlock->writer != owner) {
+            pthread_rwlock_gate_unlock(rwlock);
+            return EPERM;
+        }
+        rwlock->writer = 0;
+        rwlock->writer_active = 0;
+        pthread_rwlock_wake_locked(rwlock);
+        pthread_rwlock_gate_unlock(rwlock);
+        return 0;
+    }
+    index = pthread_rwlock_reader_index(rwlock, owner);
+    if (index < 0 || rwlock->readers_owned[index].count == 0 || rwlock->readers == 0) {
+        pthread_rwlock_gate_unlock(rwlock);
+        return EPERM;
+    }
+    --rwlock->readers;
+    pthread_rwlock_reader_remove_locked(rwlock, index);
+    pthread_rwlock_wake_locked(rwlock);
+    pthread_rwlock_gate_unlock(rwlock);
+    return 0;
+}
+
 static int pthread_spin_acquire(pthread_spinlock_t* lock, int try_only) {
     const pthread_t owner = pthread_self();
     unsigned int    backoff = 1;

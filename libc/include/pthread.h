@@ -45,6 +45,26 @@ typedef struct pthread_cond_t {
     int      clock;
 } pthread_cond_t;
 
+typedef struct pthread_rwlock_t {
+    uint32_t gate;
+    uint32_t sequence;
+    uint32_t readers;
+    uint32_t waiting_readers;
+    uint32_t waiting_writers;
+    pthread_t writer;
+    uint32_t writer_active;
+    struct {
+        pthread_t owner;
+        uint32_t  count;
+    } readers_owned[16];
+    uint32_t magic;
+} pthread_rwlock_t;
+
+typedef struct pthread_rwlockattr_t {
+    uint32_t magic;
+    int      pshared;
+} pthread_rwlockattr_t;
+
 typedef struct pthread_condattr_t {
     int pshared;
     int clock;
@@ -74,6 +94,7 @@ typedef struct __pthread_cleanup_frame {
 
 #define PTHREAD_MUTEX_INITIALIZER { 0u }
 #define PTHREAD_COND_INITIALIZER { 0u, CLOCK_REALTIME }
+#define PTHREAD_RWLOCK_INITIALIZER { .magic = 0x52574c4Bu }
 #define PTHREAD_ONCE_INIT 0ull
 #define PTHREAD_PROCESS_PRIVATE 0
 #define PTHREAD_PROCESS_SHARED 1
@@ -166,6 +187,23 @@ int       pthread_mutexattr_setrobust(pthread_mutexattr_t* attr, int robust);
 int       pthread_mutex_getprioceiling(const pthread_mutex_t* mutex, int* prioceiling);
 int       pthread_mutex_setprioceiling(pthread_mutex_t* mutex, int prioceiling,
                                        int* old_ceiling);
+int       pthread_rwlock_init(pthread_rwlock_t* rwlock,
+                              const pthread_rwlockattr_t* attr);
+int       pthread_rwlock_destroy(pthread_rwlock_t* rwlock);
+int       pthread_rwlock_rdlock(pthread_rwlock_t* rwlock);
+int       pthread_rwlock_tryrdlock(pthread_rwlock_t* rwlock);
+int       pthread_rwlock_timedrdlock(pthread_rwlock_t* rwlock,
+                                     const struct timespec* abstime);
+int       pthread_rwlock_wrlock(pthread_rwlock_t* rwlock);
+int       pthread_rwlock_trywrlock(pthread_rwlock_t* rwlock);
+int       pthread_rwlock_timedwrlock(pthread_rwlock_t* rwlock,
+                                     const struct timespec* abstime);
+int       pthread_rwlock_unlock(pthread_rwlock_t* rwlock);
+int       pthread_rwlockattr_init(pthread_rwlockattr_t* attr);
+int       pthread_rwlockattr_destroy(pthread_rwlockattr_t* attr);
+int       pthread_rwlockattr_getpshared(const pthread_rwlockattr_t* attr,
+                                        int* pshared);
+int       pthread_rwlockattr_setpshared(pthread_rwlockattr_t* attr, int pshared);
 int       pthread_spin_init(pthread_spinlock_t* lock, int pshared);
 int       pthread_spin_destroy(pthread_spinlock_t* lock);
 int       pthread_spin_lock(pthread_spinlock_t* lock);

@@ -524,6 +524,96 @@ static void* libc_mutex_worker(void* opaque) {
     return (void*) (unsigned long) 0x3457;
 }
 
+struct libc_rwlock_readers_probe {
+    pthread_rwlock_t lock;
+    volatile unsigned int ready;
+    volatile unsigned int active;
+    volatile unsigned int maximum;
+    volatile unsigned int release;
+};
+
+static void* libc_rwlock_reader_worker(void* opaque) {
+    struct libc_rwlock_readers_probe* probe = opaque;
+    unsigned int active;
+
+    if (pthread_rwlock_rdlock(&probe->lock) != 0)
+        return (void*) (unsigned long) 0x1;
+    active = __atomic_add_fetch(&probe->active, 1, __ATOMIC_RELAXED);
+    for (;;) {
+        unsigned int maximum = __atomic_load_n(&probe->maximum, __ATOMIC_RELAXED);
+        if (active <= maximum ||
+            __atomic_compare_exchange_n(&probe->maximum, &maximum, active, 0,
+                                        __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+            break;
+    }
+    __atomic_add_fetch(&probe->ready, 1, __ATOMIC_RELEASE);
+    while (__atomic_load_n(&probe->release, __ATOMIC_ACQUIRE) == 0)
+        sched_yield();
+    __atomic_sub_fetch(&probe->active, 1, __ATOMIC_RELAXED);
+    if (pthread_rwlock_unlock(&probe->lock) != 0)
+        return (void*) (unsigned long) 0x2;
+    return NULL;
+}
+
+struct libc_rwlock_try_probe {
+    pthread_rwlock_t* lock;
+    volatile int      result;
+};
+
+static void* libc_rwlock_try_reader_worker(void* opaque) {
+    struct libc_rwlock_try_probe* probe = opaque;
+    probe->result = pthread_rwlock_tryrdlock(probe->lock);
+    return NULL;
+}
+
+static void* libc_rwlock_try_writer_worker(void* opaque) {
+    struct libc_rwlock_try_probe* probe = opaque;
+    probe->result = pthread_rwlock_trywrlock(probe->lock);
+    return NULL;
+}
+
+struct libc_rwlock_handoff_probe {
+    pthread_rwlock_t* lock;
+    volatile int      started;
+    volatile int      acquired;
+};
+
+static void* libc_rwlock_handoff_worker(void* opaque) {
+    struct libc_rwlock_handoff_probe* probe = opaque;
+    __atomic_store_n(&probe->started, 1, __ATOMIC_RELEASE);
+    if (pthread_rwlock_wrlock(probe->lock) != 0)
+        return (void*) (unsigned long) 0x3;
+    __atomic_store_n(&probe->acquired, 1, __ATOMIC_RELEASE);
+    if (pthread_rwlock_unlock(probe->lock) != 0)
+        return (void*) (unsigned long) 0x4;
+    return NULL;
+}
+
+struct libc_rwlock_timed_probe {
+    pthread_rwlock_t* lock;
+    int               result;
+};
+
+static void* libc_rwlock_timed_reader_worker(void* opaque) {
+    struct libc_rwlock_timed_probe* probe = opaque;
+    struct timespec                 deadline;
+
+    if (clock_gettime(CLOCK_REALTIME, &deadline) != 0)
+        return (void*) (unsigned long) 0x5;
+    deadline.tv_nsec += 20000000;
+    if (deadline.tv_nsec >= 1000000000L) {
+        ++deadline.tv_sec;
+        deadline.tv_nsec -= 1000000000L;
+    }
+    probe->result = pthread_rwlock_timedrdlock(probe->lock, &deadline);
+    return NULL;
+}
+
+static void* libc_rwlock_foreign_unlock_worker(void* opaque) {
+    pthread_rwlock_t* lock = opaque;
+    return (void*) (unsigned long) pthread_rwlock_unlock(lock);
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && strcmp(argv[1], "--exec-altstack-check") == 0) {
         stack_t current;
@@ -1526,6 +1616,117 @@ int main(int argc, char** argv) {
             pthread_mutex_unlock(&libc_mutex_probe) != 0 ||
             pthread_mutex_destroy(&libc_mutex_probe) != 0)
             return 94;
+    }
+
+    {
+        struct libc_rwlock_readers_probe probe = {0};
+        pthread_t                         workers[4];
+        unsigned int                      created = 0;
+        int                               failed = 0;
+
+        if (pthread_rwlock_init(&probe.lock, NULL) != 0)
+            return 167;
+        for (unsigned int i = 0; i < 4; ++i) {
+            if (pthread_create(&workers[created], NULL, libc_rwlock_reader_worker, &probe) !=
+                0) {
+                failed = 1;
+                break;
+            }
+            ++created;
+        }
+        while (created != 0 && __atomic_load_n(&probe.ready, __ATOMIC_ACQUIRE) != created)
+            sched_yield();
+        if (created != 4 || __atomic_load_n(&probe.maximum, __ATOMIC_RELAXED) < 2)
+            failed = 1;
+        __atomic_store_n(&probe.release, 1, __ATOMIC_RELEASE);
+        for (unsigned int i = 0; i < created; ++i) {
+            void* result = NULL;
+            if (pthread_join(workers[i], &result) != 0 || result != NULL)
+                failed = 1;
+        }
+        if (pthread_rwlock_destroy(&probe.lock) != 0 || failed)
+            return 168;
+    }
+
+    {
+        pthread_rwlock_t             lock;
+        struct libc_rwlock_try_probe reader_probe = {&lock, 0};
+        struct libc_rwlock_try_probe writer_probe = {&lock, 0};
+        pthread_t                    reader;
+        pthread_t                    writer;
+        void*                        result = NULL;
+
+        if (pthread_rwlock_init(&lock, NULL) != 0 || pthread_rwlock_wrlock(&lock) != 0 ||
+            pthread_create(&reader, NULL, libc_rwlock_try_reader_worker, &reader_probe) != 0 ||
+            pthread_create(&writer, NULL, libc_rwlock_try_writer_worker, &writer_probe) != 0)
+            return 169;
+        if (pthread_join(reader, &result) != 0 || result != NULL || reader_probe.result != EBUSY)
+            return 170;
+        if (pthread_join(writer, &result) != 0 || result != NULL || writer_probe.result != EBUSY)
+            return 171;
+        if (pthread_rwlock_unlock(&lock) != 0 || pthread_rwlock_destroy(&lock) != 0)
+            return 172;
+    }
+
+    {
+        pthread_rwlock_t                 lock;
+        struct libc_rwlock_handoff_probe probe = {&lock, 0, 0};
+        pthread_t                         worker;
+        void*                             result = NULL;
+
+        if (pthread_rwlock_init(&lock, NULL) != 0 || pthread_rwlock_wrlock(&lock) != 0 ||
+            pthread_create(&worker, NULL, libc_rwlock_handoff_worker, &probe) != 0)
+            return 173;
+        while (__atomic_load_n(&probe.started, __ATOMIC_ACQUIRE) == 0)
+            sched_yield();
+        for (unsigned int i = 0; i < 16; ++i)
+            sched_yield();
+        if (__atomic_load_n(&probe.acquired, __ATOMIC_ACQUIRE) != 0) {
+            pthread_rwlock_unlock(&lock);
+            pthread_join(worker, &result);
+            return 174;
+        }
+        if (pthread_rwlock_unlock(&lock) != 0 || pthread_join(worker, &result) != 0 ||
+            result != NULL || __atomic_load_n(&probe.acquired, __ATOMIC_ACQUIRE) != 1 ||
+            pthread_rwlock_destroy(&lock) != 0)
+            return 175;
+    }
+
+    {
+        pthread_rwlock_t lock;
+        pthread_t        worker;
+        void*            result = NULL;
+
+        if (pthread_rwlock_init(&lock, NULL) != 0 || pthread_rwlock_rdlock(&lock) != 0 ||
+            pthread_rwlock_rdlock(&lock) != 0)
+            return 176;
+        if (pthread_create(&worker, NULL, libc_rwlock_foreign_unlock_worker, &lock) != 0)
+            return 177;
+        if (pthread_join(worker, &result) != 0)
+            return 178;
+        if (result != (void*) (unsigned long) EPERM)
+            return 182;
+        if (pthread_rwlock_unlock(&lock) != 0)
+            return 183;
+        if (pthread_rwlock_unlock(&lock) != 0)
+            return 184;
+        if (pthread_rwlock_destroy(&lock) != 0)
+            return 185;
+    }
+
+    {
+        pthread_rwlock_t               lock;
+        struct libc_rwlock_timed_probe probe = {&lock, 0};
+        pthread_t                      worker;
+        void*                          result = NULL;
+
+        if (pthread_rwlock_init(&lock, NULL) != 0 || pthread_rwlock_wrlock(&lock) != 0 ||
+            pthread_create(&worker, NULL, libc_rwlock_timed_reader_worker, &probe) != 0)
+            return 179;
+        if (pthread_join(worker, &result) != 0 || result != NULL || probe.result != ETIMEDOUT)
+            return 180;
+        if (pthread_rwlock_unlock(&lock) != 0 || pthread_rwlock_destroy(&lock) != 0)
+            return 181;
     }
 
     {
