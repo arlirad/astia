@@ -876,6 +876,112 @@ int pthread_cond_broadcast(pthread_cond_t* cond) {
     return pthread_cond_wake(cond, UINT32_MAX);
 }
 
+enum { pthread_barrier_magic = 0x42415252u };
+
+static int pthread_barrier_valid(const pthread_barrier_t* barrier) {
+    return barrier != NULL &&
+           __atomic_load_n(&barrier->magic, __ATOMIC_ACQUIRE) == pthread_barrier_magic;
+}
+
+int pthread_barrierattr_init(pthread_barrierattr_t* attr) {
+    if (attr == NULL)
+        return EINVAL;
+    attr->pshared = PTHREAD_PROCESS_PRIVATE;
+    return 0;
+}
+
+int pthread_barrierattr_destroy(pthread_barrierattr_t* attr) {
+    return attr == NULL ? EINVAL : 0;
+}
+
+int pthread_barrierattr_getpshared(const pthread_barrierattr_t* attr, int* pshared) {
+    if (attr == NULL || pshared == NULL)
+        return EINVAL;
+    if (attr->pshared != PTHREAD_PROCESS_PRIVATE &&
+        attr->pshared != PTHREAD_PROCESS_SHARED)
+        return EINVAL;
+    *pshared = attr->pshared;
+    return 0;
+}
+
+int pthread_barrierattr_setpshared(pthread_barrierattr_t* attr, int pshared) {
+    if (attr == NULL || (pshared != PTHREAD_PROCESS_PRIVATE &&
+                         pshared != PTHREAD_PROCESS_SHARED))
+        return EINVAL;
+    if (pshared == PTHREAD_PROCESS_SHARED)
+        return ENOTSUP;
+    attr->pshared = pshared;
+    return 0;
+}
+
+int pthread_barrier_init(pthread_barrier_t* barrier,
+                         const pthread_barrierattr_t* attr, unsigned count) {
+    if (barrier == NULL || count == 0)
+        return EINVAL;
+    if (attr != NULL) {
+        if (attr->pshared != PTHREAD_PROCESS_PRIVATE &&
+            attr->pshared != PTHREAD_PROCESS_SHARED)
+            return EINVAL;
+        if (attr->pshared == PTHREAD_PROCESS_SHARED)
+            return ENOTSUP;
+    }
+    if (pthread_barrier_valid(barrier) &&
+        __atomic_load_n(&barrier->active, __ATOMIC_ACQUIRE) != 0)
+        return EBUSY;
+    __atomic_store_n(&barrier->magic, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&barrier->trip_count, count, __ATOMIC_RELAXED);
+    __atomic_store_n(&barrier->count, count, __ATOMIC_RELAXED);
+    __atomic_store_n(&barrier->generation, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&barrier->active, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&barrier->magic, pthread_barrier_magic, __ATOMIC_RELEASE);
+    return 0;
+}
+
+int pthread_barrier_destroy(pthread_barrier_t* barrier) {
+    if (!pthread_barrier_valid(barrier))
+        return EINVAL;
+    if (__atomic_load_n(&barrier->active, __ATOMIC_ACQUIRE) != 0)
+        return EBUSY;
+    __atomic_store_n(&barrier->magic, 0, __ATOMIC_RELEASE);
+    return 0;
+}
+
+int pthread_barrier_wait(pthread_barrier_t* barrier) {
+    if (!pthread_barrier_valid(barrier))
+        return EINVAL;
+
+    __atomic_fetch_add(&barrier->active, 1, __ATOMIC_ACQ_REL);
+    const uint32_t generation = __atomic_load_n(&barrier->generation, __ATOMIC_ACQUIRE);
+    const uint32_t previous =
+        __atomic_fetch_sub(&barrier->count, 1, __ATOMIC_ACQ_REL);
+    if (previous == 0) {
+        __atomic_fetch_sub(&barrier->active, 1, __ATOMIC_ACQ_REL);
+        return EINVAL;
+    }
+    if (previous == 1) {
+        const uint32_t trip_count =
+            __atomic_load_n(&barrier->trip_count, __ATOMIC_RELAXED);
+        const uint32_t next_generation = generation == UINT32_MAX ? 0 : generation + 1;
+        __atomic_store_n(&barrier->count, trip_count, __ATOMIC_RELAXED);
+        __atomic_store_n(&barrier->generation, next_generation, __ATOMIC_RELEASE);
+        (void) futex_wake(&barrier->generation, UINT32_MAX);
+        __atomic_fetch_sub(&barrier->active, 1, __ATOMIC_ACQ_REL);
+        return PTHREAD_BARRIER_SERIAL_THREAD;
+    }
+
+    for (;;) {
+        if (__atomic_load_n(&barrier->generation, __ATOMIC_ACQUIRE) != generation)
+            break;
+        const int result = futex_wait(&barrier->generation, generation);
+        if (result < 0 && errno != EAGAIN && errno != EINTR) {
+            __atomic_fetch_sub(&barrier->active, 1, __ATOMIC_ACQ_REL);
+            return errno;
+        }
+    }
+    __atomic_fetch_sub(&barrier->active, 1, __ATOMIC_ACQ_REL);
+    return 0;
+}
+
 int pthread_setcancelstate(int state, int* oldstate) {
     if (state != PTHREAD_CANCEL_ENABLE && state != PTHREAD_CANCEL_DISABLE)
         return EINVAL;

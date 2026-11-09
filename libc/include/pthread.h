@@ -44,6 +44,18 @@ typedef struct pthread_condattr_t {
     int clock;
 } pthread_condattr_t;
 
+typedef struct pthread_barrier_t {
+    uint32_t magic;
+    uint32_t trip_count;
+    uint32_t count;
+    uint32_t generation;
+    uint32_t active;
+} pthread_barrier_t;
+
+typedef struct pthread_barrierattr_t {
+    int pshared;
+} pthread_barrierattr_t;
+
 typedef struct __pthread_cleanup_frame {
     void (*routine)(void*);
     void* arg;
@@ -68,6 +80,7 @@ typedef struct __pthread_cleanup_frame {
 #define PTHREAD_CREATE_DETACHED 1
 #define PTHREAD_KEYS_MAX 128
 #define PTHREAD_DESTRUCTOR_ITERATIONS 4
+#define PTHREAD_BARRIER_SERIAL_THREAD (-1)
 
 #define PTHREAD_CANCEL_ENABLE 0
 #define PTHREAD_CANCEL_DISABLE 1
@@ -131,6 +144,14 @@ int       pthread_cond_timedwait(pthread_cond_t* cond, pthread_mutex_t* mutex,
                                  const struct timespec* abstime);
 int       pthread_cond_signal(pthread_cond_t* cond);
 int       pthread_cond_broadcast(pthread_cond_t* cond);
+int       pthread_barrierattr_init(pthread_barrierattr_t* attr);
+int       pthread_barrierattr_destroy(pthread_barrierattr_t* attr);
+int       pthread_barrierattr_getpshared(const pthread_barrierattr_t* attr, int* pshared);
+int       pthread_barrierattr_setpshared(pthread_barrierattr_t* attr, int pshared);
+int       pthread_barrier_init(pthread_barrier_t* barrier,
+                               const pthread_barrierattr_t* attr, unsigned count);
+int       pthread_barrier_destroy(pthread_barrier_t* barrier);
+int       pthread_barrier_wait(pthread_barrier_t* barrier);
 int       pthread_setcancelstate(int state, int* oldstate);
 int       pthread_setcanceltype(int type, int* oldtype);
 int       pthread_cancel(pthread_t thread);

@@ -92,6 +92,22 @@ static void* libc_stack_worker(void* opaque) {
     return (void*) (unsigned long) (checksum == 200 ? 0x4567 : 0x4568);
 }
 
+static pthread_barrier_t libc_barrier;
+static volatile unsigned int libc_barrier_serials;
+static volatile int libc_barrier_failures;
+
+static void* libc_barrier_worker(void* opaque) {
+    (void) opaque;
+    for (unsigned int round = 0; round < 32; ++round) {
+        const int result = pthread_barrier_wait(&libc_barrier);
+        if (result == PTHREAD_BARRIER_SERIAL_THREAD)
+            __atomic_fetch_add(&libc_barrier_serials, 1, __ATOMIC_RELAXED);
+        else if (result != 0)
+            __atomic_fetch_add(&libc_barrier_failures, 1, __ATOMIC_RELAXED);
+    }
+    return NULL;
+}
+
 static volatile unsigned int libc_futex_word;
 static volatile int          libc_futex_ready;
 static volatile unsigned int libc_cross_futex_word;
@@ -759,6 +775,32 @@ int main(int argc, char** argv) {
         if (pthread_join(worker, &result) != 0 ||
             result != (void*) (unsigned long) 0x4567)
             return 59;
+    }
+
+    {
+        pthread_t workers[3];
+        libc_barrier_serials = 0;
+        libc_barrier_failures = 0;
+        if (pthread_barrier_init(&libc_barrier, NULL, 4) != 0)
+            return 153;
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_create(&workers[i], NULL, libc_barrier_worker, NULL) != 0)
+                return 154;
+        }
+        for (unsigned int round = 0; round < 32; ++round) {
+            const int result = pthread_barrier_wait(&libc_barrier);
+            if (result == PTHREAD_BARRIER_SERIAL_THREAD)
+                __atomic_fetch_add(&libc_barrier_serials, 1, __ATOMIC_RELAXED);
+            else if (result != 0)
+                __atomic_fetch_add(&libc_barrier_failures, 1, __ATOMIC_RELAXED);
+        }
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_join(workers[i], NULL) != 0)
+                return 155;
+        }
+        if (libc_barrier_serials != 32 || libc_barrier_failures != 0 ||
+            pthread_barrier_destroy(&libc_barrier) != 0)
+            return 156;
     }
 
     /* 26-27: futex value comparison and wake ABI. */
