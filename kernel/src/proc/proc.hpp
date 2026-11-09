@@ -52,6 +52,7 @@ namespace astia::proc {
     process* kernel_process();
     process* current_process();
     thread*  current_thread();
+    void terminate_current_if_killed();
     tid_t    allocate_tid();
     /// Next process id (slot 0 / the kernel process is pid 0; userspace
     /// starts at 1).  spawnve and fork both draw from here.

@@ -37,9 +37,10 @@ isr_common:
     andq $-16, %rsp         /* SysV 16-byte alignment for the call */
     movq %rbx, %rdi         /* arg1: the register frame */
     call interrupt_dispatch
+    movq %rbx, %rdi
+    call astia_interrupt_user_return
     /* The outermost dispatch publishes should_yield in GS:28.  Restore the
-       exact GPR/iret layout first; no C helper is called while that frame is
-       live. */
+       exact GPR/iret layout before the scheduler safe point. */
     movq %rbx, %rsp
 
     popq %r15

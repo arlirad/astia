@@ -255,6 +255,12 @@ namespace astia::proc {
         void request_exit() {
             __atomic_store_n(&exit_requested_, 1, __ATOMIC_RELEASE);
         }
+        bool kill_pending() const {
+            return __atomic_load_n(&kill_pending_, __ATOMIC_ACQUIRE) != 0;
+        }
+        void request_kill() {
+            __atomic_store_n(&kill_pending_, 1, __ATOMIC_RELEASE);
+        }
         void request_cancellation() {
             __atomic_store_n(&cancellation_pending_, 1, __ATOMIC_RELEASE);
         }
@@ -301,6 +307,7 @@ namespace astia::proc {
         u8               owns_user_stack_      = 0;
         u8               cancellation_pending_ = 0;
         u8               exit_requested_       = 0;
+        u8               kill_pending_         = 0;
         thread*           joining_              = nullptr;
         bool              join_cancel_wakeup_   = false;
         bool             idle_                 = false;

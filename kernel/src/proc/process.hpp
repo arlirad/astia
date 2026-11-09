@@ -210,6 +210,7 @@ namespace astia::proc {
         }
         void signal_state_change(signal_number signal);
         void interrupt_signal_io(signal_number signal);
+        void request_kill();
         i64 alarm(u32 seconds, u64 now, u32 hz);
         void expire_alarm(u64 now);
         void signal_termination(signal_number signal) {

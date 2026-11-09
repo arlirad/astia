@@ -56,7 +56,11 @@ namespace astia::proc::syscall {
         if (!target->signals().send(mapped_signal.value, info))
             return -EINVAL;
         target->interrupt_signal_io(mapped_signal.value);
-        if (is_uncatchable(mapped_signal.value) ||
+        if (mapped_signal.value == signal_number::kill) {
+            target->signal_termination(signal_number::kill);
+            target->request_kill();
+        }
+        else if (is_uncatchable(mapped_signal.value) ||
             target->signals().disposition(mapped_signal.value).action ==
                 signal_action::default_action)
             target->signal_state_change(mapped_signal.value);
