@@ -24,6 +24,7 @@ namespace astia::test {
         using logs = astia::log::context<"selftest">;
 
         volatile u32 scheduler_counts[2]{};
+        volatile u32 scheduler_gate_result = 0;
         volatile u32 ap_work_seen       = 0;
         volatile u32 ap_stress_done     = 0;
         volatile u32 ap_stress_cpu_mask = 0;
@@ -39,6 +40,16 @@ namespace astia::test {
                 __atomic_add_fetch(count, 1, __ATOMIC_RELAXED);
                 proc::scheduler::yield();
             }
+        }
+
+        void scheduler_masked_worker(void*) {
+            proc::current_thread()->charge_runtime(1ull << 60);
+            arch::cpu::nointerrupts();
+            proc::scheduler::yield();
+            __atomic_store_n(&scheduler_gate_result,
+                             arch::cpu::check_interrupts() ? 2u : 1u,
+                             __ATOMIC_RELEASE);
+            arch::cpu::interrupts();
         }
 
         void ap_scheduler_worker(void*) {
@@ -144,6 +155,32 @@ namespace astia::test {
         bool scheduler_checks() {
             const bool gate_open = arch::cpu::check_interrupts();
             arch::cpu::interrupts();
+            scheduler_gate_result = 0;
+            if (!proc::scheduler::spawn_kernel(scheduler_masked_worker, nullptr)) {
+                if (!gate_open) {
+                    arch::cpu::nointerrupts();
+                }
+                logs::error("scheduler: could not spawn masked worker");
+                return false;
+            }
+            proc::scheduler::yield();
+            if (!arch::cpu::check_interrupts()) {
+                if (!gate_open) {
+                    arch::cpu::nointerrupts();
+                }
+                logs::error("scheduler: gate restore open=0");
+                return false;
+            }
+            proc::scheduler::yield();
+            const u32 masked_result =
+                __atomic_load_n(&scheduler_gate_result, __ATOMIC_ACQUIRE);
+            if (masked_result != 1) {
+                if (!gate_open) {
+                    arch::cpu::nointerrupts();
+                }
+                logs::error("scheduler: worker gate=%u", masked_result);
+                return false;
+            }
             scheduler_counts[0] = 0;
             scheduler_counts[1] = 0;
             if (!proc::scheduler::spawn_kernel(scheduler_worker,
