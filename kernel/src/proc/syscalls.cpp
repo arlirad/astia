@@ -39,6 +39,7 @@
 #include "syscalls/thread/thread_cancel.hpp"
 #include "syscalls/thread/thread_cancel_pending.hpp"
 #include "syscalls/thread/thread_exists.hpp"
+#include "syscalls/thread/thread_getattr.hpp"
 #include "syscalls/thread/thread_kill.hpp"
 #include "syscalls/thread/thread_detach.hpp"
 #include "syscalls/thread/thread_exit.hpp"
@@ -308,6 +309,8 @@ namespace astia::proc {
                    sys::syscall_id::thread_cancel_pending) &&
                sys::register_syscall<syscall::thread_exists>(
                    sys::syscall_id::thread_exists) &&
+               sys::register_syscall<syscall::thread_getattr>(
+                   sys::syscall_id::thread_getattr) &&
                sys::register_syscall<syscall::thread_kill>(sys::syscall_id::thread_kill) &&
                sys::register_exit_hook(deliver_default_signal) &&
                arch::register_user_fault_handler(user_fault);

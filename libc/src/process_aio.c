@@ -92,13 +92,21 @@ long __astia_process_thread_create(void (*entry)(void*), void* stack_top,
 }
 
 long __astia_process_thread_create2(void (*entry)(void*, void*), void* stack_top,
-                                    void* argument0, void* argument1) {
-    return astia_thread_create2(entry, stack_top, argument0, argument1);
+                                    void* argument0, void* argument1,
+                                    void* stack_addr, size_t stack_size) {
+    return astia_thread_create2(entry, stack_top, argument0, argument1, stack_addr,
+                                stack_size);
 }
 
 long __astia_process_thread_create_owned(void (*entry)(void*, void*), void* stack_top,
-                                         void* argument0, void* argument1) {
-    return astia_thread_create_owned(entry, stack_top, argument0, argument1);
+                                         void* argument0, void* argument1,
+                                         void* stack_addr, size_t stack_size) {
+    return astia_thread_create_owned(entry, stack_top, argument0, argument1, stack_addr,
+                                     stack_size);
+}
+
+long __astia_process_thread_getattr(unsigned long tid, void* output) {
+    return astia_thread_getattr((uint32_t) tid, (astia_thread_stack_info*) output);
 }
 
 void __astia_process_thread_exit(void* result) {

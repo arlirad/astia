@@ -18,4 +18,16 @@ namespace astia::proc::syscall {
                    .validate(stack_alignment_bytes);
     }
 
+    inline bool valid_thread_stack_metadata(u64 stack_base, u64 stack_size,
+                                            u64 stack_top) {
+        if (stack_base == 0 || stack_size == 0 ||
+            stack_size > static_cast<u64>(~usize{0}) ||
+            stack_base > ~u64{0} - stack_size ||
+            stack_base + stack_size != stack_top ||
+            (stack_base & thread_stack_alignment_mask) != 0)
+            return false;
+        return static_cast<bool>(
+            sys::user_span<u8>(stack_base, static_cast<usize>(stack_size)).validate());
+    }
+
 } // namespace astia::proc::syscall

@@ -130,6 +130,7 @@ enum {
     SYS_SIGPENDING       = 60,
     SYS_SIGTIMEDWAIT     = 61,
     SYS_CLOCK_GETRES     = 62,
+    SYS_THREAD_GETATTR   = 63,
 };
 
 /* ------------------------------------------------------------------ */
@@ -140,6 +141,13 @@ typedef struct astia_timespec {
     int64_t tv_sec;
     int64_t tv_nsec;
 } astia_timespec;
+
+typedef struct astia_thread_stack_info {
+    uint64_t stack_addr;
+    uint64_t stack_size;
+    uint32_t detached;
+    uint32_t reserved;
+} astia_thread_stack_info;
 
 typedef struct astia_rlimit {
     uint64_t current;
@@ -461,15 +469,23 @@ static inline long astia_thread_create(void (*entry)(void*), void* stack_top,
 }
 
 static inline long astia_thread_create2(void (*entry)(void*, void*), void* stack_top,
-                                        void* argument0, void* argument1) {
+                                        void* argument0, void* argument1,
+                                        void* stack_addr, uint64_t stack_size) {
     return astia_raw6(SYS_THREAD_CREATE2, (long) (uintptr_t) entry, (long) stack_top,
-                      (long) argument0, (long) argument1, 0, 0);
+                      (long) argument0, (long) argument1, (long) stack_addr,
+                      (long) stack_size);
 }
 
 static inline long astia_thread_create_owned(void (*entry)(void*, void*), void* stack_top,
-                                             void* argument0, void* argument1) {
+                                             void* argument0, void* argument1,
+                                             void* stack_addr, uint64_t stack_size) {
     return astia_raw6(SYS_THREAD_CREATE_OWNED, (long) (uintptr_t) entry,
-                      (long) stack_top, (long) argument0, (long) argument1, 0, 0);
+                      (long) stack_top, (long) argument0, (long) argument1,
+                      (long) stack_addr, (long) stack_size);
+}
+
+static inline long astia_thread_getattr(uint32_t tid, astia_thread_stack_info* output) {
+    return astia_raw6(SYS_THREAD_GETATTR, (long) tid, (long) output, 0, 0, 0, 0);
 }
 
 static inline long astia_thread_cancel(uint32_t tid) {

@@ -300,7 +300,16 @@ namespace astia::proc {
         /// supplied stack belongs to userspace (pthread_create maps it);
         /// `argument` becomes the new entry's first ABI argument.
         mm::shptr<thread> create_thread(u64 entry, u64 user_stack_top, u64 argument,
-                                        u64 argument1 = 0, bool owns_user_stack = false);
+                                        u64 argument1 = 0, bool owns_user_stack = false,
+                                        u64 user_stack_base = 0,
+                                        usize user_stack_size = 0);
+        struct thread_stack_snapshot {
+            u64  stack_base = 0;
+            usize stack_size = 0;
+            bool detached = false;
+            bool supported = false;
+        };
+        mm::shptr<thread> thread_stack_info(tid_t id, thread_stack_snapshot& snapshot);
         /// Find a thread by its process-local tid, retaining it while a
         /// blocking join syscall operates on it.
         mm::shptr<thread>     thread_by_tid(tid_t id);
@@ -400,6 +409,8 @@ namespace astia::proc {
 
         /// Fork: the child's first thread, resuming `uctx` inside the
         /// parent's ring-3 call site with rax = 0.
+        /// Its inherited stack mapping has no creation-time base/size
+        /// contract, so stack metadata queries report ENOTSUP.
         mm::shptr<thread> create_fork_thread(const arch::user_context& uctx,
                                               signal_mask blocked_signals);
 

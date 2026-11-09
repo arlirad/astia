@@ -111,6 +111,7 @@ int       pthread_attr_getstackaddr(const pthread_attr_t* attr, void** stack_add
 int       pthread_attr_setstack(pthread_attr_t* attr, void* stack_addr, size_t size);
 int       pthread_attr_getstack(const pthread_attr_t* attr, void** stack_addr,
                                 size_t* size);
+int       pthread_getattr_np(pthread_t thread, pthread_attr_t* attr);
 int       pthread_attr_setdetachstate(pthread_attr_t* attr, int detachstate);
 int       pthread_attr_getinheritsched(const pthread_attr_t* attr, int* inheritsched);
 int       pthread_attr_setinheritsched(pthread_attr_t* attr, int inheritsched);

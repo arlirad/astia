@@ -721,14 +721,17 @@ namespace astia::proc {
     }
 
     void process::release_thread_stack(thread* value) {
-        if (value == nullptr || !value->owns_user_stack() || value->user_stack_top() == 0)
+        if (value == nullptr || value->user_stack_top() == 0 ||
+            !value->claim_owned_user_stack())
             return;
+        const u64 stack_top = value->user_stack_top();
+        value->clear_user_stack_metadata();
         u64 base = 0;
         usize bytes = 0;
         {
             arch::interrupt_spinlock_guard guard(mmap_lock_);
             for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
-                if (it->stack && it->covers(value->user_stack_top() - 1)) {
+                if (it->stack && it->covers(stack_top - 1)) {
                     base = it->base;
                     bytes = static_cast<usize>(it->size());
                     break;
@@ -1054,8 +1057,12 @@ namespace astia::proc {
         }
 
         auto value = mm::share<thread>(this, proc::allocate_tid());
-        if (!value || !value->prepare_user(entry, user_entry_stack, tls_tp_) ||
-            !add_thread(value)) {
+        if (!value || !value->prepare_user(entry, user_entry_stack, tls_tp_)) {
+            unmap(user_stack_top - user_stack_bytes, user_stack_bytes);
+            return {};
+        }
+        value->user_stack_metadata(user_stack_top - user_stack_bytes, user_stack_bytes);
+        if (!add_thread(value)) {
             unmap(user_stack_top - user_stack_bytes, user_stack_bytes);
             return {};
         }
@@ -1068,7 +1075,8 @@ namespace astia::proc {
     }
 
     mm::shptr<thread> process::create_thread(u64 entry, u64 user_stack_top, u64 argument,
-                                             u64 argument1, bool owns_user_stack) {
+                                             u64 argument1, bool owns_user_stack,
+                                             u64 user_stack_base, usize user_stack_size) {
         if (address_space_ == nullptr || entry == 0 || user_stack_top == 0) {
             return {};
         }
@@ -1090,6 +1098,10 @@ namespace astia::proc {
         }
         value->tls_mapping(tls_base, tls_pages);
         value->owns_user_stack(owns_user_stack);
+        if (user_stack_base != 0 && user_stack_size != 0)
+            value->user_stack_metadata(user_stack_base, user_stack_size);
+        else
+            value->user_stack_metadata_unsupported();
         if (!scheduler::wake(value.get())) {
             release_thread(value.get());
             release_thread_tls(value.get());
@@ -1177,6 +1189,22 @@ namespace astia::proc {
             if (threads_[i] && threads_[i]->tid() == id) {
                 return threads_[i];
             }
+        }
+        return {};
+    }
+
+    mm::shptr<thread> process::thread_stack_info(tid_t id,
+                                                  thread_stack_snapshot& snapshot) {
+        arch::interrupt_spinlock_guard guard(lifecycle_lock_);
+        for (u32 i = 0; i < max_threads_per_process; ++i) {
+            if (!threads_[i] || threads_[i]->tid() != id ||
+                threads_[i]->state() == thread_state::dead)
+                continue;
+            snapshot.stack_base = threads_[i]->user_stack_base();
+            snapshot.stack_size = threads_[i]->user_stack_size();
+            snapshot.detached  = threads_[i]->detached();
+            snapshot.supported = threads_[i]->user_stack_metadata_supported();
+            return threads_[i];
         }
         return {};
     }

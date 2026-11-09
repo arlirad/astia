@@ -160,6 +160,7 @@ namespace astia::proc {
             return false;
         }
         user_stack_top_ = uctx.rsp;
+        user_stack_metadata_unsupported();
         if (!arch::context_prepare_fork(context_, kernel_stack_top_, &uctx)) {
             release_kernel_stack();
             return false;
@@ -188,7 +189,7 @@ namespace astia::proc {
             // otherwise leak.  Hand it to the deferred reaper — we are
             // still running on this thread's own kernel stack, so it
             // must not be destroyed right here.
-            if (joiner_ == nullptr && detached_) {
+            if (joiner_ == nullptr && detached()) {
                 defer_dead_thread(owner_->take_thread(this));
             }
         }
@@ -209,11 +210,11 @@ namespace astia::proc {
         bool wait = false;
         {
             arch::interrupt_guard gate;
-            if (detached_ || joiner_ != nullptr) {
+            if (detached() || joiner_ != nullptr) {
                 return -EINVAL;
             }
             joiner_ = current;
-            if (state_ == thread_state::dead) {
+            if (state() == thread_state::dead) {
                 joiner_ = nullptr;
             } else {
                 wait = true;
@@ -254,7 +255,7 @@ namespace astia::proc {
         if (joining_ == nullptr)
             return false;
         join_cancel_wakeup_ = true;
-        if (state_ == thread_state::blocked)
+        if (state() == thread_state::blocked)
             (void) scheduler::wake(this);
         return true;
     }
@@ -263,12 +264,12 @@ namespace astia::proc {
         if (joiner_ != nullptr) {
             return -EINVAL;
         }
-        detached_ = true;
+        __atomic_store_n(&detached_, 1, __ATOMIC_RELEASE);
         // A fire-and-forget kernel thread can finish before its creator gets
         // to detach it (especially when it is queued on another CPU).  Its
         // stack is no longer active in this case, so move the process-owned
         // reference to the deferred reaper just as finish() would have done.
-        if (state_ == thread_state::dead && owner_ != nullptr) {
+        if (state() == thread_state::dead && owner_ != nullptr) {
             owner_->release_thread_stack(this);
             defer_dead_thread(owner_->take_thread(this));
         }

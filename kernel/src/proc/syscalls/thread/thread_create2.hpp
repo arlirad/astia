@@ -18,5 +18,6 @@ namespace astia::proc::syscall {
     ///     -EAGAIN: The thread limit or memory limit was reached.
     ///     -EFAULT: The entry point, stack, or argument pointer is invalid.
     ///     -ESRCH: There is no current process.
-    i64 thread_create2(u64 entry, u64 stack_top, u64 argument0, u64 argument1);
+    i64 thread_create2(u64 entry, u64 stack_top, u64 argument0, u64 argument1,
+                       u64 stack_base, u64 stack_size);
 }

@@ -45,10 +45,12 @@ namespace astia::proc {
             return tid_;
         }
         thread_state state() const {
-            return state_;
+            return static_cast<thread_state>(
+                __atomic_load_n(reinterpret_cast<const u8*>(&state_), __ATOMIC_ACQUIRE));
         }
         void state(thread_state value) {
-            state_ = value;
+            __atomic_store_n(reinterpret_cast<u8*>(&state_), static_cast<u8>(value),
+                             __ATOMIC_RELEASE);
         }
 
         /// Interrupt gate this thread was running with when the scheduler
@@ -127,6 +129,28 @@ namespace astia::proc {
         void sample_kernel_stack();
         u64 user_stack_top() const {
             return user_stack_top_;
+        }
+        u64 user_stack_base() const {
+            return user_stack_base_;
+        }
+        usize user_stack_size() const {
+            return user_stack_size_;
+        }
+        bool user_stack_metadata_supported() const {
+            return user_stack_metadata_supported_;
+        }
+        void user_stack_metadata(u64 base, usize size) {
+            user_stack_base_              = base;
+            user_stack_size_              = size;
+            user_stack_metadata_supported_ = base != 0 && size != 0;
+        }
+        void user_stack_metadata_unsupported() {
+            user_stack_base_               = 0;
+            user_stack_size_               = 0;
+            user_stack_metadata_supported_ = false;
+        }
+        void clear_user_stack_metadata() {
+            user_stack_metadata_unsupported();
         }
 
         u64 tls_mapping_base() const {
@@ -210,13 +234,16 @@ namespace astia::proc {
             user_stack_top_ = value;
         }
         bool owns_user_stack() const {
-            return owns_user_stack_;
+            return __atomic_load_n(&owns_user_stack_, __ATOMIC_ACQUIRE) != 0;
         }
         void owns_user_stack(bool value) {
-            owns_user_stack_ = value;
+            __atomic_store_n(&owns_user_stack_, value ? 1 : 0, __ATOMIC_RELEASE);
+        }
+        bool claim_owned_user_stack() {
+            return __atomic_exchange_n(&owns_user_stack_, 0, __ATOMIC_ACQ_REL) != 0;
         }
         bool detached() const {
-            return detached_;
+            return __atomic_load_n(&detached_, __ATOMIC_ACQUIRE) != 0;
         }
         bool cancellation_pending() const {
             return __atomic_load_n(&cancellation_pending_, __ATOMIC_ACQUIRE) != 0;
@@ -254,6 +281,9 @@ namespace astia::proc {
         u64              entry_                = 0;
         u64              kernel_stack_top_     = 0;
         u64              user_stack_top_       = 0;
+        u64              user_stack_base_      = 0;
+        usize            user_stack_size_      = 0;
+        bool             user_stack_metadata_supported_ = false;
         u64              tls_mapping_base_     = 0;
         usize            tls_mapping_pages_    = 0;
         arch::context*   context_              = nullptr;
@@ -266,8 +296,8 @@ namespace astia::proc {
         u32              kernel_stack_sample_count_ = 0;
         thread*          joiner_               = nullptr;
         void*            result_               = nullptr;
-        bool             detached_             = false;
-        bool             owns_user_stack_      = false;
+        u8               detached_             = 0;
+        u8               owns_user_stack_      = 0;
         u8               cancellation_pending_ = 0;
         u8               exit_requested_       = 0;
         thread*           joining_              = nullptr;

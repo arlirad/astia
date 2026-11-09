@@ -101,6 +101,68 @@ static void* libc_attr_worker(void* opaque) {
     return (void*) (unsigned long) (stack_probe[0] == 0x5a ? 0x89ab : 0x89ac);
 }
 
+struct libc_getattr_self_probe {
+    void*          expected_addr;
+    size_t         expected_size;
+    volatile int   result;
+};
+
+static void* libc_getattr_self_worker(void* opaque) {
+    struct libc_getattr_self_probe* probe = (struct libc_getattr_self_probe*) opaque;
+    pthread_attr_t attr;
+    void*          stack_addr = NULL;
+    size_t         stack_size = 0;
+    probe->result = pthread_getattr_np(pthread_self(), &attr);
+    if (probe->result == 0)
+        probe->result = pthread_attr_getstack(&attr, &stack_addr, &stack_size);
+    if (probe->result == 0 &&
+        (stack_addr != probe->expected_addr || stack_size != probe->expected_size))
+        probe->result = EFAULT;
+    return NULL;
+}
+
+struct libc_getattr_race {
+    pthread_t       target;
+    volatile int    release;
+    volatile int    started;
+    volatile int    saw_success;
+    volatile int    saw_esrch;
+    volatile int    failures;
+};
+
+static void* libc_getattr_race_target(void* opaque) {
+    struct libc_getattr_race* race = (struct libc_getattr_race*) opaque;
+    while (__atomic_load_n(&race->release, __ATOMIC_ACQUIRE) == 0)
+        sched_yield();
+    for (unsigned int i = 0; i < 64; ++i)
+        sched_yield();
+    return NULL;
+}
+
+static void* libc_getattr_race_query(void* opaque) {
+    struct libc_getattr_race* race = (struct libc_getattr_race*) opaque;
+    __atomic_store_n(&race->started, 1, __ATOMIC_RELEASE);
+    for (unsigned int i = 0; i < 4096; ++i) {
+        pthread_attr_t attr;
+        const int result = pthread_getattr_np(race->target, &attr);
+        if (result == 0) {
+            size_t stack_size = 0;
+            if (pthread_attr_getstacksize(&attr, &stack_size) != 0 ||
+                stack_size != 64 * 1024)
+                __atomic_store_n(&race->failures, 1, __ATOMIC_RELEASE);
+            __atomic_store_n(&race->saw_success, 1, __ATOMIC_RELEASE);
+        }
+        else if (result == ESRCH) {
+            __atomic_store_n(&race->saw_esrch, 1, __ATOMIC_RELEASE);
+        }
+        else {
+            __atomic_store_n(&race->failures, 1, __ATOMIC_RELEASE);
+        }
+        sched_yield();
+    }
+    return NULL;
+}
+
 static void* libc_detached_attr_worker(void* opaque) {
     (void) opaque;
     libc_detached_done = 1;
@@ -946,6 +1008,13 @@ int main(int argc, char** argv) {
             pthread_join(worker, &result) != 0 ||
             result != (void*) (unsigned long) 0x89ab)
             return 66;
+
+        struct libc_getattr_self_probe self_probe = {
+            custom_stack, 32 * 1024, 0
+        };
+        if (pthread_create(&worker, &attr, libc_getattr_self_worker, &self_probe) != 0 ||
+            pthread_join(worker, NULL) != 0 || self_probe.result != 0)
+            return 81;
         if (munmap(custom_stack, 32 * 1024) != 0)
             return 67;
 
@@ -997,6 +1066,22 @@ int main(int argc, char** argv) {
             return 74;
         if (pthread_attr_destroy(&attr) != 0)
             return 75;
+    }
+
+    {
+        struct libc_getattr_race race = {0};
+        pthread_t                query;
+        if (pthread_create(&race.target, NULL, libc_getattr_race_target, &race) != 0 ||
+            pthread_create(&query, NULL, libc_getattr_race_query, &race) != 0)
+            return 82;
+        while (__atomic_load_n(&race.started, __ATOMIC_ACQUIRE) == 0)
+            sched_yield();
+        __atomic_store_n(&race.release, 1, __ATOMIC_RELEASE);
+        if (pthread_join(race.target, NULL) != 0 || pthread_join(query, NULL) != 0 ||
+            __atomic_load_n(&race.saw_success, __ATOMIC_ACQUIRE) == 0 ||
+            __atomic_load_n(&race.saw_esrch, __ATOMIC_ACQUIRE) == 0 ||
+            __atomic_load_n(&race.failures, __ATOMIC_ACQUIRE) != 0)
+            return 83;
     }
 
     {

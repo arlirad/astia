@@ -44,6 +44,7 @@ add_library(proc STATIC
         syscalls/thread/thread_cancel.cpp
         syscalls/thread/thread_cancel_pending.cpp
         syscalls/thread/thread_exists.cpp
+        syscalls/thread/thread_getattr.cpp
         syscalls/thread/thread_kill.cpp
         syscalls/thread/thread_exit.cpp
         syscalls/thread/thread_join.cpp

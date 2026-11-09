@@ -9,6 +9,13 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+typedef struct astia_thread_stack_info {
+    uint64_t stack_addr;
+    uint64_t stack_size;
+    uint32_t detached;
+    uint32_t reserved;
+} astia_thread_stack_info;
+
 enum {
     default_stack_size  = 64 * 1024,
     minimum_stack_size  = PTHREAD_STACK_MIN,
@@ -198,6 +205,28 @@ int pthread_attr_getstack(const pthread_attr_t* attr, void** stack_addr, size_t*
     return 0;
 }
 
+int pthread_getattr_np(pthread_t thread, pthread_attr_t* attr) {
+    astia_thread_stack_info info;
+    pthread_attr_t           result;
+    long                     rc;
+
+    if (attr == NULL)
+        return EINVAL;
+    rc = __astia_process_thread_getattr((unsigned long) thread, &info);
+    if (rc < 0)
+        return (int) -rc;
+    result.stack_addr   = (void*) (uintptr_t) info.stack_addr;
+    result.stack_size   = (size_t) info.stack_size;
+    result.detachstate  = info.detached != 0 ? PTHREAD_CREATE_DETACHED
+                                             : PTHREAD_CREATE_JOINABLE;
+    result.inheritsched = PTHREAD_INHERIT_SCHED;
+    result.scope        = PTHREAD_SCOPE_PROCESS;
+    result.schedpolicy  = SCHED_OTHER;
+    result.schedparam.sched_priority = 0;
+    *attr = result;
+    return 0;
+}
+
 int pthread_attr_getdetachstate(const pthread_attr_t* attr, int* detachstate) {
     if (attr == NULL || detachstate == NULL)
         return EINVAL;
@@ -294,7 +323,8 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
         if ((top & (sizeof(void*) * 2 - 1)) != 0)
             return EINVAL;
         long tid = __astia_process_thread_create2(pthread_start_trampoline, (void*) top,
-                                                  (void*) start_routine, argument);
+                                                  (void*) start_routine, argument,
+                                                  stack_addr, stack_size);
         if (tid < 0) {
             errno = (int) -tid;
             return errno == EFAULT ? EINVAL : errno;
@@ -317,7 +347,8 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
         return errno;
     unsigned long top = (unsigned long) stack + stack_size;
     long tid = __astia_process_thread_create_owned(pthread_start_trampoline, (void*) top,
-                                                   (void*) start_routine, argument);
+                                                   (void*) start_routine, argument, stack,
+                                                   stack_size);
     if (tid < 0) {
         munmap(stack, stack_size);
         errno = (int) -tid;
