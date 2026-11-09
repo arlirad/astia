@@ -16,10 +16,94 @@ enum {
     page_alignment_mask = page_size - 1,
 };
 
+enum {
+    pthread_key_index_bits = 8,
+    pthread_key_index_mask = (1u << pthread_key_index_bits) - 1,
+    pthread_key_generation_max = (1u << (sizeof(pthread_key_t) * 8 -
+                                         pthread_key_index_bits)) - 1,
+};
+
+struct pthread_key_slot {
+    void (*destructor)(void*);
+    unsigned int generation;
+    int          active;
+    int          exhausted;
+};
+
+struct pthread_key_state {
+    void*          values[PTHREAD_KEYS_MAX];
+    pthread_key_t  keys[PTHREAD_KEYS_MAX];
+};
+
+static pthread_mutex_t             pthread_key_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct pthread_key_slot    pthread_keys[PTHREAD_KEYS_MAX];
+static _Thread_local struct pthread_key_state pthread_key_values;
+
+static pthread_key_t pthread_key_token(size_t index, unsigned int generation) {
+    return (pthread_key_t) ((generation << pthread_key_index_bits) | (index + 1));
+}
+
+static int pthread_key_decode(pthread_key_t key, size_t* index,
+                              unsigned int* generation) {
+    const unsigned int number = key & pthread_key_index_mask;
+    const unsigned int value  = key >> pthread_key_index_bits;
+
+    if (number == 0 || number > PTHREAD_KEYS_MAX || value == 0)
+        return EINVAL;
+    *index      = number - 1;
+    *generation = value;
+    return 0;
+}
+
+static int pthread_key_valid(size_t index, unsigned int generation) {
+    return pthread_keys[index].active &&
+           pthread_keys[index].generation == generation;
+}
+
+static void pthread_key_run_destructors(void) {
+    for (unsigned int pass = 0; pass < PTHREAD_DESTRUCTOR_ITERATIONS; ++pass) {
+        int called = 0;
+        for (size_t index = 0; index < PTHREAD_KEYS_MAX; ++index) {
+            void (*destructor)(void*) = NULL;
+            void* value = NULL;
+            pthread_mutex_lock(&pthread_key_lock);
+            const pthread_key_t key = pthread_key_values.keys[index];
+            if (key != 0) {
+                size_t key_index;
+                unsigned int generation;
+                if (pthread_key_decode(key, &key_index, &generation) == 0 &&
+                    key_index == index && pthread_key_valid(index, generation)) {
+                    value = pthread_key_values.values[index];
+                    destructor = pthread_keys[index].destructor;
+                    pthread_key_values.values[index] = NULL;
+                    pthread_key_values.keys[index]   = 0;
+                } else {
+                    pthread_key_values.values[index] = NULL;
+                    pthread_key_values.keys[index]   = 0;
+                }
+            }
+            pthread_mutex_unlock(&pthread_key_lock);
+            if (value != NULL && destructor != NULL) {
+                called = 1;
+                destructor(value);
+            }
+        }
+        if (!called)
+            break;
+    }
+}
+
+static void pthread_thread_exit(void* result) __attribute__((noreturn));
+
+static void pthread_thread_exit(void* result) {
+    pthread_key_run_destructors();
+    __astia_process_thread_exit(result);
+    __builtin_unreachable();
+}
+
 static void pthread_start_trampoline(void* function_value, void* argument) {
     void* (*function)(void*) = (void* (*)(void*) ) function_value;
-    __astia_process_thread_exit(function(argument));
-    __builtin_unreachable();
+    pthread_thread_exit(function(argument));
 }
 
 enum { pthread_stack_records = 16 };
@@ -162,6 +246,75 @@ int pthread_equal(pthread_t first, pthread_t second) {
     return first == second;
 }
 
+int pthread_key_create(pthread_key_t* key, void (*destructor)(void*)) {
+    if (key == NULL)
+        return EINVAL;
+    pthread_mutex_lock(&pthread_key_lock);
+    for (size_t index = 0; index < PTHREAD_KEYS_MAX; ++index) {
+        struct pthread_key_slot* slot = &pthread_keys[index];
+        if (slot->active || slot->exhausted)
+            continue;
+        if (slot->generation == 0)
+            slot->generation = 1;
+        slot->destructor = destructor;
+        slot->active     = 1;
+        *key = pthread_key_token(index, slot->generation);
+        pthread_mutex_unlock(&pthread_key_lock);
+        return 0;
+    }
+    pthread_mutex_unlock(&pthread_key_lock);
+    return EAGAIN;
+}
+
+int pthread_key_delete(pthread_key_t key) {
+    size_t       index;
+    unsigned int generation;
+    if (pthread_key_decode(key, &index, &generation) != 0)
+        return EINVAL;
+    pthread_mutex_lock(&pthread_key_lock);
+    if (!pthread_key_valid(index, generation)) {
+        pthread_mutex_unlock(&pthread_key_lock);
+        return EINVAL;
+    }
+    pthread_keys[index].active     = 0;
+    pthread_keys[index].destructor = NULL;
+    if (pthread_keys[index].generation == pthread_key_generation_max)
+        pthread_keys[index].exhausted = 1;
+    else
+        ++pthread_keys[index].generation;
+    pthread_mutex_unlock(&pthread_key_lock);
+    return 0;
+}
+
+int pthread_setspecific(pthread_key_t key, const void* value) {
+    size_t       index;
+    unsigned int generation;
+    if (pthread_key_decode(key, &index, &generation) != 0)
+        return EINVAL;
+    pthread_mutex_lock(&pthread_key_lock);
+    if (!pthread_key_valid(index, generation)) {
+        pthread_mutex_unlock(&pthread_key_lock);
+        return EINVAL;
+    }
+    pthread_key_values.values[index] = (void*) value;
+    pthread_key_values.keys[index]   = value == NULL ? 0 : key;
+    pthread_mutex_unlock(&pthread_key_lock);
+    return 0;
+}
+
+void* pthread_getspecific(pthread_key_t key) {
+    size_t       index;
+    unsigned int generation;
+    void*        value = NULL;
+    if (pthread_key_decode(key, &index, &generation) != 0)
+        return NULL;
+    pthread_mutex_lock(&pthread_key_lock);
+    if (pthread_key_valid(index, generation) && pthread_key_values.keys[index] == key)
+        value = pthread_key_values.values[index];
+    pthread_mutex_unlock(&pthread_key_lock);
+    return value;
+}
+
 enum {
     pthread_once_running = 1,
 };
@@ -241,8 +394,7 @@ int pthread_setschedparam(pthread_t thread, int policy,
 }
 
 void pthread_exit(void* result) {
-    __astia_process_thread_exit(result);
-    __builtin_unreachable();
+    pthread_thread_exit(result);
 }
 
 enum { pthread_mutexattr_magic = 0x4d415454u };

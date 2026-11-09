@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 typedef unsigned long pthread_t;
+typedef unsigned int  pthread_key_t;
 typedef uint64_t      pthread_once_t;
 
 typedef struct pthread_attr_t {
@@ -59,6 +60,8 @@ typedef struct pthread_condattr_t {
 #define PTHREAD_MUTEX_ROBUST 1
 #define PTHREAD_CREATE_JOINABLE 0
 #define PTHREAD_CREATE_DETACHED 1
+#define PTHREAD_KEYS_MAX 128
+#define PTHREAD_DESTRUCTOR_ITERATIONS 4
 
 #define PTHREAD_CANCEL_ENABLE 0
 #define PTHREAD_CANCEL_DISABLE 1
@@ -76,6 +79,10 @@ int       pthread_join(pthread_t thread, void** result);
 int       pthread_detach(pthread_t thread);
 pthread_t pthread_self(void);
 int       pthread_equal(pthread_t first, pthread_t second);
+int       pthread_key_create(pthread_key_t* key, void (*destructor)(void*));
+int       pthread_key_delete(pthread_key_t key);
+int       pthread_setspecific(pthread_key_t key, const void* value);
+void*     pthread_getspecific(pthread_key_t key);
 int       pthread_once(pthread_once_t* once_control, void (*init_routine)(void));
 void      pthread_exit(void* result) __attribute__((noreturn));
 int       pthread_kill(pthread_t thread, int signal_number);

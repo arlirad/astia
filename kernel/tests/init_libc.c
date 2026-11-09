@@ -31,6 +31,36 @@ static void* libc_thread_worker(void* opaque) {
     return (void*) (unsigned long) (errno == EINTR ? 0x1234 : 0x1235);
 }
 
+struct libc_key_probe {
+    volatile unsigned int calls;
+    volatile unsigned int rearmed;
+    volatile int          set_result;
+};
+
+static pthread_key_t libc_key_probe_key;
+static volatile unsigned int libc_key_probe_ready;
+static volatile unsigned int libc_key_probe_release;
+
+static void libc_key_probe_destructor(void* opaque) {
+    struct libc_key_probe* probe = (struct libc_key_probe*) opaque;
+    ++probe->calls;
+    if (probe->calls == 1) {
+        probe->rearmed = 1;
+        probe->set_result = pthread_setspecific(libc_key_probe_key, probe);
+    }
+}
+
+static void* libc_key_probe_worker(void* opaque) {
+    struct libc_key_probe* probe = (struct libc_key_probe*) opaque;
+    probe->set_result = pthread_setspecific(libc_key_probe_key, probe);
+    if (probe->set_result == 0 && pthread_getspecific(libc_key_probe_key) != probe)
+        probe->set_result = EFAULT;
+    ++libc_key_probe_ready;
+    while (!libc_key_probe_release)
+        sched_yield();
+    return NULL;
+}
+
 static pthread_once_t    libc_once_control;
 static volatile int      libc_once_started;
 static volatile int      libc_once_release;
@@ -619,6 +649,42 @@ int main(int argc, char** argv) {
             return 24;
         if (value != 42 || result != (void*) (unsigned long) 0x1234 || errno != EAGAIN)
             return 25;
+    }
+
+    {
+        pthread_key_t old_key;
+        pthread_key_t new_key;
+        pthread_t workers[3];
+        struct libc_key_probe probes[3] = {0};
+        if (pthread_key_create(&libc_key_probe_key, libc_key_probe_destructor) != 0)
+            return 140;
+        libc_key_probe_ready = 0;
+        libc_key_probe_release = 0;
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_create(&workers[i], NULL, libc_key_probe_worker, &probes[i]) != 0)
+                return 141;
+        }
+        while (libc_key_probe_ready != 3)
+            sched_yield();
+        if (pthread_getspecific(libc_key_probe_key) != NULL)
+            return 142;
+        libc_key_probe_release = 1;
+        for (unsigned int i = 0; i < 3; ++i) {
+            if (pthread_join(workers[i], NULL) != 0 || probes[i].calls != 2 ||
+                probes[i].rearmed == 0 || probes[i].set_result != 0)
+                return 143;
+        }
+        if (pthread_key_delete(libc_key_probe_key) != 0)
+            return 144;
+        if (pthread_key_create(&old_key, NULL) != 0 ||
+            pthread_setspecific(old_key, (void*) (unsigned long) 0x4567) != 0 ||
+            pthread_key_delete(old_key) != 0 || pthread_getspecific(old_key) != NULL ||
+            pthread_setspecific(old_key, (void*) (unsigned long) 0x5678) != EINVAL ||
+            pthread_key_create(&new_key, NULL) != 0 || new_key == old_key ||
+            pthread_setspecific(new_key, (void*) (unsigned long) 0x6789) != 0 ||
+            pthread_getspecific(new_key) != (void*) (unsigned long) 0x6789 ||
+            pthread_key_delete(new_key) != 0)
+            return 145;
     }
 
     {
