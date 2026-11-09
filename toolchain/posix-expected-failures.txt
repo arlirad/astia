@@ -1,3 +1,13 @@
-functional/* | not selected: Astia does not yet provide the suite's pthread, semaphore, timer, or message-queue support
+functional/* | not selected: Astia does not yet provide the suite's pthread, timer, or message-queue support
+sem_open/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
+sem_unlink/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
+sem_post/* | these cases use unsupported named semaphore APIs
+sem_wait/1-1 | this case uses unsupported named semaphore APIs
+sem_wait/1-2 | this case uses unsupported named semaphore APIs
+sem_wait/3-1 | this case uses unsupported named semaphore APIs
+sem_wait/5-1 | this case uses unsupported named semaphore APIs
+sem_wait/7-1 | this case uses unsupported named semaphore APIs
+sem_wait/11-1 | this case uses unsupported named semaphore APIs
+sem_wait/12-1 | this case uses unsupported named semaphore APIs
 pthread_sigmask/15-1 | External LTP source omits <pthread.h>, so this test is a source compile blocker rather than an Astia failure
 pthread_equal/2-1 | pthread_equal stress test times out because Astia pthread semaphore behavior is still incomplete

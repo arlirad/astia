@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/signal.hpp>
 
 namespace astia::ipc {
 
@@ -17,6 +18,10 @@ namespace astia::ipc {
 namespace astia::proc {
 
     class process;
+    class thread;
+
+    bool futex_interrupt_process(process* owner, signal_number signal);
+    bool futex_interrupt_thread(thread* target);
 
     /// Remove all futex waiters owned by a process before its thread table is
     /// destroyed.  Waiter slots retain their thread ownership independently,

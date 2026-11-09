@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>
+#include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,6 +79,14 @@ static volatile int libc_nodefer_depth;
 static volatile int libc_nodefer_max_depth;
 static volatile int libc_nodefer_calls;
 static volatile int libc_nodefer_failed;
+static sem_t        libc_signal_sem;
+static volatile int libc_signal_sem_calls;
+
+static void libc_signal_sem_handler(int signal_number) {
+    (void) signal_number;
+    ++libc_signal_sem_calls;
+    (void) sem_post(&libc_signal_sem);
+}
 
 static void libc_nodefer_handler(int signal_number) {
     (void) signal_number;
@@ -757,6 +766,29 @@ int main(int argc, char** argv) {
         action.sa_flags = 0;
         if (sigaction(SIGUSR1, &action, NULL) != 0)
             return 97;
+    }
+
+    {
+        struct sigaction action = {0};
+        int              value  = -1;
+        action.sa_handler       = libc_signal_sem_handler;
+        if (sigemptyset(&action.sa_mask) != 0 ||
+            sigaction(SIGALRM, &action, NULL) != 0 ||
+            sem_init(&libc_signal_sem, 0, 0) != 0)
+            return 108;
+        libc_signal_sem_calls = 0;
+        alarm(1);
+        errno = 0;
+        if (sem_wait(&libc_signal_sem) != -1 || errno != EINTR ||
+            libc_signal_sem_calls != 1 || sem_getvalue(&libc_signal_sem, &value) != 0 ||
+            value != 1 || sem_trywait(&libc_signal_sem) != 0)
+            return 109;
+        alarm(0);
+        if (sem_destroy(&libc_signal_sem) != 0)
+            return 110;
+        action.sa_handler = SIG_DFL;
+        if (sigaction(SIGALRM, &action, NULL) != 0)
+            return 111;
     }
 
     {

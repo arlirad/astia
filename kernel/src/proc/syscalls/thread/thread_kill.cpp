@@ -1,6 +1,7 @@
 #include "thread_kill.hpp"
 
 #include "../../mapping.hpp"
+#include "../../../ipc/futex.hpp"
 #include "../../proc.hpp"
 #include "../../scheduler.hpp"
 #include <astia/api/errno.h>
@@ -30,10 +31,18 @@ namespace astia::proc::syscall {
         info.uid = owner->uid();
         if (!target->signals().send_pending(signal, info))
             return -EINVAL;
+        const bool interruptible =
+            disposition.action == signal_action::handler
+                ? (disposition.flags & ASTIA_SA_RESTART) == 0
+                : disposition.action == signal_action::default_action &&
+                      default_action(signal) != signal_default::ignore;
+        const bool futex_woken = interruptible &&
+                                 (target->signals().blocked() & signal_bit(signal)) == 0 &&
+                                 futex_interrupt_thread(target.get());
         if (is_uncatchable(signal) || disposition.action == signal_action::default_action)
             owner->signal_state_change(signal);
         owner->wake_signal_waiters();
-        if (target->state() == thread_state::blocked)
+        if (!futex_woken && target->state() == thread_state::blocked)
             scheduler::wake(target.get());
         return 0;
     }

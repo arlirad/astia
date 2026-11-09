@@ -12,8 +12,10 @@ The kernel publishes the waiter and compares timeout expiry and semaphore
 wakeups under the same bucket lock, so a post racing the deadline cannot lose
 the waiter. Expiration is driven by timer ticks; no userspace polling is used.
 
-Unsupported cases are named semaphores (`sem_open`, `sem_close`, and
-`sem_unlink`), process-shared semaphores (`sem_init(..., pshared != 0)` returns
-`ENOTSUP`), and signal interruption of a timed wait (`EINTR` is not currently
-provided). The futex key remains process-private and address-based, so forked
-processes cannot share these semaphore waits.
+An unavailable `sem_wait` or `sem_timedwait` returns `EINTR` when a caught,
+non-`SA_RESTART` signal interrupts its futex wait; a handler may post the
+semaphore, leaving that post available to a subsequent wait. Unsupported cases
+are named semaphores (`sem_open`, `sem_close`, and `sem_unlink`) and
+process-shared semaphores (`sem_init(..., pshared != 0)` returns `ENOTSUP`).
+The futex key remains process-private and address-based, so forked processes
+cannot share these semaphore waits.

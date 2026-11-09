@@ -634,6 +634,7 @@ namespace astia::proc {
             const auto value = thread_at(i);
             if (value && (value->signals().blocked() & bit) == 0) {
                 sys::io_interrupt_process(this, -EINTR);
+                (void) futex_interrupt_process(this, signal);
                 return;
             }
         }
@@ -660,10 +661,7 @@ namespace astia::proc {
             if (__atomic_compare_exchange_n(&alarm_deadline_, &deadline, 0, false,
                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
                 (void) signals_.send(signal_number::alrm);
-                thread* self = proc::current_thread();
-                if (self != nullptr &&
-                    signals_.has_unblocked_interrupting_for(self->signals().blocked()))
-                    sys::io_interrupt_process(this, -EINTR);
+                interrupt_signal_io(signal_number::alrm);
                 wake_signal_waiters();
                 wake_waiters();
                 return;
