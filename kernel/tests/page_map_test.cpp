@@ -96,12 +96,20 @@ ASTIA_TEST(page_map_protect_4k_changes_flags) {
     auto pm = make_map();
     const astia::u64 virt = 0x510000;
     const astia::u64 phys = astia_test::arena_base + 0x310000;
+    const auto user_rw = rw | page_flags::user;
 
-    ASTIA_CHECK(pm.map_4k(virt, phys, rw));
+    ASTIA_CHECK(pm.map_4k(virt, phys, user_rw));
+    ASTIA_CHECK(pm.user_accessible(virt));
     ASTIA_CHECK(pm.writable(virt));
+    ASTIA_CHECK(pm.executable(virt));
     ASTIA_CHECK(pm.protect_4k(virt, page_flags::present | page_flags::user));
     ASTIA_CHECK(pm.translate(virt) == phys);
+    ASTIA_CHECK(pm.user_accessible(virt));
     ASTIA_CHECK(!pm.writable(virt));
+    ASTIA_CHECK(pm.executable(virt));
+    ASTIA_CHECK(pm.protect_4k(virt, page_flags::present));
+    ASTIA_CHECK(!pm.user_accessible(virt));
+    ASTIA_CHECK(!pm.executable(virt));
     ASTIA_CHECK(!pm.protect_4k(virt + 1, rw));
     ASTIA_CHECK(!pm.protect_4k(0x520000, rw));
 }

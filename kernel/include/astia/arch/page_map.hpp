@@ -102,6 +102,8 @@ namespace astia::arch {
         /// map has no entry of its own.
         paddr_t translate(vaddr_t virt) const;
         bool    writable(vaddr_t virt) const;
+        bool    user_accessible(vaddr_t virt) const;
+        bool    executable(vaddr_t virt) const;
 
         /// Install this page map (arch equivalent: load the root register).
         void activate() const;

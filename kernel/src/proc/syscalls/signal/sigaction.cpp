@@ -58,7 +58,7 @@ namespace astia::proc::syscall {
                 next_disposition.mask     = next.mask;
                 next_disposition.flags    = next.flags;
                 if (next_disposition.restorer == 0 ||
-                    !sys::user_ptr<u8>(next_disposition.restorer).validate())
+                    !sys::user_code_ptr_ok(next_disposition.restorer))
                     return -EFAULT;
             }
             if (is_uncatchable(signal))

@@ -28,8 +28,8 @@
  * Validation checks: non-null (for nonzero length), entirely below
  * kernel_base, and every page translate()s in the caller's address
  * space — which is the active map for the whole duration of a syscall.
- * It does not check page *permissions*; mprotect enforcement remains in
- * the hardware fault path. It is TOCTOU against a concurrent munmap from
+ * Read validation checks the user permission bit as well as presence. It is
+ * TOCTOU against a concurrent munmap from
  * another thread of the same process; a blocking syscall must therefore keep
  * no user pointer across the block (copy in first, copy out after), and an
  * operation that parks for a device must pin the range instead
@@ -163,7 +163,7 @@ namespace astia::sys {
         u64 address_ = 0;
     };
 
-    /// True if `range` may be accessed by the current caller.  A caller with
+    /// True if `range` may be read by the current caller.  A caller with
     /// no address space of its own (the kernel process, in-kernel ring
     /// clients, selftests driving the syscall table) passes kernel pointers
     /// through these same paths and is trusted exactly as it always was.
@@ -189,9 +189,9 @@ namespace astia::sys {
         const u64 first = base & ~mm::page_mask;
         const u64 last  = (base + range.length() - 1) & ~mm::page_mask;
         for (u64 page = first;; page += mm::page_size) {
-            if (space->translate(page) == arch::page_map::invalid) {
+            if (!space->user_accessible(page)) {
                 if (!owner->cow_fault(page, false) ||
-                    space->translate(page) == arch::page_map::invalid) {
+                    !space->user_accessible(page)) {
                     return false;
                 }
             }
@@ -203,6 +203,48 @@ namespace astia::sys {
 
     inline bool user_span_ok(span<u8> range) {
         return user_span_ok_for(proc::current_process(), range);
+    }
+
+    inline bool user_span_writable_ok_for(proc::process* owner, span<u8> range) {
+        if (range.length() == 0) {
+            return true;
+        }
+        const u64 base = range.address();
+        if (base == 0) {
+            return false;
+        }
+        const arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
+        if (space == nullptr) {
+            return true;
+        }
+        if (base >= arch::kernel_base || range.length() > arch::kernel_base - base) {
+            return false;
+        }
+        const u64 first = base & ~mm::page_mask;
+        const u64 last  = (base + range.length() - 1) & ~mm::page_mask;
+        for (u64 page = first;; page += mm::page_size) {
+            if (!space->user_accessible(page) || !space->writable(page)) {
+                if (!owner->cow_fault(page, true) || !space->writable(page)) {
+                    return false;
+                }
+            }
+            if (page == last) {
+                return true;
+            }
+        }
+    }
+
+    inline bool user_code_ptr_ok_for(proc::process* owner, u64 address) {
+        if (address == 0) {
+            return false;
+        }
+        const arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
+        return space == nullptr ||
+               (address < arch::kernel_base && space->executable(address & ~mm::page_mask));
+    }
+
+    inline bool user_code_ptr_ok(u64 address) {
+        return user_code_ptr_ok_for(proc::current_process(), address);
     }
 
     template <typename T>
@@ -264,7 +306,7 @@ namespace astia::sys {
         if (destination.empty()) {
             return true;
         }
-        if (!user_span_ok_for(owner, destination)) {
+        if (!user_span_writable_ok_for(owner, destination)) {
             return false;
         }
         // A forked child's private writable mappings are read-only until the
@@ -277,7 +319,7 @@ namespace astia::sys {
             const u64 last =
                 (destination.address() + destination.length() - 1) & ~mm::page_mask;
             for (u64 page = first;; page += mm::page_size) {
-                if (!owner->address_space()->writable(page) && !owner->cow_fault(page, true)) {
+                if (!owner->address_space()->writable(page)) {
                     return false;
                 }
                 if (page == last)
@@ -341,7 +383,7 @@ namespace astia::sys {
         if (capacity == 0 || source.null()) {
             return false;
         }
-        const proc::process*  owner = proc::current_process();
+        proc::process*        owner = proc::current_process();
         const arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
         const auto*           from  = reinterpret_cast<const u8*>(source.address());
         u64                   byte  = source.address();
@@ -357,7 +399,7 @@ namespace astia::sys {
         if (byte >= arch::kernel_base) {
             return false;
         }
-        if (space->translate(byte & ~mm::page_mask) == arch::page_map::invalid) {
+        if (!user_span_ok_for(owner, span<u8>::bytes(byte, 1))) {
             return false;
         }
         for (usize i = 0; i < capacity; ++i, ++byte) {
@@ -365,7 +407,7 @@ namespace astia::sys {
                 return false;
             }
             if ((byte & mm::page_mask) == 0 &&
-                space->translate(byte) == arch::page_map::invalid) {
+                !user_span_ok_for(owner, span<u8>::bytes(byte, 1))) {
                 return false;
             }
             destination.data()[i] = static_cast<char>(from[i]);

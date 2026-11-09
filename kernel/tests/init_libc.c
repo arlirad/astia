@@ -906,6 +906,80 @@ int main(int argc, char** argv) {
             return 65;
     }
 
+    {
+        unsigned char* output =
+            mmap(NULL, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (output == MAP_FAILED)
+            return 66;
+        errno = 0;
+        if (getcwd((char*) output, 4096) != NULL || errno != EFAULT)
+            return 67;
+        if (mprotect(output, 4096, PROT_NONE) != 0)
+            return 68;
+        errno = 0;
+        if (getcwd((char*) output, 4096) != NULL || errno != EFAULT)
+            return 69;
+        if (mprotect(output, 4096, PROT_WRITE) != 0)
+            return 70;
+        errno = 0;
+        if (getcwd((char*) output, 4096) == NULL || errno != 0 || output[0] != '/')
+            return 71;
+        if (munmap(output, 4096) != 0)
+            return 72;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 73;
+        if (child == 0) {
+            struct sigaction action = {0};
+            action.sa_sigaction = page_fault_handler;
+            action.sa_flags     = SA_SIGINFO;
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGSEGV, &action, NULL) != 0)
+                _Exit(73);
+            unsigned char* page =
+                mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (page == MAP_FAILED || mprotect(page, 4096, PROT_READ) != 0)
+                _Exit(74);
+            fault_expected_addr = (uintptr_t) page;
+            fault_expected_code = SEGV_ACCERR;
+            *(volatile unsigned char*) page = 1;
+            _Exit(75);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != (42 << 8))
+            return 74;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 75;
+        if (child == 0) {
+            struct sigaction action = {0};
+            action.sa_sigaction = page_fault_handler;
+            action.sa_flags     = SA_SIGINFO;
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGSEGV, &action, NULL) != 0)
+                _Exit(76);
+            unsigned char* page =
+                mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (page == MAP_FAILED || mprotect(page, 4096, PROT_NONE) != 0)
+                _Exit(77);
+            fault_expected_addr = (uintptr_t) page;
+            fault_expected_code = SEGV_ACCERR;
+            (void) *(volatile unsigned char*) page;
+            _Exit(78);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != (42 << 8))
+            return 76;
+    }
+
     /* 9-15: file-backed mmap — /sbin/init's bytes captured into a
        private mapping that outlives the descriptor */
     {

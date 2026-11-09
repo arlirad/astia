@@ -496,6 +496,45 @@ namespace astia::arch {
                (entry_present | entry_writable);
     }
 
+    bool page_map::user_accessible(vaddr_t virt) const {
+        if (!valid() || !is_canonical(virt))
+            return false;
+        const u64 pml4e = root_table(*this)[pml4_index(virt)];
+        if ((pml4e & (entry_present | entry_user)) !=
+            (entry_present | entry_user))
+            return false;
+        const u64 pdpe =
+            next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
+        if ((pdpe & (entry_present | entry_user)) !=
+            (entry_present | entry_user))
+            return false;
+        if ((pdpe & entry_huge) != 0)
+            return true;
+        const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
+        if ((pde & (entry_present | entry_user)) !=
+            (entry_present | entry_user))
+            return false;
+        if ((pde & entry_huge) != 0)
+            return true;
+        const u64 pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
+        return (pte & (entry_present | entry_user)) == (entry_present | entry_user);
+    }
+
+    bool page_map::executable(vaddr_t virt) const {
+        if (!user_accessible(virt))
+            return false;
+        const u64 pml4e = root_table(*this)[pml4_index(virt)];
+        const u64 pdpe =
+            next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
+        if ((pdpe & entry_huge) != 0)
+            return (pdpe & entry_no_execute) == 0;
+        const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
+        if ((pde & entry_huge) != 0)
+            return (pde & entry_no_execute) == 0;
+        const u64 pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
+        return (pte & entry_no_execute) == 0;
+    }
+
     // Host-side unit tests (tests/) compile this file directly, but they run
     // in user mode where `mov cr3` and `invlpg` are privileged — and there is
     // no real paging to recurse through, so active_map must stay null there

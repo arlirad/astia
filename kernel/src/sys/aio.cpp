@@ -1226,6 +1226,10 @@ namespace astia::sys {
             if (!out) {
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             }
+            if (!sys::user_span_writable_ok_for(
+                    proc::current_process(), span<u8>::bytes(s.offset, sizeof(astia_stat)))) {
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            }
             if (s.length != sizeof(astia_stat)) {
                 return cq_post_guarded(ring, s.user_data, -EINVAL);
             }

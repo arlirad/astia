@@ -281,8 +281,7 @@ namespace astia::proc {
             const u64 info_address = context + sizeof(astia_x86_64_signal_context_t);
             const u64 retaddr      = context - 8;
             if (!sys::user_span_ok(span<u8>::bytes(retaddr, bytes)) ||
-                !sys::user_span_ok(
-                    span<u8>::bytes(reinterpret_cast<u64>(disposition.handler), 1)))
+                !sys::user_code_ptr_ok(reinterpret_cast<u64>(disposition.handler)))
                 return fatal_signal();
 
             const i32 code = (error & 1) != 0 ? ASTIA_SEGV_ACCERR : ASTIA_SEGV_MAPERR;
