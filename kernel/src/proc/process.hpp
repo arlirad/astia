@@ -146,8 +146,14 @@ namespace astia::proc {
         void inherit_groups(const process& parent) {
             arch::interrupt_spinlock_guard parent_guard(parent.metadata_lock_);
             arch::interrupt_spinlock_guard guard(metadata_lock_);
-            process_group_        = parent.process_group_;
-            session_              = parent.session_;
+            if (parent.pid_ == pid_t{}) {
+                process_group_ = pgrp_from_raw(raw_id(pid_));
+                session_       = pid_;
+            }
+            else {
+                process_group_ = parent.process_group_;
+                session_       = parent.session_;
+            }
             controlling_terminal_ = parent.controlling_terminal_;
             for (usize i = 0; i < fs::path_max; ++i) {
                 cwd_[i] = parent.cwd_[i];

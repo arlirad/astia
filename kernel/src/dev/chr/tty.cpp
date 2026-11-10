@@ -286,13 +286,6 @@ namespace astia::dev {
                 _line_overflow = false;
                 const u32 head = _rx_head;
                 u32       next = head;
-                for (u32 i = 0; i < _line_length; ++i) {
-                    const u32 candidate = (next + 1) & (rx_capacity_bytes - 1);
-                    if (candidate == _rx_tail)
-                        break;
-                    _rx[next] = _line[i];
-                    next      = candidate;
-                }
                 const u32 candidate = (next + 1) & (rx_capacity_bytes - 1);
                 if (candidate != _rx_tail) {
                     _rx[next] = '\n';
