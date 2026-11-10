@@ -88,6 +88,16 @@ namespace astia::proc {
             arch::interrupt_spinlock_guard guard(metadata_lock_);
             return egid_;
         }
+        u32 umask() const {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
+            return umask_;
+        }
+        u32 set_umask(u32 value) {
+            arch::interrupt_spinlock_guard guard(metadata_lock_);
+            const u32 old = umask_;
+            umask_ = value & 0777u;
+            return old;
+        }
         i64  setuid(u32);
         i64  seteuid(u32);
         i64  setgid(u32);
@@ -153,6 +163,7 @@ namespace astia::proc {
                 groups_[i] = parent.groups_[i];
             rlimit_nofile_ = parent.rlimit_nofile_;
             rlimit_as_     = parent.rlimit_as_;
+            umask_         = parent.umask_;
         }
         void process_group(pgrp_t value) {
             arch::interrupt_spinlock_guard guard(metadata_lock_);
@@ -456,6 +467,7 @@ namespace astia::proc {
         pid_t  session_;
         mm::shptr<fs::open_file> controlling_terminal_;
         u32                      uid_ = 0, euid_ = 0, gid_ = 0, egid_ = 0;
+        u32                      umask_ = 0;
         gid_t                    groups_[max_supplementary_groups]{};
         u32                      group_count_ = 0;
         char                     name_[32]{};

@@ -133,6 +133,9 @@ enum {
     SYS_THREAD_GETATTR   = 63,
     SYS_MSYNC            = 64,
     SYS_LSEEK            = 65,
+    SYS_UMASK            = 66,
+    SYS_SHM_OPEN         = 67,
+    SYS_SHM_UNLINK       = 68,
 };
 
 /* ------------------------------------------------------------------ */
@@ -202,6 +205,15 @@ enum {
     MAP_FIXED     = 0x10,
     MAP_ANONYMOUS = 0x20, /* fd = -1, offset = 0 */
     MAP_STACK     = 0x20000,
+};
+
+enum {
+    ASTIA_SHM_O_RDONLY = 0x0000,
+    ASTIA_SHM_O_WRONLY = 0x0001,
+    ASTIA_SHM_O_RDWR   = 0x0002,
+    ASTIA_SHM_O_CREAT  = 0x0040,
+    ASTIA_SHM_O_EXCL   = 0x0080,
+    ASTIA_SHM_O_TRUNC  = 0x0200,
 };
 
 enum {
@@ -299,6 +311,15 @@ static inline long astia_mprotect(void* addr, uint64_t len, uint32_t prot) {
 
 static inline long astia_msync(void* addr, uint64_t len, uint32_t flags) {
     return astia_raw6(SYS_MSYNC, (long) addr, (long) len, (long) flags, 0, 0, 0);
+}
+static inline long astia_umask(uint32_t mode) {
+    return astia_raw6(SYS_UMASK, (long) mode, 0, 0, 0, 0, 0);
+}
+static inline long astia_shm_open(const char* name, int flags, uint32_t mode) {
+    return astia_raw6(SYS_SHM_OPEN, (long) name, (long) flags, (long) mode, 0, 0, 0);
+}
+static inline long astia_shm_unlink(const char* name) {
+    return astia_raw6(SYS_SHM_UNLINK, (long) name, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_lseek(int32_t fd, int64_t offset, int32_t whence) {

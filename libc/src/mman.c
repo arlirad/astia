@@ -49,3 +49,21 @@ int msync(void* addr, size_t len, int flags) {
     }
     return (int) rc;
 }
+
+int shm_open(const char* name, int oflag, mode_t mode) {
+    long rc = astia_shm_open(name, oflag, (uint32_t) mode);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return (int) rc;
+}
+
+int shm_unlink(const char* name) {
+    long rc = astia_shm_unlink(name);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return 0;
+}

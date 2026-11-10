@@ -9,6 +9,7 @@
 #include <sys/futex.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
 
@@ -2160,6 +2161,67 @@ int main(int argc, char** argv) {
         if (fread(&observed, 1, 1, verify) != 1 || observed != 0x73)
             return 43;
         fclose(verify);
+    }
+
+    {
+        static const char name[] = "/astia_shm_lifecycle";
+        struct stat      metadata;
+        unsigned char*   page;
+        unsigned int     old_mask;
+        int              fd;
+        int              child;
+        int              status = 0;
+
+        (void) shm_unlink(name);
+        if (shm_open("astia_no_leading_slash", O_CREAT | O_RDWR, 0600) != -1 ||
+            errno != EINVAL ||
+            shm_open("/astia/extra_slash", O_CREAT | O_RDWR, 0600) != -1 ||
+            errno != EINVAL || shm_unlink("/astia/extra_slash") != -1 || errno != EINVAL)
+            return 112;
+        old_mask = umask(0027);
+        fd = shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0666);
+        if (fd < 0)
+            return 113;
+        if (shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0666) != -1 || errno != EEXIST)
+            return 114;
+        if (fstat(fd, &metadata) != 0 || (metadata.st_mode & 0777) != 0640)
+            return 115;
+        if (ftruncate(fd, 4096) != 0)
+            return 116;
+        page = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (page == MAP_FAILED)
+            return 117;
+        page[0] = 0x21;
+        child = fork();
+        if (child < 0)
+            return 118;
+        if (child == 0) {
+            int              child_fd = shm_open(name, O_RDWR, 0);
+            unsigned char*   child_page;
+            if (child_fd < 0)
+                _Exit(119);
+            child_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, child_fd, 0);
+            if (child_page == MAP_FAILED || child_page[0] != 0x21)
+                _Exit(120);
+            child_page[0] = 0x42;
+            if (shm_unlink(name) != 0)
+                _Exit(121);
+            (void) child_fd;
+            _Exit(0);
+        }
+        if (waitpid(child, &status, 0) != child || status != 0 || page[0] != 0x42)
+            return 124;
+        errno = 0;
+        if (shm_open(name, O_RDWR, 0) != -1 || errno != ENOENT)
+            return 125;
+        if (fstat(fd, &metadata) != 0 || metadata.st_size != 4096)
+            return 126;
+        if (munmap(page, 4096) != 0 || close(fd) != 0)
+            return 127;
+        if (shm_unlink(name) != -1 || errno != ENOENT)
+            return 128;
+        if (umask(old_mask) != 0027)
+            return 129;
     }
 
     /* 39-50: fork + interior munmap + CoW through the reference-less

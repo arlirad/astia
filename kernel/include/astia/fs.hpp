@@ -441,5 +441,9 @@ namespace astia::fs {
     long      unix_chown_path(const char* canonical, mount* owner, uid_t uid, gid_t gid);
     long read_unix_directory(const char* directory, mount* owner, u64 index, char* name,
                              u32 capacity, file_type* type);
+    long open_shared_memory(const char* path, u32 flags, file_mode mode, uid_t uid, gid_t gid,
+                            uid_t euid, gid_t egid, bool privileged,
+                            mm::shptr<open_file>& result);
+    long unlink_shared_memory(const char* path);
 
 } // namespace astia::fs

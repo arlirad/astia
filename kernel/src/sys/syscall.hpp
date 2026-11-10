@@ -73,6 +73,9 @@ namespace astia::sys {
         thread_getattr = 63,
         msync = 64,
         lseek = 65,
+        umask = 66,
+        shm_open = 67,
+        shm_unlink = 68,
     };
 
     /// How many registers the ABI hands every trap — and so the most

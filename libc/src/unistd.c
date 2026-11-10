@@ -262,9 +262,12 @@ char* getcwd(char* buffer, unsigned long length) {
     return result;
 }
 unsigned int umask(unsigned int mode) {
-    (void) mode;
-    errno = ENOSYS;
-    return 0;
+    long rc = astia_umask(mode);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return (unsigned int) -1;
+    }
+    return (unsigned int) rc;
 }
 unsigned int alarm(unsigned int seconds) {
     const long rc = __astia_process_alarm(seconds);

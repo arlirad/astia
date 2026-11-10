@@ -6,6 +6,7 @@
 #define ASTIA_LIBC_SYS_MMAN_H
 
 #include <stddef.h>
+#include <sys/types.h>
 
 /* Protection bits (ABI word). */
 #define PROT_NONE 0x0
@@ -34,6 +35,8 @@ void* mmap(void* addr, size_t len, int prot, int flags, int fd, long off);
 int   munmap(void* addr, size_t len);
 int   mprotect(void* addr, size_t len, int prot);
 int   msync(void* addr, size_t len, int flags);
+int   shm_open(const char* name, int oflag, mode_t mode);
+int   shm_unlink(const char* name);
 
 #ifdef __cplusplus
 }

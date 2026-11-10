@@ -12,6 +12,7 @@
 #include "syscalls/lseek.hpp"
 #include "syscalls/alarm.hpp"
 #include "syscalls/ipc/futex.hpp"
+#include "syscalls/ipc/shm.hpp"
 #include "syscalls/kill.hpp"
 #include "syscalls/memory/mmap.hpp"
 #include "syscalls/memory/mprotect.hpp"
@@ -325,6 +326,9 @@ namespace astia::proc {
                sys::register_syscall<syscall::alarm>(sys::syscall_id::alarm) &&
                sys::register_syscall<syscall::gettid>(sys::syscall_id::gettid) &&
                sys::register_syscall<syscall::lseek>(sys::syscall_id::lseek) &&
+               sys::register_syscall<syscall::umask>(sys::syscall_id::umask) &&
+               sys::register_syscall<syscall::shm_open>(sys::syscall_id::shm_open) &&
+               sys::register_syscall<syscall::shm_unlink>(sys::syscall_id::shm_unlink) &&
                sys::register_syscall<syscall::kill>(sys::syscall_id::kill) &&
                sys::register_syscall<syscall::sigaction>(sys::syscall_id::sigaction) &&
                sys::register_syscall<syscall::sigaltstack>(sys::syscall_id::sigaltstack) &&
