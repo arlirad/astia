@@ -1023,6 +1023,12 @@ int main(int argc, char** argv) {
         if (child == 0) {
             const pid_t session = setsid();
             int         group   = 0;
+            char        tty_path[sizeof "/dev/tts0"];
+            char        short_path[sizeof "/dev/tts0" - 1];
+            int         tty_fd;
+            int         regular_fd;
+            int         flags;
+            char*       tty_name;
             if (session != getpid() || getsid(0) != getpid() ||
                 getsid(getpid()) != getpid() || tcgetpgrp(0) < 0)
                 _Exit(49);
@@ -1031,6 +1037,39 @@ int main(int argc, char** argv) {
                 _Exit(50);
             if (ioctl(0, TIOCSCTTY, NULL) != 0 || tcgetpgrp(0) != getpgrp())
                 _Exit(51);
+            if (!isatty(STDIN_FILENO) || ttyname_r(STDIN_FILENO, tty_path, sizeof tty_path) != 0 ||
+                strcmp(tty_path, "/dev/tts0") != 0 ||
+                ttyname_r(STDIN_FILENO, short_path, sizeof short_path) != ERANGE ||
+                ttyname_r(STDIN_FILENO, tty_path, 0) != ERANGE ||
+                ttyname_r(-1, tty_path, sizeof tty_path) != EBADF)
+                _Exit(58);
+            tty_name = ttyname(STDIN_FILENO);
+            if (tty_name == NULL || strcmp(tty_name, "/dev/tts0") != 0)
+                _Exit(58);
+            errno = 0;
+            if (ttyname(-1) != NULL || errno != EBADF)
+                _Exit(58);
+            regular_fd = open("/sbin/init", O_RDONLY);
+            if (regular_fd < 0 || ttyname_r(regular_fd, tty_path, sizeof tty_path) != ENOTTY ||
+                close(regular_fd) != 0)
+                _Exit(58);
+            tty_fd = open(tty_path, O_RDWR);
+            if (tty_fd < 0)
+                _Exit(59);
+            flags = fcntl(tty_fd, F_GETFL);
+            if (flags < 0)
+                _Exit(59);
+            if ((flags & O_ACCMODE) != O_RDWR)
+                _Exit(59);
+            if (tcgetpgrp(STDIN_FILENO) <= 0)
+                _Exit(59);
+            if (tcsetpgrp(STDIN_FILENO, getpgrp()) != 0)
+                _Exit(59);
+            if (close(tty_fd) != 0)
+                _Exit(59);
+            flags = fcntl(STDIN_FILENO, F_GETFL);
+            if (flags < 0 || (flags & O_ACCMODE) != O_RDWR)
+                _Exit(59);
             group = (int) getpgrp();
             if (ioctl(0, TIOCSPGRP, &group) != 0)
                 _Exit(52);

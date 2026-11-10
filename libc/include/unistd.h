@@ -19,6 +19,7 @@ int           getppid(void);
 int           gettid(void);
 extern char** environ;
 char*         ttyname(int fd);
+int           ttyname_r(int fd, char* buffer, size_t buffer_size);
 char*         getlogin(void);
 int           getlogin_r(char* name, unsigned long name_size);
 

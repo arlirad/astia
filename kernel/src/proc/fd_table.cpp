@@ -8,9 +8,9 @@
 namespace astia::proc {
 
     bool fd_table::install_standard_streams() {
-        auto input  = fs::open("/dev/tts0");
-        auto output = fs::open("/dev/tts0");
-        auto error  = fs::open("/dev/tts0");
+        auto input  = fs::open("/dev/tts0", ASTIA_AIO_O_RDWR);
+        auto output = fs::open("/dev/tts0", ASTIA_AIO_O_RDWR);
+        auto error  = fs::open("/dev/tts0", ASTIA_AIO_O_RDWR);
         if (!input || !output || !error)
             return false;
         arch::interrupt_spinlock_guard guard(lock_);

@@ -128,10 +128,29 @@ int openat(int dirfd, const char* path, int flags, ...) {
     }
     return (int) rc;
 }
+int ttyname_r(int fd, char* buffer, size_t buffer_size) {
+    static const char tty_path[] = "/dev/tts0";
+    int                process_group;
+
+    if (buffer == NULL)
+        return EINVAL;
+    if (fd < 0)
+        return EBADF;
+    if (ioctl(fd, TIOCGPGRP, &process_group) < 0)
+        return errno == EBADF ? EBADF : ENOTTY;
+    if (buffer_size < sizeof tty_path)
+        return ERANGE;
+    memcpy(buffer, tty_path, sizeof tty_path);
+    return 0;
+}
 char* ttyname(int fd) {
-    (void) fd;
-    errno = ENOSYS;
-    return NULL;
+    static _Thread_local char buffer[sizeof "/dev/tts0"];
+    int                       rc = ttyname_r(fd, buffer, sizeof buffer);
+    if (rc != 0) {
+        errno = rc;
+        return NULL;
+    }
+    return buffer;
 }
 int close(int fd) {
     long rc = __astia_fio_close(fd);
