@@ -736,6 +736,7 @@ long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
         ++pending_count;
         memset(s, 0, sizeof *s);
         s->op        = OP_SLEEP;
+        s->fd        = -1;
         s->offset    = (uint64_t) (unsigned) timeout_ms * 1000000ull;
         s->user_data = sleep_tag;
         astia_sq_publish(r, 1);
@@ -844,7 +845,7 @@ cancel_wait:
                         fds[i].revents = (short) c->result;
                         ++ready_count;
                     }
-                    else if (c->result < 0 && wait_error == 0)
+                    else if (c->result < 0 && c->result != -ECANCELED && wait_error == 0)
                         wait_error = c->result;
                     break;
                 }
@@ -852,7 +853,7 @@ cancel_wait:
             if (sleep_pending && sleep_tag == c->user_data) {
                 sleep_pending = 0;
                 --pending_count;
-                if (c->result < 0 && wait_error == 0)
+                if (c->result < 0 && c->result != -ECANCELED && wait_error == 0)
                     wait_error = c->result;
             }
             for (size_t i = 0; i < cancel_count; ++i)

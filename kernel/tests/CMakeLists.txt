@@ -327,6 +327,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/process.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/process_aio.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/path.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/poll.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/prctl.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pthread.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/printf.c
@@ -337,6 +338,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/semaphore.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/socket.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/snprintf.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/select.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/stdlib.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/stat.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/string.c

@@ -165,6 +165,11 @@ void c_main(const long* frame) {
     if (ring->magic != RINGS_MAGIC)
         astia_exit(7);
 
+    if (fill(ring, OP_SLEEP, -1, 0, 0, 0, tag) == NULL)
+        astia_exit(8);
+    if (kick(ring, tag++, &rc) != 0 || rc != 0)
+        astia_exit(8);
+
     /* --- OP_SLEEP completes from the timer hook --------------------- */
     if (fill(ring, OP_SLEEP, -1, 0, 20000000, 0, tag) == NULL)
         astia_exit(8);

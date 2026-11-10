@@ -9,7 +9,9 @@
 #include <sys/futex.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/select.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
 
@@ -17,6 +19,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <poll.h>
 #include <sched.h>
 #include <semaphore.h>
 #include <signal.h>
@@ -722,6 +725,19 @@ int main(int argc, char** argv) {
             _Exit(120);
         raise(SIGUSR1);
         _Exit(121);
+    }
+    {
+        struct timeval zero = {0, 0};
+        struct pollfd fd;
+        int pipe_fds[2];
+        if (pipe(pipe_fds) != 0)
+            return 26;
+        fd.fd = pipe_fds[0];
+        fd.events = POLLIN;
+        fd.revents = 0;
+        if (poll(NULL, 0, 0) != 0 || select(0, NULL, NULL, NULL, &zero) != 0 ||
+            poll(&fd, 1, 0) != 0 || close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
+            return 26;
     }
     /* 1: TLS.  errno is _Thread_local, reached at a negative %fs
        offset — only correct if the kernel loaded the thread pointer
