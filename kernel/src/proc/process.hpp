@@ -415,10 +415,10 @@ namespace astia::proc {
 
         /// Fork: the child's first thread, resuming `uctx` inside the
         /// parent's ring-3 call site with rax = 0.
-        /// Its inherited stack mapping has no creation-time base/size
-        /// contract, so stack metadata queries report ENOTSUP.
         mm::shptr<thread> create_fork_thread(const arch::user_context& uctx,
-                                              signal_mask blocked_signals);
+                                              signal_mask blocked_signals,
+                                              u64 user_stack_base = 0,
+                                              usize user_stack_size = 0);
 
         /// Resolve a ring-3 write fault: a uniquely-held CoW page
         /// regains its write bit, otherwise the page is copied out and

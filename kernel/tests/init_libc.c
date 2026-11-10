@@ -122,6 +122,48 @@ static void* libc_getattr_self_worker(void* opaque) {
     return NULL;
 }
 
+struct libc_fork_getattr_probe {
+    const char*    program;
+    void*          expected_addr;
+    size_t         expected_size;
+    volatile int   result;
+};
+
+static int libc_check_getattr(void* expected_addr, size_t expected_size) {
+    pthread_attr_t attr;
+    void*          stack_addr = NULL;
+    size_t         stack_size = 0;
+    int            result = pthread_getattr_np(pthread_self(), &attr);
+    if (result == 0)
+        result = pthread_attr_getstack(&attr, &stack_addr, &stack_size);
+    if (result == 0 &&
+        (stack_addr != expected_addr || stack_size != expected_size))
+        result = EFAULT;
+    return result;
+}
+
+static void* libc_fork_getattr_worker(void* opaque) {
+    struct libc_fork_getattr_probe* probe = (struct libc_fork_getattr_probe*) opaque;
+    const pid_t child = fork();
+    if (child < 0) {
+        probe->result = errno;
+        return NULL;
+    }
+    if (child == 0) {
+        if (libc_check_getattr(probe->expected_addr, probe->expected_size) != 0)
+            _Exit(140);
+        execl(probe->program, probe->program, "--exec-getattr-check", NULL);
+        _Exit(141);
+    }
+    int status = 0;
+    if (waitpid(child, &status, 0) != child || status != 0) {
+        probe->result = EFAULT;
+        return NULL;
+    }
+    probe->result = libc_check_getattr(probe->expected_addr, probe->expected_size);
+    return NULL;
+}
+
 struct libc_getattr_race {
     pthread_t       target;
     volatile int    release;
@@ -655,6 +697,16 @@ int main(int argc, char** argv) {
         stack_t current;
         if (sigaltstack(NULL, &current) != 0 || current.ss_flags != SS_DISABLE)
             _Exit(122);
+        _Exit(0);
+    }
+    if (argc > 1 && strcmp(argv[1], "--exec-getattr-check") == 0) {
+        pthread_attr_t attr;
+        void*          stack_addr = NULL;
+        size_t         stack_size = 0;
+        if (pthread_getattr_np(pthread_self(), &attr) != 0 ||
+            pthread_attr_getstack(&attr, &stack_addr, &stack_size) != 0 ||
+            stack_addr == NULL || stack_size != 256 * 1024)
+            _Exit(142);
         _Exit(0);
     }
     if (argc > 1 && strcmp(argv[1], "--exec-signal-check") == 0) {
@@ -1418,6 +1470,19 @@ int main(int argc, char** argv) {
             result != (void*) (unsigned long) 0x89ab ||
             munmap(custom_stack, 32 * 1024) != 0)
             return 69;
+
+        custom_stack = mmap(NULL, 32 * 1024, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+        if (custom_stack == MAP_FAILED)
+            return 84;
+        struct libc_fork_getattr_probe fork_probe = {
+            argv[0], custom_stack, 32 * 1024, 0
+        };
+        if (pthread_attr_setstack(&attr, custom_stack, 32 * 1024) != 0 ||
+            pthread_create(&worker, &attr, libc_fork_getattr_worker, &fork_probe) != 0 ||
+            pthread_join(worker, NULL) != 0 || fork_probe.result != 0 ||
+            munmap(custom_stack, 32 * 1024) != 0)
+            return 84;
 
         if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0 ||
             pthread_attr_getdetachstate(&attr, &value) != 0 ||

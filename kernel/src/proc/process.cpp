@@ -1331,11 +1331,17 @@ namespace astia::proc {
     }
 
     mm::shptr<thread> process::create_fork_thread(const arch::user_context& uctx,
-                                                  signal_mask blocked_signals) {
+                                                  signal_mask blocked_signals,
+                                                  u64 user_stack_base,
+                                                  usize user_stack_size) {
         auto value = mm::share<thread>(this, proc::allocate_tid());
         if (!value || !value->prepare_fork_user(uctx)) {
             return {};
         }
+        if (user_stack_base != 0 && user_stack_size != 0)
+            value->user_stack_metadata(user_stack_base, user_stack_size);
+        else
+            value->user_stack_metadata_unsupported();
         value->signals().set_blocked(blocked_signals);
         if (!add_thread(value)) {
             return {};
