@@ -13,6 +13,10 @@ namespace astia::fs {
             public:
             pipe_file() : readers_(1), writers_(1) {}
 
+            file_mode mode() const override {
+                return file_mode(file_type::fifo, default_file_permissions);
+            }
+
             long read(void* buffer, u32 length, u64) override {
                 if (buffer == nullptr && length != 0)
                     return -EFAULT;

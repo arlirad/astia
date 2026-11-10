@@ -132,6 +132,7 @@ enum {
     SYS_CLOCK_GETRES     = 62,
     SYS_THREAD_GETATTR   = 63,
     SYS_MSYNC            = 64,
+    SYS_LSEEK            = 65,
 };
 
 /* ------------------------------------------------------------------ */
@@ -298,6 +299,10 @@ static inline long astia_mprotect(void* addr, uint64_t len, uint32_t prot) {
 
 static inline long astia_msync(void* addr, uint64_t len, uint32_t flags) {
     return astia_raw6(SYS_MSYNC, (long) addr, (long) len, (long) flags, 0, 0, 0);
+}
+
+static inline long astia_lseek(int32_t fd, int64_t offset, int32_t whence) {
+    return astia_raw6(SYS_LSEEK, (long) fd, (long) offset, (long) whence, 0, 0, 0);
 }
 
 static inline long astia_getrlimit(int32_t resource, astia_rlimit* limit) {

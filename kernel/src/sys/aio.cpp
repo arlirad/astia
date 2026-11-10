@@ -52,6 +52,10 @@ namespace astia::sys {
             public:
             eventfd_file(u64 value, bool nonblock) : value_(value), nonblock_(nonblock) {}
 
+            fs::file_mode mode() const override {
+                return fs::file_mode(fs::file_type::character, fs::default_device_permissions);
+            }
+
             long read(void* buffer, u32 length, u64) override {
                 if (buffer == nullptr || length != sizeof(u64))
                     return -EINVAL;
@@ -733,10 +737,16 @@ namespace astia::sys {
                 // caller asked for.
                 op.request.offset(op.request.offset() + consumed);
                 const bool updates_position = op.request.updates_position();
+                const bool append_reserved = op.request.append_reserved();
+                const bool has_append_length = op.request.has_append_length();
+                const u32 append_length = op.request.append_length();
                 op.request = io_request(
                     op.entries.window(), static_cast<u32>(op.entries.chunk()),
                     op.request.offset(), op.request.user_data(), op.request.direction());
                 op.request.updates_position(updates_position);
+                if (has_append_length)
+                    op.request.append_length(append_length);
+                op.request.append_reserved(append_reserved);
             }
         }
 
@@ -846,6 +856,7 @@ namespace astia::sys {
             p->request =
                 io_request(p->entries.window(), static_cast<u32>(p->entries.chunk()),
                            s.offset, s.user_data, direction);
+            p->request.append_length(static_cast<u32>(p->entries.bytes()));
             p->request.updates_position((s.op_flags & ASTIA_AIO_POSITIONED) == 0);
             // Capture before submit(): if readiness is reported while the
             // device is testing the request, publication below must notice it.

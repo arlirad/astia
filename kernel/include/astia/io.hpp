@@ -83,6 +83,27 @@ namespace astia {
             _updates_position = value;
         }
 
+        bool append_reserved() const {
+            return _append_reserved;
+        }
+
+        void append_reserved(bool value) {
+            _append_reserved = value;
+        }
+
+        bool has_append_length() const {
+            return _append_length_set;
+        }
+
+        u32 append_length() const {
+            return _append_length;
+        }
+
+        void append_length(u32 value) {
+            _append_length     = value;
+            _append_length_set = true;
+        }
+
         void offset(u64 value) {
             _offset = value;
         }
@@ -137,6 +158,9 @@ namespace astia {
         void*        _device_state = nullptr;
         io_direction _direction    = io_direction::input;
         bool         _updates_position = true;
+        bool         _append_reserved = false;
+        u32          _append_length = 0;
+        bool         _append_length_set = false;
         u8           _stage        = 0;
         bool         _complete     = false;
         io_flight*   _flight       = nullptr;

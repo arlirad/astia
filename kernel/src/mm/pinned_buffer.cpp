@@ -76,6 +76,19 @@ namespace astia::mm {
         return region_ == nullptr ? nullptr : region_->page_direct(first_ + index);
     }
 
+    bool pinned_buffer::contiguous() const {
+        if (region_ == nullptr || count_ < 2)
+            return true;
+        u64 prior = region_->page_base(first_);
+        for (usize i = 1; i < count_; ++i) {
+            const u64 current = region_->page_base(first_ + i);
+            if (current != prior + phys_region::frame_size)
+                return false;
+            prior = current;
+        }
+        return true;
+    }
+
     u64 pinned_buffer::phys(usize index) const {
         return region_ == nullptr ? 0
                                   : region_->base() + static_cast<u64>(first_ + index) *

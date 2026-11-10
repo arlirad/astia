@@ -145,8 +145,14 @@ namespace astia::mm {
         if (remaining_ == 0 || index_ >= count_) {
             return 0;
         }
-        const usize left = segments_[index_].length - offset_;
-        return left < remaining_ ? left : remaining_;
+        const pinned_segment& segment = segments_[index_];
+        const usize left = segment.length - offset_;
+        const usize available = left < remaining_ ? left : remaining_;
+        if (!segment.frames.valid() || segment.frames.contiguous())
+            return available;
+        const usize byte = segment.offset + offset_;
+        const usize page_left = phys_region::frame_size - byte % phys_region::frame_size;
+        return available < page_left ? available : page_left;
     }
 
     usize iovec::advance(usize bytes) {

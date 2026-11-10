@@ -9,6 +9,7 @@
 #include "syscalls/getpid.hpp"
 #include "syscalls/getppid.hpp"
 #include "syscalls/gettid.hpp"
+#include "syscalls/lseek.hpp"
 #include "syscalls/alarm.hpp"
 #include "syscalls/ipc/futex.hpp"
 #include "syscalls/kill.hpp"
@@ -323,6 +324,7 @@ namespace astia::proc {
                sys::register_syscall<syscall::getppid>(sys::syscall_id::getppid) &&
                sys::register_syscall<syscall::alarm>(sys::syscall_id::alarm) &&
                sys::register_syscall<syscall::gettid>(sys::syscall_id::gettid) &&
+               sys::register_syscall<syscall::lseek>(sys::syscall_id::lseek) &&
                sys::register_syscall<syscall::kill>(sys::syscall_id::kill) &&
                sys::register_syscall<syscall::sigaction>(sys::syscall_id::sigaction) &&
                sys::register_syscall<syscall::sigaltstack>(sys::syscall_id::sigaltstack) &&

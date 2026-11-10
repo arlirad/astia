@@ -72,6 +72,7 @@ namespace astia::sys {
         clock_getres = 62,
         thread_getattr = 63,
         msync = 64,
+        lseek = 65,
     };
 
     /// How many registers the ABI hands every trap — and so the most

@@ -1123,25 +1123,85 @@ namespace astia::fs {
     long open_file::read(void* buf, u32 len, u64 offset) {
         if (!_object)
             return -EBADF;
-        const u64  actual = offset == offset_current ? _position : offset;
+        const u64  actual = offset == offset_current ? current_position() : offset;
         const long result = dispatch_read(_object.get(), buf, len, actual);
         if (result > 0)
-            _position = actual + static_cast<u64>(result);
+            set_position(actual + static_cast<u64>(result));
         return result;
     }
+
+    long open_file::seek(i64 offset, i32 whence) {
+        if (!_object)
+            return -EBADF;
+        const file_mode mode = _object->mode();
+        if (!mode.is_regular() && !mode.is_directory())
+            return -ESPIPE;
+
+        i64 base = 0;
+        switch (whence) {
+        case 0:
+            break;
+        case 1:
+            if (current_position() > static_cast<u64>(~i64{0} >> 1))
+                return -EOVERFLOW;
+            base = static_cast<i64>(current_position());
+            break;
+        case 2: {
+            const long size = this->size();
+            if (size < 0)
+                return size;
+            base = static_cast<i64>(size);
+            break;
+        }
+        default:
+            return -EINVAL;
+        }
+
+        i64 target;
+        if (__builtin_add_overflow(base, offset, &target))
+            return -EOVERFLOW;
+        if (target < 0)
+            return -EINVAL;
+        set_position(static_cast<u64>(target));
+        return target;
+    }
+
+    long open_file::reserve_append(u32 length, u64* offset) {
+        if (!_object || offset == nullptr)
+            return -EBADF;
+        auto state = position_state();
+        if (!state)
+            return -ENOMEM;
+        core::spinlock_guard guard(state->append_lock);
+        const long size = dispatch_size(_object.get());
+        if (size < 0)
+            return size;
+        u64 base = static_cast<u64>(size);
+        if (state->append_initialized && state->append_position > base)
+            base = state->append_position;
+        if (static_cast<u64>(length) > ~u64{0} - base)
+            return -EOVERFLOW;
+        const u64 end = base + static_cast<u64>(length);
+        if (end > static_cast<u64>(~i64{0} >> 1))
+            return -EOVERFLOW;
+        state->append_position   = end;
+        state->append_initialized = true;
+        *offset = base;
+        return 0;
+    }
+
     long open_file::write(const void* buf, u32 len, u64 offset) {
         if (!_object)
             return -EBADF;
-        u64 actual = offset == offset_current ? _position : offset;
+        u64 actual = offset == offset_current ? current_position() : offset;
         if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0) {
-            const long end = dispatch_size(_object.get());
-            if (end < 0)
-                return end;
-            actual = static_cast<u64>(end);
+            const long reserved = reserve_append(len, &actual);
+            if (reserved < 0)
+                return reserved;
         }
         const long result = dispatch_write(_object.get(), buf, len, actual);
         if (result > 0)
-            _position = actual + static_cast<u64>(result);
+            set_position(actual + static_cast<u64>(result));
         return result;
     }
     long open_file::submit(io_request& request) {
@@ -1151,18 +1211,20 @@ namespace astia::fs {
         // the request: every resume of a parked operation must land on the
         // same position the caller asked for, not on a moved _position.
         const bool current = request.offset() == offset_current;
-        u64        actual  = current ? _position : request.offset();
+        u64        actual  = current ? current_position() : request.offset();
         if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0 &&
-            request.direction() == io_direction::output) {
-            const long end = dispatch_size(_object.get());
-            if (end < 0)
-                return end;
-            actual = static_cast<u64>(end);
+            request.direction() == io_direction::output && !request.append_reserved()) {
+            const u32 length = request.has_append_length() ? request.append_length()
+                                                            : request.length();
+            const long reserved = reserve_append(length, &actual);
+            if (reserved < 0)
+                return reserved;
+            request.append_reserved(true);
         }
         request.offset(actual);
         const long result = dispatch_submit(_object.get(), request);
         if (result > 0 && (current || request.updates_position()))
-            _position = actual + static_cast<u64>(result);
+            set_position(actual + static_cast<u64>(result));
         return result;
     }
     u32 open_file::poll(u32 events) const {

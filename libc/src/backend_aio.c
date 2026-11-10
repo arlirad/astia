@@ -497,6 +497,10 @@ long __astia_fio_size(int fd, uint64_t* out) {
     return 0;
 }
 
+long __astia_fio_lseek(int fd, int64_t offset, int whence) {
+    return astia_lseek(fd, offset, whence);
+}
+
 long __astia_fio_stat(const char* path, void* out, uint32_t length) {
     return transact(OP_STATX, -1, (uint64_t) (uintptr_t) out, path, length, 0, 0);
 }

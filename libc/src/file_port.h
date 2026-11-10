@@ -78,6 +78,7 @@ long __astia_fio_readv(int fd, uint64_t off, const struct iovec* iov, uint32_t c
 long __astia_fio_writev(int fd, uint64_t off, const struct iovec* iov, uint32_t count);
 long __astia_fio_close(int fd);
 long __astia_fio_size(int fd, uint64_t* out); /* file length, for SEEK_END */
+long __astia_fio_lseek(int fd, int64_t offset, int whence);
 long __astia_fio_stat(const char* path, void* out, uint32_t length);
 long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length,
                         int flags);

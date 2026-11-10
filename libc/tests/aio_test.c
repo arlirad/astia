@@ -38,6 +38,37 @@ int main(void) {
     struct sigevent ignored_event = {0};
     int fd;
 
+    {
+        unsigned char append0[512], append1[1024], append2[1536], append_check[3072];
+        struct aiocb append_cb[3] = {0};
+        const size_t append_sizes[3] = {sizeof append0, sizeof append1, sizeof append2};
+        unsigned char* append_buffers[3] = {append0, append1, append2};
+        int append_fd = open("/tmp/astia_aio_append_test.dat",
+                             O_CREAT | O_TRUNC | O_APPEND | O_RDWR, 0600);
+        CHECK(append_fd >= 0);
+        if (append_fd >= 0) {
+            for (int i = 0; i < 3; ++i) {
+                memset(append_buffers[i], i, append_sizes[i]);
+                append_cb[i].aio_fildes = append_fd;
+                append_cb[i].aio_buf = append_buffers[i];
+                append_cb[i].aio_nbytes = append_sizes[i];
+                CHECK(aio_write(&append_cb[i]) == 0);
+            }
+            for (int i = 0; i < 3; ++i) {
+                CHECK(aio_error(&append_cb[i]) == 0);
+                CHECK(aio_return(&append_cb[i]) == (ssize_t) append_sizes[i]);
+            }
+            CHECK(lseek(append_fd, 0, SEEK_SET) == 0);
+            CHECK(read(append_fd, append_check, sizeof append_check) == sizeof append_check);
+            CHECK(memcmp(append_check, append0, sizeof append0) == 0);
+            CHECK(memcmp(append_check + sizeof append0, append1, sizeof append1) == 0);
+            CHECK(memcmp(append_check + sizeof append0 + sizeof append1, append2,
+                         sizeof append2) == 0);
+            CHECK(close(append_fd) == 0);
+            CHECK(unlink("/tmp/astia_aio_append_test.dat") == 0);
+        }
+    }
+
     fd = open(path, O_CREAT | O_TRUNC | O_RDWR, 0600);
     CHECK(fd >= 0);
     if (fd < 0)

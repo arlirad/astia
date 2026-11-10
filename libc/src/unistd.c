@@ -222,11 +222,12 @@ long write(int fd, const void* buffer, unsigned long length) {
     return rc;
 }
 long lseek(int fd, long offset, int whence) {
-    (void) fd;
-    (void) offset;
-    (void) whence;
-    errno = ENOSYS;
-    return -1;
+    long rc = __astia_fio_lseek(fd, (int64_t) offset, whence);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return rc;
 }
 int pipe(int fds[2]) {
     long rc = __astia_fio_pipe(fds);

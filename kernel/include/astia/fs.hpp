@@ -3,8 +3,10 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/common.hpp>
+#include <astia/core/spinlock.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/phys_region.hpp>
+#include <astia/mm/share.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/mm/uptr.hpp>
 
@@ -273,7 +275,8 @@ namespace astia::fs {
         /* Each descriptor copy owns a lifetime hook.  The backing file is
            shared, but every fd must release one pipe endpoint on close. */
         open_file(const open_file& other)
-            : _object(other._object), _position(other._position), _flags(other._flags),
+            : _object(other._object), _position(other._position),
+              _position_state(other.position_state()), _flags(other._flags),
               _mode(other._mode), _has_path(other._has_path), _mount(nullptr) {
             for (u32 i = 0; i < path_max; ++i)
                 _path[i] = other._path[i];
@@ -291,6 +294,7 @@ namespace astia::fs {
 
         long read(void* buf, u32 len, u64 offset = offset_current);
         long write(const void* buf, u32 len, u64 offset = offset_current);
+        long seek(i64 offset, i32 whence);
         long submit(io_request& request);
         u32  poll(u32 events) const;
         u32  flags() const {
@@ -321,8 +325,37 @@ namespace astia::fs {
         u64 mtime_nsec() const;
 
         private:
+        struct shared_position {
+            explicit shared_position(u64 initial) : value(initial) {}
+
+            u64              value;
+            u64              append_position = 0;
+            bool             append_initialized = false;
+            core::spinlock   append_lock;
+        };
+
+        mm::shptr<shared_position> position_state() const {
+            if (!_position_state) {
+                auto state = mm::share<shared_position>(_position);
+                if (state)
+                    _position_state = state;
+            }
+            return _position_state;
+        }
+        u64 current_position() const {
+            return _position_state ? _position_state->value : _position;
+        }
+        void set_position(u64 value) {
+            if (_position_state)
+                _position_state->value = value;
+            else
+                _position = value;
+        }
+        long reserve_append(u32 length, u64* offset);
+
         mm::shptr<file> _object;
         u64             _position = 0;
+        mutable mm::shptr<shared_position> _position_state;
         u32             _flags;
         file_mode       _mode{};
         bool            _has_path = false;
