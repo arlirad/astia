@@ -248,6 +248,88 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     }
 }
 
+long __astia_fio_aio_submit(int fd, uint64_t off, void* buf, size_t n, int write,
+                             uint64_t* tag_out) {
+    astia_rings* r;
+    astia_sqe*   s;
+    uint64_t     tag;
+    long         rc;
+
+    if (n > UINT32_MAX || tag_out == NULL)
+        return -EINVAL;
+    rc = ring_ensure();
+    if (rc < 0)
+        return rc;
+    if (g_inflight != 0) {
+        rc = settle();
+        if (rc < 0)
+            return rc;
+    }
+    r = g_ring;
+    s = astia_sqe_slot(r);
+    if (s == NULL) {
+        rc = astia_io_submit(r, 0);
+        if (rc < 0)
+            return rc;
+        s = astia_sqe_slot(r);
+        if (s == NULL)
+            return -EBUSY;
+    }
+    tag         = ++g_tag;
+    memset(s, 0, sizeof *s);
+    s->op       = write ? OP_WRITE : OP_READ;
+    s->fd       = fd;
+    s->offset   = off;
+    s->address  = (uint64_t) (uintptr_t) buf;
+    s->length   = (uint32_t) n;
+    s->user_data = tag;
+    astia_sq_publish(r, 1);
+    rc = astia_io_submit(r, 1);
+    if (rc < 0) {
+        rc = astia_io_submit(r, 1);
+        if (rc < 0) {
+            g_inflight = tag;
+            return rc;
+        }
+    }
+    if (rc != 1)
+        return -EBUSY;
+    *tag_out = tag;
+    return 0;
+}
+
+long __astia_fio_aio_result(uint64_t tag, long* result) {
+    astia_rings* r;
+    astia_cqe*   c;
+    long         rc;
+
+    if (result == NULL)
+        return -EINVAL;
+    if (deferred_result(tag, result))
+        return 1;
+    r = g_ring;
+    if (r == NULL)
+        return 0;
+    for (;;) {
+        c = astia_cq_peek(r);
+        if (c == NULL)
+            break;
+        if (c->user_data == tag) {
+            *result = c->result;
+            astia_cq_consume(r, 1);
+            return 1;
+        }
+        if (g_deferred_count == RING_ENTRIES)
+            return -EBUSY;
+        g_deferred_user_data[g_deferred_count] = c->user_data;
+        g_deferred_result[g_deferred_count]    = c->result;
+        ++g_deferred_count;
+        astia_cq_consume(r, 1);
+    }
+    rc = astia_io_submit(r, 0);
+    return rc < 0 ? rc : 0;
+}
+
 void __astia_fio_prepare_exec(void) {
     if (g_ring != NULL)
         (void) astia_io_destroy(g_ring);

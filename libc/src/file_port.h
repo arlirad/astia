@@ -56,6 +56,9 @@ enum { /* open flags — the subset every port can speak */
 long                   __astia_fio_open(const char* path, int flags, int mode);
 long __astia_fio_openat(int dirfd, const char* path, int flags, int mode);
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n);
+long __astia_fio_aio_submit(int fd, uint64_t off, void* buf, size_t n, int write,
+                            uint64_t* tag);
+long __astia_fio_aio_result(uint64_t tag, long* result);
 
 struct astia_fio_batch_read {
     int      fd;

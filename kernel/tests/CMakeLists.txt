@@ -310,6 +310,7 @@ if (ARCH STREQUAL "x86_64")
         # seams.  Userspace images link this against tests/crt0.S.
         add_library(astia_userspace_libc STATIC
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/assert.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/aio.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/backend_aio.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/atfork.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/ctype.c

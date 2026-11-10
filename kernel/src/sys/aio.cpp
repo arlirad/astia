@@ -976,6 +976,12 @@ namespace astia::sys {
                 (s.op == OP_READ || s.op == OP_RECV || s.op == OP_READV)
                     ? io_direction::input
                     : io_direction::output;
+            const u32 access = object->flags() & fs::open_file_access_mask;
+            if ((direction == io_direction::output && access == 0 &&
+                 (object->flags() & fs::pipe_write_endpoint_flag) == 0 &&
+                 object->mode().is_regular()) ||
+                (direction == io_direction::input && access == ASTIA_AIO_O_WRONLY))
+                return context.complete(-EBADF);
             // READ/WRITE name one range, READV/WRITEV up to max_segments of
             // them.  Both become the same list, so the engine has one path
             // and a device still gets one buffer per submit() either way.

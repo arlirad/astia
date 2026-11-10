@@ -1,0 +1,254 @@
+#include "file_port.h"
+#include <aio.h>
+
+#include <astia/api/syscalls.h>
+
+#include <errno.h>
+#include <stdint.h>
+#include <time.h>
+
+enum { aio_slots_max = 128 };
+
+struct aio_slot {
+    struct aiocb* cb;
+    uint64_t      tag;
+    long          result;
+    int           complete;
+    int           returned;
+};
+
+static _Thread_local struct aio_slot g_aio_slots[aio_slots_max];
+static _Thread_local uint64_t        g_aio_host_tag;
+
+static struct aio_slot* aio_find(const struct aiocb* cb) {
+    size_t i;
+
+    for (i = 0; i < aio_slots_max; ++i)
+        if (g_aio_slots[i].cb == cb && !g_aio_slots[i].returned)
+            return &g_aio_slots[i];
+    return NULL;
+}
+
+static struct aio_slot* aio_free_slot(void) {
+    size_t i;
+
+    for (i = 0; i < aio_slots_max; ++i)
+        if (g_aio_slots[i].cb == NULL || g_aio_slots[i].returned)
+            return &g_aio_slots[i];
+    return NULL;
+}
+
+static int aio_update(struct aio_slot* slot) {
+    long result;
+    long rc;
+
+    if (slot->complete)
+        return 1;
+    rc = __astia_fio_aio_result(slot->tag, &result);
+    if (rc < 0) {
+        slot->result   = rc;
+        slot->complete = 1;
+        return 1;
+    }
+    if (rc == 0)
+        return 0;
+    slot->result   = result;
+    slot->complete = 1;
+    return 1;
+}
+
+static int aio_submit(struct aiocb* cb, int write) {
+    struct aio_slot* slot;
+    uint64_t         tag = 0;
+    long             rc;
+
+    if (cb == NULL || cb->aio_nbytes > UINT32_MAX || cb->aio_offset < 0 ||
+        cb->aio_reqprio != 0 ||
+        (cb->aio_nbytes != 0 && cb->aio_buf == NULL)) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (aio_find(cb) != NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    slot = aio_free_slot();
+    if (slot == NULL) {
+        errno = EAGAIN;
+        return -1;
+    }
+    rc = __astia_fio_aio_submit(cb->aio_fildes, (uint64_t) cb->aio_offset,
+                                (void*) cb->aio_buf, cb->aio_nbytes, write, &tag);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    *slot = (struct aio_slot) {cb, tag, 0, 0, 0};
+    return 0;
+}
+
+int aio_read(struct aiocb* aiocbp) {
+    return aio_submit(aiocbp, 0);
+}
+
+int aio_write(struct aiocb* aiocbp) {
+    return aio_submit(aiocbp, 1);
+}
+
+int aio_error(const struct aiocb* aiocbp) {
+    struct aio_slot* slot = aio_find(aiocbp);
+
+    if (slot == NULL)
+        return EINVAL;
+    if (!aio_update(slot))
+        return EINPROGRESS;
+    return slot->result < 0 ? (int) -slot->result : 0;
+}
+
+ssize_t aio_return(struct aiocb* aiocbp) {
+    struct aio_slot* slot = aio_find(aiocbp);
+    long             result;
+
+    if (slot == NULL || !aio_update(slot)) {
+        errno = EINVAL;
+        return -1;
+    }
+    result          = slot->result;
+    slot->returned  = 1;
+    slot->cb        = NULL;
+    if (result < 0) {
+        errno = (int) -result;
+        return -1;
+    }
+    return (ssize_t) result;
+}
+
+static uint64_t aio_now(void) {
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+    if (now.tv_sec < 0 || (uint64_t) now.tv_sec > UINT64_MAX / 1000000000ull)
+        return UINT64_MAX;
+    return (uint64_t) now.tv_sec * 1000000000ull + (uint64_t) now.tv_nsec;
+}
+
+static uint64_t aio_deadline(const struct timespec* timeout, uint64_t now) {
+    uint64_t seconds;
+    uint64_t delta;
+
+    if (timeout == NULL)
+        return UINT64_MAX;
+    seconds = (uint64_t) timeout->tv_sec;
+    if (seconds > UINT64_MAX / 1000000000ull)
+        return UINT64_MAX;
+    if (UINT64_MAX - seconds * 1000000000ull < (uint64_t) timeout->tv_nsec)
+        return UINT64_MAX;
+    delta = seconds * 1000000000ull + (uint64_t) timeout->tv_nsec;
+    return UINT64_MAX - now < delta ? UINT64_MAX : now + delta;
+}
+
+int aio_suspend(const struct aiocb* const list[], int nent,
+                const struct timespec* timeout) {
+    uint64_t deadline;
+    int      have = 0;
+    int      i;
+
+    if (list == NULL || nent <= 0 ||
+        (timeout != NULL &&
+         (timeout->tv_sec < 0 || timeout->tv_nsec < 0 || timeout->tv_nsec >= 1000000000L))) {
+        errno = EINVAL;
+        return -1;
+    }
+    deadline = aio_deadline(timeout, aio_now());
+    for (;;) {
+        for (i = 0; i < nent; ++i) {
+            struct aio_slot* slot;
+            if (list[i] == NULL)
+                continue;
+            slot = aio_find(list[i]);
+            if (slot == NULL)
+                continue;
+            have = 1;
+            if (aio_update(slot))
+                return 0;
+        }
+        if (!have) {
+            errno = EINVAL;
+            return -1;
+        }
+        if (timeout != NULL && aio_now() >= deadline) {
+            errno = EAGAIN;
+            return -1;
+        }
+        (void) astia_yield();
+    }
+}
+
+int aio_cancel(int fildes, struct aiocb* aiocbp) {
+    int       active = 0;
+    int       done = 0;
+    size_t    i;
+
+    if (fildes < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    if (aiocbp != NULL) {
+        struct aio_slot* slot = aio_find(aiocbp);
+        if (slot == NULL || slot->cb->aio_fildes != fildes) {
+            errno = EINVAL;
+            return -1;
+        }
+        if (aio_update(slot))
+            return AIO_ALLDONE;
+        return AIO_NOTCANCELED;
+    }
+    for (i = 0; i < aio_slots_max; ++i) {
+        struct aio_slot* slot = &g_aio_slots[i];
+        if (slot->cb == NULL || slot->returned || slot->cb->aio_fildes != fildes)
+            continue;
+        if (aio_update(slot))
+            ++done;
+        else
+            ++active;
+    }
+    if (active != 0)
+        return AIO_NOTCANCELED;
+    (void) done;
+    return AIO_ALLDONE;
+}
+
+static _Thread_local struct {
+    uint64_t tag;
+    long     result;
+    int      used;
+} g_host_results[aio_slots_max];
+
+long __attribute__((weak)) __astia_fio_aio_submit(int fd, uint64_t off, void* buf,
+                                                   size_t n, int write, uint64_t* tag) {
+    long result = write ? __astia_fio_write(fd, off, buf, n) : __astia_fio_read(fd, off, buf, n);
+    size_t i;
+
+    for (i = 0; i < aio_slots_max; ++i)
+        if (!g_host_results[i].used) {
+            g_host_results[i].used   = 1;
+            g_host_results[i].tag    = ++g_aio_host_tag;
+            g_host_results[i].result = result;
+            *tag                     = g_host_results[i].tag;
+            return 0;
+        }
+    return -EAGAIN;
+}
+
+long __attribute__((weak)) __astia_fio_aio_result(uint64_t tag, long* result) {
+    size_t i;
+
+    for (i = 0; i < aio_slots_max; ++i)
+        if (g_host_results[i].used && g_host_results[i].tag == tag) {
+            *result = g_host_results[i].result;
+            g_host_results[i].used = 0;
+            return 1;
+        }
+    return 0;
+}

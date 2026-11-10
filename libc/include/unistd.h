@@ -124,8 +124,12 @@ void         _exit(int status) __attribute__((noreturn));
 #define _SC_CLOCK_SELECTION 137
 #define _SC_CPUTIME 138
 #define _SC_MONOTONIC_CLOCK 149
+#define _SC_ASYNCHRONOUS_IO 20
+#define _SC_PRIORITIZED_IO 21
+#define _SC_AIO_MAX 22
 
 #define _POSIX_CPUTIME (-1L)
+#define _POSIX_ASYNCHRONOUS_IO 200809L
 #define _POSIX_MEMORY_PROTECTION 200809L
 #define _POSIX_THREAD_PROCESS_SHARED (-1L)
 #define _POSIX_CLOCK_SELECTION 200809L

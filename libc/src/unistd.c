@@ -340,6 +340,11 @@ long sysconf(int name) {
     case _SC_CLOCK_SELECTION:
     case _SC_MONOTONIC_CLOCK:
         return 1;
+    case _SC_ASYNCHRONOUS_IO:
+        return _POSIX_ASYNCHRONOUS_IO;
+    case _SC_PRIORITIZED_IO:
+    case _SC_AIO_MAX:
+        return -1;
     case _SC_CPUTIME:
     case _SC_THREAD_PROCESS_SHARED:
     case _SC_REALTIME_SIGNALS:

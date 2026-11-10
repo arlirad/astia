@@ -65,6 +65,7 @@ enum {
     EILSEQ       = 84,
     ENOTSUP      = 95,
     ETIMEDOUT    = 110,
+    EINPROGRESS  = 115,
     EALREADY     = 114,
     ECANCELED    = 125,
 };
