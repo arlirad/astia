@@ -10,4 +10,3 @@ sem_wait/7-1 | this case uses unsupported named semaphore APIs
 sem_wait/11-1 | this case uses unsupported named semaphore APIs
 sem_wait/12-1 | this case uses unsupported named semaphore APIs
 pthread_sigmask/15-1 | External LTP source omits <pthread.h>, so this test is a source compile blocker rather than an Astia failure
-pthread_equal/2-1 | pthread_equal stress test times out because Astia pthread semaphore behavior is still incomplete
