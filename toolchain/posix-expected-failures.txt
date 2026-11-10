@@ -1,4 +1,3 @@
-functional/* | not selected: this tree mixes unsupported named/process-shared semaphores, realtime signal queueing, POSIX timers, and message queues
 sem_close/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
 sem_open/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
 sem_unlink/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
@@ -18,40 +17,43 @@ sem_wait/5-1 | this case uses unsupported named semaphore APIs
 sem_wait/7-1 | this case uses unsupported named semaphore APIs
 sem_wait/11-1 | this case uses unsupported named semaphore APIs
 sem_wait/12-1 | this case uses unsupported named semaphore APIs
-sigqueue/* | POSIX realtime signal constants and queued `sigqueue` payloads are unsupported
+shm_open/* | `shm_open` and `shm_unlink` are not declared or implemented
+sigaction/29-1 | external LTP source requires unsupported `SIGRTMAX` and queued `sigqueue`
+sigaction/30-1 | external LTP source requires unsupported `SIGRTMAX`
+sigqueue/* | POSIX realtime signal constants and queued `sigqueue` payloads are unsupported (`SIGRTMIN`/`sigqueue` are undeclared)
 sigwait/2-1 | this case requires POSIX realtime signal constants
 sigwait/7-1 | this case requires POSIX realtime signal constants
 sigwaitinfo/2-1 | this case requires POSIX realtime signal constants and queued `sigqueue` payloads
 sigwaitinfo/7-1 | this case requires POSIX realtime signal constants and queued `sigqueue` payloads
 sigwaitinfo/8-1 | this case requires POSIX realtime signal constants and queued `sigqueue` payloads
-timer_create/* | POSIX timer interfaces are not implemented
-timer_delete/* | POSIX timer interfaces are not implemented
-timer_getoverrun/* | POSIX timer interfaces are not implemented
-timer_gettime/* | POSIX timer interfaces are not implemented
-timer_settime/* | POSIX timer interfaces are not implemented
-mq_close/* | POSIX message queues are not implemented
-mq_getattr/* | POSIX message queues are not implemented
-mq_notify/* | POSIX message queues are not implemented
-mq_open/* | POSIX message queues are not implemented
-mq_receive/* | POSIX message queues are not implemented
-mq_send/* | POSIX message queues are not implemented
-mq_setattr/* | POSIX message queues are not implemented
-mq_timedreceive/* | POSIX message queues are not implemented
-mq_timedsend/* | POSIX message queues are not implemented
-mq_unlink/* | POSIX message queues are not implemented
+timer_create/* | LTP sources require undeclared, unimplemented POSIX timer interfaces
+timer_delete/* | LTP sources require undeclared, unimplemented POSIX timer interfaces
+timer_getoverrun/* | LTP sources require undeclared, unimplemented POSIX timer interfaces
+timer_gettime/* | LTP sources require undeclared, unimplemented POSIX timer interfaces
+timer_settime/* | LTP sources require undeclared, unimplemented POSIX timer interfaces
+mq_close/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
+mq_getattr/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
+mq_notify/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
+mq_open/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
+mq_receive/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
+mq_send/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
+mq_setattr/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
+mq_timedreceive/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
+mq_timedsend/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
+mq_unlink/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
 aio_fsync/* | `aio_fsync` is not implemented
-aio_cancel/2-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
-aio_cancel/3-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
-aio_cancel/4-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
-aio_cancel/5-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
-aio_cancel/6-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
-aio_cancel/7-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
+aio_cancel/2-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
+aio_cancel/3-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
+aio_cancel/4-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
+aio_cancel/5-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
+aio_cancel/6-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
+aio_cancel/7-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
 aio_suspend/1-1 | this case requires POSIX realtime signal constants
 aio_suspend/4-1 | this case requires POSIX realtime signal constants
 aio_suspend/5-1 | external LTP source requires the unavailable `_SC_ASYNCHRONOUS_IO` configuration value
 aio_suspend/9-1 | this case requires POSIX realtime signal constants
 lio_listio/1-1 | this case requires POSIX realtime signal constants
-lio_listio/2-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
+lio_listio/2-1 | socket AIO helper and realtime completion require missing `socklen_t`, `getsockopt`, `SO_SNDBUF`, and `SIGRTMIN`
 lio_listio/3-1 | this case requires POSIX realtime signal constants and queued signal payloads
 lio_listio/4-1 | this case requires POSIX realtime signal constants
 lio_listio/7-1 | this case requires POSIX realtime signal constants
@@ -59,3 +61,10 @@ lio_listio/10-1 | this case requires POSIX realtime signal constants and queued 
 lio_listio/14-1 | this case requires POSIX realtime signal constants
 lio_listio/15-1 | this case requires POSIX realtime signal constants
 pthread_sigmask/15-1 | External LTP source omits <pthread.h>, so this test is a source compile blocker rather than an Astia failure
+pthread_spin_unlock/3-1 | LTP test returns failure for permitted `EPERM` despite its own `EPERM may fail` wording
+pthread_cond_timedwait/2-3 | LTP test unlocks the mutex from the main thread after its owning thread exits; that non-owner unlock is undefined
+pthread_create/5-1 | current thread-resource path rejects this five-thread create/join probe
+pthread_once/1-3 | 30 concurrent threads exceed Astia's current thread-resource limit
+pthread_cond_timedwait/2-5 | 100 concurrent threads exceed Astia's current thread-resource limit
+pthread_cond_broadcast/2-3 | 20-child thread stress case exceeds Astia's current thread-resource limit
+pthread_cond_signal/1-2 | 20-child thread stress case exceeds Astia's current thread-resource limit

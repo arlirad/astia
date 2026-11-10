@@ -170,19 +170,24 @@ The current pthread and unnamed semaphore support is active: all selected
 compilable `pthread_sigmask` tests and the available process-private semaphore
 cases pass against Astia. The external LTP `pthread_sigmask/15-1.c` source
 omits `<pthread.h>` and is retained as a source compile blocker, not an Astia
-failure. Named semaphores and process-shared semaphores remain unsupported.
-Realtime signal constants, `sigqueue` payloads, POSIX timers, and POSIX message
-queues remain unsupported. The `pthread_equal/2-1` stress test passes with
-Astia's pthread synchronization behavior. Target-thread `pthread_kill`
-delivery, null-signal liveness checks, per-thread masks, and `sigpending` are
-supported.
+failure. Named semaphores, process-shared semaphores, and `shm_open` remain
+unsupported; their current LTP sources require unavailable declarations.
+Realtime signal constants (`SIGRTMIN`/`SIGRTMAX`) and queued `sigqueue`
+payloads remain unsupported, as do POSIX timers and message queues. The
+`pthread_equal/2-1` stress test passes with Astia's pthread synchronization
+behavior. Target-thread `pthread_kill` delivery, null-signal liveness checks,
+per-thread masks, and `sigpending` are supported.
 
 Astia's regular-file AIO read, write, cancellation, suspension, and list-I/O
 cases are available. The remaining AIO blockers are `aio_fsync`, which is not
-implemented, and socket AIO cases whose clean LTP sources require the missing
-`socklen_t` and `getsockopt` interfaces. The broad `functional/*` tree remains
-unselected because it mixes these unsupported capabilities; it does not mean
-that pthreads or unnamed semaphores are absent.
+implemented, and socket AIO cases whose clean LTP helper requires the missing
+`socklen_t`, `getsockopt`, and `SO_SNDBUF` interfaces. The exact residual
+source blockers and observed test defects are listed in
+`toolchain/posix-expected-failures.txt`. In particular,
+`pthread_spin_unlock/3-1` rejects the permitted `EPERM` result,
+`pthread_cond_timedwait/2-3` unlocks a mutex from a non-owner after the owner
+thread exits, and several 20-, 30-, and 100-thread cases exceed Astia's
+current thread-resource limit.
 
 `POSIX_TEST_BUILD` selects the work directory (default
 `/tmp/astia-posix-tests`), and `POSIX_TEST_TIMEOUT` changes the QEMU timeout.
