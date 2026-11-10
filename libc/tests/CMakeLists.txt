@@ -56,6 +56,10 @@ add_executable(libc_process_test process_test.c process_host.c backend_host.c al
 target_link_libraries(libc_process_test PRIVATE astia_libc_host)
 add_test(NAME libc_process_test COMMAND libc_process_test)
 
+add_executable(libc_atfork_test atfork_test.c process_host.c backend_host.c alarm_host.c)
+target_link_libraries(libc_atfork_test PRIVATE astia_libc_host)
+add_test(NAME libc_atfork_test COMMAND libc_atfork_test)
+
 add_executable(libc_pipeline_test pipeline_test.c backend_host.c process_host.c alarm_host.c)
 target_link_libraries(libc_pipeline_test PRIVATE astia_libc_host)
 add_test(NAME libc_pipeline_test COMMAND libc_pipeline_test)

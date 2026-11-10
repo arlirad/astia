@@ -1,4 +1,5 @@
 #include "file_port.h"
+#include "atfork.h"
 #include "process_port.h"
 #include <astia/api/syscalls.h>
 #include <sys/wait.h>
@@ -90,9 +91,12 @@ int fork(void) {
     /* The kernel resumes the child at this return with rax = 0 — the
      * seam's success value — so the standard child/parent split falls
      * out of the raw result. */
+    struct astia_atfork_context atfork_context;
+    __astia_atfork_prepare(&atfork_context);
     int result = process_result(__astia_process_fork());
     if (result == 0) {
         __astia_fio_after_fork();
+        __astia_atfork_child(&atfork_context);
     }
     else if (result > 0) {
         /* The child inherited the ring alias as part of its address space,
@@ -100,7 +104,10 @@ int fork(void) {
            handle without destroying the parent's slot; the parent can drop
            its own ring only after the fork has cloned the address space. */
         __astia_fio_prepare_fork();
+        __astia_atfork_parent(&atfork_context);
     }
+    else
+        __astia_atfork_abort(&atfork_context);
     return result;
 }
 

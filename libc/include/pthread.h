@@ -159,6 +159,7 @@ int       pthread_key_delete(pthread_key_t key);
 int       pthread_setspecific(pthread_key_t key, const void* value);
 void*     pthread_getspecific(pthread_key_t key);
 int       pthread_once(pthread_once_t* once_control, void (*init_routine)(void));
+int       pthread_atfork(void (*prepare)(void), void (*parent)(void), void (*child)(void));
 void      pthread_exit(void* result) __attribute__((noreturn));
 int       pthread_kill(pthread_t thread, int signal_number);
 int       pthread_sigmask(int how, const sigset_t* set, sigset_t* old_set);

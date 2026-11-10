@@ -21,6 +21,7 @@ add_compile_options(-Wall -Wextra -pedantic)
 
 set(ASTIA_LIBC_SOURCES
   src/assert.c
+  src/atfork.c
   src/backend_aio.c
   src/ctype.c
   src/dirent.c

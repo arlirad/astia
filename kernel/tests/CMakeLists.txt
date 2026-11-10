@@ -311,6 +311,7 @@ if (ARCH STREQUAL "x86_64")
         add_library(astia_userspace_libc STATIC
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/assert.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/backend_aio.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/atfork.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/ctype.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/dirent.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/errno.c
