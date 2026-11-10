@@ -27,7 +27,15 @@ int main(void) {
     struct aiocb read_cb = {0};
     struct aiocb bad_cb = {0};
     struct aiocb offset_cb = {0};
+    struct aiocb list_write_cb = {0};
+    struct aiocb list_read_cb = {0};
+    struct aiocb list_bad_cb = {0};
+    struct aiocb list_invalid_cb = {0};
+    struct aiocb list_signal_cb = {0};
     const struct aiocb* list[1];
+    struct aiocb* lio_list[3];
+    struct sigevent signal_event = {0};
+    struct sigevent ignored_event = {0};
     int fd;
 
     fd = open(path, O_CREAT | O_TRUNC | O_RDWR, 0600);
@@ -75,6 +83,66 @@ int main(void) {
 
     CHECK(aio_cancel(-1, NULL) == -1 && errno == EBADF);
     CHECK(aio_suspend(NULL, 0, NULL) == -1 && errno == EINVAL);
+
+    list_write_cb.aio_fildes = fd;
+    list_write_cb.aio_buf = input;
+    list_write_cb.aio_nbytes = sizeof input - 1;
+    list_write_cb.aio_offset = 0;
+    list_write_cb.aio_lio_opcode = LIO_WRITE;
+    ignored_event.sigev_notify = SIGEV_SIGNAL;
+    lio_list[0] = &list_write_cb;
+    lio_list[1] = NULL;
+    lio_list[2] = &list_invalid_cb;
+    list_invalid_cb.aio_lio_opcode = LIO_NOP;
+    CHECK(lio_listio(LIO_WAIT, lio_list, 3, &ignored_event) == 0);
+    CHECK(aio_error(&list_write_cb) == 0);
+    CHECK(aio_return(&list_write_cb) == (ssize_t) (sizeof input - 1));
+
+    list_read_cb.aio_fildes = fd;
+    list_read_cb.aio_buf = output;
+    list_read_cb.aio_nbytes = sizeof input - 1;
+    list_read_cb.aio_offset = 0;
+    list_read_cb.aio_lio_opcode = LIO_READ;
+    lio_list[0] = &list_read_cb;
+    CHECK(lio_listio(LIO_NOWAIT, lio_list, 1, &ignored_event) == -1 && errno == ENOTSUP);
+    signal_event.sigev_notify = SIGEV_NONE;
+    CHECK(lio_listio(LIO_NOWAIT, lio_list, 1, &signal_event) == 0);
+    CHECK(aio_error(&list_read_cb) == 0);
+    CHECK(aio_return(&list_read_cb) == (ssize_t) (sizeof input - 1));
+
+    errno = 0;
+    CHECK(lio_listio(-1, lio_list, 1, NULL) == -1 && errno == EINVAL);
+    errno = 0;
+    CHECK(lio_listio(LIO_WAIT, lio_list, 0, NULL) == -1 && errno == EINVAL);
+    errno = 0;
+    CHECK(lio_listio(LIO_WAIT, NULL, 1, NULL) == -1 && errno == EINVAL);
+
+    list_write_cb.aio_lio_opcode = LIO_WRITE;
+    list_invalid_cb.aio_lio_opcode = -1;
+    lio_list[0] = &list_write_cb;
+    lio_list[1] = &list_invalid_cb;
+    errno = 0;
+    CHECK(lio_listio(LIO_WAIT, lio_list, 2, NULL) == -1 && errno == EIO);
+    CHECK(aio_return(&list_write_cb) == (ssize_t) (sizeof input - 1));
+    CHECK(aio_error(&list_invalid_cb) == EINVAL);
+
+    list_bad_cb.aio_fildes = fd;
+    list_bad_cb.aio_buf = NULL;
+    list_bad_cb.aio_nbytes = 1;
+    list_bad_cb.aio_lio_opcode = LIO_WRITE;
+    lio_list[0] = &list_bad_cb;
+    errno = 0;
+    CHECK(lio_listio(LIO_WAIT, lio_list, 1, NULL) == -1 && errno == EINVAL);
+
+    list_signal_cb.aio_fildes = fd;
+    list_signal_cb.aio_buf = input;
+    list_signal_cb.aio_nbytes = sizeof input - 1;
+    list_signal_cb.aio_lio_opcode = LIO_WRITE;
+    list_signal_cb.aio_sigevent.sigev_notify = SIGEV_SIGNAL;
+    lio_list[0] = &list_signal_cb;
+    errno = 0;
+    CHECK(lio_listio(LIO_WAIT, lio_list, 1, NULL) == -1 && errno == ENOTSUP);
+
     CHECK(pread(fd, output, sizeof input - 1, 0) == (ssize_t) (sizeof input - 1));
     CHECK(close(fd) == 0);
     CHECK(unlink(path) == 0);

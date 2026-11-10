@@ -1150,7 +1150,8 @@ namespace astia::fs {
         // Resolve the offset once, at submission, and write it back into
         // the request: every resume of a parked operation must land on the
         // same position the caller asked for, not on a moved _position.
-        u64 actual = request.offset() == offset_current ? _position : request.offset();
+        const bool current = request.offset() == offset_current;
+        u64        actual  = current ? _position : request.offset();
         if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0 &&
             request.direction() == io_direction::output) {
             const long end = dispatch_size(_object.get());
@@ -1160,7 +1161,7 @@ namespace astia::fs {
         }
         request.offset(actual);
         const long result = dispatch_submit(_object.get(), request);
-        if (result > 0)
+        if (result > 0 && (current || request.updates_position()))
             _position = actual + static_cast<u64>(result);
         return result;
     }

@@ -95,6 +95,76 @@ int aio_write(struct aiocb* aiocbp) {
     return aio_submit(aiocbp, 1);
 }
 
+static int aio_event_supported(const struct sigevent* event) {
+    return event == NULL || event->sigev_notify == SIGEV_NONE;
+}
+
+static void aio_wait_all(struct aiocb* const list[], size_t count) {
+    size_t completed = 0;
+    size_t i;
+
+    while (completed < count) {
+        completed = 0;
+        for (i = 0; i < count; ++i) {
+            if (aio_error(list[i]) != EINPROGRESS)
+                ++completed;
+        }
+        if (completed < count)
+            (void) astia_yield();
+    }
+}
+
+int lio_listio(int mode, struct aiocb* const list[], int nent,
+               struct sigevent* sig) {
+    struct aiocb* submitted[aio_slots_max];
+    size_t         submitted_count = 0;
+    int            failure = 0;
+    int            i;
+
+    if ((mode != LIO_WAIT && mode != LIO_NOWAIT) || nent <= 0 ||
+        nent > aio_slots_max || list == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (mode == LIO_NOWAIT && !aio_event_supported(sig)) {
+        errno = ENOTSUP;
+        return -1;
+    }
+
+    for (i = 0; i < nent; ++i) {
+        struct aiocb* cb = list[i];
+        int           rc;
+
+        if (cb == NULL || cb->aio_lio_opcode == LIO_NOP)
+            continue;
+        if (cb->aio_lio_opcode != LIO_READ && cb->aio_lio_opcode != LIO_WRITE) {
+            if (failure == 0)
+                failure = EIO;
+            continue;
+        }
+        if (!aio_event_supported(&cb->aio_sigevent)) {
+            if (failure == 0)
+                failure = ENOTSUP;
+            continue;
+        }
+        rc = cb->aio_lio_opcode == LIO_READ ? aio_read(cb) : aio_write(cb);
+        if (rc < 0) {
+            if (failure == 0)
+                failure = errno;
+            continue;
+        }
+        submitted[submitted_count++] = cb;
+    }
+
+    if (mode == LIO_WAIT && submitted_count != 0)
+        aio_wait_all(submitted, submitted_count);
+    if (failure != 0) {
+        errno = failure;
+        return -1;
+    }
+    return 0;
+}
+
 int aio_error(const struct aiocb* aiocbp) {
     struct aio_slot* slot = aio_find(aiocbp);
 

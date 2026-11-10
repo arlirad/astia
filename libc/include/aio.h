@@ -39,6 +39,8 @@ struct aiocb {
 #define LIO_READ   0
 #define LIO_WRITE  1
 #define LIO_NOP    2
+#define LIO_NOWAIT 0
+#define LIO_WAIT   1
 
 #define AIO_CANCELED    0
 #define AIO_NOTCANCELED 1
@@ -46,6 +48,8 @@ struct aiocb {
 
 int    aio_read(struct aiocb* aiocbp);
 int    aio_write(struct aiocb* aiocbp);
+int    lio_listio(int mode, struct aiocb* const list[], int nent,
+                  struct sigevent* sig);
 int    aio_error(const struct aiocb* aiocbp);
 ssize_t aio_return(struct aiocb* aiocbp);
 int    aio_suspend(const struct aiocb* const list[], int nent,

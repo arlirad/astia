@@ -279,6 +279,7 @@ long __astia_fio_aio_submit(int fd, uint64_t off, void* buf, size_t n, int write
     memset(s, 0, sizeof *s);
     s->op       = write ? OP_WRITE : OP_READ;
     s->fd       = fd;
+    s->op_flags = ASTIA_AIO_POSITIONED;
     s->offset   = off;
     s->address  = (uint64_t) (uintptr_t) buf;
     s->length   = (uint32_t) n;

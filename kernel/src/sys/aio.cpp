@@ -732,9 +732,11 @@ namespace astia::sys {
                 // request's own offset is what keeps a resume on the byte the
                 // caller asked for.
                 op.request.offset(op.request.offset() + consumed);
+                const bool updates_position = op.request.updates_position();
                 op.request = io_request(
                     op.entries.window(), static_cast<u32>(op.entries.chunk()),
                     op.request.offset(), op.request.user_data(), op.request.direction());
+                op.request.updates_position(updates_position);
             }
         }
 
@@ -844,6 +846,7 @@ namespace astia::sys {
             p->request =
                 io_request(p->entries.window(), static_cast<u32>(p->entries.chunk()),
                            s.offset, s.user_data, direction);
+            p->request.updates_position((s.op_flags & ASTIA_AIO_POSITIONED) == 0);
             // Capture before submit(): if readiness is reported while the
             // device is testing the request, publication below must notice it.
             const u64  generation = ready_generation();

@@ -75,6 +75,14 @@ namespace astia {
             return _direction;
         }
 
+        bool updates_position() const {
+            return _updates_position;
+        }
+
+        void updates_position(bool value) {
+            _updates_position = value;
+        }
+
         void offset(u64 value) {
             _offset = value;
         }
@@ -128,6 +136,7 @@ namespace astia {
         u64          _user_data    = 0;
         void*        _device_state = nullptr;
         io_direction _direction    = io_direction::input;
+        bool         _updates_position = true;
         u8           _stage        = 0;
         bool         _complete     = false;
         io_flight*   _flight       = nullptr;

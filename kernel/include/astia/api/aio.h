@@ -406,6 +406,8 @@ enum {
     ASTIA_AIO_O_NONBLOCK  = 0x100,
 };
 
+#define ASTIA_AIO_POSITIONED (1u << 31)
+
 /* Compatibility spellings for freestanding kernel users which do not have
    a libc fcntl.h in scope. */
 #ifndef O_DIRECTORY
