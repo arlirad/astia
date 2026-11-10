@@ -166,13 +166,23 @@ POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --test kill/2-1
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --list
 ```
 
-The current signal limitations are explicit: all compilable tests in
-`pthread_sigmask` and `sigpending` pass against Astia. The external LTP
-`pthread_sigmask/15-1.c` source omits `<pthread.h>` and is retained as a
-source compile blocker, not an Astia failure. The `pthread_equal/2-1` stress
-test passes with Astia's pthread synchronization behavior. Target-thread
-`pthread_kill` delivery, null-signal liveness checks, per-thread masks, and
-`sigpending` are supported.
+The current pthread and unnamed semaphore support is active: all selected
+compilable `pthread_sigmask` tests and the available process-private semaphore
+cases pass against Astia. The external LTP `pthread_sigmask/15-1.c` source
+omits `<pthread.h>` and is retained as a source compile blocker, not an Astia
+failure. Named semaphores and process-shared semaphores remain unsupported.
+Realtime signal constants, `sigqueue` payloads, POSIX timers, and POSIX message
+queues remain unsupported. The `pthread_equal/2-1` stress test passes with
+Astia's pthread synchronization behavior. Target-thread `pthread_kill`
+delivery, null-signal liveness checks, per-thread masks, and `sigpending` are
+supported.
+
+Astia's regular-file AIO read, write, cancellation, suspension, and list-I/O
+cases are available. The remaining AIO blockers are `aio_fsync`, which is not
+implemented, and socket AIO cases whose clean LTP sources require the missing
+`socklen_t` and `getsockopt` interfaces. The broad `functional/*` tree remains
+unselected because it mixes these unsupported capabilities; it does not mean
+that pthreads or unnamed semaphores are absent.
 
 `POSIX_TEST_BUILD` selects the work directory (default
 `/tmp/astia-posix-tests`), and `POSIX_TEST_TIMEOUT` changes the QEMU timeout.

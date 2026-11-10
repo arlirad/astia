@@ -1,7 +1,16 @@
-functional/* | not selected: Astia does not yet provide the suite's pthread, timer, or message-queue support
+functional/* | not selected: this tree mixes unsupported named/process-shared semaphores, realtime signal queueing, POSIX timers, and message queues
+sem_close/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
 sem_open/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
 sem_unlink/* | named semaphore APIs are unsupported (`sem_open`, `sem_close`, and `sem_unlink`)
 sem_post/* | these cases use unsupported named semaphore APIs
+sem_getvalue/1-1 | this case uses unsupported named semaphore APIs
+sem_getvalue/2-1 | this case uses unsupported named semaphore APIs
+sem_getvalue/4-1 | this case uses unsupported named semaphore APIs
+sem_getvalue/5-1 | this case uses unsupported named semaphore APIs
+sem_init/3-2 | process-shared semaphores are unsupported (`sem_init(..., pshared != 0)`)
+sem_init/3-3 | process-shared semaphores are unsupported (`sem_init(..., pshared != 0)`)
+sem_init/7-1 | external LTP source requires the unavailable `_SC_SEM_NSEMS_MAX` configuration value
+sem_timedwait/2-1 | process-shared semaphores are unsupported (`sem_init(..., pshared != 0)`)
 sem_wait/1-1 | this case uses unsupported named semaphore APIs
 sem_wait/1-2 | this case uses unsupported named semaphore APIs
 sem_wait/3-1 | this case uses unsupported named semaphore APIs
@@ -9,4 +18,44 @@ sem_wait/5-1 | this case uses unsupported named semaphore APIs
 sem_wait/7-1 | this case uses unsupported named semaphore APIs
 sem_wait/11-1 | this case uses unsupported named semaphore APIs
 sem_wait/12-1 | this case uses unsupported named semaphore APIs
+sigqueue/* | POSIX realtime signal constants and queued `sigqueue` payloads are unsupported
+sigwait/2-1 | this case requires POSIX realtime signal constants
+sigwait/7-1 | this case requires POSIX realtime signal constants
+sigwaitinfo/2-1 | this case requires POSIX realtime signal constants and queued `sigqueue` payloads
+sigwaitinfo/7-1 | this case requires POSIX realtime signal constants and queued `sigqueue` payloads
+sigwaitinfo/8-1 | this case requires POSIX realtime signal constants and queued `sigqueue` payloads
+timer_create/* | POSIX timer interfaces are not implemented
+timer_delete/* | POSIX timer interfaces are not implemented
+timer_getoverrun/* | POSIX timer interfaces are not implemented
+timer_gettime/* | POSIX timer interfaces are not implemented
+timer_settime/* | POSIX timer interfaces are not implemented
+mq_close/* | POSIX message queues are not implemented
+mq_getattr/* | POSIX message queues are not implemented
+mq_notify/* | POSIX message queues are not implemented
+mq_open/* | POSIX message queues are not implemented
+mq_receive/* | POSIX message queues are not implemented
+mq_send/* | POSIX message queues are not implemented
+mq_setattr/* | POSIX message queues are not implemented
+mq_timedreceive/* | POSIX message queues are not implemented
+mq_timedsend/* | POSIX message queues are not implemented
+mq_unlink/* | POSIX message queues are not implemented
+aio_fsync/* | `aio_fsync` is not implemented
+aio_cancel/2-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
+aio_cancel/3-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
+aio_cancel/4-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
+aio_cancel/5-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
+aio_cancel/6-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
+aio_cancel/7-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
+aio_suspend/1-1 | this case requires POSIX realtime signal constants
+aio_suspend/4-1 | this case requires POSIX realtime signal constants
+aio_suspend/5-1 | external LTP source requires the unavailable `_SC_ASYNCHRONOUS_IO` configuration value
+aio_suspend/9-1 | this case requires POSIX realtime signal constants
+lio_listio/1-1 | this case requires POSIX realtime signal constants
+lio_listio/2-1 | socket AIO cases require missing `socklen_t` and `getsockopt`
+lio_listio/3-1 | this case requires POSIX realtime signal constants and queued signal payloads
+lio_listio/4-1 | this case requires POSIX realtime signal constants
+lio_listio/7-1 | this case requires POSIX realtime signal constants
+lio_listio/10-1 | this case requires POSIX realtime signal constants and queued signal payloads
+lio_listio/14-1 | this case requires POSIX realtime signal constants
+lio_listio/15-1 | this case requires POSIX realtime signal constants
 pthread_sigmask/15-1 | External LTP source omits <pthread.h>, so this test is a source compile blocker rather than an Astia failure
