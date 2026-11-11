@@ -17,6 +17,7 @@ namespace astia::dev {
         long          submit(io_request& request) override;
         u32           poll(u32 events, u32 flags) override;
         long          ioctl(u64 request, void* argp, usize size) override;
+        long          acquire_controlling_terminal(i32 group) override;
         long          size() const override;
         fs::file_mode mode() const override {
             return fs::file_mode(fs::file_type::character,

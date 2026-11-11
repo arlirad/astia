@@ -107,6 +107,7 @@ long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length);
 long __astia_fio_pipe(int fds[2]);
 long __astia_fio_dup(int fd);
 long __astia_fio_dup2(int old_fd, int new_fd);
+int  __astia_stdio_dup2(int old_fd, int new_fd);
 long __astia_fio_fcntl(int fd, int command, unsigned int argument);
 long __astia_fio_sleep(uint64_t nanoseconds, uint64_t* remaining_nanoseconds);
 long __astia_fio_sleep_absolute(uint64_t deadline_nanoseconds);

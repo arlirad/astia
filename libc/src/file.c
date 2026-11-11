@@ -2,6 +2,7 @@
 #include "path.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -103,11 +104,6 @@ char* cuserid(char* buffer) {
     return buffer;
 }
 
-FILE* fdopen(int fd, const char* mode) {
-    (void) fd;
-    (void) mode;
-    return NULL;
-}
 FILE* popen(const char* command, const char* mode) {
     (void) command;
     (void) mode;
@@ -194,7 +190,8 @@ static size_t stream_read(FILE* f, void* dst, size_t n) {
             if (f->cap == 0 || n - got >= f->cap) {
                 /* big request (or unbuffered): read straight past the
                    buffer into the caller's memory */
-                r = __astia_fio_read(f->fd, (uint64_t) f->pos, d + got, io_cap(n - got));
+                r = __astia_fio_read(f->fd, (uint64_t) f->pos, d + got,
+                                     io_cap(n - got));
                 if (r < 0) {
                     errno = (int) -r;
                     f->state |= ST_ERR;
@@ -330,6 +327,76 @@ static int parse_mode(const char* mode, int* out) {
     return 0;
 }
 
+static FILE* alloc_stream(int fd, int flags, long init_pos) {
+    FILE* f = malloc(sizeof *f);
+
+    if (f != NULL)
+        f->buf = malloc(BUFSIZ);
+    if (f == NULL || f->buf == NULL) {
+        free(f);
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    f->fd           = fd;
+    f->io_flags     = flags;
+    f->state        = 0;
+    f->buf_mode     = _IOFBF;
+    f->heap         = 1;
+    f->buf_owned    = 1;
+    f->reading      = 0;
+    f->pos          = init_pos;
+    f->cap          = BUFSIZ;
+    f->len          = 0;
+    f->cur          = 0;
+    f->has_pushback = 0;
+    f->next         = g_open;
+    g_open          = f;
+    return f;
+}
+
+FILE* fdopen(int fd, const char* mode) {
+    int  flags;
+    long status;
+    long position;
+    int  access;
+    int  requested;
+
+    if (mode == NULL || parse_mode(mode, &flags) < 0 || (flags & FIO_EXCL) != 0) {
+        errno = EINVAL;
+        return NULL;
+    }
+    flags &= ~(FIO_CREAT | FIO_EXCL | FIO_TRUNC);
+    status = __astia_fio_fcntl(fd, F_GETFL, 0);
+    if (status < 0) {
+        errno = (int) -status;
+        return NULL;
+    }
+    access   = (int) status & O_ACCMODE;
+    requested = flags & (FIO_READ | FIO_WRITE);
+    if ((requested == FIO_READ && access == O_WRONLY) ||
+        (requested == FIO_WRITE && access == O_RDONLY) ||
+        (requested == (FIO_READ | FIO_WRITE) && access != O_RDWR)) {
+        errno = EINVAL;
+        return NULL;
+    }
+    if ((flags & FIO_APPEND) && !(status & O_APPEND) &&
+        fcntl(fd, F_SETFL, (int) status | O_APPEND) < 0)
+        return NULL;
+    if (status & O_APPEND)
+        flags |= FIO_APPEND;
+    flags &= ~(FIO_CREAT | FIO_EXCL | FIO_TRUNC);
+
+    position = __astia_fio_lseek(fd, 0, SEEK_CUR);
+    if (position < 0 && position != -ESPIPE) {
+        errno = (int) -position;
+        return NULL;
+    }
+    if (position < 0)
+        position = 0;
+    return alloc_stream(fd, flags, position);
+}
+
 static void list_remove(FILE* f) {
     FILE** pp = &g_open;
     while (*pp != NULL) {
@@ -378,30 +445,11 @@ FILE* fopen(const char* path, const char* mode) {
         init_pos = (long) sz;
     }
 
-    f = malloc(sizeof *f);
-    if (f != NULL)
-        f->buf = malloc(BUFSIZ);
-    if (f == NULL || f->buf == NULL) {
-        free(f);
+    f = alloc_stream((int) fd, flags, init_pos);
+    if (f == NULL) {
         (void) __astia_fio_close((int) fd);
-        errno = ENOMEM;
         return NULL;
     }
-
-    f->fd           = (int) fd;
-    f->io_flags     = flags;
-    f->state        = 0;
-    f->buf_mode     = _IOFBF;
-    f->heap         = 1;
-    f->buf_owned    = 1;
-    f->reading      = 0;
-    f->pos          = init_pos;
-    f->cap          = BUFSIZ;
-    f->len          = 0;
-    f->cur          = 0;
-    f->has_pushback = 0;
-    f->next         = g_open;
-    g_open          = f;
     return f;
 }
 
@@ -432,6 +480,84 @@ int fclose(FILE* f) {
     if (f->heap)
         free(f); /* static streams survive with fd == -1 */
     return (rc != 0 || crc < 0) ? EOF : 0;
+}
+
+static int flush_fd_streams(int fd) {
+    FILE* it;
+    int   rc = 0;
+
+    if (file_stdin.fd == fd && fflush(&file_stdin) != 0)
+        rc = EOF;
+    if (file_stdout.fd == fd && fflush(&file_stdout) != 0)
+        rc = EOF;
+    if (file_stderr.fd == fd && fflush(&file_stderr) != 0)
+        rc = EOF;
+    for (it = g_open; it != NULL; it = it->next)
+        if (it->fd == fd && fflush(it) != 0)
+            rc = EOF;
+    return rc;
+}
+
+static void retarget_stream(FILE* f, int fd, int flags, long position) {
+    if (f->fd != fd)
+        return;
+    f->fd           = fd;
+    f->io_flags     = flags;
+    f->state        = 0;
+    f->reading      = 0;
+    f->pos          = position;
+    f->len          = 0;
+    f->cur          = 0;
+    f->has_pushback = 0;
+}
+
+int __astia_stdio_dup2(int old_fd, int new_fd) {
+    long source_status;
+    long new_status;
+    long result;
+    long position;
+    int  stream_flags;
+
+    if (new_fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    source_status = __astia_fio_fcntl(old_fd, F_GETFL, 0);
+    if (source_status < 0) {
+        errno = (int) -source_status;
+        return -1;
+    }
+    if (old_fd == new_fd)
+        return new_fd;
+    if (flush_fd_streams(new_fd) != 0)
+        return -1;
+
+    result = __astia_fio_dup2(old_fd, new_fd);
+    if (result < 0) {
+        errno = (int) -result;
+        return -1;
+    }
+    new_status = __astia_fio_fcntl(new_fd, F_GETFL, 0);
+    if (new_status < 0)
+        new_status = source_status;
+    stream_flags = ((int) new_status & O_ACCMODE) == O_RDWR
+                       ? FIO_READ | FIO_WRITE
+                       : ((int) new_status & O_ACCMODE) == O_WRONLY ? FIO_WRITE : FIO_READ;
+    if ((new_status & O_APPEND) != 0)
+        stream_flags |= FIO_APPEND;
+    position = __astia_fio_lseek(new_fd, 0, SEEK_CUR);
+    if (position < 0)
+        position = 0;
+
+    retarget_stream(&file_stdin, new_fd, stream_flags, position);
+    retarget_stream(&file_stdout, new_fd, stream_flags, position);
+    retarget_stream(&file_stderr, new_fd, stream_flags, position);
+    {
+        FILE* it;
+        for (it = g_open; it != NULL; it = it->next)
+            retarget_stream(it, new_fd, stream_flags, position);
+    }
+    return new_fd;
 }
 
 size_t fread(void* ptr, size_t size, size_t nmemb, FILE* f) {

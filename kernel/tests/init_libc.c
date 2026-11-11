@@ -27,7 +27,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
+
+#ifndef O_NOCTTY
+#define O_NOCTTY 0
+#endif
 
 static void* libc_thread_worker(void* opaque) {
     int* value = (int*) opaque;
@@ -696,6 +701,73 @@ static void* libc_rwlock_foreign_unlock_worker(void* opaque) {
     return (void*) (unsigned long) pthread_rwlock_unlock(lock);
 }
 
+static int libc_zsh_io_contract(void) {
+    char            tty_path[32];
+    struct termios  saved;
+    struct termios  raw;
+    struct pollfd   fd;
+    int             tty_fd;
+    int             flags;
+    int             pipe_fds[2];
+    int             saved_stdout;
+    char            result[16];
+    FILE*           stream;
+    ssize_t         count;
+
+    if (!isatty(STDIN_FILENO) || ttyname_r(STDIN_FILENO, tty_path, sizeof tty_path) != 0)
+        return 1;
+    tty_fd = open(tty_path, O_RDWR | O_NOCTTY);
+    if (tty_fd < 0)
+        return 2;
+    flags = fcntl(tty_fd, F_GETFL);
+    if ((flags & O_ACCMODE) != O_RDWR)
+        return 3;
+    stream = fdopen(tty_fd, "w");
+    if (stream == NULL)
+        return 4;
+    if (fileno(stream) != tty_fd || fclose(stream) != 0)
+        return 5;
+
+    if (tcgetattr(STDIN_FILENO, &saved) != 0)
+        return 6;
+    raw = saved;
+    raw.c_iflag &= ~(ICRNL | INLCR);
+    raw.c_oflag &= ~ONLCR;
+    raw.c_lflag &= ~(ICANON | ECHO);
+    raw.c_cc[VMIN]  = 1;
+    raw.c_cc[VTIME] = 0;
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0)
+        return 7;
+    fd.fd      = STDIN_FILENO;
+    fd.events  = POLLIN;
+    fd.revents = 0;
+    if (poll(&fd, 1, 0) < 0)
+        return 8;
+    if ((fd.revents & POLLIN) != 0 && read(STDIN_FILENO, result, 1) != 1)
+        return 9;
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0 ||
+        tcsetattr(STDIN_FILENO, TCSANOW, &saved) != 0)
+        return 10;
+
+    if (pipe(pipe_fds) != 0)
+        return 11;
+    saved_stdout = dup(STDOUT_FILENO);
+    if (saved_stdout < 0 || dup2(pipe_fds[1], STDOUT_FILENO) != STDOUT_FILENO ||
+        close(pipe_fds[1]) != 0)
+        return 12;
+    stream = fdopen(STDOUT_FILENO, "w");
+    if (stream == NULL || fputs("DUP2_OK", stream) < 0 || fflush(stream) != 0 ||
+        fclose(stream) != 0)
+        return 13;
+    count = read(pipe_fds[0], result, sizeof result);
+    if (count != 7 || memcmp(result, "DUP2_OK", 7) != 0)
+        return 14;
+    if (close(pipe_fds[0]) != 0 || dup2(saved_stdout, STDOUT_FILENO) != STDOUT_FILENO ||
+        close(saved_stdout) != 0)
+        return 15;
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && strcmp(argv[1], "--exec-altstack-check") == 0) {
         stack_t current;
@@ -732,6 +804,9 @@ int main(int argc, char** argv) {
         int pipe_fds[2];
         if (pipe(pipe_fds) != 0)
             return 26;
+        if ((fcntl(pipe_fds[0], F_GETFL) & O_ACCMODE) != O_RDONLY ||
+            (fcntl(pipe_fds[1], F_GETFL) & O_ACCMODE) != O_WRONLY)
+            return 26;
         fd.fd = pipe_fds[0];
         fd.events = POLLIN;
         fd.revents = 0;
@@ -739,6 +814,8 @@ int main(int argc, char** argv) {
             poll(&fd, 1, 0) != 0 || close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
             return 26;
     }
+    if (libc_zsh_io_contract() != 0)
+        return 27;
     /* 1: TLS.  errno is _Thread_local, reached at a negative %fs
        offset — only correct if the kernel loaded the thread pointer
        from the image's PT_TLS block. */

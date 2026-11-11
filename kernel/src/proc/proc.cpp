@@ -396,7 +396,7 @@ namespace astia::proc {
         if (!owner->claim_controlling_terminal(terminal))
             return -EPERM;
         i32        group = static_cast<i32>(raw_id(owner->process_group()));
-        const long rc    = terminal->ioctl(TIOCSPGRP, &group, sizeof(i32));
+        const long rc    = terminal->acquire_controlling_terminal(group);
         if (rc < 0) {
             owner->controlling_terminal({});
             return rc;

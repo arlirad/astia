@@ -102,7 +102,7 @@ namespace astia::proc {
             u64 best  = 0;
             u64 lower = 0;
             for (mmap_region* it = list; it != nullptr; it = it->next) {
-                const u64 upper = it->base;
+                const u64 upper = it->base < ceiling ? it->base : ceiling;
                 if (upper >= lower && upper - lower >= want) {
                     best = upper - want;
                 }

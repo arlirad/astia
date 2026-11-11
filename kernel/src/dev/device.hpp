@@ -68,6 +68,7 @@ namespace astia::dev {
         // Device-specific control: TCGETS/TCSETS on a tty, geometry on
         // a disk.  -ENOTTY when the request is unknown.
         virtual long ioctl(u64 request, void* argp, usize size);
+        virtual long acquire_controlling_terminal(i32 group);
 
         // Span adapters keep internal device call sites from carrying a
         // pointer and length separately; the virtual compatibility seam above

@@ -201,12 +201,7 @@ int dup(int fd) {
     return (int) rc;
 }
 int dup2(int old_fd, int new_fd) {
-    long rc = __astia_fio_dup2(old_fd, new_fd);
-    if (rc < 0) {
-        errno = (int) -rc;
-        return -1;
-    }
-    return (int) rc;
+    return __astia_stdio_dup2(old_fd, new_fd);
 }
 int eventfd(unsigned int initial_value, int flags) {
     long rc = __astia_fio_eventfd(initial_value, flags);

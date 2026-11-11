@@ -231,6 +231,7 @@ namespace astia::fs {
         virtual long             submit(io_request& request);
         virtual u32              poll(u32 events, u32 flags);
         virtual long             ioctl(u64 request, void* argp, usize size);
+        virtual long             acquire_controlling_terminal(i32 group);
         virtual long             size() const;
         virtual long             truncate(u64 length);
         virtual long             sync_mapping(mm::phys_region* mapping, u64 offset,
@@ -304,6 +305,7 @@ namespace astia::fs {
             _flags = (_flags & ~open_file_status_mask) | (flags & open_file_status_mask);
         }
         long             ioctl(u64 request, void* argp, usize size);
+        long             acquire_controlling_terminal(i32 group);
         long             size() const;
         long             truncate(u64 length);
         long             sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,

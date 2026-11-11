@@ -491,6 +491,14 @@ namespace astia::dev {
         return -ENOTTY;
     }
 
+    long tty::acquire_controlling_terminal(i32 group) {
+        if (group <= 0)
+            return -EPERM;
+        arch::interrupt_spinlock_guard guard(_state_lock);
+        _foreground_pgrp = pgrp_t{static_cast<u32>(group)};
+        return 0;
+    }
+
     void tty::tty_iflag(tcflag_t flag, bool set) {
         (void) flag;
         (void) set;

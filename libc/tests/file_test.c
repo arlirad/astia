@@ -17,6 +17,7 @@
 #include <limits.h> /* LONG_MAX: the fseek overflow pin */
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 /* <unistd.h> is ours now (getpid/gettid); the host calls the stream
  * tests need are declared by hand, like every other host port here. */
@@ -364,6 +365,184 @@ static void test_errors(void) {
     (void) unlink(P1);
 }
 
+static void test_fdopen(void) {
+    unsigned char buf[32];
+    FILE*         f;
+    int           fd;
+    int           tty_fd;
+    int           pipe_fds[2] = {-1, -1};
+
+    (void) unlink(P1);
+    fd = open(P1, O_RDWR | O_CREAT | O_TRUNC, 0644);
+    CHECK(fd >= 0);
+    if (fd < 0)
+        return;
+    f = fdopen(fd, "w+");
+    CHECK(f != NULL);
+    if (f == NULL) {
+        (void) close(fd);
+        return;
+    }
+    CHECK(fileno(f) == fd);
+    CHECK(fwrite("base", 1, 4, f) == 4);
+    CHECK(fflush(NULL) == 0);
+    CHECK(fseek(f, 0, SEEK_SET) == 0);
+    CHECK(fread(buf, 1, 4, f) == 4);
+    CHECK(memcmp(buf, "base", 4) == 0);
+    CHECK(fclose(f) == 0);
+    errno = 0;
+    CHECK(fcntl(fd, F_GETFL) == -1 && errno == EBADF);
+
+    fd = open(P2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        f = fdopen(fd, "w");
+        CHECK(f != NULL);
+        if (f != NULL) {
+            CHECK(fwrite("new", 1, 3, f) == 3);
+            CHECK(fflush(f) == 0);
+            CHECK(fclose(f) == 0);
+            CHECK(probe(P2, buf, sizeof buf) == 3);
+            CHECK(memcmp(buf, "new", 3) == 0);
+        }
+        else
+            (void) close(fd);
+    }
+
+    fd = open(P1, O_RDONLY);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        CHECK(lseek(fd, 2, SEEK_SET) == 2);
+        f = fdopen(fd, "r");
+        CHECK(f != NULL);
+        if (f != NULL) {
+            CHECK(fileno(f) == fd);
+            CHECK(fgetc(f) == 's');
+            CHECK(fclose(f) == 0);
+            errno = 0;
+            CHECK(fcntl(fd, F_GETFL) == -1 && errno == EBADF);
+        }
+        else
+            (void) close(fd);
+    }
+
+    fd = open(P1, O_WRONLY);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        f = fdopen(fd, "a");
+        CHECK(f != NULL);
+        if (f != NULL) {
+            CHECK(ftell(f) == 0); /* fdopen preserves the descriptor offset */
+            CHECK(fwrite("+append", 1, 7, f) == 7);
+            CHECK(fclose(f) == 0);
+            errno = 0;
+            CHECK(fcntl(fd, F_GETFL) == -1 && errno == EBADF);
+        }
+        else
+            (void) close(fd);
+    }
+    CHECK(probe(P1, buf, sizeof buf) == 11);
+    CHECK(memcmp(buf, "base+append", 11) == 0);
+
+    CHECK(pipe(pipe_fds) == 0);
+    if (pipe_fds[0] >= 0 && pipe_fds[1] >= 0) {
+        f = fdopen(pipe_fds[0], "r");
+        CHECK(f != NULL);
+        CHECK(write(pipe_fds[1], "pipe", 4) == 4);
+        if (f != NULL) {
+            CHECK(fgetc(f) == 'p');
+            CHECK(fgetc(f) == 'i');
+            CHECK(fgetc(f) == 'p');
+            CHECK(fgetc(f) == 'e');
+            CHECK(fclose(f) == 0);
+        }
+        else
+            (void) close(pipe_fds[0]);
+        (void) close(pipe_fds[1]);
+    }
+
+    fd = open(P1, O_RDONLY);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        errno = 0;
+        CHECK(fdopen(fd, "w") == NULL && errno == EINVAL);
+        errno = 0;
+        CHECK(fcntl(fd, F_GETFL) >= 0);
+        CHECK(close(fd) == 0);
+    }
+
+    fd = open(P1, O_WRONLY);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        errno = 0;
+        CHECK(fdopen(fd, "r") == NULL && errno == EINVAL);
+        errno = 0;
+        CHECK(fcntl(fd, F_GETFL) >= 0);
+        CHECK(close(fd) == 0);
+    }
+
+    errno = 0;
+    CHECK(fdopen(-1, "r") == NULL && errno == EBADF);
+
+    fd = open(P1, O_RDONLY);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        errno = 0;
+        CHECK(fdopen(fd, "rx") == NULL && errno == EINVAL);
+        errno = 0;
+        CHECK(fcntl(fd, F_GETFL) >= 0);
+        CHECK(close(fd) == 0);
+    }
+
+    tty_fd = open("/dev/tty", O_WRONLY);
+    if (tty_fd >= 0) {
+        f = fdopen(tty_fd, "w");
+        CHECK(f != NULL);
+        if (f != NULL) {
+            CHECK(fileno(f) == tty_fd);
+            CHECK(fclose(f) == 0);
+            errno = 0;
+            CHECK(fcntl(tty_fd, F_GETFL) == -1 && errno == EBADF);
+        }
+        else
+            (void) close(tty_fd);
+    }
+}
+
+static void test_dup2_resets_stream_position(void) {
+    unsigned char buf[32];
+    int           saved = dup(1);
+    int           first = open(P1, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    int           second = open(P2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+    CHECK(saved >= 0 && first >= 0 && second >= 0);
+    if (saved < 0 || first < 0 || second < 0) {
+        if (saved >= 0)
+            (void) close(saved);
+        if (first >= 0)
+            (void) close(first);
+        if (second >= 0)
+            (void) close(second);
+        return;
+    }
+    CHECK(dup2(first, 1) == 1);
+    (void) close(first);
+    CHECK(setvbuf(stdout, NULL, _IOFBF, BUFSIZ) == 0);
+    CHECK(fputs("old", stdout) == 0);
+    CHECK(probe(P1, buf, sizeof buf) == 0);
+    CHECK(dup2(second, 1) == 1);
+    (void) close(second);
+    CHECK(probe(P1, buf, sizeof buf) == 3);
+    CHECK(memcmp(buf, "old", 3) == 0);
+    CHECK(fputs("new\n", stdout) == 0);
+    CHECK(fflush(stdout) == 0);
+    CHECK(dup2(saved, 1) == 1);
+    (void) close(saved);
+    CHECK(setvbuf(stdout, NULL, _IOLBF, BUFSIZ) == 0);
+    CHECK(probe(P2, buf, sizeof buf) == 4);
+    CHECK(memcmp(buf, "new\n", 4) == 0);
+}
+
 static void test_chars_and_lines(void) {
     char  line[64];
     FILE* f;
@@ -582,6 +761,8 @@ int main(void) {
     test_append();
     test_read_write_switch();
     test_errors();
+    test_fdopen();
+    test_dup2_resets_stream_position();
     test_chars_and_lines();
     test_element_accounting();
     test_fflush_all();

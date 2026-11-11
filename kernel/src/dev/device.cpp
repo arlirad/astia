@@ -15,6 +15,10 @@ namespace astia::dev {
         return -ENOTTY;
     }
 
+    long device::acquire_controlling_terminal(i32) {
+        return -ENOTTY;
+    }
+
     long device::submit(io_request& request) {
         // Inline default: route to the sync read/write pair.  A device that
         // cannot finish without waiting overrides this and parks.  The base

@@ -25,9 +25,11 @@
  * is one binary format here), '+' and — for the creating modes — C11's
  * exclusive-create 'x'.  setvbuf's user buffer must outlive the stream
  * (or the next setvbuf, or the fclose that follows): the libc never
- * copies out of it.  Seeking assumes a seekable file — there is no port
- * primitive yet to detect a non-seekable descriptor, so fseek on a pipe
- * is undefined until there is one.
+ * copies out of it.  fflush and fseek synchronize the descriptor cursor for
+ * seekable streams, and lseek invalidates streams using that descriptor.
+ * Applications must still perform the POSIX active-handle handoff before
+ * using a raw descriptor alias made by dup; unrelated raw I/O cannot be
+ * observed by a FILE using a different descriptor number.
  *
  * printf-format checking is wired up on the declarations so the compiler
  * audits every format string in the tree.

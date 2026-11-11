@@ -1609,7 +1609,13 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, 0);
             case ASTIA_F_GETFL: {
                 const u32 flags = current->descriptor(mapped.value)->flags();
-                u32 result = (flags & ASTIA_AIO_O_ACCMODE) == ASTIA_AIO_O_RDWR
+                u32 result;
+                if ((flags & fs::pipe_write_endpoint_flag) != 0)
+                    result = ASTIA_AIO_O_WRONLY;
+                else if ((flags & fs::pipe_read_endpoint_flag) != 0)
+                    result = ASTIA_AIO_O_RDONLY;
+                else
+                    result = (flags & ASTIA_AIO_O_ACCMODE) == ASTIA_AIO_O_RDWR
                                  ? ASTIA_AIO_O_RDWR
                                  : ((flags & ASTIA_AIO_O_WRONLY) ? ASTIA_AIO_O_WRONLY
                                                                  : ASTIA_AIO_O_RDONLY);

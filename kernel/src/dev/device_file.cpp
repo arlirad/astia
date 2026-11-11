@@ -29,7 +29,11 @@ namespace astia::dev {
         return _device == nullptr
                    ? -EINVAL
                    : _device->ioctl(request,
-                                    astia::span<u8>(static_cast<u8*>(argp), size));
+                                     astia::span<u8>(static_cast<u8*>(argp), size));
+    }
+
+    long device_file::acquire_controlling_terminal(i32 group) {
+        return _device == nullptr ? -EINVAL : _device->acquire_controlling_terminal(group);
     }
 
     long device_file::size() const {

@@ -967,6 +967,10 @@ namespace astia::fs {
         return -ENOTTY;
     }
 
+    long file::acquire_controlling_terminal(i32) {
+        return -ENOTTY;
+    }
+
     long file::size() const {
         return -ESPIPE;
     }
@@ -1236,6 +1240,12 @@ namespace astia::fs {
         if (!_object)
             return -EBADF;
         return dispatch_ioctl(_object.get(), request, argp, size);
+    }
+
+    long open_file::acquire_controlling_terminal(i32 group) {
+        if (!_object)
+            return -EBADF;
+        return _object->acquire_controlling_terminal(group);
     }
 
     long open_file::size() const {
