@@ -17,5 +17,8 @@ non-`SA_RESTART` signal interrupts its futex wait; a handler may post the
 semaphore, leaving that post available to a subsequent wait. Unsupported cases
 are named semaphores (`sem_open`, `sem_close`, and `sem_unlink`) and
 process-shared semaphores (`sem_init(..., pshared != 0)` returns `ENOTSUP`).
-The futex key remains process-private and address-based, so forked processes
-cannot share these semaphore waits.
+Unflagged futex operations use the identity of a shared mapping's backing,
+page, and word offset, so aliases at different virtual addresses and forked
+processes can share a futex. `FUTEX_*_PRIVATE` retains the process-local
+virtual-address fast path. Process-shared libc semaphores remain unsupported
+until libc selects the shared operations.

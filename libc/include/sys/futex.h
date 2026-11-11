@@ -4,6 +4,9 @@
 #include <time.h>
 
 enum {
+    FUTEX_WAIT                    = 0,
+    FUTEX_WAKE                    = 1,
+    FUTEX_PRIVATE_FLAG            = 128,
     FUTEX_WAIT_PRIVATE            = 128,
     FUTEX_WAKE_PRIVATE            = 129,
     FUTEX_CANCELABLE_FLAG         = 256,

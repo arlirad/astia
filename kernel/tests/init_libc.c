@@ -26,6 +26,9 @@
 #include <string.h>
 #include <unistd.h>
 
+extern long __astia_process_futex(unsigned int* address, unsigned int operation,
+                                   unsigned int value, const int64_t* timeout);
+
 static void* libc_thread_worker(void* opaque) {
     int* value = (int*) opaque;
     *value     = 42;
@@ -265,6 +268,37 @@ static void* libc_cross_futex_worker(void* opaque) {
     libc_cross_futex_ready = 1;
     const int rc            = futex_wait((unsigned int*) &libc_cross_futex_word, 0);
     return (void*) (unsigned long) (rc == 0 ? 0x3456 : 0x3457);
+}
+
+static int shared_futex_wait(unsigned int* address, unsigned int expected) {
+    const long result = __astia_process_futex(address, FUTEX_WAIT, expected, NULL);
+    if (result < 0) {
+        errno = (int) -result;
+        return -1;
+    }
+    return (int) result;
+}
+
+static int shared_futex_wake(unsigned int* address, unsigned int count) {
+    const long result = __astia_process_futex(address, FUTEX_WAKE, count, NULL);
+    if (result < 0) {
+        errno = (int) -result;
+        return -1;
+    }
+    return (int) result;
+}
+
+struct shared_alias_probe {
+    unsigned int* address;
+    volatile int ready;
+    volatile int result;
+};
+
+static void* shared_alias_worker(void* opaque) {
+    struct shared_alias_probe* probe = (struct shared_alias_probe*) opaque;
+    probe->ready = 1;
+    probe->result = shared_futex_wait(probe->address, 0);
+    return NULL;
 }
 
 static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -1621,6 +1655,72 @@ int main(int argc, char** argv) {
         if (wake_result != 1 || pthread_join(worker, &result) != 0 ||
             result != (void*) (unsigned long) 0x3456)
             return 89;
+    }
+
+    {
+        const int fd = open("/tmp/futex_shared", O_CREAT | O_RDWR, 0600);
+        unsigned int* parent_page;
+        if (fd < 0 || ftruncate(fd, 4096) != 0)
+            return 145;
+        parent_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (parent_page == MAP_FAILED)
+            return 146;
+        parent_page[0] = 0;
+        parent_page[1] = 0;
+        const pid_t child = fork();
+        if (child < 0)
+            return 147;
+        if (child == 0) {
+            unsigned int* child_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                             MAP_SHARED, fd, 0);
+            if (child_page == MAP_FAILED || child_page == parent_page)
+                _Exit(148);
+            child_page[1] = 1;
+            if (shared_futex_wait(&child_page[0], 0) != 0 || child_page[0] != 1)
+                _Exit(149);
+            _Exit(0);
+        }
+        for (int i = 0; i < 64 && parent_page[1] == 0; ++i)
+            sched_yield();
+        for (int i = 0; i < 32; ++i)
+            sched_yield();
+        if (munmap(parent_page, 4096) != 0)
+            return 150;
+        unsigned int* wake_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                       MAP_SHARED, fd, 0);
+        if (wake_page == MAP_FAILED)
+            return 151;
+        wake_page[0] = 1;
+        int wake_result = 0;
+        for (int i = 0; i < 64 && wake_result == 0; ++i) {
+            wake_result = shared_futex_wake(&wake_page[0], 1);
+            if (wake_result == 0)
+                sched_yield();
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child || status != 0 || wake_result != 1)
+            return 152;
+
+        unsigned int* alias = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (alias == MAP_FAILED || alias == wake_page)
+            return 153;
+        wake_page[0] = 0;
+        struct shared_alias_probe probe = {alias, 0, -1};
+        pthread_t alias_thread;
+        if (pthread_create(&alias_thread, NULL, shared_alias_worker, &probe) != 0)
+            return 154;
+        while (!probe.ready)
+            sched_yield();
+        for (int i = 0; i < 32; ++i)
+            sched_yield();
+        if (munmap(alias, 4096) != 0)
+            return 155;
+        wake_page[0] = 1;
+        if (shared_futex_wake(&wake_page[0], 1) != 1 ||
+            pthread_join(alias_thread, NULL) != 0 || probe.result != 0)
+            return 156;
+        if (munmap(wake_page, 4096) != 0 || close(fd) != 0)
+            return 157;
     }
 
     /* 31-38: the minimal futex-backed pthread mutex and cancellation state. */

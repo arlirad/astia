@@ -365,6 +365,8 @@ namespace astia::proc {
         /// point for the future user page-fault path.
         mmap_region* find_region(u64 addr);
 
+        i32 resolve_shared_futex(u64 addr, shared_futex_mapping& out);
+
         /// Snapshot [addr, addr + len) into `out` as one more entry of an
         /// asynchronous operation's buffer list: 0, or a negated errno.
         /// `destination` marks a buffer the operation will fill (see

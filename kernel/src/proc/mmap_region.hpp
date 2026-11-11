@@ -7,6 +7,25 @@
 
 namespace astia::proc {
 
+    struct shared_futex_mapping {
+        mm::phys_region* backing = nullptr;
+        mm::shptr<mm::phys_region_identity> identity;
+        u32* word = nullptr;
+        usize page = 0;
+        usize offset = 0;
+
+        void release() {
+            mm::phys_region* region = backing;
+            backing = nullptr;
+            identity = {};
+            word = nullptr;
+            if (region != nullptr)
+                region->release_range(page, 1);
+            page = 0;
+            offset = 0;
+        }
+    };
+
     enum class map_protection : u32 {
         none  = 0,
         read  = 1u << 0,
