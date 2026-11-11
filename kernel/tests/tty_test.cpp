@@ -1,9 +1,9 @@
+#include "../src/proc/proc.hpp"
 #include "chr/tty.hpp"
 #include "support/test.hpp"
-#include "../src/proc/proc.hpp"
 #include <astia/arch/cpu.hpp>
-#include <poll.h>
 
+#include <poll.h>
 #include <string>
 
 namespace astia::arch {
@@ -34,11 +34,11 @@ namespace {
     astia::pgrp_t observed_requested{};
 
     void reset_terminal_access() {
-        read_access           = astia::proc::terminal_access_result::allowed;
-        write_access          = astia::proc::terminal_access_result::allowed;
-        set_access            = astia::proc::terminal_access_result::allowed;
-        observed_foreground   = {};
-        observed_requested    = {};
+        read_access         = astia::proc::terminal_access_result::allowed;
+        write_access        = astia::proc::terminal_access_result::allowed;
+        set_access          = astia::proc::terminal_access_result::allowed;
+        observed_foreground = {};
+        observed_requested  = {};
     }
 
     class test_tty final : public astia::dev::tty {
@@ -48,7 +48,15 @@ namespace {
         using tty::tty_receive;
 
         std::string output;
-        astia::u8   last_signal = 0;
+        astia::u8   last_signal         = 0;
+        unsigned    ready_notifications = 0;
+
+        bool receive(astia::u8 byte) {
+            const bool ready = tty_receive(byte);
+            if (ready)
+                tty_input_ready();
+            return ready;
+        }
 
         protected:
         bool tty_putc(astia::u8 byte) override {
@@ -60,6 +68,9 @@ namespace {
         }
         void tty_signal(astia::u8 byte) override {
             last_signal = byte;
+        }
+        void tty_ready() override {
+            ++ready_notifications;
         }
     };
 
@@ -85,7 +96,7 @@ namespace astia::proc {
     }
 
     terminal_access_result terminal_set_foreground_allowed(pgrp_t foreground,
-                                                            pgrp_t requested) {
+                                                           pgrp_t requested) {
         ::observed_foreground = foreground;
         ::observed_requested  = requested;
         return ::set_access;
@@ -96,16 +107,16 @@ namespace astia::proc {
 ASTIA_TEST(tty_raw_mode_delivers_bytes) {
     test_tty tty;
     set_termios(tty, 0, 0, 0);
-    char     result[4]{};
+    char result[4]{};
     tty.tty_receive('a');
-    tty.tty_receive('\r');
+    ASTIA_CHECK(tty.tty_receive('\r'));
     tty.tty_receive('\n');
     ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 3);
     ASTIA_CHECK(result[0] == 'a' && result[1] == '\r' && result[2] == '\n');
 }
 
 ASTIA_TEST(tty_default_termios_commits_carriage_return) {
-    test_tty tty;
+    test_tty       tty;
     struct termios value{};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     ASTIA_CHECK(value.c_iflag == (ICRNL | IXON));
@@ -122,9 +133,9 @@ ASTIA_TEST(tty_default_termios_commits_carriage_return) {
 }
 
 ASTIA_TEST(tty_canonical_default_reader_delivers_each_enter_once) {
-    test_tty tty;
-    char     result[16]{};
-    const char first[] = "echo\n";
+    test_tty   tty;
+    char       result[16]{};
+    const char first[]  = "echo\n";
     const char second[] = "echo\r";
     for (char byte : first)
         if (byte != '\0')
@@ -141,15 +152,15 @@ ASTIA_TEST(tty_canonical_default_reader_delivers_each_enter_once) {
 }
 
 ASTIA_TEST(tty_raw_zle_transition_poll_and_single_byte_reads) {
-    test_tty tty;
+    test_tty       tty;
     struct termios value{};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     struct termios saved = value;
-    value.c_iflag = ICRNL | INLCR;
-    value.c_oflag = OPOST | ONLCR;
-    value.c_lflag = 0;
-    value.c_cc[VMIN] = 1;
-    value.c_cc[VTIME] = 0;
+    value.c_iflag        = ICRNL | INLCR;
+    value.c_oflag        = OPOST | ONLCR;
+    value.c_lflag        = 0;
+    value.c_cc[VMIN]     = 1;
+    value.c_cc[VTIME]    = 0;
     ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
 
     char byte = 0;
@@ -163,6 +174,127 @@ ASTIA_TEST(tty_raw_zle_transition_poll_and_single_byte_reads) {
     ASTIA_CHECK(tty.read(&byte, 1, 0) == 1 && byte == '\r');
     ASTIA_CHECK(tty.poll(POLLIN, 0) == 0);
     ASTIA_CHECK(tty.ioctl(TCSETS, &saved, sizeof(saved)) == 0);
+}
+
+ASTIA_TEST(tty_line_reader_tcsetattr_and_editing) {
+    test_tty       tty;
+    struct termios value{};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
+    value.c_iflag |= ICRNL;
+    value.c_oflag &= ~(OPOST | ONLCR);
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+
+    tty.tty_receive('a');
+    tty.tty_receive('b');
+    tty.tty_receive(127);
+    tty.tty_receive('c');
+    tty.tty_receive('\r');
+
+    char result[8]{};
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 3);
+    ASTIA_CHECK(std::string(result, 3) == "ac\n");
+    ASTIA_CHECK(tty.output == "ab\b \bc\n");
+
+    ASTIA_CHECK(tty.tty_receive('\n'));
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 1);
+    ASTIA_CHECK(result[0] == '\n');
+    ASTIA_CHECK(tty.output == "ab\b \bc\n\n");
+}
+
+ASTIA_TEST(tty_raw_input_echoes_only_when_enabled) {
+    test_tty tty;
+    set_termios(tty, ICRNL, 0, 0);
+    char result[8]{};
+
+    ASTIA_CHECK(tty.tty_receive('a'));
+    ASTIA_CHECK(tty.tty_receive('\r'));
+    ASTIA_CHECK(tty.tty_receive('\n'));
+    ASTIA_CHECK(tty.tty_receive(127));
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 4);
+    ASTIA_CHECK(result[0] == 'a' && result[1] == '\n' && result[2] == '\n' &&
+                result[3] == 127);
+    ASTIA_CHECK(tty.output.empty());
+
+    struct termios value{};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
+    value.c_lflag = ECHONL;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+    tty.tty_receive('\n');
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 1 && result[0] == '\n');
+    ASTIA_CHECK(tty.output == "\n");
+}
+
+ASTIA_TEST(tty_raw_repeated_byte_reads_notify_each_ready) {
+    test_tty tty;
+    set_termios(tty, 0, 0, 0);
+    char       result  = 0;
+    const char input[] = "echo\n";
+    for (char byte : input) {
+        if (byte == '\0')
+            continue;
+        ASTIA_CHECK(tty.receive(static_cast<astia::u8>(byte)));
+        ASTIA_CHECK(tty.read(&result, 1, 0) == 1);
+        ASTIA_CHECK(result == byte);
+    }
+    ASTIA_CHECK(tty.ready_notifications == sizeof(input) - 1);
+}
+
+ASTIA_TEST(tty_canonical_line_notifies_once_at_enter) {
+    test_tty tty;
+    set_termios(tty, ICRNL, 0, ICANON);
+    const char input[] = "echo\r";
+    for (astia::u32 i = 0; i < sizeof(input) - 1; ++i) {
+        const bool ready = tty.receive(static_cast<astia::u8>(input[i]));
+        ASTIA_CHECK(ready == (i + 1 == sizeof(input) - 1));
+    }
+    char result[8]{};
+    ASTIA_CHECK(tty.ready_notifications == 1);
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 5);
+    ASTIA_CHECK(std::string(result, 5) == "echo\n");
+}
+
+ASTIA_TEST(tty_noncanonical_vmin_vtime_modes) {
+    test_tty       tty;
+    struct termios value{};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
+    value.c_iflag = 0;
+    value.c_oflag = 0;
+    value.c_lflag = 0;
+    char result[8]{};
+
+    value.c_cc[VMIN]  = 0;
+    value.c_cc[VTIME] = 0;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+    astia::io_request immediate(result, sizeof(result), 0, 1, astia::io_direction::input);
+    ASTIA_CHECK(tty.submit(immediate) == 0 && immediate.complete());
+
+    value.c_cc[VTIME] = 1;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+    astia::io_request timed(result, sizeof(result), 0, 2, astia::io_direction::input);
+    ASTIA_CHECK(tty.submit(timed) == 0 && !timed.complete() && timed.stage() == 1 &&
+                timed.timeout_set() && timed.timeout_ns() == 100000000);
+    tty.tty_receive('a');
+    timed.timeout_expired(false);
+    ASTIA_CHECK(tty.submit(timed) == 1 && result[0] == 'a');
+
+    value.c_cc[VMIN]  = 2;
+    value.c_cc[VTIME] = 0;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+    astia::io_request minimum(result, sizeof(result), 0, 3, astia::io_direction::input);
+    tty.tty_receive('b');
+    ASTIA_CHECK(tty.submit(minimum) == 0 && !minimum.complete());
+    tty.tty_receive('c');
+    ASTIA_CHECK(tty.submit(minimum) == 2 && result[0] == 'b' && result[1] == 'c');
+
+    value.c_cc[VMIN]  = 2;
+    value.c_cc[VTIME] = 1;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+    astia::io_request interbyte(result, sizeof(result), 0, 4, astia::io_direction::input);
+    ASTIA_CHECK(tty.submit(interbyte) == 0 && !interbyte.timeout_set());
+    tty.tty_receive('d');
+    ASTIA_CHECK(tty.submit(interbyte) == 0 && interbyte.timeout_set());
+    interbyte.timeout_expired(true);
+    ASTIA_CHECK(tty.submit(interbyte) == 1 && result[0] == 'd');
 }
 
 ASTIA_TEST(tty_noncanonical_vmin_waits_for_minimum) {
@@ -324,7 +456,7 @@ ASTIA_TEST(tty_background_io_rejects_before_transfer) {
     tty.output.clear();
 
     const char output[] = "y";
-    write_access = astia::proc::terminal_access_result::io_error;
+    write_access        = astia::proc::terminal_access_result::io_error;
     ASTIA_CHECK(tty.write(output, 1, 0) == -EIO);
     ASTIA_CHECK(tty.output.empty());
     write_access = astia::proc::terminal_access_result::allowed;
@@ -344,7 +476,7 @@ ASTIA_TEST(tty_background_signal_interrupts_io) {
     read_access = astia::proc::terminal_access_result::interrupted;
     ASTIA_CHECK(tty.read(input, sizeof(input), 0) == -EINTR);
     tty.output.clear();
-    write_access = astia::proc::terminal_access_result::retry;
+    write_access        = astia::proc::terminal_access_result::retry;
     const char output[] = "y";
     ASTIA_CHECK(tty.write(output, 1, 0) == -EINTR);
     ASTIA_CHECK(tty.output.empty());
@@ -352,7 +484,7 @@ ASTIA_TEST(tty_background_signal_interrupts_io) {
 
 ASTIA_TEST(tty_tcsetpgrp_background_signal_is_not_applied) {
     reset_terminal_access();
-    test_tty tty;
+    test_tty   tty;
     astia::i32 group = 7;
     ASTIA_CHECK(tty.ioctl(TIOCSPGRP, &group, sizeof(group)) == 0);
     group      = 8;

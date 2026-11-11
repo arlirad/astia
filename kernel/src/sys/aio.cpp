@@ -276,9 +276,11 @@ namespace astia::sys {
             bool                     socket_accept         = false;
             bool                     readiness             = false;
             bool                     sleeping              = false;
+            bool                     timed                 = false;
             bool                     sleep_absolute        = false;
             u32                      poll_events           = 0;
             u64                      sleep_deadline        = 0;
+            u64                      timeout_deadline      = 0;
             u64                      sleep_remaining_user  = 0;
             bool                     recvfrom_address      = false;
             u64                      recvfrom_address_user = 0;
@@ -433,6 +435,19 @@ namespace astia::sys {
                 return UINT64_MAX;
             const u64 whole = seconds * nanoseconds_per_second;
             return whole > UINT64_MAX - fraction ? UINT64_MAX : whole + fraction;
+        }
+
+        void arm_request_timeout(parked_op& op) {
+            op.request.timeout_expired(false);
+            if (!op.request.timeout_set() || op.request.timeout_ns() == 0) {
+                op.timed = false;
+                return;
+            }
+            const u64 now = poll_now_ns();
+            op.timed = true;
+            op.timeout_deadline = UINT64_MAX - now < op.request.timeout_ns()
+                                      ? UINT64_MAX
+                                      : now + op.request.timeout_ns();
         }
 
         void note_device_ready(const fs::file*) {
@@ -864,6 +879,7 @@ namespace astia::sys {
             long       result     = 0;
             const auto outcome    = pump(*p, result);
             if (outcome == io_outcome::parked) {
+                arm_request_timeout(*p);
                 publish_waiter_hint(slot, park_index, p->object->node().get());
                 if (ready_generation() != generation)
                     resume_parked(ring, *p);
@@ -933,6 +949,7 @@ namespace astia::sys {
             }
             long result = 0;
             if (pump(op, result) == io_outcome::parked) {
+                arm_request_timeout(op);
                 op.resuming = false;
                 return;
             }
@@ -951,6 +968,8 @@ namespace astia::sys {
                 op.pending_user_data = op.request.user_data();
                 op.pending_result    = static_cast<i32>(result);
             }
+            else
+                op.done = true;
             op.resuming = false;
         }
 
@@ -2472,6 +2491,11 @@ namespace astia::sys {
                 parked_op& op = slot.park[p];
                 if (op.used && !op.done && op.sleeping && now >= op.sleep_deadline)
                     complete_control(nullptr, ring, op, 0);
+                if (op.used && !op.done && op.timed && now >= op.timeout_deadline) {
+                    op.timed = false;
+                    op.request.timeout_expired(true);
+                    resume_parked(ring, op);
+                }
             }
             cq_retrigger(slot, ring);
         }

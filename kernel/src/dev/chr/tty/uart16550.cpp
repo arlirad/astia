@@ -71,18 +71,21 @@ namespace astia::dev {
 
         // Tags are private to this boot selftest; completion order is not fixed.
         enum : u64 {
-            ring_tag_open        = 0xC0DE00,
-            ring_tag_read        = 0xC0DE01,
-            ring_tag_write       = 0xC0DE02,
-            ring_tag_collect     = 0xC0DE03,
-            ring_tag_close       = 0xC0DE04,
-            ring_tag_dup         = 0xC0DE05,
-            ring_tag_dup2        = 0xC0DE06,
-            ring_tag_alias_close = 0xC0DE07,
+            ring_tag_open           = 0xC0DE00,
+            ring_tag_read           = 0xC0DE01,
+            ring_tag_write          = 0xC0DE02,
+            ring_tag_collect        = 0xC0DE03,
+            ring_tag_close          = 0xC0DE04,
+            ring_tag_dup            = 0xC0DE05,
+            ring_tag_dup2           = 0xC0DE06,
+            ring_tag_alias_close    = 0xC0DE07,
+            ring_tag_repeated_read  = 0xC0DE08,
         };
 
-        constexpr char ring_payload[]   = "ping";
-        constexpr u32  ring_payload_len = sizeof(ring_payload) - 1;
+        constexpr char ring_payload[]       = "ping";
+        constexpr u32  ring_payload_len     = sizeof(ring_payload) - 1;
+        constexpr char repeated_payload[]   = "echo\n";
+        constexpr u32  repeated_payload_len = sizeof(repeated_payload) - 1;
 
         // QEMU answers THR instantly and real hardware shifts a byte in
         // under 100 µs at 115200; the cap fires only on a dead port,
@@ -248,21 +251,25 @@ namespace astia::dev {
             }
 
             // Reap by tag: completion order is not an ABI promise.
-            long read_count  = -1;
-            long write_count = -1;
-            while (astia_cqe* c = astia_cq_peek(ring)) {
-                if (c->user_data == ring_tag_read) {
-                    read_count = c->result;
+            long first_read_count  = -1;
+            long first_write_count = -1;
+            for (u32 wait = 0; wait < 100000 &&
+                                (first_read_count < 0 || first_write_count < 0);
+                 ++wait) {
+                while (astia_cqe* c = astia_cq_peek(ring)) {
+                    if (c->user_data == ring_tag_read)
+                        first_read_count = c->result;
+                    else if (c->user_data == ring_tag_write)
+                        first_write_count = c->result;
+                    astia_cq_consume(ring, 1);
                 }
-                else if (c->user_data == ring_tag_write) {
-                    write_count = c->result;
-                }
-                astia_cq_consume(ring, 1);
+                __builtin_ia32_pause();
             }
-            if (write_count != static_cast<long>(ring_payload_len) || read_count < 1) {
+            if (first_write_count != static_cast<long>(ring_payload_len) ||
+                first_read_count < 1) {
                 return "first pass mismatch";
             }
-            u32 have = static_cast<u32>(read_count);
+            u32 have = static_cast<u32>(first_read_count);
 
             // The interrupt may complete the parked read on the first
             // looped-back byte, so the tail of the payload arrives
@@ -299,6 +306,48 @@ namespace astia::dev {
             }
             if (memcmp(got, ring_payload, ring_payload_len) != 0) {
                 return "payload mismatch";
+            }
+
+            termios raw_repeated_termios{};
+            if (com1.ioctl(TCGETS, &raw_repeated_termios,
+                           sizeof(raw_repeated_termios)) < 0)
+                return "termios setup failed";
+            raw_repeated_termios.c_iflag = 0;
+            raw_repeated_termios.c_oflag = 0;
+            raw_repeated_termios.c_lflag = 0;
+            raw_repeated_termios.c_cc[VMIN] = 1;
+            raw_repeated_termios.c_cc[VTIME] = 0;
+            if (com1.ioctl(TCSETS, &raw_repeated_termios,
+                           sizeof(raw_repeated_termios)) < 0)
+                return "termios setup failed";
+            com1.drain_rx();
+            char repeated_bytes[repeated_payload_len]{};
+            for (u32 round = 0; round < repeated_payload_len; ++round) {
+                s = astia_sqe_slot(ring);
+                if (s == nullptr)
+                    return "sq full";
+                *s           = astia_sqe{};
+                s->op        = OP_READ;
+                s->fd        = fd;
+                s->address   = reinterpret_cast<u64>(&repeated_bytes[round]);
+                s->length    = 1;
+                s->user_data = ring_tag_repeated_read + round;
+                astia_sq_publish(ring, 1);
+                if (sys::io_submit(ring, 1) != 1)
+                    return "read kick failed";
+
+                com1.polled_putc(repeated_payload[round]);
+                astia_cqe* c = nullptr;
+                for (u32 wait = 0; wait < 100000; ++wait) {
+                    c = astia_cq_peek(ring);
+                    if (c != nullptr)
+                        break;
+                    __builtin_ia32_pause();
+                }
+                if (c == nullptr || c->user_data != ring_tag_repeated_read + round ||
+                    c->result != 1 || repeated_bytes[round] != repeated_payload[round])
+                    return "repeated read mismatch";
+                astia_cq_consume(ring, 1);
             }
 
             // Close through the same ring path.  This also proves the
@@ -347,9 +396,12 @@ namespace astia::dev {
 
     void uart16550::rx_drain() {
         // The tty owns buffering; the UART only drains its hardware FIFO.
+        bool ready = false;
         while ((_ports[reg_lsr] & lsr_data_ready) != 0) {
-            tty_receive(_ports[reg_data]);
+            ready = tty_receive(_ports[reg_data]) || ready;
         }
+        if (ready)
+            tty_input_ready();
     }
 
     void uart16550::drain_rx() {
@@ -363,10 +415,9 @@ namespace astia::dev {
     // Read and write are implemented by tty; this class only owns the UART.
 
     void uart16550::irq() {
-        const bool tx_ready = (_ports[reg_ier] & ier_tx_empty) != 0 &&
-                              (_ports[reg_lsr] & lsr_thre) != 0;
+        const bool tx_ready =
+            (_ports[reg_ier] & ier_tx_empty) != 0 && (_ports[reg_lsr] & lsr_thre) != 0;
         rx_drain();
-        tty_input_ready();
         if (tx_ready)
             sys::io_device_ready_context(&com1_file);
     }
@@ -511,7 +562,8 @@ namespace astia::dev {
             console_puts(why);
             console_puts("\n");
         }
-        const bool restored = com1.ioctl(TCSETS, &saved_termios, sizeof(saved_termios)) == 0;
+        const bool restored =
+            com1.ioctl(TCSETS, &saved_termios, sizeof(saved_termios)) == 0;
         (void) sys::io_destroy(ring);
         return why == nullptr && restored;
     }

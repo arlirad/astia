@@ -705,6 +705,7 @@ static int libc_zsh_io_contract(void) {
     char            tty_path[32];
     struct termios  saved;
     struct termios  raw;
+    struct termios  active;
     struct pollfd   fd;
     int             tty_fd;
     int             shtty_fd;
@@ -754,39 +755,45 @@ static int libc_zsh_io_contract(void) {
         return 6;
     raw = saved;
     raw.c_iflag &= ~(ICRNL | INLCR);
-    raw.c_oflag &= ~ONLCR;
+    raw.c_oflag &= ~(OPOST | ONLCR);
     raw.c_lflag &= ~(ICANON | ECHO);
     raw.c_cc[VMIN]  = 1;
     raw.c_cc[VTIME] = 0;
     if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0)
         return 7;
+    if (tcgetattr(STDIN_FILENO, &active) != 0 ||
+        (active.c_iflag & (ICRNL | INLCR)) != 0 ||
+        (active.c_oflag & (OPOST | ONLCR)) != 0 ||
+        (active.c_lflag & (ICANON | ECHO)) != 0 || active.c_cc[VMIN] != 1 ||
+        active.c_cc[VTIME] != 0)
+        return 8;
     fd.fd      = STDIN_FILENO;
     fd.events  = POLLIN;
     fd.revents = 0;
     if (poll(&fd, 1, 0) < 0)
-        return 8;
-    if ((fd.revents & POLLIN) != 0 && read(STDIN_FILENO, result, 1) != 1)
         return 9;
+    if ((fd.revents & POLLIN) != 0 && read(STDIN_FILENO, result, 1) != 1)
+        return 10;
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0 ||
         tcsetattr(STDIN_FILENO, TCSANOW, &saved) != 0)
-        return 10;
+        return 11;
 
     if (pipe(pipe_fds) != 0)
-        return 11;
+        return 12;
     saved_stdout = dup(STDOUT_FILENO);
     if (saved_stdout < 0 || dup2(pipe_fds[1], STDOUT_FILENO) != STDOUT_FILENO ||
         close(pipe_fds[1]) != 0)
-        return 12;
+        return 13;
     stream = fdopen(STDOUT_FILENO, "w");
     if (stream == NULL || fputs("DUP2_OK", stream) < 0 || fflush(stream) != 0 ||
         fclose(stream) != 0)
-        return 13;
+        return 14;
     count = read(pipe_fds[0], result, sizeof result);
     if (count != 7 || memcmp(result, "DUP2_OK", 7) != 0)
-        return 14;
+        return 15;
     if (close(pipe_fds[0]) != 0 || dup2(saved_stdout, STDOUT_FILENO) != STDOUT_FILENO ||
         close(saved_stdout) != 0)
-        return 15;
+        return 16;
     return 0;
 }
 

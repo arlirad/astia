@@ -144,6 +144,27 @@ namespace astia {
             _device_state = value;
         }
 
+        bool timeout_set() const {
+            return _timeout_set;
+        }
+
+        u64 timeout_ns() const {
+            return _timeout_ns;
+        }
+
+        void timeout_ns(u64 value) {
+            _timeout_set = true;
+            _timeout_ns = value;
+        }
+
+        bool timeout_expired() const {
+            return _timeout_expired;
+        }
+
+        void timeout_expired(bool value) {
+            _timeout_expired = value;
+        }
+
         bool park_device();
         bool canceled() const;
         bool begin_device();
@@ -163,6 +184,9 @@ namespace astia {
         bool         _append_length_set = false;
         u8           _stage        = 0;
         bool         _complete     = false;
+        bool         _timeout_set = false;
+        bool         _timeout_expired = false;
+        u64          _timeout_ns = 0;
         io_flight*   _flight       = nullptr;
         mm::uptr<core::async_operation<i64>> _completion;
     };

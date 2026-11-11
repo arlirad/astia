@@ -63,12 +63,14 @@ namespace astia::dev {
         long acquire_controlling_terminal(i32 group) override;
 
         protected:
-        void         tty_receive(u8 byte);
+        bool         tty_receive(u8 byte);
         void         tty_input_ready();
         void         tty_discard_input();
         void         tty_commit_line(bool eof);
         void         tty_echo(u8 byte);
         virtual void tty_signal(u8 byte);
+
+        long read_available(void* buf, u32 len, u64 off, bool allow_short);
 
         /// Called per flag TCSETS changes, with the flag bit and its
         /// new state — the driver reacts without the tty layer knowing
