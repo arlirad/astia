@@ -2,6 +2,7 @@
 #include "support/test.hpp"
 #include "../src/proc/proc.hpp"
 #include <astia/arch/cpu.hpp>
+#include <poll.h>
 
 #include <string>
 
@@ -118,6 +119,50 @@ ASTIA_TEST(tty_default_termios_commits_carriage_return) {
     ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 2);
     ASTIA_CHECK(result[0] == 'u' && result[1] == '\n');
     ASTIA_CHECK(tty.output == "u\n");
+}
+
+ASTIA_TEST(tty_canonical_default_reader_delivers_each_enter_once) {
+    test_tty tty;
+    char     result[16]{};
+    const char first[] = "echo\n";
+    const char second[] = "echo\r";
+    for (char byte : first)
+        if (byte != '\0')
+            tty.tty_receive(static_cast<astia::u8>(byte));
+    for (char byte : second)
+        if (byte != '\0')
+            tty.tty_receive(static_cast<astia::u8>(byte));
+
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 5);
+    ASTIA_CHECK(std::string(result, 5) == "echo\n");
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 5);
+    ASTIA_CHECK(std::string(result, 5) == "echo\n");
+    ASTIA_CHECK(tty.output == "echo\necho\n");
+}
+
+ASTIA_TEST(tty_raw_zle_transition_poll_and_single_byte_reads) {
+    test_tty tty;
+    struct termios value{};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
+    struct termios saved = value;
+    value.c_iflag = ICRNL | INLCR;
+    value.c_oflag = OPOST | ONLCR;
+    value.c_lflag = 0;
+    value.c_cc[VMIN] = 1;
+    value.c_cc[VTIME] = 0;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+
+    char byte = 0;
+    ASTIA_CHECK(tty.poll(POLLIN, 0) == 0);
+    tty.tty_receive('e');
+    ASTIA_CHECK((tty.poll(POLLIN, 0) & POLLIN) != 0);
+    ASTIA_CHECK(tty.read(&byte, 1, 0) == 1 && byte == 'e');
+    tty.tty_receive('\r');
+    ASTIA_CHECK(tty.read(&byte, 1, 0) == 1 && byte == '\n');
+    tty.tty_receive('\n');
+    ASTIA_CHECK(tty.read(&byte, 1, 0) == 1 && byte == '\r');
+    ASTIA_CHECK(tty.poll(POLLIN, 0) == 0);
+    ASTIA_CHECK(tty.ioctl(TCSETS, &saved, sizeof(saved)) == 0);
 }
 
 ASTIA_TEST(tty_noncanonical_vmin_waits_for_minimum) {

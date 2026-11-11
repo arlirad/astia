@@ -69,6 +69,15 @@ namespace astia::dev {
         if (count > len) {
             count = len;
         }
+        if ((_termios.c_lflag & ICANON) != 0) {
+            u32 line_count = 0;
+            while (line_count < count &&
+                   _rx[(tail + line_count) & (rx_capacity_bytes - 1)] != '\n') {
+                ++line_count;
+            }
+            if (line_count < count)
+                count = line_count + 1;
+        }
         if ((_termios.c_lflag & ICANON) == 0 && _termios.c_cc[VMIN] != 0 &&
             count < _termios.c_cc[VMIN]) {
             count = 0;

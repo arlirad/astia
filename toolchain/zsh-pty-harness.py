@@ -145,11 +145,11 @@ def main():
             raw(serial_fd)
             serial = Serial(serial_fd, trace_stream)
             serial.read_until(PROMPT, time.monotonic() + TIMEOUT)
-            run_command(serial, "echo hello", "hello\n")
+            run_command(serial, "echo TEST_OK", "TEST_OK\n")
             run_command(serial, "pwd", "/\n")
-            run_command(serial, "printf 'pipeline\\n' | cat", "pipeline\n")
-            run_command(serial, "echo redirected >/tmp/zsh-output; cat /tmp/zsh-output",
-                        "redirected\n")
+            run_command(serial, "echo PIPE_OK | cat", "PIPE_OK\n")
+            run_command(serial, "echo REDIRECT_OK >/tmp/zsh-output; cat /tmp/zsh-output",
+                        "REDIRECT_OK\n")
             serial.send(b"exit\n")
             trace(trace_stream, "WAIT", b"exit")
             try:

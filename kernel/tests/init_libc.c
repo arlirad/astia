@@ -707,6 +707,8 @@ static int libc_zsh_io_contract(void) {
     struct termios  raw;
     struct pollfd   fd;
     int             tty_fd;
+    int             shtty_fd;
+    int             saved_stdout_fd;
     int             flags;
     int             pipe_fds[2];
     int             saved_stdout;
@@ -714,7 +716,8 @@ static int libc_zsh_io_contract(void) {
     FILE*           stream;
     ssize_t         count;
 
-    if (!isatty(STDIN_FILENO) || ttyname_r(STDIN_FILENO, tty_path, sizeof tty_path) != 0)
+    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO) || !isatty(STDERR_FILENO) ||
+        ttyname_r(STDIN_FILENO, tty_path, sizeof tty_path) != 0)
         return 1;
     tty_fd = open(tty_path, O_RDWR | O_NOCTTY);
     if (tty_fd < 0)
@@ -726,6 +729,25 @@ static int libc_zsh_io_contract(void) {
     if (stream == NULL)
         return 4;
     if (fileno(stream) != tty_fd || fclose(stream) != 0)
+        return 5;
+
+    shtty_fd = dup(STDIN_FILENO);
+    if (shtty_fd < 0)
+        return 5;
+    stream = fdopen(shtty_fd, "r+");
+    if (stream == NULL || fileno(stream) != shtty_fd ||
+        fputs("FD_STREAM_OK\n", stream) < 0 || fflush(stream) != 0 || fclose(stream) != 0)
+        return 5;
+    shtty_fd = dup(STDIN_FILENO);
+    if (shtty_fd < 0)
+        return 5;
+    saved_stdout_fd = dup(STDOUT_FILENO);
+    if (saved_stdout_fd < 0 || dup2(shtty_fd, STDOUT_FILENO) != STDOUT_FILENO)
+        return 5;
+    stream = fdopen(STDOUT_FILENO, "w");
+    if (stream == NULL || fputs("DUP_SHTTY_OK\n", stream) < 0 || fflush(stream) != 0 ||
+        fclose(stream) != 0 || dup2(saved_stdout_fd, STDOUT_FILENO) != STDOUT_FILENO ||
+        close(saved_stdout_fd) != 0 || close(shtty_fd) != 0)
         return 5;
 
     if (tcgetattr(STDIN_FILENO, &saved) != 0)

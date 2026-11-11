@@ -10,6 +10,7 @@ base_initrd=${ASTIA_INITRD:-$kernel_build/tests/fixtures/boot_initrd.tar}
 work=${ASTIA_ZSH_RUN:-/tmp/astia-zsh-run}
 clean_build=${ASTIA_CLEAN_BUILD:-0}
 harness=${ASTIA_ZSH_HARNESS:-0}
+line_reader=${ASTIA_LINE_READER:-0}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 target=x86_64-unknown-elf
@@ -28,6 +29,14 @@ case "$harness" in
     0|1) ;;
     *)
         echo "ASTIA_ZSH_HARNESS must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+case "$line_reader" in
+    0|1) ;;
+    *)
+        echo "ASTIA_LINE_READER must be 0 or 1" >&2
         exit 2
         ;;
 esac
@@ -122,14 +131,31 @@ include_flags="-nostdinc -isystem $resource_dir/include -isystem $sysroot/includ
 # shellcheck disable=SC2086
 $clang $common_flags -fno-builtin $include_flags \
     -c -o "$work/runner.o" "$root/toolchain/zsh-runner.c"
+$clang $common_flags -fno-builtin $include_flags \
+    -c -o "$work/line-reader.o" "$root/toolchain/line-reader.c"
+$clang $common_flags -fno-builtin $include_flags \
+    -c -o "$work/line-reader-runner.o" "$root/toolchain/line-reader-runner.c"
 # shellcheck disable=SC2086
 $clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
     -o "$work/runner" "$zsh_build/astia/image/crt0.o" "$work/runner.o" \
     "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+    -o "$work/line-reader" "$zsh_build/astia/image/crt0.o" "$work/line-reader.o" \
+    "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+    -o "$work/line-reader-runner" "$zsh_build/astia/image/crt0.o" \
+    "$work/line-reader-runner.o" "$sysroot/lib/libastia_libc.a" \
+    "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
 
 cp "$work/runner" "$work/root/sbin/init"
+if [ "$line_reader" = 1 ]; then
+    cp "$work/line-reader-runner" "$work/root/sbin/init"
+fi
 cp "$zsh_build/output/zsh" "$work/root/bin/zsh"
+cp "$work/line-reader" "$work/root/bin/line-reader"
 cp "$work/coreutils/bin/"* "$work/root/bin/"
 cat > "$work/root/etc/zshenv" <<'EOF'
 typeset -ga .term.extensions
