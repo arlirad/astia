@@ -28,11 +28,10 @@ command -v "$qemu" >/dev/null 2>&1 || {
     exit 1
 }
 
-if [ ! -t 0 ]; then
-    echo "error: interactive zsh needs a real terminal; stdin is already EOF" >&2
-    echo "run this script directly from a terminal, not through a closed pipe" >&2
-    exit 2
-fi
+command -v python3 >/dev/null 2>&1 || {
+    echo "python3 is required for the zsh PTY harness" >&2
+    exit 1
+}
 
 if [ "$clean_build" = 1 ]; then
     echo "Cleaning kernel, zsh, and launcher build directories." >&2
@@ -106,7 +105,7 @@ if ! tar tf "$base_initrd" >/dev/null 2>&1; then
 fi
 
 rm -rf "$work"
-mkdir -p "$work/root/sbin" "$work/root/bin"
+mkdir -p "$work/root/sbin" "$work/root/bin" "$work/root/etc"
 
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
     COREUTILS_BUILD="$work/coreutils" "$root/coreutils/build.sh"
@@ -128,8 +127,18 @@ $clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
 cp "$work/runner" "$work/root/sbin/init"
 cp "$zsh_build/output/zsh" "$work/root/bin/zsh"
 cp "$work/coreutils/bin/"* "$work/root/bin/"
-tar cf "$work/initrd.tar" -C "$work/root" hello_initrd.o sbin/init bin
+cat > "$work/root/etc/zshenv" <<'EOF'
+typeset -ga .term.extensions
+.term.extensions=(-query)
+.term.extensions+=(-integration-prompt -integration-output -integration-pwd -bracketed-paste)
+PS1='ASTIA_READY> '
+EOF
+test -x "$work/root/sbin/init"
+test -x "$work/root/bin/zsh"
+test -f "$work/root/etc/zshenv"
+tar cf "$work/initrd.tar" -C "$work/root" hello_initrd.o sbin bin etc
 
-echo "Starting interactive Astia zsh; exit with Ctrl-D or 'exit'." >&2
-exec "$qemu" -m 128M -kernel "$kernel" -initrd "$work/initrd.tar" \
-    -serial stdio -display none -monitor none -device isa-debug-exit -no-reboot
+echo "Starting Astia zsh PTY harness." >&2
+exec python3 "$root/toolchain/zsh-pty-harness.py" \
+    --qemu "$qemu" --kernel "$kernel" --initrd "$work/initrd.tar" \
+    --trace "$work/pty.trace"
