@@ -64,6 +64,9 @@ namespace {
             if (!spawned) {
                 __atomic_store_n(ok, 2u, __ATOMIC_RELEASE);
             }
+            else if (!init_ok) {
+                __atomic_store_n(ok, 3u, __ATOMIC_RELEASE);
+            }
             else {
                 const bool libc_ok =
                     run_image("/bin/init_libc", libc_argv, libc_envp, spawned);

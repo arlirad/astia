@@ -23,7 +23,9 @@ qemu=$1
 kernel=$2
 initrd=$3
 qemu_timeout_seconds=30
-expected_qemu_status=1
+expected_qemu_status=${ASTIA_EXPECT_QEMU_STATUS:-1}
+require_selftest=${ASTIA_REQUIRE_SELFTEST:-1}
+forbidden_pattern=${ASTIA_FORBID_PATTERN:-}
 shift 3    # everything left in "$@" is a required log pattern
 
 log=${TMPDIR:-/tmp}/astia_boot_$$.log
@@ -64,7 +66,9 @@ set -e
 
 cat "$log"
 
-if [ "$status" -eq "$expected_qemu_status" ] && grep -q "core: selftest ok" "$log"; then
+if [ "$status" -eq "$expected_qemu_status" ] && {
+    [ "$require_selftest" -eq 0 ] || grep -q "core: selftest ok" "$log"
+}; then
     for pattern in "$@"; do
         if ! grep -qF "$pattern" "$log"; then
             echo "run_boot_test: expected output not found: $pattern" >&2
@@ -72,6 +76,11 @@ if [ "$status" -eq "$expected_qemu_status" ] && grep -q "core: selftest ok" "$lo
             exit 1
         fi
     done
+    if [ -n "$forbidden_pattern" ] && grep -qF "$forbidden_pattern" "$log"; then
+        echo "run_boot_test: forbidden output found: $forbidden_pattern" >&2
+        echo "run_boot_test: kernel boot test failed (qemu status $status)" >&2
+        exit 1
+    fi
     exit 0
 fi
 

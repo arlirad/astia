@@ -524,8 +524,37 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/native_boot_initrd.tar
                 "init: daemon started"
-                "daemon: clean shutdown")
+                "daemon: clean shutdown"
+                "init: clean shutdown")
         set_tests_properties(astia_native_daemon_boot PROPERTIES TIMEOUT 60)
+
+        add_custom_command(
+                OUTPUT ${_fix_dir}/native_failure_boot_initrd.tar
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/sbin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/bin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_failure_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemon ${_fix_dir}/native_failure_stage/sbin/daemon
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemonctl ${_fix_dir}/native_failure_stage/bin/daemonctl
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_ps ${_fix_dir}/native_failure_stage/bin/ps
+                COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_failure_stage/bin/init_libc
+                COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/native_daemon_failure_rc ${_fix_dir}/native_failure_stage/etc/rc
+                COMMAND sh -c "tar cf ${_fix_dir}/native_failure_boot_initrd.tar -C ${_fix_dir}/native_failure_stage sbin/init sbin/daemon bin/daemonctl bin/ps bin/init_libc etc/rc"
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemon ${_fix_dir}/native_daemonctl ${_fix_dir}/native_ps ${_init_libc_image} ${CMAKE_CURRENT_SOURCE_DIR}/native_daemon_failure_rc
+                COMMENT "Packing failing native daemon initrd")
+        add_custom_target(astia_native_failure_boot_initrd ALL
+                DEPENDS ${_fix_dir}/native_failure_boot_initrd.tar)
+        add_test(NAME astia_native_daemon_failure
+                COMMAND env
+                ASTIA_EXPECT_QEMU_STATUS=3
+                ASTIA_REQUIRE_SELFTEST=0
+                ASTIA_FORBID_PATTERN="core: selftest ok"
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/native_failure_boot_initrd.tar
+                "daemon: malformed service record"
+                "init: daemon failed")
+        set_tests_properties(astia_native_daemon_failure PROPERTIES TIMEOUT 60)
 
         if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
             add_custom_target(astia_grub_iso ALL
