@@ -85,10 +85,21 @@ The launcher never patches the zsh checkout.  A source tree without generated
 bootstrap step.  It checks only the source files required by the build and
 does not require a generated or patched tree.
 
-This is an interactive TTY launcher: run it directly from a terminal.  Do not
-pipe it or redirect stdin; an already-closed stdin makes the zsh session exit
-immediately.  `ASTIA_KERNEL` and `ASTIA_INITRD` override the default kernel
+This is an interactive TTY launcher: run it directly from a terminal.  It
+executes QEMU with `-serial stdio`, so stdin, stdout, and terminal signals are
+connected directly to the zsh session.  Do not pipe it or redirect stdin; an
+already-closed stdin makes the zsh session exit immediately.  Type `exit` to
+leave zsh; QEMU remains the foreground process until it is stopped with
+Ctrl-C.  `ASTIA_KERNEL` and `ASTIA_INITRD` override the default kernel
 runtime and initrd paths independently.
+
+The automated PTY checks remain available with the explicit harness opt-in:
+
+```sh
+ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
+```
+
+The default launcher never starts the PTY harness or requires Python.
 
 For a clean rebuild of the kernel runtime/initrd, zsh build, and launcher work
 directory, use the explicit clean mode:

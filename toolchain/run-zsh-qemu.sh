@@ -9,6 +9,7 @@ kernel=${ASTIA_KERNEL:-$kernel_build/src/astiakrn_runtime}
 base_initrd=${ASTIA_INITRD:-$kernel_build/tests/fixtures/boot_initrd.tar}
 work=${ASTIA_ZSH_RUN:-/tmp/astia-zsh-run}
 clean_build=${ASTIA_CLEAN_BUILD:-0}
+harness=${ASTIA_ZSH_HARNESS:-0}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 target=x86_64-unknown-elf
@@ -23,13 +24,16 @@ case "$clean_build" in
         ;;
 esac
 
+case "$harness" in
+    0|1) ;;
+    *)
+        echo "ASTIA_ZSH_HARNESS must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
 command -v "$qemu" >/dev/null 2>&1 || {
     echo "QEMU executable not found: $qemu" >&2
-    exit 1
-}
-
-command -v python3 >/dev/null 2>&1 || {
-    echo "python3 is required for the zsh PTY harness" >&2
     exit 1
 }
 
@@ -138,7 +142,17 @@ test -x "$work/root/bin/zsh"
 test -f "$work/root/etc/zshenv"
 tar cf "$work/initrd.tar" -C "$work/root" hello_initrd.o sbin bin etc
 
-echo "Starting Astia zsh PTY harness." >&2
-exec python3 "$root/toolchain/zsh-pty-harness.py" \
-    --qemu "$qemu" --kernel "$kernel" --initrd "$work/initrd.tar" \
-    --trace "$work/pty.trace"
+if [ "$harness" = 1 ]; then
+    command -v python3 >/dev/null 2>&1 || {
+        echo "python3 is required for the zsh PTY harness" >&2
+        exit 1
+    }
+    echo "Starting Astia zsh PTY harness (ASTIA_ZSH_HARNESS=1)." >&2
+    exec python3 "$root/toolchain/zsh-pty-harness.py" \
+        --qemu "$qemu" --kernel "$kernel" --initrd "$work/initrd.tar" \
+        --trace "$work/pty.trace"
+fi
+
+echo "Starting Astia zsh interactive session; type exit to stop QEMU." >&2
+exec "$qemu" -m 128M -kernel "$kernel" -initrd "$work/initrd.tar" \
+    -serial stdio -display none -monitor none -no-reboot
