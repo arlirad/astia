@@ -9,7 +9,8 @@ namespace astia::proc::syscall {
     ///
     /// Description:
     ///     FUTEX_WAIT blocks while the word equals value. FUTEX_WAKE wakes up
-    ///     up to value waiters. The private flag is accepted for ABI shape.
+    ///     up to value waiters. The private flag selects an address key owned
+    ///     by the calling process; without it, a MAP_SHARED backing key is used.
     ///
     /// Return Value:
     ///     Wait returns zero; wake returns the number of woken waiters.

@@ -21,10 +21,25 @@ namespace astia::proc {
         struct futex_waiter {
             process*           owner   = nullptr;
             u64                address = 0;
+            bool               shared  = false;
+            mm::shptr<mm::phys_region_identity> identity;
+            mm::phys_region*   backing = nullptr;
+            usize              page    = 0;
+            usize              offset  = 0;
             u64                deadline = 0;
             i64*               result  = nullptr;
             mm::shptr<process> owner_ref;
             mm::shptr<thread>  value;
+
+            void release_shared_mapping() {
+                mm::phys_region* region = backing;
+                backing = nullptr;
+                if (region != nullptr)
+                    region->release_range(page, 1);
+                identity = {};
+                page = 0;
+                offset = 0;
+            }
         };
 
         struct futex_bucket {
@@ -35,12 +50,23 @@ namespace astia::proc {
         futex_bucket buckets[futex_bucket_count]{};
         u32          waiter_count = 0;
 
-        // The address is part of the futex key, so every waiter and wake for
-        // one word uses the same bucket.  waiter_count preserves the old
-        // aggregate capacity while each bucket owns its share of the slots.
-        futex_bucket& bucket_for(u64 address) {
+        futex_bucket& bucket_for_private(u64 address) {
             const u32 hash = static_cast<u32>((address >> 2) % futex_bucket_count);
             return buckets[hash];
+        }
+
+        futex_bucket& bucket_for_shared(const mm::shptr<mm::phys_region_identity>& identity,
+                                        usize page, usize offset) {
+            const u64 value = reinterpret_cast<u64>(identity.get()) +
+                              static_cast<u64>(page) * 1315423911ull + offset;
+            return buckets[static_cast<u32>((value >> 2) % futex_bucket_count)];
+        }
+
+        bool shared_match(const futex_waiter& waiter,
+                          const mm::shptr<mm::phys_region_identity>& identity,
+                          usize page, usize offset) {
+            return waiter.shared && waiter.identity.get() == identity.get() &&
+                   waiter.page == page && waiter.offset == offset;
         }
 
         u64 monotonic_now_ns() {
@@ -81,6 +107,7 @@ namespace astia::proc {
                         if (waiter.result != nullptr)
                             *waiter.result = -EINTR;
                         wake = waiter.value;
+                        waiter.release_shared_mapping();
                         waiter = {};
                         __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
                         break;
@@ -114,6 +141,7 @@ namespace astia::proc {
                     if (waiter.result != nullptr)
                         *waiter.result = -EINTR;
                     wake = waiter.value;
+                    waiter.release_shared_mapping();
                     waiter = {};
                     __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
                     break;
@@ -132,59 +160,82 @@ namespace astia::proc {
         return detach_waiter(target, nullptr, signal_number{});
     }
 
-    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point) {
-        auto*      owner     = current_process();
-        auto*      self      = current_thread();
+    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point,
+                   bool shared) {
+        auto* owner = current_process();
+        auto* self = current_thread();
+        if (owner == nullptr || self == nullptr)
+            return -EFAULT;
+        if (shared && (address & 3u) != 0)
+            return -EINVAL;
         const auto validated = sys::user_ptr<u32>(address).validate();
-        if (owner == nullptr || self == nullptr || !validated) {
+        if (!validated)
+            return -EFAULT;
+        shared_futex_mapping shared_mapping;
+        if (shared) {
+            const i32 resolved = owner->resolve_shared_futex(address, shared_mapping);
+            if (resolved < 0)
+                return resolved;
+        }
+        auto owner_ref = retain_process(owner->pid());
+        if (!owner_ref) {
+            shared_mapping.release();
             return -EFAULT;
         }
-        // The registry reference keeps the raw owner pointer valid for the
-        // whole blocked interval.  The slot's thread reference does the same
-        // for the scheduler wake path.
-        auto owner_ref = retain_process(owner->pid());
-        if (!owner_ref)
-            return -EFAULT;
-        // The validated range is what licenses this dereference: a futex
-        // word is read and written in place, so it cannot be copied.
-        auto* word = validated.value.get();
-        if (cancellation_point && self->cancellation_pending())
+        auto* word = shared ? shared_mapping.word : validated.value.get();
+        if (cancellation_point && self->cancellation_pending()) {
+            shared_mapping.release();
             return -EINTR;
-        u64    deadline = 0;
+        }
+        u64 deadline = 0;
         if (timeout != 0) {
             astia_timespec abstime{};
             const auto timeout_range = sys::user_ptr<astia_timespec>(timeout).validate();
-            if (!timeout_range || !sys::copy_in(&abstime, timeout_range.value.bytes()))
+            if (!timeout_range || !sys::copy_in(&abstime, timeout_range.value.bytes())) {
+                shared_mapping.release();
                 return -EFAULT;
-            if (abstime.tv_sec < 0 || abstime.tv_nsec < 0 || abstime.tv_nsec >= 1000000000)
+            }
+            if (abstime.tv_sec < 0 || abstime.tv_nsec < 0 || abstime.tv_nsec >= 1000000000) {
+                shared_mapping.release();
                 return -EINVAL;
+            }
             const u64 now = monotonic_now_ns();
             if (now == 0 || static_cast<u64>(abstime.tv_sec) >
                                  (UINT64_MAX - static_cast<u64>(abstime.tv_nsec)) /
-                                     nanoseconds_per_second)
+                                     nanoseconds_per_second) {
+                shared_mapping.release();
                 return -EINVAL;
+            }
             deadline = static_cast<u64>(abstime.tv_sec) * nanoseconds_per_second +
                        static_cast<u64>(abstime.tv_nsec);
-            if (deadline <= now)
+            if (deadline <= now) {
+                shared_mapping.release();
                 return -ETIMEDOUT;
+            }
         }
         i64 result = 0;
 
-        // The value check and waiter publication are one critical
-        // section.  With interrupts disabled, a same-CPU FUTEX_WAKE
-        // cannot slip between them and lose the wakeup.
         arch::interrupt_guard gate;
-        auto&                 bucket = bucket_for(address);
+        auto& bucket = shared ? bucket_for_shared(shared_mapping.identity,
+                                                  shared_mapping.page,
+                                                  shared_mapping.offset)
+                              : bucket_for_private(address);
         {
             core::spinlock_guard lock(bucket.lock);
             if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
+                shared_mapping.release();
                 return -EAGAIN;
             }
-            if (cancellation_point && self->cancellation_pending())
+            if (cancellation_point && self->cancellation_pending()) {
+                shared_mapping.release();
                 return -EINTR;
-            if (deadline != 0 && deadline <= monotonic_now_ns())
+            }
+            if (deadline != 0 && deadline <= monotonic_now_ns()) {
+                shared_mapping.release();
                 return -ETIMEDOUT;
+            }
             if (!reserve_waiter()) {
+                shared_mapping.release();
                 return -EAGAIN;
             }
             u32 slot = futex_bucket_capacity;
@@ -196,59 +247,82 @@ namespace astia::proc {
             }
             if (slot == futex_bucket_capacity) {
                 __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                shared_mapping.release();
                 return -EAGAIN;
             }
-            // The process table is the existing owner of this reference. Keep
-            // a shared reference in the slot while the thread is blocked, so
-            // process teardown and a concurrent wake cannot race destruction.
             mm::shptr<thread> retained = owner->retain_thread(self);
             if (!retained || retained.get() != self) {
                 __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                shared_mapping.release();
                 return -EAGAIN;
             }
-            bucket.waiters[slot] =
-                futex_waiter{owner, address, deadline, &result,
-                             static_cast<mm::shptr<process>&&>(owner_ref),
-                             static_cast<mm::shptr<thread>&&>(retained)};
+            auto& waiter = bucket.waiters[slot];
+            waiter.owner = owner;
+            waiter.address = address;
+            waiter.shared = shared;
+            if (shared) {
+                waiter.identity = static_cast<mm::shptr<mm::phys_region_identity>&&>(
+                    shared_mapping.identity);
+                waiter.backing = shared_mapping.backing;
+                waiter.page = shared_mapping.page;
+                waiter.offset = shared_mapping.offset;
+                shared_mapping.backing = nullptr;
+            }
+            waiter.deadline = deadline;
+            waiter.result = &result;
+            waiter.owner_ref = static_cast<mm::shptr<process>&&>(owner_ref);
+            waiter.value = static_cast<mm::shptr<thread>&&>(retained);
             self->state(thread_state::blocked);
             if (cancellation_point && self->cancellation_pending()) {
-                bucket.waiters[slot] = {};
+                waiter.release_shared_mapping();
+                waiter = {};
                 __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
                 self->state(thread_state::running);
+                shared_mapping.release();
                 return -EINTR;
             }
         }
+        shared_mapping.release();
         scheduler::yield();
-        // The wake path clears the slot before making us runnable.  On
-        // resume this syscall returns normally; no user pointer is held
-        // across the block.
         return result;
     }
 
-    i64 futex_wake(u64 address, u32 count) {
+    i64 futex_wake(u64 address, u32 count, bool shared) {
         auto* owner = current_process();
-        // A wake only names the word — the waiters compare the address and
-        // are never read, written or freed through it — but the caller
-        // still has to own the memory it named.
         if (owner == nullptr || !sys::user_ptr<u32>(address).validate()) {
             return -EFAULT;
         }
+        shared_futex_mapping shared_mapping;
+        if (shared) {
+            const i32 resolved = owner->resolve_shared_futex(address, shared_mapping);
+            if (resolved < 0)
+                return resolved;
+        }
         arch::interrupt_guard gate;
-        mm::shptr<thread>     wake_list[futex_bucket_capacity];
-        u32                   wake_count = 0;
-        auto&                 bucket     = bucket_for(address);
+        mm::shptr<thread> wake_list[futex_bucket_capacity];
+        u32 wake_count = 0;
+        auto& bucket = shared ? bucket_for_shared(shared_mapping.identity,
+                                                  shared_mapping.page,
+                                                  shared_mapping.offset)
+                              : bucket_for_private(address);
         {
             core::spinlock_guard lock(bucket.lock);
             for (u32 i = 0; i < futex_bucket_capacity && wake_count < count; ++i) {
-                if (!bucket.waiters[i].value || bucket.waiters[i].owner != owner ||
-                    bucket.waiters[i].address != address) {
+                auto& waiter = bucket.waiters[i];
+                if (!waiter.value ||
+                    (shared ? !shared_match(waiter, shared_mapping.identity,
+                                            shared_mapping.page, shared_mapping.offset)
+                            : waiter.shared || waiter.owner != owner ||
+                                  waiter.address != address)) {
                     continue;
                 }
-                wake_list[wake_count++] = bucket.waiters[i].value;
+                wake_list[wake_count++] = waiter.value;
+                waiter.release_shared_mapping();
                 bucket.waiters[i]       = {};
                 __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
             }
         }
+        shared_mapping.release();
         // Do not enter the scheduler while holding a futex bucket lock: the
         // scheduler may indirectly contend with another futex operation.
         for (u32 i = 0; i < wake_count; ++i)
@@ -268,6 +342,7 @@ namespace astia::proc {
             core::spinlock_guard lock(bucket.lock);
             for (u32 i = 0; i < futex_bucket_capacity; ++i) {
                 if (bucket.waiters[i].value && bucket.waiters[i].owner == owner) {
+                    bucket.waiters[i].release_shared_mapping();
                     bucket.waiters[i] = {};
                     __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
                 }
@@ -293,6 +368,7 @@ namespace astia::proc {
                     if (waiter.result != nullptr)
                         *waiter.result = -ETIMEDOUT;
                     wake_list[wake_count++] = waiter.value;
+                    waiter.release_shared_mapping();
                     waiter                   = {};
                     __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
                 }

@@ -139,6 +139,43 @@ namespace astia::proc {
         return nullptr;
     }
 
+    i32 process::resolve_shared_futex(u64 addr, shared_futex_mapping& out) {
+        out.release();
+        const u64 page_bytes = mm::phys_region::frame_size;
+        if ((addr & 3u) != 0 || (addr & (page_bytes - 1)) > page_bytes - sizeof(u32)) {
+            return -EINVAL;
+        }
+
+        arch::interrupt_spinlock_guard guard(mmap_lock_);
+        mmap_region* vma = nullptr;
+        for (mmap_region* it = mmap_regions_; it != nullptr; it = it->next) {
+            if (!it->pending && it->covers(addr)) {
+                vma = it;
+                break;
+            }
+        }
+        if (vma == nullptr || !vma->shared || vma->backing == nullptr) {
+            return -EINVAL;
+        }
+        const usize page = vma->region_page +
+                           static_cast<usize>((addr - vma->base) / page_bytes);
+        if (page >= vma->backing->pages() || !vma->backing->share_range(page, 1)) {
+            return -EFAULT;
+        }
+        auto identity = vma->backing->identity();
+        auto* direct = static_cast<u8*>(vma->backing->page_direct(page));
+        if (!identity || direct == nullptr) {
+            (void) vma->backing->release_range(page, 1);
+            return -EFAULT;
+        }
+        out.backing = vma->backing;
+        out.identity = static_cast<mm::shptr<mm::phys_region_identity>&&>(identity);
+        out.offset = static_cast<usize>(addr & (page_bytes - 1));
+        out.page = page;
+        out.word = reinterpret_cast<u32*>(direct + out.offset);
+        return 0;
+    }
+
     i32 process::pin_user(u64 addr, usize len, bool destination, mm::iovec& out) {
         if (address_space_ == nullptr || len == 0) {
             return 0;

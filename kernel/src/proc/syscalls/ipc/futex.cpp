@@ -16,8 +16,9 @@
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
 namespace astia::proc {
-    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point);
-    i64 futex_wake(u64 address, u32 count);
+    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point,
+                   bool shared);
+    i64 futex_wake(u64 address, u32 count, bool shared);
 }
 
 namespace astia::proc::syscall {
@@ -28,13 +29,14 @@ namespace astia::proc::syscall {
             op & ~(ipc::futex_private_bit | ipc::futex_cancelable_bit));
         if (!operation)
             return -EINVAL;
+        const bool shared = (op & ipc::futex_private_bit) == 0;
         if (operation.value == ipc::futex_operation::wait) {
-            return proc::futex_wait(address, expected, timeout, cancellation_point);
+            return proc::futex_wait(address, expected, timeout, cancellation_point, shared);
         }
         if (operation.value == ipc::futex_operation::wake) {
             if (timeout != 0)
                 return -EINVAL;
-            return proc::futex_wake(address, expected);
+            return proc::futex_wake(address, expected, shared);
         }
         return -EINVAL;
     }

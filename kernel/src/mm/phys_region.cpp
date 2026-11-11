@@ -11,6 +11,10 @@ namespace astia::mm {
         if (pages > (~usize{0}) / sizeof(u16)) {
             return false;
         }
+        shptr<phys_region_identity> identity(new phys_region_identity{});
+        if (!identity) {
+            return false;
+        }
         auto storage = heap::alloc(pages * sizeof(u16));
         if (!storage) {
             return false;
@@ -37,6 +41,7 @@ namespace astia::mm {
         }
         base_      = base;
         pages_     = pages;
+        identity_  = static_cast<shptr<phys_region_identity>&&>(identity);
         page_refs_ = static_cast<u16*>(static_cast<void*>(storage.value));
         dest_refs_ = static_cast<u16*>(static_cast<void*>(destinations.value));
         page_bases_ = static_cast<u64*>(page_bases);
@@ -280,6 +285,7 @@ namespace astia::mm {
         heap::free(page_bases_);
         page_bases_ = nullptr;
         heap::free(page_refs_);
+        identity_ = {};
         heap::free(this);
     }
 

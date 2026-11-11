@@ -229,8 +229,10 @@ enum {
     CLOCK_BOOTTIME  = 2,
 };
 
-/* futex ops (WAIT may sleep, WAKE never does).  A WAIT timeout is an
- * absolute CLOCK_MONOTONIC astia_timespec. */
+/* futex ops (WAIT may sleep, WAKE never does).  Unflagged operations use
+ * shared MAP_SHARED backing identity/page/word keys; PRIVATE operations use
+ * the calling process and virtual address.  A WAIT timeout is an absolute
+ * CLOCK_MONOTONIC astia_timespec. */
 enum {
     FUTEX_WAIT         = 0,
     FUTEX_WAKE         = 1,

@@ -85,9 +85,6 @@ namespace astia::proc {
         i64 setgroups(i64, i64);
     }
 
-    i64 futex_wait(u64 address, u32 expected, u64 timeout);
-    i64 futex_wake(u64 address, u32 count);
-
     namespace {
         /// This module's log source: the same one proc.cpp logs under.
         using logs = astia::log::context<"proc">;

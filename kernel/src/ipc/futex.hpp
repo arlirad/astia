@@ -21,6 +21,10 @@ namespace astia::proc {
     class process;
     class thread;
 
+    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point,
+                   bool shared);
+    i64 futex_wake(u64 address, u32 count, bool shared);
+
     bool futex_interrupt_process(process* owner, signal_number signal);
     bool futex_interrupt_thread(thread* target);
 

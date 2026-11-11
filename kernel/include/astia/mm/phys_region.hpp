@@ -3,8 +3,11 @@
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/frame_allocator.hpp>
+#include <astia/mm/shptr.hpp>
 
 namespace astia::mm {
+
+    struct phys_region_identity {};
 
     /// A contiguous run of physical frames, with exact per-page mapping
     /// coverage.  The allocation-level reference count is a cheap
@@ -93,6 +96,10 @@ namespace astia::mm {
             return references();
         }
 
+        shptr<phys_region_identity> identity() const {
+            return identity_;
+        }
+
         /// Direct-map address of page `index`: the window through
         /// which CoW copies read and write page bytes.
         void* page_direct(usize index);
@@ -156,6 +163,7 @@ namespace astia::mm {
         child*         children_    = nullptr;
         phys_region*   parent_      = nullptr;
         usize          parent_page_ = 0;
+        shptr<phys_region_identity> identity_;
     };
 
 } // namespace astia::mm
