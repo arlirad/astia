@@ -132,6 +132,7 @@ static void test_strerror(void) {
     CHECK(strcmp(strerror(ENOENT), "No such file or directory") == 0);
     CHECK(strcmp(strerror(ERANGE), "Numerical result out of range") == 0);
     CHECK(strcmp(strerror(EDOM), "Numerical argument out of domain") == 0);
+    CHECK(strcmp(strerror(ENOTTY), "Inappropriate ioctl for device") == 0);
     CHECK(strcmp(strerror(123456), "Unknown error") == 0);
 }
 

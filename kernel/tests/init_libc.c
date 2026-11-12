@@ -751,12 +751,30 @@ static int libc_zsh_io_contract(void) {
     FILE*           stream;
     ssize_t         count;
 
+    if (pipe(pipe_fds) != 0)
+        return 1;
+    errno = 0;
+    if (tcgetattr(pipe_fds[0], &saved) != -1 || errno != ENOTTY ||
+        strcmp(strerror(errno), "Inappropriate ioctl for device") != 0)
+        return 2;
+    errno = 0;
+    if (ioctl(pipe_fds[1], TCGETS, &saved) != -1 || errno != ENOTTY)
+        return 2;
+    errno = 0;
+    if (tcgetattr(-1, &saved) != -1 || errno != EBADF)
+        return 2;
+    errno = 0;
+    if (ioctl(-1, TCGETS, &saved) != -1 || errno != EBADF)
+        return 2;
+    if (close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
+        return 2;
+
     if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO) || !isatty(STDERR_FILENO) ||
         ttyname_r(STDIN_FILENO, tty_path, sizeof tty_path) != 0)
-        return 1;
+        return 3;
     tty_fd = open(tty_path, O_RDWR | O_NOCTTY);
     if (tty_fd < 0)
-        return 2;
+        return 4;
     flags = fcntl(tty_fd, F_GETFL);
     if ((flags & O_ACCMODE) != O_RDWR)
         return 3;

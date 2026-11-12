@@ -328,6 +328,8 @@ char* strerror(int errnum) {
         return "Not a directory";
     case EISDIR:
         return "Is a directory";
+    case ENOTTY:
+        return "Inappropriate ioctl for device";
     case EINVAL:
         return "Invalid argument";
     case EMFILE:
