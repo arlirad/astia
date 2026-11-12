@@ -1,5 +1,6 @@
 add_library(dev STATIC
         device.cpp
+        blk/block_device.cpp
         device_file.cpp
         driver.cpp
         pci.cpp
