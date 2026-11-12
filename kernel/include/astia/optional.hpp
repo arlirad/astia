@@ -21,7 +21,7 @@ namespace astia {
         optional() = default;
 
         /// Engaged value.
-        optional(T v) : has_value(true), value(v) {}
+        optional(T v) : has_value(true), value(static_cast<T&&>(v)) {}
 
         /// Failure, with a reason.
         optional(error_t e) : error(e) {}
