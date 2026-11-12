@@ -6,3 +6,4 @@ cmake_minimum_required(VERSION 3.20)
 project(astia LANGUAGES NONE)
 
 add_subdirectory(kernel)
+add_subdirectory(modules EXCLUDE_FROM_ALL)
