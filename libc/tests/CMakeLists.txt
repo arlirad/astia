@@ -22,7 +22,7 @@ target_include_directories(libc_syscalls_header_libc PRIVATE
 # the test port instead of extracting the real syscall backend from the
 # archive (which would both bypass the host fixture and create duplicate
 # definitions).
-set_source_files_properties(backend_host.c process_host.c
+set_source_files_properties(backend_host.c process_host.c socket_backend_host.c
   PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden")
 
 foreach(_t string ctype stdlib malloc snprintf)
@@ -42,6 +42,10 @@ add_test(NAME libc_posix_file_test COMMAND libc_posix_file_test)
 add_executable(libc_aio_test aio_test.c backend_host.c time_host.c)
 target_link_libraries(libc_aio_test PRIVATE astia_libc)
 add_test(NAME libc_aio_test COMMAND libc_aio_test)
+
+add_executable(libc_socket_test socket_test.c backend_host.c socket_backend_host.c)
+target_link_libraries(libc_socket_test PRIVATE astia_libc)
+add_test(NAME libc_socket_test COMMAND libc_socket_test)
 
 add_executable(libc_conformance_test conformance_test.c backend_host.c process_host.c time_host.c alarm_host.c)
 target_link_libraries(libc_conformance_test PRIVATE astia_libc_host)

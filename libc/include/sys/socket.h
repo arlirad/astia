@@ -2,12 +2,22 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+typedef unsigned int socklen_t;
+typedef unsigned short sa_family_t;
+
 enum {
-    AF_UNIX     = 1,
-    AF_INET     = 2,
-    SOCK_STREAM = 1,
-    SOCK_DGRAM  = 2,
-    SOL_SOCKET  = 1,
+    AF_UNSPEC    = 0,
+    AF_UNIX      = 1,
+    AF_INET      = 2,
+    AF_INET6     = 10,
+    SOCK_STREAM  = 1,
+    SOCK_DGRAM   = 2,
+    SOCK_RAW     = 3,
+    SOCK_SEQPACKET = 5,
+    SOL_SOCKET   = 1,
+    SO_SNDBUF    = 7,
+    SO_RCVBUF    = 8,
+    SO_TYPE      = 3,
     SHUT_RD     = 0,
     SHUT_WR     = 1,
     SHUT_RDWR   = 2
@@ -17,10 +27,11 @@ struct sockaddr {
     char           sa_data[14];
 };
 int  socket(int, int, int);
-int  bind(int, const struct sockaddr*, unsigned int);
+int  getsockopt(int, int, int, void*, socklen_t*);
+int  bind(int, const struct sockaddr*, socklen_t);
 int  listen(int, int);
-int  accept(int, struct sockaddr*, unsigned int*);
-int  connect(int, const struct sockaddr*, unsigned int);
+int  accept(int, struct sockaddr*, socklen_t*);
+int  connect(int, const struct sockaddr*, socklen_t);
 int  socketpair(int, int, int, int[2]);
 int  shutdown(int, int);
 long send(int, const void*, unsigned long, int);

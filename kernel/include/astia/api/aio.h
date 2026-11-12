@@ -300,6 +300,7 @@ enum {
     OP_EVENTFD_CREATE = 39,
     OP_LINKAT         = 40,
     OP_FTRUNCATE      = 41,
+    OP_GETSOCKOPT     = 42,
 };
 
 /* OP_EVENTFD_CREATE flags.  The initial counter is in SQE::offset. */
@@ -326,8 +327,14 @@ enum {
 
 /* OP_SOCKETPAIR op_flags / OP_SHUTDOWN op_flags. */
 enum {
-    SOCK_STREAM = 1,
-    SOCK_DGRAM  = 2,
+    SOCK_STREAM   = 1,
+    SOCK_DGRAM    = 2,
+    SOCK_RAW      = 3,
+    SOCK_SEQPACKET = 5,
+    SOL_SOCKET    = 1,
+    SO_TYPE       = 3,
+    SO_SNDBUF     = 7,
+    SO_RCVBUF     = 8,
     SHUT_RD     = 0,
     SHUT_WR     = 1,
     SHUT_RDWR   = 2,

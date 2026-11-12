@@ -191,8 +191,9 @@ per-thread masks, and `sigpending` are supported.
 
 Astia's regular-file AIO read, write, cancellation, suspension, and list-I/O
 cases are available. The remaining AIO blockers are `aio_fsync`, which is not
-implemented, and socket AIO cases whose clean LTP helper requires the missing
-`socklen_t`, `getsockopt`, and `SO_SNDBUF` interfaces. The exact residual
+implemented, and residual socket AIO cancellation cases whose LTP expectations
+or realtime signal sources do not match Astia yet. Socket-pair datagrams,
+`socklen_t`, `getsockopt`, and `SO_SNDBUF` are implemented. The exact residual
 source blockers and observed test defects are listed in
 `toolchain/posix-expected-failures.txt`. In particular,
 `pthread_spin_unlock/3-1` rejects the permitted `EPERM` result,
