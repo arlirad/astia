@@ -2,6 +2,7 @@
 #include "test.hpp"
 
 #include <cstring>
+#include <vector>
 
 // The ustar reader, exercised against a tarball built by tests/make_initrd.sh
 // at build time and byte-embedded, so parsing sees genuine GNU tar output:
@@ -10,6 +11,14 @@
 
 extern unsigned char initrd_blob[];
 extern unsigned int  initrd_blob_len;
+extern unsigned char initrd_newc_blob[];
+extern unsigned int  initrd_newc_blob_len;
+extern unsigned char initrd_crc_blob[];
+extern unsigned int  initrd_crc_blob_len;
+extern unsigned char initrd_gzip_blob[];
+extern unsigned int  initrd_gzip_blob_len;
+extern unsigned char initrd_zstd_blob[];
+extern unsigned int  initrd_zstd_blob_len;
 
 namespace {
 
@@ -40,6 +49,39 @@ ASTIA_TEST(initrd_opens_real_tarball) {
     ASTIA_CHECK(static_cast<const void*>(a.base) ==
                 static_cast<const void*>(initrd_blob));
     ASTIA_CHECK(a.len == initrd_blob_len);
+}
+
+ASTIA_TEST(initrd_detects_newc_and_crc) {
+    astia::initrd::archive newc;
+    astia::initrd::archive crc;
+    ASTIA_CHECK(astia::initrd::open(initrd_newc_blob, initrd_newc_blob_len, newc));
+    ASTIA_CHECK(astia::initrd::open(initrd_crc_blob, initrd_crc_blob_len, crc));
+    ASTIA_CHECK(newc.format == astia::initrd::archive_format::cpio_newc);
+    ASTIA_CHECK(crc.format == astia::initrd::archive_format::cpio_crc);
+    ASTIA_CHECK(astia::initrd::count(newc) == 3);
+    ASTIA_CHECK(astia::initrd::count(crc) == 3);
+}
+
+ASTIA_TEST(initrd_detects_compressed_containers) {
+    ASTIA_CHECK(astia::initrd::detect_container(initrd_gzip_blob, initrd_gzip_blob_len) ==
+                astia::initrd::archive_container::gzip);
+    ASTIA_CHECK(astia::initrd::detect_container(initrd_zstd_blob, initrd_zstd_blob_len) ==
+                astia::initrd::archive_container::zstd);
+    astia::initrd::archive a;
+    ASTIA_CHECK(!astia::initrd::open(initrd_gzip_blob, initrd_gzip_blob_len, a));
+    ASTIA_CHECK(!astia::initrd::open(initrd_zstd_blob, initrd_zstd_blob_len, a));
+}
+
+ASTIA_TEST(initrd_reads_cpio_files) {
+    astia::initrd::archive a;
+    astia::initrd::file    f;
+    ASTIA_CHECK(astia::initrd::open(initrd_newc_blob, initrd_newc_blob_len, a));
+    ASTIA_CHECK(astia::initrd::find(a, "alpha.txt", f));
+    ASTIA_CHECK(f.size == 6);
+    ASTIA_CHECK(std::memcmp(f.data, "alpha\n", 6) == 0);
+    ASTIA_CHECK(astia::initrd::find(a, "sub/gamma.txt", f));
+    ASTIA_CHECK(f.size == 6);
+    ASTIA_CHECK(std::memcmp(f.data, "gamma\n", 6) == 0);
 }
 
 ASTIA_TEST(initrd_counts_regular_files_only) {
@@ -120,4 +162,54 @@ ASTIA_TEST(initrd_rejects_truncated_file_data) {
     collect c;
     ASTIA_CHECK(!astia::initrd::each(a, collect_visit, &c));
     ASTIA_CHECK(c.n == 0);
+}
+
+ASTIA_TEST(initrd_rejects_malformed_cpio_name) {
+    std::vector<unsigned char> image(initrd_newc_blob,
+                                     initrd_newc_blob + initrd_newc_blob_len);
+    image[94] = '0';
+    image[95] = '0';
+    image[96] = '0';
+    image[97] = '0';
+    image[98] = '0';
+    image[99] = '0';
+    image[100] = '0';
+    image[101] = '0';
+    astia::initrd::archive a;
+    ASTIA_CHECK(!astia::initrd::open(image.data(), image.size(), a));
+
+    image.assign(initrd_newc_blob, initrd_newc_blob + initrd_newc_blob_len);
+    image[119] = 'x';
+    ASTIA_CHECK(!astia::initrd::open(image.data(), image.size(), a));
+}
+
+ASTIA_TEST(initrd_skips_nonregular_cpio_types) {
+    std::vector<unsigned char> image(initrd_newc_blob,
+                                     initrd_newc_blob + initrd_newc_blob_len);
+    image[14] = '0';
+    image[15] = '0';
+    image[16] = '0';
+    image[17] = '0';
+    image[18] = '0';
+    image[19] = '0';
+    image[20] = '0';
+    image[21] = '0';
+    astia::initrd::archive a;
+    ASTIA_CHECK(astia::initrd::open(image.data(), image.size(), a));
+    ASTIA_CHECK(astia::initrd::count(a) == 2);
+}
+
+ASTIA_TEST(initrd_rejects_truncated_cpio) {
+    astia::initrd::archive a;
+    ASTIA_CHECK(astia::initrd::open(initrd_newc_blob, 128, a));
+    collect c;
+    ASTIA_CHECK(!astia::initrd::each(a, collect_visit, &c));
+}
+
+ASTIA_TEST(initrd_rejects_crc_mismatch) {
+    std::vector<unsigned char> image(initrd_crc_blob,
+                                     initrd_crc_blob + initrd_crc_blob_len);
+    image[120] ^= 1;
+    astia::initrd::archive a;
+    ASTIA_CHECK(!astia::initrd::open(image.data(), image.size(), a));
 }

@@ -8,6 +8,9 @@ option(ASTIA_CROSS_USERSPACE "Use the Clang Astia sysroot for init_libc" OFF)
 # Fail at configure time with an actionable diagnostic instead of registering
 # ELF tests that cannot be built later.
 find_program(ASTIA_XXD xxd REQUIRED)
+find_program(ASTIA_CPIO cpio REQUIRED)
+find_program(ASTIA_GZIP gzip REQUIRED)
+find_program(ASTIA_ZSTD zstd REQUIRED)
 
 add_library(astia_test_support STATIC
         support/main.cpp
@@ -154,8 +157,8 @@ astia_add_host_test(astia_elf_test
         support/resume_queue_host.cpp
 )
 
-# initrd: the ustar reader, against a tarball built by make_initrd.sh (three
-# regular files, one binary, plus a `sub/` directory entry to be skipped).
+# initrd: the ustar and uncompressed newc/crc readers, against host-generated
+# fixtures (three regular files, one binary, plus a directory entry to skip).
 add_custom_command(
         OUTPUT ${_fix_dir}/initrd.tar
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
@@ -165,9 +168,57 @@ add_custom_command(
 )
 astia_embed_blob(_initrd_cpp ${_fix_dir}/initrd.tar initrd_blob)
 
+add_custom_command(
+        OUTPUT ${_fix_dir}/initrd_newc.cpio
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_initrd.sh newc
+                ${_fix_dir}/initrd_newc.cpio
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_initrd.sh
+        COMMENT "Building newc initrd fixture"
+)
+astia_embed_blob(_initrd_newc_cpp ${_fix_dir}/initrd_newc.cpio initrd_newc_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/initrd_crc.cpio
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_initrd.sh crc
+                ${_fix_dir}/initrd_crc.cpio
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_initrd.sh
+        COMMENT "Building crc initrd fixture"
+)
+astia_embed_blob(_initrd_crc_cpp ${_fix_dir}/initrd_crc.cpio initrd_crc_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/initrd_newc.cpio.gz
+        COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh gzip
+                ${ASTIA_GZIP} ${_fix_dir}/initrd_newc.cpio
+                ${_fix_dir}/initrd_newc.cpio.gz
+        DEPENDS ${_fix_dir}/initrd_newc.cpio
+                ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
+        COMMENT "Building gzip initrd fixture"
+)
+astia_embed_blob(_initrd_gzip_cpp ${_fix_dir}/initrd_newc.cpio.gz initrd_gzip_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/initrd_newc.cpio.zst
+        COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh zstd
+                ${ASTIA_ZSTD} ${_fix_dir}/initrd_newc.cpio
+                ${_fix_dir}/initrd_newc.cpio.zst
+        DEPENDS ${_fix_dir}/initrd_newc.cpio
+                ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
+        COMMENT "Building zstd initrd fixture"
+)
+astia_embed_blob(_initrd_zstd_cpp ${_fix_dir}/initrd_newc.cpio.zst initrd_zstd_blob)
+
 astia_add_host_test(astia_initrd_test
         initrd_test.cpp
         ${_initrd_cpp}
+        ${_initrd_newc_cpp}
+        ${_initrd_crc_cpp}
+        ${_initrd_gzip_cpp}
+        ${_initrd_zstd_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/initrd.cpp
 )
 

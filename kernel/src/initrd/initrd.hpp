@@ -3,7 +3,8 @@
 #include <astia/common.hpp>
 #include <astia/span.hpp>
 
-// A zero-copy reader for ustar (POSIX) tar archives, used to unpack an initrd.
+// A zero-copy reader for ustar (POSIX) tar and uncompressed newc/cpio-crc
+// archives, used to unpack an initrd.
 //
 // The archive stays exactly where the bootloader put it; callers hand
 // open() a view of that memory (the direct-map view for boot modules),
@@ -11,9 +12,9 @@
 // copied out, so opening an archive costs nothing and a file's bytes can
 // be fed straight to the ELF loader.
 //
-// Scope: ustar headers with regular files. Directory and special entries
-// (links, devices, ...) are skipped rather than surfaced, and the long-name
-// `prefix` field is ignored — a simple initrd keeps names under 100 chars.
+// Scope: regular files with non-empty data. Directory and special entries
+// (links, devices, ...) are skipped rather than surfaced. Tar names use only
+// the existing ustar name field; cpio names may be longer.
 
 namespace astia::initrd {
 
@@ -25,6 +26,21 @@ namespace astia::initrd {
     inline constexpr usize size_field_size               = 12;
     inline constexpr usize ustar_magic_size              = 5;
     inline constexpr char  ustar_magic[ustar_magic_size] = {'u', 's', 't', 'a', 'r'};
+
+    enum class archive_format : u8 {
+        ustar,
+        cpio_newc,
+        cpio_crc,
+    };
+
+    /// Outer compression signatures recognized for diagnostics. `open()` only
+    /// accepts raw archives; gzip and zstd are intentionally rejected until a
+    /// bounded kernel decompressor exists.
+    enum class archive_container : u8 {
+        raw,
+        gzip,
+        zstd,
+    };
 
     /// One regular file in the archive. `name` and `data` point into the
     /// archive image and stay valid for as long as it does.
@@ -40,14 +56,20 @@ namespace astia::initrd {
         // Compatibility views for existing in-kernel consumers.
         const u8* base = nullptr;
         usize     len  = 0;
+        archive_format format = archive_format::ustar;
     };
 
     /// Visit callback for each(). Return false to stop enumeration early.
     using visit_fn = bool (*)(void* ctx, const file& f);
 
-    /// Open a tar image. Fails on anything too short to be an archive, or
-    /// whose first block is neither a ustar header nor the end-of-archive
-    /// marker.
+    /// Identify an outer container without attempting decompression.
+    archive_container detect_container(span<const u8> image);
+    inline archive_container detect_container(const void* image, usize length) {
+        return detect_container(span<const u8>(static_cast<const u8*>(image), length));
+    }
+
+    /// Open a ustar, newc, or crc image. Gzip and zstd images are rejected;
+    /// detection is diagnostic only and does not provide decompression.
     bool        open(span<const u8> image, archive& out);
     inline bool open(const void* image, usize length, archive& out) {
         return open(span<const u8>(static_cast<const u8*>(image), length), out);
