@@ -397,6 +397,7 @@ namespace astia::dev {
         result.kind = result.io ? pci_bar_kind::io : pci_bar_kind::memory;
         result.prefetchable = !result.io && (original & 8u) != 0;
         result.is_64bit = !result.io && ((original >> 1) & 3u) == 2u;
+        result.address_bits = result.is_64bit ? 64 : 32;
         u32 original_high = 0;
         if (result.is_64bit) {
             if (index + 1 >= device.bar_count || !read_dword(device.bdf, offset + 4, original_high))

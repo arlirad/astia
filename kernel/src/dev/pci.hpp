@@ -2,6 +2,9 @@
 
 #include <astia/arch/pci_config.hpp>
 #include <astia/common.hpp>
+#include <astia/optional.hpp>
+
+#include "mmio.hpp"
 
 namespace astia::dev {
 
@@ -37,7 +40,10 @@ namespace astia::dev {
         bool          is_64bit     = false;
         bool          present      = false;
         bool          mapped_valid = false;
+        u8            address_bits = 0;
         u8            index        = 0;
+
+        optional<mmio_mapping> map() const;
     };
 
     struct pci_capability {

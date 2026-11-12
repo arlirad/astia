@@ -99,6 +99,14 @@ astia_add_host_test(astia_pci_core_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
 target_include_directories(astia_pci_core_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
+astia_add_host_test(astia_pci_test
+        pci_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/pci.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/driver.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/mmio.cpp)
+target_include_directories(astia_pci_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+
 astia_add_host_test(astia_module_filesystem_test
         module_filesystem_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/module_filesystem.cpp)

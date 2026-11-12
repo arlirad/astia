@@ -3,6 +3,7 @@ add_library(dev STATIC
         blk/block_device.cpp
         device_file.cpp
         driver.cpp
+        mmio.cpp
         pci.cpp
         chr/tty.cpp
         chr/pseudo.cpp
