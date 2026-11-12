@@ -502,13 +502,15 @@ namespace astia::fs {
         long socket_accept(open_file& o, io_request& r);
         long socket_connect(open_file& o, const astia_sockaddr& a);
         long socket_shutdown(open_file& o, u32 how);
+        long socket_getsockopt(open_file& o, u32 level, u32 name, u32* value);
         long socket_sendto(open_file& o, const astia_sockaddr* a);
         long socket_recvfrom(open_file& o);
         bool socket_recvfrom_address(open_file& o, astia_sockaddr& out);
 
         const unix_socket_operations socket_operations{
             socket_bind,     socket_listen, socket_accept,   socket_connect,
-            socket_shutdown, socket_sendto, socket_recvfrom, socket_recvfrom_address};
+            socket_shutdown, socket_getsockopt, socket_sendto, socket_recvfrom,
+            socket_recvfrom_address};
 
         const void* unix_file::capability(file_capability kind) const {
             switch (kind) {
@@ -621,15 +623,25 @@ namespace astia::fs {
     }
     long unix_socketpair(mm::shptr<open_file>& left, mm::shptr<open_file>& right,
                          u32 type) {
-        if (type != SOCK_STREAM)
-            return -EAFNOSUPPORT;
-        auto ch = mm::share<channel>();
-        auto a  = mm::share<unix_file>();
-        auto b  = mm::share<unix_file>();
-        if (!ch || !a || !b)
+        if (type != SOCK_STREAM && type != SOCK_DGRAM)
+            return -EPROTOTYPE;
+        auto a = mm::share<unix_file>();
+        auto b = mm::share<unix_file>();
+        if (!a || !b)
             return -ENOMEM;
-        a->attach(ch, socket_side_first, b);
-        b->attach(ch, socket_side_second, a);
+        if (type == SOCK_DGRAM) {
+            a->make_dgram();
+            b->make_dgram();
+            a->set_dgram_target(b);
+            b->set_dgram_target(a);
+        }
+        else {
+            auto ch = mm::share<channel>();
+            if (!ch)
+                return -ENOMEM;
+            a->attach(ch, socket_side_first, b);
+            b->attach(ch, socket_side_second, a);
+        }
         left  = mm::share<open_file>(a, 0);
         right = mm::share<open_file>(b, 0);
         if (left && right)
@@ -642,6 +654,17 @@ namespace astia::fs {
         long socket_shutdown(open_file& o, u32 how) {
             auto* f = static_cast<unix_file*>(o.node().get());
             return f ? f->shutdown(how) : -EBADF;
+        }
+        long socket_getsockopt(open_file& o, u32 level, u32 name, u32* value) {
+            auto* f = static_cast<unix_file*>(o.node().get());
+            if (!f || value == nullptr ||
+                (f->kind() != unix_file::state::connected &&
+                 f->kind() != unix_file::state::dgram))
+                return -ENOTSOCK;
+            if (level != SOL_SOCKET || name != SO_SNDBUF)
+                return -ENOPROTOOPT;
+            *value = socket_stream_capacity_bytes;
+            return 0;
         }
         long socket_sendto(open_file& o, const astia_sockaddr* a) {
             auto* f = static_cast<unix_file*>(o.node().get());

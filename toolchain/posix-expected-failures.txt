@@ -42,18 +42,18 @@ mq_timedreceive/* | LTP sources require absent `mqueue.h`; POSIX message queues 
 mq_timedsend/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
 mq_unlink/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
 aio_fsync/* | `aio_fsync` is not implemented
-aio_cancel/2-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
-aio_cancel/3-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
-aio_cancel/4-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
-aio_cancel/5-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
-aio_cancel/6-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
-aio_cancel/7-1 | LTP socket AIO helper requires missing `socklen_t`, `getsockopt`, and `SO_SNDBUF`
+aio_cancel/2-1 | socket AIO setup now passes; LTP rejects the permitted AIO_ALLDONE result
+aio_cancel/3-1 | socket AIO setup now passes; source requires realtime signal constants and siginfo payloads
+aio_cancel/4-1 | socket AIO setup now passes; cancellation completion reports a non-ECANCELED result
+aio_cancel/5-1 | socket AIO setup now passes; LTP rejects the permitted AIO_ALLDONE result
+aio_cancel/6-1 | socket AIO setup now passes; LTP rejects the permitted AIO_ALLDONE result
+aio_cancel/7-1 | socket AIO setup now passes; LTP rejects the permitted AIO_ALLDONE result
 aio_suspend/1-1 | this case requires POSIX realtime signal constants
 aio_suspend/4-1 | this case requires POSIX realtime signal constants
 aio_suspend/5-1 | external LTP source requires the unavailable `_SC_ASYNCHRONOUS_IO` configuration value
 aio_suspend/9-1 | this case requires POSIX realtime signal constants
 lio_listio/1-1 | this case requires POSIX realtime signal constants
-lio_listio/2-1 | socket AIO helper and realtime completion require missing `socklen_t`, `getsockopt`, `SO_SNDBUF`, and `SIGRTMIN`
+lio_listio/2-1 | socket AIO setup is available; realtime completion requires `SIGRTMIN` and queued signal payloads
 lio_listio/3-1 | this case requires POSIX realtime signal constants and queued signal payloads
 lio_listio/4-1 | this case requires POSIX realtime signal constants
 lio_listio/7-1 | this case requires POSIX realtime signal constants

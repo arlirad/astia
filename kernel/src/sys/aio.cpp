@@ -1775,10 +1775,17 @@ namespace astia::sys {
         }
 
         bool handle_socketpair(astia_rings* ring, const astia_sqe& s) {
-            if (s.fd != AF_UNIX || s.op_flags != SOCK_STREAM || s.aux != 0 ||
-                s.length != 2 * sizeof(i32) ||
-                !sys::user_span_ok(span<u8>::bytes(s.address, s.length)))
+            if (s.fd != AF_UNIX)
+                return cq_post_guarded(ring, s.user_data, -EAFNOSUPPORT);
+            if (s.aux != 0)
+                return cq_post_guarded(ring, s.user_data, -EPROTONOSUPPORT);
+            if (s.op_flags != SOCK_STREAM && s.op_flags != SOCK_DGRAM)
+                return cq_post_guarded(ring, s.user_data, -EPROTOTYPE);
+            if (s.length != 2 * sizeof(i32))
                 return cq_post_guarded(ring, s.user_data, -EINVAL);
+            if (!sys::user_span_writable_ok_for(
+                    proc::current_process(), span<u8>::bytes(s.address, s.length)))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
             proc::process* current = proc::current_process();
             if (!current)
                 return cq_post_guarded(ring, s.user_data, -ESRCH);
@@ -1912,6 +1919,35 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, -EOPNOTSUPP);
             return submit_request(slot, ring, s, object, nullptr, 0, io_direction::input,
                                   true, true);
+        }
+
+        bool handle_getsockopt(astia_rings* ring, const astia_sqe& s) {
+            auto object = file_for(s.fd);
+            if (!object)
+                return cq_post_guarded(ring, s.user_data, -EBADF);
+            auto length = sys::user_ptr<u32>(s.offset).validate();
+            if (!length || !sys::user_span_writable_ok_for(
+                              proc::current_process(), length.value.bytes()))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            u32 capacity = 0;
+            if (!sys::copy_in(&capacity, length.value.bytes()))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            if (capacity > max_operation_bytes)
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            const auto* socket = object->node()->unix_socket_capability();
+            if (socket == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ENOTSOCK);
+            u32 value = 0;
+            long rc = socket->getsockopt(*object, s.op_flags, s.aux, &value);
+            if (rc < 0)
+                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
+            const u32 result_length = capacity < sizeof value ? capacity : sizeof value;
+            if (!sys::copy_out_for(proc::current_process(),
+                                   span<u8>::bytes(s.address, result_length), &value) ||
+                !sys::copy_out_for(proc::current_process(), length.value.bytes(),
+                                   &result_length))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            return cq_post_guarded(ring, s.user_data, 0);
         }
 
         bool handle_shutdown(astia_rings* ring, const astia_sqe& s) {
@@ -2183,6 +2219,8 @@ namespace astia::sys {
                 return handle_socketpair(ring, s);
             case OP_SHUTDOWN:
                 return handle_shutdown(ring, s);
+            case OP_GETSOCKOPT:
+                return handle_getsockopt(ring, s);
 
             default:
                 return cq_post_guarded(ring, s.user_data, -ENOSYS);

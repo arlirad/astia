@@ -6,6 +6,7 @@
 long __astia_fio_socket(int, int, int);
 long __astia_fio_bind(int, const void*, uint32_t);
 long __astia_fio_socketpair(int, int, int, int[2]);
+long __astia_fio_getsockopt(int, int, int, void*, uint32_t, uint32_t*);
 long __astia_fio_shutdown(int, int);
 long __astia_fio_listen(int, int);
 long __astia_fio_accept(int, void*, uint32_t*);
@@ -34,6 +35,22 @@ int socketpair(int d, int t, int p, int fds[2]) {
 }
 int shutdown(int f, int how) {
     return r(__astia_fio_shutdown(f, how));
+}
+int getsockopt(int fd, int level, int option, void* value, socklen_t* length) {
+    uint32_t capacity;
+    long     rc;
+    if (value == NULL || length == NULL) {
+        errno = EFAULT;
+        return -1;
+    }
+    capacity = *length;
+    rc = __astia_fio_getsockopt(fd, level, option, value, capacity, &capacity);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    *length = (socklen_t) capacity;
+    return 0;
 }
 static int addr(const struct sockaddr* in, unsigned int n, astia_sockaddr* out) {
     if (!in || n < 3 || n > 110 || in->sa_family != AF_UNIX) {

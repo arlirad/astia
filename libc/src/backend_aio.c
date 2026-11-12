@@ -606,6 +606,11 @@ long __astia_fio_socketpair(int domain, int type, int protocol, int fds[2]) {
     return transact(OP_SOCKETPAIR, domain, 0, fds, 2 * sizeof(int), (uint32_t) type,
                     (uint32_t) protocol);
 }
+long __astia_fio_getsockopt(int fd, int level, int option, void* value,
+                            uint32_t capacity, uint32_t* length) {
+    return transact(OP_GETSOCKOPT, fd, (uint64_t) (uintptr_t) length, value, capacity,
+                    (uint32_t) level, (uint32_t) option);
+}
 long __astia_fio_shutdown(int fd, int how) {
     return transact(OP_SHUTDOWN, fd, 0, NULL, 0, (uint32_t) how, 0);
 }

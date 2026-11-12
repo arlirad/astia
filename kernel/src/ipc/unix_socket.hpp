@@ -12,6 +12,7 @@ namespace astia::fs {
         long (*accept)(open_file&, io_request&);
         long (*connect)(open_file&, const astia_sockaddr&);
         long (*shutdown)(open_file&, u32);
+        long (*getsockopt)(open_file&, u32, u32, u32*);
         long (*sendto)(open_file&, const astia_sockaddr*);
         long (*recvfrom)(open_file&);
         bool (*recvfrom_address)(open_file&, astia_sockaddr&);
