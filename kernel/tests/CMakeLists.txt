@@ -228,6 +228,11 @@ astia_add_host_test(astia_mod_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/exports.cpp
 )
 
+astia_add_host_test(astia_ext4_test
+        ext4_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/ext4_reader.cpp
+)
+
 # memory.cpp is the code under test here, so it overrides the host libc's
 # symbols; -fno-builtin stops the compiler rewriting our loops back into calls.
 astia_add_host_test(astia_memory_test memory_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp)
