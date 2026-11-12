@@ -92,6 +92,13 @@ astia_add_host_test(astia_block_device_test
 target_include_directories(astia_block_device_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
+astia_add_host_test(astia_pci_core_test
+        pci_core_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/pci.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/driver.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
+target_include_directories(astia_pci_core_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+
 astia_add_host_test(astia_module_filesystem_test
         module_filesystem_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/module_filesystem.cpp)
@@ -105,6 +112,7 @@ astia_add_host_test(astia_rcu_domain_test rcu_domain_test.cpp)
 # --- ELF fixtures: compile real images with the host toolchain and byte-embed
 # them, so the loader sees genuine gcc output rather than hand-written ELF.
 set(_fix_dir ${CMAKE_CURRENT_BINARY_DIR}/fixtures)
+set(ASTIA_MODULES_SOURCE_DIR ${ASTIA_KERNEL_SOURCE_DIR}/../modules)
 
 # Embed an object as a C++ TU exposing `unsigned char <blob_name>[]` + `_len`.
 function(astia_embed_blob out_cpp obj_path blob_name)
@@ -128,8 +136,8 @@ add_custom_command(
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
         COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
         -fno-stack-protector -fno-asynchronous-unwind-tables
-        -o ${_fix_dir}/hello_mod.o ${CMAKE_CURRENT_SOURCE_DIR}/hello_mod.c
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hello_mod.c
+        -o ${_fix_dir}/hello_mod.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.c
+        DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.c
         COMMENT "Compiling ET_REL fixture hello_mod.o"
 )
 astia_embed_blob(_hello_mod_cpp ${_fix_dir}/hello_mod.o hello_mod_blob)
@@ -318,6 +326,7 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ""
+                "pci: enumerated"
                 "selftest: interrupts ok (lapic)"
                 "selftest: clock ok"
                 "selftest: statx ok"
@@ -371,8 +380,8 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                 -fno-stack-protector -fno-asynchronous-unwind-tables
-                -o ${_fix_dir}/hello_initrd.o ${CMAKE_CURRENT_SOURCE_DIR}/hello_initrd.c
-                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hello_initrd.c
+                -o ${_fix_dir}/hello_initrd.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.c
+                DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.c
                 COMMENT "Compiling ET_REL fixture hello_initrd.o"
         )
         # The libc in ring 3: the same sources the host tests link, but

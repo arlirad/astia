@@ -22,7 +22,8 @@ multiples of the device block size and invalid requests return `-EINVAL`.
 read-only by default, while geometry and device identity beyond these bounds
 remain future work.
 
-The module loader currently loads ET_REL images from boot modules and calls
+Loadable module sources and driver fixtures live under the repository-root
+`modules/` tree. The module loader currently loads ET_REL images from boot modules and calls
 `module_main`, but the exported-symbol table does not expose filesystem type
 registration or a lifetime-safe unregister operation. This slice adds only the
 kernel-owned `fs::register_module_filesystem` /
