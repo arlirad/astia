@@ -1,4 +1,5 @@
 #include "device_file.hpp"
+#include "blk/block_device.hpp"
 
 #include <astia/api/errno.h>
 
@@ -37,6 +38,8 @@ namespace astia::dev {
     }
 
     long device_file::size() const {
+        if (_device != nullptr && (_device->flags() & dv_block) != 0)
+            return static_cast<long>(static_cast<const blk::block_device*>(_device)->size_bytes());
         return -ESPIPE;
     }
 

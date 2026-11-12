@@ -109,6 +109,8 @@ namespace astia::mm {
         /// context.
         void* window() const;
 
+        u64 physical() const;
+
         /// Bytes contiguous from window() before the entry or the operation
         /// ends, whichever comes first.
         usize chunk() const;

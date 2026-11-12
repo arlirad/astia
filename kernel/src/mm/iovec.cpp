@@ -141,6 +141,15 @@ namespace astia::mm {
                (byte % phys_region::frame_size);
     }
 
+    u64 iovec::physical() const {
+        if (remaining_ == 0 || index_ >= count_ || !segments_[index_].frames.valid())
+            return frame_allocator::invalid_frame;
+        const pinned_segment& segment = segments_[index_];
+        const usize byte = segment.offset + offset_;
+        return segment.frames.phys(byte / phys_region::frame_size) +
+               static_cast<u64>(byte % phys_region::frame_size);
+    }
+
     usize iovec::chunk() const {
         if (remaining_ == 0 || index_ >= count_) {
             return 0;
