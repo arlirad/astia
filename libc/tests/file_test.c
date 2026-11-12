@@ -235,6 +235,61 @@ static void test_seek_end_sees_pending(void) {
     CHECK(memcmp(buf, "abcXY", 5) == 0);
 }
 
+static void test_fseeko_ftello(void) {
+    const off_t large = (off_t) 0x100000009LL;
+    unsigned char buf[16];
+    FILE* f;
+
+    f = fopen(P2, "w+");
+    CHECK(f != NULL);
+    if (!f)
+        return;
+    CHECK(fseeko(f, large, SEEK_SET) == 0);
+    CHECK(ftello(f) == large);
+    CHECK(fwrite("x", 1, 1, f) == 1);
+    CHECK(ftello(f) == large + 1);
+    CHECK(fseeko(f, -1, SEEK_CUR) == 0);
+    CHECK(ftello(f) == large);
+    CHECK(fclose(f) == 0);
+
+    f = fopen(P2, "w");
+    CHECK(f != NULL);
+    if (!f)
+        return;
+    CHECK(fwrite("base", 1, 4, f) == 4);
+    CHECK(fclose(f) == 0);
+
+    f = fopen(P2, "a+");
+    CHECK(f != NULL);
+    if (!f)
+        return;
+    CHECK(ftello(f) == 0);
+    CHECK(fgetc(f) == 'b');
+    CHECK(ftello(f) == 1);
+    CHECK(fseeko(f, 0, SEEK_SET) == 0);
+    CHECK(fwrite("X", 1, 1, f) == 1);
+    CHECK(ftello(f) == 1);
+    CHECK(fseeko(f, 0, SEEK_END) == 0);
+    CHECK(ftello(f) == 5);
+    CHECK(fclose(f) == 0);
+    CHECK(probe(P2, buf, sizeof buf) == 5);
+    CHECK(memcmp(buf, "baseX", 5) == 0);
+
+    errno = 0;
+    CHECK(ftello(NULL) == (off_t) -1);
+    CHECK(errno == EBADF);
+    CHECK(fseeko(NULL, 0, SEEK_SET) == EOF);
+
+    f = fopen("/dev/full", "w");
+    if (f != NULL) {
+        CHECK(fwrite("fail", 1, 4, f) == 4);
+        CHECK(fseeko(f, 0, SEEK_SET) == EOF);
+        CHECK(errno == ENOSPC);
+        CHECK(ftello(f) == 4);
+        CHECK(fclose(f) == EOF);
+    }
+}
+
 static void test_append(void) {
     unsigned char buf[32];
     FILE*         f;
@@ -758,6 +813,7 @@ int main(void) {
     test_setvbuf();
     test_seek_and_overwrite();
     test_seek_end_sees_pending();
+    test_fseeko_ftello();
     test_append();
     test_read_write_switch();
     test_errors();

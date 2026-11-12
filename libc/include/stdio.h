@@ -37,6 +37,7 @@
 
 #include <stdarg.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 #if defined(__GNUC__)
 #define ASTIA_PRINTF_FMT(fmt_idx, first_arg) \
@@ -86,6 +87,8 @@ size_t fread(void* ptr, size_t size, size_t nmemb, FILE* stream);
 size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* stream);
 int    fseek(FILE* stream, long offset, int whence);
 long   ftell(FILE* stream);
+int    fseeko(FILE* stream, off_t offset, int whence);
+off_t  ftello(FILE* stream);
 void   rewind(FILE* stream);
 int    fflush(FILE* stream);
 int    feof(FILE* stream);

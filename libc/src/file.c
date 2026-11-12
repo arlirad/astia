@@ -651,6 +651,14 @@ long ftell(FILE* f) {
     return f->pos; /* includes pending writes: they are logically placed */
 }
 
+int fseeko(FILE* f, off_t offset, int whence) {
+    return fseek(f, (long) offset, whence);
+}
+
+off_t ftello(FILE* f) {
+    return (off_t) ftell(f);
+}
+
 void rewind(FILE* f) {
     if (f == NULL)
         return;

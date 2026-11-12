@@ -2756,6 +2756,39 @@ int main(int argc, char** argv) {
             return 60;
     }
 
+    {
+        const off_t large = (off_t) 0x100000009LL;
+        FILE* stream = fopen("/tmp/fseeko", "w+");
+        if (stream == NULL)
+            return 61;
+        if (fseeko(stream, large, SEEK_SET) != 0 || ftello(stream) != large)
+            return 62;
+        if (fseeko(stream, 0, SEEK_SET) != 0 ||
+            fwrite("x", 1, 1, stream) != 1 || ftello(stream) != 1)
+            return 63;
+        if (fseeko(stream, -1, SEEK_CUR) != 0 || ftello(stream) != 0)
+            return 64;
+        if (fclose(stream) != 0)
+            return 65;
+
+        stream = fopen("/tmp/fseeko", "a+");
+        if (stream == NULL)
+            return 66;
+        if (ftello(stream) != 0 || fgetc(stream) != 'x' ||
+            fseeko(stream, 0, SEEK_SET) != 0)
+            return 67;
+        if (fwrite("y", 1, 1, stream) != 1 || ftello(stream) != 1 ||
+            fseeko(stream, 0, SEEK_END) != 0 || ftello(stream) != 2)
+            return 68;
+        if (fclose(stream) != 0)
+            return 69;
+
+        errno = 0;
+        if (ftello(NULL) != (off_t) -1 || errno != EBADF ||
+            fseeko(NULL, 0, SEEK_SET) != EOF)
+            return 70;
+    }
+
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from
        the frame the kernel built. */
     printf("astia: libc ok pid=%d argc=%d argv0=%s\n", pid, argc,
