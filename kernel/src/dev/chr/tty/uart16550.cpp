@@ -80,6 +80,8 @@ namespace astia::dev {
             ring_tag_dup2           = 0xC0DE06,
             ring_tag_alias_close    = 0xC0DE07,
             ring_tag_repeated_read  = 0xC0DE08,
+            ring_tag_canonical_read  = 0xC0DE09,
+            ring_tag_canonical_write = 0xC0DE0A,
         };
 
         constexpr char ring_payload[]       = "ping";
@@ -307,6 +309,61 @@ namespace astia::dev {
             if (memcmp(got, ring_payload, ring_payload_len) != 0) {
                 return "payload mismatch";
             }
+
+            termios canonical_termios{};
+            if (com1.ioctl(TCGETS, &canonical_termios, sizeof(canonical_termios)) < 0)
+                return "canonical termios get failed";
+            canonical_termios.c_iflag     = ICRNL;
+            canonical_termios.c_oflag     = 0;
+            canonical_termios.c_lflag     = ICANON;
+            canonical_termios.c_cc[VMIN]  = 1;
+            canonical_termios.c_cc[VTIME] = 0;
+            if (com1.ioctl(TCSETSF, &canonical_termios, sizeof(canonical_termios)) < 0)
+                return "canonical termios set failed";
+            char canonical_bytes[repeated_payload_len]{};
+            s = astia_sqe_slot(ring);
+            if (s == nullptr)
+                return "sq full (canonical read)";
+            *s           = astia_sqe{};
+            s->op        = OP_READ;
+            s->fd        = 0;
+            s->address   = reinterpret_cast<u64>(canonical_bytes);
+            s->length    = repeated_payload_len;
+            s->user_data = ring_tag_canonical_read;
+            astia_sq_publish(ring, 1);
+            s = astia_sqe_slot(ring);
+            if (s == nullptr)
+                return "sq full (canonical write)";
+            *s           = astia_sqe{};
+            s->op        = OP_WRITE;
+            s->fd        = fd;
+            s->address   = reinterpret_cast<u64>(repeated_payload);
+            s->length    = repeated_payload_len;
+            s->user_data = ring_tag_canonical_write;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 2) < 0)
+                return "canonical kick failed";
+            long canonical_read_count  = -1;
+            long canonical_write_count = -1;
+            u32  canonical_cqes        = 0;
+            for (u32 wait = 0; wait < 100000 && canonical_cqes < 2; ++wait) {
+                while (astia_cqe* c = astia_cq_peek(ring)) {
+                    ++canonical_cqes;
+                    if (c->user_data == ring_tag_canonical_read)
+                        canonical_read_count = c->result;
+                    else if (c->user_data == ring_tag_canonical_write)
+                        canonical_write_count = c->result;
+                    else
+                        return "canonical duplicate completion";
+                    astia_cq_consume(ring, 1);
+                }
+                __builtin_ia32_pause();
+            }
+            if (canonical_cqes != 2 ||
+                canonical_read_count != static_cast<long>(repeated_payload_len) ||
+                canonical_write_count != static_cast<long>(repeated_payload_len) ||
+                memcmp(canonical_bytes, repeated_payload, repeated_payload_len) != 0)
+                return "canonical mismatch";
 
             termios raw_repeated_termios{};
             if (com1.ioctl(TCGETS, &raw_repeated_termios,

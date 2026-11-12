@@ -239,6 +239,99 @@ ASTIA_TEST(tty_raw_repeated_byte_reads_notify_each_ready) {
     ASTIA_CHECK(tty.ready_notifications == sizeof(input) - 1);
 }
 
+ASTIA_TEST(tty_host_injection_canonical_fd0_shtty_alias) {
+    test_tty tty;
+    set_termios(tty, ICRNL, 0, ICANON | ECHO);
+    test_tty& fd0   = tty;
+    test_tty& shtty = tty;
+    char      result[16]{};
+
+    const char input[] = "echo\n";
+    for (unsigned i = 0; i < sizeof(input) - 1; ++i)
+        ASTIA_CHECK(tty.inject_input_for_test(static_cast<astia::u8>(input[i])) ==
+                    (i == sizeof(input) - 2));
+    ASTIA_CHECK(tty.ready_notifications == 1);
+    ASTIA_CHECK((fd0.poll(POLLIN, 0) & POLLIN) != 0);
+    ASTIA_CHECK(fd0.read(result, sizeof(result), 0) == 5);
+    ASTIA_CHECK(std::string(result, 5) == "echo\n");
+    ASTIA_CHECK(shtty.read(result, sizeof(result), 0) == 0);
+    ASTIA_CHECK(shtty.poll(POLLIN, 0) == 0);
+    ASTIA_CHECK(tty.ready_notifications == 1);
+    ASTIA_CHECK(tty.output == "echo\n");
+
+    const char carriage_return[] = "echo\r";
+    for (unsigned i = 0; i < sizeof(carriage_return) - 1; ++i)
+        ASTIA_CHECK(tty.inject_input_for_test(
+                        static_cast<astia::u8>(carriage_return[i])) ==
+                    (i == sizeof(carriage_return) - 2));
+    ASTIA_CHECK(tty.ready_notifications == 2);
+    ASTIA_CHECK(shtty.read(result, sizeof(result), 0) == 5);
+    ASTIA_CHECK(std::string(result, 5) == "echo\n");
+    ASTIA_CHECK(fd0.poll(POLLIN, 0) == 0);
+    ASTIA_CHECK(tty.output == "echo\necho\n");
+}
+
+ASTIA_TEST(tty_host_injection_raw_vmin_one_preserves_cr_lf) {
+    test_tty tty;
+    set_termios(tty, 0, 0, 0);
+    struct termios value{};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
+    value.c_cc[VMIN]  = 1;
+    value.c_cc[VTIME] = 0;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+    test_tty& fd0    = tty;
+    test_tty& shtty  = tty;
+    char      result = 0;
+    const char input[] = "echo\n";
+
+    for (unsigned i = 0; i < sizeof(input) - 1; ++i) {
+        ASTIA_CHECK(tty.inject_input_for_test(static_cast<astia::u8>(input[i])));
+        ASTIA_CHECK((fd0.poll(POLLIN, 0) & POLLIN) != 0);
+        ASTIA_CHECK(shtty.read(&result, 1, 0) == 1 && result == input[i]);
+        ASTIA_CHECK(fd0.poll(POLLIN, 0) == 0);
+    }
+    ASTIA_CHECK(tty.ready_notifications == sizeof(input) - 1);
+    ASTIA_CHECK(tty.output.empty());
+
+    ASTIA_CHECK(tty.inject_input_for_test('\r'));
+    ASTIA_CHECK(shtty.read(&result, 1, 0) == 1 && result == '\r');
+    ASTIA_CHECK(tty.inject_input_for_test('\n'));
+    ASTIA_CHECK(fd0.read(&result, 1, 0) == 1 && result == '\n');
+}
+
+ASTIA_TEST(tty_host_injection_vmin_vtime_wakes_once) {
+    test_tty tty;
+    set_termios(tty, 0, 0, 0);
+    struct termios value{};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
+    value.c_cc[VMIN]  = 2;
+    value.c_cc[VTIME] = 0;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+
+    char result[4]{};
+    tty.inject_input_for_test('e');
+    ASTIA_CHECK(tty.ready_notifications == 0);
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 0);
+    tty.inject_input_for_test('c');
+    ASTIA_CHECK(tty.ready_notifications == 1);
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 2);
+    ASTIA_CHECK(std::string(result, 2) == "ec");
+
+    value.c_cc[VMIN]  = 2;
+    value.c_cc[VTIME] = 1;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
+    astia::io_request request(result, sizeof(result), 0, 1,
+                              astia::io_direction::input);
+    tty.inject_input_for_test('h');
+    ASTIA_CHECK(tty.submit(request) == 0 && !request.complete());
+    ASTIA_CHECK(!request.timeout_set());
+    ASTIA_CHECK(tty.ready_notifications == 2);
+    tty.inject_input_for_test('o');
+    ASTIA_CHECK(tty.submit(request) == 2);
+    ASTIA_CHECK(std::string(result, 2) == "ho");
+    ASTIA_CHECK(tty.ready_notifications == 3);
+}
+
 ASTIA_TEST(tty_canonical_line_notifies_once_at_enter) {
     test_tty tty;
     set_termios(tty, ICRNL, 0, ICANON);

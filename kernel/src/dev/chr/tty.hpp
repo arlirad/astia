@@ -62,6 +62,15 @@ namespace astia::dev {
         long ioctl(u64 request, void* argp, usize size) override;
         long acquire_controlling_terminal(i32 group) override;
 
+#ifdef ASTIA_TTY_HOST_TEST
+        bool inject_input_for_test(u8 byte) {
+            const bool ready = tty_receive(byte);
+            if (ready)
+                tty_input_ready();
+            return ready;
+        }
+#endif
+
         protected:
         bool         tty_receive(u8 byte);
         void         tty_input_ready();
