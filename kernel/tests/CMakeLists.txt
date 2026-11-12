@@ -87,7 +87,8 @@ target_include_directories(astia_pseudo_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/
 
 astia_add_host_test(astia_block_device_test
         block_device_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/block_device.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/block_device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
 target_include_directories(astia_block_device_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 

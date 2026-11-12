@@ -1,25 +1,35 @@
 #pragma once
 
-#include <astia/common.hpp>
+#include "../device.hpp"
 
 namespace astia::dev::blk {
 
-    inline constexpr u32 block_device_abi_version = 1;
+    class block_device : public device {
+        public:
+        constexpr block_device(const char* name, u64 size_bytes, u32 block_size)
+            : device(name, dv_sync | dv_block), size_bytes_(size_bytes),
+              block_size_(block_size) {}
 
-    struct block_device_ops {
-        u32  abi_version;
-        bool (*read_at)(void* context, u64 offset, void* buffer, usize length);
+        long read(void* buffer, u32 length, u64 offset) override;
+        long write(const void* buffer, u32 length, u64 offset) override;
+        long submit(io_request& request) override;
+
+        u64 size_bytes() const {
+            return size_bytes_;
+        }
+        u32 block_size() const {
+            return block_size_;
+        }
+
+        protected:
+        virtual long read_blocks(void* buffer, u32 length, u64 offset) = 0;
+        virtual long write_blocks(const void* buffer, u32 length, u64 offset);
+
+        private:
+        long validate(const void* buffer, u32 length, u64 offset) const;
+
+        u64 size_bytes_;
+        u32 block_size_;
     };
-
-    struct block_device {
-        const block_device_ops* ops       = nullptr;
-        void*                   context   = nullptr;
-        u64                     size_bytes = 0;
-        u32                     block_size = 0;
-    };
-
-    bool valid(const block_device& device);
-    bool read_at(const block_device& device, u64 offset, void* buffer, usize length);
-    bool read_at_adapter(void* context, u64 offset, void* buffer, usize length);
 
 } // namespace astia::dev::blk

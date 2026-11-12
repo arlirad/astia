@@ -1,25 +1,35 @@
 #include "block_device.hpp"
 
+#include <astia/api/errno.h>
+
 namespace astia::dev::blk {
 
-    bool valid(const block_device& device) {
-        return device.ops != nullptr &&
-               device.ops->abi_version == block_device_abi_version &&
-               device.ops->read_at != nullptr && device.size_bytes != 0 &&
-               device.block_size != 0;
+    long block_device::validate(const void* buffer, u32 length, u64 offset) const {
+        if (block_size_ == 0 || (offset % block_size_) != 0 ||
+            (length % block_size_) != 0 || (buffer == nullptr && length != 0))
+            return -EINVAL;
+        if (offset > size_bytes_ || length > size_bytes_ - offset)
+            return -EINVAL;
+        return 0;
     }
 
-    bool read_at(const block_device& device, u64 offset, void* buffer, usize length) {
-        if (!valid(device) || (buffer == nullptr && length != 0) ||
-            offset > device.size_bytes || length > device.size_bytes - offset)
-            return false;
-        return device.ops->read_at(device.context, offset, buffer, length);
+    long block_device::read(void* buffer, u32 length, u64 offset) {
+        const long valid = validate(buffer, length, offset);
+        return valid != 0 ? valid : read_blocks(buffer, length, offset);
     }
 
-    bool read_at_adapter(void* context, u64 offset, void* buffer, usize length) {
-        if (context == nullptr)
-            return false;
-        return read_at(*static_cast<const block_device*>(context), offset, buffer, length);
+    long block_device::write(const void* buffer, u32 length, u64 offset) {
+        const long valid = validate(buffer, length, offset);
+        return valid != 0 ? valid : write_blocks(buffer, length, offset);
+    }
+
+    long block_device::submit(io_request& request) {
+        const long valid = validate(request.buffer(), request.length(), request.offset());
+        return valid != 0 ? valid : device::submit(request);
+    }
+
+    long block_device::write_blocks(const void*, u32, u64) {
+        return -EROFS;
     }
 
 } // namespace astia::dev::blk

@@ -15,11 +15,12 @@ inline data, encryption, case folding, symlinks, or htree lookup.
 ## Integration blockers
 
 `kernel/src/dev/blk/block_device.hpp` now provides the minimal kernel-internal
-read-only capability: a block device supplies a versioned C-compatible
-`read_at(offset, buffer, length)` callback plus size and block-size bounds. The
-adapter rejects invalid callbacks, null non-empty buffers, and reads outside
-the device. There is deliberately no write operation. Geometry and device
-identity beyond these bounds remain future work.
+block capability on top of `dev::device`. Requests use the existing
+`io_request`/`io_flight`/`io_packet` path; offset and length must both be
+multiples of the device block size and invalid requests return `-EINVAL`.
+`dev::device_file` is the small VFS adapter. The block implementation is
+read-only by default, while geometry and device identity beyond these bounds
+remain future work.
 
 The module loader currently loads ET_REL images from boot modules and calls
 `module_main`, but the exported-symbol table does not expose filesystem type
