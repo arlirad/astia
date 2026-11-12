@@ -14,23 +14,28 @@ inline data, encryption, case folding, symlinks, or htree lookup.
 
 ## Integration blockers
 
-The repository has no block-device subsystem under `kernel/src/dev/blk` and no
-stable block-device capability or geometry contract. `fs::open_file` can read a
-registered VFS node, but there is no block-device identity contract that a
-filesystem mount can safely retain and use for block reads.
+`kernel/src/dev/blk/block_device.hpp` now provides the minimal kernel-internal
+read-only capability: a block device supplies a versioned C-compatible
+`read_at(offset, buffer, length)` callback plus size and block-size bounds. The
+adapter rejects invalid callbacks, null non-empty buffers, and reads outside
+the device. There is deliberately no write operation. Geometry and device
+identity beyond these bounds remain future work.
 
 The module loader currently loads ET_REL images from boot modules and calls
 `module_main`, but the exported-symbol table does not expose filesystem type
-registration or a lifetime-safe unregister operation. `fs::register_type` is
-therefore intentionally not called by this slice. Adding a module object that
-pretends to register ext4 would either make it built-in or leave a dangling
-filesystem factory after unload.
+registration or a lifetime-safe unregister operation. This slice adds only the
+kernel-owned `fs::register_module_filesystem` /
+`fs::unregister_module_filesystem` name-and-handle registry. It does not expose
+that registry to modules, mount anything, or retain a C++ filesystem object.
+The registration handle must be explicitly unregistered before its module is
+unloaded. `fs::register_type` is intentionally not called by this slice.
 
 The existing mount factory accepts only a source string and has no mount
 options or source-open capability contract. A future integration should first
-add an exported registration handle with explicit load/unload ownership, a
-block-device `read_at` capability, and mount teardown rules. Ext4 must remain
-optional and must not replace the root mount automatically.
+add a safe module-facing registration ABI with explicit load/unload ownership,
+device geometry/identity, and mount teardown rules. Ext4 must remain optional
+and must not replace the root mount automatically. The current C++ virtual
+`fs::filesystem` / `fs::mount` interfaces are not safe module exports.
 
 ## Fixture
 

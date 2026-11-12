@@ -84,6 +84,17 @@ astia_add_host_test(astia_pseudo_test
 )
 target_include_directories(astia_pseudo_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
+astia_add_host_test(astia_block_device_test
+        block_device_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/block_device.cpp)
+target_include_directories(astia_block_device_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+
+astia_add_host_test(astia_module_filesystem_test
+        module_filesystem_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/module_filesystem.cpp)
+target_include_directories(astia_module_filesystem_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/fs)
+
 find_package(Threads REQUIRED)
 astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)
 target_link_libraries(astia_mpmc_queue_test PRIVATE Threads::Threads)
