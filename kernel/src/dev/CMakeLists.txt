@@ -9,6 +9,7 @@ add_library(dev STATIC
         chr/pseudo.cpp
         chr/pseudo_register.cpp
         chr/tty/uart16550.cpp
+        nvme/nvme.cpp
         debug_exit.cpp
         init_dev.cpp
 )

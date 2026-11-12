@@ -1,5 +1,6 @@
 #include "chr/pseudo.hpp"
 #include "chr/tty/uart16550.hpp"
+#include "nvme/nvme.hpp"
 #include "pci.hpp"
 #include <astia/init.hpp>
 #include <astia/log.hpp>
@@ -27,10 +28,15 @@ namespace astia::dev {
         return true;
     }
 
+    static bool step_nvme(init::context&) {
+        return nvme::init();
+    }
+
 } // namespace astia::dev
 
 ASTIA_INIT_STEP(early, uart16550, astia::dev::step_uart16550)
 ASTIA_INIT_STEP(devices, uart16550_irq, astia::dev::step_uart16550_irq, "uart16550",
                 "interrupts", "fs")
 ASTIA_INIT_STEP(devices, pseudo, astia::dev::step_pseudo, "fs")
-ASTIA_INIT_STEP(devices, pci, astia::dev::step_pci, "uart16550_irq")
+ASTIA_INIT_STEP(devices, nvme, astia::dev::step_nvme, "fs")
+ASTIA_INIT_STEP(devices, pci, astia::dev::step_pci, "uart16550_irq", "nvme")

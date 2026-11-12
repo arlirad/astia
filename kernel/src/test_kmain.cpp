@@ -1,5 +1,6 @@
 #include "debug_exit.hpp"
 #include "dev/chr/tty/uart16550.hpp"
+#include "dev/nvme/nvme.hpp"
 #include "panic.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
@@ -100,6 +101,10 @@ extern "C" void kmain(void* start_info) {
 
     if (init_ok && !astia::arch::init_scheduler()) {
         astia::core::kpanic("SMP scheduler initialization failed");
+    }
+
+    if (init_ok && !astia::dev::nvme::test_read()) {
+        astia::core::kpanic("NVMe sector selftest failed");
     }
 
     if (!init_ok || (ASTIA_RUN_SELFTEST && !astia::test::run())) {

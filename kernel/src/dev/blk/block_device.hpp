@@ -21,6 +21,11 @@ namespace astia::dev::blk {
             return block_size_;
         }
 
+        void configure_geometry(u64 size_bytes, u32 block_size) {
+            size_bytes_ = size_bytes;
+            block_size_ = block_size;
+        }
+
         protected:
         virtual long read_blocks(void* buffer, u32 length, u64 offset) = 0;
         virtual long write_blocks(const void* buffer, u32 length, u64 offset);
