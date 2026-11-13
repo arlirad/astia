@@ -39,10 +39,13 @@ run_case() {
     if test "$force_polling" = OFF; then
         grep -qF 'nvme: msix enabled' "$case_log"
         grep -qF 'nvme: msix interrupt path' "$case_log"
+        grep -qF 'nvme: async completion' "$case_log"
     else
         grep -qF 'nvme: polling fallback' "$case_log"
         ! grep -qF 'nvme: msix enabled' "$case_log"
+        grep -qF 'nvme: async polling fallback' "$case_log"
     fi
+    grep -qF 'nvme: async error path' "$case_log"
 }
 
 run_case msix "$build-msix" OFF

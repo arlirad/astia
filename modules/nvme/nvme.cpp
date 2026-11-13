@@ -9,6 +9,7 @@ namespace {
     constexpr unsigned admin_create_io_cq = 0x05;
     constexpr unsigned admin_create_io_sq = 0x01;
     constexpr unsigned io_read = 0x02;
+    constexpr unsigned max_async_requests = 4;
 
     struct dma {
         astia_module_dma_buffer value{};
@@ -28,6 +29,14 @@ namespace {
 
     struct completion {
         unsigned dword[4]{};
+    };
+
+    struct async_request {
+        bool used = false;
+        bool canceled = false;
+        unsigned short cid = 0;
+        astia_module_io_request* request = nullptr;
+        dma bounce;
     };
 
     struct controller {
@@ -51,6 +60,7 @@ namespace {
         volatile bool interrupt_pending = false;
         unsigned interrupts_seen = 0;
         astia_module_msix_route msix_route{};
+        async_request async_requests[max_async_requests]{};
         dma admin_sq;
         dma admin_cq;
         dma io_sq;
@@ -168,7 +178,7 @@ namespace {
             command cq{};
             cq.dword[0] = admin_create_io_cq | (static_cast<unsigned>(admin_cid++) << 16);
             cq.dword[10] = 1 | ((queue_depth - 1) << 16);
-            cq.dword[11] = 1 | (msix_active ? (msix_route.table_index << 16) : 0);
+            cq.dword[11] = 1 | (msix_active ? (2u | (msix_route.table_index << 16)) : 0);
             submit_admin(cq, io_cq.value.physical);
             if (poll_admin() != 0)
                 return false;
@@ -180,10 +190,89 @@ namespace {
             return poll_admin() == 0;
         }
 
+        int submit_async(astia_module_io_request* request) {
+            if (request == nullptr || request->direction != 0 || !started || !msix_active)
+                return -95;
+            for (async_request& pending : async_requests) {
+                if (pending.used)
+                    continue;
+                pending = {};
+                if (!pending.bounce.allocate())
+                    return -12;
+                pending.used = true;
+                pending.request = request;
+                pending.cid = io_cid++;
+                command command_value{};
+                command_value.dword[0] = io_read | (static_cast<unsigned>(pending.cid) << 16);
+                command_value.dword[1] = namespace_id;
+                command_value.dword[6] = static_cast<unsigned>(pending.bounce.value.physical);
+                command_value.dword[7] = static_cast<unsigned>(pending.bounce.value.physical >> 32);
+                command_value.dword[10] = static_cast<unsigned>(request->offset / block_size);
+                command_value.dword[11] = static_cast<unsigned>((request->offset / block_size) >> 32);
+                command_value.dword[12] = request->length / block_size - 1;
+                submit_io(command_value);
+                return 0;
+            }
+            return -16;
+        }
+
+        int cancel_async(astia_module_io_request* request) {
+            for (async_request& pending : async_requests) {
+                if (pending.used && pending.request == request) {
+                    pending.canceled = true;
+                    return 0;
+                }
+            }
+            return -2;
+        }
+
+        void service_async() {
+            auto* entries = static_cast<volatile completion*>(io_cq.value.virtual_address);
+            for (;;) {
+                unsigned dw3 = entries[io_cq_head].dword[3];
+                for (unsigned spin = 0; ((dw3 >> 16) & 1) != io_cq_phase && spin < 100000;
+                     ++spin) {
+                    asm volatile("pause");
+                    dw3 = entries[io_cq_head].dword[3];
+                }
+                if (((dw3 >> 16) & 1) != io_cq_phase)
+                    return;
+                const unsigned short cid = static_cast<unsigned short>(dw3 & 0xffff);
+                async_request* found = nullptr;
+                for (async_request& pending : async_requests)
+                    if (pending.used && pending.cid == cid) {
+                        found = &pending;
+                        break;
+                    }
+                if (found == nullptr) {
+                    return;
+                }
+                const unsigned status = (dw3 >> 17) & 0x7ff;
+                if (!found->canceled && found->request != nullptr) {
+                    long result = status == 0 ? static_cast<long>(found->request->length) : -5;
+                    if (status == 0) {
+                        auto* destination = static_cast<unsigned char*>(found->request->buffer);
+                        auto* source = static_cast<const unsigned char*>(
+                            found->bounce.value.virtual_address);
+                        for (unsigned i = 0; i < found->request->length; ++i)
+                            destination[i] = source[i];
+                    }
+                    astia_module_io_complete(found->request->opaque, result);
+                }
+                found->bounce.release();
+                *found = {};
+                io_cq_head = static_cast<unsigned short>((io_cq_head + 1) % queue_depth);
+                if (io_cq_head == 0)
+                    io_cq_phase ^= 1;
+                doorbell(1, true, io_cq_head);
+            }
+        }
+
         static void msix_interrupt(void* context) {
             auto* value = static_cast<controller*>(context);
             value->interrupt_pending = true;
             ++value->interrupts_seen;
+            value->service_async();
         }
 
         bool setup_msix() {
@@ -192,13 +281,15 @@ namespace {
 #else
             if (astia_module_pci_msix_request(pci, msix_interrupt, this, &msix_route) != 0)
                 return false;
-            if (astia_module_pci_msix_program(&msix_route) != 0 ||
-                astia_module_pci_msix_enable(&msix_route) != 0) {
+            if (astia_module_pci_msix_program(&msix_route) != 0) {
+                astia_module_pci_msix_release(&msix_route);
+                return false;
+            }
+            if (astia_module_pci_msix_enable(&msix_route) != 0) {
                 astia_module_pci_msix_release(&msix_route);
                 return false;
             }
             msix_active = true;
-            astia_module_log("nvme", "msix enabled");
             return true;
 #endif
         }
@@ -234,6 +325,11 @@ namespace {
             }
             if (!create_io_queues()) {
                 return false;
+            }
+            if (msix_active) {
+                if (astia_module_pci_msix_unmask(&msix_route) != 0)
+                    return false;
+                astia_module_log("nvme", "msix enabled");
             }
             started = true;
             astia_module_log_u64("nvme", "namespace blocks", namespace_size);
@@ -325,6 +421,9 @@ namespace {
     }
 
     void remove(void*) {
+        for (async_request& pending : device.async_requests)
+            if (pending.used)
+                pending.canceled = true;
         if (device.msix_active) {
             (void) astia_module_pci_msix_release(&device.msix_route);
             device.msix_active = false;
@@ -345,12 +444,33 @@ namespace {
         return static_cast<controller*>(context)->read(buffer, length, offset);
     }
 
+    int async_submit(void* context, astia_module_io_request* request) {
+        return static_cast<controller*>(context)->submit_async(request);
+    }
+
+    int async_cancel(void* context, astia_module_io_request* request) {
+        return static_cast<controller*>(context)->cancel_async(request);
+    }
+
     int selftest() {
         char sector[512]{};
         if (!device.started)
             return 1;
-        if (astia_module_read_registered("/dev/nvme0n1", sector, sizeof sector, 0) != 0)
+        if (!device.msix_active) {
+            if (device.read(sector, sizeof sector, 0) != sizeof sector)
+                return 0;
+            astia_module_log("nvme", "async polling fallback");
+        } else {
+            const int async_result =
+                astia_module_read_registered_async("/dev/nvme0n1", sector, sizeof sector, 0);
+            if (async_result != 0)
+                return 0;
+            astia_module_log("nvme", "async completion");
+        }
+        char invalid[513]{};
+        if (astia_module_read_registered_async("/dev/nvme0n1", invalid, sizeof invalid, 0) >= 0)
             return 0;
+        astia_module_log("nvme", "async error path");
         const bool valid = sector[0] == 'A' && sector[1] == 'S' && sector[2] == 'T' &&
                            sector[3] == 'I' && sector[4] == 'A' && sector[5] == '_' &&
                            sector[6] == 'N' && sector[7] == 'V';
@@ -365,7 +485,8 @@ namespace {
     }
 
     const astia_module_pci_block_driver ops = {
-        "nvme", "/dev/nvme0n1", match, probe, remove, size, block_size, read, selftest};
+        "nvme", "/dev/nvme0n1", match, probe, remove, size, block_size, read, selftest,
+        async_submit, async_cancel};
 
 }
 

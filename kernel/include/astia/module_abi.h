@@ -19,6 +19,8 @@ struct astia_module_pci_device {
     uint8_t msix;
 };
 
+struct astia_module_io_request;
+
 struct astia_module_pci_block_driver {
     const char* name;
     const char* device_path;
@@ -29,12 +31,22 @@ struct astia_module_pci_block_driver {
     uint32_t (*block_size)(void* context);
     long (*read)(void* context, void* buffer, uint32_t length, uint64_t offset);
     int (*selftest)(void);
+    int (*async_submit)(void* context, struct astia_module_io_request* request);
+    int (*async_cancel)(void* context, struct astia_module_io_request* request);
 };
 
 struct astia_module_dma_buffer {
     uint64_t physical;
     void* virtual_address;
     uint64_t pages;
+};
+
+struct astia_module_io_request {
+    void* opaque;
+    void* buffer;
+    uint32_t length;
+    uint64_t offset;
+    uint8_t direction;
 };
 
 typedef void (*astia_module_interrupt_handler)(void* context);
@@ -69,6 +81,7 @@ int astia_module_pci_msix_request(void* device, astia_module_interrupt_handler h
                                   void* context, struct astia_module_msix_route* route);
 int astia_module_pci_msix_program(struct astia_module_msix_route* route);
 int astia_module_pci_msix_enable(struct astia_module_msix_route* route);
+int astia_module_pci_msix_unmask(struct astia_module_msix_route* route);
 int astia_module_pci_msix_disable(struct astia_module_msix_route* route);
 int astia_module_pci_msix_release(struct astia_module_msix_route* route);
 int astia_module_dma_alloc(uint64_t pages, int zero,
@@ -80,6 +93,9 @@ void astia_module_unpin(void* token);
 int astia_module_copy_out(void* address, uint32_t length, const void* source);
 int astia_module_read_registered(const char* path, void* buffer, uint32_t length,
                                  uint64_t offset);
+int astia_module_read_registered_async(const char* path, void* buffer, uint32_t length,
+                                       uint64_t offset);
+int astia_module_io_complete(void* request, long result);
 void astia_module_log(const char* source, const char* message);
 void astia_module_log_u64(const char* source, const char* label, uint64_t value);
 int astia_module_run_selftests(void);

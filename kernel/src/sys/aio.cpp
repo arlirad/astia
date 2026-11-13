@@ -502,6 +502,9 @@ namespace astia::sys {
         }
 
         void clear_slot(ring_slot& slot, parked_cleanup& cleanup) {
+            for (u32 i = 0; i < parked_operation_slots; ++i)
+                if (slot.park[i].used && !slot.park[i].done)
+                    slot.park[i].request.cancel_device();
             detach_parked(slot, cleanup);
             __builtin_memset(slot.map, 0, sizeof slot.map);
             slot.user_base  = 0;
@@ -2130,6 +2133,7 @@ namespace astia::sys {
                         return false;
                     if (!cq_post(ring, target, -ECANCELED))
                         return false;
+                    p.request.cancel_device();
                     p.done = true;
                     return cq_post(ring, s.user_data, 0);
                 }

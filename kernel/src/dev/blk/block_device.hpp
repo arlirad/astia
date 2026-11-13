@@ -30,6 +30,11 @@ namespace astia::dev::blk {
         virtual long read_blocks(void* buffer, u32 length, u64 offset) = 0;
         virtual long write_blocks(const void* buffer, u32 length, u64 offset);
 
+        protected:
+        long validate_request(const io_request& request) const {
+            return validate(request.buffer(), request.length(), request.offset());
+        }
+
         private:
         long validate(const void* buffer, u32 length, u64 offset) const;
 

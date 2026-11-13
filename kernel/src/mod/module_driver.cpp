@@ -5,8 +5,10 @@
 #include "../dev/blk/block_device.hpp"
 #include "../dev/device_file.hpp"
 #include "../dev/pci.hpp"
+#include "../sys/aio.hpp"
 #include "../sys/user_mem.hpp"
 #include <astia/api/errno.h>
+#include <astia/api/aio.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/log.hpp>
@@ -45,6 +47,8 @@ namespace astia::mod {
                    reinterpret_cast<u64>(&astia_module_pci_msix_program)) &&
             expose("astia_module_pci_msix_enable",
                    reinterpret_cast<u64>(&astia_module_pci_msix_enable)) &&
+            expose("astia_module_pci_msix_unmask",
+                   reinterpret_cast<u64>(&astia_module_pci_msix_unmask)) &&
             expose("astia_module_pci_msix_disable",
                    reinterpret_cast<u64>(&astia_module_pci_msix_disable)) &&
             expose("astia_module_pci_msix_release",
@@ -57,6 +61,10 @@ namespace astia::mod {
             expose("astia_module_copy_out", reinterpret_cast<u64>(&astia_module_copy_out)) &&
             expose("astia_module_read_registered",
                    reinterpret_cast<u64>(&astia_module_read_registered)) &&
+            expose("astia_module_read_registered_async",
+                   reinterpret_cast<u64>(&astia_module_read_registered_async)) &&
+            expose("astia_module_io_complete",
+                   reinterpret_cast<u64>(&astia_module_io_complete)) &&
             expose("astia_module_log", reinterpret_cast<u64>(&astia_module_log)) &&
             expose("astia_module_log_u64", reinterpret_cast<u64>(&astia_module_log_u64)) &&
             expose("astia_module_run_selftests",
@@ -68,28 +76,48 @@ namespace astia::mod {
     namespace {
 
         constexpr u32 max_registrations = 8;
+        constexpr u32 max_async_requests = 8;
 
         struct registration;
+        class block;
+
+        struct async_bridge {
+            registration* registration_owner = nullptr;
+            block* owner = nullptr;
+            io_request* request = nullptr;
+            astia_module_io_request abi{};
+            long result = 0;
+            bool used = false;
+            bool completed = false;
+            bool canceled = false;
+        };
 
         class block final : public dev::blk::block_device {
             public:
-            block(const registration& registration, void* context, u64 size, u32 block_size)
+            block(registration& registration, void* context, u64 size, u32 block_size)
                 : block_device("module-block", size, block_size), registration_(registration),
                   context_(context) {}
 
             ~block();
 
+            void set_file(fs::file* file) { file_ = file; }
+            void complete(async_bridge& bridge, long result);
+            void cancel(async_bridge& bridge);
+            static void cancel_request(io_request& request);
+
             protected:
             long read_blocks(void* buffer, u32 length, u64 offset) override;
+            long submit(io_request& request) override;
 
             private:
-            const registration& registration_;
+            registration&        registration_;
             void*               context_;
+            fs::file*           file_ = nullptr;
         };
 
         class driver final : public dev::driver {
             public:
-            explicit driver(const registration& registration) : registration_(registration) {}
+            explicit driver(registration& registration) : registration_(registration) {}
 
             const char* name() const override;
 
@@ -97,7 +125,7 @@ namespace astia::mod {
             mm::shptr<dev::device> probe(const dev::device_info& info) override;
 
             private:
-            const registration& registration_;
+            registration& registration_;
         };
 
         struct registration {
@@ -105,6 +133,7 @@ namespace astia::mod {
             alignas(driver) u8 storage[sizeof(driver)]{};
             driver* instance = nullptr;
             bool selftest_done = false;
+            async_bridge bridges[max_async_requests]{};
         };
 
         registration registrations[max_registrations]{};
@@ -171,6 +200,7 @@ namespace astia::mod {
             auto file = mm::share<dev::device_file>(owner);
             if (!file || fs::register_device(registration_.ops->device_path, file) < 0)
                 return {};
+            value->set_file(file.get());
             return owner;
         }
 
@@ -178,7 +208,89 @@ namespace astia::mod {
             return registration_.ops->read(context_, buffer, length, offset);
         }
 
+        long block::submit(io_request& request) {
+            const long valid = validate_request(request);
+            if (valid != 0)
+                return valid;
+            const auto submit_async = registration_.ops->async_submit;
+            if (submit_async == nullptr)
+                return device::submit(request);
+            auto* bridge = static_cast<async_bridge*>(request.device_state());
+            if (bridge != nullptr && bridge->used && bridge->request == &request) {
+                if (bridge->completed) {
+                    const long result = bridge->result;
+                    if (registration_.ops->async_cancel != nullptr)
+                        registration_.ops->async_cancel(context_, &bridge->abi);
+                    bridge->used = false;
+                    bridge->owner = nullptr;
+                    bridge->request = nullptr;
+                    request.device_state(nullptr);
+                    request.cancel_handler_set(nullptr);
+                    return result;
+                }
+                return 0;
+            }
+            for (async_bridge& candidate : registration_.bridges) {
+                if (candidate.used)
+                    continue;
+                candidate = {};
+                candidate.registration_owner = &registration_;
+                candidate.owner = this;
+                candidate.request = &request;
+                candidate.used = true;
+                candidate.abi = {&candidate, request.buffer(), request.length(),
+                                 request.offset(),
+                                 static_cast<u8>(request.direction())};
+                request.device_state(&candidate);
+                request.cancel_handler_set(cancel_request);
+                const int result = submit_async(context_, &candidate.abi);
+                if (result < 0) {
+                    candidate = {};
+                    request.device_state(nullptr);
+                    request.cancel_handler_set(nullptr);
+                    return result;
+                }
+                if (result > 0) {
+                    candidate.used = false;
+                    request.device_state(nullptr);
+                    request.cancel_handler_set(nullptr);
+                    return result;
+                }
+                return 0;
+            }
+            return -EBUSY;
+        }
+
+        void block::complete(async_bridge& bridge, long result) {
+            if (!bridge.used || bridge.canceled || bridge.owner != this ||
+                bridge.request == nullptr || bridge.completed)
+                return;
+            bridge.result = result;
+            bridge.completed = true;
+            if (file_ != nullptr)
+                sys::io_device_ready_context(file_);
+        }
+
+        void block::cancel(async_bridge& bridge) {
+            if (!bridge.used || bridge.canceled || bridge.owner != this)
+                return;
+            bridge.canceled = true;
+            if (registration_.ops->async_cancel != nullptr)
+                registration_.ops->async_cancel(context_, &bridge.abi);
+            bridge.owner = nullptr;
+            bridge.request = nullptr;
+        }
+
+        void block::cancel_request(io_request& request) {
+            auto* bridge = static_cast<async_bridge*>(request.device_state());
+            if (bridge != nullptr && bridge->owner != nullptr)
+                bridge->owner->cancel(*bridge);
+        }
+
         block::~block() {
+            for (async_bridge& bridge : registration_.bridges)
+                if (bridge.owner == this)
+                    cancel(bridge);
             if (registration_.ops->remove != nullptr)
                 registration_.ops->remove(context_);
         }
@@ -400,7 +512,17 @@ namespace astia::mod {
                 device->bdf, static_cast<u16>(device->interrupt.capability + 2),
                 static_cast<u16>((control | (1u << 15)) & ~(1u << 14))))
             return -EIO;
-        if (!arch::unmask_interrupt_vector(route_vector(*route)))
+        return 0;
+    }
+
+    extern "C" int astia_module_pci_msix_unmask(astia_module_msix_route* route) {
+        if (route == nullptr || route->vector == 0 || route->owner == 0)
+            return -EINVAL;
+        dev::pci_device* device = route_device(*route);
+        if (device == nullptr)
+            return -ENODEV;
+        volatile u32* entry = route_table_entry(*route, *device);
+        if (entry == nullptr || !arch::unmask_interrupt_vector(route_vector(*route)))
             return -EIO;
         mask_route_table(entry, false);
         route->enabled = 1;
@@ -499,6 +621,80 @@ namespace astia::mod {
         const long result = file->read(buffer, length, offset);
         return result == static_cast<long>(length) ? 0 : result < 0 ? static_cast<int>(result)
                                                                      : -EIO;
+    }
+
+    extern "C" int astia_module_read_registered_async(const char* path, void* buffer,
+                                                        u32 length, u64 offset) {
+        auto file = fs::open(path);
+        auto* current = proc::current_process();
+        if (!file || current == nullptr)
+            return -ENOENT;
+        astia_rings* ring = nullptr;
+        const long setup = sys::io_setup(8, 0, &ring);
+        if (setup < 0)
+            return static_cast<int>(setup);
+        fd_t fd{-1};
+        for (i32 value = 3; value < static_cast<i32>(proc::max_process_fds); ++value) {
+            if (current->set_descriptor(fd_t{value}, file)) {
+                fd = fd_t{value};
+                break;
+            }
+        }
+        if (fd.value < 0) {
+            (void) sys::io_destroy(ring);
+            return -EMFILE;
+        }
+        astia_sqe* sqe = astia_sqe_slot(ring);
+        if (sqe == nullptr) {
+            current->clear_descriptor(fd);
+            (void) sys::io_destroy(ring);
+            return -EBUSY;
+        }
+        *sqe = astia_sqe{};
+        sqe->op = OP_READ;
+        sqe->fd = fd.value;
+        sqe->offset = offset;
+        sqe->address = reinterpret_cast<u64>(buffer);
+        sqe->length = length;
+        sqe->user_data = 0xA51A;
+        astia_sq_publish(ring, 1);
+        const long submitted = sys::io_submit(ring, 1);
+        if (submitted != 1) {
+            current->clear_descriptor(fd);
+            (void) sys::io_destroy(ring);
+            return submitted < 0 ? static_cast<int>(submitted) : -EIO;
+        }
+        const bool was_enabled = arch::cpu::check_interrupts();
+        if (!was_enabled)
+            arch::cpu::interrupts();
+        const u64 hz = arch::timer_hz();
+        const u64 deadline = hz == 0 ? 0 : arch::timer_ticks() + hz * 2;
+        int result = -ETIMEDOUT;
+        for (;;) {
+            astia_cqe* cqe = astia_cq_peek(ring);
+            if (cqe != nullptr) {
+                result = cqe->user_data == 0xA51A ? cqe->result : -EIO;
+                astia_cq_consume(ring, 1);
+                break;
+            }
+            if (deadline != 0 && arch::timer_ticks() >= deadline)
+                break;
+            arch::cpu::halt();
+        }
+        if (!was_enabled)
+            arch::cpu::nointerrupts();
+        current->clear_descriptor(fd);
+        (void) sys::io_destroy(ring);
+        return result == static_cast<int>(length) ? 0 : result;
+    }
+
+    extern "C" int astia_module_io_complete(void* opaque, long result) {
+        auto* bridge = static_cast<async_bridge*>(opaque);
+        if (bridge == nullptr || !bridge->used || bridge->owner == nullptr ||
+            bridge->canceled || bridge->request == nullptr)
+            return -ECANCELED;
+        bridge->owner->complete(*bridge, result);
+        return 0;
     }
 
     extern "C" void astia_module_log(const char* source, const char* message) {

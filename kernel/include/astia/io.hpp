@@ -171,6 +171,15 @@ namespace astia {
         void end_device();
         void acknowledge();
 
+        using cancel_handler = void (*)(io_request&);
+        void cancel_handler_set(cancel_handler handler) {
+            _cancel_handler = handler;
+        }
+        void cancel_device() {
+            if (_cancel_handler != nullptr)
+                _cancel_handler(*this);
+        }
+
         private:
         void*        _buffer       = nullptr;
         u32          _length       = 0;
@@ -189,6 +198,7 @@ namespace astia {
         u64          _timeout_ns = 0;
         io_flight*   _flight       = nullptr;
         mm::uptr<core::async_operation<i64>> _completion;
+        cancel_handler _cancel_handler = nullptr;
     };
 
     class io_flight {

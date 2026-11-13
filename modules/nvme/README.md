@@ -13,6 +13,14 @@ owns only its opaque controller context. Loaded modules remain resident while
 registered drivers or devices reference their callbacks, and running modules
 cannot be unloaded.
 
+The optional async submit/cancel ABI parks the stable `io_request` bridge,
+submits the NVMe command without waiting, and completes it from the MSI-X
+handler through the kernel wake path. Completion-owned bridge slots remain
+valid until the controller reports the command or cancellation has quarantined
+them; device removal cancels all slots before the module callback context is
+released. Synchronous reads remain the compatibility path when MSI-X routing
+is unavailable.
+
 The driver accepts NVMe class `01/08/02` PCI functions, identifies namespace 1,
 creates one I/O queue, and supports aligned reads up to 8192 bytes. Writes
 return read-only errors through the generic block-device contract. When the
