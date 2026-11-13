@@ -94,7 +94,16 @@ Do not point clangd at a stale `kernel/cmake-build-debug` database after
 changing the CLion CMake profile; reload CMake (or delete that build
 directory) so the generated `compile_commands.json` is refreshed.
 
-Change ARCH to `aarch64` as needed.
+The only supported kernel target is `ARCH=x86_64 PLATFORM=virt BOOT=virt`.
+The AArch64 tree is an incomplete bring-up port and is rejected at configure
+time until it has a complete boot path, linker layout, and cross-toolchain.
+
+The remaining audit findings are tracked for later slices: the generic MMIO
+window and user virtual-address layout still need arch/platform policy
+providers; process, AIO, and mapping code need narrower ownership boundaries;
+fixed CPU/resource capacities need centralized policy; dormant fiber code and
+intentional stubs need an explicit inventory; and the existing production
+warnings need to become errors after their allocation and ownership fixes.
 
 ## TTY foreground process-group contract
 

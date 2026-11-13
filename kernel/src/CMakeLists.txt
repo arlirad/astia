@@ -47,7 +47,7 @@ function(astia_configure_kernel target)
     )
     target_link_libraries(${target} PRIVATE ${_astia_kernel_libs})
     target_link_options(${target} PRIVATE
-            -T ${ASTIA_KERNEL_SOURCE_DIR}/cmake/linker/virt-x86_64.ld
+            -T ${ASTIA_LINKER_SCRIPT}
     )
 endfunction()
 

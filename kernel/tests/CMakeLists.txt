@@ -30,6 +30,8 @@ set(_astia_test_includes
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf
         ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt
@@ -67,6 +69,11 @@ astia_add_host_test(astia_fs_async_test
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
 astia_add_host_test(astia_endian_test endian_test.cpp)
+astia_add_host_test(astia_time_test
+        time_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/time.cpp)
+target_compile_options(astia_time_test PRIVATE -ffunction-sections -fdata-sections)
+target_link_options(astia_time_test PRIVATE -Wl,--gc-sections)
 astia_add_host_test(astia_console_test
         console_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)
@@ -122,6 +129,12 @@ find_package(Threads REQUIRED)
 astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)
 target_link_libraries(astia_mpmc_queue_test PRIVATE Threads::Threads)
 astia_add_host_test(astia_rcu_domain_test rcu_domain_test.cpp)
+
+add_test(NAME astia_target_configuration
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
+        -DCMAKE_CURRENT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/target_config_test.cmake)
 
 # --- ELF fixtures: compile real images with the host toolchain and byte-embed
 # them, so the loader sees genuine gcc output rather than hand-written ELF.

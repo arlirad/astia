@@ -36,6 +36,27 @@ set_property(CACHE PLATFORM PROPERTY STRINGS virt pc)
 set(BOOT "virt" CACHE STRING "Target boot: virt, pc")
 set_property(CACHE BOOT PROPERTY STRINGS virt pc)
 
+if (ARCH STREQUAL "aarch64")
+    message(FATAL_ERROR
+            "Unsupported AArch64 kernel target (ARCH=${ARCH}, PLATFORM=${PLATFORM}, BOOT=${BOOT}): "
+            "the AArch64 port is bring-up only and has no complete boot, linker, or cross-toolchain target")
+endif ()
+
+if (NOT ARCH STREQUAL "x86_64" OR NOT PLATFORM STREQUAL "virt" OR NOT BOOT STREQUAL "virt")
+    message(FATAL_ERROR
+            "Unsupported kernel target (ARCH=${ARCH}, PLATFORM=${PLATFORM}, BOOT=${BOOT}); "
+            "the supported target is ARCH=x86_64, PLATFORM=virt, BOOT=virt")
+endif ()
+
+set(ASTIA_LINKER_SCRIPT
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/linker/${BOOT}-${ARCH}.ld"
+        CACHE INTERNAL "Linker script selected by the kernel target")
+if (NOT EXISTS "${ASTIA_LINKER_SCRIPT}")
+    message(FATAL_ERROR
+            "No linker script for kernel target (ARCH=${ARCH}, PLATFORM=${PLATFORM}, BOOT=${BOOT}): "
+            "${ASTIA_LINKER_SCRIPT}")
+endif ()
+
 # Generate compile_commands.json for tooling
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

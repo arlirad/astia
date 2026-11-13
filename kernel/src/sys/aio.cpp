@@ -1471,7 +1471,8 @@ namespace astia::sys {
                 return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
             u64 sec  = 0;
             u64 nsec = 0;
-            sys::realtime_now(sec, nsec);
+            if (!sys::realtime_now(sec, nsec))
+                return cq_post_guarded(ring, s.user_data, -EIO);
             return cq_post_guarded(ring, s.user_data,
                                    static_cast<i32>(fs::touch_path(resolved, sec, nsec)));
         }

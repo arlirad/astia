@@ -13,13 +13,13 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_astia_freestanding} -fno-omit-frame-pointer -Wall -Wextra")
     set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -fno-pie -fno-pic")
 
-    # The kernel image links in the top 2 GiB of the higher half (image_base,
-    # see cmake/linker/virt-x86_64.ld). The default -mcmodel=small assumes
-    # zero-extendable *low* addresses (movl $sym, %reg), which truncates up
-    # there; -mcmodel=kernel makes gcc use sign-extended addressing instead,
-    # which is exactly what that window provides.
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcmodel=kernel")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcmodel=kernel")
+    if (ARCH STREQUAL "x86_64")
+        # The kernel image links in the top 2 GiB of the higher half. The
+        # default -mcmodel=small assumes zero-extendable low addresses, which
+        # truncates up there; -mcmodel=kernel uses sign-extended addressing.
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcmodel=kernel")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcmodel=kernel")
+    endif ()
 
     # Produce a static, non-PIE ELF that fits QEMU's -kernel loader.
     add_link_options(-nostdlib -nostartfiles -nodefaultlibs -no-pie -static -Wl,--build-id=none)
