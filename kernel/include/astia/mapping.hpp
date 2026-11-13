@@ -69,4 +69,55 @@ namespace astia {
         return EINVAL;
     }
 
+    constexpr error_t error_from_errno(i64 value) {
+        switch (value) {
+        case 0:
+            return error_t::enone;
+        case EACCES:
+            return error_t::eacces;
+        case EADDRINUSE:
+            return error_t::eaddrinuse;
+        case EAGAIN:
+            return error_t::eagain;
+        case EBADF:
+            return error_t::ebadf;
+        case EBUSY:
+            return error_t::ebusy;
+        case EDOM:
+            return error_t::edom;
+        case EEXIST:
+            return error_t::eexist;
+        case EFAULT:
+            return error_t::efault;
+        case EIO:
+            return error_t::eio;
+        case EINVAL:
+            return error_t::einval;
+        case ENOENT:
+            return error_t::enoent;
+        case ENOMEM:
+            return error_t::enomem;
+        case EMFILE:
+            return error_t::emfile;
+        case ENOSPC:
+            return error_t::enospc;
+        case ENOSYS:
+            return error_t::enosys;
+        case ENOTDIR:
+            return error_t::enotdir;
+        case ENOTEMPTY:
+            return error_t::enotempty;
+        case EPERM:
+            return error_t::eperm;
+        case ERANGE:
+            return error_t::erange;
+        case EROFS:
+            return error_t::erofs;
+        case ETIMEDOUT:
+            return error_t::etimedout;
+        default:
+            return error_t::eio;
+        }
+    }
+
 } // namespace astia

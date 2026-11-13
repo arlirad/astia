@@ -59,7 +59,7 @@ astia_add_host_test(astia_task_test
 )
 astia_add_host_test(astia_fs_async_test
         fs_async_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_async.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         support/resume_queue_host.cpp
 )

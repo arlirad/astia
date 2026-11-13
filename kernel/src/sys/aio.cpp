@@ -659,7 +659,7 @@ namespace astia::sys {
             }
             if (op.request.completion() != nullptr) {
                 if (result < 0)
-                    op.request.completion()->fail_deferred(static_cast<error_t>(-result));
+                    op.request.completion()->fail_deferred(error_from_errno(-result));
                 else
                     op.request.completion()->complete_deferred(static_cast<i64>(result));
                 op.done = true;
@@ -891,7 +891,7 @@ namespace astia::sys {
             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
             if (p->request.completion() != nullptr) {
                 if (result < 0)
-                    p->request.completion()->fail_deferred(static_cast<error_t>(-result));
+                    p->request.completion()->fail_deferred(error_from_errno(-result));
                 else
                     p->request.completion()->complete_deferred(static_cast<i64>(result));
             }
@@ -958,7 +958,7 @@ namespace astia::sys {
             // reference parked for the next IRQ nudge.
             if (op.request.completion() != nullptr) {
                 if (result < 0)
-                    op.request.completion()->fail_deferred(static_cast<error_t>(-result));
+                    op.request.completion()->fail_deferred(error_from_errno(-result));
                 else
                     op.request.completion()->complete_deferred(static_cast<i64>(result));
                 op.done = true;

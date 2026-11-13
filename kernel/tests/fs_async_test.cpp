@@ -2,15 +2,21 @@
 #undef RENAME_NOREPLACE
 #undef RENAME_EXCHANGE
 #undef RENAME_WHITEOUT
-#include <astia/fs_async.hpp>
+#include <astia/fs.hpp>
 
 namespace {
-    enum class submit_mode { synchronous_zero, parked_zero };
+    enum class submit_mode {
+        synchronous_zero,
+        synchronous_short,
+        synchronous_error,
+        parked_zero,
+    };
 
     submit_mode submit_mode_state = submit_mode::synchronous_zero;
     astia::core::async_operation<astia::i64>* parked_completion = nullptr;
     astia::io_request* parked_request = nullptr;
     astia::usize synchronous_submits = 0;
+    astia::io_direction last_direction = astia::io_direction::input;
 
 
     astia::core::task<astia::i64> read_many(
@@ -32,11 +38,18 @@ namespace astia::fs {
     open_file::~open_file() = default;
 
     long open_file::submit(io_request& request) {
+        last_direction = request.direction();
         if (submit_mode_state == submit_mode::synchronous_zero) {
             ++synchronous_submits;
             request.complete(true);
             return 0;
         }
+        if (submit_mode_state == submit_mode::synchronous_short) {
+            ++synchronous_submits;
+            return 2;
+        }
+        if (submit_mode_state == submit_mode::synchronous_error)
+            return -EIO;
         parked_completion = request.completion();
         parked_request   = &request;
         return 0;
@@ -76,6 +89,51 @@ ASTIA_TEST(fs_async_awaits_parked_zero_completion) {
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(!task.failed());
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 17);
+}
+
+ASTIA_TEST(fs_async_write_uses_submit_park_and_wake) {
+    astia::fs::open_file file({}, astia::fs::open_file_status_flags::none);
+    auto                 handle = astia::mm::shptr<astia::fs::open_file>::borrowed(&file);
+    const astia::u8      buffer[2]{1, 2};
+    submit_mode_state = submit_mode::parked_zero;
+    parked_completion = nullptr;
+    parked_request = nullptr;
+    last_direction = astia::io_direction::input;
+
+    auto task = astia::fs::write(
+        handle, astia::span<const astia::u8>(buffer, sizeof buffer), 0);
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+    ASTIA_CHECK(last_direction == astia::io_direction::output);
+    ASTIA_CHECK(parked_completion != nullptr);
+    ASTIA_CHECK(parked_request != nullptr);
+    parked_request->acknowledge();
+    ASTIA_CHECK(parked_completion->complete(2));
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(task.value() != nullptr && *task.value() == 2);
+}
+
+ASTIA_TEST(fs_async_propagates_short_reads_and_errors) {
+    astia::fs::open_file file({}, astia::fs::open_file_status_flags::none);
+    auto                 handle = astia::mm::shptr<astia::fs::open_file>::borrowed(&file);
+    astia::u8             buffer[4]{};
+
+    submit_mode_state = submit_mode::synchronous_short;
+    auto short_task = astia::fs::read_exact(
+        handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
+    ASTIA_CHECK(short_task.resume());
+    ASTIA_CHECK(short_task.done());
+    ASTIA_CHECK(short_task.failed());
+    ASTIA_CHECK(short_task.error() == astia::error_t::eio);
+
+    submit_mode_state = submit_mode::synchronous_error;
+    auto error_task = astia::fs::read(
+        handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
+    ASTIA_CHECK(error_task.resume());
+    ASTIA_CHECK(error_task.done());
+    ASTIA_CHECK(error_task.failed());
+    ASTIA_CHECK(error_task.error() == astia::error_t::eio);
 }
 
 ASTIA_TEST(fs_async_handles_long_synchronous_nested_reads) {

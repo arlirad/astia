@@ -1,6 +1,6 @@
 #pragma once
 
-#include <astia/fs_async.hpp>
+#include <astia/fs.hpp>
 #include <astia/core/task.hpp>
 #include <astia/elf.hpp>
 

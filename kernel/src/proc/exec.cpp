@@ -3,7 +3,7 @@
 #include <astia/api/syscalls.h>
 #include <astia/arch/page_map.hpp>
 #include <astia/elf.hpp>
-#include <astia/fs_async.hpp>
+#include <astia/fs.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
 namespace astia::proc {

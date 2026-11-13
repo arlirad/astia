@@ -1,7 +1,7 @@
 # Async audit
 
 Audit target: `5a3a317` (focused async/coroutine/AIO paths). The deferred
-continuation, stale-handle, CQ-full completion, and parked fs_async lifetime
+continuation, stale-handle, CQ-full completion, and parked filesystem lifetime
 findings below are fixed by the async slices.
 
 ## Confirmed findings
@@ -73,7 +73,7 @@ acknowledge before request/completion storage is reclaimed.
   `aio.cpp:819-840`.
 - No direct coroutine `.resume()` appears in the IRQ-ready path. The only
   resume in `resume_queue.cpp` is scheduler drain context.
-- `grep` found async-operation allocation only in `fs_async.cpp`; current AIO
+- `grep` found async-operation allocation only in `fs_io.cpp`; current AIO
   `parked_op` requests are constructed without an async-operation completion,
   so the deferred-completion branches in AIO are defensive/future-facing.
 
@@ -87,6 +87,6 @@ ctest --test-dir /tmp/opencode/astia-kernel-tests --output-on-failure \
 ```
 
 Result: focused async tests passed, including 300 deferred completions,
-completion-before-destroy, inline fs_async completion, parked completion, and
+completion-before-destroy, inline filesystem completion, parked completion, and
 completion after task cancellation. The kernel integration selftest covers
 full-CQ inline and parked completions, and full kernel CTest passed 32/32.

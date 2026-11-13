@@ -3,12 +3,14 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/common.hpp>
+#include <astia/core/task.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/share.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/mm/uptr.hpp>
+#include <astia/span.hpp>
 
 // Minimal kernel VFS foundation.  This is deliberately fixed-storage:
 // Permission metadata is enforced against owner bits.  Astia does not yet
@@ -294,6 +296,9 @@ namespace astia::fs {
         }
         ~open_file();
 
+        /// Synchronous kernel-internal compatibility adapters. They submit
+        /// through the same request path and return -EAGAIN if the node parks;
+        /// callers that may wait use read()/write() below instead.
         long read(void* buf, u32 len, u64 offset = offset_current);
         long write(const void* buf, u32 len, u64 offset = offset_current);
         long seek(i64 offset, i32 whence);
@@ -395,6 +400,15 @@ namespace astia::fs {
         mm::shptr<open_file> file_;
         io_flight*           flight_;
     };
+
+    core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,
+                           u64 offset, io_direction direction);
+    core::task<i64> read(const mm::shptr<open_file>& file, span<u8> buffer,
+                         u64 offset = offset_current);
+    core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer,
+                          u64 offset = offset_current);
+    core::task<i64> read_exact(const mm::shptr<open_file>& file, span<u8> buffer,
+                               u64 offset = offset_current);
 
     /// Reset the fixed VFS tables.  Called by the `fs` init step before
     /// any device node is registered.

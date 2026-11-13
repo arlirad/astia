@@ -1,6 +1,5 @@
-#include <astia/fs_async.hpp>
-
-#include <astia/core/async_operation.hpp>
+#include <astia/fs.hpp>
+#include <astia/mapping.hpp>
 
 namespace astia::fs {
 
@@ -23,7 +22,7 @@ namespace astia::fs {
             const long submitted = packet.submit();
             if (submitted < 0) {
                 packet.request().acknowledge();
-                co_return static_cast<error_t>(-submitted);
+                co_return error_from_errno(-submitted);
             }
             if (submitted > 0) {
                 packet.request().acknowledge();
@@ -38,21 +37,28 @@ namespace astia::fs {
                 co_return result.error;
             co_return result.value;
         }
-    } // namespace
+    }
+
+    core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,
+                           u64 offset, io_direction direction) {
+        return submit_async(file, buffer, length, offset, direction);
+    }
 
     core::task<i64> read(const mm::shptr<open_file>& file, span<u8> buffer, u64 offset) {
-        return submit_async(file, buffer.data(), static_cast<u32>(buffer.size()), offset,
-                            io_direction::input);
+        if (buffer.size() > static_cast<usize>(~u32{0}))
+            return core::task<i64>(error_t::erange);
+        return submit(file, buffer.data(), static_cast<u32>(buffer.size()), offset,
+                      io_direction::input);
     }
 
     core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer, u64 offset) {
-        return submit_async(file, const_cast<u8*>(buffer.data()),
-                            static_cast<u32>(buffer.size()), offset, io_direction::output);
+        if (buffer.size() > static_cast<usize>(~u32{0}))
+            return core::task<i64>(error_t::erange);
+        return submit(file, const_cast<u8*>(buffer.data()), static_cast<u32>(buffer.size()),
+                      offset, io_direction::output);
     }
 
     core::task<i64> read_exact(const mm::shptr<open_file>& file, span<u8> buffer, u64 offset) {
-        if (buffer.size() > static_cast<usize>(~u32{0}))
-            co_return error_t::erange;
         auto result = co_await read(file, buffer, offset);
         if (!result)
             co_return result.error;

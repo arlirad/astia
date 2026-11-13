@@ -1257,13 +1257,9 @@ namespace astia::fs {
     }
 
     long open_file::read(void* buf, u32 len, u64 offset) {
-        if (!_object)
-            return -EBADF;
-        const u64  actual = offset == offset_current ? current_position() : offset;
-        const long result = dispatch_read(_object.get(), buf, len, actual);
-        if (result > 0)
-            set_position(actual + static_cast<u64>(result));
-        return result;
+        io_request request(buf, len, offset, 0, io_direction::input);
+        const long result = submit(request);
+        return result == 0 && !request.complete() ? -EAGAIN : result;
     }
 
     long open_file::seek(i64 offset, i32 whence) {
@@ -1327,18 +1323,9 @@ namespace astia::fs {
     }
 
     long open_file::write(const void* buf, u32 len, u64 offset) {
-        if (!_object)
-            return -EBADF;
-        u64 actual = offset == offset_current ? current_position() : offset;
-        if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0) {
-            const long reserved = reserve_append(len, &actual);
-            if (reserved < 0)
-                return reserved;
-        }
-        const long result = dispatch_write(_object.get(), buf, len, actual);
-        if (result > 0)
-            set_position(actual + static_cast<u64>(result));
-        return result;
+        io_request request(const_cast<void*>(buf), len, offset, 0, io_direction::output);
+        const long result = submit(request);
+        return result == 0 && !request.complete() ? -EAGAIN : result;
     }
     long open_file::submit(io_request& request) {
         if (!_object)
