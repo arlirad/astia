@@ -1,5 +1,4 @@
-#include "daemon.h"
-
+#include "daemond.h"
 #include <daemon_protocol.h>
 #include <sys/socket.h>
 #include <sys/stat.h>

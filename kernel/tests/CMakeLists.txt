@@ -552,7 +552,7 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                 -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
-                -o ${_fix_dir}/native_daemond.o ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemon.c
+                -o ${_fix_dir}/native_daemond.o ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.c
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                 -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
@@ -589,8 +589,8 @@ if (ARCH STREQUAL "x86_64")
                 -o ${_fix_dir}/native_true ${_fix_dir}/crt0.o ${_fix_dir}/native_true.o
                 $<TARGET_FILE:astia_userspace_libc> -lgcc
                 DEPENDS ${ASTIA_KERNEL_SOURCE_DIR}/../init/init.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemon.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemon.h ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.h ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/ps.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/true.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/common.h ${_fix_dir}/crt0.o
