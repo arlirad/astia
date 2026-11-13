@@ -15,28 +15,25 @@ namespace astia::dev {
         return true;
     }
 
-    bool driver_manager::bind(const device_info& info) {
+    bool driver_manager::bind(mm::shptr<device_info> info) {
+        if (!info)
+            return false;
         for (u32 i = 0; i < device_count_; ++i)
-            if (bindings_[i].device_info_instance->same_device(info))
+            if (bindings_[i].device_info_instance->equals(*info))
                 return false;
         if (device_count_ == max_devices)
             return false;
         for (u32 i = 0; i < driver_count_; ++i) {
             driver& candidate_driver = *drivers_[i];
-            if (!candidate_driver.match(info)) {
+            if (!candidate_driver.match(*info)) {
                 continue;
             }
-            mm::shptr<device> value = candidate_driver.probe(info);
+            mm::shptr<device> value = candidate_driver.probe(*info);
             if (!value) {
                 continue;
             }
-            mm::shptr<device_info> copy = info.clone();
-            if (!copy) {
-                candidate_driver.remove(info, value);
-                return false;
-            }
             bindings_[device_count_++] = {&candidate_driver,
-                                          static_cast<mm::shptr<device_info>&&>(copy),
+                                          static_cast<mm::shptr<device_info>&&>(info),
                                           static_cast<mm::shptr<device>&&>(value)};
             return true;
         }

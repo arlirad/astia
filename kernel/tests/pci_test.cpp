@@ -3,6 +3,7 @@
 #include "pci.hpp"
 #include "test.hpp"
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/mmio.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/arch/pci_config.hpp>
 #include <cstdio>
@@ -85,6 +86,10 @@ namespace {
 } // namespace
 
 namespace astia::arch {
+
+    mmio_window_bounds mmio_window() {
+        return {0xFFFFC00000000000ull, 0xFFFFF00000000000ull};
+    }
 
     u32 pci_config_read32(pci_bdf address, u16 offset) {
         if (offset > 0xfcu || (offset & 3u) != 0)

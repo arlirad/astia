@@ -1,5 +1,6 @@
 #include "uart16550.hpp"
 
+#include "../../console.hpp"
 #include "../../device_file.hpp"
 #include "aio.hpp"
 #include "pic.hpp"
@@ -562,6 +563,8 @@ namespace astia::dev {
         }
         if (fs::register_device(console_path, mm::shptr<fs::file>::borrowed(&com1_file)) <
             0)
+            return false;
+        if (!register_console(console_path))
             return false;
         _ports[reg_ier] = ier_rx_ready;  // data-ready interrupts on
         arch::x86_64::pic::unmask(_irq); // handler in place first

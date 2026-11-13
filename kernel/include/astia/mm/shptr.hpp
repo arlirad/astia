@@ -68,6 +68,12 @@ namespace astia::mm {
             other._control = nullptr;
         }
 
+        template <typename U>
+            requires requires(U* value) { static_cast<T*>(value); }
+        shptr(shptr<U>&& other) noexcept : _control(other._control) {
+            other._control = nullptr;
+        }
+
         shptr& operator=(shptr&& other) noexcept {
             if (this != &other) {
                 release();

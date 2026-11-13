@@ -65,6 +65,10 @@ astia_add_host_test(astia_fs_async_test
 )
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
+astia_add_host_test(astia_endian_test endian_test.cpp)
+astia_add_host_test(astia_console_test
+        console_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)
 astia_add_host_test(astia_ownership_test ownership_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 target_compile_definitions(astia_signal_test PRIVATE ASTIA_SIGNAL_HOST_TEST=1)

@@ -1,5 +1,7 @@
 #include "ext4_reader.hpp"
 
+#include <astia/core/endian.hpp>
+
 namespace astia::ext4 {
 
     namespace {
@@ -37,11 +39,10 @@ namespace astia::ext4 {
         constexpr u16 extent_magic = 0xF30A;
 
         u16 get16(const u8* p) {
-            return static_cast<u16>(p[0]) | static_cast<u16>(p[1]) << 8;
+            return core::le<u16>::load(p);
         }
         u32 get32(const u8* p) {
-            return static_cast<u32>(p[0]) | static_cast<u32>(p[1]) << 8 |
-                   static_cast<u32>(p[2]) << 16 | static_cast<u32>(p[3]) << 24;
+            return core::le<u32>::load(p);
         }
         void copy_bytes(u8* dst, const u8* src, usize length) {
             for (usize i = 0; i < length; ++i)

@@ -21,13 +21,9 @@ namespace {
             return astia::dev::device_bus::unknown;
         }
 
-        bool same_device(const astia::dev::device_info& other) const override {
+        bool equals(const astia::dev::device_info& other) const override {
             const auto* value = static_cast<const test_info*>(&other);
             return value_ == value->value_;
-        }
-
-        astia::mm::shptr<astia::dev::device_info> clone() const override {
-            return astia::mm::shptr<astia::dev::device_info>(new test_info(*this));
         }
 
         astia::u32 value() const {
@@ -37,6 +33,12 @@ namespace {
         private:
         astia::u32 value_;
     };
+
+    astia::mm::shptr<astia::dev::device_info> device_candidate(
+        astia::mm::shptr<test_info>&& value) {
+        return astia::mm::shptr<astia::dev::device_info>(
+            static_cast<astia::mm::shptr<test_info>&&>(value));
+    }
 
     class test_device final : public astia::dev::device {
         public:
@@ -112,10 +114,11 @@ ASTIA_TEST(driver_manager_passes_candidate_to_match_and_probe) {
     int destroyed = 0;
     test_driver driver(true, true, &destroyed);
     astia::dev::driver_manager manager;
-    test_info info(42);
+    astia::mm::shptr<test_info> info(new test_info(42));
+    ASTIA_CHECK(info);
 
     ASTIA_CHECK(manager.register_driver(driver));
-    ASTIA_CHECK(manager.bind(info));
+    ASTIA_CHECK(manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info))));
     ASTIA_CHECK(driver.match_count_ == 1);
     ASTIA_CHECK(driver.probe_count_ == 1);
     ASTIA_CHECK(driver.matched_value_ == 42);
@@ -131,10 +134,11 @@ ASTIA_TEST(driver_manager_rejects_failed_probe) {
     int destroyed = 0;
     test_driver driver(true, false, &destroyed);
     astia::dev::driver_manager manager;
-    test_info info(7);
+    astia::mm::shptr<test_info> info(new test_info(7));
+    ASTIA_CHECK(info);
 
     ASTIA_CHECK(manager.register_driver(driver));
-    ASTIA_CHECK(!manager.bind(info));
+    ASTIA_CHECK(!manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info))));
     ASTIA_CHECK(driver.match_count_ == 1);
     ASTIA_CHECK(driver.probe_count_ == 1);
     ASTIA_CHECK(manager.device_count() == 0);
@@ -145,10 +149,14 @@ ASTIA_TEST(driver_manager_shared_device_lifetime) {
     int destroyed = 0;
     test_driver driver(true, true, &destroyed);
     astia::dev::driver_manager manager;
-    test_info info(9);
+    astia::mm::shptr<test_info> info(new test_info(9));
+    ASTIA_CHECK(info);
 
     ASTIA_CHECK(manager.register_driver(driver));
-    ASTIA_CHECK(manager.bind(info));
+    auto candidate = info;
+    ASTIA_CHECK(manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info))));
+    ASTIA_CHECK(!info);
+    ASTIA_CHECK(candidate);
     auto retained = manager.device_at(0);
     astia::dev::device* address = retained.get();
     manager.unbind_all();
@@ -157,4 +165,18 @@ ASTIA_TEST(driver_manager_shared_device_lifetime) {
     ASTIA_CHECK(destroyed == 0);
     retained = {};
     ASTIA_CHECK(destroyed == 1);
+}
+
+ASTIA_TEST(driver_manager_rejects_equal_candidates) {
+    int destroyed = 0;
+    test_driver driver(true, true, &destroyed);
+    astia::dev::driver_manager manager;
+    astia::mm::shptr<test_info> first(new test_info(11));
+    astia::mm::shptr<test_info> second(new test_info(11));
+
+    ASTIA_CHECK(manager.register_driver(driver));
+    ASTIA_CHECK(manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(first))));
+    ASTIA_CHECK(!manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(second))));
+    ASTIA_CHECK(manager.device_count() == 1);
+    manager.unbind_all();
 }

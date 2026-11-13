@@ -1,5 +1,6 @@
 #include "fd_table.hpp"
 
+#include "../dev/console.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
@@ -8,9 +9,9 @@
 namespace astia::proc {
 
     bool fd_table::install_standard_streams() {
-        auto input  = fs::open("/dev/tts0", ASTIA_AIO_O_RDWR);
-        auto output = fs::open("/dev/tts0", ASTIA_AIO_O_RDWR);
-        auto error  = fs::open("/dev/tts0", ASTIA_AIO_O_RDWR);
+        auto input  = dev::open_console(ASTIA_AIO_O_RDWR);
+        auto output = dev::open_console(ASTIA_AIO_O_RDWR);
+        auto error  = dev::open_console(ASTIA_AIO_O_RDWR);
         if (!input || !output || !error)
             return false;
         arch::interrupt_spinlock_guard guard(lock_);

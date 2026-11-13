@@ -1,6 +1,7 @@
 #include "pci.hpp"
 
 #include "driver.hpp"
+#include <astia/core/endian.hpp>
 #include <astia/arch/layout.hpp>
 
 namespace astia::dev {
@@ -11,13 +12,9 @@ namespace astia::dev {
                    : nullptr;
     }
 
-    bool pci_device_info::same_device(const device_info& other) const {
+    bool pci_device_info::equals(const device_info& other) const {
         const pci_device_info* pci = get(other);
         return pci != nullptr && device().bdf == pci->device().bdf;
-    }
-
-    mm::shptr<device_info> pci_device_info::clone() const {
-        return mm::shptr<device_info>(new pci_device_info(*value_));
     }
 
     namespace {
@@ -75,6 +72,7 @@ namespace astia::dev {
                 return false;
             }
             value = read_fn()(address, offset);
+            value = core::le<u32>(value).get();
             return true;
         }
 
@@ -392,8 +390,8 @@ namespace astia::dev {
                     if (added == nullptr)
                         return found;
                     ++found;
-                    pci_device_info candidate(*added);
-                    drivers().bind(candidate);
+                    mm::shptr<device_info> candidate(new pci_device_info(*added));
+                    drivers().bind(static_cast<mm::shptr<device_info>&&>(candidate));
                 }
             }
         }

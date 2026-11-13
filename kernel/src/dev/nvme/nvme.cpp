@@ -6,6 +6,7 @@
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
+#include <astia/core/endian.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
 #include <astia/memory.hpp>
@@ -65,11 +66,11 @@ namespace astia::dev::nvme {
         };
 
         struct command {
-            u32 dword[16]{};
+            core::le<u32> dword[16]{};
         };
 
         struct completion {
-            u32 dword[4]{};
+            core::le<u32> dword[4]{};
         };
 
         class controller final : public blk::block_device {
@@ -190,7 +191,10 @@ namespace astia::dev::nvme {
             dma_buffer identify_page_;
 
             u32 read32(u32 offset) const {
-                return *reinterpret_cast<volatile const u32*>(registers_ + offset);
+                u8 bytes[sizeof(u32)]{};
+                for (usize index = 0; index < sizeof(u32); ++index)
+                    bytes[index] = registers_[offset + index];
+                return core::le<u32>::load(bytes);
             }
 
             u64 read64(u32 offset) const {
@@ -200,7 +204,10 @@ namespace astia::dev::nvme {
             }
 
             void write32(u32 offset, u32 value) {
-                *reinterpret_cast<volatile u32*>(registers_ + offset) = value;
+                u8 bytes[sizeof(u32)]{};
+                core::le<u32>(value).store(bytes);
+                for (usize index = 0; index < sizeof(u32); ++index)
+                    registers_[offset + index] = bytes[index];
             }
 
             void disable_msix(pci_device& device) {
@@ -298,7 +305,7 @@ namespace astia::dev::nvme {
                 if (controller_status != 0)
                     return false;
                 const auto* data = static_cast<const u8*>(identify_page_.virtual_address);
-                const u32 namespaces = *reinterpret_cast<const u32*>(data + 516);
+                const u32 namespaces = core::le<u32>::load(data + 516);
                 if (namespaces == 0)
                     return false;
                 fill_zero(identify_page_.virtual_address, mm::page_size);
@@ -310,7 +317,7 @@ namespace astia::dev::nvme {
                 submit_admin(namespace_identify, identify_page_.physical);
                 if (poll_admin() != 0)
                     return false;
-                const u64 size = *reinterpret_cast<const u64*>(data);
+                const u64 size = core::le<u64>::load(data);
                 const u8 format = data[26] & 0xfu;
                 if (size == 0 || format >= 16)
                     return false;

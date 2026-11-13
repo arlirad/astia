@@ -1,4 +1,5 @@
 #include <astia/arch/layout.hpp>
+#include <astia/arch/mmio.hpp>
 
 namespace astia::arch {
 
@@ -18,5 +19,9 @@ namespace astia::arch {
     const u64 kernel_base    = 0xFFFF800000000000ull;
     const u64 image_base     = 0xFFFFFFFF80000000ull;
     const u64 recursive_base = 0xFFFFFF0000000000ull;
+
+    mmio_window_bounds mmio_window() {
+        return {0xFFFFC00000000000ull, 0xFFFFF00000000000ull};
+    }
 
 } // namespace astia::arch

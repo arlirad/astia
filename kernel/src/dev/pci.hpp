@@ -111,18 +111,17 @@ namespace astia::dev {
 
     class pci_device_info final : public device_info {
         public:
-        explicit pci_device_info(pci_device& value) : value_(&value) {}
+        explicit pci_device_info(const pci_device& value) : value_(value) {}
 
         device_bus bus() const override { return device_bus::pci; }
-        bool same_device(const device_info& other) const override;
-        mm::shptr<device_info> clone() const override;
+        bool equals(const device_info& other) const override;
 
-        const pci_device& device() const { return *value_; }
-        pci_device& mutable_device() const { return *value_; }
+        const pci_device& device() const { return value_; }
+        pci_device& mutable_device() const { return value_; }
         static const pci_device_info* get(const device_info& value);
 
         private:
-        pci_device* value_;
+        mutable pci_device value_;
     };
 
     class pci_registry {

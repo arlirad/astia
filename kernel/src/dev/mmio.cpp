@@ -2,6 +2,7 @@
 #include "pci.hpp"
 
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/mmio.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
 #include <astia/error.hpp>
@@ -11,9 +12,7 @@
 namespace astia::dev {
 
     namespace {
-        constexpr u64 mmio_base  = 0xFFFFC00000000000ull;
-        constexpr u64 mmio_limit = 0xFFFFF00000000000ull;
-        u64           next_mmio = mmio_base;
+        u64           next_mmio = arch::mmio_window().base;
         core::spinlock mmio_lock;
     } // namespace
 
@@ -75,7 +74,8 @@ namespace astia::dev {
 
         mmio_mapping result;
         arch::interrupt_spinlock_guard guard(mmio_lock);
-        if (next_mmio > mmio_limit || mapped_bytes > mmio_limit - next_mmio) {
+        const auto window = arch::mmio_window();
+        if (next_mmio > window.limit || mapped_bytes > window.limit - next_mmio) {
             return error_t::enomem;
         }
         const u64 virtual_base = next_mmio;

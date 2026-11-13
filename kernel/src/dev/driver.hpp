@@ -12,8 +12,7 @@ namespace astia::dev {
         public:
         virtual ~device_info() = default;
         virtual device_bus bus() const = 0;
-        virtual bool same_device(const device_info& other) const = 0;
-        virtual mm::shptr<device_info> clone() const = 0;
+        virtual bool equals(const device_info& other) const = 0;
     };
 
     class driver {
@@ -30,7 +29,7 @@ namespace astia::dev {
         static constexpr u32 max_devices = 64;
 
         bool register_driver(driver& value);
-        bool bind(const device_info& device);
+        bool bind(mm::shptr<device_info> device);
         void unbind_all();
         u32  driver_count() const {
             return driver_count_;
