@@ -43,6 +43,26 @@ static int process_result(long rc) {
     return (int) rc;
 }
 
+__attribute__((weak)) long __astia_process_fchdir(int fd) {
+    return astia_fchdir(fd);
+}
+
+__attribute__((weak)) long __astia_process_getuid(void) {
+    return astia_getuid();
+}
+
+__attribute__((weak)) long __astia_process_geteuid(void) {
+    return astia_geteuid();
+}
+
+__attribute__((weak)) long __astia_process_getgid(void) {
+    return astia_getgid();
+}
+
+__attribute__((weak)) long __astia_process_getegid(void) {
+    return astia_getegid();
+}
+
 int getpid(void) {
     return process_result(__astia_process_getpid());
 }
@@ -53,6 +73,10 @@ int getppid(void) {
 
 int gettid(void) {
     return process_result(__astia_process_gettid());
+}
+
+int fchdir(int fd) {
+    return process_result(__astia_process_fchdir(fd));
 }
 
 int sched_yield(void) {
@@ -115,10 +139,10 @@ int setuid(unsigned int uid) {
     return process_result(astia_setuid(uid));
 }
 unsigned int getuid(void) {
-    return (unsigned int) process_result(astia_getuid());
+    return (unsigned int) process_result(__astia_process_getuid());
 }
 unsigned int geteuid(void) {
-    return (unsigned int) process_result(astia_geteuid());
+    return (unsigned int) process_result(__astia_process_geteuid());
 }
 int seteuid(unsigned int uid) {
     return process_result(astia_seteuid(uid));
@@ -127,10 +151,10 @@ int setgid(unsigned int gid) {
     return process_result(astia_setgid(gid));
 }
 unsigned int getgid(void) {
-    return (unsigned int) process_result(astia_getgid());
+    return (unsigned int) process_result(__astia_process_getgid());
 }
 unsigned int getegid(void) {
-    return (unsigned int) process_result(astia_getegid());
+    return (unsigned int) process_result(__astia_process_getegid());
 }
 int setegid(unsigned int gid) {
     return process_result(astia_setegid(gid));

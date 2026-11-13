@@ -61,6 +61,19 @@ int main(void) {
         CHECK(stat(dir, &st) == 0 && (st.st_mode & 0777) == 0700);
         CHECK(close(fd) == 0);
     }
+    fd = open(dir, O_RDONLY | O_DIRECTORY, 0);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        CHECK(faccessat(fd, "file", R_OK, 0) == 0);
+        CHECK(faccessat(fd, "file", R_OK, AT_EACCESS) == 0);
+        errno = 0;
+        CHECK(faccessat(fd, "missing", F_OK, 0) == -1 && errno == ENOENT);
+        errno = 0;
+        CHECK(faccessat(-1, "file", F_OK, 0) == -1 && errno == EBADF);
+        errno = 0;
+        CHECK(faccessat(fd, "file", F_OK, AT_EACCESS | 0x400) == -1 && errno == EINVAL);
+        CHECK(close(fd) == 0);
+    }
     errno = 0;
     CHECK(fchmod(-1, 0600) == -1 && errno == EBADF);
     CHECK(symlink("file", link) == 0);

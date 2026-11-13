@@ -39,6 +39,26 @@ long __astia_process_gettid(void) {
     return host_trap(SYS_gettid, 0, 0, 0, 0);
 }
 
+long __astia_process_fchdir(int fd) {
+    return host_trap(SYS_fchdir, fd, 0, 0, 0);
+}
+
+long __astia_process_getuid(void) {
+    return host_trap(SYS_getuid, 0, 0, 0, 0);
+}
+
+long __astia_process_geteuid(void) {
+    return host_trap(SYS_geteuid, 0, 0, 0, 0);
+}
+
+long __astia_process_getgid(void) {
+    return host_trap(SYS_getgid, 0, 0, 0, 0);
+}
+
+long __astia_process_getegid(void) {
+    return host_trap(SYS_getegid, 0, 0, 0, 0);
+}
+
 long __astia_process_getpgrp(void) {
     return host_trap(SYS_getpgrp, 0, 0, 0, 0);
 }

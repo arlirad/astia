@@ -50,6 +50,8 @@ int          setegid(unsigned int gid);
 int          setreuid(unsigned int real_uid, unsigned int effective_uid);
 int          setregid(unsigned int real_gid, unsigned int effective_gid);
 int          access(const char* path, int mode);
+int          faccessat(int dirfd, const char* path, int mode, int flags);
+int          fchdir(int fd);
 int          close(int fd);
 int          ftruncate(int fd, off_t length);
 int          umount(const char* target);

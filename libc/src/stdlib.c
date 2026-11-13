@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <float.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -314,6 +315,23 @@ unsigned long long strtoull(const char* nptr, char** endptr, int base) {
         return ULLONG_MAX;
     }
     return negative ? 0ULL - acc : acc;
+}
+
+intmax_t imaxabs(intmax_t value) {
+    return value < 0 ? -value : value;
+}
+
+imaxdiv_t imaxdiv(intmax_t numerator, intmax_t denominator) {
+    imaxdiv_t result = {numerator / denominator, numerator % denominator};
+    return result;
+}
+
+intmax_t strtoimax(const char* string, char** end, int base) {
+    return (intmax_t) strtoll(string, end, base);
+}
+
+uintmax_t strtoumax(const char* string, char** end, int base) {
+    return (uintmax_t) strtoull(string, end, base);
 }
 
 static int ascii_equal_ci(const char* a, const char* b, size_t n) {

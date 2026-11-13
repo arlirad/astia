@@ -136,6 +136,7 @@ enum {
     SYS_UMASK            = 66,
     SYS_SHM_OPEN         = 67,
     SYS_SHM_UNLINK       = 68,
+    SYS_FCHDIR            = 69,
 };
 
 /* ------------------------------------------------------------------ */
@@ -472,6 +473,10 @@ static inline long astia_waitpid(int32_t pid, int32_t* status) {
 
 static inline long astia_chdir(const char* path) {
     return astia_raw6(SYS_CHDIR, (long) path, 0, 0, 0, 0, 0);
+}
+
+static inline long astia_fchdir(int fd) {
+    return astia_raw6(SYS_FCHDIR, (long) fd, 0, 0, 0, 0, 0);
 }
 static inline long astia_getcwd(char* buffer, uint64_t length) {
     return astia_raw6(SYS_GETCWD, (long) buffer, (long) length, 0, 0, 0, 0);

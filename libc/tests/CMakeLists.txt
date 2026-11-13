@@ -31,6 +31,10 @@ foreach(_t string ctype stdlib malloc snprintf)
   add_test(NAME libc_${_t}_test COMMAND libc_${_t}_test)
 endforeach()
 
+add_executable(libc_headers_test headers_test.c)
+target_link_libraries(libc_headers_test PRIVATE astia_libc)
+add_test(NAME libc_headers_test COMMAND libc_headers_test)
+
 add_executable(libc_getopt_test getopt_test.c backend_host.c)
 target_link_libraries(libc_getopt_test PRIVATE astia_libc)
 add_test(NAME libc_getopt_test COMMAND libc_getopt_test)
@@ -95,8 +99,8 @@ add_executable(libc_uio_test uio_test.c backend_host.c)
 target_link_libraries(libc_uio_test PRIVATE astia_libc)
 add_test(NAME libc_uio_test COMMAND libc_uio_test)
 
-add_executable(libc_stat_test stat_test.c backend_host.c)
-target_link_libraries(libc_stat_test PRIVATE astia_libc)
+add_executable(libc_stat_test stat_test.c backend_host.c process_host.c alarm_host.c)
+target_link_libraries(libc_stat_test PRIVATE astia_libc_host)
 add_test(NAME libc_stat_test COMMAND libc_stat_test)
 
 add_executable(libc_rename_test rename_test.c backend_host.c)

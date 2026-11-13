@@ -300,6 +300,38 @@ int strncasecmp(const char* a, const char* b, size_t n) {
     return *a == *b ? 0 : (*a == '\0' ? -1 : 1);
 }
 
+int bcmp(const void* left, const void* right, size_t length) {
+    return memcmp(left, right, length);
+}
+
+void bcopy(const void* source, void* destination, size_t length) {
+    (void) memmove(destination, source, length);
+}
+
+void bzero(void* destination, size_t length) {
+    (void) memset(destination, 0, length);
+}
+
+int ffs(int value) {
+    unsigned int bits = (unsigned int) value;
+    int          bit  = 1;
+    if (bits == 0)
+        return 0;
+    while ((bits & 1u) == 0) {
+        bits >>= 1;
+        ++bit;
+    }
+    return bit;
+}
+
+char* index(const char* string, int character) {
+    return strchr(string, character);
+}
+
+char* rindex(const char* string, int character) {
+    return strrchr(string, character);
+}
+
 char* strerror(int errnum) {
     switch (errnum) {
     case EPERM:

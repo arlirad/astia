@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -43,41 +44,50 @@ int getlogin_r(char* name, unsigned long name_size) {
     return 0;
 }
 
-int access(const char* path, int mode) {
-    char       resolved[astia_path_buffer_capacity];
-    astia_stat value;
-    long       rc;
-
-    if (path == NULL || (mode & ~(F_OK | X_OK | W_OK | R_OK)) != 0) {
-        errno = EINVAL;
-        return -1;
-    }
-    if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
-        return -1;
-    rc = __astia_fio_stat(resolved, &value, sizeof value);
-    if (rc < 0) {
-        errno = (int) -rc;
-        return -1;
-    }
-    unsigned int uid = getuid(), gid = getgid();
-    unsigned int bits = uid == value.uid ? ((value.mode >> 6) & 7)
-                                         : (gid == value.gid ? ((value.mode >> 3) & 7)
-                                                             : (value.mode & 7));
+static int check_access(const struct stat* value, int mode, unsigned int uid,
+                        unsigned int gid) {
+    unsigned int bits;
+    if (mode == F_OK)
+        return 0;
+    bits = uid == value->st_uid ? ((value->st_mode >> 6) & 7)
+                                : (gid == value->st_gid ? ((value->st_mode >> 3) & 7)
+                                                          : (value->st_mode & 7));
     if (uid == 0)
-        bits = (mode & X_OK) ? ((value.mode & 0111) ? 7 : 0) : 7;
-    if ((mode & R_OK) && !(bits & 4)) {
-        errno = EACCES;
-        return -1;
-    }
-    if ((mode & W_OK) && !(bits & 2)) {
-        errno = EACCES;
-        return -1;
-    }
-    if ((mode & X_OK) && !(bits & 1)) {
-        errno = EACCES;
-        return -1;
-    }
+        bits = (mode & X_OK) ? ((value->st_mode & 0111) ? 7 : 0) : 7;
+    if ((mode & R_OK) && !(bits & 4))
+        return EACCES;
+    if ((mode & W_OK) && !(bits & 2))
+        return EACCES;
+    if ((mode & X_OK) && !(bits & 1))
+        return EACCES;
     return 0;
+}
+
+int faccessat(int dirfd, const char* path, int mode, int flags) {
+    struct stat value;
+    unsigned int uid;
+    unsigned int gid;
+
+    if (path == NULL)
+        errno = EFAULT;
+    else if ((mode & ~(F_OK | X_OK | W_OK | R_OK)) != 0 || (flags & ~AT_EACCESS) != 0)
+        errno = EINVAL;
+    else if (fstatat(dirfd, path, &value, 0) < 0)
+        return -1;
+    else {
+        uid = (flags & AT_EACCESS) ? geteuid() : getuid();
+        gid = (flags & AT_EACCESS) ? getegid() : getgid();
+        int result = check_access(&value, mode, uid, gid);
+        if (result == 0)
+            return 0;
+        errno = result;
+        return -1;
+    }
+    return -1;
+}
+
+int access(const char* path, int mode) {
+    return faccessat(AT_FDCWD, path, mode, 0);
 }
 int open(const char* path, int flags, ...) {
     va_list ap;

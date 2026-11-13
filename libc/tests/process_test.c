@@ -7,10 +7,12 @@
 #include <sys/wait.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 extern int fork(void); /* host libc: ours has no fork */
@@ -37,6 +39,28 @@ int main(int argc, char** argv) {
     CHECK(getppid() > 0);
     CHECK(gettid() > 0);
     CHECK(sched_yield() == 0);
+
+    int saved_directory = open(".", O_RDONLY | O_DIRECTORY, 0);
+    int test_directory = open("astia_fchdir_test_dir", O_RDONLY | O_DIRECTORY, 0);
+    if (test_directory < 0) {
+        CHECK(mkdir("astia_fchdir_test_dir", 0755) == 0);
+        test_directory = open("astia_fchdir_test_dir", O_RDONLY | O_DIRECTORY, 0);
+    }
+    CHECK(saved_directory >= 0 && test_directory >= 0);
+    if (saved_directory >= 0 && test_directory >= 0) {
+        CHECK(fchdir(test_directory) == 0);
+        int marker = open("marker", O_CREAT | O_RDWR, 0600);
+        CHECK(marker >= 0);
+        if (marker >= 0)
+            close(marker);
+        CHECK(unlink("marker") == 0);
+        CHECK(fchdir(saved_directory) == 0);
+    }
+    if (test_directory >= 0)
+        close(test_directory);
+    if (saved_directory >= 0)
+        close(saved_directory);
+    CHECK(rmdir("astia_fchdir_test_dir") == 0);
 
     CHECK(WNOHANG == 1 && WUNTRACED == 2 && WCONTINUED == 8);
     CHECK(WIFEXITED(5 << 8) && WEXITSTATUS(5 << 8) == 5);

@@ -19,6 +19,7 @@
 #include "syscalls/memory/munmap.hpp"
 #include "syscalls/memory/msync.hpp"
 #include "syscalls/process/chdir.hpp"
+#include "syscalls/process/fchdir.hpp"
 #include "syscalls/process/execve.hpp"
 #include "syscalls/process/exit.hpp"
 #include "syscalls/process/fork.hpp"
@@ -337,6 +338,7 @@ namespace astia::proc {
                sys::register_syscall<syscall::exit>(sys::syscall_id::exit) &&
                sys::register_syscall<syscall::waitpid>(sys::syscall_id::waitpid) &&
                sys::register_syscall<syscall::chdir>(sys::syscall_id::chdir) &&
+               sys::register_syscall<syscall::fchdir>(sys::syscall_id::fchdir) &&
                sys::register_syscall<syscall::getcwd>(sys::syscall_id::getcwd) &&
                sys::register_syscall<syscall::getuid>(sys::syscall_id::getuid) &&
                sys::register_syscall<syscall::geteuid>(sys::syscall_id::geteuid) &&

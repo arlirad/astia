@@ -16,6 +16,7 @@
 #define EFD_NONBLOCK 0x0001
 #define EFD_CLOEXEC 0x0002
 #define AT_FDCWD (-100)
+#define AT_EACCESS 0x200
 
 #define FD_CLOEXEC 1
 #define F_DUPFD 0

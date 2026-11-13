@@ -45,12 +45,15 @@ struct tm {
 };
 #endif
 
+#ifndef __struct_tms_defined
+#define __struct_tms_defined 1
 struct tms {
     clock_t tms_utime;
     clock_t tms_stime;
     clock_t tms_cutime;
     clock_t tms_cstime;
 };
+#endif
 
 #define CLOCKS_PER_SEC 1000000L
 #define TIME_UTC 1

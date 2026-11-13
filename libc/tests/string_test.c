@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 static int fails;
 
@@ -127,6 +128,19 @@ static void test_strtok(void) {
     CHECK(strtok(NULL, ",") == NULL); /* stays exhausted */
 }
 
+static void test_strings_aliases(void) {
+    char        buffer[8] = "abc";
+    const char* value     = "abc";
+    CHECK(bcmp(buffer, "abc", 3) == 0);
+    bcopy("xyz", buffer, 4);
+    CHECK(strcmp(buffer, "xyz") == 0);
+    bzero(buffer, sizeof buffer);
+    CHECK(buffer[0] == 0 && buffer[7] == 0);
+    CHECK(ffs(0) == 0 && ffs(1) == 1 && ffs(0x10) == 5);
+    CHECK(index(value, 'b') == value + 1);
+    CHECK(rindex("abca", 'a') != NULL && rindex("abca", 'a')[1] == '\0');
+}
+
 static void test_strerror(void) {
     CHECK(strerror(ENOENT) != NULL);
     CHECK(strcmp(strerror(ENOENT), "No such file or directory") == 0);
@@ -142,6 +156,7 @@ int main(void) {
     test_mem();
     test_cstrings();
     test_strtok();
+    test_strings_aliases();
     test_strerror();
 
     if (fails)
