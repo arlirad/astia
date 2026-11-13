@@ -83,9 +83,12 @@ namespace astia::arch {
             void*                    context = nullptr;
             u32                      owner   = 0;
             bool                     masked  = true;
+            u32                      destination = 0;
+            u32                      in_flight   = 0;
         };
 
         vector_slot vector_slots[256]{};
+        core::spinlock vector_lock;
         u32 next_vector_owner = 1;
         bool vector_router_ready = false;
 
@@ -219,10 +222,28 @@ namespace astia::arch {
             return;
         }
         if (vector >= first_device_vector && vector <= last_device_vector) {
-            vector_slot& slot = vector_slots[vector];
-            if (slot.owner != 0) {
-                if (!slot.masked && slot.handler != nullptr)
-                    slot.handler(slot.context);
+            interrupt_vector_handler handler = nullptr;
+            void* context = nullptr;
+            u32 owner = 0;
+            {
+                interrupt_spinlock_guard guard(vector_lock);
+                vector_slot& slot = vector_slots[vector];
+                owner = slot.owner;
+                if (owner != 0 && !slot.masked && slot.handler != nullptr) {
+                    handler = slot.handler;
+                    context = slot.context;
+                    ++slot.in_flight;
+                }
+            }
+            if (owner != 0) {
+                if (handler != nullptr)
+                    handler(context);
+                if (handler != nullptr) {
+                    interrupt_spinlock_guard guard(vector_lock);
+                    vector_slot& slot = vector_slots[vector];
+                    if (slot.owner == owner && slot.in_flight != 0)
+                        --slot.in_flight;
+                }
                 lapic::eoi();
             }
             return;
@@ -296,7 +317,7 @@ namespace astia::arch {
         route = {};
         if (!vector_router_ready || handler == nullptr || !x86_64::lapic::msi_available())
             return false;
-        interrupt_guard gate;
+        interrupt_spinlock_guard guard(vector_lock);
         for (u32 vector = first_device_vector; vector <= last_device_vector; ++vector) {
             vector_slot& slot = vector_slots[vector];
             if (slot.owner != 0)
@@ -304,7 +325,7 @@ namespace astia::arch {
             u32 owner = next_vector_owner++;
             if (owner == 0)
                 owner = next_vector_owner++;
-            slot = {handler, context, owner, true};
+            slot = {handler, context, owner, true, x86_64::lapic::id(), 0};
             route = {vector, owner};
             return true;
         }
@@ -314,9 +335,9 @@ namespace astia::arch {
     bool unregister_interrupt_vector(interrupt_vector route) {
         if (!route.valid() || route.vector > 255)
             return false;
-        interrupt_guard gate;
+        interrupt_spinlock_guard guard(vector_lock);
         vector_slot& slot = vector_slots[route.vector];
-        if (slot.owner != route.owner)
+        if (slot.owner != route.owner || slot.in_flight != 0)
             return false;
         slot = {};
         return true;
@@ -325,7 +346,7 @@ namespace astia::arch {
     bool mask_interrupt_vector(interrupt_vector route) {
         if (!route.valid() || route.vector > 255)
             return false;
-        interrupt_guard gate;
+        interrupt_spinlock_guard guard(vector_lock);
         vector_slot& slot = vector_slots[route.vector];
         if (slot.owner != route.owner)
             return false;
@@ -336,7 +357,7 @@ namespace astia::arch {
     bool unmask_interrupt_vector(interrupt_vector route) {
         if (!route.valid() || route.vector > 255)
             return false;
-        interrupt_guard gate;
+        interrupt_spinlock_guard guard(vector_lock);
         vector_slot& slot = vector_slots[route.vector];
         if (slot.owner != route.owner)
             return false;
@@ -348,11 +369,11 @@ namespace astia::arch {
         if (!route.valid() || route.vector < first_device_vector ||
             route.vector > last_device_vector || !x86_64::lapic::msi_available())
             return false;
-        interrupt_guard gate;
+        interrupt_spinlock_guard guard(vector_lock);
         const vector_slot& slot = vector_slots[route.vector];
         if (slot.owner != route.owner)
             return false;
-        message.address_low = 0xFEE00000u | ((x86_64::lapic::id() & 0xffu) << 12);
+        message.address_low = 0xFEE00000u | ((slot.destination & 0xffu) << 12);
         message.address_high = 0;
         message.data = route.vector;
         return true;

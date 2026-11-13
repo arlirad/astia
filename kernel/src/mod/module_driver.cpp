@@ -194,7 +194,13 @@ namespace astia::mod {
 
         volatile u32* route_table_entry(astia_module_msix_route& route,
                                         dev::pci_device& device) {
-            if (route.table_bar >= device.bar_count || route.table_index >= 2048 ||
+            if (route.table_bar >= device.bar_count ||
+                route.pci_bus != device.bdf.bus || route.pci_device != device.bdf.device ||
+                route.pci_function != device.bdf.function ||
+                route.table_bar != device.interrupt.table_bar ||
+                route.table_offset != device.interrupt.table_offset ||
+                route.table_index >= device.interrupt.vector_count ||
+                route.table_index >= 2048 ||
                 route.table_offset > device.bars[route.table_bar].size ||
                 16 > device.bars[route.table_bar].size - route.table_offset)
                 return nullptr;
@@ -316,7 +322,7 @@ namespace astia::mod {
             return -EIO;
         return dev::pci_config_write16(device.bdf,
                                        static_cast<u16>(device.interrupt.capability + 2),
-                                       static_cast<u16>(control & ~(1u << 15)))
+                                       static_cast<u16>((control | (1u << 14)) & ~(1u << 15)))
                    ? 0
                    : -EIO;
     }
@@ -359,9 +365,17 @@ namespace astia::mod {
         dev::pci_device* device = route_device(*route);
         if (device == nullptr)
             return -ENODEV;
+        if (!arch::mask_interrupt_vector(route_vector(*route)))
+            return -EPERM;
         volatile u32* entry = route_table_entry(*route, *device);
         if (entry == nullptr)
             return -EIO;
+        arch::msi_message message{};
+        if (!arch::interrupt_vector_message(route_vector(*route), message))
+            return -EPERM;
+        route->message_address_low = message.address_low;
+        route->message_address_high = message.address_high;
+        route->message_data = message.data;
         mask_route_table(entry, true);
         entry[0] = route->message_address_low;
         entry[1] = route->message_address_high;
@@ -397,8 +411,8 @@ namespace astia::mod {
         if (route == nullptr || route->vector == 0 || route->owner == 0)
             return -EINVAL;
         dev::pci_device* device = route_device(*route);
-        if (route->enabled)
-            arch::mask_interrupt_vector(route_vector(*route));
+        if (!arch::mask_interrupt_vector(route_vector(*route)))
+            return -EPERM;
         if (device == nullptr)
             return -ENODEV;
         volatile u32* entry = route_table_entry(*route, *device);
@@ -418,6 +432,8 @@ namespace astia::mod {
         if (route == nullptr || route->vector == 0 || route->owner == 0)
             return -EINVAL;
         const int disabled = astia_module_pci_msix_disable(route);
+        if (disabled != 0)
+            return disabled;
         dev::pci_device* device = route_device(*route);
         if (device != nullptr && route->mapped_by_route)
             dev::pci_unmap_bar(*device, route->table_bar);

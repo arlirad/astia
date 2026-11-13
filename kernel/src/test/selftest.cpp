@@ -35,6 +35,13 @@ namespace astia::test {
         volatile u32 preempt_started    = 0;
         volatile u32 preempt_main_seen  = 0;
         volatile u32 preempt_done       = 0;
+        volatile u32 vector_test_hits   = 0;
+
+        extern "C" void interrupt_dispatch(arch::interrupt_frame* frame);
+
+        void vector_test_handler(void*) {
+            __atomic_add_fetch(&vector_test_hits, 1, __ATOMIC_RELAXED);
+        }
 
         class registry_test_mount final : public fs::mount {};
 
@@ -418,6 +425,57 @@ namespace astia::test {
             if (!ticked) {
                 logs::error("interrupts fail (tick)");
                 return false;
+            }
+
+            if (arch::current_timer_source() == arch::timer_source::lapic) {
+                arch::interrupt_vector route{};
+                vector_test_hits = 0;
+                if (!arch::register_interrupt_vector(vector_test_handler, nullptr, route)) {
+                    logs::error("interrupt vectors fail (register)");
+                    return false;
+                }
+                arch::msi_message message{};
+                if (!arch::interrupt_vector_message(route, message) ||
+                    message.address_high != 0 || message.data != route.vector) {
+                    logs::error("interrupt vectors fail (message)");
+                    return false;
+                }
+                if (!arch::unmask_interrupt_vector(route)) {
+                    logs::error("interrupt vectors fail (unmask)");
+                    return false;
+                }
+                arch::interrupt_frame frame{};
+                frame.vector = route.vector;
+                interrupt_dispatch(&frame);
+                const u32 first_hits = __atomic_load_n(&vector_test_hits, __ATOMIC_RELAXED);
+                const bool masked = arch::mask_interrupt_vector(route);
+                if (first_hits != 1 || !masked) {
+                    logs::error("interrupt vectors fail (dispatch/mask) vec=%u owner=%u hits=%u masked=%u",
+                                route.vector, route.owner, first_hits, masked ? 1u : 0u);
+                    return false;
+                }
+                interrupt_dispatch(&frame);
+                if (__atomic_load_n(&vector_test_hits, __ATOMIC_RELAXED) != 1 ||
+                    !arch::unmask_interrupt_vector(route)) {
+                    logs::error("interrupt vectors fail (masked dispatch/unmask)");
+                    return false;
+                }
+                interrupt_dispatch(&frame);
+                if (__atomic_load_n(&vector_test_hits, __ATOMIC_RELAXED) != 2 ||
+                    !arch::unregister_interrupt_vector(route) ||
+                    arch::mask_interrupt_vector(route) ||
+                    arch::unmask_interrupt_vector(route)) {
+                    logs::error("interrupt vectors fail (lifecycle)");
+                    return false;
+                }
+                arch::interrupt_vector reused{};
+                if (!arch::register_interrupt_vector(vector_test_handler, nullptr, reused) ||
+                    reused.vector != route.vector || reused.owner == route.owner ||
+                    !arch::unregister_interrupt_vector(reused)) {
+                    logs::error("interrupt vectors fail (reuse)");
+                    return false;
+                }
+                logs::info("interrupt vectors ok");
             }
 
             logs::info("interrupts ok (%s)",
