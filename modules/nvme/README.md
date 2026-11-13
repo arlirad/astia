@@ -14,14 +14,17 @@ registered drivers or devices reference their callbacks, and running modules
 cannot be unloaded.
 
 The driver accepts NVMe class `01/08/02` PCI functions, identifies namespace 1,
-creates one polled I/O queue, and supports aligned reads up to 8192 bytes.
-Writes return read-only errors through the generic block-device contract. MSI-X
-is explicitly disabled: although the x86 interrupt layer can own device
-vectors, the generic PCI core does not yet bind a device capability to that
-router and program an MSI/MSI-X message. Completion polling remains the safe
-fallback until that binding is complete.
+creates one I/O queue, and supports aligned reads up to 8192 bytes. Writes
+return read-only errors through the generic block-device contract. When the
+PCI capability and arch-neutral vector router are available, the module
+requests one vector, programs MSI-X table entry zero, enables the completion
+queue interrupt, and releases the route on teardown. The completion handler
+only arms a wake flag; queue ownership and CQ-head acknowledgement remain in
+the bounded read path. Missing capability, invalid routing, or setup failure
+selects the polling fallback without enabling MSI-X.
 
 `run-qemu.sh` builds both `astiakrn_runtime` and `nvme_module`, packages the
 ET_REL object into an uncompressed newc initrd, attaches `fixture.raw` to
 QEMU's emulated NVMe controller, and verifies the namespace and known-sector
-read from `/dev/nvme0n1` through the module self-test.
+read from `/dev/nvme0n1` through the module self-test. It runs both the normal
+MSI-X case and a compile-time forced-polling case.

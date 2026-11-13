@@ -37,6 +37,24 @@ struct astia_module_dma_buffer {
     uint64_t pages;
 };
 
+typedef void (*astia_module_interrupt_handler)(void* context);
+
+struct astia_module_msix_route {
+    uint32_t vector;
+    uint32_t owner;
+    uint32_t table_offset;
+    uint32_t table_index;
+    uint32_t message_address_low;
+    uint32_t message_address_high;
+    uint32_t message_data;
+    uint8_t table_bar;
+    uint8_t mapped_by_route;
+    uint8_t enabled;
+    uint8_t pci_bus;
+    uint8_t pci_device;
+    uint8_t pci_function;
+};
+
 int astia_module_register_pci_block_driver(
     const struct astia_module_pci_block_driver* driver);
 int astia_module_pci_enable_bus_master(void* device);
@@ -47,6 +65,12 @@ uint32_t astia_module_pci_read32(void* device, uint16_t offset);
 uint16_t astia_module_pci_read16(void* device, uint16_t offset);
 int astia_module_pci_write16(void* device, uint16_t offset, uint16_t value);
 int astia_module_pci_disable_msix(void* device);
+int astia_module_pci_msix_request(void* device, astia_module_interrupt_handler handler,
+                                  void* context, struct astia_module_msix_route* route);
+int astia_module_pci_msix_program(struct astia_module_msix_route* route);
+int astia_module_pci_msix_enable(struct astia_module_msix_route* route);
+int astia_module_pci_msix_disable(struct astia_module_msix_route* route);
+int astia_module_pci_msix_release(struct astia_module_msix_route* route);
 int astia_module_dma_alloc(uint64_t pages, int zero,
                            struct astia_module_dma_buffer* buffer);
 void astia_module_dma_release(struct astia_module_dma_buffer* buffer);

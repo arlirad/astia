@@ -47,6 +47,10 @@ namespace {
         unsigned short admin_cid = 1;
         unsigned short io_cid = 1;
         bool started = false;
+        bool msix_active = false;
+        volatile bool interrupt_pending = false;
+        unsigned interrupts_seen = 0;
+        astia_module_msix_route msix_route{};
         dma admin_sq;
         dma admin_cq;
         dma io_sq;
@@ -164,7 +168,7 @@ namespace {
             command cq{};
             cq.dword[0] = admin_create_io_cq | (static_cast<unsigned>(admin_cid++) << 16);
             cq.dword[10] = 1 | ((queue_depth - 1) << 16);
-            cq.dword[11] = 1;
+            cq.dword[11] = 1 | (msix_active ? (msix_route.table_index << 16) : 0);
             submit_admin(cq, io_cq.value.physical);
             if (poll_admin() != 0)
                 return false;
@@ -174,6 +178,29 @@ namespace {
             sq.dword[11] = 1 | (1u << 16);
             submit_admin(sq, io_sq.value.physical);
             return poll_admin() == 0;
+        }
+
+        static void msix_interrupt(void* context) {
+            auto* value = static_cast<controller*>(context);
+            value->interrupt_pending = true;
+            ++value->interrupts_seen;
+        }
+
+        bool setup_msix() {
+#if defined(ASTIA_NVME_FORCE_POLLING)
+            return false;
+#else
+            if (astia_module_pci_msix_request(pci, msix_interrupt, this, &msix_route) != 0)
+                return false;
+            if (astia_module_pci_msix_program(&msix_route) != 0 ||
+                astia_module_pci_msix_enable(&msix_route) != 0) {
+                astia_module_pci_msix_release(&msix_route);
+                return false;
+            }
+            msix_active = true;
+            astia_module_log("nvme", "msix enabled");
+            return true;
+#endif
         }
 
         bool start() {
@@ -200,6 +227,10 @@ namespace {
             }
             if (!identify()) {
                 return false;
+            }
+            if (!setup_msix()) {
+                (void) astia_module_pci_disable_msix(pci);
+                astia_module_log("nvme", "polling fallback");
             }
             if (!create_io_queues()) {
                 return false;
@@ -228,6 +259,8 @@ namespace {
                     doorbell(1, true, io_cq_head);
                     return status;
                 }
+                if (interrupt_pending)
+                    interrupt_pending = false;
                 asm volatile("pause");
             }
             return ~0u;
@@ -292,6 +325,10 @@ namespace {
     }
 
     void remove(void*) {
+        if (device.msix_active) {
+            (void) astia_module_pci_msix_release(&device.msix_route);
+            device.msix_active = false;
+        }
         device.started = false;
     }
 
@@ -317,8 +354,13 @@ namespace {
         const bool valid = sector[0] == 'A' && sector[1] == 'S' && sector[2] == 'T' &&
                            sector[3] == 'I' && sector[4] == 'A' && sector[5] == '_' &&
                            sector[6] == 'N' && sector[7] == 'V';
-        if (valid)
+        if (valid && device.msix_active && device.interrupts_seen == 0)
+            return 0;
+        if (valid) {
+            astia_module_log("nvme", device.msix_active ? "msix interrupt path"
+                                                          : "polling fallback");
             astia_module_log("nvme", "known sector ok");
+        }
         return valid ? 1 : 0;
     }
 
