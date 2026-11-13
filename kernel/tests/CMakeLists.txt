@@ -186,17 +186,6 @@ astia_add_host_test(astia_elf_test
         support/resume_queue_host.cpp
 )
 
-# initrd: the ustar and uncompressed newc/crc readers, against host-generated
-# fixtures (three regular files, one binary, plus a directory entry to skip).
-add_custom_command(
-        OUTPUT ${_fix_dir}/initrd.tar
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-        COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/make_initrd.sh ${_fix_dir}/initrd.tar
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/make_initrd.sh
-        COMMENT "Building initrd fixture initrd.tar"
-)
-astia_embed_blob(_initrd_cpp ${_fix_dir}/initrd.tar initrd_blob)
-
 add_custom_command(
         OUTPUT ${_fix_dir}/initrd_newc.cpio
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
@@ -243,7 +232,6 @@ astia_embed_blob(_initrd_zstd_cpp ${_fix_dir}/initrd_newc.cpio.zst initrd_zstd_b
 
 astia_add_host_test(astia_initrd_test
         initrd_test.cpp
-        ${_initrd_cpp}
         ${_initrd_newc_cpp}
         ${_initrd_crc_cpp}
         ${_initrd_gzip_cpp}
@@ -380,9 +368,9 @@ if (ARCH STREQUAL "x86_64")
         set_tests_properties(astia_kernel_scheduler_smp2 PROPERTIES
                 TIMEOUT 60 ENVIRONMENT "ASTIA_QEMU_SMP=2;ASTIA_QEMU_MACHINE=q35")
 
-        # End-to-end initrd: the same kernel, but the boot module is a tarball
+        # End-to-end initrd: the same kernel, but the boot module is a cpio image
         # carrying a self-contained ET_REL module. QEMU's PVH path puts -initrd in
-        # the modlist, so this covers modlist -> tar walk -> ELF load -> run.
+        # the modlist, so this covers modlist -> cpio walk -> ELF load -> run.
         add_custom_command(
                 OUTPUT ${_fix_dir}/hello_initrd.o
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
@@ -505,7 +493,7 @@ if (ARCH STREQUAL "x86_64")
         endif ()
 
     add_custom_command(
-            OUTPUT ${_fix_dir}/boot_initrd.tar
+            OUTPUT ${_fix_dir}/boot_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/hello_initrd.o ${_fix_dir}/boot_stage/
@@ -525,19 +513,23 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_init_libc_image} ${_fix_dir}/boot_stage/bin/init_libc
-                COMMAND sh -c "tar cf ${_fix_dir}/boot_initrd.tar -C ${_fix_dir}/boot_stage hello_initrd.o sbin/init bin/init_libc etc/passwd etc/group"
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
+                hello_initrd.o sbin/init bin/init_libc etc/passwd etc/group
                 DEPENDS ${_fix_dir}/hello_initrd.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
-                COMMENT "Packing boot initrd boot_initrd.tar"
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                COMMENT "Packing boot initrd boot_initrd.cpio"
         )
-        # Tarballs are test inputs, not sources of any target, so build them as
+        # Cpio images are test inputs, not sources of any target, so build them as
         # part of the default build to guarantee they exist before ctest runs.
-        add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.tar)
+        add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.cpio)
 
         add_test(NAME astia_initrd_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
-                ${_fix_dir}/boot_initrd.tar
+                ${_fix_dir}/boot_initrd.cpio
                 "mod: hello_initrd.o rc=42"
                 "selftest: statx ok"
                 "user thread exit pid="
@@ -602,7 +594,7 @@ if (ARCH STREQUAL "x86_64")
                 astia_userspace_libc
                 COMMENT "Building native init and daemond images")
         add_custom_command(
-                OUTPUT ${_fix_dir}/native_boot_initrd.tar
+                OUTPUT ${_fix_dir}/native_boot_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/sbin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/etc
@@ -612,21 +604,25 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_ps ${_fix_dir}/native_stage/bin/ps
                 COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/rc ${_fix_dir}/native_stage/etc/rc
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_stage/bin/init_libc
-                COMMAND sh -c "tar cf ${_fix_dir}/native_boot_initrd.tar -C ${_fix_dir}/native_stage sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc"
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/native_stage ${_fix_dir}/native_boot_initrd.cpio
+                sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/rc
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native init/daemond initrd")
-        add_custom_target(astia_native_boot_initrd ALL DEPENDS ${_fix_dir}/native_boot_initrd.tar)
+        add_custom_target(astia_native_boot_initrd ALL DEPENDS ${_fix_dir}/native_boot_initrd.cpio)
         add_test(NAME astia_native_daemond_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
-                ${_fix_dir}/native_boot_initrd.tar
+                ${_fix_dir}/native_boot_initrd.cpio
                 "init: daemond started"
                 "daemond: clean shutdown"
                 "init: clean shutdown")
         set_tests_properties(astia_native_daemond_boot PROPERTIES TIMEOUT 60)
 
         add_custom_command(
-                OUTPUT ${_fix_dir}/native_service_boot_initrd.tar
+                OUTPUT ${_fix_dir}/native_service_boot_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_service_stage/sbin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_service_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_service_stage/etc
@@ -635,15 +631,19 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_true ${_fix_dir}/native_service_stage/bin/true
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_service_stage/bin/init_libc
                 COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/service.rc ${_fix_dir}/native_service_stage/etc/rc
-                COMMAND sh -c "tar cf ${_fix_dir}/native_service_boot_initrd.tar -C ${_fix_dir}/native_service_stage sbin/init sbin/daemond bin/true bin/init_libc etc/rc"
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/native_service_stage ${_fix_dir}/native_service_boot_initrd.cpio
+                sbin/init sbin/daemond bin/true bin/init_libc etc/rc
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond ${_fix_dir}/native_daemondctl ${_fix_dir}/native_true ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/service.rc
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native service supervision initrd")
         add_custom_target(astia_native_service_boot_initrd ALL
-                DEPENDS ${_fix_dir}/native_service_boot_initrd.tar)
+                DEPENDS ${_fix_dir}/native_service_boot_initrd.cpio)
         add_test(NAME astia_native_daemond_service
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
-                ${_fix_dir}/native_service_boot_initrd.tar
+                ${_fix_dir}/native_service_boot_initrd.cpio
                 "init: daemond started"
                 "daemond: reaped service pid="
                 "daemond: clean shutdown"
@@ -651,7 +651,7 @@ if (ARCH STREQUAL "x86_64")
         set_tests_properties(astia_native_daemond_service PROPERTIES TIMEOUT 60)
 
         add_custom_command(
-                OUTPUT ${_fix_dir}/native_failure_boot_initrd.tar
+                OUTPUT ${_fix_dir}/native_failure_boot_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/sbin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/etc
@@ -661,11 +661,15 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_ps ${_fix_dir}/native_failure_stage/bin/ps
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_failure_stage/bin/init_libc
                 COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/failure.rc ${_fix_dir}/native_failure_stage/etc/rc
-                COMMAND sh -c "tar cf ${_fix_dir}/native_failure_boot_initrd.tar -C ${_fix_dir}/native_failure_stage sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc"
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/native_failure_stage ${_fix_dir}/native_failure_boot_initrd.cpio
+                sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/failure.rc
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing failing native daemond initrd")
         add_custom_target(astia_native_failure_boot_initrd ALL
-                DEPENDS ${_fix_dir}/native_failure_boot_initrd.tar)
+                DEPENDS ${_fix_dir}/native_failure_boot_initrd.cpio)
         add_test(NAME astia_native_daemond_failure
                 COMMAND env
                 ASTIA_EXPECT_QEMU_STATUS=3
@@ -673,7 +677,7 @@ if (ARCH STREQUAL "x86_64")
                 ASTIA_FORBID_PATTERN="core: selftest ok"
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
-                ${_fix_dir}/native_failure_boot_initrd.tar
+                ${_fix_dir}/native_failure_boot_initrd.cpio
                 "daemond: malformed service record"
                 "init: daemond failed")
         set_tests_properties(astia_native_daemond_failure PROPERTIES TIMEOUT 60)

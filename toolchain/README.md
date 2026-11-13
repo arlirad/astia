@@ -47,9 +47,9 @@ existing initrd:
 
 ```sh
 toolchain/package-zsh-initrd.sh \
-  kernel/build-tests/tests/fixtures/boot_initrd.tar \
+  kernel/build-tests/tests/fixtures/boot_initrd.cpio \
   /tmp/astia-zsh-build/output/zsh \
-  /tmp/astia-zsh-initrd.tar
+  /tmp/astia-zsh-initrd.cpio
 ```
 
 `build-zsh.sh` never edits the zsh checkout.  It supplies configure answers
@@ -118,7 +118,7 @@ still doing the normal incremental preflight, use:
 ```sh
 ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build \
 ASTIA_KERNEL="$PWD/kernel/build-tests/src/astiakrn_runtime" \
-ASTIA_INITRD="$PWD/kernel/build-tests/tests/fixtures/boot_initrd.tar" \
+ASTIA_INITRD="$PWD/kernel/build-tests/tests/fixtures/boot_initrd.cpio" \
   ./toolchain/run-zsh-qemu.sh
 ```
 
@@ -226,6 +226,6 @@ git clone --depth=1 https://github.com/zsh-users/zsh.git /tmp/zsh
 kernel/scripts/test.sh kernel/build-tests
 ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build toolchain/build-zsh.sh
 ASTIA_KERNEL="$PWD/kernel/build-tests/src/astiakrn_runtime" \
-ASTIA_INITRD="$PWD/kernel/build-tests/tests/fixtures/boot_initrd.tar" \
+ASTIA_INITRD="$PWD/kernel/build-tests/tests/fixtures/boot_initrd.cpio" \
 ZSH_BUILD=/tmp/astia-zsh-build toolchain/run-zsh-regression.sh
 ```

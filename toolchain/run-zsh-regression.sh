@@ -10,6 +10,7 @@ target=x86_64-unknown-elf
 qemu_timeout_seconds=60
 expected_qemu_status=1
 resource=$($clang --target=$target -print-resource-dir)
+cpio=${ASTIA_CPIO:-cpio}
 
 command -v "$qemu" >/dev/null 2>&1 || {
     echo "QEMU executable not found: $qemu" >&2
@@ -19,14 +20,18 @@ command -v timeout >/dev/null 2>&1 || {
     echo "timeout command not found (required for the regression test)" >&2
     exit 1
 }
+command -v "$cpio" >/dev/null 2>&1 || {
+    echo "cpio executable not found: $cpio" >&2
+    exit 1
+}
 sysroot=$build/sysroot
 kernel=${ASTIA_KERNEL:-$root/kernel/build-tests/src/astiakrn_runtime}
-base_initrd=${ASTIA_INITRD:-$root/build-tests/tests/fixtures/boot_initrd.tar}
+base_initrd=${ASTIA_INITRD:-$root/build-tests/tests/fixtures/boot_initrd.cpio}
 
 test -x "$build/output/zsh"
 rm -rf "$work"
 mkdir -p "$work/root/sbin" "$work/root/bin"
-tar xf "$base_initrd" -C "$work/root"
+(cd "$work/root" && "$cpio" -id --quiet --no-absolute-filenames) <"$base_initrd"
 cp "$build/output/zsh" "$work/root/bin/zsh"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$build/astia/image/crt0.o" \
     COREUTILS_BUILD="$work/coreutils" "$root/coreutils/build.sh"
@@ -41,11 +46,12 @@ $clang --target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -o "$work/root/sbin/init" \
     "$build/astia/image/crt0.o" "$work/runner.o" "$sysroot/lib/libastia_libc.a" \
     "$resource/lib/linux/libclang_rt.builtins-x86_64.a"
-tar cf "$work/initrd.tar" -C "$work/root" sbin bin
+(cd "$work/root" && find sbin bin -print |
+    "$cpio" -o --format=newc --quiet) >"$work/initrd.cpio"
 
 log=$work/qemu.log
 set +e
-timeout "$qemu_timeout_seconds" qemu-system-x86_64 -m 128M -kernel "$kernel" -initrd "$work/initrd.tar" \
+timeout "$qemu_timeout_seconds" qemu-system-x86_64 -m 128M -kernel "$kernel" -initrd "$work/initrd.cpio" \
     -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot
 status=$?
 set -e

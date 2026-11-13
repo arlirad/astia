@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build a tiny uncompressed newc or crc initrd for the host initrd test.
+# Build a tiny uncompressed newc or crc archive for the host initrd test.
 set -e
 
 format=$1

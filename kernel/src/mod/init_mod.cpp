@@ -8,10 +8,10 @@
 
 // The "mod" init step: turn the bootloader's handoff into running code.
 //
-// The ramdisk the loader hands over (boot::boot_info::initrd) is a ustar
+// The ramdisk the loader hands over (boot::boot_info::initrd) is a cpio
 // archive: every ET_REL file it carries is a kernel module, and each of those
-// is loaded and run.  Modules besides the ramdisk are bare ELF images, loaded
-// directly.  Anything that is not an ELF image is reported and skipped — a
+// is loaded and run. Modules besides the ramdisk are bare ELF images, loaded
+// directly. Anything that is not an ELF image is reported and skipped — a
 // single bad module must not brick the boot.
 //
 // Depends on `frames` (the frame allocator places section contents) and

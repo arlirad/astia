@@ -34,7 +34,7 @@ namespace astia::fs {
         if (!initrd::open(span<const u8>(static_cast<const u8*>(data),
                                          static_cast<usize>(ramdisk.size)),
                           archive)) {
-            logs::error("ramdisk is not a ustar archive");
+            logs::error("ramdisk is not an uncompressed cpio archive");
             return false;
         }
         return initrd_type().attach(archive) && mount_type("initrd", "/") == 0;

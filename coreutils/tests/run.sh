@@ -6,8 +6,10 @@ out=${COREUTILS_TEST_BUILD:-$root/coreutils/tests/build}
 sysroot=${ASTIA_SYSROOT:-/tmp/astia-zsh-build/sysroot}
 crt0=${ASTIA_CRT0:-/tmp/astia-zsh-build/astia/image/crt0.o}
 kernel=${ASTIA_KERNEL:-$root/kernel/build-tests/src/astiakrn_runtime}
+kernel_build=$(CDPATH= cd -- "$(dirname -- "$kernel")/.." && pwd)
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
+cpio=${ASTIA_CPIO:-cpio}
 target=x86_64-unknown-elf
 qemu_timeout_seconds=60
 expected_qemu_status=1
@@ -19,6 +21,10 @@ command -v "$qemu" >/dev/null 2>&1 || {
 }
 command -v timeout >/dev/null 2>&1 || {
     echo "timeout command not found (required for the regression test)" >&2
+    exit 1
+}
+command -v "$cpio" >/dev/null 2>&1 || {
+    echo "cpio executable not found: $cpio" >&2
     exit 1
 }
 
@@ -41,14 +47,18 @@ $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
 cp "$out/bin/"* "$out/root/bin/"
 cp "$root/daemond/passwd" "$out/root/etc/passwd"
 cp "$root/daemond/group" "$out/root/etc/group"
-if [ -f "$root/kernel/build-tests/tests/fixtures/init_libc" ]; then
-    cp "$root/kernel/build-tests/tests/fixtures/init_libc" "$out/root/bin/"
-fi
-tar cf "$out/initrd.tar" -C "$out/root" sbin bin etc
+init_libc=$kernel_build/tests/fixtures/init_libc
+test -f "$init_libc" || {
+    echo "Astia init_libc fixture missing: $init_libc" >&2
+    exit 1
+}
+cp "$init_libc" "$out/root/bin/"
+(cd "$out/root" && find sbin bin etc -print |
+    "$cpio" -o --format=newc --quiet) >"$out/initrd.cpio"
 
 log="$out/qemu.log"
 set +e
-timeout "$qemu_timeout_seconds" "$qemu" -m 128M -kernel "$kernel" -initrd "$out/initrd.tar" \
+timeout "$qemu_timeout_seconds" "$qemu" -m 128M -kernel "$kernel" -initrd "$out/initrd.cpio" \
     -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot
 status=$?
 set -e

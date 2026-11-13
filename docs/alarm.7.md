@@ -35,6 +35,6 @@ shared baseline's existing `munmap` scenario still reports status 8; that
 baseline result is unrelated to alarm and is intentionally not changed here.
 End-to-end userspace validation is also blocked when the generated startup
 object (`/tmp/astia-clang-init-libc/image/crt0.o`) and baseline initrd
-(`kernel/build-tests/tests/fixtures/boot_initrd.tar`) are absent. These are
+(`kernel/build-tests/tests/fixtures/boot_initrd.cpio`) are absent. These are
 generated baseline artifacts, not alarm failures; `toolchain/build-init-libc.sh`
 and the kernel test build regenerate them.

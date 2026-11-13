@@ -12,7 +12,7 @@ qemu=${QEMU:-qemu-system-x86_64}
 target=x86_64-unknown-elf
 timeout_seconds=${POSIX_TEST_TIMEOUT:-90}
 kernel=${ASTIA_KERNEL:-$root/kernel/build-tests/src/astiakrn_runtime}
-base_initrd=${ASTIA_INITRD:-$root/kernel/build-tests/tests/fixtures/boot_initrd.tar}
+base_initrd=${ASTIA_INITRD:-$root/kernel/build-tests/tests/fixtures/boot_initrd.cpio}
 zsh_binary=${ZSH_BINARY:-${ZSH_BUILD:-/tmp/astia-zsh-build}/output/zsh}
 
 usage() {
@@ -23,7 +23,8 @@ command -v "$clang" >/dev/null 2>&1 || { echo "clang executable not found: $clan
 command -v "$qemu" >/dev/null 2>&1 || { echo "QEMU executable not found: $qemu" >&2; exit 1; }
 command -v timeout >/dev/null 2>&1 || { echo "timeout command not found" >&2; exit 1; }
 command -v git >/dev/null 2>&1 || { echo "git executable not found" >&2; exit 1; }
-command -v tar >/dev/null 2>&1 || { echo "tar executable not found" >&2; exit 1; }
+cpio=${ASTIA_CPIO:-cpio}
+command -v "$cpio" >/dev/null 2>&1 || { echo "cpio executable not found: $cpio" >&2; exit 1; }
 
 if [ -z "$source" ]; then
     echo "POSIX_TEST_SOURCE must point to a clean LTP checkout or its open_posix_testsuite directory" >&2
@@ -104,7 +105,7 @@ done
 work=$build
 rm -rf "$work"
 mkdir -p "$work/obj" "$work/root/sbin" "$work/root/bin" "$work/logs"
-tar xf "$base_initrd" -C "$work/root"
+(cd "$work/root" && "$cpio" -id --quiet --no-absolute-filenames) <"$base_initrd"
 mkdir -p "$work/root/etc"
 selected=$work/selected
 
@@ -167,14 +168,16 @@ cp "$zsh_binary" "$work/root/bin/zsh"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$crt0" COREUTILS_BUILD="$work/coreutils" \
     "$root/coreutils/build.sh" >"$work/logs/coreutils.build.log" 2>&1
 cp "$work/coreutils/bin/"* "$work/root/bin/"
-tar cf "$work/initrd.tar" -C "$work/root" sbin bin etc
+(cd "$work/root" && find sbin bin etc -print |
+    "$cpio" -o --format=newc --quiet) >"$work/initrd.cpio"
 
 failed=0
 while IFS= read -r test_name; do
     test_id=$(printf '%s' "$test_name" | tr / _)
     printf '%s %s\n' "$test_name" "/bin/posix-$test_id" >"$work/root/etc/posix-tests"
-    test_initrd=$work/initrd-$test_id.tar
-    tar cf "$test_initrd" -C "$work/root" sbin bin etc
+    test_initrd=$work/initrd-$test_id.cpio
+    (cd "$work/root" && find sbin bin etc -print |
+        "$cpio" -o --format=newc --quiet) >"$test_initrd"
     log=$work/logs/$test_id.qemu.log
     set +e
     timeout "$timeout_seconds" "$qemu" -m 128M -kernel "$kernel" -initrd "$test_initrd" \

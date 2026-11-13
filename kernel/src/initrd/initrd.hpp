@@ -3,8 +3,8 @@
 #include <astia/common.hpp>
 #include <astia/span.hpp>
 
-// A zero-copy reader for ustar (POSIX) tar and uncompressed newc/cpio-crc
-// archives, used to unpack an initrd.
+// A zero-copy reader for uncompressed newc/cpio-crc archives, used to unpack
+// an initrd.
 //
 // The archive stays exactly where the bootloader put it; callers hand
 // open() a view of that memory (the direct-map view for boot modules),
@@ -13,22 +13,11 @@
 // be fed straight to the ELF loader.
 //
 // Scope: regular files with non-empty data. Directory and special entries
-// (links, devices, ...) are skipped rather than surfaced. Tar names use only
-// the existing ustar name field; cpio names may be longer.
+// (links, devices, ...) are skipped rather than surfaced.
 
 namespace astia::initrd {
 
-    /// Size of a tar header / the archive block size.
-    inline constexpr usize block_size = 512;
-
-    /// Fixed-width fields and protocol marker sizes in a ustar header.
-    inline constexpr usize name_field_size               = 100;
-    inline constexpr usize size_field_size               = 12;
-    inline constexpr usize ustar_magic_size              = 5;
-    inline constexpr char  ustar_magic[ustar_magic_size] = {'u', 's', 't', 'a', 'r'};
-
     enum class archive_format : u8 {
-        ustar,
         cpio_newc,
         cpio_crc,
     };
@@ -50,13 +39,13 @@ namespace astia::initrd {
         usize       size = 0;
     };
 
-    /// An opened archive: a validated view over a tar image held in place.
+    /// An opened archive: a validated view over a cpio image held in place.
     struct archive {
         span<const u8> image;
         // Compatibility views for existing in-kernel consumers.
         const u8* base = nullptr;
         usize     len  = 0;
-        archive_format format = archive_format::ustar;
+        archive_format format = archive_format::cpio_newc;
     };
 
     /// Visit callback for each(). Return false to stop enumeration early.
@@ -68,8 +57,8 @@ namespace astia::initrd {
         return detect_container(span<const u8>(static_cast<const u8*>(image), length));
     }
 
-    /// Open a ustar, newc, or crc image. Gzip and zstd images are rejected;
-    /// detection is diagnostic only and does not provide decompression.
+    /// Open a newc or crc image. Gzip and zstd images are rejected; detection
+    /// is diagnostic only and does not provide decompression.
     bool        open(span<const u8> image, archive& out);
     inline bool open(const void* image, usize length, archive& out) {
         return open(span<const u8>(static_cast<const u8*>(image), length), out);
