@@ -107,11 +107,6 @@ astia_add_host_test(astia_pci_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/mmio.cpp)
 target_include_directories(astia_pci_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
-astia_add_host_test(astia_module_filesystem_test
-        module_filesystem_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/module_filesystem.cpp)
-target_include_directories(astia_module_filesystem_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/fs)
-
 find_package(Threads REQUIRED)
 astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)
 target_link_libraries(astia_mpmc_queue_test PRIVATE Threads::Threads)
@@ -328,6 +323,14 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: statx ok"
         )
         set_tests_properties(astia_kernel_boot PROPERTIES TIMEOUT 60)
+
+        add_test(NAME astia_fs_registry_boot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ""
+                "filesystem registry ok"
+        )
+        set_tests_properties(astia_fs_registry_boot PROPERTIES TIMEOUT 60)
 
         # Repeat the process/thread/ring lifecycle with two virtual CPUs. The
         # kernel still has one scheduling domain; this deliberately changes

@@ -17,7 +17,10 @@ namespace astia::fs {
         inline constexpr u32 max_mounts = 16;
 
         struct type_entry {
-            const filesystem* type;
+            const filesystem* type               = nullptr;
+            u32               generation         = 0;
+            u32               active_operations  = 0;
+            u32               mount_count        = 0;
         };
 
         // This policy is deliberately private to the registry.  The public
@@ -35,6 +38,8 @@ namespace astia::fs {
             mount_ownership ownership;
             void (*destroy)(mount*);
             u32 active_operations;
+            type_entry* owner;
+            u32         owner_generation;
         };
 
         struct mount_snapshot_entry {
@@ -89,14 +94,59 @@ namespace astia::fs {
             return true;
         }
 
-        const filesystem* find_type(const char* name) {
+        type_entry* find_type_locked(const char* name) {
             for (u32 i = 0; i < max_types; ++i) {
                 if (types[i].type != nullptr && equal(types[i].type->name(), name)) {
-                    return types[i].type;
+                    return &types[i];
                 }
             }
             return nullptr;
         }
+
+        class type_operation {
+            public:
+            explicit type_operation(const char* name) {
+                core::spinlock_guard guard(mount_registry_lock);
+                entry_ = find_type_locked(name);
+                if (entry_ == nullptr)
+                    return;
+                ++entry_->active_operations;
+                instance_ = entry_->type;
+            }
+
+            explicit type_operation(type_entry* entry) {
+                core::spinlock_guard guard(mount_registry_lock);
+                if (entry == nullptr || entry->type == nullptr)
+                    return;
+                ++entry->active_operations;
+                entry_    = entry;
+                instance_ = entry->type;
+            }
+
+            ~type_operation() {
+                if (entry_ == nullptr)
+                    return;
+                core::spinlock_guard guard(mount_registry_lock);
+                --entry_->active_operations;
+            }
+
+            type_operation(const type_operation&)            = delete;
+            type_operation& operator=(const type_operation&) = delete;
+
+            explicit operator bool() const {
+                return entry_ != nullptr;
+            }
+            const filesystem* instance() const {
+                return instance_;
+            }
+            type_entry* owner() const {
+                return entry_;
+            }
+
+            private:
+            type_entry*        entry_    = nullptr;
+            const filesystem*  instance_ = nullptr;
+        };
 
         bool path_matches(const char* target, const char* path) {
             if (equal(target, "/")) {
@@ -348,17 +398,71 @@ namespace astia::fs {
     }
 
     long register_type(const filesystem* type) {
-        if (!ready || type == nullptr || type->name() == nullptr)
+        filesystem_registration registration;
+        return register_type(type, registration);
+    }
+
+    long register_type(const filesystem* type, filesystem_registration& registration) {
+        if (!ready || type == nullptr || type->name() == nullptr || registration.valid())
             return -EINVAL;
-        if (find_type(type->name()) != nullptr)
-            return -EEXIST;
+
+        core::spinlock_guard guard(mount_registry_lock);
+        const char* name = type->name();
         for (u32 i = 0; i < max_types; ++i) {
-            if (types[i].type == nullptr) {
-                types[i].type = type;
-                return 0;
-            }
+            if (types[i].type != nullptr && equal(types[i].type->name(), name))
+                return -EEXIST;
+        }
+        for (u32 i = 0; i < max_types; ++i) {
+            type_entry& entry = types[i];
+            if (entry.type != nullptr)
+                continue;
+            entry.type       = type;
+            entry.generation = entry.generation + 1 == 0 ? 1 : entry.generation + 1;
+            entry.active_operations = 0;
+            entry.mount_count       = 0;
+            registration = {i, entry.generation};
+            return 0;
         }
         return -ENFILE;
+    }
+
+    long unregister_type(filesystem_registration& registration) {
+        if (!registration.valid() || registration.slot >= max_types)
+            return -EINVAL;
+
+        core::spinlock_guard guard(mount_registry_lock);
+        type_entry& entry = types[registration.slot];
+        if (entry.type == nullptr || entry.generation != registration.generation)
+            return -ENOENT;
+        if (entry.active_operations != 0 || entry.mount_count != 0)
+            return -EBUSY;
+        entry.type               = nullptr;
+        entry.active_operations  = 0;
+        entry.mount_count        = 0;
+        registration             = filesystem_registration{};
+        return 0;
+    }
+
+    long unregister_type(const filesystem* type) {
+        if (type == nullptr)
+            return -EINVAL;
+
+        core::spinlock_guard guard(mount_registry_lock);
+        type_entry* entry = nullptr;
+        for (u32 i = 0; i < max_types; ++i) {
+            if (types[i].type == type) {
+                entry = &types[i];
+                break;
+            }
+        }
+        if (entry == nullptr)
+            return -ENOENT;
+        if (entry->active_operations != 0 || entry->mount_count != 0)
+            return -EBUSY;
+        entry->type              = nullptr;
+        entry->active_operations = 0;
+        entry->mount_count       = 0;
+        return 0;
     }
 
     long mount_type(const char* type_name, const char* target, const char* source) {
@@ -401,9 +505,10 @@ namespace astia::fs {
                                                                           : -ENOTDIR;
             }
         }
-        const filesystem* type = find_type(type_name);
-        if (type == nullptr)
+        type_operation type_operation_guard(type_name);
+        if (!type_operation_guard)
             return -ENODEV;
+        const filesystem* type = type_operation_guard.instance();
 
         // Mount factories may allocate and initialize an entire filesystem.
         // Do that before taking the registry lock; publication below is the
@@ -454,6 +559,10 @@ namespace astia::fs {
                     mounts[free_slot].ownership         = ownership;
                     mounts[free_slot].destroy           = destroy;
                     mounts[free_slot].active_operations = 0;
+                    mounts[free_slot].owner             = type_operation_guard.owner();
+                    mounts[free_slot].owner_generation =
+                        type_operation_guard.owner()->generation;
+                    ++type_operation_guard.owner()->mount_count;
                     ++mount_registry_generation;
                     publish_mount_snapshot_locked();
                     published = true;
@@ -484,6 +593,8 @@ namespace astia::fs {
         mount*          instance  = nullptr;
         mount_ownership ownership = mount_ownership::static_instance;
         void (*destroy)(mount*)   = nullptr;
+        type_entry* owner         = nullptr;
+        bool        owner_operation = false;
         {
             core::spinlock_guard registry_guard(mount_registry_lock);
             mount_entry*         selected = nullptr;
@@ -506,10 +617,19 @@ namespace astia::fs {
             instance            = selected->instance;
             ownership           = selected->ownership;
             destroy             = selected->destroy;
+            owner               = selected->owner;
+            if (owner != nullptr && owner->generation == selected->owner_generation) {
+                ++owner->active_operations;
+                if (owner->mount_count != 0)
+                    --owner->mount_count;
+                owner_operation = true;
+            }
             selected->used      = false;
             selected->instance  = nullptr;
             selected->ownership = mount_ownership::static_instance;
             selected->destroy   = nullptr;
+            selected->owner     = nullptr;
+            selected->owner_generation = 0;
             ++mount_registry_generation;
             publish_mount_snapshot_locked();
         }
@@ -517,6 +637,10 @@ namespace astia::fs {
         // has a null callback and remains in its static storage.
         if (ownership == mount_ownership::registry_owned && destroy != nullptr)
             destroy(instance);
+        if (owner_operation) {
+            core::spinlock_guard registry_guard(mount_registry_lock);
+            --owner->active_operations;
+        }
         return 0;
     }
 
