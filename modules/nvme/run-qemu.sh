@@ -6,7 +6,8 @@ build=${NVME_BUILD:-$root/build-nvme}
 image=${NVME_IMAGE:-$root/modules/nvme/fixture.raw}
 log=${NVME_LOG:-${TMPDIR:-/tmp}/astia-nvme-qemu.log}
 
-cmake -S "$root" -B "$build" -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt
+cmake -S "$root" -B "$build" -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt \
+    -DASTIA_RUNTIME_SKIP_LIFECYCLE=ON
 cmake --build "$build" --target astiakrn_runtime nvme_module
 
 staging=${NVME_INITRD_STAGING:-$build/nvme-initrd}

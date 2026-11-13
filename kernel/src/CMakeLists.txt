@@ -68,3 +68,7 @@ add_executable(astiakrn_runtime
 )
 astia_configure_kernel(astiakrn_runtime)
 target_compile_definitions(astiakrn_runtime PRIVATE ASTIA_RUN_SELFTEST=0)
+option(ASTIA_RUNTIME_SKIP_LIFECYCLE "Skip userspace lifecycle for module-only runtime fixtures" OFF)
+if (ASTIA_RUNTIME_SKIP_LIFECYCLE)
+    target_compile_definitions(astiakrn_runtime PRIVATE ASTIA_RUN_LIFECYCLE=0)
+endif ()

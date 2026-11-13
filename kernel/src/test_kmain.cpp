@@ -9,7 +9,6 @@
 #include <astia/arch/platform.hpp>
 #include <astia/boot.hpp>
 #include <astia/common.hpp>
-#include <astia/fs.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 
@@ -116,9 +115,7 @@ extern "C" void kmain(void* start_info) {
         astia::core::kpanic("kernel integration selftest failed");
     }
 
-    const bool has_init = static_cast<bool>(astia::fs::open("/sbin/init"));
-    if (ASTIA_RUN_LIFECYCLE && has_init && ctx.info != nullptr &&
-        ctx.info->initrd.paddr != 0) {
+    if (ASTIA_RUN_LIFECYCLE && ctx.info != nullptr && ctx.info->initrd.paddr != 0) {
         lifecycle_status = 0;
         auto worker      = astia::proc::scheduler::create_kernel(
             spawn_init_worker, const_cast<astia::u32*>(&lifecycle_status));
