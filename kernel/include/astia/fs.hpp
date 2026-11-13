@@ -232,6 +232,7 @@ namespace astia::fs {
     /// a node that must wait for hardware overrides submit() and parks.
     class file {
         public:
+        virtual ~file() = default;
         virtual long             read(void* buf, u32 len, u64 offset);
         virtual long             write(const void* buf, u32 len, u64 offset);
         virtual long             submit(io_request& request);

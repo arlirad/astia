@@ -21,6 +21,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti -mgeneral-regs
 
 # Host-side unit tests (built with the system toolchain, run via CTest).
 option(ASTIA_BUILD_TESTS "Build and register host-side unit tests" OFF)
+option(ASTIA_BUILD_EXPERIMENTAL_FIBER
+        "Compile the unintegrated stackful core::fiber implementation" OFF)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)

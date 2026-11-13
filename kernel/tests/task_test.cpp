@@ -157,6 +157,13 @@ ASTIA_TEST(task_reports_frame_allocation_failure) {
     ASTIA_CHECK(tasks[astia::core::task<>::frame_slot_count].error() == astia::error_t::enomem);
 }
 
+ASTIA_TEST(typed_task_reports_allocation_failure) {
+    auto task = astia::core::task<int>::promise_type::get_return_object_on_allocation_failure();
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(task.failed());
+    ASTIA_CHECK(task.error() == astia::error_t::enomem);
+}
+
 ASTIA_TEST(task_reports_explicit_async_error) {
     auto task = fails_explicitly();
     ASTIA_CHECK(task.resume());

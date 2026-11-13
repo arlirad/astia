@@ -3,7 +3,8 @@
 ## NAME
 
 `core::task<T>`, `core::task<void>` - przenośne, bezstosowe operacje
-korutynowe; `core::fiber` - stosowy kontekst wykonywania jądra.
+korutynowe; `core::fiber` - eksperymentalny stosowy kontekst wykonywania
+jądra.
 
 ## SYNOPSIS
 
@@ -55,10 +56,12 @@ właściciela zadania i czyści źródło. Referencjonowane pliki, bufory i inne
 obiekty muszą pozostać ważne przez całą operację, chyba że ramka przechowuje
 uchwyt posiadający własność.
 
-`core::fiber` używa stosu. Uruchomienie przydziela stos jądra o rozmiarze 16 KiB
-oraz dwa konteksty architektury. Funkcja wejściowa może wywoływać zwykły kod i
-wstrzymać ten stos wywołań przez `fiber::yield()`. Włókno pozostaje własnością
-CPU, na którym zostało uruchomione.
+`core::fiber` używa stosu i domyślnie nie jest kompilowany do produkcyjnego
+jądra. Włącz `-DASTIA_BUILD_EXPERIMENTAL_FIBER=ON`, aby dołączyć go do
+biblioteki `core` na potrzeby prac nad architekturą i eksperymentów. Uruchomienie
+przydziela stos jądra o rozmiarze 16 KiB oraz dwa konteksty architektury.
+Funkcja wejściowa może wywoływać zwykły kod i wstrzymać ten stos wywołań przez
+`fiber::yield()`. Włókno pozostaje własnością CPU, na którym zostało uruchomione.
 
 ## ERRORS
 
@@ -73,6 +76,8 @@ alokacji lub kontekstu, migracji CPU albo zagnieżdżonego aktywnego włókna.
 
 ## NOTES
 
-Użyj zadania, gdy punkty zawieszenia mieszczą się w ramce korutyny. Użyj włókna,
-gdy wymagane jest zachowanie zwykłego stosu wywołań. Żaden z tych mechanizmów
-sam nie zapewnia planowania, anulowania ani migracji między CPU.
+Użyj zadania, gdy punkty zawieszenia mieszczą się w ramce korutyny. Używaj
+eksperymentalnego włókna tylko wtedy, gdy wymagane jest zachowanie zwykłego
+stosu wywołań; `core::fiber` nie jest zintegrowane z planowaniem
+`proc::thread`. Żaden z tych mechanizmów sam nie zapewnia planowania,
+anulowania ani migracji między CPU.

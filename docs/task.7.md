@@ -3,7 +3,7 @@
 ## NAME
 
 `core::task<T>`, `core::task<void>` - movable, stackless coroutine operations;
-`core::fiber` - stackful kernel execution context.
+`core::fiber` - experimental stackful kernel execution context.
 
 ## SYNOPSIS
 
@@ -51,10 +51,12 @@ Destroying or resetting a task destroys its coroutine frame. Destroying a
 owner and clears the source. Referenced files, buffers, and other objects must
 remain valid for the whole operation unless the frame stores an owning handle.
 
-`core::fiber` is stackful. Starting one allocates a 16 KiB kernel stack and two
-architecture contexts. Its entry function may call ordinary code and suspend
-that call stack with `fiber::yield()`. The fiber remains owned by the CPU on
-which it starts.
+`core::fiber` is stackful. It is not compiled into the production kernel by
+default. Enable `-DASTIA_BUILD_EXPERIMENTAL_FIBER=ON` to compile it into the
+core library for architecture bring-up and focused experiments. Starting one
+allocates a 16 KiB kernel stack and two architecture contexts. Its entry
+function may call ordinary code and suspend that call stack with
+`fiber::yield()`. The fiber remains owned by the CPU on which it starts.
 
 ## ERRORS
 
@@ -68,6 +70,7 @@ failure, CPU migration, or a nested active fiber.
 
 ## NOTES
 
-Use a task when suspension points fit a coroutine frame. Use a fiber when
-preserving a conventional call stack is the requirement. Neither primitive
-provides scheduling, cancellation, or cross-CPU migration by itself.
+Use a task when suspension points fit a coroutine frame. Use the experimental
+fiber only when preserving a conventional call stack is the requirement;
+`core::fiber` is not integrated with `proc::thread` scheduling. Neither
+primitive provides scheduling, cancellation, or cross-CPU migration by itself.
