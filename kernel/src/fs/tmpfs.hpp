@@ -139,6 +139,12 @@ namespace astia::fs {
             return "tmpfs";
         }
         fs::mount* mount(const char* source) const override;
+        bool owns_mount() const override {
+            return true;
+        }
+        void destroy_mount(fs::mount* value) const override {
+            delete static_cast<tmpfs_mount*>(value);
+        }
     };
 
     long open_shared_memory(const char* path, u32 flags, file_mode mode, uid_t uid, gid_t gid,

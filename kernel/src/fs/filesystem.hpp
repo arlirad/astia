@@ -22,6 +22,10 @@ namespace astia::fs {
         public:
         virtual const char*       name() const                    = 0;
         virtual astia::fs::mount* mount(const char* source) const = 0;
+        virtual bool owns_mount() const {
+            return false;
+        }
+        virtual void destroy_mount(astia::fs::mount*) const {}
     };
 
     long register_type(const filesystem* type);

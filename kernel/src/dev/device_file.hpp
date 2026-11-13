@@ -21,8 +21,12 @@ namespace astia::dev {
         long          ioctl(u64 request, void* argp, usize size) override;
         long          acquire_controlling_terminal(i32 group) override;
         long          size() const override;
+        u32           block_size() const override;
         fs::file_mode mode() const override {
-            return fs::file_mode(fs::file_type::character,
+            const device* value = device_instance();
+            return fs::file_mode((value != nullptr && (value->flags() & dv_block) != 0)
+                                     ? fs::file_type::block
+                                     : fs::file_type::character,
                                  fs::default_device_permissions);
         }
 

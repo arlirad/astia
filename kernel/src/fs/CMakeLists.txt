@@ -4,6 +4,8 @@ add_library(fs STATIC
         devfs.cpp
         initrd_fs.cpp
         initrd_init.cpp
+        ext4/ext4.cpp
+        ext4/ext4_reader.cpp
         tmpfs.cpp
         unix_pathname.cpp
         syscalls.cpp

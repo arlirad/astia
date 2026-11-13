@@ -48,4 +48,11 @@ namespace astia::dev {
         return -ESPIPE;
     }
 
+    u32 device_file::block_size() const {
+        device* value = device_instance();
+        if (value != nullptr && (value->flags() & dv_block) != 0)
+            return static_cast<const blk::block_device*>(value)->block_size();
+        return 0;
+    }
+
 } // namespace astia::dev

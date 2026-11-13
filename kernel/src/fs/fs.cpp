@@ -1,4 +1,5 @@
 #include "devfs.hpp"
+#include "ext4/ext4.hpp"
 #include "initrd_fs.hpp"
 #include "tmpfs.hpp"
 #include "unix_pathname.hpp"
@@ -297,10 +298,6 @@ namespace astia::fs {
         alignas(devfs_mount) u8 devfs_storage[sizeof(devfs_mount)];
         devfs_mount* devfs_instance;
 
-        void destroy_tmpfs_mount(mount* instance) {
-            delete static_cast<tmpfs_mount*>(instance);
-        }
-
     } // namespace
 
     mm::shptr<open_file> mount::open(const char* path, u32 flags) {
@@ -391,6 +388,7 @@ namespace astia::fs {
         devfs_type.attach(devfs_instance);
         const bool ok =
             register_type(&devfs_type) == 0 && register_type(&initrd_type()) == 0 &&
+            register_type(&ext4_type()) == 0 &&
             register_type(&tmpfs_type_instance) == 0 &&
             mount_type("devfs", "/dev") == 0 && mount_type("tmpfs", "/tmp") == 0;
         bootstrapping = false;
@@ -527,12 +525,9 @@ namespace astia::fs {
         // registry cannot destroy an initrd without first clearing the
         // filesystem's cached pointer, and the public ABI has no teardown
         // hook for doing that safely.
-        const mount_ownership ownership = type == &tmpfs_type_instance
+        const mount_ownership ownership = type->owns_mount()
                                               ? mount_ownership::registry_owned
                                               : mount_ownership::static_instance;
-        void (*destroy)(mount*)         = nullptr;
-        if (type == &tmpfs_type_instance)
-            destroy = destroy_tmpfs_mount;
 
         bool published     = false;
         long publish_error = -ENFILE;
@@ -557,7 +552,7 @@ namespace astia::fs {
                     mounts[free_slot].used              = true;
                     mounts[free_slot].instance          = instance;
                     mounts[free_slot].ownership         = ownership;
-                    mounts[free_slot].destroy           = destroy;
+                    mounts[free_slot].destroy           = nullptr;
                     mounts[free_slot].active_operations = 0;
                     mounts[free_slot].owner             = type_operation_guard.owner();
                     mounts[free_slot].owner_generation =
@@ -571,8 +566,8 @@ namespace astia::fs {
         }
 
         if (!published) {
-            if (destroy != nullptr)
-                destroy(instance);
+            if (ownership == mount_ownership::registry_owned)
+                type->destroy_mount(instance);
             return publish_error;
         }
         return 0;
@@ -592,7 +587,7 @@ namespace astia::fs {
             return -EBUSY;
         mount*          instance  = nullptr;
         mount_ownership ownership = mount_ownership::static_instance;
-        void (*destroy)(mount*)   = nullptr;
+        const filesystem* destroyer = nullptr;
         type_entry* owner         = nullptr;
         bool        owner_operation = false;
         {
@@ -616,8 +611,8 @@ namespace astia::fs {
             }
             instance            = selected->instance;
             ownership           = selected->ownership;
-            destroy             = selected->destroy;
             owner               = selected->owner;
+            destroyer           = owner != nullptr ? owner->type : nullptr;
             if (owner != nullptr && owner->generation == selected->owner_generation) {
                 ++owner->active_operations;
                 if (owner->mount_count != 0)
@@ -635,8 +630,8 @@ namespace astia::fs {
         }
         // Only registry-owned factories may be destroyed here.  Cached devfs
         // has a null callback and remains in its static storage.
-        if (ownership == mount_ownership::registry_owned && destroy != nullptr)
-            destroy(instance);
+        if (ownership == mount_ownership::registry_owned && destroyer != nullptr)
+            destroyer->destroy_mount(instance);
         if (owner_operation) {
             core::spinlock_guard registry_guard(mount_registry_lock);
             --owner->active_operations;
@@ -1105,6 +1100,9 @@ namespace astia::fs {
 
     long file::size() const {
         return -ESPIPE;
+    }
+    u32 file::block_size() const {
+        return 0;
     }
 
     long file::truncate(u64) {

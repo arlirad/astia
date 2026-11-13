@@ -63,6 +63,7 @@ namespace astia::fs {
         unknown   = 0,
         fifo      = 1,
         character = 2,
+        block     = 3,
         directory = 4,
         regular   = 8,
         symlink   = 10,
@@ -137,6 +138,9 @@ namespace astia::fs {
         }
         constexpr bool is_character_device() const {
             return type_ == file_type::character;
+        }
+        constexpr bool is_block_device() const {
+            return type_ == file_type::block;
         }
         constexpr bool is_directory() const {
             return type_ == file_type::directory;
@@ -235,6 +239,7 @@ namespace astia::fs {
         virtual long             ioctl(u64 request, void* argp, usize size);
         virtual long             acquire_controlling_terminal(i32 group);
         virtual long             size() const;
+        virtual u32              block_size() const;
         virtual long             truncate(u64 length);
         virtual long             sync_mapping(mm::phys_region* mapping, u64 offset,
                                                u64 length, u32 flags);
@@ -313,6 +318,9 @@ namespace astia::fs {
         long             ioctl(u64 request, void* argp, usize size);
         long             acquire_controlling_terminal(i32 group);
         long             size() const;
+        u32              block_size() const {
+            return _object ? _object->block_size() : 0;
+        }
         long             truncate(u64 length);
         long             chmod(file_permissions permissions);
         long             sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,

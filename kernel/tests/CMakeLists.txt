@@ -31,6 +31,7 @@ set(_astia_test_includes
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf
         ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64
@@ -252,7 +253,7 @@ astia_add_host_test(astia_mod_test
 
 astia_add_host_test(astia_ext4_test
         ext4_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/ext4_reader.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/ext4/ext4_reader.cpp
 )
 
 # memory.cpp is the code under test here, so it overrides the host libc's
@@ -313,6 +314,18 @@ astia_add_arena_test(astia_phys_region_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
 )
+
+astia_add_arena_test(astia_ext4_vfs_test
+        ext4_vfs_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/block_device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+)
+target_link_libraries(astia_ext4_vfs_test PRIVATE fs)
+target_compile_options(astia_ext4_vfs_test PRIVATE -fno-rtti)
+target_link_options(astia_ext4_vfs_test PRIVATE "-Wl,--allow-multiple-definition")
+target_include_directories(astia_ext4_vfs_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 # On-target integration test: boot the real kernel under QEMU and let its
 # isa-debug-exit status decide pass/fail. Covers what host tests cannot (CR3,
