@@ -6,31 +6,32 @@
 #include <errno.h>
 #include <unistd.h>
 
-static int command(const char* name, const char* request) {
+static int connect_daemon(int fd, const char* path) {
     struct sockaddr_un address;
-    char               response[DAEMON_RESPONSE_MAX];
-    int                fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    long               n;
-    size_t             length = __builtin_strlen(request);
-    if (fd < 0)
-        return cu_error(name, "daemon unavailable");
     __builtin_memset(&address, 0, sizeof address);
     address.sun_family = AF_UNIX;
-    __builtin_strcpy(address.sun_path, DAEMON_SOCKET_PATH);
-    if (connect(fd, (struct sockaddr*) &address, sizeof address) < 0) {
-        __builtin_memset(&address, 0, sizeof address);
-        address.sun_family = AF_UNIX;
-        __builtin_strcpy(address.sun_path, DAEMON_SOCKET_FALLBACK);
-        if (connect(fd, (struct sockaddr*) &address, sizeof address) < 0) {
-            close(fd);
-            return cu_error(name, "daemon unavailable");
-        }
+    __builtin_strcpy(address.sun_path, path);
+    return connect(fd, (struct sockaddr*) &address,
+                   (unsigned int) (2 + __builtin_strlen(path)));
+}
+
+static int command(const char* name, const char* request) {
+    char   response[DAEMON_RESPONSE_MAX];
+    int    fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    long   n;
+    size_t length = __builtin_strlen(request);
+    if (fd < 0)
+        return cu_error(name, "daemon unavailable");
+    if (connect_daemon(fd, DAEMON_SOCKET_PATH) < 0 &&
+        connect_daemon(fd, DAEMON_SOCKET_FALLBACK) < 0) {
+        close(fd);
+        return cu_error(name, "daemon unavailable");
     }
     {
         const char* cursor    = request;
         size_t      remaining = length;
         while (remaining) {
-            long written = write(fd, cursor, (unsigned long) remaining);
+            long written = send(fd, cursor, (unsigned long) remaining, 0);
             if (written <= 0) {
                 close(fd);
                 return cu_error(name, "daemon request failed");

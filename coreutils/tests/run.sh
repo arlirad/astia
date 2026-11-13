@@ -39,8 +39,8 @@ $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
     "$crt0" "$out/coreutils_test.o" "$sysroot/lib/libastia_libc.a" \
     "$resource/lib/linux/libclang_rt.builtins-x86_64.a"
 cp "$out/bin/"* "$out/root/bin/"
-cp "$root/init/passwd" "$out/root/etc/passwd"
-cp "$root/init/group" "$out/root/etc/group"
+cp "$root/daemond/passwd" "$out/root/etc/passwd"
+cp "$root/daemond/group" "$out/root/etc/group"
 if [ -f "$root/kernel/build-tests/tests/fixtures/init_libc" ]; then
     cp "$root/kernel/build-tests/tests/fixtures/init_libc" "$out/root/bin/"
 fi

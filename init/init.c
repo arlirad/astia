@@ -5,32 +5,32 @@
 #include <unistd.h>
 
 /* PID 1 is deliberately boring: kernel bootstrap has already mounted devfs
- * and installed the inherited console streams.  The daemon is the sole owner
- * of /etc/rc and of service children, so init never competes for their waits. */
+ * and installed the inherited console streams.  Daemond is the sole owner of
+ * /etc/rc and of service children, so init never competes for their waits. */
 int main(void) {
-    char* const argv[] = {(char*) "/sbin/daemon", NULL};
+    char* const argv[] = {(char*) "/sbin/daemond", NULL};
     int         status = 0;
-    int         daemon = spawnve("/sbin/daemon", argv, NULL);
-    if (daemon < 0) {
-        fprintf(stderr, "init: cannot start /sbin/daemon\n");
+    int         daemond = spawnve("/sbin/daemond", argv, NULL);
+    if (daemond < 0) {
+        fprintf(stderr, "init: cannot start /sbin/daemond\n");
         return 1;
     }
-    fprintf(stderr, "init: daemon started\n");
+    fprintf(stderr, "init: daemond started\n");
     for (;;) {
         int child = waitpid(-1, &status, 0);
-        if (child == daemon)
+        if (child == daemond)
             break;
         if (child < 0 && errno == EINTR)
             continue;
         if (child < 0) {
-            fprintf(stderr, "init: daemon wait failed\n");
+            fprintf(stderr, "init: daemond wait failed\n");
             return 1;
         }
-        /* PID 1 must collect unrelated orphaned descendants too; only the
-         * daemon's status determines the result of the bootstrap. */
+        /* PID 1 must collect unrelated orphaned descendants too; only
+         * daemond's status determines the result of the bootstrap. */
     }
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        fprintf(stderr, "init: daemon failed\n");
+        fprintf(stderr, "init: daemond failed\n");
         return 1;
     }
     fprintf(stderr, "init: clean shutdown\n");

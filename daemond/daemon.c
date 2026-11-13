@@ -194,6 +194,7 @@ static void reap_child(struct service* services, int count, int pid, int status,
     for (int i = 0; i < count; ++i) {
         if (services[i].pid != pid)
             continue;
+        fprintf(stderr, "daemond: reaped service pid=%d status=%d\n", pid, status);
         services[i].pid = services[i].pgid = -1;
         if (services[i].enabled &&
             (services[i].start_on_exit ||
@@ -210,7 +211,7 @@ static void reap_child(struct service* services, int count, int pid, int status,
 }
 
 static void report(const char* what, const struct service* service) {
-    fprintf(stderr, "daemon: %s: %s\n", what, service->argc ? service->argv[0] : "?");
+    fprintf(stderr, "daemond: %s: %s\n", what, service->argc ? service->argv[0] : "?");
 }
 
 static int open_control(void) {
@@ -358,7 +359,7 @@ int astia_daemon_run(const char* rc_path) {
     fclose(file);
     if (failures || !count) {
         if (!failures)
-            fprintf(stderr, "daemon: clean shutdown\n");
+            fprintf(stderr, "daemond: clean shutdown\n");
         return failures ? -1 : 0;
     }
 
@@ -385,6 +386,10 @@ int astia_daemon_run(const char* rc_path) {
     if (helper == 0) {
         close(commands[0]);
         close(replies[1]);
+        signal(SIGUSR1, SIG_DFL);
+        signal(SIGCHLD, SIG_DFL);
+        signal(SIGTERM, SIG_DFL);
+        signal(SIGINT, SIG_DFL);
         return control_helper(control, commands[1], replies[0]);
     }
     if (helper < 0) {
@@ -397,7 +402,7 @@ int astia_daemon_run(const char* rc_path) {
     }
     close(commands[1]);
     close(replies[0]);
-    fprintf(stderr, "daemon: started\n");
+    fprintf(stderr, "daemond: started\n");
 
     for (int i = 0; i < count; ++i)
         if (start_service(&services[i]) < 0) {
@@ -535,7 +540,7 @@ int astia_daemon_run(const char* rc_path) {
     close(control);
     unlink(DAEMON_SOCKET_PATH);
     unlink(DAEMON_SOCKET_FALLBACK);
-    fprintf(stderr, "daemon: clean shutdown\n");
+    fprintf(stderr, "daemond: clean shutdown\n");
     return failures ? -1 : 0;
 }
 
