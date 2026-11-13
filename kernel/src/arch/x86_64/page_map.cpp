@@ -1,5 +1,6 @@
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
+#include <astia/arch/user_layout.hpp>
 #ifndef ASTIA_HOST_TEST
 #include <astia/arch/cpu.hpp>
 #endif
@@ -98,8 +99,7 @@ namespace astia::arch {
         }
 
         bool is_canonical(vaddr_t virt) {
-            const u64 top = virt >> 47;
-            return top == 0 || top == 0x1ffff;
+            return user_layout_policy::is_canonical(virt);
         }
 
         /// Translate the arch-neutral flags into an x86_64 leaf entry. A

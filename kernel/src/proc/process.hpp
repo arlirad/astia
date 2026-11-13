@@ -30,10 +30,6 @@ namespace astia::proc {
     inline constexpr u32 max_signal_waiters_per_process = signal_waiter_capacity;
     inline constexpr u32 max_supplementary_groups       = 16;
 
-    /// Reserved userspace TLS placement for process-created threads.
-    inline constexpr u64 process_tls_first  = 0x00007fffef000000ull;
-    inline constexpr u64 process_tls_stride = 0x00100000ull;
-
     /// Userspace spawn limits for the startup frame (argv/envp).
     inline constexpr u32   max_argv_entries       = 16;
     inline constexpr u32   max_env_entries        = 16;

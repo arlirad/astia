@@ -67,6 +67,7 @@ astia_add_host_test(astia_fs_async_test
         support/resume_queue_host.cpp
 )
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
+astia_add_host_test(astia_user_layout_test user_layout_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
 astia_add_host_test(astia_endian_test endian_test.cpp)
 astia_add_host_test(astia_time_test
