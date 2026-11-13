@@ -117,6 +117,8 @@ long __astia_fio_open(const char* path, int flags, int mode) {
         hf |= O_TRUNC;
     if (flags & FIO_APPEND)
         hf |= O_APPEND;
+    if (flags & FIO_DIRECTORY)
+        hf |= O_DIRECTORY;
 
     long fd = syscall(SYS_openat, -100, path, hf, mode);
     return fd >= 0 ? fd : -HOST_ERRNO;
@@ -306,6 +308,10 @@ long __astia_fio_mkdir(const char* path, int mode) {
 
 long __astia_fio_chmod(const char* path, int mode) {
     long rc = syscall(SYS_chmod, path, mode);
+    return rc < 0 ? -HOST_ERRNO : 0;
+}
+long __astia_fio_fchmod(int fd, int mode) {
+    long rc = syscall(SYS_fchmod, fd, mode);
     return rc < 0 ? -HOST_ERRNO : 0;
 }
 long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid,

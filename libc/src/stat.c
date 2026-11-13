@@ -74,6 +74,14 @@ int chmod(const char* path, mode_t mode) {
     long rc = __astia_fio_chmod(path, (int) mode);
     return rc < 0 ? fail(rc) : 0;
 }
+int fchmod(int fd, mode_t mode) {
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    long rc = __astia_fio_fchmod(fd, (int) mode);
+    return rc < 0 ? fail(rc) : 0;
+}
 int chown(const char* path, uid_t owner, gid_t group) {
     if (path == NULL) {
         errno = EFAULT;

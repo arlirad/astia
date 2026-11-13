@@ -46,12 +46,23 @@ int main(void) {
         CHECK(fstat(fd, &fst) == 0 && S_ISREG(fst.st_mode) && fst.st_size == 3);
         CHECK(stat(file, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 3);
         CHECK((st.st_mode & 0777) == 0644);
+        CHECK(fchmod(fd, S_IFREG | 0620) == 0);
+        CHECK(fstat(fd, &fst) == 0 && (fst.st_mode & 0777) == 0620);
         CHECK(chmod(file, 0600) == 0);
         CHECK(stat(file, &st) == 0 && (st.st_mode & 0777) == 0600);
         CHECK(chown(file, host_uid(), host_gid()) == 0);
         CHECK(stat(file, &st) == 0 && st.st_uid == host_uid() && st.st_gid == host_gid());
         CHECK(close(fd) == 0);
     }
+    fd = open(dir, O_RDONLY | O_DIRECTORY, 0);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        CHECK(fchmod(fd, 0700) == 0);
+        CHECK(stat(dir, &st) == 0 && (st.st_mode & 0777) == 0700);
+        CHECK(close(fd) == 0);
+    }
+    errno = 0;
+    CHECK(fchmod(-1, 0600) == -1 && errno == EBADF);
     CHECK(symlink("file", link) == 0);
     CHECK(lchown(link, host_uid(), host_gid()) == 0);
     CHECK(lstat(link, &st) == 0 && st.st_uid == host_uid() && st.st_gid == host_gid());

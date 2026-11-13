@@ -56,6 +56,7 @@ int lstat(const char* path, struct stat* result);
 int fstat(int fd, struct stat* result);
 int fstatat(int dirfd, const char* path, struct stat* result, int flags);
 int chmod(const char* path, mode_t mode);
+int fchmod(int fd, mode_t mode);
 int chown(const char* path, uid_t owner, gid_t group);
 int lchown(const char* path, uid_t owner, gid_t group);
 int fchown(int fd, uid_t owner, gid_t group);

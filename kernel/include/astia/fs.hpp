@@ -241,6 +241,7 @@ namespace astia::fs {
         virtual file_mode        mode() const;
         virtual uid_t            uid() const;
         virtual gid_t            gid() const;
+        virtual long             chmod(file_permissions permissions);
         virtual long             chown(uid_t owner, gid_t group);
         virtual u64              mtime_sec() const;
         virtual u64              mtime_nsec() const;
@@ -308,6 +309,7 @@ namespace astia::fs {
         long             acquire_controlling_terminal(i32 group);
         long             size() const;
         long             truncate(u64 length);
+        long             chmod(file_permissions permissions);
         long             sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
                                       u32 flags);
         mm::phys_region* mapping() const;

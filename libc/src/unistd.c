@@ -102,6 +102,8 @@ int open(const char* path, int flags, ...) {
         fio |= FIO_NONBLOCK;
     if (flags & O_CLOEXEC)
         fio |= FIO_CLOEXEC;
+    if (flags & O_DIRECTORY)
+        fio |= FIO_DIRECTORY;
     long rc = __astia_fio_open(path, fio, mode);
     if (rc < 0) {
         errno = (int) -rc;

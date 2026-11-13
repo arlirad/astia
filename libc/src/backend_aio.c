@@ -378,6 +378,8 @@ long __astia_fio_open(const char* path, int flags, int mode) {
         of |= ASTIA_AIO_O_NONBLOCK;
     if (flags & FIO_CLOEXEC)
         of |= ASTIA_AIO_O_CLOEXEC;
+    if (flags & FIO_DIRECTORY)
+        of |= ASTIA_AIO_O_DIRECTORY;
 
     return transact(OP_OPENAT, AT_FDCWD, 0, path, 0, of, (uint32_t) mode);
 }
@@ -524,6 +526,9 @@ long __astia_fio_mkdir(const char* path, int mode) {
 
 long __astia_fio_chmod(const char* path, int mode) {
     return transact(OP_CHMOD, -1, 0, path, 0, 0, (uint32_t) mode);
+}
+long __astia_fio_fchmod(int fd, int mode) {
+    return transact(OP_CHMOD, fd, 0, NULL, 0, 0, (uint32_t) mode);
 }
 long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid,
                        int nofollow) {

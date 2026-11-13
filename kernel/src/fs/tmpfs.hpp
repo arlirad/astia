@@ -51,6 +51,11 @@ namespace astia::fs {
             core::spinlock_guard guard(lock_);
             return gid_;
         }
+        long chmod(file_permissions permissions) override {
+            core::spinlock_guard guard(lock_);
+            mode_ = mode_.chmod(permissions);
+            return 0;
+        }
         long chown(uid_t owner, gid_t group) override {
             core::spinlock_guard guard(lock_);
             uid_ = owner;

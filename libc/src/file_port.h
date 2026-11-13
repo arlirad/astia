@@ -44,6 +44,7 @@ enum { /* open flags — the subset every port can speak */
        FIO_APPEND   = 1u << 5,
        FIO_NONBLOCK = 1u << 6,
        FIO_CLOEXEC  = 1u << 7,
+       FIO_DIRECTORY = 1u << 8,
 };
 
 /* offset meaning "append"; == astia's OFF_APPEND by ABI design */
@@ -86,6 +87,7 @@ long __astia_fio_lstat(const char* path, void* out, uint32_t length);
 long __astia_fio_fstat(int fd, void* out, uint32_t length);
 long __astia_fio_mkdir(const char* path, int mode);
 long __astia_fio_chmod(const char* path, int mode);
+long __astia_fio_fchmod(int fd, int mode);
 long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid,
                        int nofollow);
 long __astia_fio_fchown(int fd, unsigned int uid, unsigned int gid);

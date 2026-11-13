@@ -298,6 +298,9 @@ namespace astia::fs {
     gid_t file::gid() const {
         return {};
     }
+    long file::chmod(file_permissions) {
+        return -ENOSYS;
+    }
     long file::chown(uid_t, gid_t) {
         return -ENOSYS;
     }
@@ -578,7 +581,12 @@ namespace astia::fs {
         mount_operation operation(resolved);
         if (!operation)
             return {};
-        auto result = mm::share<open_file>(resolved, node_mode(resolved));
+        auto result = operation.instance()->open(relative_path(*operation.entry(), resolved),
+                                                 ASTIA_AIO_O_DIRECTORY);
+        if (!result)
+            result = mm::share<open_file>(resolved, node_mode(resolved));
+        if (result)
+            result->set_path(resolved);
         if (result)
             result->attach_mount(operation.instance());
         return result;
@@ -1257,6 +1265,11 @@ namespace astia::fs {
         if (!_object)
             return -EBADF;
         return _object->truncate(length);
+    }
+    long open_file::chmod(file_permissions permissions) {
+        if (!_object)
+            return -EBADF;
+        return _object->chmod(permissions);
     }
     long open_file::sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
                                  u32 flags) {

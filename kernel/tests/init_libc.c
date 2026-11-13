@@ -2789,6 +2789,52 @@ int main(int argc, char** argv) {
             return 70;
     }
 
+    {
+        const char* file = "/tmp/fchmod-file";
+        const char* moved = "/tmp/fchmod-moved";
+        const char* dir  = "/tmp/fchmod-dir";
+        struct stat value;
+        int fd;
+
+        (void) unlink(file);
+        (void) unlink(moved);
+        (void) rmdir(dir);
+        fd = open(file, O_CREAT | O_RDWR | O_TRUNC, 0644);
+        if (fd < 0)
+            return 71;
+        if (fchmod(fd, S_IFREG | 0620) != 0 ||
+            fstat(fd, &value) != 0 || (value.st_mode & S_IFMT) != S_IFREG ||
+            (value.st_mode & 0777) != 0620)
+            return 72;
+        if (rename(file, moved) != 0 || fchmod(fd, 0610) != 0 ||
+            fstat(fd, &value) != 0 || (value.st_mode & 0777) != 0610)
+            return 73;
+        if (unlink(moved) != 0 || fchmod(fd, 0601) != 0 ||
+            fstat(fd, &value) != 0 || (value.st_mode & 0777) != 0601)
+            return 74;
+        if (close(fd) != 0 || mkdir(dir, 0755) != 0)
+            return 75;
+        fd = open(dir, O_RDONLY | O_DIRECTORY);
+        if (fd < 0)
+            return 76;
+        if (fchmod(fd, 0700) != 0 || stat(dir, &value) != 0 ||
+            (value.st_mode & 0777) != 0700)
+            return 77;
+        if (close(fd) != 0 || fchmod(-1, 0600) != -1 || errno != EBADF)
+            return 78;
+        if (rmdir(dir) != 0)
+            return 79;
+    }
+
+    {
+        int fd = open("/dev/null", O_RDONLY);
+        if (fd < 0)
+            return 80;
+        errno = 0;
+        if (fchmod(fd, 0600) != -1 || errno != ENOSYS || close(fd) != 0)
+            return 81;
+    }
+
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from
        the frame the kernel built. */
     printf("astia: libc ok pid=%d argc=%d argv0=%s\n", pid, argc,

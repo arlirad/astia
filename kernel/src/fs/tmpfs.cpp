@@ -84,7 +84,8 @@ namespace astia::fs {
     }
 
     tmpfs_file::tmpfs_file(usize pages, file_mode mode)
-        : storage_(mm::phys_region::create(pages, true)), mode_(mode),
+        : storage_(mode.is_directory() ? nullptr : mm::phys_region::create(pages, true)),
+          mode_(mode),
           inode_(__atomic_fetch_add(&next_inode, 1u, __ATOMIC_RELAXED)) {}
 
     tmpfs_file::~tmpfs_file() {
@@ -207,8 +208,6 @@ namespace astia::fs {
             for (u32 i = 0; i < tmpfs_max_entries; ++i) {
                 if (!entries_[i].used || !equal(entries_[i].path, path))
                     continue;
-                if (entries_[i].directory)
-                    return {};
                 /* Permission selection is performed by the process/VFS ABI
                    boundary, where real/effective and supplementary credentials
                    are available.  Do not accidentally re-apply owner bits here. */
@@ -361,7 +360,6 @@ namespace astia::fs {
     }
 
     long tmpfs_mount::mkdir(const char* path, file_mode mode) {
-        core::spinlock_guard guard(namespace_lock_);
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
         // The mount point is the tmpfs root.  From the VFS this is the
@@ -369,6 +367,11 @@ namespace astia::fs {
         // semantics rather than looking like an invalid tmpfs pathname.
         if (equal(path, "/"))
             return -EEXIST;
+        auto object = mm::shptr<tmpfs_file>(
+            new tmpfs_file{0, file_mode(file_type::directory, mode.permissions().chmod_mask())});
+        if (!object)
+            return -ENOMEM;
+        core::spinlock_guard guard(namespace_lock_);
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path))
                 return -EEXIST;
@@ -390,6 +393,7 @@ namespace astia::fs {
                 entries_[i].directory = true;
                 entries_[i].mode =
                     file_mode(file_type::directory, mode.permissions().chmod_mask());
+                entries_[i].object = object;
                 return 0;
             }
         }
@@ -753,7 +757,7 @@ namespace astia::fs {
             return file_mode(file_type::directory, readonly_directory_permissions);
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path))
-                return entries_[i].mode;
+                return entries_[i].object ? entries_[i].object->mode() : entries_[i].mode;
         return {};
     }
     uid_t tmpfs_mount::node_uid(const char* path) const {
