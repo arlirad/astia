@@ -118,11 +118,12 @@ namespace {
     class test_driver final : public astia::dev::driver {
         public:
         const char* name() const override { return "pci-test"; }
-        bool match(const astia::dev::pci_device& value) const override {
-            return value.vendor_id == 0x1234;
+        bool match(const astia::dev::device_info& value) const override {
+            const auto* pci = astia::dev::pci_device_info::get(value);
+            return pci != nullptr && pci->device().vendor_id == 0x1234;
         }
-        astia::dev::device* probe(const astia::dev::pci_device&) override {
-            return &bound_device;
+        astia::mm::shptr<astia::dev::device> probe(const astia::dev::device_info&) override {
+            return astia::mm::shptr<astia::dev::device>::borrowed(&bound_device);
         }
     } driver;
 

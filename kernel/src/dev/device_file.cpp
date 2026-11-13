@@ -6,40 +6,45 @@
 namespace astia::dev {
 
     long device_file::read(void* buf, u32 len, u64 offset) {
-        return _device == nullptr
+        device* value = device_instance();
+        return value == nullptr
                    ? -EINVAL
-                   : _device->read(astia::span<u8>(static_cast<u8*>(buf), len), offset);
+                   : value->read(astia::span<u8>(static_cast<u8*>(buf), len), offset);
     }
 
     long device_file::write(const void* buf, u32 len, u64 offset) {
-        return _device == nullptr
+        device* value = device_instance();
+        return value == nullptr
                    ? -EINVAL
-                   : _device->write(
+                   : value->write(
                          astia::span<const u8>(static_cast<const u8*>(buf), len), offset);
     }
 
     long device_file::submit(io_request& request) {
-        return _device == nullptr ? -EINVAL : _device->submit(request);
+        device* value = device_instance();
+        return value == nullptr ? -EINVAL : value->submit(request);
     }
     u32 device_file::poll(u32 events, u32 flags) {
-        return _device == nullptr ? static_cast<u32>(POLLNVAL)
-                                  : _device->poll(events, flags);
+        device* value = device_instance();
+        return value == nullptr ? static_cast<u32>(POLLNVAL) : value->poll(events, flags);
     }
 
     long device_file::ioctl(u64 request, void* argp, usize size) {
-        return _device == nullptr
+        device* value = device_instance();
+        return value == nullptr
                    ? -EINVAL
-                   : _device->ioctl(request,
-                                     astia::span<u8>(static_cast<u8*>(argp), size));
+                   : value->ioctl(request, astia::span<u8>(static_cast<u8*>(argp), size));
     }
 
     long device_file::acquire_controlling_terminal(i32 group) {
-        return _device == nullptr ? -EINVAL : _device->acquire_controlling_terminal(group);
+        device* value = device_instance();
+        return value == nullptr ? -EINVAL : value->acquire_controlling_terminal(group);
     }
 
     long device_file::size() const {
-        if (_device != nullptr && (_device->flags() & dv_block) != 0)
-            return static_cast<long>(static_cast<const blk::block_device*>(_device)->size_bytes());
+        device* value = device_instance();
+        if (value != nullptr && (value->flags() & dv_block) != 0)
+            return static_cast<long>(static_cast<const blk::block_device*>(value)->size_bytes());
         return -ESPIPE;
     }
 

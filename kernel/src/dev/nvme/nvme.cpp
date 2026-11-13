@@ -2,6 +2,7 @@
 
 #include "../blk/block_device.hpp"
 #include "../device_file.hpp"
+#include "../pci.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
@@ -110,10 +111,6 @@ namespace astia::dev::nvme {
                     return false;
                 started_ = true;
                 configure_geometry(namespace_size_ * block_size_, block_size_);
-                const long registration = fs::register_device(
-                    "/dev/nvme0n1", mm::shptr<fs::file>::borrowed(&file_));
-                if (registration < 0)
-                    return false;
                 logs::info("namespace blocks=%llu block-size=%u",
                            static_cast<unsigned long long>(namespace_size_), block_size_);
                 return true;
@@ -191,7 +188,6 @@ namespace astia::dev::nvme {
             dma_buffer io_sq_;
             dma_buffer io_cq_;
             dma_buffer identify_page_;
-            device_file file_{this};
 
             u32 read32(u32 offset) const {
                 return *reinterpret_cast<volatile const u32*>(registers_ + offset);
@@ -385,20 +381,26 @@ namespace astia::dev::nvme {
                 return "nvme";
             }
 
-            bool match(const pci_device& device) const override {
-                return device.class_code == 0x01 && device.subclass == 0x08 &&
-                       device.programming_interface == 0x02;
+            bool match(const device_info& info) const override {
+                const pci_device_info* pci = pci_device_info::get(info);
+                return pci != nullptr && pci->device().class_code == 0x01 &&
+                       pci->device().subclass == 0x08 &&
+                       pci->device().programming_interface == 0x02;
             }
 
-            device* probe(const pci_device& device) override {
-                pci_device* mutable_device = pci_devices().find(device.bdf);
-                return mutable_device != nullptr && controller_.start(*mutable_device)
-                           ? &controller_
-                           : nullptr;
+            mm::shptr<device> probe(const device_info& info) override {
+                const pci_device_info* pci = pci_device_info::get(info);
+                if (pci == nullptr)
+                    return {};
+                auto controller_value = mm::share<controller>();
+                if (!controller_value || !controller_value->start(pci->mutable_device()))
+                    return {};
+                mm::shptr<device> owner = controller_value;
+                auto file = mm::share<device_file>(owner);
+                if (!file || fs::register_device("/dev/nvme0n1", file) < 0)
+                    return {};
+                return owner;
             }
-
-            private:
-            controller controller_;
         };
 
         alignas(driver) u8 nvme_driver_storage[sizeof(driver)]{};
@@ -414,8 +416,8 @@ namespace astia::dev::nvme {
 
     bool test_read() {
         for (u32 i = 0; i < drivers().device_count(); ++i) {
-            auto* value = drivers().device_at(i);
-            auto* found = static_cast<controller*>(value);
+            auto value = drivers().device_at(i);
+            auto* found = static_cast<controller*>(value.get());
             const bool interrupts = arch::cpu::check_interrupts();
             if (!interrupts)
                 arch::cpu::interrupts();

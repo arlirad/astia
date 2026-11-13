@@ -15,23 +15,29 @@ namespace astia::dev {
         return true;
     }
 
-    bool driver_manager::bind(const pci_device& device_info) {
+    bool driver_manager::bind(const device_info& info) {
         for (u32 i = 0; i < device_count_; ++i)
-            if (bindings_[i].bdf == device_info.bdf)
+            if (bindings_[i].device_info_instance->same_device(info))
                 return false;
+        if (device_count_ == max_devices)
+            return false;
         for (u32 i = 0; i < driver_count_; ++i) {
-            driver& candidate = *drivers_[i];
-            if (!candidate.match(device_info)) {
+            driver& candidate_driver = *drivers_[i];
+            if (!candidate_driver.match(info)) {
                 continue;
             }
-            device* value = candidate.probe(device_info);
-            if (value == nullptr) {
+            mm::shptr<device> value = candidate_driver.probe(info);
+            if (!value) {
                 continue;
             }
-            if (device_count_ == max_devices) {
+            mm::shptr<device_info> copy = info.clone();
+            if (!copy) {
+                candidate_driver.remove(info, value);
                 return false;
             }
-            bindings_[device_count_++] = {&candidate, value, device_info.bdf};
+            bindings_[device_count_++] = {&candidate_driver,
+                                          static_cast<mm::shptr<device_info>&&>(copy),
+                                          static_cast<mm::shptr<device>&&>(value)};
             return true;
         }
         return false;
@@ -40,9 +46,8 @@ namespace astia::dev {
     void driver_manager::unbind_all() {
         for (u32 i = device_count_; i != 0; --i) {
             binding& item = bindings_[i - 1];
-            const pci_device* owner = pci_devices().find(item.bdf);
-            if (item.driver_instance != nullptr && owner != nullptr)
-                item.driver_instance->remove(*owner, item.device_instance);
+            if (item.driver_instance != nullptr && item.device_info_instance)
+                item.driver_instance->remove(*item.device_info_instance, item.device_instance);
             item = {};
         }
         device_count_ = 0;

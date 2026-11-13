@@ -1,18 +1,27 @@
 #pragma once
 
 #include "device.hpp"
-#include "pci.hpp"
+#include <astia/mm/share.hpp>
+#include <astia/mm/shptr.hpp>
 
 namespace astia::dev {
 
-    /// A driver turns an enumerated bus device into a logical device.
-    /// Drivers are statically owned; the manager stores non-owning pointers.
+    enum class device_bus : u8 { unknown, pci };
+
+    class device_info {
+        public:
+        virtual ~device_info() = default;
+        virtual device_bus bus() const = 0;
+        virtual bool same_device(const device_info& other) const = 0;
+        virtual mm::shptr<device_info> clone() const = 0;
+    };
+
     class driver {
         public:
-        virtual const char* name() const                          = 0;
-        virtual bool        match(const pci_device& device) const = 0;
-        virtual device*     probe(const pci_device& device)       = 0;
-        virtual void        remove(const pci_device&, device*) {}
+        virtual const char* name() const                                  = 0;
+        virtual bool        match(const device_info& device) const        = 0;
+        virtual mm::shptr<device> probe(const device_info& device)       = 0;
+        virtual void remove(const device_info&, const mm::shptr<device>&) {}
     };
 
     class driver_manager {
@@ -21,7 +30,7 @@ namespace astia::dev {
         static constexpr u32 max_devices = 64;
 
         bool register_driver(driver& value);
-        bool bind(const pci_device& device);
+        bool bind(const device_info& device);
         void unbind_all();
         u32  driver_count() const {
             return driver_count_;
@@ -29,15 +38,15 @@ namespace astia::dev {
         u32 device_count() const {
             return device_count_;
         }
-        device* device_at(u32 index) const {
-            return index < device_count_ ? bindings_[index].device_instance : nullptr;
+        mm::shptr<device> device_at(u32 index) const {
+            return index < device_count_ ? bindings_[index].device_instance : mm::shptr<device>{};
         }
 
         private:
         struct binding {
             driver* driver_instance = nullptr;
-            device* device_instance = nullptr;
-            pci_bdf bdf{};
+            mm::shptr<device_info> device_info_instance;
+            mm::shptr<device> device_instance;
         };
 
         driver*  drivers_[max_drivers]{};

@@ -5,6 +5,21 @@
 
 namespace astia::dev {
 
+    const pci_device_info* pci_device_info::get(const device_info& value) {
+        return value.bus() == device_bus::pci
+                   ? static_cast<const pci_device_info*>(&value)
+                   : nullptr;
+    }
+
+    bool pci_device_info::same_device(const device_info& other) const {
+        const pci_device_info* pci = get(other);
+        return pci != nullptr && device().bdf == pci->device().bdf;
+    }
+
+    mm::shptr<device_info> pci_device_info::clone() const {
+        return mm::shptr<device_info>(new pci_device_info(*value_));
+    }
+
     namespace {
         constexpr u16 command_status_offset = 0x04;
         constexpr u16 header_offset         = 0x0e;
@@ -377,7 +392,8 @@ namespace astia::dev {
                     if (added == nullptr)
                         return found;
                     ++found;
-                    drivers().bind(*added);
+                    pci_device_info candidate(*added);
+                    drivers().bind(candidate);
                 }
             }
         }

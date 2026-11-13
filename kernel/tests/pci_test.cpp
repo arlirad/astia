@@ -67,12 +67,14 @@ namespace {
         const char* name() const override {
             return "capture";
         }
-        bool match(const astia::dev::pci_device&) const override {
+        bool match(const astia::dev::device_info&) const override {
             return true;
         }
-        astia::dev::device* probe(const astia::dev::pci_device& value) override {
-            captured = value;
-            return nullptr;
+        astia::mm::shptr<astia::dev::device> probe(const astia::dev::device_info& value) override {
+            const auto* pci = astia::dev::pci_device_info::get(value);
+            if (pci != nullptr)
+                captured = pci->device();
+            return {};
         }
 
         astia::dev::pci_device captured{};

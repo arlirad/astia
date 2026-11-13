@@ -12,6 +12,7 @@ namespace astia::mm {
     struct shcontrol {
         u32   refs;
         void* value;
+        void* owned;
         void (*destroy)(void*);
     };
 
@@ -23,8 +24,10 @@ namespace astia::mm {
         public:
         constexpr shptr() = default;
 
-        explicit shptr(T* value) {
-            acquire(value, &destroy_owned);
+        template <typename U>
+            requires requires(U* value) { static_cast<T*>(value); }
+        explicit shptr(U* value) {
+            acquire(value, &destroy_owned<U>);
         }
 
         static shptr borrowed(T* value) {
@@ -95,13 +98,15 @@ namespace astia::mm {
         private:
         shcontrol* _control = nullptr;
 
+        template <typename U>
         static void destroy_owned(void* value) {
-            delete static_cast<T*>(value);
+            delete static_cast<U*>(value);
         }
 
-        void acquire(T* value, void (*destroy)(void*)) {
+        template <typename U>
+        void acquire(U* value, void (*destroy)(void*)) {
             if (value != nullptr) {
-                _control = new shcontrol{1, value, destroy};
+                _control = new shcontrol{1, static_cast<T*>(value), value, destroy};
             }
         }
 
@@ -119,7 +124,7 @@ namespace astia::mm {
             _control           = nullptr;
             if (__atomic_sub_fetch(&control->refs, 1, __ATOMIC_ACQ_REL) == 0) {
                 if (control->destroy != nullptr) {
-                    control->destroy(control->value);
+                    control->destroy(control->owned);
                 }
                 delete control;
             }
