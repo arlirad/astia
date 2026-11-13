@@ -31,6 +31,10 @@ foreach(_t string ctype stdlib malloc snprintf)
   add_test(NAME libc_${_t}_test COMMAND libc_${_t}_test)
 endforeach()
 
+add_executable(libc_getopt_test getopt_test.c backend_host.c)
+target_link_libraries(libc_getopt_test PRIVATE astia_libc)
+add_test(NAME libc_getopt_test COMMAND libc_getopt_test)
+
 add_executable(libc_poll_select_test poll_select_test.c backend_host.c)
 target_link_libraries(libc_poll_select_test PRIVATE astia_libc)
 add_test(NAME libc_poll_select_test COMMAND libc_poll_select_test)

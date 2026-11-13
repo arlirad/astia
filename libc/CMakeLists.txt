@@ -29,6 +29,7 @@ set(ASTIA_LIBC_SOURCES
   src/errno.c
   src/file.c
   src/group.c
+  src/getopt.c
   src/ioctl.c
   src/locale.c
   src/math.c
