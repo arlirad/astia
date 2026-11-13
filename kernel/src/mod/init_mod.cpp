@@ -70,6 +70,9 @@ namespace astia::mod {
         if (ctx.info == nullptr) {
             return false;
         }
+        if (!expose_module_abi()) {
+            return false;
+        }
 
         // The ramdisk is the fs layer's: it mounts it at / (fs/initrd_init.cpp).
         // What mod takes from it are the kernel modules it carries.
@@ -112,4 +115,4 @@ namespace astia::mod {
 
 } // namespace astia::mod
 
-ASTIA_INIT_STEP(subsystems, mod, astia::mod::step_mod, "boot_info", "frames")
+ASTIA_INIT_STEP(devices, mod, astia::mod::step_mod, "boot_info", "frames")

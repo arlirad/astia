@@ -1,5 +1,6 @@
 add_library(mod STATIC
         exports.cpp
+        module_driver.cpp
         module.cpp
         init_mod.cpp
 )

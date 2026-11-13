@@ -79,6 +79,9 @@ namespace astia::mod {
             if (&modules[i] != mod) {
                 continue;
             }
+            if (mod->running) {
+                return false;
+            }
             // The loader makes one contiguous allocation, so it is one
             // contiguous release.
             using fa     = mm::frame_allocator;

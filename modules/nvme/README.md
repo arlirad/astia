@@ -1,23 +1,25 @@
-# Kernel-owned NVMe driver
+# NVMe loadable module
 
-The concrete read-only driver is kernel-owned at `kernel/src/dev/nvme/` and
-is registered through the PCI driver manager as a block device at
-`/dev/nvme0n1`. It discovers every PCI function with class `01`, subclass
-`08`, programming interface `02`; no vendor or device ID is selected.
+`nvme.cpp` is compiled as an x86-64 ET_REL module and copied into the QEMU
+initrd. The `mod` init step loads and runs its `module_main` before PCI
+enumeration. The module registers a PCI driver through
+`astia_module_register_pci_block_driver`; the generic kernel adapter owns the
+shared block device and exposes it as `/dev/nvme0n1`.
 
-The current loadable-module ABI cannot safely host this C++ driver. The loader
-only resolves explicitly exposed ELF symbols, and the kernel exposes no NVMe,
-PCI, block-device, MMIO, frame-allocation, pinned-buffer, filesystem, or C++
-runtime ABI. It also provides only a zero-argument `module_main()` entry and
-no lifetime/unload contract for registered devices. Loading a C++ object would
-therefore fail unresolved relocations or require an unsafe private symbol
-surface, so this implementation is intentionally kernel-owned.
+The module uses the public C ABI for PCI configuration and BAR mapping, DMA
+page allocation, user-buffer pinning/copy-out, and read-only block I/O. The
+ABI keeps C++ ownership and virtual dispatch in the kernel while module code
+owns only its opaque controller context. Loaded modules remain resident while
+registered drivers or devices reference their callbacks, and running modules
+cannot be unloaded.
 
-`run-qemu.sh` creates a raw image with a known first sector, builds the kernel,
-attaches it to QEMU's emulated NVMe controller, and checks the Identify,
-namespace, and known-sector read log lines.
+The driver accepts NVMe class `01/08/02` PCI functions, identifies namespace 1,
+creates one polled I/O queue, and supports aligned reads up to 8192 bytes.
+Writes return read-only errors through the generic block-device contract. MSI-X
+is explicitly disabled: the current PCI core has no MSI/MSI-X vector router,
+so completion polling is the safe blocker until interrupt routing exists.
 
-The verified slice deliberately masks MSI-X and polls completion phases with a
-bounded scheduler-yield/timer wait. Astia's PCI interrupt core has no MSI/MSI-X
-vector router yet; QEMU can raise an MSI-X vector, but no kernel handler can
-route it to this controller. Enabling MSI-X here would therefore be unsafe.
+`run-qemu.sh` builds both `astiakrn_runtime` and `nvme_module`, packages the
+ET_REL object into an uncompressed newc initrd, attaches `fixture.raw` to
+QEMU's emulated NVMe controller, and verifies the namespace and known-sector
+read from `/dev/nvme0n1` through the module self-test.

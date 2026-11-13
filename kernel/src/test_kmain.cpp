@@ -1,6 +1,6 @@
 #include "debug_exit.hpp"
 #include "dev/chr/tty/uart16550.hpp"
-#include "dev/nvme/nvme.hpp"
+#include "mod/module_driver.hpp"
 #include "panic.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
@@ -9,11 +9,16 @@
 #include <astia/arch/platform.hpp>
 #include <astia/boot.hpp>
 #include <astia/common.hpp>
+#include <astia/fs.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 
 #ifndef ASTIA_RUN_SELFTEST
 #define ASTIA_RUN_SELFTEST 1
+#endif
+
+#ifndef ASTIA_RUN_LIFECYCLE
+#define ASTIA_RUN_LIFECYCLE 1
 #endif
 
 namespace {
@@ -103,7 +108,7 @@ extern "C" void kmain(void* start_info) {
         astia::core::kpanic("SMP scheduler initialization failed");
     }
 
-    if (init_ok && !astia::dev::nvme::test_read()) {
+    if (init_ok && !astia::mod::run_selftests()) {
         astia::core::kpanic("NVMe sector selftest failed");
     }
 
@@ -111,7 +116,9 @@ extern "C" void kmain(void* start_info) {
         astia::core::kpanic("kernel integration selftest failed");
     }
 
-    if (ctx.info != nullptr && ctx.info->initrd.paddr != 0) {
+    const bool has_init = static_cast<bool>(astia::fs::open("/sbin/init"));
+    if (ASTIA_RUN_LIFECYCLE && has_init && ctx.info != nullptr &&
+        ctx.info->initrd.paddr != 0) {
         lifecycle_status = 0;
         auto worker      = astia::proc::scheduler::create_kernel(
             spawn_init_worker, const_cast<astia::u32*>(&lifecycle_status));

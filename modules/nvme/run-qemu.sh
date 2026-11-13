@@ -7,11 +7,19 @@ image=${NVME_IMAGE:-$root/modules/nvme/fixture.raw}
 log=${NVME_LOG:-${TMPDIR:-/tmp}/astia-nvme-qemu.log}
 
 cmake -S "$root" -B "$build" -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt
-cmake --build "$build" --target astiakrn_runtime
+cmake --build "$build" --target astiakrn_runtime nvme_module
+
+staging=${NVME_INITRD_STAGING:-$build/nvme-initrd}
+initrd=${NVME_INITRD:-$build/nvme-initrd.cpio}
+rm -rf "$staging"
+mkdir -p "$staging"
+cp "$build/modules/nvme/nvme.o" "$staging/nvme.o"
+(cd "$staging" && find nvme.o -print | cpio -o -H newc > "$initrd")
 
 set +e
 timeout "${NVME_TIMEOUT:-30}" qemu-system-x86_64 \
     -machine q35 -m 128M -kernel "$build/kernel/src/astiakrn_runtime" \
+    -initrd "$initrd" \
     -drive "if=none,format=raw,file=$image,id=nvme0" \
     -device nvme,drive=nvme0,serial=ASTIA-NVME \
     -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot

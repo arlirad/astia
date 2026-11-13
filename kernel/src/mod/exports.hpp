@@ -31,4 +31,6 @@ namespace astia::mod {
     /// This backs the ELF loader's undefined-symbol resolution.
     u64 resolve(const char* name);
 
+    bool expose_module_abi();
+
 } // namespace astia::mod
