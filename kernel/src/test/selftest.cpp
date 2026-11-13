@@ -36,6 +36,29 @@ namespace astia::test {
         volatile u32 preempt_main_seen  = 0;
         volatile u32 preempt_done       = 0;
 
+        class registry_test_mount final : public fs::mount {};
+
+        class registry_test_filesystem final : public fs::filesystem {
+            public:
+            const char* name() const override {
+                return "registry-test";
+            }
+            fs::mount* mount(const char*) const override {
+                if (registration_ != nullptr && factory_unregistration_ != nullptr)
+                    *factory_unregistration_ = fs::unregister_type(*registration_);
+                return &mount_;
+            }
+            void observe(fs::filesystem_registration* registration, long* result) {
+                registration_         = registration;
+                factory_unregistration_ = result;
+            }
+
+            private:
+            mutable fs::filesystem_registration* registration_ = nullptr;
+            mutable long* factory_unregistration_               = nullptr;
+            mutable registry_test_mount mount_;
+        };
+
         void scheduler_worker(void* argument) {
             auto* count = static_cast<volatile u32*>(argument);
             for (u32 i = 0; i < 3; ++i) {
@@ -858,6 +881,47 @@ namespace astia::test {
                 logs::error("mount lifecycle fail (final remount)");
                 return false;
             }
+            if (fs::make_directory(
+                    "/tmp/registry",
+                    fs::file_mode(fs::directory_dir, fs::file_permissions(0755))) != 0) {
+                logs::error("filesystem registry fail (test mountpoint)");
+                return false;
+            }
+
+            registry_test_filesystem test_type;
+            fs::filesystem_registration registration;
+            long factory_unregistration = 0;
+            test_type.observe(&registration, &factory_unregistration);
+            if (fs::register_type(&test_type, registration) != 0 ||
+                !registration.valid()) {
+                logs::error("filesystem registry fail (register)");
+                return false;
+            }
+            fs::filesystem_registration duplicate;
+            if (fs::register_type(&test_type, duplicate) != -EEXIST ||
+                duplicate.valid()) {
+                logs::error("filesystem registry fail (duplicate)");
+                return false;
+            }
+            fs::filesystem_registration stale = registration;
+            if (fs::mount_type("registry-test", "/tmp/registry") != 0 ||
+                factory_unregistration != -EBUSY ||
+                fs::unregister_type(registration) != -EBUSY) {
+                logs::error("filesystem registry fail (factory or mounted busy)");
+                return false;
+            }
+            if (fs::unmount_type("/tmp/registry") != 0 ||
+                fs::unregister_type(registration) != 0 || registration.valid() ||
+                fs::unregister_type(stale) != -ENOENT) {
+                logs::error("filesystem registry fail (teardown or stale handle)");
+                return false;
+            }
+            if (fs::node_type("/tmp") != fs::directory_dir ||
+                fs::node_type("/dev") != fs::directory_dir) {
+                logs::error("filesystem registry fail (built-in filesystem)");
+                return false;
+            }
+            logs::info("filesystem registry ok");
             logs::info("mount lifecycle ok");
             return true;
         }

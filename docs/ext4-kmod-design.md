@@ -23,20 +23,20 @@ read-only by default, while geometry and device identity beyond these bounds
 remain future work.
 
 Loadable module sources and driver fixtures live under the repository-root
-`modules/` tree. The module loader currently loads ET_REL images from boot modules and calls
-`module_main`, but the exported-symbol table does not expose filesystem type
-registration or a lifetime-safe unregister operation. This slice adds only the
-kernel-owned `fs::register_module_filesystem` /
-`fs::unregister_module_filesystem` name-and-handle registry. It does not expose
-that registry to modules, mount anything, or retain a C++ filesystem object.
-The registration handle must be explicitly unregistered before its module is
-unloaded. `fs::register_type` is intentionally not called by this slice.
+`modules/` tree. The module loader packages and loads ET_REL images from boot
+modules and calls `module_main`; packaging is not a separate filesystem kind.
+Every filesystem, including one eventually supplied by a module, is an
+ordinary first-class `fs::filesystem` registered through the filesystem
+registry. A type must be unregistered before its implementation is unloaded,
+and unregister is rejected while factories or mounts still refer to it.
+The current module ABI does not expose the C++ filesystem interfaces, so this
+slice does not add module-specific filesystem APIs or mount ext4.
 
 The existing mount factory accepts only a source string and has no mount
 options or source-open capability contract. A future integration should first
-add a safe module-facing registration ABI with explicit load/unload ownership,
-device geometry/identity, and mount teardown rules. Ext4 must remain optional
-and must not replace the root mount automatically. The current C++ virtual
+add a safe module-facing ABI with explicit load/unload ownership, device
+geometry/identity, and mount teardown rules. Ext4 must remain optional and
+must not replace the root mount automatically. The current C++ virtual
 `fs::filesystem` / `fs::mount` interfaces are not safe module exports.
 
 ## Fixture

@@ -11,8 +11,7 @@ PCI, block-device, MMIO, frame-allocation, pinned-buffer, filesystem, or C++
 runtime ABI. It also provides only a zero-argument `module_main()` entry and
 no lifetime/unload contract for registered devices. Loading a C++ object would
 therefore fail unresolved relocations or require an unsafe private symbol
-surface, so this implementation is intentionally kernel-owned rather than a
-fake `module_filesystem` registration.
+surface, so this implementation is intentionally kernel-owned.
 
 `run-qemu.sh` creates a raw image with a known first sector, builds the kernel,
 attaches it to QEMU's emulated NVMe controller, and checks the Identify,
