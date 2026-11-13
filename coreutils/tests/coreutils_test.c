@@ -36,6 +36,11 @@ static int is_directory(const char* path) {
     return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
 }
 
+static int has_mode(const char* path, mode_t mode) {
+    struct stat info;
+    return stat(path, &info) == 0 && (info.st_mode & 07777) == mode;
+}
+
 static int file_equals(const char* path, const char* expected) {
     FILE*  file = fopen(path, "r");
     char   buffer[512];
@@ -253,6 +258,18 @@ int main(void) {
     char* rm_recursive[] = {"rm", "-r", "/tmp/coreutils_dir", NULL};
     char* rm_tree[]      = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
     char* rm_tree_bad[]  = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
+    char* chmod_octal[]   = {"chmod", "600", "/tmp/coreutils_mode", NULL};
+    char* chmod_symbolic[] = {"chmod", "u+x,g-w,o=rx", "/tmp/coreutils_mode", NULL};
+    char* chmod_recursive[] = {"chmod", "-R", "640", "/tmp/coreutils_tree", NULL};
+    char* chmod_bad[]     = {"chmod", "not-a-mode", "/tmp/coreutils_mode", NULL};
+    char* basename_path[] = {"basename", "/usr/local/bin/astia", NULL};
+    char* basename_suffix[] = {"basename", "/usr/local/bin/astia.c", ".c", NULL};
+    char* basename_root[] = {"basename", "///", NULL};
+    char* basename_same_suffix[] = {"basename", "name", "name", NULL};
+    char* dirname_path[]  = {"dirname", "/usr/local/bin/astia", NULL};
+    char* dirname_plain[] = {"dirname", "astia", NULL};
+    char* dirname_trailing[] = {"dirname", "/usr/local/bin///", NULL};
+    char* dirname_root[] = {"dirname", "///", NULL};
     char* find_tree[]    = {"find", "/tmp/coreutils_tree", NULL};
     char* ls_tree[]      = {"ls", "/tmp/coreutils_tree", NULL};
     char* grep_match[]   = {"grep", "beta", NULL};
@@ -293,7 +310,8 @@ int main(void) {
     (void) mkdir("/tmp", 0777);
     if (put_file("/tmp/coreutils_a", "alpha\n") != 0 ||
         put_file("/tmp/coreutils_b", "beta\ngamma\n") != 0 ||
-        put_file("/tmp/coreutils_lines", "one\ntwo\nthree\n") != 0 || 0)
+        put_file("/tmp/coreutils_lines", "one\ntwo\nthree\n") != 0 ||
+        put_file("/tmp/coreutils_mode", "mode\n") != 0 || 0)
         return fail("fixture setup");
 
     struct stat dangling_stat;
@@ -361,8 +379,24 @@ int main(void) {
         check("rm missing", rm_missing, NULL, 1, NULL, 0) ||
         check("rm -f", rm_force, NULL, 0, NULL, 0) ||
         check("rm recursive", rm_recursive, NULL, 0, NULL, 0) ||
+        check("chmod octal", chmod_octal, NULL, 0, NULL, 0) ||
+        !has_mode("/tmp/coreutils_mode", 0600) ||
+        check("chmod symbolic", chmod_symbolic, NULL, 0, NULL, 0) ||
+        !has_mode("/tmp/coreutils_mode", 0705) ||
+        check("chmod invalid", chmod_bad, NULL, 1, NULL, 0) ||
+        check("chmod recursive", chmod_recursive, NULL, 0, NULL, 0) ||
+        !has_mode("/tmp/coreutils_tree", 0640) ||
+        !has_mode("/tmp/coreutils_tree/nested/file", 0640) ||
         check("rm -r tree", rm_tree, NULL, 0, NULL, 0) ||
         check("rm -r missing", rm_tree_bad, NULL, 1, NULL, 0) ||
+        check("basename", basename_path, NULL, 0, "astia\n", 1) ||
+        check("basename suffix", basename_suffix, NULL, 0, "astia\n", 1) ||
+        check("basename root", basename_root, NULL, 0, "/\n", 1) ||
+        check("basename identical suffix", basename_same_suffix, NULL, 0, "name\n", 1) ||
+        check("dirname", dirname_path, NULL, 0, "/usr/local/bin\n", 1) ||
+        check("dirname plain", dirname_plain, NULL, 0, ".\n", 1) ||
+        check("dirname trailing", dirname_trailing, NULL, 0, "/usr/local\n", 1) ||
+        check("dirname root", dirname_root, NULL, 0, "/\n", 1) ||
         check("grep match", grep_match, "alpha\nbeta\ngamma\n", 0, NULL, 0) ||
         check("grep -n", grep_numbered, "alpha\nbeta\n", 0, "2:beta\n", 1) ||
         check("grep -i", grep_insensitive, "alpha\nBeta\ngamma\n", 0, NULL, 0) ||
@@ -378,7 +412,8 @@ int main(void) {
 
     const char* help[] = {"cat",  "head", "wc",   "ls",    "find",  "pwd", "uname",
                           "echo", "env",  "true", "false", "mkdir", "rm",  "cp",
-                          "mv",   "grep", "sort", "cut",   "tee",   NULL};
+                          "mv",   "grep", "sort", "cut",   "tee",   "chmod", "basename",
+                          "dirname", NULL};
     for (int i = 0; help[i] != NULL; ++i) {
         char* args[] = {(char*) help[i], "--help", NULL};
         if (check("--help", args, NULL, 0, "Usage: ", 0))

@@ -6,8 +6,9 @@ Astia libc, and keeps its behavior small enough to test on the real kernel.
 
 Currently built:
 
-`cat` `cp` `cut` `echo` `env` `false` `find` `grep` `head` `id` `ln` `login` `ls`
-`mkdir` `mv` `pwd` `readlink` `rm` `sort` `tee` `touch` `true` `uname` `whoami` `wc`
+`basename` `cat` `chmod` `cp` `cut` `dirname` `echo` `env` `false` `find` `grep`
+`head` `id` `ln` `login` `ls` `mkdir` `mv` `pwd` `readlink` `rm` `sort` `tee`
+`touch` `true` `uname` `whoami` `wc`
 
 Build them with:
 
@@ -34,6 +35,8 @@ as a whole; selective access/modify timestamp updates are not yet available.
 
 `cp -r`, `rm -r`, and the native `find PATH...` traversal use the directory API.
 `ln` and `readlink` use the native symbolic-link ABI.
+`chmod` supports octal and POSIX symbolic modes, including recursive `-R` traversal;
+`basename` and `dirname` implement the POSIX pathname transformations.
 
 `login` is a minimal local session launcher. It reads a username from its
 controlling terminal, uses `/etc/passwd` and `/etc/group`, installs native
