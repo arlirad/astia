@@ -80,4 +80,27 @@ namespace astia::arch {
     /// own PIC line when it is ready to service (pic::unmask).
     bool register_irq_handler(u8 irq, irq_handler handler);
 
+    struct interrupt_vector {
+        u32 vector = 0;
+        u32 owner  = 0;
+
+        bool valid() const { return vector != 0 && owner != 0; }
+    };
+
+    using interrupt_vector_handler = void (*)(void* context);
+
+    bool register_interrupt_vector(interrupt_vector_handler handler, void* context,
+                                   interrupt_vector& route);
+    bool unregister_interrupt_vector(interrupt_vector route);
+    bool mask_interrupt_vector(interrupt_vector route);
+    bool unmask_interrupt_vector(interrupt_vector route);
+
+    struct msi_message {
+        u32 address_low  = 0;
+        u32 address_high = 0;
+        u32 data         = 0;
+    };
+
+    bool interrupt_vector_message(interrupt_vector route, msi_message& message);
+
 } // namespace astia::arch

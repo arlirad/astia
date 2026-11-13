@@ -75,6 +75,20 @@ namespace astia::arch {
         // owner is acknowledged and forgotten).
         irq_handler irq_handlers[16]{};
 
+        constexpr u32 first_device_vector = 50;
+        constexpr u32 last_device_vector  = 254;
+
+        struct vector_slot {
+            interrupt_vector_handler handler = nullptr;
+            void*                    context = nullptr;
+            u32                      owner   = 0;
+            bool                     masked  = true;
+        };
+
+        vector_slot vector_slots[256]{};
+        u32 next_vector_owner = 1;
+        bool vector_router_ready = false;
+
         // The process layer's copy-on-write resolver; null until proc
         // registers one (no user processes can fault before then).
         user_fault_handler page_fault_resolver = nullptr;
@@ -204,8 +218,17 @@ namespace astia::arch {
             pic::eoi(vector);
             return;
         }
-        // Spurious LAPIC vector 0xFF and anything >= 49: no source, no EOI
-        // (a spurious interrupt must not be acknowledged).
+        if (vector >= first_device_vector && vector <= last_device_vector) {
+            vector_slot& slot = vector_slots[vector];
+            if (slot.owner != 0) {
+                if (!slot.masked && slot.handler != nullptr)
+                    slot.handler(slot.context);
+                lapic::eoi();
+            }
+            return;
+        }
+        // Spurious LAPIC vector 0xFF and anything else without an owner: no
+        // source, no EOI (a spurious interrupt must not be acknowledged).
     }
 
     extern "C" void astia_interrupt_user_return(interrupt_frame* frame) {
@@ -234,12 +257,14 @@ namespace astia::arch {
         x86_64::pic::remap();
         if (x86_64::lapic::start(tick_hz)) {
             current_source = timer_source::lapic;
+            vector_router_ready = true;
         }
         else {
             // No usable LAPIC: the PIT is the tick source, IRQ0 its only
             // unmasked line.
             x86_64::pit::start(tick_hz);
             x86_64::pic::unmask(0);
+            vector_router_ready = false;
         }
         return true; // interrupts stay masked: see cpu::interrupts()
     }
@@ -263,6 +288,73 @@ namespace astia::arch {
             return false;
         }
         irq_handlers[irq] = handler;
+        return true;
+    }
+
+    bool register_interrupt_vector(interrupt_vector_handler handler, void* context,
+                                   interrupt_vector& route) {
+        route = {};
+        if (!vector_router_ready || handler == nullptr || !x86_64::lapic::msi_available())
+            return false;
+        interrupt_guard gate;
+        for (u32 vector = first_device_vector; vector <= last_device_vector; ++vector) {
+            vector_slot& slot = vector_slots[vector];
+            if (slot.owner != 0)
+                continue;
+            u32 owner = next_vector_owner++;
+            if (owner == 0)
+                owner = next_vector_owner++;
+            slot = {handler, context, owner, true};
+            route = {vector, owner};
+            return true;
+        }
+        return false;
+    }
+
+    bool unregister_interrupt_vector(interrupt_vector route) {
+        if (!route.valid() || route.vector > 255)
+            return false;
+        interrupt_guard gate;
+        vector_slot& slot = vector_slots[route.vector];
+        if (slot.owner != route.owner)
+            return false;
+        slot = {};
+        return true;
+    }
+
+    bool mask_interrupt_vector(interrupt_vector route) {
+        if (!route.valid() || route.vector > 255)
+            return false;
+        interrupt_guard gate;
+        vector_slot& slot = vector_slots[route.vector];
+        if (slot.owner != route.owner)
+            return false;
+        slot.masked = true;
+        return true;
+    }
+
+    bool unmask_interrupt_vector(interrupt_vector route) {
+        if (!route.valid() || route.vector > 255)
+            return false;
+        interrupt_guard gate;
+        vector_slot& slot = vector_slots[route.vector];
+        if (slot.owner != route.owner)
+            return false;
+        slot.masked = false;
+        return true;
+    }
+
+    bool interrupt_vector_message(interrupt_vector route, msi_message& message) {
+        if (!route.valid() || route.vector < first_device_vector ||
+            route.vector > last_device_vector || !x86_64::lapic::msi_available())
+            return false;
+        interrupt_guard gate;
+        const vector_slot& slot = vector_slots[route.vector];
+        if (slot.owner != route.owner)
+            return false;
+        message.address_low = 0xFEE00000u | ((x86_64::lapic::id() & 0xffu) << 12);
+        message.address_high = 0;
+        message.data = route.vector;
         return true;
     }
 

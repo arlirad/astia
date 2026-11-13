@@ -20,6 +20,7 @@ namespace astia::arch::x86_64 {
         /// absent/disabled or in x2APIC mode (not driven yet) — the caller
         /// falls back to the PIT.
         static bool start(u32 hz);
+        static bool msi_available();
 
         /// LAPIC end-of-interrupt, for vectors the LAPIC delivered. No-op
         /// when the LAPIC never came up.

@@ -183,3 +183,20 @@ ASTIA_TEST(pci_bus_master_and_resource_ownership) {
     ASTIA_CHECK(unmap_count == 2);
     astia::dev::pci_reset_config_backend();
 }
+
+ASTIA_TEST(pci_interrupt_capability_is_explicit) {
+    astia::dev::pci_device none{};
+    ASTIA_CHECK(astia::dev::pci_interrupt_capability_of(none) ==
+                astia::dev::pci_interrupt_capability::none);
+
+    astia::dev::pci_device msi{};
+    msi.interrupt.present = true;
+    ASTIA_CHECK(astia::dev::pci_interrupt_capability_of(msi) ==
+                astia::dev::pci_interrupt_capability::msi);
+
+    astia::dev::pci_device msix{};
+    msix.interrupt.present = true;
+    msix.interrupt.msix = true;
+    ASTIA_CHECK(astia::dev::pci_interrupt_capability_of(msix) ==
+                astia::dev::pci_interrupt_capability::msix);
+}

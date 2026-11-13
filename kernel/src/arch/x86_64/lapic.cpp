@@ -114,6 +114,10 @@ namespace astia::arch::x86_64 {
         return true;
     }
 
+    bool lapic::msi_available() {
+        return lapic_regs != nullptr;
+    }
+
     void lapic::eoi() {
         if (lapic_regs != nullptr) {
             reg_write(reg_eoi, 0); // LAPIC-sourced: EOI goes to the LAPIC

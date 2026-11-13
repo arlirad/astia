@@ -473,6 +473,13 @@ namespace astia::dev {
         return describe_caps(device);
     }
 
+    pci_interrupt_capability pci_interrupt_capability_of(const pci_device& device) {
+        if (!device.interrupt.present)
+            return pci_interrupt_capability::none;
+        return device.interrupt.msix ? pci_interrupt_capability::msix
+                                     : pci_interrupt_capability::msi;
+    }
+
     pci_interrupt_blocker pci_interrupt_status(const pci_device& device) {
         return device.interrupt_blocker;
     }

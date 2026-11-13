@@ -16,8 +16,10 @@ cannot be unloaded.
 The driver accepts NVMe class `01/08/02` PCI functions, identifies namespace 1,
 creates one polled I/O queue, and supports aligned reads up to 8192 bytes.
 Writes return read-only errors through the generic block-device contract. MSI-X
-is explicitly disabled: the current PCI core has no MSI/MSI-X vector router,
-so completion polling is the safe blocker until interrupt routing exists.
+is explicitly disabled: although the x86 interrupt layer can own device
+vectors, the generic PCI core does not yet bind a device capability to that
+router and program an MSI/MSI-X message. Completion polling remains the safe
+fallback until that binding is complete.
 
 `run-qemu.sh` builds both `astiakrn_runtime` and `nvme_module`, packages the
 ET_REL object into an uncompressed newc initrd, attaches `fixture.raw` to

@@ -74,6 +74,8 @@ namespace astia::dev {
         u32  pba_offset    = 0;
     };
 
+    enum class pci_interrupt_capability : u8 { none, msi, msix };
+
     enum class pci_interrupt_blocker : u8 {
         none,
         no_capability,
@@ -151,6 +153,7 @@ namespace astia::dev {
     bool pci_probe_bar(pci_device& device, u8 index);
     bool pci_enable_bus_master(pci_device& device);
     bool pci_refresh_capabilities(pci_device& device);
+    pci_interrupt_capability pci_interrupt_capability_of(const pci_device& device);
     pci_interrupt_blocker pci_interrupt_status(const pci_device& device);
 
     using pci_mmio_map_fn = bool (*)(u64 physical, u64 size, bool prefetchable, u64& virtual_address);
