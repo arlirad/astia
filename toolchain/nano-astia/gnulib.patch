@@ -1,0 +1,19 @@
+--- a/lib/glob.c
++++ b/lib/glob.c
+@@ -28,1 +28,2 @@
+ #include <glob.h>
++#include <assert.h>
+--- a/lib/error.c
++++ b/lib/error.c
+@@ -128,1 +128,2 @@
+ # define program_name getprogname ()
++const char *getprogname (void);
++
+--- a/lib/tempname.c
++++ b/lib/tempname.c
+@@ -36,1 +36,2 @@
+ #include <string.h>
++#include <time.h>
+@@ -116,1 +116,1 @@
+-  *r = mix_random_values (v, clock ());
++  *r = mix_random_values (v, time (NULL));

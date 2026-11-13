@@ -111,7 +111,7 @@ namespace astia::proc::syscall {
             arch::interrupt_guard gate;
             self->user_stack_top(staging->stack);
             self->user_stack_metadata(user_stack_top - user_stack_bytes, user_stack_bytes);
-            arch::context_update_fs_base(self->context(), owner->tls_tp());
+            arch::context_set_fs_base(self->context(), owner->tls_tp());
             auto& next  = const_cast<arch::syscall_frame&>(frame);
             next.rip    = staging->entry;
             next.rsp    = staging->stack;

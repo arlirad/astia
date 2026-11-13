@@ -3,6 +3,7 @@
 #include <sys/types.h>
 
 #include <time.h>
+#include <utime.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,7 +62,6 @@ int chown(const char* path, uid_t owner, gid_t group);
 int lchown(const char* path, uid_t owner, gid_t group);
 int fchown(int fd, uid_t owner, gid_t group);
 int utimensat(int dirfd, const char* path, const struct timespec times[2], int flags);
-int utime(const char* path, const time_t* value);
 int mkdir(const char* path, mode_t mode);
 int mkdirat(int dirfd, const char* path, mode_t mode);
 int mkfifo(const char* path, mode_t mode);

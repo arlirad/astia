@@ -5,6 +5,10 @@
 #include <wchar.h>
 #include <wctype.h>
 
+int mbsinit(const mbstate_t* state) {
+    return state == NULL || state->pending == 0;
+}
+
 size_t wcslen(const wchar_t* s) {
     size_t n = 0;
     while (s[n] != L'\0')

@@ -117,7 +117,7 @@ int utimensat(int dirfd, const char* path, const struct timespec times[2], int f
     return rc < 0 ? fail(rc) : 0;
 }
 
-int utime(const char* path, const time_t* value) {
+int utime(const char* path, const struct utimbuf* value) {
     (void) value;
     return utimensat(-100, path, NULL, 0);
 }

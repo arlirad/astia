@@ -1,14 +1,12 @@
-# Nano port blocker
+# Nano port status
 
-The pinned GNU nano 8.6 source was configured from a private staging copy with
-NLS, UTF-8, iconv, gettext, xattr, dlopen, and pkg-config optional paths
-disabled. Configuration stops because Astia provides neither a curses header
-nor a curses/ncurses terminal library:
+The pinned GNU nano 8.6 source is configured from a private staging copy with
+NLS, UTF-8, iconv, gettext, xattr, libmagic, dlopen, mouse, browser, and
+multibuffer optional paths disabled. A tree-local ANSI terminal compatibility
+library supplies the required curses API and links as `libncurses.a`.
 
-```
-configure: error: No curses lib was found.
-```
-
-Nano is therefore not built or packaged. Adding a fake curses result or a host
-library would not produce an Astia binary. A future port requires a complete
-terminal library and its terminfo/runtime support before nano can be enabled.
+The port is verified by the tree-local QEMU PTY smoke: nano edits and saves
+`/tmp/nano-smoke.txt`, and the supervisor checks the exact saved bytes. Host
+curses libraries are never used. Mouse, UTF-8, color, browser, multibuffer,
+libmagic, NLS, iconv, gettext, xattr, and dynamic loading remain intentionally
+disabled; those features are not claimed by this port.

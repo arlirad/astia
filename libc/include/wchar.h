@@ -41,6 +41,7 @@ size_t mbrtowc(wchar_t* dst, const char* src, size_t n, mbstate_t* state);
 size_t wcrtomb(char* dst, wchar_t wc, mbstate_t* state);
 size_t mbsrtowcs(wchar_t* dst, const char** src, size_t n, mbstate_t* state);
 size_t wcsrtombs(char* dst, const wchar_t** src, size_t n, mbstate_t* state);
+int    mbsinit(const mbstate_t* state);
 int    mblen(const char* src, size_t n);
 int    mbtowc(wchar_t* dst, const char* src, size_t n);
 int    wctomb(char* dst, wchar_t wc);
