@@ -242,7 +242,14 @@ int main(void) {
     char* false_args[]    = {"false", "ignored", NULL};
     char* mkdir_one[]     = {"mkdir", "/tmp/coreutils_dir", NULL};
     char* mkdir_parents[] = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
+    char* mkdir_existing[] = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
     char* mkdir_bad[]     = {"mkdir", "/tmp/coreutils_parent/missing/child", NULL};
+    char* mkdir_file_parent[] = {"mkdir", "-p", "/tmp/coreutils_a/child", NULL};
+    char* touch_create[]  = {"touch", "/tmp/coreutils_touch", NULL};
+    char* touch_no_create[] = {"touch", "-c", "/tmp/coreutils_touch_missing", NULL};
+    char* touch_access_only[] = {"touch", "-a", "/tmp/coreutils_touch", NULL};
+    char* touch_modify[]  = {"touch", "-m", "/tmp/coreutils_touch", NULL};
+    char* touch_both[]    = {"touch", "-a", "-m", "/tmp/coreutils_touch", NULL};
     char* cp_file[]       = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_copy", NULL};
     char* cp_directory[] = {"cp", "-r", "/tmp/coreutils_tree", "/tmp/coreutils_tree_copy",
                             NULL};
@@ -255,6 +262,8 @@ int main(void) {
     char* rm_file[]      = {"rm", "/tmp/coreutils_moved", NULL};
     char* rm_missing[]   = {"rm", "/tmp/coreutils_moved", NULL};
     char* rm_force[]     = {"rm", "-f", "/tmp/coreutils_moved", NULL};
+    char* rm_force_empty[] = {"rm", "-f", NULL};
+    char* rm_dangling[]  = {"rm", "/tmp/coreutils_dangling", NULL};
     char* rm_recursive[] = {"rm", "-r", "/tmp/coreutils_dir", NULL};
     char* rm_tree[]      = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
     char* rm_tree_bad[]  = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
@@ -294,6 +303,7 @@ int main(void) {
     (void) unlink("/tmp/coreutils_moved");
     (void) unlink("/tmp/coreutils_tee");
     (void) unlink("/tmp/coreutils_touch");
+    (void) unlink("/tmp/coreutils_touch_missing");
     (void) unlink("/tmp/coreutils_link");
     (void) unlink("/tmp/coreutils_dangling");
     (void) rmdir("/tmp/coreutils_parent/child");
@@ -358,7 +368,16 @@ int main(void) {
         !is_directory("/tmp/coreutils_dir") ||
         check("mkdir -p", mkdir_parents, NULL, 0, NULL, 0) ||
         !is_directory("/tmp/coreutils_parent/child") ||
+        check("mkdir -p existing", mkdir_existing, NULL, 0, NULL, 0) ||
         check("mkdir missing parent", mkdir_bad, NULL, 1, NULL, 0) ||
+        check("mkdir file parent", mkdir_file_parent, NULL, 1, NULL, 0) ||
+        check("touch create", touch_create, NULL, 0, NULL, 0) ||
+        !is_file("/tmp/coreutils_touch") ||
+        check("touch -c missing", touch_no_create, NULL, 0, NULL, 0) ||
+        is_file("/tmp/coreutils_touch_missing") ||
+        check("touch selective unsupported", touch_access_only, NULL, 1, NULL, 0) ||
+        check("touch modify", touch_modify, NULL, 0, NULL, 0) ||
+        check("touch access and modify unsupported", touch_both, NULL, 1, NULL, 0) ||
         check("cp", cp_file, NULL, 0, NULL, 0) || !is_file("/tmp/coreutils_copy") ||
         check("cp directory without -r", cp_directory_bad, NULL, 1, NULL, 0) ||
         check("ls recursive fixture", ls_tree, NULL, 0, "nested\n", 0) ||
@@ -378,6 +397,8 @@ int main(void) {
         check("rm", rm_file, NULL, 0, NULL, 0) || is_file("/tmp/coreutils_moved") ||
         check("rm missing", rm_missing, NULL, 1, NULL, 0) ||
         check("rm -f", rm_force, NULL, 0, NULL, 0) ||
+        check("rm -f no operands", rm_force_empty, NULL, 0, NULL, 0) ||
+        check("rm dangling symlink", rm_dangling, NULL, 0, NULL, 0) ||
         check("rm recursive", rm_recursive, NULL, 0, NULL, 0) ||
         check("chmod octal", chmod_octal, NULL, 0, NULL, 0) ||
         !has_mode("/tmp/coreutils_mode", 0600) ||
@@ -412,8 +433,8 @@ int main(void) {
 
     const char* help[] = {"cat",  "head", "wc",   "ls",    "find",  "pwd", "uname",
                           "echo", "env",  "true", "false", "mkdir", "rm",  "cp",
-                          "mv",   "grep", "sort", "cut",   "tee",   "chmod", "basename",
-                          "dirname", NULL};
+                          "mv",   "grep", "sort", "cut",   "tee",   "touch", "chmod",
+                          "basename", "dirname", NULL};
     for (int i = 0; help[i] != NULL; ++i) {
         char* args[] = {(char*) help[i], "--help", NULL};
         if (check("--help", args, NULL, 0, "Usage: ", 0))

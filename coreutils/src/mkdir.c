@@ -3,6 +3,12 @@
 
 #include <string.h>
 
+static unsigned int current_umask(void) {
+    unsigned int value = umask(0);
+    (void) umask(value);
+    return value;
+}
+
 static int make_parents(const char* path) {
     char   parent[256];
     size_t length = __builtin_strlen(path);
@@ -16,15 +22,28 @@ static int make_parents(const char* path) {
         if (parent[i] != '/')
             continue;
         parent[i] = '\0';
-        if (parent[0] != '\0' && mkdir(parent, 0777) < 0 && errno != EEXIST) {
-            parent[i] = '/';
-            return cu_error("mkdir", strerror(errno));
+        if (parent[0] != '\0') {
+            if (mkdir(parent, 0777) < 0) {
+                if (errno != EEXIST) {
+                    parent[i] = '/';
+                    return cu_error("mkdir", strerror(errno));
+                }
+                struct stat info;
+                if (stat(parent, &info) < 0 || !S_ISDIR(info.st_mode)) {
+                    parent[i] = '/';
+                    return cu_error("mkdir", parent);
+                }
+            }
+            else if (chmod(parent, 0300 | (0777 & ~current_umask())) < 0) {
+                parent[i] = '/';
+                return cu_error("mkdir", strerror(errno));
+            }
         }
         parent[i] = '/';
     }
-    if (mkdir(parent, 0777) < 0 && errno != EEXIST)
-        return cu_error("mkdir", strerror(errno));
-    if (errno == EEXIST) {
+    if (mkdir(parent, 0777) < 0) {
+        if (errno != EEXIST)
+            return cu_error("mkdir", strerror(errno));
         struct stat info;
         if (stat(parent, &info) < 0 || !S_ISDIR(info.st_mode))
             return cu_error("mkdir", strerror(errno));

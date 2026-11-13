@@ -2,7 +2,9 @@
 #include <sys/stat.h>
 
 #include <dirent.h>
+#include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 
 static char* child_path(const char* parent, const char* name) {
     size_t parent_len = __builtin_strlen(parent);
@@ -20,7 +22,7 @@ static char* child_path(const char* parent, const char* name) {
 
 static int remove_path(const char* path, int recursive) {
     struct stat info;
-    if (stat(path, &info) < 0)
+    if (lstat(path, &info) < 0)
         return -1;
     if (!S_ISDIR(info.st_mode))
         return unlink(path);
@@ -58,6 +60,19 @@ static int remove_path(const char* path, int recursive) {
     return rmdir(path);
 }
 
+static int protected_operand(const char* path) {
+    size_t end = __builtin_strlen(path);
+    while (end != 0 && path[end - 1] == '/')
+        --end;
+    if (end == 0)
+        return 1;
+    size_t start = end;
+    while (start != 0 && path[start - 1] != '/')
+        --start;
+    return (end - start == 1 && path[start] == '.') ||
+           (end - start == 2 && path[start] == '.' && path[start + 1] == '.');
+}
+
 int main(int argc, char** argv) {
     cu_args args;
     cu_args_init(&args, argc, argv);
@@ -84,10 +99,14 @@ int main(int argc, char** argv) {
         if (args.options && path[0] == '-')
             return cu_error("rm", "unknown option");
         ++operands;
+        if (protected_operand(path)) {
+            status |= cu_error("rm", "refusing to remove . or ..");
+            continue;
+        }
         if (remove_path(path, recursive) < 0 && !(force && errno == ENOENT))
             status |= cu_error("rm", path);
     }
-    if (operands == 0)
+    if (operands == 0 && !force)
         return cu_usage("rm", "[-f] FILE...");
     return status;
 }

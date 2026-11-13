@@ -28,10 +28,11 @@ utilities and checks their exit status and output on the real kernel.
 
 `ls -l` prints native mode, link count, numeric owner IDs, size, timestamp, and
 symlink targets. `grep` supports `-n`, `-i`, and `-v` with the usual 0/1/2
-match/error statuses. `touch FILE...` creates missing files and updates
-timestamps through the native Astia VFS/libc ABI. `-a` and `-m` are accepted
-for compatibility, but the current timestamp ABI updates the file timestamp
-as a whole; selective access/modify timestamp updates are not yet available.
+match/error statuses. `touch FILE...` creates missing files and updates the
+native modification timestamp through the Astia VFS/libc ABI. `-c` skips
+creation and `-m` selects that supported modification-time update; the current
+timestamp ABI has no access-time or explicit-time operation, so requests using
+`-a` are rejected rather than faked.
 
 `cp -r`, `rm -r`, and the native `find PATH...` traversal use the directory API.
 `ln` and `readlink` use the native symbolic-link ABI.
