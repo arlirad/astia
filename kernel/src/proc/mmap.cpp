@@ -269,6 +269,9 @@ namespace astia::proc {
 
         const u64 first_page = stack ? pages - 1 : 0;
         const u64 map_pages  = stack ? 1 : pages;
+        auto mapping = mm::address_space::view(address_space_.get());
+        mm::mapping_transaction transaction(
+            mapping, base + first_page * page_bytes, static_cast<usize>(map_pages));
         for (u64 page = first_page; page < first_page + map_pages; ++page) {
             if (stack && !region->ensure_page(region_page + page, true)) {
                 {
@@ -284,11 +287,9 @@ namespace astia::proc {
                 delete entry;
                 return false;
             }
-            if (!address_space_->map_4k(base + page * page_bytes,
-                                        region->page_base(region_page + page), flags4)) {
-                for (u64 done = first_page; done < page; ++done) {
-                    address_space_->unmap(base + done * page_bytes);
-                }
+            if (!transaction.map_4k(
+                    base + page * page_bytes, region->page_base(region_page + page),
+                    mm::mapping_flags_from_bits(static_cast<u64>(flags4)))) {
                 {
                     arch::interrupt_spinlock_guard guard(mmap_lock_);
                     mmap_region**                  link = &mmap_regions_;
@@ -305,6 +306,7 @@ namespace astia::proc {
                 return false;
             }
         }
+        transaction.commit();
         {
             arch::interrupt_spinlock_guard guard(mmap_lock_);
             // No operation removes a pending reservation; retain the check

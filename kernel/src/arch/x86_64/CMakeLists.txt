@@ -1,4 +1,5 @@
 add_library(arch_x86_64 STATIC
+        address_space.cpp
         page_map.cpp
         layout.cpp
         cpu.cpp

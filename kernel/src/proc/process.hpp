@@ -12,6 +12,7 @@
 #include <astia/core/task.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/iovec.hpp>
+#include <astia/mm/address_space.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/mm/uptr.hpp>
 #include <astia/span.hpp>
@@ -332,6 +333,10 @@ namespace astia::proc {
         mm::shptr<thread>     thread_by_tid(tid_t id);
         const arch::page_map* address_space() const {
             return address_space_.get();
+        }
+
+        mm::address_space memory_space() const {
+            return mm::address_space::view(address_space_.get());
         }
 
         /// Mutable view for the syscall/ring layer, which maps kernel-owned

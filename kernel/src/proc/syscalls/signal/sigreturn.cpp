@@ -9,6 +9,7 @@
 #include <astia/api/signal.h>
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/layout.hpp>
 
 namespace astia::proc::syscall {
 

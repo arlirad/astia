@@ -313,6 +313,13 @@ astia_add_arena_test(astia_page_map_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/layout.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
 )
+astia_add_arena_test(astia_address_space_test
+        address_space_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/address_space.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/page_map.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/layout.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+)
 
 # mm::heap: the free-list allocator over a window backed by arena frames.
 astia_add_arena_test(astia_heap_test
