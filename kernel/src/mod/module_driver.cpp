@@ -82,11 +82,13 @@ namespace astia::mod {
 
         constexpr u32 max_registrations = 8;
         constexpr u32 max_async_requests = 8;
+        constexpr u32 max_namespaces = 16;
         constexpr u32 max_pin_tokens = 64;
         constexpr u32 max_msix_routes = 64;
 
         struct registration;
         class block;
+        class controller_lifetime;
 
         struct async_bridge {
             registration* registration_owner = nullptr;
@@ -101,9 +103,10 @@ namespace astia::mod {
 
         class block final : public dev::blk::block_device {
             public:
-            block(registration& registration, void* context, u64 size, u32 block_size)
+            block(registration& registration, void* context, u64 size, u32 block_size,
+                 const mm::shptr<controller_lifetime>& lifetime)
                 : block_device("module-block", size, block_size), registration_(registration),
-                  context_(context) {}
+                  context_(context), lifetime_(lifetime) {}
 
             ~block();
 
@@ -118,9 +121,34 @@ namespace astia::mod {
             long submit(io_request& request) override;
 
             private:
-            registration&        registration_;
-            void*               context_;
-            fs::file*           file_ = nullptr;
+            registration&                 registration_;
+            void*                         context_;
+            mm::shptr<controller_lifetime> lifetime_;
+            fs::file*                     file_ = nullptr;
+        };
+
+        class device_group final : public dev::device {
+            public:
+            device_group() : device("module-controller", dev::dv_sync) {}
+
+            bool add(const mm::shptr<block>& value) {
+                if (!value || block_count_ == max_namespaces)
+                    return false;
+                blocks_[block_count_++] = value;
+                return true;
+            }
+
+            long read(void*, u32, u64) override {
+                return -ENODEV;
+            }
+
+            long write(const void*, u32, u64) override {
+                return -EROFS;
+            }
+
+            private:
+            mm::shptr<block> blocks_[max_namespaces]{};
+            u32 block_count_ = 0;
         };
 
         class driver final : public dev::driver {
@@ -142,6 +170,21 @@ namespace astia::mod {
             driver* instance = nullptr;
             bool selftest_done = false;
             async_bridge bridges[max_async_requests]{};
+        };
+
+        class controller_lifetime final {
+            public:
+            controller_lifetime(registration& registration, void* context)
+                : registration_(registration), context_(context) {}
+
+            ~controller_lifetime() {
+                if (registration_.ops->remove != nullptr)
+                    registration_.ops->remove(context_);
+            }
+
+            private:
+            registration& registration_;
+            void* context_;
         };
 
         registration registrations[max_registrations]{};
@@ -239,35 +282,80 @@ namespace astia::mod {
 
         mm::shptr<dev::device> driver::probe(const dev::device_info& info) {
             const dev::pci_device_info* pci = dev::pci_device_info::get(info);
-            if (pci == nullptr || registration_.ops->probe == nullptr ||
-                registration_.ops->size == nullptr || registration_.ops->block_size == nullptr ||
-                registration_.ops->read == nullptr)
+            const auto* ops = registration_.ops;
+            if (pci == nullptr || ops->probe == nullptr || ops->size == nullptr ||
+                ops->block_size == nullptr || ops->read == nullptr)
                 return {};
             void* context = nullptr;
             dev::pci_device* stable = dev::pci_devices().find(pci->device().bdf);
             if (stable == nullptr)
                 return {};
             const astia_module_pci_device device_view = view(*stable);
-            if (registration_.ops->probe(&device_view, &context) == 0 || context == nullptr)
+            if (ops->probe(&device_view, &context) == 0 || context == nullptr)
                 return {};
-            const u64 size = registration_.ops->size(context);
-            const u32 block_size = registration_.ops->block_size(context);
-            if (size == 0 || block_size == 0) {
-                if (registration_.ops->remove != nullptr)
-                    registration_.ops->remove(context);
-                return {};
+
+            u32 namespace_count = 1;
+            if (ops->namespace_count != nullptr || ops->namespace_info != nullptr) {
+                if (ops->namespace_count == nullptr || ops->namespace_info == nullptr) {
+                    if (ops->remove != nullptr)
+                        ops->remove(context);
+                    return {};
+                }
+                namespace_count = ops->namespace_count(context);
+                if (namespace_count == 0 || namespace_count > max_namespaces) {
+                    if (ops->remove != nullptr)
+                        ops->remove(context);
+                    return {};
+                }
             }
-            auto value = mm::share<block>(registration_, context, size, block_size);
-            if (!value) {
-                if (registration_.ops->remove != nullptr)
-                    registration_.ops->remove(context);
+
+            auto lifetime = mm::share<controller_lifetime>(registration_, context);
+            auto group = mm::share<device_group>();
+            if (!lifetime || !group)
                 return {};
+
+            astia_module_pci_namespace namespaces[max_namespaces]{};
+            for (u32 i = 0; i < namespace_count; ++i) {
+                auto& current = namespaces[i];
+                current.id = i + 1;
+                current.context = context;
+                current.size = ops->size(context);
+                current.block_size = ops->block_size(context);
+                current.device_path = ops->device_path;
+                if (ops->namespace_info != nullptr &&
+                    ops->namespace_info(context, i, &current) != 0)
+                    return {};
+                if (current.id == 0 || current.context == nullptr || current.size == 0 ||
+                    current.block_size == 0 || current.device_path == nullptr ||
+                    current.device_path[0] == '\0')
+                    return {};
+                for (u32 previous = 0; previous < i; ++previous) {
+                    if (namespaces[previous].id == current.id)
+                        return {};
+                    const char* lhs = namespaces[previous].device_path;
+                    const char* rhs = current.device_path;
+                    while (*lhs != '\0' && *lhs == *rhs) {
+                        ++lhs;
+                        ++rhs;
+                    }
+                    if (*lhs == *rhs)
+                        return {};
+                }
             }
-            mm::shptr<dev::device> owner = value;
-            auto file = mm::share<dev::device_file>(owner);
-            if (!file || fs::register_device(registration_.ops->device_path, file) < 0)
-                return {};
-            value->set_file(file.get());
+
+            for (u32 i = 0; i < namespace_count; ++i) {
+                auto value = mm::share<block>(registration_, namespaces[i].context,
+                                               namespaces[i].size, namespaces[i].block_size,
+                                               lifetime);
+                if (!value || !group->add(value))
+                    return {};
+                mm::shptr<dev::device> owner = value;
+                auto file = mm::share<dev::device_file>(owner);
+                if (!file || fs::register_device(namespaces[i].device_path, file) < 0)
+                    return {};
+                value->set_file(file.get());
+            }
+            mm::shptr<dev::device> owner = group;
             return owner;
         }
 
@@ -384,8 +472,6 @@ namespace astia::mod {
             for (async_bridge& bridge : registration_.bridges)
                 if (bridge.owner == this)
                     cancel(bridge);
-            if (registration_.ops->remove != nullptr)
-                registration_.ops->remove(context_);
         }
 
         dev::pci_device* route_device(const astia_module_msix_route& route) {

@@ -26,6 +26,14 @@ struct astia_module_pci_device {
 
 struct astia_module_io_request;
 
+struct astia_module_pci_namespace {
+    uint32_t id;
+    uint64_t size;
+    uint32_t block_size;
+    void* context;
+    const char* device_path;
+};
+
 struct astia_module_pci_block_driver {
     const char* name;
     const char* device_path;
@@ -41,6 +49,9 @@ struct astia_module_pci_block_driver {
     int (*async_poll)(void* context, struct astia_module_io_request* request);
     long (*write)(void* context, const void* buffer, uint32_t length, uint64_t offset);
     int (*flush)(void* context);
+    uint32_t (*namespace_count)(void* context);
+    int (*namespace_info)(void* context, uint32_t index,
+                          struct astia_module_pci_namespace* namespace_info);
 };
 
 struct astia_module_dma_buffer {
