@@ -14,6 +14,7 @@ PROMPT = b"ASTIA_READY> "
 EXPECTED_STATUS = 1
 TIMEOUT = 60.0
 KERNEL_PROC_LINE = re.compile(rb"^\[\s*[0-9]+\.[0-9]+[^\r\n]*\]\s+proc:")
+TTY_ERROR_MARKERS = (b"bad tcgets", b"unknown error")
 
 
 class HarnessError(RuntimeError):
@@ -114,6 +115,9 @@ def shell_output(response, command):
 def run_command(serial, command, expected):
     serial.send(command.encode() + b"\n")
     response = shell_output(serial.read_until(PROMPT, time.monotonic() + TIMEOUT), command)
+    for marker in TTY_ERROR_MARKERS:
+        if marker in response:
+            raise HarnessError("terminal error %r after %r: %r" % (marker, command, response))
     wanted = expected.encode()
     if response != wanted:
         raise HarnessError(
@@ -122,12 +126,29 @@ def run_command(serial, command, expected):
         )
 
 
+def run_nano(serial, filename):
+    command = "nano" + (" " + filename if filename else "")
+    serial.send(command.encode() + b"\n")
+    response = serial.read_until(b"GNU nano", time.monotonic() + TIMEOUT)
+    response += serial.read_until(b"^X Exit", time.monotonic() + TIMEOUT)
+    response += serial.read_until(b"\x1b[2;1H\x1b[K", time.monotonic() + TIMEOUT)
+    response += serial.read_until(b"\x1b[?25h", time.monotonic() + TIMEOUT)
+    time.sleep(1.0)
+    serial.send(b"\x18")
+    response += serial.read_until(PROMPT, time.monotonic() + TIMEOUT)
+    for marker in TTY_ERROR_MARKERS:
+        if marker in response:
+            raise HarnessError("terminal error %r after %r: %r" % (marker, command, response))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--qemu", required=True)
     parser.add_argument("--kernel", required=True)
     parser.add_argument("--initrd", required=True)
     parser.add_argument("--trace", required=True)
+    parser.add_argument("--nano", action="store_true")
+    parser.add_argument("--nano-iterations", type=int, default=1)
     args = parser.parse_args()
 
     with open(args.trace, "wb", buffering=0) as trace_stream:
@@ -150,12 +171,29 @@ def main():
             run_command(serial, "echo PIPE_OK | cat", "PIPE_OK\n")
             run_command(serial, "echo REDIRECT_OK >/tmp/zsh-output; cat /tmp/zsh-output",
                         "REDIRECT_OK\n")
+            if args.nano:
+                if args.nano_iterations < 1:
+                    raise HarnessError("--nano-iterations must be positive")
+                run_command(serial, "true", "")
+                for _ in range(args.nano_iterations):
+                    run_nano(serial, "passwd")
+                    run_nano(serial, "")
+                    run_command(serial, "echo NANO_STATUS=$?", "NANO_STATUS=0\n")
+                run_command(serial, "echo NANO_ZSH_OK", "NANO_ZSH_OK\n")
             serial.send(b"\x04")
             trace(trace_stream, "WAIT", b"eof")
             try:
                 status = process.wait(timeout=TIMEOUT)
             except subprocess.TimeoutExpired:
-                raise HarnessError("qemu did not exit after zsh exit")
+                serial.send(b"\x04")
+                try:
+                    status = process.wait(timeout=TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    serial.send(b"exit\n")
+                    try:
+                        status = process.wait(timeout=TIMEOUT)
+                    except subprocess.TimeoutExpired:
+                        raise HarnessError("qemu did not exit after zsh exit")
             if status != EXPECTED_STATUS:
                 raise HarnessError("unexpected qemu status %d" % status)
         except Exception:

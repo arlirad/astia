@@ -123,11 +123,8 @@ int fork(void) {
         __astia_atfork_child(&atfork_context);
     }
     else if (result > 0) {
-        /* The child inherited the ring alias as part of its address space,
-           but cannot use the parent's process-owned slot.  Reset its lazy
-           handle without destroying the parent's slot; the parent can drop
-           its own ring only after the fork has cloned the address space. */
-        __astia_fio_prepare_fork();
+        /* The parent keeps its process-owned ring; only the child must reset
+           its inherited alias before issuing I/O. */
         __astia_atfork_parent(&atfork_context);
     }
     else

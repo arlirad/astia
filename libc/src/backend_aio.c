@@ -900,5 +900,8 @@ void __astia_fio_after_fork(void) {
     g_ring     = NULL;
     g_inflight = 0;
     g_tag      = 0;
+    g_signal_ring = NULL;
+    g_signal_tag = 0;
+    g_signal_transaction = 0;
     g_deferred_count = 0;
 }

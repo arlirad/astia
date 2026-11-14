@@ -13,6 +13,8 @@ harness=${ASTIA_ZSH_HARNESS:-0}
 line_reader=${ASTIA_LINE_READER:-0}
 nano_binary=${ASTIA_NANO_BINARY:-}
 nano_enabled=${ASTIA_NANO:-0}
+nano_harness=${ASTIA_NANO_HARNESS:-0}
+nano_iterations=${ASTIA_NANO_ITERATIONS:-3}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 cpio=${ASTIA_CPIO:-cpio}
@@ -48,6 +50,21 @@ case "$nano_enabled" in
     0|1) ;;
     *)
         echo "ASTIA_NANO must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+case "$nano_harness" in
+    0|1) ;;
+    *)
+        echo "ASTIA_NANO_HARNESS must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+case "$nano_iterations" in
+    ''|*[!0-9]*|0)
+        echo "ASTIA_NANO_ITERATIONS must be a positive integer" >&2
         exit 2
         ;;
 esac
@@ -210,6 +227,15 @@ if [ "$harness" = 1 ]; then
         exit 1
     }
     echo "Starting Astia zsh PTY harness (ASTIA_ZSH_HARNESS=1)." >&2
+    if [ "$nano_harness" = 1 ]; then
+        if [ -z "$nano_binary" ]; then
+            echo "ASTIA_NANO_HARNESS=1 requires ASTIA_NANO=1 or ASTIA_NANO_BINARY." >&2
+            exit 1
+        fi
+        exec python3 "$root/toolchain/zsh-pty-harness.py" \
+            --qemu "$qemu" --kernel "$kernel" --initrd "$work/initrd.cpio" \
+            --trace "$work/pty.trace" --nano --nano-iterations "$nano_iterations"
+    fi
     exec python3 "$root/toolchain/zsh-pty-harness.py" \
         --qemu "$qemu" --kernel "$kernel" --initrd "$work/initrd.cpio" \
         --trace "$work/pty.trace"

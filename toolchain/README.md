@@ -153,6 +153,16 @@ script verifies the pinned archive checksum and stages upstream nano privately.
 If the archive is not cached and cannot be fetched, the launcher reports the
 failure and suggests a verified binary override.
 
+The launcher also provides a repeated nano/zsh terminal regression harness. It
+runs `true`, then `nano passwd` and no-argument `nano`, exits each editor,
+checks status 0 and prompt recovery, and rejects `bad tcgets` or `unknown
+error` output:
+
+```sh
+ASTIA_NANO=1 ASTIA_NANO_HARNESS=1 ASTIA_NANO_ITERATIONS=3 \
+  ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
+```
+
 For configure-based software, use the target as the host and do not let the
 build system search the machine's native headers or libraries:
 
