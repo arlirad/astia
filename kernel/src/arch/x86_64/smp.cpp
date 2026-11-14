@@ -7,6 +7,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
+#include <astia/arch/platform.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
 
@@ -26,7 +27,7 @@ namespace astia::arch::x86_64::smp {
         constexpr u32 madt_signature = 0x43495041;            // "APIC"
         constexpr u32 xsdt_signature = 0x54445358;            // "XSDT"
         constexpr u32 rsdt_signature = 0x54445352;            // "RSDT"
-        constexpr u32 max_cpus       = 256;
+        constexpr u32 max_cpus       = platform::max_cpu_count;
 
         u32 cpu_total        = 1;
         u32 cpu_online       = 1;
@@ -190,7 +191,7 @@ namespace astia::arch::x86_64::smp {
         __atomic_store_n(&reschedule_pending[0], 0u, __ATOMIC_RELAXED);
         bool have_acpi = info.rsdp != 0;
         if (!have_acpi) {
-            cpu_total = cpuid_threads();
+            cpu_total = platform::clamp_cpu_count(cpuid_threads());
             logs::info("discovered=%u online=1 (CPUID; no ACPI RSDP)", cpu_total);
             logs::info("reschedule IPI armed");
             if (cpu_total > 2) {
@@ -204,7 +205,7 @@ namespace astia::arch::x86_64::smp {
         if (have_acpi && (*reinterpret_cast<const u64*>(r->signature) != rsdp_signature ||
                           checksum(r, 20) != 0)) {
             have_acpi = false;
-            cpu_total = cpuid_threads();
+            cpu_total = platform::clamp_cpu_count(cpuid_threads());
             logs::info("discovered=%u online=1 (CPUID; invalid ACPI RSDP)", cpu_total);
             logs::info("reschedule IPI armed");
             if (cpu_total > 1) {
@@ -215,7 +216,7 @@ namespace astia::arch::x86_64::smp {
         }
         const u32 found = have_acpi ? find_madt(r) : 0;
         if (found != 0)
-            cpu_total = found;
+            cpu_total = platform::clamp_cpu_count(found);
         logs::info("discovered=%u online=1", cpu_total);
         if (cpu_total <= 1)
             return true;

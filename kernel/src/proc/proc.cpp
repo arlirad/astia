@@ -8,6 +8,7 @@
 #include <astia/api/termios.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
+#include <astia/arch/platform.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
 
@@ -18,7 +19,7 @@ namespace astia::proc {
     namespace {
 
         process* kernel = nullptr;
-        thread*  current[scheduler::max_cpu_count]{};
+        thread*  current[arch::platform::max_cpu_count]{};
         // These counters are deliberately raw: the public IDs remain domain
         // types, while the atomic operation can advance the underlying ABI
         // value without taking the process registry lock.  Unsigned fetch-add
@@ -140,7 +141,7 @@ namespace astia::proc {
 
     thread* current_thread() {
         const u32 index = arch::cpu::current_index();
-        return index < scheduler::max_cpu_count ? current[index] : nullptr;
+        return index < arch::platform::max_cpu_count ? current[index] : nullptr;
     }
 
     void terminate_current_if_killed() {
@@ -162,7 +163,7 @@ namespace astia::proc {
 
     void set_current_thread(thread* value) {
         const u32 index = arch::cpu::current_index();
-        if (index < scheduler::max_cpu_count)
+        if (index < arch::platform::max_cpu_count)
             current[index] = value;
     }
 

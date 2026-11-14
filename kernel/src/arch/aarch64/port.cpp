@@ -5,8 +5,21 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
 #include <astia/arch/mmio.hpp>
+#include <astia/arch/platform.hpp>
 
 namespace astia::arch {
+
+    namespace platform {
+
+        u32 discovered_cpu_count() {
+            return 1;
+        }
+
+        u32 online_cpu_count() {
+            return 1;
+        }
+
+    } // namespace platform
 
     bool init_scheduler() {
         return true;

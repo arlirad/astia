@@ -1,7 +1,9 @@
 #include "io.hpp"
 #include "pic.hpp"
+#include "smp.hpp"
 
 #include <astia/arch/interrupts.hpp>
+#include <astia/arch/platform.hpp>
 #include <astia/dev/uart_platform.hpp>
 
 namespace astia::arch::x86_64 {
@@ -11,6 +13,18 @@ namespace astia::arch::x86_64 {
         pio_write8, pio_write16, pio_write32};
 
 } // namespace astia::arch::x86_64
+
+namespace astia::arch::platform {
+
+    u32 discovered_cpu_count() {
+        return x86_64::smp::discovered_cpus();
+    }
+
+    u32 online_cpu_count() {
+        return x86_64::smp::online_cpus();
+    }
+
+} // namespace astia::arch::platform
 
 namespace astia::dev {
 

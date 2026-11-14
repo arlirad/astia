@@ -2,6 +2,7 @@
 
 #include "io.hpp"
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/platform.hpp>
 #include <astia/mm/heap.hpp>
 
 #include <cstddef>
@@ -38,7 +39,7 @@ namespace astia::arch::x86_64 {
 
         static_assert(sizeof(tss) == 104);
 
-        constexpr usize max_cpus = 256;
+        constexpr usize max_cpus = platform::max_cpu_count;
         alignas(8) u64 gdt[max_cpus][7];
         alignas(16) tss task_state[max_cpus];
         gdtr  descriptor[max_cpus];

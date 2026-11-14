@@ -11,6 +11,7 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/platform.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
@@ -127,7 +128,7 @@ namespace astia::test {
         }
 
         bool ap_scheduler_checks() {
-            if (arch::x86_64::smp::online_cpus() < 2)
+            if (arch::platform::online_cpu_count() < 2)
                 return true;
             ap_work_seen = 0;
             auto ap_work =

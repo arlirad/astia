@@ -11,6 +11,7 @@
 #include <astia/api/termios.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
+#include <astia/arch/platform.hpp>
 #include <astia/io.hpp>
 #include <astia/log.hpp>
 #include <astia/memory.hpp>
@@ -173,7 +174,7 @@ namespace astia::sys {
         // other CPUs still serialize through the underlying spinlock.
         struct ring_lock {
             core::spinlock       lock;
-            static constexpr u32 cpu_slots = 256;
+            static constexpr u32 cpu_slots = arch::platform::max_cpu_count;
             u32                  depth[cpu_slots]{};
 
             void acquire() {
