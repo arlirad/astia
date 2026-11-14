@@ -237,6 +237,27 @@ namespace astia::fs {
         return context.result;
     }
 
+    long ext4_mount::readlink(const char* path, char* buffer, u32 capacity) const {
+        if (path == nullptr || buffer == nullptr || capacity == 0)
+            return -EINVAL;
+        ext4::inode node;
+        if (!lookup(path, node))
+            return -ENOENT;
+        if (node.type() != ext4::node_type::symlink)
+            return -EINVAL;
+        if (node.size >= capacity)
+            return -ENAMETOOLONG;
+        if (node.size <= sizeof node.block) {
+            for (u64 i = 0; i < node.size; ++i)
+                buffer[i] = static_cast<char>(node.block[i]);
+        }
+        else if (!reader_.read_file(node, 0, buffer, static_cast<usize>(node.size))) {
+            return -EIO;
+        }
+        buffer[node.size] = '\0';
+        return static_cast<long>(node.size);
+    }
+
     file_type ext4_mount::node_type(const char* path) const {
         ext4::inode node;
         return lookup(path, node) ? vfs_type(node.type()) : directory_unknown;

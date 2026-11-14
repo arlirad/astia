@@ -107,6 +107,23 @@ namespace {
             put16(offset + 0x3A, 0);
             put32(offset + 0x3C, block);
         }
+        void make_symlink(u64 offset, const char* target) {
+            u32 length = 0;
+            while (target[length] != '\0')
+                ++length;
+            put16(offset, 0120777);
+            put32(offset + 4, length);
+            put16(offset + 0x1A, 1);
+            put32(offset + 0x64, 1);
+            std::memcpy(image_ + offset + 0x28, target, length);
+        }
+        void make_long_symlink(u64 offset, u32 block, u32 length) {
+            put16(offset, 0120777);
+            put32(offset + 4, length);
+            put16(offset + 0x1A, 1);
+            put32(offset + 0x28, block);
+            put32(offset + 0x64, 1);
+        }
         void make_valid_image() {
             std::memset(image_, 0, sizeof image_);
             put32(1024 + 0x00, 16);
@@ -121,6 +138,10 @@ namespace {
             put32(2048 + 0x08, 3);
             make_inode(3200, 040755, 2, 5);
             make_inode(4480, 0100644, 12, 6);
+            make_symlink(4608, "known.txt");
+            make_long_symlink(4736, 7, 64);
+            make_symlink(4864, "loop2");
+            make_symlink(4992, "loop1");
             put32(5 * 1024, 2);
             put16(5 * 1024 + 4, 12);
             image_[5 * 1024 + 6] = 1;
@@ -133,11 +154,33 @@ namespace {
             image_[5 * 1024 + 20] = '.';
             image_[5 * 1024 + 21] = '.';
             put32(5 * 1024 + 24, 12);
-            put16(5 * 1024 + 28, 1000);
+            put16(5 * 1024 + 28, 20);
             image_[5 * 1024 + 30] = 9;
             image_[5 * 1024 + 31] = 1;
             std::memcpy(image_ + 5 * 1024 + 32, "known.txt", 9);
+            put32(5 * 1024 + 44, 13);
+            put16(5 * 1024 + 48, 20);
+            image_[5 * 1024 + 50] = 5;
+            image_[5 * 1024 + 51] = 7;
+            std::memcpy(image_ + 5 * 1024 + 52, "known", 5);
+            put32(5 * 1024 + 64, 14);
+            put16(5 * 1024 + 68, 20);
+            image_[5 * 1024 + 70] = 4;
+            image_[5 * 1024 + 71] = 7;
+            std::memcpy(image_ + 5 * 1024 + 72, "long", 4);
+            put32(5 * 1024 + 84, 15);
+            put16(5 * 1024 + 88, 20);
+            image_[5 * 1024 + 90] = 5;
+            image_[5 * 1024 + 91] = 7;
+            std::memcpy(image_ + 5 * 1024 + 92, "loop1", 5);
+            put32(5 * 1024 + 104, 16);
+            put16(5 * 1024 + 108, 920);
+            image_[5 * 1024 + 110] = 5;
+            image_[5 * 1024 + 111] = 7;
+            std::memcpy(image_ + 5 * 1024 + 112, "loop2", 5);
             std::memcpy(image_ + 6 * 1024, "hello from ext4\n", 16);
+            for (u32 i = 0; i < 64; ++i)
+                image_[7 * 1024 + i] = static_cast<u8>('a' + i % 26);
         }
         void corrupt_magic() {
             put16(1024 + 0x38, 0);
@@ -215,6 +258,10 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
     char data[32]{};
     ASTIA_CHECK(known && known->read(data, sizeof data) == 16);
     ASTIA_CHECK(std::strcmp(data, "hello from ext4\n") == 0);
+    auto link = astia::fs::open("/tmp/ext4/known");
+    ASTIA_CHECK(link);
+    ASTIA_CHECK(link && link->read(data, sizeof data) == 16);
+    ASTIA_CHECK(std::strcmp(data, "hello from ext4\n") == 0);
     ASTIA_CHECK(astia::fs::node_type("/tmp/ext4/known.txt") == astia::fs::directory_reg);
     ASTIA_CHECK(astia::fs::node_mode("/tmp/ext4").permissions().raw() == 0755);
     ASTIA_CHECK(astia::raw_id(astia::fs::node_uid("/tmp/ext4/known.txt")) == 0);
@@ -225,9 +272,23 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
     ASTIA_CHECK(std::strcmp(name, ".") == 0 && type == astia::fs::directory_dir);
     ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 2, name, sizeof name, &type) == 1);
     ASTIA_CHECK(std::strcmp(name, "known.txt") == 0 && type == astia::fs::directory_reg);
+    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 3, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(std::strcmp(name, "known") == 0 && type == astia::fs::directory_lnk);
+    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 4, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(std::strcmp(name, "long") == 0 && type == astia::fs::directory_lnk);
+    char long_target[65]{};
+    ASTIA_CHECK(astia::fs::read_symlink("/tmp/ext4/long", long_target,
+                                        sizeof long_target) == 64);
+    for (u32 i = 0; i < 64; ++i)
+        ASTIA_CHECK(long_target[i] == static_cast<char>('a' + i % 26));
+    ASTIA_CHECK(astia::fs::read_symlink("/tmp/ext4/long", long_target, 64) == -ENAMETOOLONG);
+    char resolved[astia::fs::path_max]{};
+    ASTIA_CHECK(astia::fs::resolve_path("/tmp/ext4/loop1", resolved, sizeof resolved) == -ELOOP);
+    ASTIA_CHECK(!astia::fs::open("/tmp/ext4/missing"));
 
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == -EBUSY);
     known = {};
+    link = {};
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
 }
 

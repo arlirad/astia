@@ -66,6 +66,7 @@ namespace astia::fs {
         file_mode node_mode(const char* path) const override;
         uid_t node_uid(const char* path) const override;
         gid_t node_gid(const char* path) const override;
+        long readlink(const char* path, char* buffer, u32 capacity) const override;
         long register_file(const char*, const mm::shptr<file>&) override {
             return -EROFS;
         }
