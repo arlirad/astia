@@ -36,21 +36,45 @@ static long capture(const char* prefix, int error, char* output, size_t capacity
     return length;
 }
 
-int main(void) {
+static void test_message(const char* prefix, int error, const char* expected) {
     char output[128];
     int  after_errno;
     long length;
 
-    length = capture("open", ENOENT, output, sizeof output, &after_errno);
-    CHECK(length == (long) strlen("open: No such file or directory\n"));
-    CHECK(length >= 0 &&
-          memcmp(output, "open: No such file or directory\n", strlen("open: No such file or directory\n")) == 0);
-    CHECK(after_errno == ENOENT);
+    length = capture(prefix, error, output, sizeof output, &after_errno);
+    CHECK(length == (long) strlen(expected));
+    CHECK(length >= 0 && memcmp(output, expected, strlen(expected)) == 0);
+    CHECK(after_errno == error);
+}
 
-    length = capture("", EINVAL, output, sizeof output, &after_errno);
-    CHECK(length == (long) strlen("Invalid argument\n"));
-    CHECK(length >= 0 && memcmp(output, "Invalid argument\n", strlen("Invalid argument\n")) == 0);
-    CHECK(after_errno == EINVAL);
+static void test_write_error(void) {
+    int saved;
+
+    saved = dup(2);
+    CHECK(saved >= 0);
+    if (saved < 0)
+        return;
+    close(2);
+    clearerr(stderr);
+    errno = EINVAL;
+    perror("write");
+    CHECK(errno == EBADF);
+    CHECK(ferror(stderr) != 0);
+    CHECK(fputs("ignored", stderr) == EOF);
+    CHECK(errno == EBADF);
+    CHECK(dup2(saved, 2) == 2);
+    close(saved);
+    clearerr(stderr);
+}
+
+int main(void) {
+    void (*perror_api)(const char*) = perror;
+
+    CHECK(perror_api != NULL);
+    test_message("open", ENOENT, "open: No such file or directory\n");
+    test_message("", EINVAL, "Invalid argument\n");
+    test_message(NULL, ENOTTY, "Inappropriate ioctl for device\n");
+    test_write_error();
 
     if (fails)
         printf("perror_test: %d failure(s)\n", fails);

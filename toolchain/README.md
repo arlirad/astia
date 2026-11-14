@@ -198,9 +198,8 @@ cover process creation and the POSIX alarm reset rule; `getpid/1-1` now builds w
 Astia's pthread mutex and cancellation declarations. Its getpid semantics
 dependencies `sysconf`, `mkstemp`, and `ftruncate` are implemented. Astia
 reports its actual limits via `sysconf`: 64 open descriptors, 64 processes,
-and 100 clock ticks per second.
-`kill/1-1` is currently blocked because Astia's `stdio.h` does not provide
-`perror`. Both are retained as explicit build probes. Select one test or all
+and 100 clock ticks per second. The complete direct `kill` category, including
+the cases that exercise `perror`, now builds and passes. Select one test or all
 direct C tests in one Open POSIX interface directory:
 
 ```sh

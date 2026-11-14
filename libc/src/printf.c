@@ -75,32 +75,18 @@ int putchar(int c) {
     return fputc(c, stdout);
 }
 
-static void write_all(int fd, const char* buffer, size_t length) {
-    while (length != 0) {
-        long written = write(fd, buffer, length);
-        if (written > 0) {
-            buffer += written;
-            length -= (size_t) written;
-        }
-        else if (written < 0 && errno == EINTR) {
-            continue;
-        }
-        else {
-            return;
-        }
-    }
-}
-
 void perror(const char* s) {
     int         error = errno;
     const char* message;
+    int         failed = 0;
 
     message = strerror(error);
     if (s != NULL && *s != '\0') {
-        write_all(fileno(stderr), s, strlen(s));
-        write_all(fileno(stderr), ": ", 2);
+        if (fputs(s, stderr) == EOF || fputs(": ", stderr) == EOF)
+            failed = 1;
     }
-    write_all(fileno(stderr), message, strlen(message));
-    write_all(fileno(stderr), "\n", 1);
-    errno = error;
+    if (!failed && (fputs(message, stderr) == EOF || fputc('\n', stderr) == EOF))
+        failed = 1;
+    if (!failed)
+        errno = error;
 }
