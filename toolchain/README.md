@@ -193,7 +193,7 @@ Run the initial process/signal batch under the Astia kernel and QEMU:
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh
 ```
 
-The initial batch is `fork/4-1`, `fork/9-1`, and `kill/2-1`. The fork tests
+The initial batch is `fork/4-1`, `fork/9-1`, `kill/2-1`, and `killpg/1-1`. The fork tests
 cover process creation and the POSIX alarm reset rule; `getpid/1-1` now builds with
 Astia's pthread mutex and cancellation declarations. Its getpid semantics
 dependencies `sysconf`, `mkstemp`, and `ftruncate` are implemented. Astia
@@ -206,6 +206,8 @@ direct C tests in one Open POSIX interface directory:
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --test getpid/1-1
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --category kill
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --test kill/2-1
+POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --category killpg
+POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --test killpg/1-1
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --list
 ```
 

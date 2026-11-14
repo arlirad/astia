@@ -35,6 +35,10 @@ long __astia_process_setpgid(int pid, int process_group) {
     return astia_setpgid((int32_t) pid, (int32_t) process_group);
 }
 
+long __astia_process_kill(int pid, int signal) {
+    return astia_kill((int32_t) pid, (int32_t) signal);
+}
+
 long __astia_process_yield(void) {
     return astia_yield();
 }

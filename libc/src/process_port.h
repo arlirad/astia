@@ -24,6 +24,7 @@ long                   __astia_process_alarm(unsigned int seconds);
 long                   __astia_process_getpgrp(void);
 long                   __astia_process_getpgid(int pid);
 long                   __astia_process_setpgid(int pid, int process_group);
+long                   __astia_process_kill(int pid, int signal);
 long                   __astia_process_yield(void);
 long                   __astia_process_waitpid(int pid, int* status, int options);
 long __astia_process_spawnve(const char* path, char* const argv[], char* const envp[]);

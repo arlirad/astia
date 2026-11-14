@@ -71,6 +71,10 @@ long __astia_process_setpgid(int pid, int process_group) {
     return host_trap(SYS_setpgid, pid, process_group, 0, 0);
 }
 
+__attribute__((weak)) long __astia_process_kill(int pid, int signal) {
+    return host_trap(SYS_kill, pid, signal, 0, 0);
+}
+
 long __astia_process_yield(void) {
     return host_trap(SYS_sched_yield, 0, 0, 0, 0);
 }

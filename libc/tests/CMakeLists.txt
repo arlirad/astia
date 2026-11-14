@@ -142,6 +142,10 @@ add_executable(libc_process_group_test process_group_test.c process_host.c backe
 target_link_libraries(libc_process_group_test PRIVATE astia_libc_host)
 add_test(NAME libc_process_group_test COMMAND libc_process_group_test)
 
+add_executable(libc_killpg_test killpg_test.c process_host.c backend_host.c alarm_host.c)
+target_link_libraries(libc_killpg_test PRIVATE astia_libc_host)
+add_test(NAME libc_killpg_test COMMAND libc_killpg_test)
+
 add_executable(libc_signal_api_test signal_api_test.c)
 target_link_libraries(libc_signal_api_test PRIVATE astia_libc)
 add_test(NAME libc_signal_api_test COMMAND libc_signal_api_test)

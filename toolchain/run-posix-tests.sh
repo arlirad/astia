@@ -80,7 +80,7 @@ selection_value=
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --list)
-            printf '%s\n' getpid getppid fork/4-1 fork/9-1 kill
+            printf '%s\n' getpid getppid fork/4-1 fork/9-1 kill killpg
             exit 0
             ;;
         --test)
@@ -111,7 +111,7 @@ selected=$work/selected
 
 case "$selection" in
     default)
-        printf '%s\n' 'fork/4-1' 'fork/9-1' 'kill/2-1' >"$selected"
+        printf '%s\n' 'fork/4-1' 'fork/9-1' 'kill/2-1' 'killpg/1-1' >"$selected"
         ;;
     test)
         case "$selection_value" in

@@ -250,7 +250,7 @@ int sigpause(int signal_number) {
 }
 
 int kill(int pid, int signal_number) {
-    const long rc = astia_kill(pid, signal_number);
+    const long rc = __astia_process_kill(pid, signal_number);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
