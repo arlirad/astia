@@ -44,6 +44,14 @@ case "$line_reader" in
         ;;
 esac
 
+case "$nano_enabled" in
+    0|1) ;;
+    *)
+        echo "ASTIA_NANO must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
 command -v "$qemu" >/dev/null 2>&1 || {
     echo "QEMU executable not found: $qemu" >&2
     exit 1
@@ -132,9 +140,13 @@ ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
 
 if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
     if [ -z "$nano_binary" ]; then
-        nano_build=${ASTIA_NANO_BUILD:-$work/nano}
-        ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
-            NANO_BUILD="$nano_build" "$root/toolchain/build-nano.sh"
+        nano_build=${ASTIA_NANO_BUILD:-/tmp/astia-nano-build}
+        if ! ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
+            NANO_BUILD="$nano_build" "$root/toolchain/build-nano.sh"; then
+            echo "Astia nano build failed in $nano_build." >&2
+            echo "Provide network access for the pinned GNU nano archive, or set ASTIA_NANO_BINARY to a verified build." >&2
+            exit 1
+        fi
         nano_binary=$nano_build/output/nano
     fi
     if [ ! -x "$nano_binary" ]; then

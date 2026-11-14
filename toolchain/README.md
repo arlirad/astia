@@ -131,18 +131,27 @@ places them in `/bin` (`cat`, `echo`, `env`, `false`, `head`, `pwd`, `true`,
 `uname`, and `wc`).
 
 Nano packaging is opt-in so normal zsh launches do not download or rebuild it.
-Use a verified prebuilt binary, or request the pinned source build:
+Set `ASTIA_NANO=1` to build the pinned port automatically in the reusable
+`/tmp/astia-nano-build` cache and package it as `/bin/nano`:
 
 ```sh
-ASTIA_NANO_BINARY=/tmp/astia-nano-build/output/nano \
-  ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
-ASTIA_NANO=1 ASTIA_NANO_BUILD=/tmp/astia-nano-build \
-  ./toolchain/run-zsh-qemu.sh
+ASTIA_NANO=1 ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
 ```
 
-`ASTIA_NANO=1` invokes `toolchain/build-nano.sh` with the Astia sysroot and
-startup object and packages the result as `/bin/nano`. Upstream nano is copied
-to a private staging tree; it is never modified.
+Use these overrides when a cache or prebuilt artifact is preferred:
+
+```sh
+ASTIA_NANO=1 ASTIA_NANO_BUILD=/tmp/astia-nano-build \
+  ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
+ASTIA_NANO_BINARY=/tmp/astia-nano-build/output/nano \
+  ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
+```
+
+The launcher invokes `toolchain/build-nano.sh` with the Astia sysroot and
+startup object; `ASTIA_NANO_BUILD` overrides the default cache directory. The
+script verifies the pinned archive checksum and stages upstream nano privately.
+If the archive is not cached and cannot be fetched, the launcher reports the
+failure and suggests a verified binary override.
 
 For configure-based software, use the target as the host and do not let the
 build system search the machine's native headers or libraries:
