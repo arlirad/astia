@@ -1,6 +1,10 @@
 set(test_root "${CMAKE_CURRENT_BINARY_DIR}/target-config")
 file(REMOVE_RECURSE "${test_root}")
 
+if (EXISTS "${ASTIA_KERNEL_SOURCE_DIR}/cmake/Linker.cmake")
+    message(FATAL_ERROR "obsolete cmake/Linker.cmake is still present")
+endif ()
+
 execute_process(
         COMMAND "${CMAKE_COMMAND}" -S "${ASTIA_KERNEL_SOURCE_DIR}"
         -B "${test_root}/x86_64"
@@ -11,6 +15,30 @@ execute_process(
         ERROR_VARIABLE x86_error)
 if (x86_result)
     message(FATAL_ERROR "x86_64 target configuration failed:\n${x86_output}\n${x86_error}")
+endif ()
+
+file(READ "${test_root}/x86_64/CMakeCache.txt" x86_cache)
+set(expected_linker "${ASTIA_KERNEL_SOURCE_DIR}/cmake/linker/virt-x86_64.ld")
+string(FIND "${x86_cache}" "ASTIA_LINKER_SCRIPT:INTERNAL=${expected_linker}" linker_position)
+if (linker_position EQUAL -1)
+    message(FATAL_ERROR
+            "x86_64 configuration did not select the target-derived linker script:\n"
+            "${x86_cache}")
+endif ()
+
+execute_process(
+        COMMAND "${CMAKE_COMMAND}" --build "${test_root}/x86_64"
+        --target astiakrn --verbose
+        RESULT_VARIABLE x86_build_result
+        OUTPUT_VARIABLE x86_build_output
+        ERROR_VARIABLE x86_build_error)
+if (x86_build_result)
+    message(FATAL_ERROR "x86_64 kernel build failed:\n${x86_build_output}\n${x86_build_error}")
+endif ()
+if (NOT "${x86_build_output}\n${x86_build_error}" MATCHES "-T[ \t]+.*virt-x86_64\\.ld")
+    message(FATAL_ERROR
+            "x86_64 kernel build did not use the target-derived linker script:\n"
+            "${x86_build_output}\n${x86_build_error}")
 endif ()
 
 execute_process(

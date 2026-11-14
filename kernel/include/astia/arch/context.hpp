@@ -8,7 +8,6 @@ namespace astia::arch {
     /// architecture defines its register layout and allocates it.
     struct context;
     void context_set_fs_base(context* value, u64 fs_base);
-    void context_update_fs_base(context* value, u64 fs_base);
 
     /// Register image of a ring-3 caller at syscall time, as the entry
     /// packs it: the call number, its argument registers, the caller's

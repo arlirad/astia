@@ -97,6 +97,9 @@ directory) so the generated `compile_commands.json` is refreshed.
 The only supported kernel target is `ARCH=x86_64 PLATFORM=virt BOOT=virt`.
 The AArch64 tree is an incomplete bring-up port and is rejected at configure
 time until it has a complete boot path, linker layout, and cross-toolchain.
+The linker script is selected from that target as
+`cmake/linker/${BOOT}-${ARCH}.ld` and passed to every kernel executable; do not
+configure a separate linker-script cache variable.
 The stackful `core::fiber` implementation is experimental and excluded from
 production builds; enable `-DASTIA_BUILD_EXPERIMENTAL_FIBER=ON` only for
 focused architecture experiments.

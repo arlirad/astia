@@ -68,11 +68,6 @@ namespace astia::arch {
         asm volatile("wrmsr" : : "c"(ia32_fs_base), "a"(low), "d"(high) : "memory");
     }
 
-    void context_update_fs_base(context* value, u64 fs_base) {
-        if (value != nullptr)
-            value->fs_base = fs_base;
-    }
-
     bool context_prepare_kernel(context* value, u64 stack_top, u64 entry) {
         if (value == nullptr) {
             return false;
