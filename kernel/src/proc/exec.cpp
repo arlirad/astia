@@ -28,6 +28,8 @@ namespace astia::proc {
         struct stream_context {
             image_map                map;
             mm::shptr<fs::open_file> file;
+
+            ~stream_context();
         };
 
         void unmap_run(arch::page_map& map, u64 virt, u64 pages) {
@@ -46,6 +48,11 @@ namespace astia::proc {
                 mm::kernel_frames().release(seg.frames, seg.pages);
                 seg.used = false;
             }
+        }
+
+        stream_context::~stream_context() {
+            if (map.map != nullptr)
+                cleanup_pending(map, *map.map);
         }
 
         void* map_user(void* opaque, u64 hint, usize size, usize align, bool fixed) {

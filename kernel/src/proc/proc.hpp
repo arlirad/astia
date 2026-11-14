@@ -67,14 +67,10 @@ namespace astia::proc {
     void expire_signal_waiters();
     void expire_alarms();
 
-    /// Spawn an executable by VFS path.  argv/envp are materialized on
-    /// the child's user stack as the standard startup frame
-    /// (argc/argv/envp + AT_NULL), built in an arch-neutral way; the
-    /// architecture only consumes the resulting entry stack pointer.
-    /// On failure the optional carries the typed kernel error.
-    optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],
-                                         char* const envp[]);
-    core::task<mm::shptr<process>> spawnve_async(
+    /// Spawn an executable from an already-open VFS file. ELF loading is
+    /// streamed through the asynchronous filesystem and argv/envp are
+    /// materialized on the child's user stack after loading completes.
+    core::task<mm::shptr<process>> spawnve(
         process* parent, const mm::shptr<fs::open_file>& file, usize length,
         char* const argv[], char* const envp[]);
 

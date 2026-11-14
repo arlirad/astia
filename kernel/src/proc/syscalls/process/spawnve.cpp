@@ -30,7 +30,7 @@ namespace astia::proc::syscall {
 
         core::task<i64> drive_spawn(
             const mm::shptr<spawn_continuation>& continuation) {
-            auto result = co_await proc::spawnve_async(
+            auto result = co_await proc::spawnve(
                 continuation->syscall.owner(), continuation->file,
                 static_cast<usize>(continuation->file->size()),
                 continuation->staging.argv(), continuation->staging.envp());
@@ -91,8 +91,10 @@ namespace astia::proc::syscall {
         if (!staging->runner.valid())
             return -ENOMEM;
         staging->runner.resume();
-        if (!staging->runner.done())
-            (void) staging->syscall.wait();
+        if (!staging->runner.done() && !staging->syscall.wait()) {
+            staging->runner.reset();
+            return staging->syscall.result();
+        }
         while (!staging->runner.done())
             scheduler::yield();
 

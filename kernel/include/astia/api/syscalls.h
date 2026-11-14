@@ -482,10 +482,10 @@ static inline long astia_getcwd(char* buffer, uint64_t length) {
     return astia_raw6(SYS_GETCWD, (long) buffer, (long) length, 0, 0, 0, 0);
 }
 
-/* Create a process from the executable at `path`, materializing the
- * NULL-terminated argv/envp vectors on its stack (a null vector means
- * empty).  Returns the child pid > 0, or a negative error code.
- * Never waits: pair it with astia_waitpid. */
+/* Create a process from the executable at `path`, streaming ELF reads through
+ * the asynchronous VFS and materializing the NULL-terminated argv/envp
+ * vectors on its stack (a null vector means empty).  Returns after the child
+ * is published, not after it exits; pair it with astia_waitpid. */
 static inline long astia_spawnve(const char* path, char* const argv[],
                                  char* const envp[]) {
     return astia_raw6(SYS_SPAWNVE, (long) path, (long) argv, (long) envp, 0, 0, 0);

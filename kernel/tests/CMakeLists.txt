@@ -549,6 +549,8 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/etc
                 COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${_fix_dir}/boot_stage/etc/passwd
                 COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group ${_fix_dir}/boot_stage/etc/group
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
+                ${_fix_dir}/fixture_exec.elf ${_fix_dir}/boot_stage/sbin/truncated-elf
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/init_user ${_fix_dir}/boot_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/bin
@@ -557,8 +559,10 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
-                hello_initrd.o sbin/init bin/init_libc etc/passwd etc/group
-                DEPENDS ${_fix_dir}/hello_initrd.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
+                hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc etc/passwd etc/group
+                DEPENDS ${_fix_dir}/hello_initrd.o ${_fix_dir}/fixture_exec.elf
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
+                ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing boot initrd boot_initrd.cpio"

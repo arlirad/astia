@@ -216,11 +216,11 @@ namespace astia::proc {
         /* spawnve's three arguments cross as user pointers: a path
          * string and two NULL-terminated pointer vectors, each element
          * of a vector another string.  Everything lands in one kernel
-         * block before proc::spawnve sees it — spawnve never blocks, so
-         * unlike waitpid there is nothing to copy out and no pointer to
-         * re-check.  Bounds: 256 B per string, 32 elements per vector;
-         * past that the vectors are rejected with -E2BIG rather than
-         * walked forever. */
+         * block before proc::spawnve sees it.  The subsequent image load is
+         * asynchronous, so the syscall may yield while the file is read;
+         * unlike waitpid it never waits for the child to exit.  Bounds: 256
+         * B per string, 32 elements per vector; past that the vectors are
+         * rejected with -E2BIG rather than walked forever. */
 
         /// mmap — private memory in the caller's address space:
         /// anonymous, or a snapshot of an open file.  `addr` is a

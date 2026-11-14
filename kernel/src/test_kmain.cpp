@@ -9,6 +9,7 @@
 #include <astia/arch/platform.hpp>
 #include <astia/boot.hpp>
 #include <astia/common.hpp>
+#include <astia/fs.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 
@@ -28,13 +29,36 @@ namespace {
     // not mapped by the normal kernel page map.
     volatile astia::u32 lifecycle_status = 0;
 
+    astia::core::task<astia::mm::shptr<astia::proc::process>> spawn_image(
+        astia::proc::process* parent, const char* path, char* const argv[],
+        char* const envp[]) {
+        if (parent == nullptr || path == nullptr)
+            co_return astia::error_t::einval;
+        auto file = astia::fs::open_path(path);
+        if (!file)
+            co_return astia::error_t::enoent;
+        const long size = file->size();
+        if (size <= 0)
+            co_return astia::error_t::einval;
+        auto result = co_await astia::proc::spawnve(
+            parent, file, static_cast<astia::usize>(size), argv, envp);
+        if (!result)
+            co_return result.error;
+        co_return static_cast<astia::mm::shptr<astia::proc::process>&&>(result.value);
+    }
+
     /// Spawn one userspace image and wait for it out.  `spawned` tells
     /// spawn failure apart from a bad exit status.
     bool run_image(const char* path, char* const argv[], char* const envp[],
                    bool& spawned) {
-        spawned             = false;
-        auto spawned_result = astia::proc::spawnve(path, argv, envp);
-        auto process        = spawned_result.value;
+        spawned = false;
+        auto spawned_task = spawn_image(astia::proc::current_process(), path, argv, envp);
+        spawned_task.resume();
+        while (!spawned_task.done())
+            astia::proc::scheduler::yield();
+        astia::mm::shptr<astia::proc::process> process;
+        if (spawned_task.value() != nullptr)
+            process = *spawned_task.value();
         if (!process) {
             return false;
         }

@@ -9,8 +9,6 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/core/spinlock.hpp>
-#include <astia/log.hpp>
-#include <astia/mm/heap.hpp>
 #include <astia/mm/share.hpp>
 
 void* operator new[](astia::usize size, void* where) noexcept;
@@ -18,9 +16,6 @@ void* operator new[](astia::usize size, void* where) noexcept;
 namespace astia::proc {
 
     namespace {
-        /// This module's log source, and the image-loading half of it.
-        using logs       = astia::log::context<"proc">;
-        using spawn_logs = logs::child<"spawn">;
 
         process* kernel = nullptr;
         thread*  current[scheduler::max_cpu_count]{};
@@ -197,84 +192,7 @@ namespace astia::proc {
                 values[i]->expire_signal_waiters(monotonic_ns);
     }
 
-    optional<mm::shptr<process>> spawnve(const char* path, char* const argv[],
-                                         char* const envp[]) {
-        const auto fail = [](error_t error) -> optional<mm::shptr<process>> {
-            return optional<mm::shptr<process>>(error);
-        };
-        process* parent = current_process();
-        if (parent == nullptr || path == nullptr) {
-            return fail(error_t::einval);
-        }
-        const fs::file_mode image_mode = fs::node_mode(path);
-        if (image_mode.exists() &&
-            !parent->can_access(image_mode, fs::node_uid(path), fs::node_gid(path),
-                                fs::permission_bits::execute))
-            return fail(error_t::eacces);
-        auto image_file = fs::open_path(path);
-        if (!image_file) {
-            spawn_logs::error("open failed for %s", path);
-            return fail(error_t::enoent);
-        }
-        const long image_size = image_file->size();
-        if (image_size <= 0) {
-            spawn_logs::error("invalid image size=%ld", image_size);
-            return fail(error_t::einval);
-        }
-        auto image = mm::heap::alloc(static_cast<usize>(image_size));
-        if (!image) {
-            spawn_logs::error("image allocation failed size=%ld", image_size);
-            return fail(error_t::enomem);
-        }
-        const long loaded =
-            image_file->read(image.value, static_cast<u32>(image_size), 0);
-        if (loaded != image_size) {
-            spawn_logs::error("short read=%ld expected=%ld", loaded, image_size);
-            mm::heap::free(image.value);
-            return fail(error_t::eio);
-        }
-
-        const pid_t child_id = allocate_pid();
-        auto        child    = mm::share<process>(child_id, parent->pid(), path);
-        if (!child) {
-            mm::heap::free(image.value);
-            return fail(error_t::enomem);
-        }
-        child->inherit_groups(*parent);
-        // The thread is queued before registration.  Publish the runnable
-        // process state first so a fast child exit cannot be overwritten as
-        // runnable after it has become a zombie.
-        child->state(process_state::runnable);
-        // exec-style spawn inherits redirected descriptors.  Replacing them
-        // with fresh console streams would make a child read forever from the
-        // terminal after the parent dup2'ed a file onto stdin.
-        if (!child->copy_descriptors_from(*parent)) {
-            mm::heap::free(image.value);
-            return fail(error_t::enomem);
-        }
-        child->close_on_exec_descriptors();
-        u64        entry = 0;
-        const bool loaded_image =
-            child->load_user_image(image.value, static_cast<usize>(image_size), &entry);
-        mm::heap::free(image.value);
-        if (!loaded_image) {
-            spawn_logs::error("ELF load or user thread setup failed");
-            return fail(error_t::einval);
-        }
-        if (!register_process(child)) {
-            spawn_logs::error("process registry full");
-            return fail(error_t::eagain);
-        }
-        if (!child->create_user_thread(entry, argv, envp)) {
-            (void) unregister_process(child.get());
-            parent->wake_waiters();
-            spawn_logs::error("user thread setup failed");
-            return fail(error_t::eagain);
-        }
-        return optional<mm::shptr<process>>(child);
-    }
-
-    core::task<mm::shptr<process>> spawnve_async(
+    core::task<mm::shptr<process>> spawnve(
         process* parent, const mm::shptr<fs::open_file>& file, usize length,
         char* const argv[], char* const envp[]) {
         if (parent == nullptr || !file || length == 0)

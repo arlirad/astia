@@ -394,6 +394,8 @@ void c_main(const long* frame) {
     /* --- spawnve: the three arguments are validated user pointers --- */
     if (astia_spawnve("/sbin/no-such-image", NULL, NULL) != -ENOENT)
         astia_exit(21);
+    if (astia_spawnve("/sbin/truncated-elf", NULL, NULL) != -EINVAL)
+        astia_exit(21);
     if (astia_spawnve((const char*) 0xFFFFFFFF80000000ull, NULL, NULL) != -EFAULT)
         astia_exit(21);
     if (astia_spawnve("/sbin/init", (char* const*) 0xFFFFFFFF80000000ull, NULL) !=
