@@ -1,10 +1,8 @@
-#include "io.hpp"
 #include "uart16550.hpp"
 
 #include "../../console.hpp"
 #include "../../device_file.hpp"
 #include "aio.hpp"
-#include "pic.hpp"
 #include "proc.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
@@ -68,9 +66,6 @@ namespace astia::dev {
         constexpr char device_path[]  = "/dev/tts0";
         constexpr char console_path[] = "/dev/console";
 
-        constexpr u16 com1_base = 0x3F8;
-        constexpr u8  com1_irq  = 4;
-
         // Tags are private to this boot selftest; completion order is not fixed.
         enum : u64 {
             ring_tag_open           = 0xC0DE00,
@@ -102,10 +97,17 @@ namespace astia::dev {
         // constructor having run, which is what a kernel without
         // .init_array needs.  constinit enforces static initialization
         // while retaining writable RX state and cursors.
-        constinit uart16550   com1{"tts0", com1_base, com1_irq};
+        constinit pio_bus uart16550_pio_capability{
+            nullptr, uart16550_platform_read8, uart16550_platform_read16,
+            uart16550_platform_read32, uart16550_platform_write8,
+            uart16550_platform_write16, uart16550_platform_write32};
+        constinit irq_line uart16550_irq_capability{
+            nullptr, uart16550_platform_claim, uart16550_platform_unmask};
+        constinit uart16550 com1{"tts0", uart16550_pio_capability,
+                                  uart16550_irq_capability, uart16550_base};
         constinit device_file com1_file{&com1};
 
-        void uart16550_irq() {
+        void uart16550_irq_handler() {
             com1.irq();
         }
 
@@ -437,15 +439,15 @@ namespace astia::dev {
 
     bool uart16550::tx_byte(u8 c) {
         for (u32 i = 0; i < transmitter_ready_spin_limit; ++i) {
-            if ((_ports[reg_lsr] & lsr_thre) != 0) {
-                _ports[reg_data] = c;
-                _ports[reg_ier]  = ier_rx_ready;
+            if ((_ports.read8(reg_lsr) & lsr_thre) != 0) {
+                _ports.write8(reg_data, c);
+                _ports.write8(reg_ier, ier_rx_ready);
                 return true;
             }
         }
         // tty::submit parks a write that cannot make progress. RX interrupts
         // cannot wake it when the transmitter becomes empty.
-        _ports[reg_ier] = static_cast<u8>(ier_rx_ready | ier_tx_empty);
+        _ports.write8(reg_ier, static_cast<u8>(ier_rx_ready | ier_tx_empty));
         return false;
     }
 
@@ -456,8 +458,8 @@ namespace astia::dev {
     void uart16550::rx_drain() {
         // The tty owns buffering; the UART only drains its hardware FIFO.
         bool ready = false;
-        while ((_ports[reg_lsr] & lsr_data_ready) != 0) {
-            ready = tty_receive(_ports[reg_data]) || ready;
+        while ((_ports.read8(reg_lsr) & lsr_data_ready) != 0) {
+            ready = tty_receive(_ports.read8(reg_data)) || ready;
         }
         if (ready)
             tty_input_ready();
@@ -465,8 +467,8 @@ namespace astia::dev {
 
     void uart16550::drain_rx() {
         arch::interrupt_guard gate;
-        while ((_ports[reg_lsr] & lsr_data_ready) != 0) {
-            (void) _ports[reg_data];
+        while ((_ports.read8(reg_lsr) & lsr_data_ready) != 0) {
+            (void) _ports.read8(reg_data);
         }
         tty_discard_input();
     }
@@ -475,7 +477,8 @@ namespace astia::dev {
 
     void uart16550::irq() {
         const bool tx_ready =
-            (_ports[reg_ier] & ier_tx_empty) != 0 && (_ports[reg_lsr] & lsr_thre) != 0;
+            (_ports.read8(reg_ier) & ier_tx_empty) != 0 &&
+            (_ports.read8(reg_lsr) & lsr_thre) != 0;
         rx_drain();
         if (tx_ready)
             sys::io_device_ready_context(&com1_file);
@@ -483,7 +486,7 @@ namespace astia::dev {
 
     void uart16550::loopback(bool on) {
         const u8 mcr    = mcr_dtr | mcr_rts | mcr_out2;
-        _ports[reg_mcr] = on ? static_cast<u8>(mcr | mcr_loopback) : mcr;
+        _ports.write8(reg_mcr, on ? static_cast<u8>(mcr | mcr_loopback) : mcr);
     }
 
     bool uart16550::tty_putc(u8 byte) {
@@ -534,29 +537,29 @@ namespace astia::dev {
         default:
             return -EINVAL;
         }
-        const u8 lcr     = _ports[reg_lcr];
-        const u8 ier     = _ports[reg_ier];
-        _ports[reg_lcr]  = static_cast<u8>(lcr | lcr_dlab);
-        _ports[reg_data] = static_cast<u8>(divisor & 0xFF);
-        _ports[reg_ier]  = static_cast<u8>(divisor >> 8);
-        _ports[reg_lcr]  = lcr;
-        _ports[reg_ier]  = ier;
+        const u8 lcr = _ports.read8(reg_lcr);
+        const u8 ier = _ports.read8(reg_ier);
+        _ports.write8(reg_lcr, static_cast<u8>(lcr | lcr_dlab));
+        _ports.write8(reg_data, static_cast<u8>(divisor & 0xFF));
+        _ports.write8(reg_ier, static_cast<u8>(divisor >> 8));
+        _ports.write8(reg_lcr, lcr);
+        _ports.write8(reg_ier, ier);
         return 0;
     }
 
     void uart16550::init_uart() {
-        _ports[reg_ier]  = 0x00;     // interrupts off during bring-up
-        _ports[reg_lcr]  = lcr_dlab; // divisor latch on
-        _ports[reg_data] = 0x01;     // divisor low byte: 1 -> 115200
-        _ports[reg_ier]  = 0x00;     // divisor high byte (IER shares the latch)
-        _ports[reg_lcr]  = lcr_8n1;  // 8N1, latch off
-        _ports[reg_fcr]  = fcr_enable;
-        _ports[reg_mcr]  = mcr_dtr | mcr_rts | mcr_out2;
+        _ports.write8(reg_ier, 0x00);     // interrupts off during bring-up
+        _ports.write8(reg_lcr, lcr_dlab); // divisor latch on
+        _ports.write8(reg_data, 0x01);     // divisor low byte: 1 -> 115200
+        _ports.write8(reg_ier, 0x00);     // divisor high byte (IER shares the latch)
+        _ports.write8(reg_lcr, lcr_8n1);  // 8N1, latch off
+        _ports.write8(reg_fcr, fcr_enable);
+        _ports.write8(reg_mcr, mcr_dtr | mcr_rts | mcr_out2);
     }
 
     bool uart16550::init_irq() {
-        if (!arch::register_irq_handler(_irq, uart16550_irq)) {
-            return false; // PIC line already taken
+        if (!_irq.claim(uart16550_irq_handler)) {
+            return false;
         }
         if (fs::register_device(device_path, mm::shptr<fs::file>::borrowed(&com1_file)) <
             0) {
@@ -567,9 +570,8 @@ namespace astia::dev {
             return false;
         if (!register_console(console_path))
             return false;
-        _ports[reg_ier] = ier_rx_ready;  // data-ready interrupts on
-        arch::x86_64::pic::unmask(_irq); // handler in place first
-        return true;
+        _ports.write8(reg_ier, ier_rx_ready);  // data-ready interrupts on
+        return _irq.unmask();
     }
 
     bool uart16550_init() {

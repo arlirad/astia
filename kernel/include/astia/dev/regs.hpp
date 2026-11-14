@@ -2,6 +2,7 @@
 
 #include <astia/arch/io.hpp>
 #include <astia/common.hpp>
+#include <astia/dev/capabilities.hpp>
 
 namespace astia::dev {
 

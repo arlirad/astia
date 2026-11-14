@@ -4,7 +4,7 @@
 #include "../tty.hpp"
 #include <astia/api/termios.h>
 #include <astia/common.hpp>
-#include <astia/io.hpp>
+#include <astia/dev/uart_platform.hpp>
 
 // COM1 as a 16550 UART, shaped by the dev layer's blk/char/net split:
 // a uart16550 is a tty (line discipline: termios, TCGETS/TCSETS, a
@@ -38,8 +38,8 @@ namespace astia::dev {
     /// destructor.
     class uart16550 : public tty {
         public:
-        constexpr uart16550(const char* name, u16 base, u8 irq)
-            : tty(name, dv_char | dv_sync), _ports(base), _irq(irq) {}
+        constexpr uart16550(const char* name, pio_bus& pio, irq_line& irq, u16 base)
+            : tty(name, dv_char | dv_sync), _ports(pio, base), _irq(irq) {}
 
         /// Polled console face: bounded THRE wait, then THR write;
         /// drops the byte on a dead port rather than hanging.
@@ -77,8 +77,8 @@ namespace astia::dev {
         bool tx_byte(u8 c);
         void rx_drain();
 
-        ports<u8> _ports;
-        u8        _irq; // PIC line
+        io_port  _ports;
+        irq_line& _irq;
     };
 
     /// Bring COM1 up: FIFOs on, 8N1, divisor 1, OUT2, interrupts off.

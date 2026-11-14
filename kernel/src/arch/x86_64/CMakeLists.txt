@@ -18,6 +18,7 @@ add_library(arch_x86_64 STATIC
         init_arch.cpp
         pci_config.cpp
         smp.cpp
+        platform.cpp
 )
 
 # The 256 per-vector entry stubs (and their address table) are mechanical;
