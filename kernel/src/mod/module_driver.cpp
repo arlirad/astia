@@ -61,6 +61,7 @@ namespace astia::mod {
                    reinterpret_cast<u64>(&astia_module_pin_user_read)) &&
             expose("astia_module_unpin", reinterpret_cast<u64>(&astia_module_unpin)) &&
             expose("astia_module_copy_out", reinterpret_cast<u64>(&astia_module_copy_out)) &&
+            expose("astia_module_copy_in", reinterpret_cast<u64>(&astia_module_copy_in)) &&
             expose("astia_module_read_registered",
                    reinterpret_cast<u64>(&astia_module_read_registered)) &&
             expose("astia_module_read_registered_async",
@@ -657,6 +658,13 @@ namespace astia::mod {
 
     extern "C" int astia_module_copy_out(void* address, u32 length, const void* source) {
         return sys::copy_out(span<u8>(static_cast<u8*>(address), length), source) ? 0 : -EFAULT;
+    }
+
+    extern "C" int astia_module_copy_in(void* destination, u32 length, const void* address) {
+        return sys::copy_in(destination,
+                            span<u8>(const_cast<u8*>(static_cast<const u8*>(address)), length))
+                   ? 0
+                   : -EFAULT;
     }
 
     extern "C" int astia_module_read_registered(const char* path, void* buffer, u32 length,

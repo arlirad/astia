@@ -5,5 +5,7 @@ cmake_minimum_required(VERSION 3.20)
 # its separate freestanding toolchain and install/sysroot workflow.
 project(astia LANGUAGES NONE)
 
+enable_testing()
+
 add_subdirectory(kernel)
 add_subdirectory(modules EXCLUDE_FROM_ALL)

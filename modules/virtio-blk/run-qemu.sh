@@ -6,6 +6,7 @@ build=${VIRTIO_BLK_BUILD:-$root/build-virtio-blk}
 image=${VIRTIO_BLK_IMAGE:-$root/modules/virtio-blk/fixture.raw}
 timeout_seconds=${VIRTIO_BLK_TIMEOUT:-40}
 log=${VIRTIO_BLK_LOG:-${TMPDIR:-/tmp}/astia-virtio-blk.log}
+readonly=${VIRTIO_BLK_READONLY:-0}
 staging=${build}/virtio-blk-initrd
 initrd=${build}/virtio-blk-initrd.cpio
 
@@ -17,11 +18,16 @@ mkdir -p "$staging"
 cp "$build/modules/virtio-blk/virtio_blk.o" "$staging/virtio_blk.o"
 (cd "$staging" && find virtio_blk.o -print | cpio -o -H newc > "$initrd")
 
+drive_readonly=
+if test "$readonly" = 1; then
+    drive_readonly=,readonly=on
+fi
+
 set +e
 timeout "$timeout_seconds" qemu-system-x86_64 \
     -machine q35 -m 128M -kernel "$build/kernel/src/astiakrn_runtime" \
     -initrd "$initrd" \
-    -drive "if=none,format=raw,file=$image,id=vblk0" \
+    -drive "if=none,format=raw,file=$image,id=vblk0$drive_readonly" \
     -device virtio-blk-pci,drive=vblk0,disable-legacy=on \
     -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot
 status=$?
@@ -32,4 +38,8 @@ test "$status" -eq 1
 grep -qF 'vblk: sectors=' "$log"
 grep -qF 'vblk: known sector ok' "$log"
 grep -qF 'vblk: invalid geometry rejected' "$log"
-grep -qF 'vblk: write rejected: read-only' "$log"
+if test "$readonly" = 1; then
+    grep -qF 'vblk: write rejected: read-only or no flush' "$log"
+else
+    grep -qF 'vblk: write flush persistence ok' "$log"
+fi

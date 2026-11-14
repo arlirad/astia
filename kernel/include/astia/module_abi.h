@@ -98,6 +98,7 @@ int astia_module_pin_user_read(const void* address, uint32_t length,
                                uint64_t* physical, void** token);
 void astia_module_unpin(void* token);
 int astia_module_copy_out(void* address, uint32_t length, const void* source);
+int astia_module_copy_in(void* destination, uint32_t length, const void* address);
 int astia_module_read_registered(const char* path, void* buffer, uint32_t length,
                                  uint64_t offset);
 int astia_module_read_registered_async(const char* path, void* buffer, uint32_t length,
