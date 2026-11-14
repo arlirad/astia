@@ -1,4 +1,6 @@
 #include <astia/module_abi.h>
+#include <astia/core/endian.hpp>
+#include <astia/dev/regs.hpp>
 #include "virtio_blk_protocol.hpp"
 
 namespace {
@@ -54,27 +56,73 @@ namespace {
     };
 
     struct descriptor {
-        uint64_t address;
-        uint32_t length;
-        uint16_t flags;
-        uint16_t next;
+        astia::core::le<uint64_t> address;
+        astia::core::le<uint32_t> length;
+        astia::core::le<uint16_t> flags;
+        astia::core::le<uint16_t> next;
+
+        descriptor(uint64_t address_value, uint32_t length_value, uint16_t flags_value,
+                   uint16_t next_value)
+            : address(address_value), length(length_value), flags(flags_value), next(next_value) {}
     };
 
     struct available_ring {
-        uint16_t flags;
-        uint16_t index;
-        uint16_t ring[queue_limit];
+        astia::core::le<uint16_t> flags;
+        astia::core::le<uint16_t> index;
+        astia::core::le<uint16_t> ring[queue_limit];
     };
 
     struct used_element {
-        uint32_t id;
-        uint32_t length;
+        astia::core::le<uint32_t> id;
+        astia::core::le<uint32_t> length;
     };
 
     struct used_ring {
-        uint16_t flags;
-        uint16_t index;
+        astia::core::le<uint16_t> flags;
+        astia::core::le<uint16_t> index;
         used_element ring[queue_limit];
+    };
+
+    class mmio {
+        public:
+        constexpr mmio() = default;
+        explicit mmio(volatile void* base) : _bytes(base), _halves(base), _words(base) {}
+
+        template <typename T>
+        T read(unsigned offset) const {
+            if constexpr (sizeof(T) == 1)
+                return _bytes[offset];
+            else if constexpr (sizeof(T) == 2)
+                return astia::core::le<T>(_halves[offset]).get();
+            else if constexpr (sizeof(T) == 4)
+                return astia::core::le<T>(_words[offset]).get();
+            else
+                return static_cast<T>(read<uint32_t>(offset)) |
+                       (static_cast<T>(read<uint32_t>(offset + 4)) << 32);
+        }
+
+        template <typename T>
+        void write(unsigned offset, T value) const {
+            if constexpr (sizeof(T) == 1)
+                _bytes[offset] = value;
+            else if constexpr (sizeof(T) == 2)
+                _halves[offset] = astia::core::le<T>(value).get();
+            else if constexpr (sizeof(T) == 4)
+                _words[offset] = astia::core::le<T>(value).get();
+            else {
+                write<uint32_t>(offset, static_cast<uint32_t>(value));
+                write<uint32_t>(offset + 4, static_cast<uint32_t>(value >> 32));
+            }
+        }
+
+        bool mapped() const {
+            return _bytes.base() != nullptr;
+        }
+
+        private:
+        astia::dev::regs<unsigned char> _bytes;
+        astia::dev::regs<uint16_t> _halves;
+        astia::dev::regs<uint32_t> _words;
     };
 
     struct queue {
@@ -99,8 +147,8 @@ namespace {
         }
 
         volatile used_ring* used() const {
-            return reinterpret_cast<volatile used_ring*>(
-                static_cast<unsigned char*>(memory.value.virtual_address) + used_offset);
+            return static_cast<volatile used_ring*>(static_cast<void*>(
+                static_cast<unsigned char*>(memory.value.virtual_address) + used_offset));
         }
 
         void clear() {
@@ -116,32 +164,6 @@ namespace {
         asm volatile("mfence" ::: "memory");
     }
 
-    uint16_t read16(volatile unsigned char* address, uint64_t offset) {
-        return *reinterpret_cast<volatile uint16_t*>(address + offset);
-    }
-
-    uint32_t read32(volatile unsigned char* address, uint64_t offset) {
-        return *reinterpret_cast<volatile uint32_t*>(address + offset);
-    }
-
-    uint64_t read64(volatile unsigned char* address, uint64_t offset) {
-        return static_cast<uint64_t>(read32(address, offset)) |
-               (static_cast<uint64_t>(read32(address, offset + 4)) << 32);
-    }
-
-    void write16(volatile unsigned char* address, uint64_t offset, uint16_t value) {
-        *reinterpret_cast<volatile uint16_t*>(address + offset) = value;
-    }
-
-    void write32(volatile unsigned char* address, uint64_t offset, uint32_t value) {
-        *reinterpret_cast<volatile uint32_t*>(address + offset) = value;
-    }
-
-    void write64(volatile unsigned char* address, uint64_t offset, uint64_t value) {
-        write32(address, offset, static_cast<uint32_t>(value));
-        write32(address, offset + 4, static_cast<uint32_t>(value >> 32));
-    }
-
     uint8_t pci_byte(void* pci, uint16_t offset) {
         const uint32_t value = astia_module_pci_read32(pci, static_cast<uint16_t>(offset & ~3u));
         return static_cast<uint8_t>(value >> ((offset & 3u) * 8u));
@@ -153,9 +175,9 @@ namespace {
 
     struct controller {
         void* pci = nullptr;
-        volatile unsigned char* common = nullptr;
-        volatile unsigned char* notify = nullptr;
-        volatile unsigned char* device_config = nullptr;
+        mmio common{};
+        mmio notify{};
+        mmio device_config{};
         capability_region common_cap{};
         capability_region notify_cap{};
         capability_region device_cap{};
@@ -178,7 +200,7 @@ namespace {
             return true;
         }
 
-        bool map_region(const capability_region& region, volatile unsigned char*& result) {
+        bool map_region(const capability_region& region, mmio& result) {
             if (!region.present || region.bar >= 6 || region.offset > ~uint64_t{0} - region.length ||
                 region.offset + region.length > astia_module_pci_bar_size(pci, region.bar))
                 return false;
@@ -190,7 +212,7 @@ namespace {
             }
             if (mapped == 0)
                 return false;
-            result = reinterpret_cast<volatile unsigned char*>(mapped + region.offset);
+            result = mmio{reinterpret_cast<void*>(mapped + region.offset)};
             return true;
         }
 
@@ -243,7 +265,7 @@ namespace {
 
         bool wait_status(uint8_t expected) const {
             for (unsigned spin = 0; spin < timeout_spins; ++spin) {
-                if (*reinterpret_cast<volatile uint8_t*>(common + 0x14) == expected)
+                if (common.read<uint8_t>(0x14) == expected)
                     return true;
                 asm volatile("pause");
             }
@@ -251,7 +273,7 @@ namespace {
         }
 
         void set_status(uint8_t value) {
-            *reinterpret_cast<volatile uint8_t*>(common + 0x14) = value;
+            common.write<uint8_t>(0x14, value);
         }
 
         bool reset_device() {
@@ -260,10 +282,10 @@ namespace {
         }
 
         bool negotiate_features() {
-            write32(common, 0x00, 0);
-            device_features_low = read32(common, 0x04);
-            write32(common, 0x00, 1);
-            device_features_high = read32(common, 0x04);
+            common.write<uint32_t>(0x00, 0);
+            device_features_low = common.read<uint32_t>(0x04);
+            common.write<uint32_t>(0x00, 1);
+            device_features_high = common.read<uint32_t>(0x04);
             if ((device_features_high & (1u << (feature_version_1 - 32))) == 0)
                 return false;
             const uint32_t accepted_low = device_features_low &
@@ -275,12 +297,12 @@ namespace {
             flush_supported = (device_features_low & (1u << feature_blk_flush)) != 0;
             write_supported = flush_supported &&
                               (device_features_low & (1u << feature_blk_ro)) == 0;
-            write32(common, 0x08, 0);
-            write32(common, 0x0c, accepted_low);
-            write32(common, 0x08, 1);
-            write32(common, 0x0c, accepted_high);
+            common.write<uint32_t>(0x08, 0);
+            common.write<uint32_t>(0x0c, accepted_low);
+            common.write<uint32_t>(0x08, 1);
+            common.write<uint32_t>(0x0c, accepted_high);
             set_status(status_acknowledge | status_driver | status_features_ok);
-            const uint8_t status = *reinterpret_cast<volatile uint8_t*>(common + 0x14);
+            const uint8_t status = common.read<uint8_t>(0x14);
             return (status & status_features_ok) != 0;
         }
 
@@ -288,9 +310,9 @@ namespace {
             if (!region_valid(device_cap, 8))
                 return false;
             for (unsigned attempt = 0; attempt < 16; ++attempt) {
-                const uint8_t before = *reinterpret_cast<volatile uint8_t*>(common + 0x15);
-                const uint64_t sectors = read64(device_config, 0);
-                const uint8_t after = *reinterpret_cast<volatile uint8_t*>(common + 0x15);
+                const uint8_t before = common.read<uint8_t>(0x15);
+                const uint64_t sectors = device_config.read<uint64_t>(0);
+                const uint8_t after = common.read<uint8_t>(0x15);
                 if (before != after)
                     continue;
                 if (sectors == 0 || sectors > (~uint64_t{0} / 512))
@@ -302,8 +324,8 @@ namespace {
         }
 
         bool configure_queue() {
-            write16(common, 0x16, 0);
-            const unsigned maximum = read16(common, 0x18);
+            common.write<uint16_t>(0x16, 0);
+            const unsigned maximum = common.read<uint16_t>(0x18);
             if (maximum == 0)
                 return false;
             unsigned size = maximum < queue_limit ? maximum : queue_limit;
@@ -315,24 +337,25 @@ namespace {
             request_queue.descriptor_offset = 0;
             request_queue.available_offset = size * 16;
             request_queue.used_offset = (request_queue.available_offset + 6 + size * 2 + 3) & ~3u;
-            if (request_queue.used_offset + 6 + size * 8 > page_size ||
-                !request_queue.memory.allocate(1))
+            if (request_queue.used_offset + 6 + size * 8 > page_size)
+                return false;
+            if (!request_queue.memory.allocate(1))
                 return false;
             request_queue.clear();
-            write16(common, 0x18, static_cast<uint16_t>(size));
-            write16(common, 0x1a, 0xffff);
-            write64(common, 0x20, request_queue.memory.value.physical + request_queue.descriptor_offset);
-            write64(common, 0x28, request_queue.memory.value.physical + request_queue.available_offset);
-            write64(common, 0x30, request_queue.memory.value.physical + request_queue.used_offset);
-            request_queue.notify_offset = read16(common, 0x1e);
+            common.write<uint16_t>(0x18, static_cast<uint16_t>(size));
+            common.write<uint16_t>(0x1a, 0xffff);
+            common.write<uint64_t>(0x20, request_queue.memory.value.physical + request_queue.descriptor_offset);
+            common.write<uint64_t>(0x28, request_queue.memory.value.physical + request_queue.available_offset);
+            common.write<uint64_t>(0x30, request_queue.memory.value.physical + request_queue.used_offset);
+            request_queue.notify_offset = common.read<uint16_t>(0x1e);
             const uint64_t notify_offset =
                 static_cast<uint64_t>(request_queue.notify_offset) * notify_multiplier;
             if (notify_offset > notify_cap.length || notify_offset + 2 > notify_cap.length) {
                 request_queue.memory.release();
                 return false;
             }
-            write16(common, 0x1c, 1);
-            if (read16(common, 0x1c) != 1) {
+            common.write<uint16_t>(0x1c, 1);
+            if (common.read<uint16_t>(0x1c) != 1) {
                 request_queue.memory.release();
                 return false;
             }
@@ -344,9 +367,9 @@ namespace {
             if (!request_queue.enabled)
                 return;
             if (ring_reset) {
-                write16(common, 0x38, 1);
+                common.write<uint16_t>(0x38, 1);
                 for (unsigned spin = 0; spin < timeout_spins; ++spin) {
-                    if (read16(common, 0x38) == 0)
+                    if (common.read<uint16_t>(0x38) == 0)
                         break;
                     asm volatile("pause");
                 }
@@ -356,12 +379,12 @@ namespace {
 
         void release() {
             disable_queue();
-            if (common != nullptr)
+            if (common.mapped())
                 (void) reset_device();
             request_queue.memory.release();
-            common = nullptr;
-            notify = nullptr;
-            device_config = nullptr;
+            common = {};
+            notify = {};
+            device_config = {};
             started = false;
         }
 
@@ -381,7 +404,7 @@ namespace {
             if (!configure_queue())
                 return false;
             set_status(status_acknowledge | status_driver | status_features_ok | status_driver_ok);
-            if ((*reinterpret_cast<volatile uint8_t*>(common + 0x14) & status_driver_ok) == 0)
+            if ((common.read<uint8_t>(0x14) & status_driver_ok) == 0)
                 return false;
             started = true;
             astia_module_log_u64("vblk", "sectors", capacity);
@@ -393,12 +416,12 @@ namespace {
                 return false;
             disable_queue();
             request_queue.clear();
-            write16(common, 0x18, static_cast<uint16_t>(request_queue.size));
-            write64(common, 0x20, request_queue.memory.value.physical + request_queue.descriptor_offset);
-            write64(common, 0x28, request_queue.memory.value.physical + request_queue.available_offset);
-            write64(common, 0x30, request_queue.memory.value.physical + request_queue.used_offset);
-            write16(common, 0x1c, 1);
-            if (read16(common, 0x1c) != 1)
+            common.write<uint16_t>(0x18, static_cast<uint16_t>(request_queue.size));
+            common.write<uint64_t>(0x20, request_queue.memory.value.physical + request_queue.descriptor_offset);
+            common.write<uint64_t>(0x28, request_queue.memory.value.physical + request_queue.available_offset);
+            common.write<uint64_t>(0x30, request_queue.memory.value.physical + request_queue.used_offset);
+            common.write<uint16_t>(0x1c, 1);
+            if (common.read<uint16_t>(0x1c) != 1)
                 return false;
             request_queue.enabled = true;
             return true;
@@ -432,15 +455,18 @@ namespace {
             reinterpret_cast<uint64_t*>(bytes + 8)[0] = type == request_flush ? 0 : offset / 512;
             bytes[status_offset] = 0xff;
             descriptor* descriptors = request_queue.descriptors();
-            descriptors[0] = {request.value.physical, 16, descriptor_next, 1};
+            descriptors[0] = descriptor{request.value.physical, 16, descriptor_next, 1};
             if (data_length != 0) {
-                descriptors[1] = {request.value.physical + data_offset, data_length,
-                                  static_cast<uint16_t>(descriptor_next |
-                                                        (write ? 0 : descriptor_write)), 2};
-                descriptors[2] = {request.value.physical + status_offset, 1, descriptor_write, 0};
+                descriptors[1] = descriptor{
+                    request.value.physical + data_offset, data_length,
+                    static_cast<uint16_t>(descriptor_next |
+                                          (write ? 0 : descriptor_write)), 2};
+                descriptors[2] = descriptor{request.value.physical + status_offset, 1,
+                                            descriptor_write, 0};
             }
             else {
-                descriptors[1] = {request.value.physical + status_offset, 1, descriptor_write, 0};
+                descriptors[1] = descriptor{request.value.physical + status_offset, 1,
+                                             descriptor_write, 0};
             }
             available_ring* available = request_queue.available();
             available->ring[request_queue.available_index % request_queue.size] = 0;
@@ -452,7 +478,7 @@ namespace {
                 static_cast<uint64_t>(request_queue.notify_offset) * notify_multiplier;
             if (notify_offset + 2 > notify_cap.length)
                 return false;
-            write16(notify, notify_offset, 0);
+            notify.write<uint16_t>(notify_offset, 0);
             return true;
         }
 

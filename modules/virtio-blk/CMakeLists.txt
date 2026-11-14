@@ -16,7 +16,7 @@ add_test(NAME virtio_blk_unit COMMAND ${ASTIA_VIRTIO_BLK_UNIT})
 add_custom_command(
         OUTPUT ${ASTIA_VIRTIO_BLK_OBJECT}
         COMMAND ${CMAKE_CXX_COMPILER}
-                -std=c++20 -ffreestanding -fno-builtin -fno-pic -fno-pie
+                -O2 -std=c++20 -ffreestanding -fno-builtin -fno-pic -fno-pie
                 -fno-exceptions -fno-rtti -fno-threadsafe-statics
                 -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
                 -mcmodel=large -fno-asynchronous-unwind-tables -Wall -Wextra -pedantic
