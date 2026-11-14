@@ -182,10 +182,6 @@ namespace astia::fs {
             component[length] = '\0';
             if (equal(component, "."))
                 continue;
-            if (equal(component, "..")) {
-                node = root_;
-                continue;
-            }
             ext4::inode child_node;
             if (!child(node, component, child_node))
                 return false;

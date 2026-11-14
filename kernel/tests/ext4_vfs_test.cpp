@@ -262,6 +262,10 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
     ASTIA_CHECK(link);
     ASTIA_CHECK(link && link->read(data, sizeof data) == 16);
     ASTIA_CHECK(std::strcmp(data, "hello from ext4\n") == 0);
+    char canonical[astia::fs::path_max]{};
+    ASTIA_CHECK(astia::fs::resolve_path("/tmp/ext4/./known.txt", canonical,
+                                        sizeof canonical) == 0);
+    ASTIA_CHECK(std::strcmp(canonical, "/tmp/ext4/known.txt") == 0);
     ASTIA_CHECK(astia::fs::node_type("/tmp/ext4/known.txt") == astia::fs::directory_reg);
     ASTIA_CHECK(astia::fs::node_mode("/tmp/ext4").permissions().raw() == 0755);
     ASTIA_CHECK(astia::raw_id(astia::fs::node_uid("/tmp/ext4/known.txt")) == 0);

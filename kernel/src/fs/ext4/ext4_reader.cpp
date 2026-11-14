@@ -375,11 +375,12 @@ namespace astia::ext4 {
         if (logical_block < pointers)
             return map_indirect(get32(node.block + 48), 1, logical_block, physical_block);
         logical_block -= pointers;
-        u32 span = pointers * pointers;
-        if (logical_block < span)
+        const u64 double_span = static_cast<u64>(pointers) * pointers;
+        if (static_cast<u64>(logical_block) < double_span)
             return map_indirect(get32(node.block + 52), 2, logical_block, physical_block);
-        logical_block -= span;
-        if (logical_block < span * pointers)
+        logical_block -= static_cast<u32>(double_span);
+        const u64 triple_span = double_span * pointers;
+        if (static_cast<u64>(logical_block) < triple_span)
             return map_indirect(get32(node.block + 56), 3, logical_block, physical_block);
         return fail(error::corrupt);
     }

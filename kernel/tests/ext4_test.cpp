@@ -161,6 +161,23 @@ ASTIA_TEST(ext4_reads_single_indirect_block) {
     ASTIA_CHECK(std::strcmp(contents, "hello from ext4\n") == 0);
 }
 
+ASTIA_TEST(ext4_reads_double_indirect_boundary) {
+    image image_data;
+    image_data.put32(4480 + 0x20, 0);
+    image_data.put32(4480 + 0x28, 0);
+    image_data.put32(4480 + 0x28 + 52, 7);
+    image_data.put32(7 * 1024, 8);
+    image_data.put32(8 * 1024, 6);
+    image_data.put32(4480 + 0x04, (12 + 256 + 1) * 1024 + 16);
+    astia::ext4::reader reader;
+    astia::ext4::inode file;
+    ASTIA_CHECK(reader.open(read_image, &image_data));
+    ASTIA_CHECK(reader.read_inode(12, file));
+    u64 physical = 0;
+    ASTIA_CHECK(reader.map_file_block(file, 12 + 256, physical));
+    ASTIA_CHECK(physical == 6);
+}
+
 ASTIA_TEST(ext4_rejects_magic_feature_and_checksum_errors) {
     image image_data;
     astia::ext4::reader reader;
