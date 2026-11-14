@@ -82,6 +82,8 @@ namespace astia::mod {
 
         constexpr u32 max_registrations = 8;
         constexpr u32 max_async_requests = 8;
+        constexpr u32 max_pin_tokens = 64;
+        constexpr u32 max_msix_routes = 64;
 
         struct registration;
         class block;
@@ -144,6 +146,65 @@ namespace astia::mod {
 
         registration registrations[max_registrations]{};
         u32 registration_count = 0;
+        mm::iovec* pin_tokens[max_pin_tokens]{};
+        astia_module_msix_route* msix_routes[max_msix_routes]{};
+
+        bool remember_pin(mm::iovec* value) {
+            for (mm::iovec*& token : pin_tokens) {
+                if (token == nullptr) {
+                    token = value;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        bool forget_pin(void* value) {
+            for (mm::iovec*& token : pin_tokens) {
+                if (token != value)
+                    continue;
+                token = nullptr;
+                delete static_cast<mm::iovec*>(value);
+                return true;
+            }
+            return false;
+        }
+
+        bool remember_msix_route(astia_module_msix_route* route) {
+            for (astia_module_msix_route*& current : msix_routes) {
+                if (current == route)
+                    return false;
+                if (current == nullptr) {
+                    current = route;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        bool active_msix_route(const astia_module_msix_route* route) {
+            for (const astia_module_msix_route* current : msix_routes)
+                if (current == route)
+                    return true;
+            return false;
+        }
+
+        void forget_msix_route(const astia_module_msix_route* route) {
+            for (astia_module_msix_route*& current : msix_routes) {
+                if (current == route) {
+                    current = nullptr;
+                    return;
+                }
+            }
+        }
+
+        async_bridge* find_bridge(void* opaque) {
+            for (u32 index = 0; index < registration_count; ++index)
+                for (async_bridge& bridge : registrations[index].bridges)
+                    if (&bridge == opaque)
+                        return &bridge;
+            return nullptr;
+        }
 
         astia_module_pci_device view(dev::pci_device& device) {
             astia_module_pci_device result{};
@@ -308,6 +369,7 @@ namespace astia::mod {
             bridge.canceled = true;
             if (registration_.ops->async_cancel != nullptr)
                 registration_.ops->async_cancel(context_, &bridge.abi);
+            bridge.used = false;
             bridge.owner = nullptr;
             bridge.request = nullptr;
         }
@@ -399,7 +461,12 @@ namespace astia::mod {
         return true;
     }
 
-    extern "C" int astia_module_register_pci_block_driver(
+} // namespace astia::mod
+
+using namespace astia;
+using namespace astia::mod;
+
+extern "C" int astia_module_register_pci_block_driver(
         const astia_module_pci_block_driver* driver) {
         return driver != nullptr && register_pci_block_driver(*driver) ? 0 : -EINVAL;
     }
@@ -412,25 +479,25 @@ namespace astia::mod {
         return enabled ? 0 : -EIO;
     }
 
-    extern "C" int astia_module_pci_map_bar(void* opaque, u8 index) {
+extern "C" int astia_module_pci_map_bar(void* opaque, uint8_t index) {
         return opaque != nullptr && dev::pci_map_bar(*static_cast<dev::pci_device*>(opaque), index)
                    ? 0
                    : -EIO;
     }
 
-    extern "C" u64 astia_module_pci_bar_mapped(void* opaque, u8 index) {
+extern "C" uint64_t astia_module_pci_bar_mapped(void* opaque, uint8_t index) {
         if (opaque == nullptr || index >= 6)
             return 0;
         return static_cast<dev::pci_device*>(opaque)->bars[index].mapped;
     }
 
-    extern "C" u64 astia_module_pci_bar_size(void* opaque, u8 index) {
+extern "C" uint64_t astia_module_pci_bar_size(void* opaque, uint8_t index) {
         if (opaque == nullptr || index >= 6)
             return 0;
         return static_cast<dev::pci_device*>(opaque)->bars[index].size;
     }
 
-    extern "C" u32 astia_module_pci_read32(void* opaque, u16 offset) {
+extern "C" uint32_t astia_module_pci_read32(void* opaque, uint16_t offset) {
         u32 value = 0;
         if (opaque == nullptr || !dev::pci_config_read32(
                                      static_cast<dev::pci_device*>(opaque)->bdf, offset, value))
@@ -438,7 +505,7 @@ namespace astia::mod {
         return value;
     }
 
-    extern "C" u16 astia_module_pci_read16(void* opaque, u16 offset) {
+extern "C" uint16_t astia_module_pci_read16(void* opaque, uint16_t offset) {
         u16 value = 0;
         if (opaque == nullptr || !dev::pci_config_read16(
                                      static_cast<dev::pci_device*>(opaque)->bdf, offset, value))
@@ -446,7 +513,7 @@ namespace astia::mod {
         return value;
     }
 
-    extern "C" int astia_module_pci_write16(void* opaque, u16 offset, u16 value) {
+extern "C" int astia_module_pci_write16(void* opaque, uint16_t offset, uint16_t value) {
         return opaque != nullptr && dev::pci_config_write16(
                                          static_cast<dev::pci_device*>(opaque)->bdf, offset, value)
                    ? 0
@@ -470,11 +537,13 @@ namespace astia::mod {
                    : -EIO;
     }
 
-    extern "C" int astia_module_pci_msix_request(
+extern "C" int astia_module_pci_msix_request(
         void* opaque, astia_module_interrupt_handler handler, void* context,
         astia_module_msix_route* route) {
         if (opaque == nullptr || handler == nullptr || route == nullptr)
             return -EINVAL;
+        if (active_msix_route(route))
+            return -EBUSY;
         auto& device = *static_cast<dev::pci_device*>(opaque);
         if (!device.interrupt.msix || device.interrupt.vector_count == 0 ||
             device.interrupt_blocker == dev::pci_interrupt_blocker::invalid_capability)
@@ -499,11 +568,17 @@ namespace astia::mod {
         route->pci_bus = device.bdf.bus;
         route->pci_device = device.bdf.device;
         route->pci_function = device.bdf.function;
+        if (!remember_msix_route(route)) {
+            (void) arch::unregister_interrupt_vector(vector);
+            *route = {};
+            return -EBUSY;
+        }
         return 0;
-    }
+}
 
-    extern "C" int astia_module_pci_msix_program(astia_module_msix_route* route) {
-        if (route == nullptr || route->vector == 0 || route->owner == 0)
+extern "C" int astia_module_pci_msix_program(astia_module_msix_route* route) {
+        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
+            route->owner == 0)
             return -EINVAL;
         dev::pci_device* device = route_device(*route);
         if (device == nullptr)
@@ -527,8 +602,9 @@ namespace astia::mod {
         return 0;
     }
 
-    extern "C" int astia_module_pci_msix_enable(astia_module_msix_route* route) {
-        if (route == nullptr || route->vector == 0 || route->owner == 0)
+extern "C" int astia_module_pci_msix_enable(astia_module_msix_route* route) {
+        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
+            route->owner == 0)
             return -EINVAL;
         dev::pci_device* device = route_device(*route);
         if (device == nullptr)
@@ -546,8 +622,9 @@ namespace astia::mod {
         return 0;
     }
 
-    extern "C" int astia_module_pci_msix_unmask(astia_module_msix_route* route) {
-        if (route == nullptr || route->vector == 0 || route->owner == 0)
+extern "C" int astia_module_pci_msix_unmask(astia_module_msix_route* route) {
+        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
+            route->owner == 0)
             return -EINVAL;
         dev::pci_device* device = route_device(*route);
         if (device == nullptr)
@@ -560,8 +637,9 @@ namespace astia::mod {
         return 0;
     }
 
-    extern "C" int astia_module_pci_msix_disable(astia_module_msix_route* route) {
-        if (route == nullptr || route->vector == 0 || route->owner == 0)
+extern "C" int astia_module_pci_msix_disable(astia_module_msix_route* route) {
+        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
+            route->owner == 0)
             return -EINVAL;
         dev::pci_device* device = route_device(*route);
         if (!arch::mask_interrupt_vector(route_vector(*route)))
@@ -581,8 +659,9 @@ namespace astia::mod {
         return 0;
     }
 
-    extern "C" int astia_module_pci_msix_release(astia_module_msix_route* route) {
-        if (route == nullptr || route->vector == 0 || route->owner == 0)
+extern "C" int astia_module_pci_msix_release(astia_module_msix_route* route) {
+        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
+            route->owner == 0)
             return -EINVAL;
         const int disabled = astia_module_pci_msix_disable(route);
         if (disabled != 0)
@@ -591,11 +670,13 @@ namespace astia::mod {
         if (device != nullptr && route->mapped_by_route)
             dev::pci_unmap_bar(*device, route->table_bar);
         const bool unregistered = arch::unregister_interrupt_vector(route_vector(*route));
+        if (unregistered)
+            forget_msix_route(route);
         *route = {};
         return disabled == 0 && unregistered ? 0 : -EIO;
     }
 
-    extern "C" int astia_module_dma_alloc(u64 pages, int zero,
+extern "C" int astia_module_dma_alloc(uint64_t pages, int zero,
                                              astia_module_dma_buffer* result) {
         if (result == nullptr || pages == 0 || pages > ~u64{0} / mm::page_size)
             return -EINVAL;
@@ -614,32 +695,46 @@ namespace astia::mod {
         return 0;
     }
 
-    extern "C" void astia_module_dma_release(astia_module_dma_buffer* buffer) {
-        if (buffer == nullptr || buffer->physical == mm::frame_allocator::invalid_frame)
+extern "C" void astia_module_dma_release(astia_module_dma_buffer* buffer) {
+        if (buffer == nullptr)
             return;
+        if (buffer->physical == mm::frame_allocator::invalid_frame || buffer->pages == 0 ||
+            buffer->virtual_address == nullptr || (buffer->physical % mm::page_size) != 0) {
+            *buffer = {};
+            return;
+        }
         mm::kernel_frames().release(buffer->physical, static_cast<usize>(buffer->pages));
         *buffer = {};
     }
 
-    extern "C" int astia_module_pin_user_write(void* address, u32 length, u64* physical,
+extern "C" int astia_module_pin_user_write(void* address, uint32_t length, uint64_t* physical,
                                                   void** token) {
-        if (physical == nullptr || token == nullptr)
+        if (address == nullptr || length == 0 || physical == nullptr || token == nullptr)
             return -EINVAL;
+        *physical = 0;
+        *token = nullptr;
         auto* pinned = new mm::iovec();
         if (pinned == nullptr || sys::pin_user_span(span<u8>(static_cast<u8*>(address), length),
                                                     io_direction::input, *pinned) < 0) {
             delete pinned;
             return -EFAULT;
         }
+        if (!remember_pin(pinned)) {
+            delete pinned;
+            return -EBUSY;
+        }
         *physical = pinned->physical();
         *token = pinned;
         return 0;
     }
 
-    extern "C" int astia_module_pin_user_read(const void* address, u32 length, u64* physical,
+extern "C" int astia_module_pin_user_read(const void* address, uint32_t length,
+                                              uint64_t* physical,
                                                  void** token) {
-        if (physical == nullptr || token == nullptr)
+        if (address == nullptr || length == 0 || physical == nullptr || token == nullptr)
             return -EINVAL;
+        *physical = 0;
+        *token = nullptr;
         auto* pinned = new mm::iovec();
         if (pinned == nullptr ||
             sys::pin_user_span(span<u8>(const_cast<u8*>(static_cast<const u8*>(address)), length),
@@ -647,28 +742,38 @@ namespace astia::mod {
             delete pinned;
             return -EFAULT;
         }
+        if (!remember_pin(pinned)) {
+            delete pinned;
+            return -EBUSY;
+        }
         *physical = pinned->physical();
         *token = pinned;
         return 0;
     }
 
-    extern "C" void astia_module_unpin(void* token) {
-        delete static_cast<mm::iovec*>(token);
+extern "C" void astia_module_unpin(void* token) {
+        (void) forget_pin(token);
     }
 
-    extern "C" int astia_module_copy_out(void* address, u32 length, const void* source) {
+extern "C" int astia_module_copy_out(void* address, uint32_t length, const void* source) {
+        if (address == nullptr || source == nullptr || length == 0)
+            return -EINVAL;
         return sys::copy_out(span<u8>(static_cast<u8*>(address), length), source) ? 0 : -EFAULT;
     }
 
-    extern "C" int astia_module_copy_in(void* destination, u32 length, const void* address) {
+extern "C" int astia_module_copy_in(void* destination, uint32_t length, const void* address) {
+        if (destination == nullptr || address == nullptr || length == 0)
+            return -EINVAL;
         return sys::copy_in(destination,
                             span<u8>(const_cast<u8*>(static_cast<const u8*>(address)), length))
                    ? 0
                    : -EFAULT;
     }
 
-    extern "C" int astia_module_read_registered(const char* path, void* buffer, u32 length,
-                                                   u64 offset) {
+extern "C" int astia_module_read_registered(const char* path, void* buffer, uint32_t length,
+                                               uint64_t offset) {
+        if (path == nullptr || buffer == nullptr || length == 0)
+            return -EINVAL;
         auto file = fs::open(path);
         if (!file)
             return -ENOENT;
@@ -677,8 +782,10 @@ namespace astia::mod {
                                                                      : -EIO;
     }
 
-    int registered_async(const char* path, void* buffer, u32 length, u64 offset, u32 op,
-                         u32 flags) {
+static int registered_async(const char* path, void* buffer, uint32_t length, uint64_t offset,
+                            uint32_t op, uint32_t flags) {
+        if (path == nullptr || buffer == nullptr || length == 0)
+            return -EINVAL;
         auto file = fs::open(path, flags);
         auto* current = proc::current_process();
         if (!file || current == nullptr)
@@ -743,22 +850,24 @@ namespace astia::mod {
         return result == static_cast<int>(length) ? 0 : result;
     }
 
-    extern "C" int astia_module_read_registered_async(const char* path, void* buffer,
-                                                        u32 length, u64 offset) {
+extern "C" int astia_module_read_registered_async(const char* path, void* buffer,
+                                                   uint32_t length, uint64_t offset) {
         return registered_async(path, buffer, length, offset, OP_READ, ASTIA_AIO_O_RDONLY);
     }
 
-    extern "C" int astia_module_write_registered_async(const char* path, const void* buffer,
-                                                         u32 length, u64 offset) {
+extern "C" int astia_module_write_registered_async(const char* path, const void* buffer,
+                                                    uint32_t length, uint64_t offset) {
         return registered_async(path, const_cast<void*>(buffer), length, offset, OP_WRITE,
                                 ASTIA_AIO_O_WRONLY);
     }
 
-    extern "C" int astia_module_io_complete(void* opaque, long result) {
-        auto* bridge = static_cast<async_bridge*>(opaque);
+extern "C" int astia_module_io_complete(void* opaque, long result) {
+        auto* bridge = find_bridge(opaque);
         if (bridge == nullptr || !bridge->used || bridge->owner == nullptr ||
             bridge->canceled || bridge->request == nullptr)
             return -ECANCELED;
+        if (bridge->completed)
+            return -EALREADY;
         bridge->owner->complete(*bridge, result);
         return 0;
     }
@@ -768,14 +877,12 @@ namespace astia::mod {
                   message == nullptr ? "" : message);
     }
 
-    extern "C" void astia_module_log_u64(const char* source, const char* label, u64 value) {
+extern "C" void astia_module_log_u64(const char* source, const char* label, uint64_t value) {
         log::info("%s: %s=%llu", source == nullptr ? "module" : source,
                   label == nullptr ? "value" : label,
                   static_cast<unsigned long long>(value));
     }
 
-    extern "C" int astia_module_run_selftests() {
+extern "C" int astia_module_run_selftests(void) {
         return run_selftests() ? 0 : -EIO;
     }
-
-} // namespace astia::mod

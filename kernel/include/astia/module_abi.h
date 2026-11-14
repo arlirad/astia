@@ -2,6 +2,11 @@
 
 #include <stdint.h>
 
+#define ASTIA_MODULE_ABI_VERSION_MAJOR 1u
+#define ASTIA_MODULE_ABI_VERSION_MINOR 0u
+#define ASTIA_MODULE_ABI_VERSION \
+    ((ASTIA_MODULE_ABI_VERSION_MAJOR << 16) | ASTIA_MODULE_ABI_VERSION_MINOR)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

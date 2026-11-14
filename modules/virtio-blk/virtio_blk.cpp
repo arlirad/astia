@@ -739,7 +739,7 @@ namespace {
 
     const astia_module_pci_block_driver ops = {
         "virtio-blk", "/dev/vblk0", match, probe, remove, size, block_size, read, selftest,
-        async_submit, async_cancel, async_poll, write};
+        async_submit, async_cancel, async_poll, write, nullptr};
 
 }
 
