@@ -27,4 +27,6 @@ add_custom_command(
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.h
         VERBATIM)
 add_custom_target(astia_module_abi_layout_target ALL DEPENDS ${ASTIA_MODULE_ABI_LAYOUT})
-add_test(NAME astia_module_abi_layout COMMAND ${ASTIA_MODULE_ABI_LAYOUT})
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME astia_module_abi_layout COMMAND ${ASTIA_MODULE_ABI_LAYOUT})
+endif()

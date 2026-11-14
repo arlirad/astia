@@ -11,7 +11,9 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk_protocol.hpp
         VERBATIM)
 add_custom_target(virtio_blk_unit_target ALL DEPENDS ${ASTIA_VIRTIO_BLK_UNIT})
-add_test(NAME virtio_blk_unit COMMAND ${ASTIA_VIRTIO_BLK_UNIT})
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME virtio_blk_unit COMMAND ${ASTIA_VIRTIO_BLK_UNIT})
+endif()
 
 add_custom_command(
         OUTPUT ${ASTIA_VIRTIO_BLK_OBJECT}
