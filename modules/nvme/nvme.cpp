@@ -713,6 +713,22 @@ namespace {
         char second[512]{};
         if (!device.started || device.namespace_count < 2)
             return 0;
+        if (device.msix_active) {
+            astia_module_msix_route copied = device.msix_route;
+            if (astia_module_pci_msix_program(&copied) != -22 ||
+                astia_module_pci_msix_release(&copied) != -22 ||
+                astia_module_pci_msix_release(&copied) != -22)
+                return 0;
+            copied = device.msix_route;
+            copied.pci_bus ^= 1;
+            if (astia_module_pci_msix_enable(&copied) != -22)
+                return 0;
+            copied = device.msix_route;
+            copied.table_offset = ~0u;
+            if (astia_module_pci_msix_program(&copied) != -22)
+                return 0;
+            astia_module_log("nvme", "msix handle validation ok");
+        }
         if (astia_module_read_registered_async("/dev/nvme0n1", first, sizeof first, 0) != 0 ||
             astia_module_read_registered_async("/dev/nvme0n2", second, sizeof second, 0) != 0)
             return 0;

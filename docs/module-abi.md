@@ -34,6 +34,24 @@ Invalid or stale MSI-X routes and asynchronous request handles are rejected.
 DMA and pin release operations are idempotent after their output handle has
 been cleared; callers must not copy or fabricate handles.
 
+Module callbacks run in one of three contexts. `match`, `probe`, `remove`,
+the synchronous block callbacks, and selftests run in process context and may
+block. An MSI-X interrupt handler runs in IRQ context: it must not block, call
+the filesystem, allocate, or invoke a synchronous block callback; it should
+only record device state and return. Asynchronous submit, cancel, poll, and
+completion callbacks run in process context, and a module must not complete a
+request from IRQ context. Module callbacks must not retain the device or
+callback context after `remove` returns.
+
+MSI-X route pointers are opaque ownership tokens even though the ABI retains
+the 1.1 route layout. The kernel records the device, route geometry, and a
+generation cookie in the route's reserved bytes. Every route operation
+validates the token, generation, device, and 16-byte table-entry bounds.
+Copied, stale, double-released, wrong-device, and malformed routes are
+rejected. Modules must initialize a route to zero, pass the same route object
+to its release operation, and never write the route after a successful
+request.
+
 All lengths are byte counts and are bounded by the operation's device or page
 limits. Zero-length and null-buffer transfers are invalid. Block transfers
 must be aligned to the device block size and remain within the reported

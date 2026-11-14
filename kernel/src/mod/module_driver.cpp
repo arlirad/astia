@@ -190,7 +190,24 @@ namespace astia::mod {
         registration registrations[max_registrations]{};
         u32 registration_count = 0;
         mm::iovec* pin_tokens[max_pin_tokens]{};
-        astia_module_msix_route* msix_routes[max_msix_routes]{};
+
+        struct msix_route_handle {
+            astia_module_msix_route* route = nullptr;
+            dev::pci_device* device = nullptr;
+            u32 vector = 0;
+            u32 owner = 0;
+            u32 table_offset = 0;
+            u32 table_index = 0;
+            u8 table_bar = 0;
+            u8 pci_bus = 0;
+            u8 pci_device = 0;
+            u8 pci_function = 0;
+            u16 generation = 0;
+            bool active = false;
+        };
+
+        msix_route_handle msix_routes[max_msix_routes]{};
+        u16 next_msix_generation = 1;
 
         bool remember_pin(mm::iovec* value) {
             for (mm::iovec*& token : pin_tokens) {
@@ -213,32 +230,75 @@ namespace astia::mod {
             return false;
         }
 
-        bool remember_msix_route(astia_module_msix_route* route) {
-            for (astia_module_msix_route*& current : msix_routes) {
-                if (current == route)
+        u16 allocate_msix_generation() {
+            const u16 result = next_msix_generation;
+            ++next_msix_generation;
+            if (next_msix_generation == 0)
+                next_msix_generation = 1;
+            return result;
+        }
+
+        bool route_fields_match(const msix_route_handle& handle,
+                                const astia_module_msix_route& route) {
+            return route.vector == handle.vector && route.owner == handle.owner &&
+                   route.table_offset == handle.table_offset &&
+                   route.table_index == handle.table_index && route.table_bar == handle.table_bar &&
+                   route.pci_bus == handle.pci_bus && route.pci_device == handle.pci_device &&
+                   route.pci_function == handle.pci_function &&
+                   route.reserved[0] == static_cast<u8>(handle.generation) &&
+                   route.reserved[1] == static_cast<u8>(handle.generation >> 8);
+        }
+
+        msix_route_handle* find_msix_route(astia_module_msix_route* route) {
+            if (route == nullptr)
+                return nullptr;
+            for (msix_route_handle& current : msix_routes) {
+                if (!current.active || current.route != route)
+                    continue;
+                return route_fields_match(current, *route) ? &current : nullptr;
+            }
+            return nullptr;
+        }
+
+        bool occupied_msix_route(const astia_module_msix_route* route) {
+            if (route == nullptr)
+                return false;
+            for (const msix_route_handle& current : msix_routes)
+                if (current.active && current.route == route)
+                    return true;
+            return false;
+        }
+
+        bool remember_msix_route(astia_module_msix_route* route, dev::pci_device& device) {
+            for (msix_route_handle& current : msix_routes) {
+                if (current.active && current.route == route)
                     return false;
-                if (current == nullptr) {
-                    current = route;
-                    return true;
-                }
+                if (current.active)
+                    continue;
+                current = {};
+                current.route = route;
+                current.device = &device;
+                current.vector = route->vector;
+                current.owner = route->owner;
+                current.table_offset = route->table_offset;
+                current.table_index = route->table_index;
+                current.table_bar = route->table_bar;
+                current.pci_bus = route->pci_bus;
+                current.pci_device = route->pci_device;
+                current.pci_function = route->pci_function;
+                current.generation = allocate_msix_generation();
+                route->reserved[0] = static_cast<u8>(current.generation);
+                route->reserved[1] = static_cast<u8>(current.generation >> 8);
+                current.active = true;
+                return true;
             }
             return false;
         }
 
-        bool active_msix_route(const astia_module_msix_route* route) {
-            for (const astia_module_msix_route* current : msix_routes)
-                if (current == route)
-                    return true;
-            return false;
-        }
-
-        void forget_msix_route(const astia_module_msix_route* route) {
-            for (astia_module_msix_route*& current : msix_routes) {
-                if (current == route) {
-                    current = nullptr;
-                    return;
-                }
-            }
+        void forget_msix_route(msix_route_handle& handle) {
+            handle.active = false;
+            handle.route = nullptr;
+            handle.device = nullptr;
         }
 
         async_bridge* find_bridge(void* opaque) {
@@ -477,26 +537,21 @@ namespace astia::mod {
                     cancel(bridge);
         }
 
-        dev::pci_device* route_device(const astia_module_msix_route& route) {
-            return dev::pci_devices().find(
-                dev::pci_bdf{route.pci_bus, route.pci_device, route.pci_function});
-        }
-
         arch::interrupt_vector route_vector(const astia_module_msix_route& route) {
             return {route.vector, route.owner};
         }
 
-        volatile u32* route_table_entry(astia_module_msix_route& route,
-                                        dev::pci_device& device) {
-            if (route.table_bar >= device.bar_count ||
-                route.pci_bus != device.bdf.bus || route.pci_device != device.bdf.device ||
-                route.pci_function != device.bdf.function ||
+        volatile u32* route_table_entry(const msix_route_handle& handle,
+                                         astia_module_msix_route& route) {
+            dev::pci_device& device = *handle.device;
+            if (!route_fields_match(handle, route) || route.table_bar >= device.bar_count ||
                 route.table_bar != device.interrupt.table_bar ||
                 route.table_offset != device.interrupt.table_offset ||
                 route.table_index >= device.interrupt.vector_count ||
-                route.table_index >= 2048 ||
-                route.table_offset > device.bars[route.table_bar].size ||
-                16 > device.bars[route.table_bar].size - route.table_offset)
+                route.table_index >= 2048 || route.table_offset > device.bars[route.table_bar].size ||
+                16 > device.bars[route.table_bar].size - route.table_offset ||
+                route.table_index >
+                    (device.bars[route.table_bar].size - route.table_offset - 16) / 16)
                 return nullptr;
             auto& bar = device.bars[route.table_bar];
             if (!bar.mapped_valid) {
@@ -655,7 +710,7 @@ extern "C" int astia_module_pci_msix_request(
         astia_module_msix_route* route) {
         if (opaque == nullptr || handler == nullptr || route == nullptr)
             return -EINVAL;
-        if (active_msix_route(route))
+        if (occupied_msix_route(route))
             return -EBUSY;
         auto& device = *static_cast<dev::pci_device*>(opaque);
         if (!device.interrupt.msix || device.interrupt.vector_count == 0 ||
@@ -681,7 +736,7 @@ extern "C" int astia_module_pci_msix_request(
         route->pci_bus = device.bdf.bus;
         route->pci_device = device.bdf.device;
         route->pci_function = device.bdf.function;
-        if (!remember_msix_route(route)) {
+        if (!remember_msix_route(route, device)) {
             (void) arch::unregister_interrupt_vector(vector);
             *route = {};
             return -EBUSY;
@@ -690,15 +745,12 @@ extern "C" int astia_module_pci_msix_request(
 }
 
 extern "C" int astia_module_pci_msix_program(astia_module_msix_route* route) {
-        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
-            route->owner == 0)
+        auto* handle = find_msix_route(route);
+        if (handle == nullptr || route->vector == 0 || route->owner == 0)
             return -EINVAL;
-        dev::pci_device* device = route_device(*route);
-        if (device == nullptr)
-            return -ENODEV;
         if (!arch::mask_interrupt_vector(route_vector(*route)))
             return -EPERM;
-        volatile u32* entry = route_table_entry(*route, *device);
+        volatile u32* entry = route_table_entry(*handle, *route);
         if (entry == nullptr)
             return -EIO;
         arch::msi_message message{};
@@ -716,13 +768,11 @@ extern "C" int astia_module_pci_msix_program(astia_module_msix_route* route) {
     }
 
 extern "C" int astia_module_pci_msix_enable(astia_module_msix_route* route) {
-        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
-            route->owner == 0)
+        auto* handle = find_msix_route(route);
+        if (handle == nullptr || route->vector == 0 || route->owner == 0)
             return -EINVAL;
-        dev::pci_device* device = route_device(*route);
-        if (device == nullptr)
-            return -ENODEV;
-        volatile u32* entry = route_table_entry(*route, *device);
+        dev::pci_device* device = handle->device;
+        volatile u32* entry = route_table_entry(*handle, *route);
         if (entry == nullptr)
             return -EIO;
         u16 control = 0;
@@ -736,13 +786,10 @@ extern "C" int astia_module_pci_msix_enable(astia_module_msix_route* route) {
     }
 
 extern "C" int astia_module_pci_msix_unmask(astia_module_msix_route* route) {
-        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
-            route->owner == 0)
+        auto* handle = find_msix_route(route);
+        if (handle == nullptr || route->vector == 0 || route->owner == 0)
             return -EINVAL;
-        dev::pci_device* device = route_device(*route);
-        if (device == nullptr)
-            return -ENODEV;
-        volatile u32* entry = route_table_entry(*route, *device);
+        volatile u32* entry = route_table_entry(*handle, *route);
         if (entry == nullptr || !arch::unmask_interrupt_vector(route_vector(*route)))
             return -EIO;
         mask_route_table(entry, false);
@@ -751,15 +798,13 @@ extern "C" int astia_module_pci_msix_unmask(astia_module_msix_route* route) {
     }
 
 extern "C" int astia_module_pci_msix_disable(astia_module_msix_route* route) {
-        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
-            route->owner == 0)
+        auto* handle = find_msix_route(route);
+        if (handle == nullptr || route->vector == 0 || route->owner == 0)
             return -EINVAL;
-        dev::pci_device* device = route_device(*route);
+        dev::pci_device* device = handle->device;
         if (!arch::mask_interrupt_vector(route_vector(*route)))
             return -EPERM;
-        if (device == nullptr)
-            return -ENODEV;
-        volatile u32* entry = route_table_entry(*route, *device);
+        volatile u32* entry = route_table_entry(*handle, *route);
         mask_route_table(entry, true);
         u16 control = 0;
         if (!dev::pci_config_read16(device->bdf,
@@ -773,20 +818,21 @@ extern "C" int astia_module_pci_msix_disable(astia_module_msix_route* route) {
     }
 
 extern "C" int astia_module_pci_msix_release(astia_module_msix_route* route) {
-        if (route == nullptr || !active_msix_route(route) || route->vector == 0 ||
-            route->owner == 0)
+        auto* handle = find_msix_route(route);
+        if (handle == nullptr || route->vector == 0 || route->owner == 0)
             return -EINVAL;
         const int disabled = astia_module_pci_msix_disable(route);
         if (disabled != 0)
             return disabled;
-        dev::pci_device* device = route_device(*route);
+        dev::pci_device* device = handle->device;
         if (device != nullptr && route->mapped_by_route)
             dev::pci_unmap_bar(*device, route->table_bar);
         const bool unregistered = arch::unregister_interrupt_vector(route_vector(*route));
-        if (unregistered)
-            forget_msix_route(route);
+        if (!unregistered)
+            return -EIO;
+        forget_msix_route(*handle);
         *route = {};
-        return disabled == 0 && unregistered ? 0 : -EIO;
+        return 0;
     }
 
 extern "C" int astia_module_dma_alloc(uint64_t pages, int zero,
