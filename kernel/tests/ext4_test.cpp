@@ -178,6 +178,31 @@ ASTIA_TEST(ext4_reads_double_indirect_boundary) {
     ASTIA_CHECK(physical == 6);
 }
 
+ASTIA_TEST(ext4_reads_multi_block_extent_and_sparse_hole) {
+    image image_data;
+    image_data.put32(4480 + 0x04, 2 * 1024);
+    image_data.put16(4480 + 0x38, 2);
+    const char second[] = "second extent block\n";
+    std::memcpy(image_data.bytes.data() + 7 * 1024, second, sizeof second - 1);
+    astia::ext4::reader reader;
+    astia::ext4::inode file;
+    ASTIA_CHECK(reader.open(read_image, &image_data));
+    ASTIA_CHECK(reader.read_inode(12, file));
+    char contents[32]{};
+    ASTIA_CHECK(reader.read_file(file, 1024, contents, sizeof contents));
+    ASTIA_CHECK(std::strcmp(contents, "second extent block\n") == 0);
+
+    image_data.put16(4480 + 0x38, 32769);
+    ASTIA_CHECK(reader.open(read_image, &image_data));
+    ASTIA_CHECK(reader.read_inode(12, file));
+    char hole[32];
+    for (u32 i = 0; i < sizeof hole; ++i)
+        hole[i] = static_cast<char>(0xA5);
+    ASTIA_CHECK(reader.read_file(file, 0, hole, sizeof hole));
+    for (u32 i = 0; i < sizeof hole; ++i)
+        ASTIA_CHECK(hole[i] == 0);
+}
+
 ASTIA_TEST(ext4_rejects_magic_feature_and_checksum_errors) {
     image image_data;
     astia::ext4::reader reader;
