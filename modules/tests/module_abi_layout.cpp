@@ -3,7 +3,7 @@
 #include <cstddef>
 
 static_assert(ASTIA_MODULE_ABI_VERSION_MAJOR == 1u);
-static_assert(ASTIA_MODULE_ABI_VERSION_MINOR == 0u);
+static_assert(ASTIA_MODULE_ABI_VERSION_MINOR == 1u);
 static_assert(sizeof(void*) == 8);
 static_assert(sizeof(astia_module_pci_device) == 32);
 static_assert(offsetof(astia_module_pci_device, opaque) == 0);
@@ -13,7 +13,14 @@ static_assert(offsetof(astia_module_pci_device, class_code) == 12);
 static_assert(offsetof(astia_module_pci_device, bar_present) == 16);
 static_assert(offsetof(astia_module_pci_device, bar_io) == 22);
 static_assert(offsetof(astia_module_pci_device, msix) == 28);
-static_assert(sizeof(astia_module_pci_block_driver) == 112);
+static_assert(offsetof(astia_module_pci_device, reserved) == 29);
+static_assert(sizeof(astia_module_pci_namespace) == 40);
+static_assert(offsetof(astia_module_pci_namespace, id) == 0);
+static_assert(offsetof(astia_module_pci_namespace, size) == 8);
+static_assert(offsetof(astia_module_pci_namespace, block_size) == 16);
+static_assert(offsetof(astia_module_pci_namespace, context) == 24);
+static_assert(offsetof(astia_module_pci_namespace, device_path) == 32);
+static_assert(sizeof(astia_module_pci_block_driver) == 128);
 static_assert(offsetof(astia_module_pci_block_driver, name) == 0);
 static_assert(offsetof(astia_module_pci_block_driver, device_path) == 8);
 static_assert(offsetof(astia_module_pci_block_driver, match) == 16);
@@ -28,6 +35,8 @@ static_assert(offsetof(astia_module_pci_block_driver, async_cancel) == 80);
 static_assert(offsetof(astia_module_pci_block_driver, async_poll) == 88);
 static_assert(offsetof(astia_module_pci_block_driver, write) == 96);
 static_assert(offsetof(astia_module_pci_block_driver, flush) == 104);
+static_assert(offsetof(astia_module_pci_block_driver, namespace_count) == 112);
+static_assert(offsetof(astia_module_pci_block_driver, namespace_info) == 120);
 static_assert(sizeof(astia_module_dma_buffer) == 24);
 static_assert(offsetof(astia_module_dma_buffer, physical) == 0);
 static_assert(offsetof(astia_module_dma_buffer, virtual_address) == 8);
@@ -36,9 +45,11 @@ static_assert(sizeof(astia_module_io_request) == 48);
 static_assert(offsetof(astia_module_io_request, opaque) == 0);
 static_assert(offsetof(astia_module_io_request, buffer) == 8);
 static_assert(offsetof(astia_module_io_request, length) == 16);
+static_assert(offsetof(astia_module_io_request, reserved0) == 20);
 static_assert(offsetof(astia_module_io_request, offset) == 24);
 static_assert(offsetof(astia_module_io_request, direction) == 32);
 static_assert(offsetof(astia_module_io_request, timeout_expired) == 33);
+static_assert(offsetof(astia_module_io_request, reserved) == 34);
 static_assert(offsetof(astia_module_io_request, poll_timeout_ns) == 40);
 static_assert(sizeof(astia_module_msix_route) == 36);
 static_assert(offsetof(astia_module_msix_route, vector) == 0);
@@ -54,6 +65,7 @@ static_assert(offsetof(astia_module_msix_route, enabled) == 30);
 static_assert(offsetof(astia_module_msix_route, pci_bus) == 31);
 static_assert(offsetof(astia_module_msix_route, pci_device) == 32);
 static_assert(offsetof(astia_module_msix_route, pci_function) == 33);
+static_assert(offsetof(astia_module_msix_route, reserved) == 34);
 
 int main() {
     return 0;

@@ -6,14 +6,25 @@ _Static_assert(sizeof(void*) == 8, "module ABI requires 64-bit pointers");
 _Static_assert(sizeof(struct astia_module_pci_device) == 32, "device layout");
 _Static_assert(offsetof(struct astia_module_pci_device, bar_present) == 16,
                "device bar layout");
-_Static_assert(sizeof(struct astia_module_pci_block_driver) == 112, "driver layout");
+_Static_assert(sizeof(struct astia_module_pci_namespace) == 40, "namespace layout");
+_Static_assert(offsetof(struct astia_module_pci_namespace, context) == 24,
+               "namespace context layout");
+_Static_assert(sizeof(struct astia_module_pci_block_driver) == 128, "driver layout");
 _Static_assert(offsetof(struct astia_module_pci_block_driver, flush) == 104,
                "driver tail layout");
+_Static_assert(offsetof(struct astia_module_pci_block_driver, namespace_count) == 112,
+               "namespace count layout");
+_Static_assert(offsetof(struct astia_module_pci_block_driver, namespace_info) == 120,
+               "namespace info layout");
 _Static_assert(sizeof(struct astia_module_dma_buffer) == 24, "DMA layout");
 _Static_assert(sizeof(struct astia_module_io_request) == 48, "request layout");
+_Static_assert(offsetof(struct astia_module_io_request, reserved0) == 20,
+               "request reserved layout");
 _Static_assert(offsetof(struct astia_module_io_request, poll_timeout_ns) == 40,
                "request timeout layout");
 _Static_assert(sizeof(struct astia_module_msix_route) == 36, "MSI-X layout");
+_Static_assert(offsetof(struct astia_module_msix_route, reserved) == 34,
+               "MSI-X reserved layout");
 
 static int match(const struct astia_module_pci_device* device) {
     return device != NULL && device->vendor_id == 0x1234;
@@ -35,7 +46,7 @@ static uint32_t block_size(void* context) {
     return 512;
 }
 
-static long read_blocks(void* context, void* buffer, uint32_t length, uint64_t offset) {
+static int64_t read_blocks(void* context, void* buffer, uint32_t length, uint64_t offset) {
     (void) context;
     (void) buffer;
     (void) length;
@@ -58,6 +69,8 @@ static const struct astia_module_pci_block_driver driver = {
     .async_poll = NULL,
     .write = NULL,
     .flush = NULL,
+    .namespace_count = NULL,
+    .namespace_info = NULL,
 };
 
 int module_main(void) {

@@ -416,9 +416,12 @@ namespace astia::mod {
                 candidate.owner = this;
                 candidate.request = &request;
                 candidate.used = true;
-                candidate.abi = {&candidate, request.buffer(), request.length(),
-                                 request.offset(),
-                                 static_cast<u8>(request.direction()), 0, 0};
+                candidate.abi = {};
+                candidate.abi.opaque = &candidate;
+                candidate.abi.buffer = request.buffer();
+                candidate.abi.length = request.length();
+                candidate.abi.offset = request.offset();
+                candidate.abi.direction = static_cast<u8>(request.direction());
                 request.device_state(&candidate);
                 request.cancel_handler_set(cancel_request);
                 const int result = submit_async(context_, &candidate.abi);
@@ -530,7 +533,31 @@ namespace astia::mod {
         return true;
     }
 
+    bool invalid_handle_checks() {
+        astia_module_msix_route route{};
+        route.vector = 1;
+        route.owner = 1;
+        if (astia_module_pci_msix_program(&route) != -EINVAL ||
+            astia_module_pci_msix_enable(&route) != -EINVAL ||
+            astia_module_pci_msix_unmask(&route) != -EINVAL ||
+            astia_module_pci_msix_disable(&route) != -EINVAL ||
+            astia_module_pci_msix_release(&route) != -EINVAL ||
+            astia_module_pci_msix_program(nullptr) != -EINVAL ||
+            astia_module_pci_msix_release(nullptr) != -EINVAL)
+            return false;
+
+        astia_module_dma_buffer buffer{mm::frame_allocator::invalid_frame, nullptr, 1};
+        astia_module_dma_release(&buffer);
+        if (buffer.physical != 0 || buffer.virtual_address != nullptr || buffer.pages != 0)
+            return false;
+
+        astia_module_unpin(reinterpret_cast<void*>(1));
+        return astia_module_io_complete(reinterpret_cast<void*>(1), 0) == -ECANCELED;
+    }
+
     bool run_selftests() {
+        if (!invalid_handle_checks())
+            return false;
         for (u32 i = 0; i < registration_count; ++i) {
             if (registrations[i].ops->selftest == nullptr || registrations[i].selftest_done)
                 continue;
@@ -947,7 +974,7 @@ extern "C" int astia_module_write_registered_async(const char* path, const void*
                                 ASTIA_AIO_O_WRONLY);
     }
 
-extern "C" int astia_module_io_complete(void* opaque, long result) {
+    extern "C" int astia_module_io_complete(void* opaque, int64_t result) {
         auto* bridge = find_bridge(opaque);
         if (bridge == nullptr || !bridge->used || bridge->owner == nullptr ||
             bridge->canceled || bridge->request == nullptr)
