@@ -75,6 +75,7 @@ void __astia_fio_prepare_exec(void);
 void __astia_fio_prepare_fork(void);
 long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n);
 long __astia_fio_ftruncate(int fd, uint64_t length);
+long __astia_fio_fsync(int fd);
 long __astia_fio_readv(int fd, uint64_t off, const struct iovec* iov, uint32_t count);
 long __astia_fio_writev(int fd, uint64_t off, const struct iovec* iov, uint32_t count);
 long __astia_fio_close(int fd);

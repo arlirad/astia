@@ -188,6 +188,18 @@ int ftruncate(int fd, off_t length) {
     }
     return 0;
 }
+int fsync(int fd) {
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    long rc = __astia_fio_fsync(fd);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    return 0;
+}
 int umount(const char* target) {
     long rc = astia_unmount(target);
     if (rc < 0) {

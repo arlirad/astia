@@ -32,6 +32,9 @@ namespace astia::fs {
         long truncate(u64) override {
             return -EROFS;
         }
+        long sync() override {
+            return -EROFS;
+        }
         long chmod(file_permissions) override {
             return -EROFS;
         }

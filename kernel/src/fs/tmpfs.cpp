@@ -135,6 +135,14 @@ namespace astia::fs {
         return static_cast<long>(length);
     }
 
+    long tmpfs_file::sync() {
+        core::spinlock_guard guard(lock_);
+        if (storage_ == nullptr || !mode_.is_regular())
+            return -EINVAL;
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        return 0;
+    }
+
     long tmpfs_file::sync_mapping(mm::phys_region* mapping, u64 offset, u64 length, u32) {
         const u64 page_bytes = mm::phys_region::frame_size;
         if (length == 0 || (offset % page_bytes) != 0 ||

@@ -3,6 +3,7 @@
 #undef RENAME_EXCHANGE
 #undef RENAME_WHITEOUT
 #include <astia/fs.hpp>
+#include <astia/api/errno.h>
 
 namespace {
     enum class submit_mode {
@@ -172,4 +173,9 @@ ASTIA_TEST(fs_async_cancels_parked_device_flight) {
     ASTIA_CHECK(!request->begin_device());
     ASTIA_CHECK(completion->complete(17));
     request->acknowledge();
+}
+
+ASTIA_TEST(fs_sync_rejects_missing_file) {
+    astia::fs::open_file handle({}, astia::fs::open_file_status_flags::none);
+    ASTIA_CHECK(handle.sync() == -EBADF);
 }

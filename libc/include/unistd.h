@@ -54,6 +54,7 @@ int          faccessat(int dirfd, const char* path, int mode, int flags);
 int          fchdir(int fd);
 int          close(int fd);
 int          ftruncate(int fd, off_t length);
+int          fsync(int fd);
 int          umount(const char* target);
 int          mount(const char* type, const char* target, const char* source);
 int          dup(int fd);

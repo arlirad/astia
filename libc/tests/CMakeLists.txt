@@ -47,6 +47,10 @@ add_executable(libc_posix_file_test posix_file_test.c backend_host.c)
 target_link_libraries(libc_posix_file_test PRIVATE astia_libc)
 add_test(NAME libc_posix_file_test COMMAND libc_posix_file_test)
 
+add_executable(libc_fsync_test fsync_test.c backend_host.c)
+target_link_libraries(libc_fsync_test PRIVATE astia_libc)
+add_test(NAME libc_fsync_test COMMAND libc_fsync_test)
+
 add_executable(libc_aio_test aio_test.c backend_host.c time_host.c)
 target_link_libraries(libc_aio_test PRIVATE astia_libc)
 add_test(NAME libc_aio_test COMMAND libc_aio_test)

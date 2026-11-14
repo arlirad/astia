@@ -1591,6 +1591,15 @@ namespace astia::sys {
                                    static_cast<i32>(object->truncate(s.offset)));
         }
 
+        bool handle_fsync(astia_rings* ring, const astia_sqe& s) {
+            auto object = file_for(s.fd);
+            if (!object)
+                return cq_post_guarded(ring, s.user_data, -EBADF);
+            if (!object->mode().is_regular())
+                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            return cq_post_guarded(ring, s.user_data, static_cast<i32>(object->sync()));
+        }
+
         bool handle_dup(astia_rings* ring, const astia_sqe& s) {
             proc::process*           current = proc::current_process();
             mm::shptr<fs::open_file> source  = file_for(s.fd);
@@ -2169,6 +2178,9 @@ namespace astia::sys {
 
             case OP_FTRUNCATE:
                 return handle_ftruncate(ring, s);
+
+            case OP_FSYNC:
+                return handle_fsync(ring, s);
 
             case OP_MKDIRAT:
                 return handle_mkdirat(slot, ring, s);

@@ -1110,6 +1110,10 @@ namespace astia::fs {
         return -EINVAL;
     }
 
+    long file::sync() {
+        return -EINVAL;
+    }
+
     long file::sync_mapping(mm::phys_region*, u64, u64, u32) {
         return -ENOSYS;
     }

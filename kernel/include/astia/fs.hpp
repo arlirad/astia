@@ -242,6 +242,7 @@ namespace astia::fs {
         virtual long             size() const;
         virtual u32              block_size() const;
         virtual long             truncate(u64 length);
+        virtual long             sync();
         virtual long             sync_mapping(mm::phys_region* mapping, u64 offset,
                                                u64 length, u32 flags);
         virtual u64              inode() const;
@@ -323,6 +324,9 @@ namespace astia::fs {
             return _object ? _object->block_size() : 0;
         }
         long             truncate(u64 length);
+        long             sync() {
+            return !_object ? -EBADF : _object->sync();
+        }
         long             chmod(file_permissions permissions);
         long             sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
                                       u32 flags);

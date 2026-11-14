@@ -297,6 +297,7 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
 
     auto known = astia::fs::open("/tmp/ext4/known.txt");
     ASTIA_CHECK(known);
+    ASTIA_CHECK(known && known->sync() == -EROFS);
     char data[32]{};
     ASTIA_CHECK(known && known->read(data, sizeof data) == 16);
     ASTIA_CHECK(std::strcmp(data, "hello from ext4\n") == 0);

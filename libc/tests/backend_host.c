@@ -164,6 +164,11 @@ long __astia_fio_ftruncate(int fd, uint64_t length) {
     return r < 0 ? -HOST_ERRNO : r;
 }
 
+long __astia_fio_fsync(int fd) {
+    long r = syscall(SYS_fsync, fd);
+    return r < 0 ? -HOST_ERRNO : r;
+}
+
 long __astia_fio_lseek(int fd, int64_t offset, int whence) {
     long result = syscall(SYS_lseek, fd, (off_t) offset, whence);
     return result < 0 ? -HOST_ERRNO : result;
