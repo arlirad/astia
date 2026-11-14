@@ -883,6 +883,7 @@ namespace astia::fs {
                     --rlen;
                     while (rlen > 1 && result[rlen - 1] != '/')
                         --rlen;
+                    result[rlen] = '\0';
                 }
                 continue;
             }

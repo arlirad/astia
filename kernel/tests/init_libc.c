@@ -37,6 +37,23 @@ extern long __astia_process_futex(unsigned int* address, unsigned int operation,
 #define O_NOCTTY 0
 #endif
 
+static long direct_chdir(const char* path) {
+#if defined(__x86_64__)
+    long result;
+    register long r10 asm("r10") = 0;
+    register long r8 asm("r8") = 0;
+    register long r9 asm("r9") = 0;
+    asm volatile("syscall"
+                 : "=a"(result)
+                 : "a"(30L), "D"(path), "S"(0L), "d"(0L), "r"(r10), "r"(r8), "r"(r9)
+                 : "rcx", "r11", "memory");
+    return result;
+#else
+    (void) path;
+    return -ENOSYS;
+#endif
+}
+
 static void* libc_thread_worker(void* opaque) {
     int* value = (int*) opaque;
     *value     = 42;
@@ -1244,24 +1261,53 @@ int main(int argc, char** argv) {
     /* 4: process working directory state through chdir/getcwd. */
     {
         char cwd[64];
-        if (chdir("/bin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+        char long_relative[61];
+        for (size_t i = 0; i < sizeof(long_relative) - 1; ++i)
+            long_relative[i] = 'x';
+        long_relative[sizeof(long_relative) - 1] = '\0';
+        if (direct_chdir("/bin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
             strcmp(cwd, "/bin") != 0)
             return 41;
         DIR* bin = opendir(".");
         if (bin == NULL || readdir(bin) == NULL)
             return 42;
         closedir(bin);
-        if (chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
-            return 45;
-        if (chdir("bin") != 0)
+        if (direct_chdir("..") != 0)
+            return 145;
+        if (getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
+            return 146;
+        if (direct_chdir("bin") != 0)
             return 46;
         if (getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0)
             return 47;
-        if (chdir("/") != 0)
+        if (direct_chdir("/bin/../sbin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/sbin") != 0)
+            return 48;
+        if (direct_chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
             return 43;
+        if (direct_chdir("bin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/bin") != 0)
+            return 49;
+        if (direct_chdir(".") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/bin") != 0)
+            return 50;
+        if (direct_chdir("") != -EINVAL || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/bin") != 0)
+            return 51;
+        if (direct_chdir(long_relative) != -ENAMETOOLONG ||
+            getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0)
+            return 52;
+        if (direct_chdir("/missing-directory") != -ENOENT ||
+            getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0)
+            return 53;
+        if (direct_chdir("/sbin/init") != -ENOTDIR || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/bin") != 0)
+            return 54;
+        if (direct_chdir("/") != 0)
+            return 55;
         DIR* root = opendir("/");
         if (root == NULL || readdir(root) == NULL)
-            return 44;
+            return 56;
         closedir(root);
     }
 

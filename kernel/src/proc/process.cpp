@@ -20,31 +20,9 @@ namespace astia::proc {
         if (path == nullptr || path[0] == '\0')
             return -EINVAL;
         char full[fs::path_max]{};
-        if (path[0] == '/') {
-            usize i = 0;
-            for (; path[i] != '\0' && i + 1 < fs::path_max; ++i)
-                full[i] = path[i];
-            if (path[i] != '\0')
-                return -ENAMETOOLONG;
-            full[i] = '\0';
-        }
-        else {
-            usize at = 0;
-            for (; cwd_[at] != '\0' && at + 1 < fs::path_max; ++at)
-                full[at] = cwd_[at];
-            if (at > 1)
-                full[at++] = '/';
-            usize source = 0;
-            for (; path[source] != '\0' && at + 1 < fs::path_max; ++source, ++at)
-                full[at] = path[source];
-            if (path[source] != '\0')
-                return -ENAMETOOLONG;
-            full[at] = '\0';
-        }
-        if (full[0] == '\0')
-            return -EINVAL;
-        if (full[0] != '/')
-            return -EINVAL;
+        const i64 compose_rc = compose_path(path, full, sizeof full);
+        if (compose_rc < 0)
+            return compose_rc;
         char       resolved[fs::path_max]{};
         const long resolve_rc = fs::resolve_path(full, resolved, sizeof resolved, true);
         if (resolve_rc < 0)
