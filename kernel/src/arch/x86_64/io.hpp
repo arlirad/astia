@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/arch/io.hpp>
 
 // Port I/O and MSR primitives shared by the x86_64 device drivers
 // (pic, pit, lapic). Header-only: each is one instruction.
@@ -51,3 +52,31 @@ namespace astia::arch::x86_64 {
     }
 
 } // namespace astia::arch::x86_64
+
+namespace astia::arch {
+
+    inline u8 pio::read8(u16 port) {
+        return x86_64::inb(port);
+    }
+
+    inline u16 pio::read16(u16 port) {
+        return x86_64::inw(port);
+    }
+
+    inline u32 pio::read32(u16 port) {
+        return x86_64::inl(port);
+    }
+
+    inline void pio::write8(u16 port, u8 value) {
+        x86_64::outb(port, value);
+    }
+
+    inline void pio::write16(u16 port, u16 value) {
+        x86_64::outw(port, value);
+    }
+
+    inline void pio::write32(u16 port, u32 value) {
+        x86_64::outl(port, value);
+    }
+
+} // namespace astia::arch

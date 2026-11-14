@@ -1,3 +1,4 @@
+#include "io.hpp"
 #include "uart16550.hpp"
 
 #include "../../console.hpp"
