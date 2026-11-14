@@ -191,7 +191,7 @@ namespace {
         }
 
         int submit_async(astia_module_io_request* request) {
-            if (request == nullptr || request->direction != 0 || !started || !msix_active)
+            if (request == nullptr || request->direction != 0 || !started)
                 return -95;
             for (async_request& pending : async_requests) {
                 if (pending.used)
@@ -201,6 +201,7 @@ namespace {
                     return -12;
                 pending.used = true;
                 pending.request = request;
+                request->poll_timeout_ns = msix_active ? 0 : 1000000;
                 pending.cid = io_cid++;
                 command command_value{};
                 command_value.dword[0] = io_read | (static_cast<unsigned>(pending.cid) << 16);
@@ -224,6 +225,19 @@ namespace {
                 }
             }
             return -2;
+        }
+
+        int poll_async(astia_module_io_request* request) {
+            service_async();
+            for (async_request& pending : async_requests)
+                if (pending.used && pending.request == request) {
+                    if (request->timeout_expired) {
+                        pending.canceled = true;
+                        astia_module_io_complete(request->opaque, -110);
+                    }
+                    return 0;
+                }
+            return 0;
         }
 
         void service_async() {
@@ -452,6 +466,10 @@ namespace {
         return static_cast<controller*>(context)->cancel_async(request);
     }
 
+    int async_poll(void* context, astia_module_io_request* request) {
+        return static_cast<controller*>(context)->poll_async(request);
+    }
+
     int selftest() {
         char sector[512]{};
         if (!device.started)
@@ -486,7 +504,7 @@ namespace {
 
     const astia_module_pci_block_driver ops = {
         "nvme", "/dev/nvme0n1", match, probe, remove, size, block_size, read, selftest,
-        async_submit, async_cancel};
+        async_submit, async_cancel, async_poll};
 
 }
 

@@ -228,6 +228,23 @@ namespace astia::mod {
                     request.cancel_handler_set(nullptr);
                     return result;
                 }
+                if (registration_.ops->async_poll != nullptr) {
+                    bridge->abi.timeout_expired = request.timeout_expired() ? 1 : 0;
+                    const int poll = registration_.ops->async_poll(context_, &bridge->abi);
+                    if (poll < 0) {
+                        bridge->result = poll;
+                        bridge->completed = true;
+                    }
+                    if (bridge->completed) {
+                        const long result = bridge->result;
+                        bridge->used = false;
+                        bridge->owner = nullptr;
+                        bridge->request = nullptr;
+                        request.device_state(nullptr);
+                        request.cancel_handler_set(nullptr);
+                        return result;
+                    }
+                }
                 return 0;
             }
             for (async_bridge& candidate : registration_.bridges) {
@@ -240,7 +257,7 @@ namespace astia::mod {
                 candidate.used = true;
                 candidate.abi = {&candidate, request.buffer(), request.length(),
                                  request.offset(),
-                                 static_cast<u8>(request.direction())};
+                                 static_cast<u8>(request.direction()), 0, 0};
                 request.device_state(&candidate);
                 request.cancel_handler_set(cancel_request);
                 const int result = submit_async(context_, &candidate.abi);
@@ -256,6 +273,8 @@ namespace astia::mod {
                     request.cancel_handler_set(nullptr);
                     return result;
                 }
+                if (candidate.abi.poll_timeout_ns != 0)
+                    request.timeout_ns(candidate.abi.poll_timeout_ns);
                 return 0;
             }
             return -EBUSY;

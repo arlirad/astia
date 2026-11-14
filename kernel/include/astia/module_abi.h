@@ -33,6 +33,7 @@ struct astia_module_pci_block_driver {
     int (*selftest)(void);
     int (*async_submit)(void* context, struct astia_module_io_request* request);
     int (*async_cancel)(void* context, struct astia_module_io_request* request);
+    int (*async_poll)(void* context, struct astia_module_io_request* request);
 };
 
 struct astia_module_dma_buffer {
@@ -47,6 +48,8 @@ struct astia_module_io_request {
     uint32_t length;
     uint64_t offset;
     uint8_t direction;
+    uint8_t timeout_expired;
+    uint64_t poll_timeout_ns;
 };
 
 typedef void (*astia_module_interrupt_handler)(void* context);
