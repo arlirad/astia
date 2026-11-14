@@ -10,6 +10,7 @@ namespace {
     constexpr unsigned admin_create_io_sq = 0x01;
     constexpr unsigned io_read = 0x02;
     constexpr unsigned max_async_requests = 4;
+    constexpr unsigned csts_fatal = 1u << 1;
 
     struct dma {
         astia_module_dma_buffer value{};
@@ -95,6 +96,37 @@ namespace {
             return false;
         }
 
+        bool fatal() const {
+            return registers != nullptr && (read32(0x1c) & csts_fatal) != 0;
+        }
+
+        void abort_controller() {
+            if (registers == nullptr)
+                return;
+            write32(0x14, 0);
+            (void) wait_ready(false);
+            started = false;
+            astia_module_log("nvme", fatal() ? "controller fatal" : "controller reset");
+        }
+
+        bool valid_transfer(void* buffer, unsigned length, unsigned long long offset) const {
+            return started && buffer != nullptr && length != 0 && length <= 8192 &&
+                   block_size != 0 && (length % block_size) == 0 &&
+                   (offset % block_size) == 0 && offset <= namespace_size * block_size &&
+                   static_cast<unsigned long long>(length) <=
+                       namespace_size * block_size - offset;
+        }
+
+        void set_prp(command& value, uint64_t physical, unsigned length) {
+            value.dword[6] = static_cast<unsigned>(physical);
+            value.dword[7] = static_cast<unsigned>(physical >> 32);
+            if (length > page_size - static_cast<unsigned>(physical & (page_size - 1))) {
+                const uint64_t second = (physical & ~(page_size - 1)) + page_size;
+                value.dword[8] = static_cast<unsigned>(second);
+                value.dword[9] = static_cast<unsigned>(second >> 32);
+            }
+        }
+
         void set_address(unsigned offset, unsigned long long address) {
             write32(offset, static_cast<unsigned>(address));
             write32(offset + 4, static_cast<unsigned>(address >> 32));
@@ -140,6 +172,7 @@ namespace {
                 }
                 asm volatile("pause");
             }
+            abort_controller();
             return ~0u;
         }
 
@@ -169,8 +202,11 @@ namespace {
             const unsigned exponent = data[128 + format * 4 + 2];
             if (exponent < 9 || exponent > 12)
                 return false;
+            const unsigned bytes = 1u << exponent;
+            if (size > ~uint64_t{0} / bytes)
+                return false;
             namespace_size = size;
-            block_size = 1u << exponent;
+            block_size = bytes;
             return true;
         }
 
@@ -191,8 +227,10 @@ namespace {
         }
 
         int submit_async(astia_module_io_request* request) {
-            if (request == nullptr || request->direction != 0 || !started)
-                return -95;
+            if (request == nullptr || request->direction != 0)
+                return -22;
+            if (!valid_transfer(request->buffer, request->length, request->offset))
+                return -22;
             for (async_request& pending : async_requests) {
                 if (pending.used)
                     continue;
@@ -206,8 +244,7 @@ namespace {
                 command command_value{};
                 command_value.dword[0] = io_read | (static_cast<unsigned>(pending.cid) << 16);
                 command_value.dword[1] = namespace_id;
-                command_value.dword[6] = static_cast<unsigned>(pending.bounce.value.physical);
-                command_value.dword[7] = static_cast<unsigned>(pending.bounce.value.physical >> 32);
+                set_prp(command_value, pending.bounce.value.physical, request->length);
                 command_value.dword[10] = static_cast<unsigned>(request->offset / block_size);
                 command_value.dword[11] = static_cast<unsigned>((request->offset / block_size) >> 32);
                 command_value.dword[12] = request->length / block_size - 1;
@@ -234,6 +271,7 @@ namespace {
                     if (request->timeout_expired) {
                         pending.canceled = true;
                         astia_module_io_complete(request->opaque, -110);
+                        abort_controller();
                     }
                     return 0;
                 }
@@ -373,11 +411,12 @@ namespace {
                     interrupt_pending = false;
                 asm volatile("pause");
             }
+            abort_controller();
             return ~0u;
         }
 
         long read(void* buffer, unsigned length, unsigned long long offset) {
-            if (!started || length == 0 || length > 8192)
+            if (!valid_transfer(buffer, length, offset))
                 return -5;
             uint64_t physical = 0;
             void* token = nullptr;
@@ -398,8 +437,7 @@ namespace {
             const unsigned short cid = io_cid++;
             request.dword[0] = io_read | (static_cast<unsigned>(cid) << 16);
             request.dword[1] = namespace_id;
-            request.dword[6] = static_cast<unsigned>(physical);
-            request.dword[7] = static_cast<unsigned>(physical >> 32);
+            set_prp(request, physical, length);
             request.dword[10] = static_cast<unsigned>(offset / block_size);
             request.dword[11] = static_cast<unsigned>((offset / block_size) >> 32);
             request.dword[12] = length / block_size - 1;

@@ -31,6 +31,13 @@ only arms a wake flag; queue ownership and CQ-head acknowledgement remain in
 the bounded read path. Missing capability, invalid routing, or setup failure
 selects the polling fallback without enabling MSI-X.
 
+Transfers are checked for namespace geometry and page limits before command
+submission. PRP2 is populated for a second page; larger or malformed requests
+are rejected. Bounded command polling detects timeout and CSTS fatal status,
+clears CC.EN, waits for CSTS.RDY to clear, and marks the controller unusable
+instead of pretending recovery succeeded. Pending async requests are canceled
+and quarantined before controller/module teardown.
+
 `run-qemu.sh` builds both `astiakrn_runtime` and `nvme_module`, packages the
 ET_REL object into an uncompressed newc initrd, attaches `fixture.raw` to
 QEMU's emulated NVMe controller, and verifies the namespace and known-sector
