@@ -182,6 +182,48 @@ namespace {
             for (u32 i = 0; i < 64; ++i)
                 image_[7 * 1024 + i] = static_cast<u8>('a' + i % 26);
         }
+        void make_indexed_image() {
+            make_valid_image();
+            put32(1024 + 0x5C, 0x0020);
+            put32(3200 + 0x04, 3 * 1024);
+            put32(3200 + 0x20, 0x00081000);
+            put16(3200 + 0x38, 3);
+            put32(4480 + 0x3C, 8);
+            std::memset(image_ + 5 * 1024, 0, 3 * 1024);
+
+            const u64 root = 5 * 1024;
+            put32(root, 2);
+            put16(root + 4, 12);
+            image_[root + 6] = 1;
+            image_[root + 7] = 2;
+            image_[root + 8] = '.';
+            put32(root + 12, 2);
+            put16(root + 16, 1024 - 12);
+            image_[root + 18] = 2;
+            image_[root + 19] = 2;
+            image_[root + 20] = '.';
+            image_[root + 21] = '.';
+            image_[root + 0x1C] = 1;
+            image_[root + 0x1D] = 8;
+            image_[root + 0x1E] = 1;
+            put16(root + 0x20, 100);
+            put16(root + 0x22, 1);
+            put32(root + 0x24, 1);
+
+            const u64 node = 6 * 1024;
+            put16(node + 4, 1024);
+            put16(node + 8, 100);
+            put16(node + 0xA, 1);
+            put32(node + 0xE, 2);
+
+            const u64 leaf = 7 * 1024;
+            put32(leaf, 12);
+            put16(leaf + 4, 1024);
+            image_[leaf + 6] = 9;
+            image_[leaf + 7] = 1;
+            std::memcpy(image_ + leaf + 8, "known.txt", 9);
+            std::memcpy(image_ + 8 * 1024, "hello from ext4\n", 16);
+        }
         void corrupt_magic() {
             put16(1024 + 0x38, 0);
         }
@@ -310,4 +352,24 @@ ASTIA_TEST(ext4_vfs_rejects_bad_images_and_mutations) {
     fake_device.make_valid_image();
     fake_device.enable_journal();
     ASTIA_CHECK(astia::fs::mount_type("ext4", "/tmp/ext4", "/dev/fake-ext4") < 0);
+}
+
+ASTIA_TEST(ext4_vfs_reads_indexed_directory) {
+    initialize_runtime();
+    fake_device.make_indexed_image();
+    mount_fixture(fake_device, fake_file);
+
+    auto known = astia::fs::open("/tmp/ext4/known.txt");
+    ASTIA_CHECK(known);
+    char data[32]{};
+    ASTIA_CHECK(known && known->read(data, sizeof data) == 16);
+    ASTIA_CHECK(std::strcmp(data, "hello from ext4\n") == 0);
+    char name[32]{};
+    astia::fs::file_type type{};
+    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 2, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(std::strcmp(name, "known.txt") == 0 && type == astia::fs::directory_reg);
+
+    known = {};
+    ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
+    fake_device.make_valid_image();
 }

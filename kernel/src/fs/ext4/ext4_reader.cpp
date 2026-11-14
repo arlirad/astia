@@ -37,6 +37,7 @@ namespace astia::ext4 {
         constexpr u32 inode_extents = 0x00080000;
         constexpr u32 inode_index = 0x00001000;
         constexpr u16 extent_magic = 0xF30A;
+        constexpr u8 dx_hash_last = 6;
 
         u16 get16(const u8* p) {
             return core::le<u16>::load(p);
@@ -118,11 +119,12 @@ namespace astia::ext4 {
         const u32 incompat = get32(sb + 0x60);
         const u32 ro_compat = get32(sb + 0x64);
         const u32 unknown_incompat = incompat &
-            ~(incompat_filetype | incompat_extents | incompat_csum_seed);
+            ~(incompat_filetype | incompat_extents | incompat_csum_seed |
+              incompat_largedir);
         const u32 unsupported_ro = ro_compat &
             ~(ro_sparse_super | ro_large_file | ro_huge_file | ro_gdt_csum |
               ro_dir_nlink | ro_extra_isize | ro_metadata_csum | ro_readonly);
-        if ((compat & (compat_has_journal | compat_dir_index)) != 0 ||
+        if ((compat & compat_has_journal) != 0 ||
             unknown_incompat != 0 || unsupported_ro != 0 ||
             ((incompat & incompat_csum_seed) != 0 &&
              (ro_compat & ro_metadata_csum) == 0) ||
@@ -163,7 +165,7 @@ namespace astia::ext4 {
         if ((ro_compat & ro_metadata_csum) != 0) {
             u8 saved[4] = {sb[0x3FC], sb[0x3FD], sb[0x3FE], sb[0x3FF]};
             sb[0x3FC] = sb[0x3FD] = sb[0x3FE] = sb[0x3FF] = 0;
-            const u32 actual = crc32c(checksum_seed_, sb, 0x3FC);
+            const u32 actual = crc32c(~u32{0}, sb, 0x3FC);
             const u32 expected = static_cast<u32>(saved[0]) |
                                  static_cast<u32>(saved[1]) << 8 |
                                  static_cast<u32>(saved[2]) << 16 |
@@ -197,8 +199,7 @@ namespace astia::ext4 {
             copy[0x1E] = copy[0x1F] = 0;
             u8 group_number[4] = {static_cast<u8>(group), static_cast<u8>(group >> 8),
                                   static_cast<u8>(group >> 16), static_cast<u8>(group >> 24)};
-            const u32 crc = crc32c(checksum_seed_, uuid_, sizeof uuid_);
-            const u32 actual = crc32c(crc, group_number, sizeof group_number);
+            const u32 actual = crc32c(checksum_seed_, group_number, sizeof group_number);
             const u16 calculated = static_cast<u16>(crc32c(actual, copy, descriptor_size_));
             if (calculated != expected)
                 return fail(error::checksum);
@@ -254,10 +255,14 @@ namespace astia::ext4 {
             copy[0x7C] = copy[0x7D] = copy[0x82] = copy[0x83] = 0;
             u8 number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
                                   static_cast<u8>(number >> 16), static_cast<u8>(number >> 24)};
-            const u32 first = crc32c(checksum_seed_, uuid_, sizeof uuid_);
-            const u32 second = crc32c(first, number_bytes, sizeof number_bytes);
-            const u32 third = crc32c(second, raw + 0x64, 4);
-            if (crc32c(third, copy, inode_size_) != expected)
+            const u32 first = crc32c(checksum_seed_, number_bytes, sizeof number_bytes);
+            const u32 second = crc32c(first, raw + 0x64, 4);
+            const bool has_high = inode_size_ >= 132 && get16(raw + 0x80) >= 4;
+            if (has_high)
+                copy[0x82] = copy[0x83] = 0;
+            const u32 actual = crc32c(second, copy, inode_size_);
+            if ((has_high ? actual : actual & 0xFFFFu) !=
+                (has_high ? expected : expected & 0xFFFFu))
                 return fail(error::checksum);
         }
         return true;
@@ -271,11 +276,104 @@ namespace astia::ext4 {
                               static_cast<u8>(number >> 16), static_cast<u8>(number >> 24)};
         u8 generation_bytes[4] = {static_cast<u8>(generation), static_cast<u8>(generation >> 8),
                                   static_cast<u8>(generation >> 16), static_cast<u8>(generation >> 24)};
-        const u32 first = crc32c(checksum_seed_, uuid_, sizeof uuid_);
-        const u32 second = crc32c(first, number_bytes, sizeof number_bytes);
-        const u32 third = crc32c(second, generation_bytes, sizeof generation_bytes);
-        if (crc32c(third, block, block_size_ - 4) != expected)
+        const u32 first = crc32c(checksum_seed_, number_bytes, sizeof number_bytes);
+        const u32 second = crc32c(first, generation_bytes, sizeof generation_bytes);
+        if (crc32c(second, block, block_size_ - 4) != expected)
             return fail(error::checksum);
+        return true;
+    }
+
+    bool reader::validate_index_block(const u8* block, bool root) {
+        if (block_size_ < 8)
+            return fail(error::corrupt);
+        if (!root && (get32(block) != 0 || get16(block + 4) != block_size_ ||
+                      block[6] != 0 || block[7] != 0))
+            return fail(error::corrupt);
+        return true;
+    }
+
+    bool reader::validate_index_node(const inode& node, u32 directory_blocks,
+                                     const u8* block, u16 depth, bool root) {
+        constexpr u32 child_capacity = 512;
+        u16 limit = 0;
+        u16 count = 0;
+        u32 first_child = 0;
+        u32 entries_offset = 0;
+        if (root) {
+            if (get32(block + 0x18) != 0 || block[0x1C] > dx_hash_last ||
+                block[0x1D] != 8 || block[0x1F] != 0 ||
+                get32(block) != node.number || get16(block + 4) != 12 || block[6] != 1 ||
+                block[8] != '.' || get32(block + 0x0C) == 0 ||
+                get16(block + 0x10) != block_size_ - 12 || block[0x12] != 2 ||
+                block[0x14] != '.')
+                return fail(error::corrupt);
+            const u16 max_depth = (feature_incompat_ & incompat_largedir) != 0 ? 3 : 2;
+            if (depth > max_depth)
+                return fail(error::unsupported_feature);
+            limit = get16(block + 0x20);
+            count = get16(block + 0x22);
+            first_child = get32(block + 0x24);
+            entries_offset = 0x28;
+        }
+        else {
+            if (!validate_index_block(block, false))
+                return false;
+            limit = get16(block + 8);
+            count = get16(block + 0xA);
+            first_child = get32(block + 0xE);
+            entries_offset = 0x12;
+        }
+        const u32 count_offset = root ? 0x20 : 8;
+        const u32 tail = (feature_ro_compat_ & ro_metadata_csum) != 0 ? 8 : 0;
+        if (count < 1 || count > limit || count > child_capacity ||
+            limit > (block_size_ - count_offset - tail) / 8)
+            return fail(error::corrupt);
+        if ((feature_ro_compat_ & ro_metadata_csum) != 0) {
+            const u32 tail_offset = count_offset + static_cast<u32>(limit) * 8;
+            if (tail_offset + 8 != block_size_)
+                return fail(error::corrupt);
+            u8 checksum_tail[8]{};
+            copy_bytes(checksum_tail, block + tail_offset, sizeof checksum_tail);
+            const u32 expected = get32(checksum_tail + 4);
+            checksum_tail[4] = checksum_tail[5] = checksum_tail[6] = checksum_tail[7] = 0;
+            u8 number_bytes[4] = {static_cast<u8>(node.number),
+                                  static_cast<u8>(node.number >> 8),
+                                  static_cast<u8>(node.number >> 16),
+                                  static_cast<u8>(node.number >> 24)};
+            u8 generation_bytes[4] = {static_cast<u8>(node.generation),
+                                      static_cast<u8>(node.generation >> 8),
+                                      static_cast<u8>(node.generation >> 16),
+                                      static_cast<u8>(node.generation >> 24)};
+            const u32 first = crc32c(checksum_seed_, number_bytes, sizeof number_bytes);
+            const u32 second = crc32c(first, generation_bytes, sizeof generation_bytes);
+            const u32 third = crc32c(second, block, count_offset + count * 8);
+            if (crc32c(third, checksum_tail, sizeof checksum_tail) != expected)
+                return fail(error::checksum);
+        }
+        u32 children[child_capacity]{};
+        children[0] = first_child;
+        u32 previous_hash = 0;
+        for (u16 i = 1; i < count; ++i) {
+            const u8* entry = block + entries_offset + static_cast<u32>(i - 1) * 8;
+            const u32 hash = get32(entry);
+            if (hash < previous_hash)
+                return fail(error::corrupt);
+            previous_hash = hash;
+            children[i] = get32(entry + 4);
+        }
+        for (u16 i = 0; i < count; ++i) {
+            if (children[i] == 0 || children[i] >= directory_blocks)
+                return fail(error::corrupt);
+            if (depth != 0) {
+                u64 physical = 0;
+                if (!map_file_block(node, children[i], physical) || physical == 0 ||
+                    !read_block(physical, extent_block_))
+                    return fail(error::corrupt);
+                if (!validate_index_node(node, directory_blocks, extent_block_,
+                                         static_cast<u16>(depth - 1), false))
+                    return false;
+            }
+        }
         return true;
     }
 
@@ -429,19 +527,21 @@ namespace astia::ext4 {
                               static_cast<u8>(number >> 16), static_cast<u8>(number >> 24)};
         u8 generation_bytes[4] = {static_cast<u8>(generation), static_cast<u8>(generation >> 8),
                                   static_cast<u8>(generation >> 16), static_cast<u8>(generation >> 24)};
-        const u32 first = crc32c(checksum_seed_, uuid_, sizeof uuid_);
-        const u32 second = crc32c(first, number_bytes, sizeof number_bytes);
-        const u32 third = crc32c(second, generation_bytes, sizeof generation_bytes);
-        if (crc32c(third, block, block_size_ - 12) != expected)
+        const u32 first = crc32c(checksum_seed_, number_bytes, sizeof number_bytes);
+        const u32 second = crc32c(first, generation_bytes, sizeof generation_bytes);
+        if (crc32c(second, block, block_size_ - 12) != expected)
             return fail(error::checksum);
         return true;
     }
 
     bool reader::read_directory(const inode& node, directory_callback callback, void* context) {
-        if (node.type() != node_type::directory || callback == nullptr ||
-            (node.flags & inode_index) != 0)
+        if (node.type() != node_type::directory || callback == nullptr)
             return fail(error::unsupported_feature);
         u8 block[4096]{};
+        if ((node.flags & inode_index) != 0 && (feature_compat_ & compat_dir_index) == 0)
+            return fail(error::unsupported_feature);
+        if ((feature_incompat_ & incompat_largedir) == 0 && node.size > 0xFFFFFFFFu)
+            return fail(error::unsupported_feature);
         if (node.size > ~u64{0} - (block_size_ - 1))
             return fail(error::corrupt);
         const u64 count_wide = (node.size + block_size_ - 1) / block_size_;
@@ -452,10 +552,23 @@ namespace astia::ext4 {
             u64 physical = 0;
             if (!map_file_block(node, logical, physical))
                 return false;
-            if (physical == 0)
+            if (physical == 0) {
+                if (logical == 0 && (node.flags & inode_index) != 0)
+                    return fail(error::corrupt);
                 continue;
-            if (!read_block(physical, block) ||
-                !validate_directory_block(block, node.number, node.generation))
+            }
+            if (!read_block(physical, block))
+                return false;
+            if (logical == 0 && (node.flags & inode_index) != 0) {
+                const u16 depth = block[0x1E];
+                if (!validate_index_block(block, true) ||
+                    !validate_index_node(node, count, block, depth, true))
+                    return false;
+            }
+            else if ((node.flags & inode_index) != 0 && block[0] == 0 &&
+                     get16(block + 4) == block_size_ && block[6] == 0 && block[7] == 0)
+                continue;
+            else if (!validate_directory_block(block, node.number, node.generation))
                 return false;
             u32 offset = 0;
             while (offset < block_size_) {

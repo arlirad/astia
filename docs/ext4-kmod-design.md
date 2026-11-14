@@ -4,13 +4,15 @@ The parser in `kernel/src/mod/ext4_reader.*` is deliberately independent of
 the VFS and is not linked into the kernel's `mod` library. It accepts a
 bounded `read_at` callback and covers the on-disk path needed by a first
 read-only implementation: superblock and feature validation, group
-descriptors, inode records, direct/indirect blocks, extent trees, classic
-directory entries, and regular-file reads.
+descriptors, inode records, direct/indirect blocks, extent trees, classic and
+indexed directory entries, and regular-file reads.
 
-The parser rejects journals, indexed directories, unsupported incompatible or
-read-only-compatible features, malformed bounds, and metadata checksum
-failures. It does not replay a journal or implement writes, fsck, xattrs,
-inline data, encryption, case folding, symlinks, or htree lookup.
+The parser rejects journals, unsupported incompatible or read-only-compatible
+features, malformed bounds, and metadata checksum failures. Indexed directory
+enumeration validates HTree metadata and walks its leaf blocks; it does not
+perform hash-directed lookup. It does not replay a journal or implement
+writes, fsck, xattrs, inline data, encryption, case folding, symlinks, or
+other HTree operations.
 
 ## Integration blockers
 

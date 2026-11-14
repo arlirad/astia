@@ -96,6 +96,9 @@ namespace astia::ext4 {
                           u64& result);
         bool validate_extent_block(const u8* block, u32 inode_number, u32 generation);
         bool validate_directory_block(const u8* block, u32 inode_number, u32 generation);
+        bool validate_index_block(const u8* block, bool root);
+        bool validate_index_node(const inode& node, u32 directory_blocks,
+                                 const u8* block, u16 depth, bool root);
         bool fail(error value) {
             error_ = value;
             return false;
