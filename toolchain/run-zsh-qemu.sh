@@ -11,6 +11,8 @@ work=${ASTIA_ZSH_RUN:-/tmp/astia-zsh-run}
 clean_build=${ASTIA_CLEAN_BUILD:-0}
 harness=${ASTIA_ZSH_HARNESS:-0}
 line_reader=${ASTIA_LINE_READER:-0}
+nano_binary=${ASTIA_NANO_BINARY:-}
+nano_enabled=${ASTIA_NANO:-0}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 cpio=${ASTIA_CPIO:-cpio}
@@ -128,6 +130,19 @@ mkdir -p "$work/root/sbin" "$work/root/bin" "$work/root/etc"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
     COREUTILS_BUILD="$work/coreutils" "$root/coreutils/build.sh"
 
+if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
+    if [ -z "$nano_binary" ]; then
+        nano_build=${ASTIA_NANO_BUILD:-$work/nano}
+        ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
+            NANO_BUILD="$nano_build" "$root/toolchain/build-nano.sh"
+        nano_binary=$nano_build/output/nano
+    fi
+    if [ ! -x "$nano_binary" ]; then
+        echo "Astia nano binary is not executable: $nano_binary" >&2
+        exit 1
+    fi
+fi
+
 (cd "$work/root" && "$cpio" -id --quiet --no-absolute-filenames) <"$base_initrd"
 
 common_flags="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
@@ -162,6 +177,9 @@ fi
 cp "$zsh_build/output/zsh" "$work/root/bin/zsh"
 cp "$work/line-reader" "$work/root/bin/line-reader"
 cp "$work/coreutils/bin/"* "$work/root/bin/"
+if [ -n "$nano_binary" ]; then
+    cp "$nano_binary" "$work/root/bin/nano"
+fi
 cat > "$work/root/etc/zshenv" <<'EOF'
 typeset -ga .term.extensions
 .term.extensions=(-query)

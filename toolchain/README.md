@@ -130,6 +130,20 @@ The launcher also builds the native Astia coreutils from `coreutils/` and
 places them in `/bin` (`cat`, `echo`, `env`, `false`, `head`, `pwd`, `true`,
 `uname`, and `wc`).
 
+Nano packaging is opt-in so normal zsh launches do not download or rebuild it.
+Use a verified prebuilt binary, or request the pinned source build:
+
+```sh
+ASTIA_NANO_BINARY=/tmp/astia-nano-build/output/nano \
+  ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
+ASTIA_NANO=1 ASTIA_NANO_BUILD=/tmp/astia-nano-build \
+  ./toolchain/run-zsh-qemu.sh
+```
+
+`ASTIA_NANO=1` invokes `toolchain/build-nano.sh` with the Astia sysroot and
+startup object and packages the result as `/bin/nano`. Upstream nano is copied
+to a private staging tree; it is never modified.
+
 For configure-based software, use the target as the host and do not let the
 build system search the machine's native headers or libraries:
 

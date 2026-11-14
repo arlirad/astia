@@ -150,8 +150,8 @@ def main():
             run_command(serial, "echo PIPE_OK | cat", "PIPE_OK\n")
             run_command(serial, "echo REDIRECT_OK >/tmp/zsh-output; cat /tmp/zsh-output",
                         "REDIRECT_OK\n")
-            serial.send(b"exit\n")
-            trace(trace_stream, "WAIT", b"exit")
+            serial.send(b"\x04")
+            trace(trace_stream, "WAIT", b"eof")
             try:
                 status = process.wait(timeout=TIMEOUT)
             except subprocess.TimeoutExpired:
