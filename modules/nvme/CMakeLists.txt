@@ -18,9 +18,15 @@ add_custom_command(
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp -o ${ASTIA_NVME_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/nvme_protocol.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.h
         COMMENT "Compiling NVMe loadable module"
         VERBATIM
 )
 
 add_custom_target(nvme_module ALL DEPENDS ${ASTIA_NVME_OBJECT})
+
+add_custom_target(nvme_host_tests
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run-host.sh
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..
+        VERBATIM)

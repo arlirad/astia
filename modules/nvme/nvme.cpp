@@ -1,22 +1,25 @@
 #include <astia/module_abi.h>
+#include "nvme_protocol.hpp"
 
 namespace {
 
-    constexpr unsigned page_size = 4096;
+    constexpr unsigned page_size = nvme_protocol::page_size;
     constexpr unsigned queue_depth = 16;
     constexpr unsigned timeout_spins = 4000000;
     constexpr unsigned admin_identify = 0x06;
     constexpr unsigned admin_create_io_cq = 0x05;
     constexpr unsigned admin_create_io_sq = 0x01;
-    constexpr unsigned io_read = 0x02;
+    constexpr unsigned io_flush = nvme_protocol::flush_opcode;
+    constexpr unsigned io_write = nvme_protocol::write_opcode;
+    constexpr unsigned io_read = nvme_protocol::read_opcode;
     constexpr unsigned max_async_requests = 4;
     constexpr unsigned csts_fatal = 1u << 1;
 
     struct dma {
         astia_module_dma_buffer value{};
 
-        bool allocate(bool zero = true) {
-            return astia_module_dma_alloc(1, zero ? 1 : 0, &value) == 0;
+        bool allocate(unsigned pages = 1, bool zero = true) {
+            return astia_module_dma_alloc(pages, zero ? 1 : 0, &value) == 0;
         }
 
         void release() {
@@ -24,9 +27,7 @@ namespace {
         }
     };
 
-    struct command {
-        unsigned dword[16]{};
-    };
+    using command = nvme_protocol::command;
 
     struct completion {
         unsigned dword[4]{};
@@ -109,22 +110,14 @@ namespace {
             astia_module_log("nvme", fatal() ? "controller fatal" : "controller reset");
         }
 
-        bool valid_transfer(void* buffer, unsigned length, unsigned long long offset) const {
-            return started && buffer != nullptr && length != 0 && length <= 8192 &&
-                   block_size != 0 && (length % block_size) == 0 &&
-                   (offset % block_size) == 0 && offset <= namespace_size * block_size &&
-                   static_cast<unsigned long long>(length) <=
-                       namespace_size * block_size - offset;
+        bool valid_transfer(const void* buffer, unsigned length,
+                            unsigned long long offset) const {
+            return nvme_protocol::valid_transfer(
+                {started, namespace_size, block_size}, buffer, length, offset);
         }
 
-        void set_prp(command& value, uint64_t physical, unsigned length) {
-            value.dword[6] = static_cast<unsigned>(physical);
-            value.dword[7] = static_cast<unsigned>(physical >> 32);
-            if (length > page_size - static_cast<unsigned>(physical & (page_size - 1))) {
-                const uint64_t second = (physical & ~(page_size - 1)) + page_size;
-                value.dword[8] = static_cast<unsigned>(second);
-                value.dword[9] = static_cast<unsigned>(second >> 32);
-            }
+        bool set_prp(command& value, uint64_t physical, unsigned length) {
+            return nvme_protocol::set_prp(value, physical, length);
         }
 
         void set_address(unsigned offset, unsigned long long address) {
@@ -210,6 +203,17 @@ namespace {
             return true;
         }
 
+        unsigned command_status(command& request) {
+            submit_io(request);
+            return poll_io();
+        }
+
+        bool flush() {
+            command request{};
+            nvme_protocol::encode_flush(request, io_cid++, namespace_id);
+            return command_status(request) == 0;
+        }
+
         bool create_io_queues() {
             command cq{};
             cq.dword[0] = admin_create_io_cq | (static_cast<unsigned>(admin_cid++) << 16);
@@ -227,7 +231,7 @@ namespace {
         }
 
         int submit_async(astia_module_io_request* request) {
-            if (request == nullptr || request->direction != 0)
+            if (request == nullptr || request->direction > 1)
                 return -22;
             if (!valid_transfer(request->buffer, request->length, request->offset))
                 return -22;
@@ -235,19 +239,30 @@ namespace {
                 if (pending.used)
                     continue;
                 pending = {};
-                if (!pending.bounce.allocate())
+                const unsigned pages = (request->length + page_size - 1) / page_size;
+                if (!pending.bounce.allocate(pages))
                     return -12;
                 pending.used = true;
                 pending.request = request;
                 request->poll_timeout_ns = msix_active ? 0 : 1000000;
                 pending.cid = io_cid++;
+                const bool write = request->direction != 0;
                 command command_value{};
-                command_value.dword[0] = io_read | (static_cast<unsigned>(pending.cid) << 16);
-                command_value.dword[1] = namespace_id;
-                set_prp(command_value, pending.bounce.value.physical, request->length);
-                command_value.dword[10] = static_cast<unsigned>(request->offset / block_size);
-                command_value.dword[11] = static_cast<unsigned>((request->offset / block_size) >> 32);
-                command_value.dword[12] = request->length / block_size - 1;
+                if (!nvme_protocol::encode_io(
+                        command_value, write ? io_write : io_read, pending.cid, namespace_id,
+                        pending.bounce.value.physical, request->length, request->offset,
+                        block_size, write)) {
+                    pending.bounce.release();
+                    pending = {};
+                    return -22;
+                }
+                if (write) {
+                    auto* source = static_cast<const unsigned char*>(request->buffer);
+                    auto* target = static_cast<unsigned char*>(
+                        pending.bounce.value.virtual_address);
+                    for (unsigned i = 0; i < request->length; ++i)
+                        target[i] = source[i];
+                }
                 submit_io(command_value);
                 return 0;
             }
@@ -302,7 +317,7 @@ namespace {
                 const unsigned status = (dw3 >> 17) & 0x7ff;
                 if (!found->canceled && found->request != nullptr) {
                     long result = status == 0 ? static_cast<long>(found->request->length) : -5;
-                    if (status == 0) {
+                    if (status == 0 && found->request->direction == 0) {
                         auto* destination = static_cast<unsigned char*>(found->request->buffer);
                         auto* source = static_cast<const unsigned char*>(
                             found->bounce.value.virtual_address);
@@ -435,12 +450,12 @@ namespace {
             }
             command request{};
             const unsigned short cid = io_cid++;
-            request.dword[0] = io_read | (static_cast<unsigned>(cid) << 16);
-            request.dword[1] = namespace_id;
-            set_prp(request, physical, length);
-            request.dword[10] = static_cast<unsigned>(offset / block_size);
-            request.dword[11] = static_cast<unsigned>((offset / block_size) >> 32);
-            request.dword[12] = length / block_size - 1;
+            if (!nvme_protocol::encode_io(request, io_read, cid, namespace_id, physical, length,
+                                          offset, block_size, false)) {
+                if (token != nullptr)
+                    astia_module_unpin(token);
+                return -22;
+            }
             submit_io(request);
             const unsigned status = poll_io();
             long result = status == 0 ? static_cast<long>(length) : -5;
@@ -450,6 +465,43 @@ namespace {
             if (token != nullptr)
                 astia_module_unpin(token);
             return result;
+        }
+
+        long write(const void* buffer, unsigned length, unsigned long long offset) {
+            if (!valid_transfer(buffer, length, offset))
+                return -22;
+            uint64_t physical = 0;
+            void* token = nullptr;
+            if (astia_module_pin_user_read(buffer, length, &physical, &token) != 0)
+                return -14;
+            dma bounce;
+            const bool direct = physical != ~0ull &&
+                                length <= page_size - static_cast<unsigned>(physical & (page_size - 1));
+            if (!direct) {
+                if (astia_module_dma_alloc((length + page_size - 1) / page_size, 1,
+                                            &bounce.value) != 0) {
+                    astia_module_unpin(token);
+                    return -12;
+                }
+                auto* source = static_cast<const unsigned char*>(buffer);
+                auto* target = static_cast<unsigned char*>(bounce.value.virtual_address);
+                for (unsigned i = 0; i < length; ++i)
+                    target[i] = source[i];
+                physical = bounce.value.physical;
+            }
+            command request{};
+            const unsigned short cid = io_cid++;
+            if (!nvme_protocol::encode_io(request, io_write, cid, namespace_id, physical,
+                                           length, offset, block_size, true)) {
+                if (token != nullptr)
+                    astia_module_unpin(token);
+                return -22;
+            }
+            submit_io(request);
+            const unsigned status = poll_io();
+            if (token != nullptr)
+                astia_module_unpin(token);
+            return status == 0 ? static_cast<long>(length) : -5;
         }
     };
 
@@ -508,6 +560,14 @@ namespace {
         return static_cast<controller*>(context)->poll_async(request);
     }
 
+    long write(void* context, const void* buffer, unsigned length, uint64_t offset) {
+        return static_cast<controller*>(context)->write(buffer, length, offset);
+    }
+
+    int flush(void* context) {
+        return static_cast<controller*>(context)->flush() ? 0 : -5;
+    }
+
     int selftest() {
         char sector[512]{};
         if (!device.started)
@@ -523,8 +583,30 @@ namespace {
                 return 0;
             astia_module_log("nvme", "async completion");
         }
+        char write_sector[512]{};
+        for (unsigned i = 0; i < sizeof write_sector; ++i)
+            write_sector[i] = static_cast<char>("NVME_WRITE_FUA_OK"[i % 17] ^ i);
+        const int write_result = astia_module_write_registered_async(
+            "/dev/nvme0n1", write_sector, sizeof write_sector, sizeof sector);
+        if (write_result != 0)
+            return 0;
+        if (!device.flush())
+            return 0;
+        char reopened[512]{};
+        if (astia_module_read_registered_async("/dev/nvme0n1", reopened, sizeof reopened,
+                                               sizeof sector) != 0)
+            return 0;
+        for (unsigned i = 0; i < sizeof reopened; ++i)
+            if (reopened[i] != write_sector[i])
+                return 0;
+        astia_module_log("nvme", "write flush reopen ok");
         char invalid[513]{};
         if (astia_module_read_registered_async("/dev/nvme0n1", invalid, sizeof invalid, 0) >= 0)
+            return 0;
+        if (astia_module_write_registered_async("/dev/nvme0n1", invalid, sizeof invalid, 0) >= 0)
+            return 0;
+        if (astia_module_write_registered_async("/dev/nvme0n1", write_sector, sizeof write_sector,
+                                                4096ull * 512) >= 0)
             return 0;
         astia_module_log("nvme", "async error path");
         const bool valid = sector[0] == 'A' && sector[1] == 'S' && sector[2] == 'T' &&
@@ -542,7 +624,7 @@ namespace {
 
     const astia_module_pci_block_driver ops = {
         "nvme", "/dev/nvme0n1", match, probe, remove, size, block_size, read, selftest,
-        async_submit, async_cancel, async_poll};
+        async_submit, async_cancel, async_poll, write, flush};
 
 }
 

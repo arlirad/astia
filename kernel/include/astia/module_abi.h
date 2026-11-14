@@ -34,6 +34,8 @@ struct astia_module_pci_block_driver {
     int (*async_submit)(void* context, struct astia_module_io_request* request);
     int (*async_cancel)(void* context, struct astia_module_io_request* request);
     int (*async_poll)(void* context, struct astia_module_io_request* request);
+    long (*write)(void* context, const void* buffer, uint32_t length, uint64_t offset);
+    int (*flush)(void* context);
 };
 
 struct astia_module_dma_buffer {
@@ -92,12 +94,16 @@ int astia_module_dma_alloc(uint64_t pages, int zero,
 void astia_module_dma_release(struct astia_module_dma_buffer* buffer);
 int astia_module_pin_user_write(void* address, uint32_t length,
                                 uint64_t* physical, void** token);
+int astia_module_pin_user_read(const void* address, uint32_t length,
+                               uint64_t* physical, void** token);
 void astia_module_unpin(void* token);
 int astia_module_copy_out(void* address, uint32_t length, const void* source);
 int astia_module_read_registered(const char* path, void* buffer, uint32_t length,
                                  uint64_t offset);
 int astia_module_read_registered_async(const char* path, void* buffer, uint32_t length,
                                        uint64_t offset);
+int astia_module_write_registered_async(const char* path, const void* buffer,
+                                        uint32_t length, uint64_t offset);
 int astia_module_io_complete(void* request, long result);
 void astia_module_log(const char* source, const char* message);
 void astia_module_log_u64(const char* source, const char* label, uint64_t value);

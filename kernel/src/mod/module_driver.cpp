@@ -57,12 +57,16 @@ namespace astia::mod {
             expose("astia_module_dma_release", reinterpret_cast<u64>(&astia_module_dma_release)) &&
             expose("astia_module_pin_user_write",
                    reinterpret_cast<u64>(&astia_module_pin_user_write)) &&
+            expose("astia_module_pin_user_read",
+                   reinterpret_cast<u64>(&astia_module_pin_user_read)) &&
             expose("astia_module_unpin", reinterpret_cast<u64>(&astia_module_unpin)) &&
             expose("astia_module_copy_out", reinterpret_cast<u64>(&astia_module_copy_out)) &&
             expose("astia_module_read_registered",
                    reinterpret_cast<u64>(&astia_module_read_registered)) &&
             expose("astia_module_read_registered_async",
                    reinterpret_cast<u64>(&astia_module_read_registered_async)) &&
+            expose("astia_module_write_registered_async",
+                   reinterpret_cast<u64>(&astia_module_write_registered_async)) &&
             expose("astia_module_io_complete",
                    reinterpret_cast<u64>(&astia_module_io_complete)) &&
             expose("astia_module_log", reinterpret_cast<u64>(&astia_module_log)) &&
@@ -107,6 +111,7 @@ namespace astia::mod {
 
             protected:
             long read_blocks(void* buffer, u32 length, u64 offset) override;
+            long write_blocks(const void* buffer, u32 length, u64 offset) override;
             long submit(io_request& request) override;
 
             private:
@@ -206,6 +211,12 @@ namespace astia::mod {
 
         long block::read_blocks(void* buffer, u32 length, u64 offset) {
             return registration_.ops->read(context_, buffer, length, offset);
+        }
+
+        long block::write_blocks(const void* buffer, u32 length, u64 offset) {
+            return registration_.ops->write == nullptr
+                       ? -EROFS
+                       : registration_.ops->write(context_, buffer, length, offset);
         }
 
         long block::submit(io_request& request) {
@@ -624,6 +635,22 @@ namespace astia::mod {
         return 0;
     }
 
+    extern "C" int astia_module_pin_user_read(const void* address, u32 length, u64* physical,
+                                                 void** token) {
+        if (physical == nullptr || token == nullptr)
+            return -EINVAL;
+        auto* pinned = new mm::iovec();
+        if (pinned == nullptr ||
+            sys::pin_user_span(span<u8>(const_cast<u8*>(static_cast<const u8*>(address)), length),
+                               io_direction::output, *pinned) < 0) {
+            delete pinned;
+            return -EFAULT;
+        }
+        *physical = pinned->physical();
+        *token = pinned;
+        return 0;
+    }
+
     extern "C" void astia_module_unpin(void* token) {
         delete static_cast<mm::iovec*>(token);
     }
@@ -642,9 +669,9 @@ namespace astia::mod {
                                                                      : -EIO;
     }
 
-    extern "C" int astia_module_read_registered_async(const char* path, void* buffer,
-                                                        u32 length, u64 offset) {
-        auto file = fs::open(path);
+    int registered_async(const char* path, void* buffer, u32 length, u64 offset, u32 op,
+                         u32 flags) {
+        auto file = fs::open(path, flags);
         auto* current = proc::current_process();
         if (!file || current == nullptr)
             return -ENOENT;
@@ -670,8 +697,9 @@ namespace astia::mod {
             return -EBUSY;
         }
         *sqe = astia_sqe{};
-        sqe->op = OP_READ;
+        sqe->op = op;
         sqe->fd = fd.value;
+        sqe->op_flags = flags;
         sqe->offset = offset;
         sqe->address = reinterpret_cast<u64>(buffer);
         sqe->length = length;
@@ -705,6 +733,17 @@ namespace astia::mod {
         current->clear_descriptor(fd);
         (void) sys::io_destroy(ring);
         return result == static_cast<int>(length) ? 0 : result;
+    }
+
+    extern "C" int astia_module_read_registered_async(const char* path, void* buffer,
+                                                        u32 length, u64 offset) {
+        return registered_async(path, buffer, length, offset, OP_READ, ASTIA_AIO_O_RDONLY);
+    }
+
+    extern "C" int astia_module_write_registered_async(const char* path, const void* buffer,
+                                                         u32 length, u64 offset) {
+        return registered_async(path, const_cast<void*>(buffer), length, offset, OP_WRITE,
+                                ASTIA_AIO_O_WRONLY);
     }
 
     extern "C" int astia_module_io_complete(void* opaque, long result) {
