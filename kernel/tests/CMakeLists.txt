@@ -119,6 +119,12 @@ astia_add_host_test(astia_virtual_tty_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/virtual_tty.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
 target_include_directories(astia_virtual_tty_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_add_host_test(astia_framebuffer_test
+        framebuffer_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/psf_font.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/framebuffer_renderer.cpp)
+target_include_directories(astia_framebuffer_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty)
 astia_add_host_test(astia_pseudo_test
         pseudo_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/pseudo.cpp
@@ -843,6 +849,10 @@ if (ARCH STREQUAL "x86_64")
                     COMMAND env ASTIA_GRUB_EXPECT_AP_WORK=1 sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                     ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp_boot PROPERTIES TIMEOUT 30)
+            add_test(NAME astia_grub_framebuffer_boot
+                    COMMAND env ASTIA_GRUB_EXPECT_FRAMEBUFFER=unavailable sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
+                    ${CMAKE_BINARY_DIR}/astia-grub.iso)
+            set_tests_properties(astia_grub_framebuffer_boot PROPERTIES TIMEOUT 30)
             add_test(NAME astia_grub_smp4_boot
                     COMMAND env ASTIA_SMP=4 ASTIA_GRUB_EXPECT_AP_WORK=1
                             sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh

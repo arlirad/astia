@@ -18,6 +18,11 @@ cat "$log"
 # The production image intentionally parks after boot, so timeout is expected.
 grep -qF "smp: discovered=$smp online=1" "$log"
 grep -qF "online=$smp" "$log"
+if [ "${ASTIA_GRUB_EXPECT_FRAMEBUFFER:-0}" = 1 ]; then
+    grep -qF "framebuffer: ready" "$log"
+elif [ "${ASTIA_GRUB_EXPECT_FRAMEBUFFER:-0}" = unavailable ]; then
+    grep -qF "framebuffer: unavailable" "$log"
+fi
 if grep -qF "core: boot ok" "$log"; then
     :
 else

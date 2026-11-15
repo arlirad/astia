@@ -16,6 +16,7 @@ namespace astia::dev {
 
         bool inject_input(u8 byte);
         void bind_ready_file(fs::file* file);
+        void bind_backend(console_backend* backend);
 
         protected:
         bool tty_putc(u8 byte) override;
@@ -24,6 +25,7 @@ namespace astia::dev {
 
         private:
         fs::file* _ready_file = nullptr;
+        console_backend* _backend = nullptr;
     };
 
     inline constexpr char virtual_tty_path[] = "/dev/ttv0";

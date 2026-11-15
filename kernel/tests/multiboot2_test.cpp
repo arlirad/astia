@@ -64,3 +64,64 @@ ASTIA_TEST(multiboot2_rejects_bad_bounds) {
     astia::boot::boot_info out{};
     ASTIA_CHECK(!astia::boot::virt::parse_multiboot2_info(raw, out));
 }
+
+ASTIA_TEST(multiboot2_discovers_supported_framebuffer_format) {
+    alignas(8) astia::u8 raw[96]{};
+    *reinterpret_cast<astia::u32*>(raw) = sizeof(raw);
+    auto* fb = reinterpret_cast<tag*>(raw + 8);
+    fb->type = 8;
+    fb->size = 38;
+    *reinterpret_cast<astia::u64*>(raw + 16) = 0xE0000000;
+    *reinterpret_cast<astia::u32*>(raw + 24) = 4096;
+    *reinterpret_cast<astia::u32*>(raw + 28) = 1024;
+    *reinterpret_cast<astia::u32*>(raw + 32) = 768;
+    raw[36] = 32;
+    raw[37] = 1;
+    raw[40] = 0;
+    raw[41] = 8;
+    raw[42] = 8;
+    raw[43] = 8;
+    raw[44] = 16;
+    raw[45] = 8;
+    auto* map = reinterpret_cast<mmap*>(raw + 48);
+    map->h = {6, 40};
+    map->entry_size = 24;
+    auto* map_entry = reinterpret_cast<entry*>(raw + 64);
+    *map_entry = {0x100000, 0x400000, 1, 0};
+    auto* end = reinterpret_cast<tag*>(raw + 88);
+    end->type = 0;
+    end->size = 8;
+
+    astia::boot::boot_info out{};
+    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(raw, out));
+    ASTIA_CHECK(out.framebuffer.valid());
+    ASTIA_CHECK(out.framebuffer.physical_address == 0xE0000000);
+    ASTIA_CHECK(out.framebuffer.width == 1024 && out.framebuffer.height == 768);
+    ASTIA_CHECK(out.framebuffer.pixel_format ==
+                astia::boot::framebuffer_pixel_format::rgbx8888);
+}
+
+ASTIA_TEST(multiboot2_ignores_unsupported_framebuffer_format) {
+    alignas(8) astia::u8 raw[96]{};
+    *reinterpret_cast<astia::u32*>(raw) = sizeof(raw);
+    auto* fb = reinterpret_cast<tag*>(raw + 8);
+    fb->type = 8;
+    fb->size = 32;
+    *reinterpret_cast<astia::u64*>(raw + 16) = 0xE0000000;
+    *reinterpret_cast<astia::u32*>(raw + 24) = 1024;
+    *reinterpret_cast<astia::u32*>(raw + 28) = 80;
+    *reinterpret_cast<astia::u32*>(raw + 32) = 25;
+    raw[36] = 8;
+    raw[37] = 2;
+    auto* map = reinterpret_cast<mmap*>(raw + 40);
+    map->h = {6, 40};
+    map->entry_size = 24;
+    auto* map_entry = reinterpret_cast<entry*>(raw + 56);
+    *map_entry = {0x100000, 0x400000, 1, 0};
+    auto* end = reinterpret_cast<tag*>(raw + 80);
+    end->type = 0;
+    end->size = 8;
+    astia::boot::boot_info out{};
+    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(raw, out));
+    ASTIA_CHECK(!out.framebuffer.valid());
+}

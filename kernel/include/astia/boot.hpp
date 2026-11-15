@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/boot/framebuffer.hpp>
 #include <astia/boot/types.hpp>
 #include <astia/common.hpp>
 #include <astia/mm/memory_map.hpp>
@@ -38,6 +39,7 @@ namespace astia::boot {
         module_info initrd;
         module_info modules[max_modules]{}; ///< Loader modules besides the initrd.
         usize  module_count = 0;       ///< Number of valid entries in modules.
+        framebuffer_info framebuffer;   ///< One loader-provided linear framebuffer.
     };
 
 } // namespace astia::boot

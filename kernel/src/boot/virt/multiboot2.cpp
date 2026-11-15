@@ -27,6 +27,7 @@ namespace astia::boot::virt {
         constexpr u32 tag_end      = 0;
         constexpr u32 tag_cmdline  = 1;
         constexpr u32 tag_module   = 3;
+        constexpr u32 tag_framebuffer = 8;
         constexpr u32 tag_mmap     = 6;
         constexpr u32 tag_acpi_old = 14;
         constexpr u32 tag_acpi_new = 15;
@@ -126,6 +127,38 @@ namespace astia::boot::virt {
                                       static_cast<mm::memory_type>(e->type));
                 }
                 saw_mmap = count != 0;
+                break;
+            }
+            case tag_framebuffer: {
+                if (tag->size < 32)
+                    return false;
+                const u8* data = bytes + offset + 8;
+                const u64 address = *reinterpret_cast<const u64*>(data);
+                const u32 pitch = *reinterpret_cast<const u32*>(data + 8);
+                const u32 width = *reinterpret_cast<const u32*>(data + 12);
+                const u32 height = *reinterpret_cast<const u32*>(data + 16);
+                const u8 bpp = data[20];
+                const u8 type = data[21];
+                if (type == 1 && bpp == 32 && tag->size >= 38) {
+                    const u8 red_position = data[24];
+                    const u8 red_size = data[25];
+                    const u8 green_position = data[26];
+                    const u8 green_size = data[27];
+                    const u8 blue_position = data[28];
+                    const u8 blue_size = data[29];
+                    if (red_size == 8 && green_size == 8 && blue_size == 8 &&
+                        ((red_position == 0 && green_position == 8 && blue_position == 16) ||
+                         (red_position == 16 && green_position == 8 && blue_position == 0))) {
+                        parsed.framebuffer = {
+                            address,
+                            width,
+                            height,
+                            pitch,
+                            red_position == 0 ? framebuffer_pixel_format::rgbx8888
+                                              : framebuffer_pixel_format::bgrx8888,
+                        };
+                    }
+                }
                 break;
             }
             case tag_acpi_old:

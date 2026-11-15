@@ -27,8 +27,8 @@
 multiboot2_header:
     .long 0xE85250D6                 /* magic */
     .long 0                           /* i386 protected-mode architecture */
-    .long 80                          /* header length */
-    .long 0x17ADAEDA                 /* checksum */
+    .long 104                         /* header length */
+    .long 0x17ADAEC2                 /* checksum */
     .word 1, 0                       /* request information */
     .long 28
     .long 1                           /* command line */
@@ -36,6 +36,12 @@ multiboot2_header:
     .long 6                           /* memory map */
     .long 14                          /* ACPI 1 RSDP */
     .long 15                          /* ACPI 2 RSDP */
+    .long 0                           /* padding to 8-byte tag alignment */
+    .word 5, 1                        /* optional framebuffer */
+    .long 20
+    .long 0
+    .long 0
+    .long 0
     .long 0                           /* padding to 8-byte tag alignment */
     .word 6, 0                        /* module alignment */
     .long 8

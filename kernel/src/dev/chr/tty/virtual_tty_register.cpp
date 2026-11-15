@@ -1,4 +1,5 @@
 #include "virtual_tty.hpp"
+#include "framebuffer_console.hpp"
 
 #include "../../device_file.hpp"
 #include <astia/fs.hpp>
@@ -12,7 +13,11 @@ namespace astia::dev {
     }
 
     bool virtual_tty_init() {
-        if (!console_backend_available())
+        auto* backend = framebuffer_console_backend();
+        if (backend == nullptr)
+            return true;
+        ttv0.bind_backend(backend);
+        if (!backend->available())
             return false;
         if (fs::register_device(virtual_tty_path,
                                 mm::shptr<fs::file>::borrowed(&ttv0_file)) < 0)
