@@ -1,4 +1,4 @@
-#include <astia/module_abi.h>
+#include <astia/module_abi.hpp>
 
 #include <cstddef>
 
@@ -68,6 +68,8 @@ static_assert(offsetof(astia_module_msix_route, pci_bus) == 31);
 static_assert(offsetof(astia_module_msix_route, pci_device) == 32);
 static_assert(offsetof(astia_module_msix_route, pci_function) == 33);
 static_assert(offsetof(astia_module_msix_route, reserved) == 34);
+static_assert(sizeof(astia::module::block_driver) == 128);
+static_assert(offsetof(astia::module::block_driver, flush) == 104);
 
 int main() {
     return 0;

@@ -13,13 +13,20 @@ add_custom_command(
                 -std=c++20 -ffreestanding -fno-builtin -fno-pic -fno-pie
                 -fno-exceptions -fno-rtti -fno-threadsafe-statics
                 -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
-                -mcmodel=large -fno-asynchronous-unwind-tables -Wall -Wextra -Werror -pedantic
+                -mcmodel=large -fno-asynchronous-unwind-tables -fno-use-cxa-atexit
+                -Wall -Wextra -Werror -pedantic
                 ${ASTIA_NVME_MODE}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp -o ${ASTIA_NVME_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/nvme_protocol.hpp
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_core.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_interrupt.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_io.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_memory.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_pci.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/shptr.hpp
         COMMENT "Compiling NVMe loadable module"
         VERBATIM
 )

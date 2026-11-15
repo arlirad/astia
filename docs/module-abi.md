@@ -1,13 +1,28 @@
 # Astia module ABI
 
-The public module ABI is declared by `kernel/include/astia/module_abi.h` and
-uses C linkage. `ASTIA_MODULE_ABI_VERSION_MAJOR` is incremented for an
+The primary module API is the C++ header `kernel/include/astia/module_abi.hpp`.
+It provides typed block-driver descriptors, RAII DMA ownership, shared-owner
+aliases, and the C++ registration adapter used by the NVMe and VirtIO modules.
+The freestanding C headers under `kernel/include/astia` are a compatibility
+shim for the loader entry point and foreign modules: `module_abi_core.h`
+contains version and platform contracts, while `module_abi_pci.h`,
+`module_abi_memory.h`, `module_abi_io.h`, and `module_abi_interrupt.h` retain
+the ABI 1.1 layouts and symbols. `module_abi.h` includes all shim headers for
+source compatibility. `module_main` remains the C-linkage ET_REL loader
+entry; the C++ registration adapter preserves the same exported symbols.
+`ASTIA_MODULE_ABI_VERSION_MAJOR` is incremented for an
 incompatible change; `ASTIA_MODULE_ABI_VERSION_MINOR` is incremented for an
 additive change. The current ABI is version 1.1. Version 1.1 appends the
 optional `namespace_count` and `namespace_info` callbacks to the block-driver
 table; a null pair keeps the single-namespace behavior. Modules must be
 rebuilt for every ABI version change because registration receives a pointer
 to the complete table and does not carry a runtime table length.
+
+ET_REL modules are built with static-destructor registration disabled because
+the loader owns module lifetime and does not run C++ termination arrays.
+Drivers still release DMA, interrupt, and asynchronous resources explicitly
+before their remove callback returns; local C++ RAII wrappers remain valid for
+scoped ownership.
 
 The ABI is the x86-64 C ABI: pointers are 64 bits, `uint8_t`, `uint16_t`,
 `uint32_t`, and `uint64_t` retain their standard widths, and transfer results

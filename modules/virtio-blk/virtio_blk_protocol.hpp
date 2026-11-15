@@ -1,6 +1,6 @@
 #pragma once
 
-#include <astia/module_abi.h>
+#include <astia/module_abi_core.h>
 
 #include <stdint.h>
 

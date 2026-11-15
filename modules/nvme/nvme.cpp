@@ -1,4 +1,4 @@
-#include <astia/module_abi.h>
+#include <astia/module_abi.hpp>
 #include "nvme_protocol.hpp"
 
 namespace {
@@ -15,23 +15,7 @@ namespace {
     constexpr unsigned max_namespaces = 16;
     constexpr unsigned csts_fatal = 1u << 1;
 
-    struct dma {
-        astia_module_dma_buffer value{};
-        bool allocated = false;
-
-        bool allocate(unsigned pages = 1, bool zero = true) {
-            allocated = astia_module_dma_alloc(pages, zero ? 1 : 0, &value) == 0;
-            return allocated;
-        }
-
-        void release() {
-            if (!allocated)
-                return;
-            astia_module_dma_release(&value);
-            value = {};
-            allocated = false;
-        }
-    };
+    using dma = astia::module::dma_buffer;
 
     using command = nvme_protocol::command;
 
@@ -853,12 +837,12 @@ namespace {
         return 1;
     }
 
-    const astia_module_pci_block_driver ops = {
+    const astia::module::block_driver ops = {
         "nvme", "/dev/nvme0n1", match, probe, remove, size, block_size, read, selftest,
         async_submit, async_cancel, async_poll, write, flush, namespace_count, namespace_info};
 
 }
 
 extern "C" int module_main() {
-    return astia_module_register_pci_block_driver(&ops);
+    return astia::module::register_block_driver(ops);
 }

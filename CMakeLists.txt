@@ -23,6 +23,8 @@ if(ASTIA_BUILD_TESTS)
     foreach(_astia_module_test_target
             astia_module_abi_layout_target
             astia_module_c_compatibility
+            astia_module_cpp_compatibility
+            astia_module_abi_header_alone
             virtio_blk_unit_target)
         if(NOT TARGET ${_astia_module_test_target})
             message(FATAL_ERROR
@@ -34,6 +36,8 @@ if(ASTIA_BUILD_TESTS)
     add_dependencies(astia_module_host_tests
             astia_module_abi_layout_target
             astia_module_c_compatibility
+            astia_module_cpp_compatibility
+            astia_module_abi_header_alone
             virtio_blk_unit_target)
 
     add_test(NAME astia_module_host_targets

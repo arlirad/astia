@@ -1,4 +1,4 @@
-#include <astia/module_abi.h>
+#include <astia/module_abi.hpp>
 #include <astia/core/endian.hpp>
 #include <astia/dev/regs.hpp>
 #include "virtio_blk_protocol.hpp"
@@ -29,22 +29,7 @@ namespace {
     constexpr unsigned descriptor_next = 1;
     constexpr unsigned descriptor_write = 2;
 
-    struct dma {
-        astia_module_dma_buffer value{};
-        bool allocated = false;
-
-        bool allocate(unsigned pages) {
-            allocated = astia_module_dma_alloc(pages, 1, &value) == 0;
-            return allocated;
-        }
-
-        void release() {
-            if (!allocated)
-                return;
-            astia_module_dma_release(&value);
-            allocated = false;
-        }
-    };
+    using dma = astia::module::dma_buffer;
 
     struct capability_region {
         bool present = false;
@@ -761,12 +746,12 @@ namespace {
         return 1;
     }
 
-    const astia_module_pci_block_driver ops = {
+    const astia::module::block_driver ops = {
         "virtio-blk", "/dev/vblk0", match, probe, remove, size, block_size, read, selftest,
         async_submit, async_cancel, async_poll, write, nullptr, nullptr, nullptr};
 
 }
 
 extern "C" int module_main() {
-    return astia_module_register_pci_block_driver(&ops);
+    return astia::module::register_block_driver(ops);
 }
