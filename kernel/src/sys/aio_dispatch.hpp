@@ -4,6 +4,12 @@
 
 namespace astia::sys::aio_dispatch {
 
+    mm::shptr<fs::open_file> file_for(proc::process* current, i32 fd);
+    mm::shptr<fs::open_file> file_for(i32 fd);
+    long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
+                    char* out, usize capacity);
+    bool parent_writable(proc::process* current, const char* path);
+
     bool dispatch_one(aio_ring::ring_slot& slot, astia_rings* ring,
                       const astia_sqe& sqe);
     void retry_pending(aio_ring::ring_slot& slot, astia_rings* ring);
