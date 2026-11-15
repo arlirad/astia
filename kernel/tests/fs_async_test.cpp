@@ -172,6 +172,7 @@ ASTIA_TEST(fs_async_cancels_parked_device_flight) {
     ASTIA_CHECK(request->canceled());
     ASTIA_CHECK(!request->begin_device());
     ASTIA_CHECK(completion->complete(17));
+    ASTIA_CHECK(!completion->complete(18));
     request->acknowledge();
 }
 

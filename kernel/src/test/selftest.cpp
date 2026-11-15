@@ -551,6 +551,85 @@ namespace astia::test {
             return true;
         }
 
+        bool aio_cancel_checks() {
+            struct cancel_probe : fs::file {
+                long submit(io_request& request) override {
+                    return ready ? static_cast<long>(request.length()) : 0;
+                }
+
+                bool ready = false;
+            } node;
+            static const char path[] = "/dev/aio_cancel_probe";
+            constexpr u64 target_tag = 0xC0DE70;
+            constexpr u64 cancel_tag = 0xC0DE71;
+            if (fs::register_device(path, mm::shptr<fs::file>::borrowed(&node)) < 0) {
+                logs::error("aio cancel fail (probe node)");
+                return false;
+            }
+            astia_rings* ring = nullptr;
+            auto fail = [&]() {
+                if (ring != nullptr)
+                    (void) sys::io_destroy(ring);
+                return false;
+            };
+            if (sys::io_setup(8, 0, &ring) < 0 || ring == nullptr)
+                return fail();
+            auto file = fs::open(path);
+            auto* current = proc::current_process();
+            if (!file || current == nullptr)
+                return fail();
+            fd_t fd{-1};
+            for (i32 value = 3; value < static_cast<i32>(proc::max_process_fds); ++value)
+                if (current->set_descriptor(fd_t{value}, file)) {
+                    fd = fd_t{value};
+                    break;
+                }
+            if (fd.value < 0)
+                return fail();
+            u8 buffer = 0;
+            astia_sqe* sqe = astia_sqe_slot(ring);
+            if (sqe == nullptr)
+                return fail();
+            *sqe = astia_sqe{};
+            sqe->op = OP_READ;
+            sqe->fd = fd.value;
+            sqe->address = reinterpret_cast<u64>(&buffer);
+            sqe->length = sizeof buffer;
+            sqe->user_data = target_tag;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 0)
+                return fail();
+            sqe = astia_sqe_slot(ring);
+            if (sqe == nullptr)
+                return fail();
+            *sqe = astia_sqe{};
+            sqe->op = OP_CANCEL;
+            sqe->offset = target_tag;
+            sqe->user_data = cancel_tag;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 2)
+                return fail();
+            astia_cqe* first = astia_cq_peek(ring);
+            if (first == nullptr || first->user_data != target_tag ||
+                first->result != -ECANCELED)
+                return fail();
+            astia_cq_consume(ring, 1);
+            astia_cqe* second = astia_cq_peek(ring);
+            if (second == nullptr || second->user_data != cancel_tag || second->result != 0)
+                return fail();
+            astia_cq_consume(ring, 1);
+            node.ready = true;
+            sys::io_device_ready_context(&node);
+            if (sys::io_submit(ring, 0) != 0 || astia_cq_ready(ring) != 0)
+                return fail();
+            current->clear_descriptor(fd);
+            file = {};
+            if (sys::io_destroy(ring) != 0)
+                return false;
+            logs::info("aio cancel ok");
+            return true;
+        }
+
         // OP_STATX on a ring: the success path (both address forms) and the
         // errors the VFS can actually produce for them.
         bool statx_checks() {
@@ -798,6 +877,9 @@ namespace astia::test {
             return false;
         }
         if (!cq_full_completion_checks()) {
+            return false;
+        }
+        if (!aio_cancel_checks()) {
             return false;
         }
         if (!mount_lifecycle_checks()) {
