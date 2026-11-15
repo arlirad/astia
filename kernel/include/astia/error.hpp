@@ -30,6 +30,8 @@ namespace astia {
         erange,     ///< Result out of range.
         erofs,      ///< Read-only storage.
         etimedout,  ///< Timed out.
+        e2big,      ///< Argument or vector exceeds a fixed contract.
+        enfile,     ///< Kernel-wide finite resource table is full.
     };
 
     /// Short, human-readable name for an error code (for logs). Never null.
@@ -79,6 +81,10 @@ namespace astia {
             return "read-only";
         case error_t::etimedout:
             return "timed out";
+        case error_t::e2big:
+            return "argument list too large";
+        case error_t::enfile:
+            return "too many open files in system";
         }
         return "unknown error";
     }

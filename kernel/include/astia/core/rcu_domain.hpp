@@ -1,13 +1,15 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::core {
 
     /// Bounded epoch-based RCU domain. Readers are lockless; writers retire
     /// objects and call poll() from a safe maintenance context. A reader must
     /// not block or migrate CPUs while it is active.
-    template <u32 CpuCount = 256, u32 RetireCapacity = 256>
+    template <u32 CpuCount = 256,
+              u32 RetireCapacity = resource_limits::queue::rcu_retired>
     class rcu_domain {
         static_assert(CpuCount != 0 && RetireCapacity != 0);
 

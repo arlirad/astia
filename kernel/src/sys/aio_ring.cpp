@@ -16,7 +16,7 @@ namespace astia::sys::aio_ring {
     alignas(mm::page_size) u8 slot_storage[slot_count][sizeof(ring_slot)];
 
     namespace {
-        constexpr u32 waiter_index_buckets = 32;
+        constexpr u32 waiter_index_buckets = resource_limits::queue::aio_waiter_buckets;
         constexpr u16 waiter_index_none    = 0xffff;
 
         struct waiter_index_entry {

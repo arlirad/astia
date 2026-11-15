@@ -29,6 +29,8 @@ namespace astia {
             return EADDRINUSE;
         case error_t::eagain:
             return EAGAIN;
+        case error_t::e2big:
+            return E2BIG;
         case error_t::ebadf:
             return EBADF;
         case error_t::ebusy:
@@ -49,6 +51,8 @@ namespace astia {
             return ENOMEM;
         case error_t::emfile:
             return EMFILE;
+        case error_t::enfile:
+            return ENFILE;
         case error_t::enospc:
             return ENOSPC;
         case error_t::enosys:
@@ -79,6 +83,8 @@ namespace astia {
             return error_t::eaddrinuse;
         case EAGAIN:
             return error_t::eagain;
+        case E2BIG:
+            return error_t::e2big;
         case EBADF:
             return error_t::ebadf;
         case EBUSY:
@@ -99,6 +105,8 @@ namespace astia {
             return error_t::enomem;
         case EMFILE:
             return error_t::emfile;
+        case ENFILE:
+            return error_t::enfile;
         case ENOSPC:
             return error_t::enospc;
         case ENOSYS:

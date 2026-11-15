@@ -1,5 +1,6 @@
 #include "support/test.hpp"
 #include <astia/core/rcu_domain.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace {
     astia::u32 destroyed = 0;
@@ -33,4 +34,13 @@ ASTIA_TEST(rcu_domain_supports_nested_readers) {
         ASTIA_CHECK(domain.poll() == 0);
     }
     ASTIA_CHECK(domain.poll() == 1);
+}
+
+ASTIA_TEST(rcu_domain_rejects_only_after_exact_capacity) {
+    astia::core::rcu_domain<1, astia::resource_limits::queue::rcu_retired> domain;
+    int values[astia::resource_limits::queue::rcu_retired + 1]{};
+    for (astia::u32 i = 0; i < astia::resource_limits::queue::rcu_retired; ++i)
+        ASTIA_CHECK(domain.retire(&values[i], [](void*) {}));
+    ASTIA_CHECK(!domain.retire(&values[astia::resource_limits::queue::rcu_retired],
+                               [](void*) {}));
 }

@@ -6,6 +6,7 @@
 #include <astia/error.hpp>
 #include <astia/optional.hpp>
 #include <astia/core/resume_queue.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::core {
 
@@ -266,8 +267,8 @@ namespace astia::core {
     template <>
     class task<void> {
         public:
-        static constexpr usize frame_slot_bytes = 2048;
-        static constexpr usize frame_slot_count = 32;
+        static constexpr usize frame_slot_bytes = resource_limits::coroutine::frame_slot_bytes;
+        static constexpr usize frame_slot_count = resource_limits::coroutine::frame_slots;
         struct promise_type;
         using handle = std::coroutine_handle<promise_type>;
 

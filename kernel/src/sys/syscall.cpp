@@ -6,7 +6,7 @@
 namespace astia::sys {
 
     namespace {
-        inline constexpr u32 syscall_capacity = 128;
+        inline constexpr u32 syscall_capacity = syscall_table_capacity;
         syscall_handler      handlers[syscall_capacity]{};
         syscall_exit_hook    exit_hook = nullptr;
     }

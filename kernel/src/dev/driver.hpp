@@ -3,6 +3,7 @@
 #include "device.hpp"
 #include <astia/mm/share.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::dev {
 
@@ -25,8 +26,8 @@ namespace astia::dev {
 
     class driver_manager {
         public:
-        static constexpr u32 max_drivers = 32;
-        static constexpr u32 max_devices = 64;
+        static constexpr u32 max_drivers = resource_limits::policy::registered_drivers;
+        static constexpr u32 max_devices = resource_limits::policy::bound_devices;
 
         bool register_driver(driver& value);
         bool bind(mm::shptr<device_info> device);

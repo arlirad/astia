@@ -4,6 +4,7 @@
 #include "scheduler.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
+#include <astia/resource_limits.hpp>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
@@ -13,8 +14,8 @@
 namespace astia::proc {
 
     namespace {
-        inline constexpr u32 futex_capacity        = 64;
-        inline constexpr u32 futex_bucket_count    = 4;
+        inline constexpr u32 futex_capacity        = resource_limits::queue::futex_waiters;
+        inline constexpr u32 futex_bucket_count    = resource_limits::queue::futex_buckets;
         inline constexpr u32 futex_bucket_capacity = futex_capacity / futex_bucket_count;
         static_assert(futex_capacity % futex_bucket_count == 0);
 

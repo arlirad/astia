@@ -2,6 +2,7 @@
 
 #include <astia/common.hpp>
 #include <astia/mm/pinned_buffer.hpp>
+#include <astia/resource_limits.hpp>
 
 // A scatter/gather edition of the pin: an ordered list of user ranges, all
 // held still for the duration of one asynchronous operation.
@@ -60,7 +61,7 @@ namespace astia::mm {
         public:
         /// Entries per operation.  A readv()/writev() longer than this is
         /// refused with EINVAL, not truncated.
-        static constexpr usize max_segments = 8;
+        static constexpr usize max_segments = resource_limits::policy::iovec_segments;
 
         iovec()                        = default;
         iovec(const iovec&)            = delete;

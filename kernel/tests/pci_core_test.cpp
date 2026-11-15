@@ -200,3 +200,18 @@ ASTIA_TEST(pci_interrupt_capability_is_explicit) {
     ASTIA_CHECK(astia::dev::pci_interrupt_capability_of(msix) ==
                 astia::dev::pci_interrupt_capability::msix);
 }
+
+ASTIA_TEST(pci_registry_accepts_exact_capacity_only) {
+    astia::dev::pci_registry registry;
+    for (astia::u32 i = 0; i < astia::dev::pci_registry::max_devices; ++i) {
+        astia::dev::pci_device value{};
+        value.bdf.bus      = static_cast<astia::u8>(i / 32);
+        value.bdf.device   = static_cast<astia::u8>(i % 32);
+        value.bdf.function = 0;
+        ASTIA_CHECK(registry.add(value) != nullptr);
+    }
+    astia::dev::pci_device extra{};
+    extra.bdf.bus = 8;
+    ASTIA_CHECK(registry.add(extra) == nullptr);
+    ASTIA_CHECK(registry.count() == astia::dev::pci_registry::max_devices);
+}

@@ -1,11 +1,12 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/platform.hpp>
 #include <astia/core/resume_queue.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::core {
     namespace {
         constexpr u32 max_cpus = arch::platform::max_cpu_count;
-        constexpr u32 queue_capacity = 256;
+        constexpr u32 queue_capacity = resource_limits::queue::resume;
 
         enum class slot_state : u8 {
             free,

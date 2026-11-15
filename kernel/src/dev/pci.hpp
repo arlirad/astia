@@ -3,6 +3,7 @@
 #include <astia/arch/pci_config.hpp>
 #include <astia/common.hpp>
 #include <astia/optional.hpp>
+#include <astia/resource_limits.hpp>
 
 #include "driver.hpp"
 #include "mmio.hpp"
@@ -104,9 +105,10 @@ namespace astia::dev {
         u8      capability_count      = 0;
         u8      extended_count        = 0;
         bool    bus_master_enabled    = false;
-        pci_bar bars[6]{};
-        pci_capability capabilities[48]{};
-        pci_extended_capability extended_capabilities[32]{};
+        pci_bar bars[resource_limits::abi::pci_bar_count]{};
+        pci_capability capabilities[resource_limits::abi::pci_capability_count]{};
+        pci_extended_capability
+            extended_capabilities[resource_limits::abi::pci_extended_capability_count]{};
         pci_interrupt_info interrupt{};
         pci_interrupt_blocker interrupt_blocker = pci_interrupt_blocker::no_capability;
     };
@@ -128,7 +130,7 @@ namespace astia::dev {
 
     class pci_registry {
         public:
-        static constexpr u32 max_devices = 256;
+        static constexpr u32 max_devices = resource_limits::policy::pci_devices;
 
         void clear();
         pci_device* add(const pci_device& value);

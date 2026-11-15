@@ -30,7 +30,7 @@ namespace astia::dev {
         constexpr u8  capability_msix       = 0x11;
         constexpr u16 ext_cap_start         = 0x100;
         constexpr u16 ext_cap_end           = 0xffc;
-        constexpr u32 resource_limit        = 256;
+        constexpr u32 resource_limit        = resource_limits::policy::pci_resources;
 
         pci_config_backend backend{};
         pci_mmio_map_fn mmio_map = nullptr;
@@ -190,7 +190,9 @@ namespace astia::dev {
                 if (!read_byte(device.bdf, capability_offset, pointer))
                     return false;
                 bool visited[256]{};
-                for (u32 step = 0; step < 48 && pointer != 0; ++step) {
+                for (u32 step = 0;
+                     step < resource_limits::abi::pci_capability_count && pointer != 0;
+                     ++step) {
                     if (pointer < 0x40 || pointer > 0xfc || (pointer & 3u) != 0 ||
                         visited[pointer])
                         return false;
@@ -200,7 +202,7 @@ namespace astia::dev {
                     if (!read_byte(device.bdf, pointer, id) ||
                         !read_byte(device.bdf, static_cast<u16>(pointer + 1), next))
                         return false;
-                    if (device.capability_count < 48)
+                    if (device.capability_count < resource_limits::abi::pci_capability_count)
                         device.capabilities[device.capability_count++] = {id, pointer, next};
                     parse_interrupt_capability(device,
                                                {id, pointer, next});
@@ -209,7 +211,9 @@ namespace astia::dev {
             }
             u16 offset = ext_cap_start;
             bool visited[1024]{};
-            for (u32 step = 0; step < 32 && offset != 0; ++step) {
+            for (u32 step = 0;
+                 step < resource_limits::abi::pci_extended_capability_count && offset != 0;
+                 ++step) {
                 if (offset < ext_cap_start || offset > ext_cap_end || (offset & 3u) != 0)
                     return false;
                 const u32 slot = (offset - ext_cap_start) / 4;
@@ -219,7 +223,7 @@ namespace astia::dev {
                 u32 header = 0;
                 if (!read_dword(device.bdf, offset, header) || header == 0 || header == ~u32{0})
                     break;
-                if (device.extended_count < 32) {
+                if (device.extended_count < resource_limits::abi::pci_extended_capability_count) {
                     device.extended_capabilities[device.extended_count++] = {
                         static_cast<u16>(header & 0xffffu),
                         static_cast<u16>((header >> 16) & 0xfu), offset,
@@ -243,7 +247,9 @@ namespace astia::dev {
 
         bool describe_bars(pci_device& device) {
             const u8 header = device.header_type & 0x7fu;
-            const u8 count = header == 0x00 ? 6 : header == 0x01 ? 2 : 0;
+            const u8 count = header == 0x00
+                                 ? resource_limits::abi::pci_bar_count
+                                 : header == 0x01 ? 2 : 0;
             device.bar_count = count;
             for (u8 index = 0; index < count; ++index) {
                 device.bars[index].index = index;
@@ -324,7 +330,8 @@ namespace astia::dev {
     void pci_registry::clear() {
         for (u32 i = 0; i < count_; ++i) {
             pci_device& device = devices_[i];
-            for (u8 bar = 0; bar < device.bar_count && bar < 6; ++bar) {
+            for (u8 bar = 0; bar < device.bar_count &&
+                              bar < resource_limits::abi::pci_bar_count; ++bar) {
                 if (device.bars[bar].mapped_valid && mmio_unmap != nullptr)
                     mmio_unmap(device.bars[bar].mapped, device.bars[bar].size);
                 if (device.bars[bar].mapped_valid)
@@ -399,7 +406,7 @@ namespace astia::dev {
     }
 
     bool pci_probe_bar(pci_device& device, u8 index) {
-        if (index >= 6 || index >= device.bar_count)
+        if (index >= resource_limits::abi::pci_bar_count || index >= device.bar_count)
             return false;
         const u16 offset = static_cast<u16>(bar_offset + index * 4);
         u32 original = 0;
@@ -489,7 +496,9 @@ namespace astia::dev {
             return false;
         for (u32 i = 0; i < pci_devices().count(); ++i) {
             const pci_device* device = pci_devices().at(i);
-            for (u8 bar = 0; device != nullptr && bar < device->bar_count && bar < 6; ++bar)
+            for (u8 bar = 0; device != nullptr &&
+                              bar < device->bar_count &&
+                              bar < resource_limits::abi::pci_bar_count; ++bar)
                 if (device->bars[bar].mapped_valid)
                     return false;
         }
@@ -499,7 +508,8 @@ namespace astia::dev {
     }
 
     bool pci_map_bar(pci_device& device, u8 index) {
-        if (index >= device.bar_count || index >= 6 || device.bars[index].io ||
+        if (index >= device.bar_count || index >= resource_limits::abi::pci_bar_count ||
+            device.bars[index].io ||
             !device.bars[index].present || device.bars[index].mapped_valid || mmio_map == nullptr)
             return false;
         if (!reserve_resource(device, index))
@@ -516,7 +526,8 @@ namespace astia::dev {
     }
 
     bool pci_unmap_bar(pci_device& device, u8 index) {
-        if (index >= device.bar_count || index >= 6 || !device.bars[index].mapped_valid ||
+        if (index >= device.bar_count || index >= resource_limits::abi::pci_bar_count ||
+            !device.bars[index].mapped_valid ||
             mmio_unmap == nullptr)
             return false;
         mmio_unmap(device.bars[index].mapped, device.bars[index].size);

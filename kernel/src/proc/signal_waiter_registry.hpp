@@ -1,12 +1,13 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::proc {
 
     class thread;
 
-    inline constexpr u32 signal_waiter_capacity = 16;
+    inline constexpr u32 signal_waiter_capacity = resource_limits::queue::signal_waiters;
 
     class signal_waiter_registry {
         public:

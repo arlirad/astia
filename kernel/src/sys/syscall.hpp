@@ -2,8 +2,12 @@
 
 #include <astia/arch/context.hpp>
 #include <astia/common.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::sys {
+
+    inline constexpr u32 syscall_table_capacity =
+        resource_limits::abi::syscall_table_capacity;
 
     /// Architecture-independent syscall numbers mirror the public ABI.
     enum class syscall_id : u32 {

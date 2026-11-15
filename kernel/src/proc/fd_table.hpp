@@ -4,10 +4,11 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/fs.hpp>
 #include <astia/optional.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::proc {
 
-    inline constexpr u32 max_process_fds = 64;
+    inline constexpr u32 max_process_fds = resource_limits::policy::process_file_descriptors;
 
     /// Process-owned descriptor table.  A descriptor references an
     /// open file description; duplicate operations copy that shptr,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/api/aio.h>
+#include <astia/resource_limits.hpp>
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
 
@@ -43,6 +44,11 @@ namespace astia::sys {
     /// in-kernel client submits — userspace rings will move to
     /// heap-backed mappings when the syscall layer lands.
     inline constexpr u32 kernel_ring_max_entries = ASTIA_AIO_MAX_RING_ENTRIES;
+    static_assert(ASTIA_AIO_MAX_RING_SLOTS == resource_limits::abi::aio_ring_slots);
+    static_assert(ASTIA_AIO_MAX_RING_ENTRIES == resource_limits::abi::aio_ring_entries);
+    static_assert(ASTIA_AIO_MAX_PARKED_OPERATIONS ==
+                  resource_limits::abi::aio_parked_operations);
+    static_assert(ASTIA_AIO_MAX_OPERATION_BYTES == resource_limits::abi::aio_operation_bytes);
     static_assert(kernel_ring_max_entries <= IO_MAX_ENTRIES,
                   "kernel ring cap must fit the AIO ABI cap");
 

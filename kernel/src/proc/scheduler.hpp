@@ -2,11 +2,12 @@
 
 #include "process.hpp"
 #include <astia/arch/platform.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::proc::scheduler {
 
     inline constexpr u32 max_cpu_count             = arch::platform::max_cpu_count;
-    inline constexpr u32 run_queue_capacity        = 32;
+    inline constexpr u32 run_queue_capacity        = resource_limits::queue::scheduler_runnable;
     inline constexpr u32 run_queue_rebalance_slack = 1;
     inline constexpr u32 nice_charge_scale         = 1024;
 

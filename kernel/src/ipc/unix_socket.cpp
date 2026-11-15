@@ -7,13 +7,14 @@
 #include <astia/api/errno.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
+#include <astia/resource_limits.hpp>
 #include <astia/span.hpp>
 
 namespace astia::fs {
     namespace {
         constexpr u32 socket_stream_capacity_bytes     = 4096;
         constexpr u32 socket_backlog_capacity          = 16;
-        constexpr u32 socket_datagram_queue_capacity   = 32;
+        constexpr u32 socket_datagram_queue_capacity   = resource_limits::queue::unix_datagrams;
         constexpr u32 socket_datagram_payload_capacity = 2048;
         constexpr u32 socket_side_first                = 0;
         constexpr u32 socket_side_second               = 1;

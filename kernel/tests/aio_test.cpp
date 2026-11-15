@@ -7,6 +7,13 @@
 #endif
 #include <astia/api/aio.h>
 
+ASTIA_TEST(aio_public_limits_cover_exact_ring_boundary) {
+    ASTIA_CHECK(static_cast<unsigned>(IO_MAX_ENTRIES) >=
+                static_cast<unsigned>(ASTIA_AIO_MAX_RING_ENTRIES));
+    ASTIA_CHECK(ASTIA_AIO_MAX_RING_ENTRIES == 64);
+    ASTIA_CHECK(ASTIA_AIO_MAX_RING_ENTRIES - 1 < ASTIA_AIO_MAX_RING_ENTRIES);
+}
+
 ASTIA_TEST(aio_cq_consume_acknowledges_notification_generation) {
     struct fixture {
         astia_rings   ring{};

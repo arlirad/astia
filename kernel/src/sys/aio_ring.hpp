@@ -14,8 +14,8 @@
 
 namespace astia::sys::aio_ring {
 
-    inline constexpr u32 slot_count = ASTIA_AIO_MAX_RING_SLOTS;
-    inline constexpr u32 parked_slot_count = ASTIA_AIO_MAX_PARKED_OPERATIONS;
+    inline constexpr u32 slot_count = resource_limits::queue::aio_ring_slots;
+    inline constexpr u32 parked_slot_count = resource_limits::queue::aio_parked_operations;
     inline constexpr u32 kernel_ring_slot_count = slot_count;
     inline constexpr u32 parked_operation_slots = parked_slot_count;
     inline constexpr usize mapping_bytes =

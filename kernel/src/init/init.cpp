@@ -1,5 +1,6 @@
 #include <astia/init.hpp>
 #include <astia/log.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::init {
 
@@ -23,7 +24,7 @@ namespace astia::init {
         // The step table is bounded by a fixed size so the ordering pass needs
         // no dynamic allocation (it runs before, and independent of, the frame
         // allocator).
-        constexpr usize max_steps = 128;
+        constexpr usize max_steps = astia::resource_limits::policy::init_steps;
 
         enum class state : u8 { pending, ok, failed, skipped };
 

@@ -15,6 +15,7 @@
 #include <astia/mm/address_space.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/mm/uptr.hpp>
+#include <astia/resource_limits.hpp>
 #include <astia/span.hpp>
 #include <astia/wait.hpp>
 
@@ -25,16 +26,16 @@ namespace astia::proc {
         u64 stack = 0;
     };
 
-    inline constexpr u32 max_processes                  = 64;
-    inline constexpr u32 max_threads_per_process        = 16;
-    inline constexpr u32 max_waiters_per_process        = 4;
+    inline constexpr u32 max_processes                  = resource_limits::policy::process_count;
+    inline constexpr u32 max_threads_per_process        = resource_limits::policy::threads_per_process;
+    inline constexpr u32 max_waiters_per_process        = resource_limits::policy::process_waiters;
     inline constexpr u32 max_signal_waiters_per_process = signal_waiter_capacity;
-    inline constexpr u32 max_supplementary_groups       = 16;
+    inline constexpr u32 max_supplementary_groups       = resource_limits::policy::supplementary_groups;
 
     /// Userspace spawn limits for the startup frame (argv/envp).
-    inline constexpr u32   max_argv_entries       = 16;
-    inline constexpr u32   max_env_entries        = 16;
-    inline constexpr usize max_spawn_string_bytes = 2048;
+    inline constexpr u32   max_argv_entries       = resource_limits::policy::argv_entries;
+    inline constexpr u32   max_env_entries        = resource_limits::policy::env_entries;
+    inline constexpr usize max_spawn_string_bytes = resource_limits::policy::spawn_string_bytes;
 
     enum class process_state : u8 {
         fresh,
