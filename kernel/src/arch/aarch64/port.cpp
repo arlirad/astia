@@ -11,10 +11,6 @@ namespace astia::arch {
 
     namespace platform {
 
-        u32 discovered_cpu_count() {
-            return 1;
-        }
-
         u32 online_cpu_count() {
             return 1;
         }

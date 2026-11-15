@@ -44,10 +44,6 @@ namespace astia::arch::x86_64 {
 
 namespace astia::arch::platform {
 
-    u32 discovered_cpu_count() {
-        return x86_64::smp::discovered_cpus();
-    }
-
     u32 online_cpu_count() {
         return x86_64::smp::online_cpus();
     }

@@ -283,9 +283,6 @@ namespace astia::arch::x86_64::smp {
         return true;
     }
 
-    u32 discovered_cpus() {
-        return cpu_total;
-    }
     u32 online_cpus() {
         return cpu_online;
     }

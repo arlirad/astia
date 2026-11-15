@@ -1,14 +1,13 @@
 # A-07 constant audit
 
 The A-07 inventory distinguishes hardware-representation bounds from policy
-limits and bounded queues.  Only the CPU topology bound and the discovered
-CPU count are supplied by `astia::arch::platform`; policy and queue limits
-remain local to the subsystem that owns them.
+limits and bounded queues.  The CPU topology bound is supplied by
+`astia::arch::platform`; policy and queue limits remain local to the subsystem
+that owns them.
 
 | Subsystem | Constant | Classification | Ownership and behavior |
 | --- | --- | --- | --- |
 | Architecture/platform | `arch::platform::max_cpu_count` (256) | `platform_max` | Single bound for per-CPU arrays in the scheduler, SMP state, GDT/TSS state, process current-thread state, AIO recursion state, and resume queues. |
-| Architecture/platform | `arch::platform::discovered_cpu_count()` | discovered topology | Returns the platform's discovered count. x86 firmware/CPUID discovery clamps to `max_cpu_count`; zero discovery still means the boot CPU. |
 | Scheduler | `scheduler::max_cpu_count` | compatibility alias of `platform_max` | Preserves the existing scheduler-facing name without another storage bound. |
 | Scheduler | `run_queue_capacity` (32) | `queue_capacity` | Per-CPU runnable queue; full queues still reject enqueue and migration. |
 | SMP/GDT | APIC, reschedule, GDT, TSS, and CPU-local arrays | `platform_max` | Use `arch::platform::max_cpu_count`; no AP startup or allocation policy was widened. |
