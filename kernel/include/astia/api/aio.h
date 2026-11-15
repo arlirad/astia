@@ -72,6 +72,16 @@ extern "C" {
    to max(64, 2 * sq_entries) so completions never lag submissions. */
 enum { IO_MAX_ENTRIES = 4096 };
 
+/* The current implementation has fixed, non-allocating kernel storage.  These
+   values are a read-only capacity contract: exceeding the ring pool returns
+   -ENFILE, and exhausting one ring's parked-operation queue posts -EBUSY. */
+enum {
+    ASTIA_AIO_MAX_RING_SLOTS        = 4,
+    ASTIA_AIO_MAX_RING_ENTRIES      = 64,
+    ASTIA_AIO_MAX_PARKED_OPERATIONS = 64,
+    ASTIA_AIO_MAX_OPERATION_BYTES   = 0x7ffff000,
+};
+
 /* ------------------------------------------------------------------ */
 /* ring ABI                                                            */
 /*                                                                     */

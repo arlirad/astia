@@ -11,8 +11,8 @@ that owns them.
 | Scheduler | `scheduler::max_cpu_count` | compatibility alias of `platform_max` | Preserves the existing scheduler-facing name without another storage bound. |
 | Scheduler | `run_queue_capacity` (32) | `queue_capacity` | Per-CPU runnable queue; full queues still reject enqueue and migration. |
 | SMP/GDT | APIC, reschedule, GDT, TSS, and CPU-local arrays | `platform_max` | Use `arch::platform::max_cpu_count`; no AP startup or allocation policy was widened. |
-| AIO | `kernel_ring_slot_count` (4), `kernel_ring_max_entries` (64), `max_operation_bytes` | `policy_max` | Static ring-pool, ring-entry, and operation-size safety limits; unchanged. |
-| AIO | `parked_operation_slots`, waiter buckets | `queue_capacity` | Per-ring parked operations and waiter-index storage; unchanged. |
+| AIO | `ASTIA_AIO_MAX_RING_SLOTS` (4), `ASTIA_AIO_MAX_RING_ENTRIES` (64), `ASTIA_AIO_MAX_OPERATION_BYTES` | `policy_max` | Public read-only contract for the static ring-pool, ring-entry, and operation-size limits; setup rejects entries above the cap with `-EINVAL`, and a fifth ring returns `-ENFILE`. |
+| AIO | `ASTIA_AIO_MAX_PARKED_OPERATIONS` (64), waiter buckets | `queue_capacity` | Public read-only per-ring parked-operation queue and waiter-index storage; an operation beyond the full queue completes with `-EBUSY`. |
 | AIO | `ring_lock::cpu_slots` | `platform_max` | Per-CPU recursion bookkeeping uses the platform bound. |
 | Resume queue | `queue_capacity` (256) | `queue_capacity` | Two bounded MPMC queues and their slot pool per CPU; intentionally independent of CPU topology. |
 | Process/thread | `max_processes` (64), `max_threads_per_process` (16), waiter/group/argv limits | `policy_max` | Resource and ABI safety limits; unchanged. The current-thread array uses `platform_max`. |

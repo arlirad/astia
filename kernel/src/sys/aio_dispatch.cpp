@@ -140,7 +140,7 @@ namespace astia::sys::aio_dispatch {
                                        fs::node_gid(path), fs::permission_bits::write);
         }
 
-        constexpr usize max_operation_bytes = 0x7ffff000;
+        constexpr usize max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
 
         u64 poll_now_ns() {
             const u64 hz = arch::timer_hz();

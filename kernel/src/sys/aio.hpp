@@ -42,7 +42,7 @@ namespace astia::sys {
     /// entries; the static pool serves 64, which is more than any
     /// in-kernel client submits — userspace rings will move to
     /// heap-backed mappings when the syscall layer lands.
-    inline constexpr u32 kernel_ring_max_entries = 64;
+    inline constexpr u32 kernel_ring_max_entries = ASTIA_AIO_MAX_RING_ENTRIES;
     static_assert(kernel_ring_max_entries <= IO_MAX_ENTRIES,
                   "kernel ring cap must fit the AIO ABI cap");
 

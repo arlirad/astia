@@ -357,6 +357,172 @@ namespace astia::test {
             }
         } parked_node{};
 
+        bool aio_capacity_boundary_checks() {
+            astia_rings* rings[ASTIA_AIO_MAX_RING_SLOTS]{};
+            u32          ring_count = 0;
+            for (; ring_count < ASTIA_AIO_MAX_RING_SLOTS; ++ring_count) {
+                if (sys::io_setup(1, 0, &rings[ring_count]) < 0 ||
+                    rings[ring_count] == nullptr) {
+                    logs::error("aio capacity fail (ring allocation)");
+                    for (u32 i = 0; i < ring_count; ++i)
+                        (void) sys::io_destroy(rings[i]);
+                    return false;
+                }
+            }
+            astia_rings* extra = nullptr;
+            if (sys::io_setup(1, 0, &extra) != -ENFILE || extra != nullptr) {
+                logs::error("aio capacity fail (fifth ring)");
+                for (astia_rings* ring : rings)
+                    (void) sys::io_destroy(ring);
+                if (extra != nullptr)
+                    (void) sys::io_destroy(extra);
+                return false;
+            }
+            for (astia_rings* ring : rings)
+                if (sys::io_destroy(ring) != 0) {
+                    logs::error("aio capacity fail (ring teardown)");
+                    return false;
+                }
+
+            struct capacity_probe : fs::file {
+                bool ready = false;
+                u32  submit_calls = 0;
+
+                long submit(io_request& request) override {
+                    ++submit_calls;
+                    if (!ready)
+                        return 0;
+                    if (request.direction() == io_direction::input &&
+                        request.length() != 0)
+                        static_cast<u8*>(request.buffer())[0] = 0x6b;
+                    return static_cast<long>(request.length());
+                }
+            } node;
+            static const char path[] = "/dev/aio_capacity_probe";
+            if (fs::register_device(path, mm::shptr<fs::file>::borrowed(&node)) < 0) {
+                logs::error("aio capacity fail (device registration)");
+                return false;
+            }
+
+            astia_rings* ring = nullptr;
+            auto* current = proc::current_process();
+            fd_t fd{-1};
+            auto cleanup = [&]() {
+                node.ready = true;
+                if (ring != nullptr) {
+                    sys::io_device_ready_context(&node);
+                    while (astia_cq_ready(ring) != 0)
+                        astia_cq_consume(ring, astia_cq_ready(ring));
+                    (void) sys::io_submit(ring, 0);
+                    (void) sys::io_destroy(ring);
+                }
+                if (current != nullptr && fd.value >= 0)
+                    current->clear_descriptor(fd);
+            };
+            if (current == nullptr || sys::io_setup(ASTIA_AIO_MAX_RING_ENTRIES, 0, &ring) < 0 ||
+                ring == nullptr) {
+                logs::error("aio capacity fail (park ring)");
+                cleanup();
+                return false;
+            }
+            auto file = fs::open(path);
+            if (!file) {
+                logs::error("aio capacity fail (park open)");
+                cleanup();
+                return false;
+            }
+            for (i32 value = 3; value < static_cast<i32>(proc::max_process_fds); ++value)
+                if (current->set_descriptor(fd_t{value}, file)) {
+                    fd = fd_t{value};
+                    break;
+                }
+            if (fd.value < 0) {
+                logs::error("aio capacity fail (park fd)");
+                cleanup();
+                return false;
+            }
+
+            u8 buffers[ASTIA_AIO_MAX_PARKED_OPERATIONS]{};
+            for (u32 i = 0; i < ASTIA_AIO_MAX_PARKED_OPERATIONS; ++i) {
+                astia_sqe* sqe = astia_sqe_slot(ring);
+                if (sqe == nullptr) {
+                    logs::error("aio capacity fail (park SQ)");
+                    cleanup();
+                    return false;
+                }
+                *sqe           = astia_sqe{};
+                sqe->op        = OP_READ;
+                sqe->fd        = fd.value;
+                sqe->address   = reinterpret_cast<u64>(&buffers[i]);
+                sqe->length    = 1;
+                sqe->user_data = 0xC0DE9000 + i;
+                astia_sq_publish(ring, 1);
+                if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 0) {
+                    logs::error("aio capacity fail (park fill)");
+                    cleanup();
+                    return false;
+                }
+            }
+            astia_sqe* sqe = astia_sqe_slot(ring);
+            if (sqe == nullptr) {
+                logs::error("aio capacity fail (overflow SQ)");
+                cleanup();
+                return false;
+            }
+            *sqe           = astia_sqe{};
+            sqe->op        = OP_READ;
+            sqe->fd        = fd.value;
+            sqe->address   = reinterpret_cast<u64>(&buffers[0]);
+            sqe->length    = 1;
+            sqe->user_data = 0xC0DE90FF;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 1) {
+                logs::error("aio capacity fail (park overflow)");
+                cleanup();
+                return false;
+            }
+            astia_cqe* overflow = astia_cq_peek(ring);
+            if (overflow == nullptr || overflow->user_data != 0xC0DE90FF ||
+                overflow->result != -EBUSY) {
+                logs::error("aio capacity fail (park error)");
+                cleanup();
+                return false;
+            }
+            astia_cq_consume(ring, 1);
+            node.ready = true;
+            sys::io_device_ready_context(&node);
+            if (astia_cq_ready(ring) != ASTIA_AIO_MAX_PARKED_OPERATIONS ||
+                node.submit_calls != 2 * ASTIA_AIO_MAX_PARKED_OPERATIONS) {
+                logs::error("aio capacity fail (park resume)");
+                cleanup();
+                return false;
+            }
+            for (u32 i = 0; i < ASTIA_AIO_MAX_PARKED_OPERATIONS; ++i) {
+                astia_cqe* completion = astia_cq_peek(ring);
+                if (completion == nullptr || completion->user_data != 0xC0DE9000 + i ||
+                    completion->result != 1 || buffers[i] != 0x6b) {
+                    logs::error("aio capacity fail (park completion)");
+                    cleanup();
+                    return false;
+                }
+                astia_cq_consume(ring, 1);
+            }
+            if (sys::io_submit(ring, 0) != 0) {
+                logs::error("aio capacity fail (park reclaim)");
+                cleanup();
+                return false;
+            }
+            current->clear_descriptor(fd);
+            fd = fd_t{-1};
+            file = {};
+            if (sys::io_destroy(ring) != 0) {
+                logs::error("aio capacity fail (park teardown)");
+                return false;
+            }
+            logs::info("aio capacity boundaries ok");
+            return true;
+        }
+
         bool aio_dispatch_boundary_checks() {
             struct dispatch_probe : fs::file {
                 bool ready = false;
@@ -1032,6 +1198,9 @@ namespace astia::test {
             return false;
         }
         if (!clock_checks()) {
+            return false;
+        }
+        if (!aio_capacity_boundary_checks()) {
             return false;
         }
         if (!aio_dispatch_boundary_checks()) {
