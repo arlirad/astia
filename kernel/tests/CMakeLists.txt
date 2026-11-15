@@ -55,6 +55,9 @@ astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
+astia_add_host_test(astia_path_service_test
+        path_service_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/path_service.cpp)
 astia_add_host_test(astia_task_test
         task_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
@@ -90,7 +93,10 @@ astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_cwd_context_test
         cwd_context_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/cwd_context.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/path_service.cpp
         support/resume_queue_host.cpp)
+target_compile_options(astia_cwd_context_test PRIVATE -ffunction-sections -fdata-sections)
+target_link_options(astia_cwd_context_test PRIVATE -Wl,--gc-sections)
 astia_add_host_test(astia_tty_test
         tty_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty.cpp

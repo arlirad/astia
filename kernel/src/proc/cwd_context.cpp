@@ -1,25 +1,10 @@
 #include "cwd_context.hpp"
 
+#include "../fs/path_service.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 
 namespace astia::proc {
-
-    namespace {
-        i64 copy_string(char* destination, usize capacity, const char* source,
-                        i64 too_small) {
-            if (destination == nullptr || source == nullptr || capacity == 0)
-                return -EINVAL;
-            usize length = 0;
-            while (source[length] != '\0')
-                ++length;
-            if (length + 1 > capacity)
-                return too_small;
-            for (usize i = 0; i <= length; ++i)
-                destination[i] = source[i];
-            return 0;
-        }
-    }
 
     cwd_context::cwd_context() = default;
 
@@ -39,34 +24,12 @@ namespace astia::proc {
 
     i64 cwd_context::compose_from_locked(const char* base, const char* path,
                                          span<char> buffer) const {
-        if (base == nullptr || path == nullptr || buffer.null() || buffer.empty())
-            return -EINVAL;
-
-        char candidate[fs::path_max]{};
-        usize at = 0;
-        for (; base[at] != '\0' && at + 1 < sizeof(candidate); ++at)
-            candidate[at] = base[at];
-        if (base[at] != '\0')
-            return -ENAMETOOLONG;
-        if (at > 1 && at + 1 < sizeof(candidate))
-            candidate[at++] = '/';
-        usize source = 0;
-        for (; path[source] != '\0' && at + 1 < sizeof(candidate);
-             ++source, ++at)
-            candidate[at] = path[source];
-        if (path[source] != '\0')
-            return -ENAMETOOLONG;
-        candidate[at] = '\0';
-        return copy_string(buffer.data(), buffer.size(), candidate, -ENAMETOOLONG);
+        return fs::path_service::compose(base, path, buffer);
     }
 
     i64 cwd_context::compose_path_locked(const char* path, span<char> buffer) const {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
-        if (path[0] == '/')
-            return copy_string(buffer.data(), buffer.size(), path, -ENAMETOOLONG);
-        if (path[0] == '.' && path[1] == '\0')
-            return copy_string(buffer.data(), buffer.size(), cwd_, -ERANGE);
         return compose_from_locked(cwd_, path, buffer);
     }
 

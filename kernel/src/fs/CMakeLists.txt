@@ -1,6 +1,7 @@
 add_library(fs STATIC
         fs_io.cpp
         fs.cpp
+        path_service.cpp
         devfs.cpp
         initrd_fs.cpp
         initrd_init.cpp

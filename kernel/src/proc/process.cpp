@@ -1,6 +1,7 @@
 #include "process.hpp"
 
 #include "../ipc/futex.hpp"
+#include "../fs/path_service.hpp"
 #include "../sys/aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"

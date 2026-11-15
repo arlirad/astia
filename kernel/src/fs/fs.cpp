@@ -1,6 +1,7 @@
 #include "devfs.hpp"
 #include "ext4/ext4.hpp"
 #include "initrd_fs.hpp"
+#include "path_service.hpp"
 #include "tmpfs.hpp"
 #include "unix_pathname.hpp"
 #include <astia/api/errno.h>
@@ -836,128 +837,7 @@ namespace astia::fs {
     }
 
     long resolve_path(const char* path, char* buffer, u32 capacity, bool follow_final) {
-        if (path == nullptr || buffer == nullptr || capacity == 0 || path[0] != '/')
-            return -EINVAL;
-        char pending[path_max * 2]{};
-        char result[path_max]{};
-        u32  plen = 0, rlen = 1, links = 0;
-        u32  path_length = 0;
-        while (path[path_length] != '\0')
-            ++path_length;
-        const bool trailing_slash = path_length != 0 && path[path_length - 1] == '/';
-        result[0]                 = '/';
-        for (u32 i = 0; path[i] != '\0'; ++i) {
-            if (plen + 1 >= sizeof pending)
-                return -ENAMETOOLONG;
-            pending[plen++] = path[i];
-        }
-        pending[plen] = '\0';
-        for (;;) {
-            u32 start = 0;
-            while (start < plen && pending[start] == '/')
-                ++start;
-            if (start == plen)
-                break;
-            u32 end = start;
-            while (end < plen && pending[end] != '/')
-                ++end;
-            char component[path_max]{};
-            u32  clen = end - start;
-            if (clen >= path_max)
-                return -ENAMETOOLONG;
-            for (u32 i = 0; i < clen; ++i)
-                component[i] = pending[start + i];
-            component[clen] = '\0';
-            for (u32 i = end; i <= plen; ++i)
-                pending[i - end] = pending[i];
-            plen -= end;
-            while (plen != 0 && pending[0] == '/') {
-                for (u32 i = 0; i < plen; ++i)
-                    pending[i] = pending[i + 1];
-                --plen;
-            }
-            if (equal(component, "."))
-                continue;
-            if (equal(component, "..")) {
-                if (rlen > 1) {
-                    --rlen;
-                    while (rlen > 1 && result[rlen - 1] != '/')
-                        --rlen;
-                    result[rlen] = '\0';
-                }
-                continue;
-            }
-            // Every component except the root is looked up beneath a
-            // directory.  Reporting ENOTDIR here is important: treating an
-            // ordinary file as an absent path loses the caller's errno.
-            if (rlen > 1 && node_type(result) != directory_dir)
-                return node_type(result) == directory_unknown ? -ENOENT : -ENOTDIR;
-            const u32 parent_len = rlen;
-            if (rlen > 1)
-                result[rlen++] = '/';
-            if (rlen + clen >= sizeof result)
-                return -ENAMETOOLONG;
-            for (u32 i = 0; i < clen; ++i)
-                result[rlen++] = component[i];
-            result[rlen]    = '\0';
-            const bool last = plen == 0;
-            if ((!last || follow_final) && node_type(result) == directory_lnk) {
-                if (++links > 16)
-                    return -ELOOP;
-                char target[path_max]{};
-                long n = read_symlink(result, target, sizeof target);
-                if (n < 0)
-                    return n;
-                char combined[path_max * 2]{};
-                u32  at = 0;
-                if (target[0] != '/') {
-                    at = parent_len;
-                    for (u32 i = 0; i < at; ++i)
-                        combined[i] = result[i];
-                    if (at > 1 && combined[at - 1] != '/')
-                        combined[at++] = '/';
-                }
-                for (u32 i = 0; target[i] != '\0'; ++i) {
-                    if (at + i + 1 >= sizeof combined)
-                        return -ENAMETOOLONG;
-                    combined[at + i] = target[i];
-                }
-                u32 tail = 0;
-                while (pending[tail] != '\0')
-                    ++tail;
-                const u32 target_len   = length_of(target);
-                const u32 combined_len = at + target_len + (tail ? tail + 1 : 0);
-                if (combined_len >= sizeof combined)
-                    return -ENAMETOOLONG;
-                if (tail != 0) {
-                    combined[at + target_len] = '/';
-                    for (u32 i = 0; i <= tail; ++i)
-                        combined[at + target_len + 1 + i] = pending[i];
-                }
-                else {
-                    combined[combined_len] = '\0';
-                }
-                plen = combined_len;
-                for (u32 i = 0; i <= plen; ++i)
-                    pending[i] = combined[i];
-                rlen      = 1;
-                result[0] = '/';
-            }
-        }
-        if (trailing_slash) {
-            const file_type final_type = node_type(result);
-            if (final_type == directory_unknown)
-                return -ENOENT;
-            if (final_type != directory_dir)
-                return -ENOTDIR;
-        }
-        // rlen excludes the terminating NUL; leave room for it in the
-        // caller's buffer before copying the complete string below.
-        if (rlen + 1 > capacity)
-            return -ENAMETOOLONG;
-        for (u32 i = 0; i <= rlen; ++i)
-            buffer[i] = result[i];
-        return 0;
+        return path_service::resolve(path, buffer, capacity, follow_final);
     }
 
     long make_symlink(const char* target, const char* path) {
