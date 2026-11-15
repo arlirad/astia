@@ -1,5 +1,5 @@
-// Minimal AArch64 port: enough architecture glue for the generic kernel to
-// link while interrupt, paging, and user-context support are being added.
+// Standalone AArch64 bring-up source. It is never part of a production kernel
+// target and does not implement the architecture contract.
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>

@@ -8,7 +8,7 @@ repository root.
 
 - C++20, no exceptions (-fno-exceptions), no RTTI (-fno-rtti)
 - Modular design: subsystems (e.g., mm/, dev/) can be replaced or swapped
-- Architecture support: x86_64 (primary), aarch64
+- Architecture support: x86_64 production; aarch64 bring-up sources only
 - Build system: CMake
 
 ## Layout
@@ -94,9 +94,16 @@ Do not point clangd at a stale `kernel/cmake-build-debug` database after
 changing the CLion CMake profile; reload CMake (or delete that build
 directory) so the generated `compile_commands.json` is refreshed.
 
-The only supported kernel target is `ARCH=x86_64 PLATFORM=virt BOOT=virt`.
-The AArch64 tree is an incomplete bring-up port and is rejected at configure
-time until it has a complete boot path, linker layout, and cross-toolchain.
+The only supported kernel target is `ARCH=x86_64 PLATFORM=virt BOOT=virt`. The
+`ARCH=aarch64` production configuration is rejected, including when
+`ASTIA_EXPERIMENTAL_AARCH64=ON`; the incomplete AArch64 tree has no boot path,
+linker layout, or kernel architecture contract. To compile its current source
+stubs as an explicitly separate probe, configure an x86_64 build with
+`-DASTIA_EXPERIMENTAL_AARCH64=ON` and an AArch64 compiler in
+`ASTIA_AARCH64_CXX_COMPILER`, then build the opt-in target
+`astia_experimental_aarch64`. That target is compile-only, excluded from the
+default build, and is never linked into `astiakrn`, `astiakrn_test`, or
+`astiakrn_runtime`.
 The linker script is selected from that target as
 `cmake/linker/${BOOT}-${ARCH}.ld` and passed to every kernel executable; do not
 configure a separate linker-script cache variable.

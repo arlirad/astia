@@ -23,6 +23,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti -mgeneral-regs
 option(ASTIA_BUILD_TESTS "Build and register host-side unit tests" OFF)
 option(ASTIA_BUILD_EXPERIMENTAL_FIBER
         "Compile the unintegrated stackful core::fiber implementation" OFF)
+option(ASTIA_EXPERIMENTAL_AARCH64
+        "Expose the standalone, compile-only AArch64 bring-up port" OFF)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
@@ -67,6 +69,10 @@ include(cmake/Compilers.cmake)
 
 # Include module CMake files
 add_subdirectory(src)
+
+if (ASTIA_EXPERIMENTAL_AARCH64)
+    add_subdirectory(src/arch/aarch64)
+endif ()
 
 # Host-side unit tests (opt-in).
 if (ASTIA_BUILD_TESTS)
