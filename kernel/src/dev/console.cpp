@@ -5,9 +5,14 @@ namespace astia::dev {
     namespace {
         char selected_path[fs::path_max]{};
         bool selected = false;
+        console_backend* selected_backend = nullptr;
     }
 
     bool register_console(const char* canonical_path) {
+        return register_console(canonical_path, nullptr);
+    }
+
+    bool register_console(const char* canonical_path, console_backend* backend) {
         if (canonical_path == nullptr || canonical_path[0] == '\0')
             return false;
         u32 index = 0;
@@ -16,12 +21,21 @@ namespace astia::dev {
         if (canonical_path[index] != '\0')
             return false;
         selected_path[index] = '\0';
-        selected = true;
+        selected         = true;
+        selected_backend = backend;
         return true;
     }
 
     const char* selected_console_path() {
         return selected ? selected_path : nullptr;
+    }
+
+    bool console_backend_available() {
+        return selected && selected_backend != nullptr;
+    }
+
+    bool console_putc(u8 byte) {
+        return console_backend_available() && selected_backend->write_byte(byte);
     }
 
     mm::shptr<fs::open_file> open_console(u32 flags) {

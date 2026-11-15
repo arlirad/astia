@@ -110,6 +110,13 @@ astia_add_host_test(astia_tty_test
 )
 target_compile_definitions(astia_tty_test PRIVATE ASTIA_TTY_HOST_TEST=1)
 target_include_directories(astia_tty_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_add_host_test(astia_virtual_tty_test
+        virtual_tty_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/virtual_tty.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
+target_include_directories(astia_virtual_tty_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 astia_add_host_test(astia_pseudo_test
         pseudo_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/pseudo.cpp

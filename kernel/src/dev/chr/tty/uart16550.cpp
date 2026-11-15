@@ -502,6 +502,10 @@ namespace astia::dev {
         return tx_byte(byte);
     }
 
+    bool uart16550::write_byte(u8 byte) {
+        return tx_byte(byte);
+    }
+
     void uart16550::tty_ready() {
         sys::io_device_ready_context(&com1_file);
     }
@@ -579,7 +583,7 @@ namespace astia::dev {
         if (fs::register_device(console_path, mm::shptr<fs::file>::borrowed(&com1_file)) <
             0)
             return false;
-        if (!register_console(console_path))
+        if (!register_console(console_path, &com1))
             return false;
         if (!_ports.write8(reg_ier, ier_rx_ready))  // data-ready interrupts on
             return false;

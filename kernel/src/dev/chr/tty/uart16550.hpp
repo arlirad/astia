@@ -2,6 +2,7 @@
 
 #include <astia/dev/regs.hpp>
 #include "../tty.hpp"
+#include "../../console.hpp"
 #include <astia/api/termios.h>
 #include <astia/common.hpp>
 #include <astia/dev/uart_platform.hpp>
@@ -36,7 +37,7 @@ namespace astia::dev {
     /// One 16550 UART as a terminal device.  Static storage only —
     /// constant-initialized and never destroyed, hence no virtual
     /// destructor.
-    class uart16550 : public tty {
+    class uart16550 : public tty, public console_backend {
         public:
         constexpr uart16550(const char* name, pio_bus& pio, irq_line& irq, u16 base)
             : tty(name, dv_char | dv_sync), _ports(pio, base), _irq(irq) {}
@@ -44,6 +45,7 @@ namespace astia::dev {
         /// Polled console face: bounded THRE wait, then THR write;
         /// drops the byte on a dead port rather than hanging.
         void polled_putc(char c);
+        bool write_byte(u8 byte) override;
 
         /// Discard pending input (selftests, line resets).
         void drain_rx();

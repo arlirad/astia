@@ -7,6 +7,8 @@ add_library(dev STATIC
         mmio.cpp
         pci.cpp
         chr/tty.cpp
+        chr/tty/virtual_tty.cpp
+        chr/tty/virtual_tty_register.cpp
         chr/pseudo.cpp
         chr/pseudo_register.cpp
         chr/tty/uart16550.cpp
