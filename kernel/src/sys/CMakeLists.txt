@@ -3,6 +3,7 @@ add_library(sys STATIC
         aio_dispatch.cpp
         aio_filesystem.cpp
         aio_readiness.cpp
+        aio_socket.cpp
         aio_ring.cpp
         syscall.cpp
         time.cpp

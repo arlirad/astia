@@ -9,6 +9,10 @@ namespace astia::sys::aio_dispatch {
     long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
                     char* out, usize capacity);
     bool parent_writable(proc::process* current, const char* path);
+    bool submit_socket_request(
+        aio_ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe,
+        const mm::shptr<fs::open_file>& object, const span<u8>* entries, u32 count,
+        io_direction direction, bool control = false, bool socket_accept = false);
 
     bool dispatch_one(aio_ring::ring_slot& slot, astia_rings* ring,
                       const astia_sqe& sqe);
