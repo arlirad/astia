@@ -140,6 +140,11 @@ add_test(NAME astia_target_configuration
         -DCMAKE_CURRENT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/target_config_test.cmake)
 
+add_test(NAME astia_selftest_arch_boundary
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/selftest_arch_boundary_test.cmake)
+
 # --- ELF fixtures: compile real images with the host toolchain and byte-embed
 # them, so the loader sees genuine gcc output rather than hand-written ELF.
 set(_fix_dir ${CMAKE_CURRENT_BINARY_DIR}/fixtures)

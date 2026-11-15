@@ -56,9 +56,18 @@ endfunction()
 add_executable(astiakrn kmain.cpp)
 astia_configure_kernel(astiakrn)
 
+if (ARCH STREQUAL "x86_64")
+    set(ASTIA_SELFTEST_ARCH_SOURCE test/selftest_x86_64.cpp)
+elseif (ARCH STREQUAL "aarch64")
+    set(ASTIA_SELFTEST_ARCH_SOURCE test/selftest_aarch64.cpp)
+else ()
+    message(FATAL_ERROR "No architecture self-test policy for ARCH=${ARCH}")
+endif ()
+
 add_executable(astiakrn_test
         test_kmain.cpp
         test/selftest.cpp
+        ${ASTIA_SELFTEST_ARCH_SOURCE}
 )
 astia_configure_kernel(astiakrn_test)
 target_compile_definitions(astiakrn_test PRIVATE ASTIA_RUN_SELFTEST=1)
