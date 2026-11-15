@@ -88,6 +88,9 @@ namespace astia::arch {
     void cpu::set_kernel_stack(u64) {}
     void cpu::interrupt_enter() {}
     void cpu::interrupt_exit() {}
+    bool cpu::in_interrupt() {
+        return false;
+    }
     bool cpu::consume_should_yield() {
         return false;
     }

@@ -82,6 +82,17 @@ struct astia_module_io_request {
     uint64_t poll_timeout_ns;
 };
 
+enum astia_module_callback_context {
+    ASTIA_MODULE_CALLBACK_PROCESS = 0,
+    ASTIA_MODULE_CALLBACK_IRQ = 1,
+};
+
+/* `match`, `probe`, `remove`, synchronous block operations, async submit,
+ * async cancel, async poll, and selftests run in process context and may
+ * block. MSI-X handlers run in IRQ context and must not block. An
+ * IRQ-context completion is deferred and returns -EAGAIN; the completion is
+ * applied when process-context polling resumes. Each request completes only
+ * once, before device removal completes. */
 typedef void (*astia_module_interrupt_handler)(void* context);
 
 struct astia_module_msix_route {
@@ -273,6 +284,7 @@ int astia_module_read_registered_async(const char* path, void* buffer, uint32_t 
 int astia_module_write_registered_async(const char* path, const void* buffer,
                                         uint32_t length, uint64_t offset);
 int astia_module_io_complete(void* request, int64_t result);
+int astia_module_get_callback_context(void);
 void astia_module_log(const char* source, const char* message);
 void astia_module_log_u64(const char* source, const char* label, uint64_t value);
 int astia_module_run_selftests(void);

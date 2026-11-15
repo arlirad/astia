@@ -70,6 +70,8 @@ namespace astia::mod {
                    reinterpret_cast<u64>(&astia_module_write_registered_async)) &&
             expose("astia_module_io_complete",
                    reinterpret_cast<u64>(&astia_module_io_complete)) &&
+            expose("astia_module_get_callback_context",
+                   reinterpret_cast<u64>(&astia_module_get_callback_context)) &&
             expose("astia_module_log", reinterpret_cast<u64>(&astia_module_log)) &&
             expose("astia_module_log_u64", reinterpret_cast<u64>(&astia_module_log_u64)) &&
             expose("astia_module_run_selftests",
@@ -85,6 +87,8 @@ namespace astia::mod {
         constexpr u32 max_namespaces = 16;
         constexpr u32 max_pin_tokens = 64;
         constexpr u32 max_msix_routes = 64;
+        constexpr u64 async_handle_tag = 0xA51A000000000000ull;
+        constexpr u64 async_handle_generation_mask = 0x0000FFFFFFFF0000ull;
 
         struct registration;
         class block;
@@ -96,8 +100,11 @@ namespace astia::mod {
             io_request* request = nullptr;
             astia_module_io_request abi{};
             long result = 0;
+            long deferred_result = 0;
+            u32 generation = 0;
             bool used = false;
             bool completed = false;
+            bool completion_deferred = false;
             bool canceled = false;
         };
 
@@ -111,7 +118,8 @@ namespace astia::mod {
             ~block();
 
             void set_file(fs::file* file) { file_ = file; }
-            void complete(async_bridge& bridge, long result);
+            bool complete(async_bridge& bridge, long result);
+            void wake(async_bridge& bridge);
             void cancel(async_bridge& bridge);
             static void cancel_request(io_request& request);
 
@@ -190,6 +198,7 @@ namespace astia::mod {
         registration registrations[max_registrations]{};
         u32 registration_count = 0;
         mm::iovec* pin_tokens[max_pin_tokens]{};
+        u32 next_async_generation = 1;
 
         struct msix_route_handle {
             astia_module_msix_route* route = nullptr;
@@ -301,12 +310,69 @@ namespace astia::mod {
             handle.device = nullptr;
         }
 
+        void* encode_async_handle(u32 registration_index, u32 bridge_index, u32 generation) {
+            if (registration_index >= max_registrations || bridge_index >= max_async_requests ||
+                generation == 0)
+                return nullptr;
+            const u64 value = async_handle_tag |
+                              (static_cast<u64>(generation) << 16) |
+                              (static_cast<u64>(registration_index) << 8) |
+                              static_cast<u64>(bridge_index + 1);
+            return reinterpret_cast<void*>(static_cast<usize>(value));
+        }
+
+        bool decode_async_handle(void* opaque, u32& registration_index, u32& bridge_index,
+                                 u32& generation) {
+            const u64 value = reinterpret_cast<u64>(opaque);
+            if ((value & 0xFFFF000000000000ull) != async_handle_tag ||
+                (value & 0xFFu) == 0 || (value & 0xFFu) > max_async_requests)
+                return false;
+            registration_index = static_cast<u32>((value >> 8) & 0xFFu);
+            bridge_index = static_cast<u32>((value & 0xFFu) - 1);
+            generation = static_cast<u32>((value & async_handle_generation_mask) >> 16);
+            return generation != 0;
+        }
+
+        bool bridge_handle_matches(const async_bridge& bridge, u32 registration_index,
+                                   u32 bridge_index, void* opaque) {
+            u32 actual_registration = 0;
+            u32 actual_bridge = 0;
+            u32 generation = 0;
+            return bridge.used && decode_async_handle(opaque, actual_registration, actual_bridge,
+                                                       generation) &&
+                   actual_registration == registration_index && actual_bridge == bridge_index &&
+                   bridge.generation == generation && bridge.abi.opaque == opaque;
+        }
+
+        bool claim_bridge_completion(async_bridge& bridge) {
+            if (!bridge.used || bridge.canceled || bridge.owner == nullptr ||
+                bridge.request == nullptr || bridge.completed)
+                return false;
+            bridge.completed = true;
+            return true;
+        }
+
+        u32 allocate_async_generation() {
+            const u32 result = next_async_generation;
+            ++next_async_generation;
+            if (next_async_generation == 0)
+                next_async_generation = 1;
+            return result;
+        }
+
         async_bridge* find_bridge(void* opaque) {
-            for (u32 index = 0; index < registration_count; ++index)
-                for (async_bridge& bridge : registrations[index].bridges)
-                    if (&bridge == opaque)
-                        return &bridge;
-            return nullptr;
+            u32 registration_index = 0;
+            u32 bridge_index = 0;
+            u32 generation = 0;
+            if (!decode_async_handle(opaque, registration_index, bridge_index, generation))
+                return nullptr;
+            if (registration_index >= registration_count)
+                return nullptr;
+            async_bridge& bridge = registrations[registration_index].bridges[bridge_index];
+            if (!bridge_handle_matches(bridge, registration_index, bridge_index, opaque) ||
+                bridge.registration_owner != &registrations[registration_index])
+                return nullptr;
+            return &bridge;
         }
 
         astia_module_pci_device view(dev::pci_device& device) {
@@ -438,6 +504,11 @@ namespace astia::mod {
                 return device::submit(request);
             auto* bridge = static_cast<async_bridge*>(request.device_state());
             if (bridge != nullptr && bridge->used && bridge->request == &request) {
+                if (bridge->completion_deferred) {
+                    const long deferred_result = bridge->deferred_result;
+                    bridge->completion_deferred = false;
+                    (void) complete(*bridge, deferred_result);
+                }
                 if (bridge->completed) {
                     const long result = bridge->result;
                     if (registration_.ops->async_cancel != nullptr)
@@ -475,9 +546,12 @@ namespace astia::mod {
                 candidate.registration_owner = &registration_;
                 candidate.owner = this;
                 candidate.request = &request;
+                candidate.generation = allocate_async_generation();
                 candidate.used = true;
                 candidate.abi = {};
-                candidate.abi.opaque = &candidate;
+                candidate.abi.opaque = encode_async_handle(
+                    static_cast<u32>(&registration_ - registrations),
+                    static_cast<u32>(&candidate - registration_.bridges), candidate.generation);
                 candidate.abi.buffer = request.buffer();
                 candidate.abi.length = request.length();
                 candidate.abi.offset = request.offset();
@@ -504,13 +578,17 @@ namespace astia::mod {
             return -EBUSY;
         }
 
-        void block::complete(async_bridge& bridge, long result) {
-            if (!bridge.used || bridge.canceled || bridge.owner != this ||
-                bridge.request == nullptr || bridge.completed)
-                return;
+        bool block::complete(async_bridge& bridge, long result) {
+            if (bridge.owner != this || !claim_bridge_completion(bridge))
+                return false;
             bridge.result = result;
-            bridge.completed = true;
             if (file_ != nullptr)
+                sys::io_device_ready_context(file_);
+            return true;
+        }
+
+        void block::wake(async_bridge& bridge) {
+            if (bridge.owner == this && bridge.used && file_ != nullptr)
                 sys::io_device_ready_context(file_);
         }
 
@@ -588,7 +666,28 @@ namespace astia::mod {
         return true;
     }
 
+    bool async_handle_checks() {
+        async_bridge bridge{};
+        io_request request{};
+        bridge.abi.opaque = encode_async_handle(0, 0, 17);
+        bridge.generation = 17;
+        bridge.owner = reinterpret_cast<block*>(1);
+        bridge.request = &request;
+        bridge.used = true;
+        if (!bridge_handle_matches(bridge, 0, 0, bridge.abi.opaque) ||
+            bridge_handle_matches(bridge, 0, 0, encode_async_handle(0, 0, 16)) ||
+            bridge_handle_matches(bridge, 1, 0, bridge.abi.opaque) ||
+            bridge_handle_matches(bridge, 0, 1, bridge.abi.opaque))
+            return false;
+        if (!claim_bridge_completion(bridge) || claim_bridge_completion(bridge))
+            return false;
+        bridge.used = false;
+        return !bridge_handle_matches(bridge, 0, 0, bridge.abi.opaque);
+    }
+
     bool invalid_handle_checks() {
+        if (!async_handle_checks())
+            return false;
         astia_module_msix_route route{};
         route.vector = 1;
         route.owner = 1;
@@ -1025,10 +1124,20 @@ extern "C" int astia_module_write_registered_async(const char* path, const void*
         if (bridge == nullptr || !bridge->used || bridge->owner == nullptr ||
             bridge->canceled || bridge->request == nullptr)
             return -ECANCELED;
-        if (bridge->completed)
+        if (bridge->completed || bridge->completion_deferred)
             return -EALREADY;
-        bridge->owner->complete(*bridge, result);
-        return 0;
+        if (arch::cpu::in_interrupt()) {
+            bridge->deferred_result = result;
+            bridge->completion_deferred = true;
+            bridge->owner->wake(*bridge);
+            return -EWOULDBLOCK;
+        }
+        return bridge->owner->complete(*bridge, result) ? 0 : -EALREADY;
+    }
+
+    extern "C" int astia_module_get_callback_context(void) {
+        return arch::cpu::in_interrupt() ? ASTIA_MODULE_CALLBACK_IRQ
+                                          : ASTIA_MODULE_CALLBACK_PROCESS;
     }
 
     extern "C" void astia_module_log(const char* source, const char* message) {

@@ -40,6 +40,12 @@ namespace astia::arch {
         }
     }
 
+    bool cpu::in_interrupt() {
+        u32 depth;
+        asm volatile("movl %%gs:24, %0" : "=r"(depth)::"memory");
+        return depth != 0;
+    }
+
     bool cpu::consume_should_yield() {
         u32 value = 0;
         asm volatile("xchgl %0, %%gs:28" : "+r"(value)::"memory");

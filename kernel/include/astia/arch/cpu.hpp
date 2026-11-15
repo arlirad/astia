@@ -42,6 +42,8 @@ namespace astia::arch {
         /// Account for entry to/exit from an interrupt handler on this CPU.
         static void interrupt_enter();
         static void interrupt_exit();
+        /// Whether execution is currently inside an interrupt handler.
+        static bool in_interrupt();
         /// Consume the reschedule indication published when the outermost
         /// interrupt returned.  This is deliberately separate from the
         /// scheduler's pending bit: the ISR epilogue can inspect it without

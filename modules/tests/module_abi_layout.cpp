@@ -4,6 +4,8 @@
 
 static_assert(ASTIA_MODULE_ABI_VERSION_MAJOR == 1u);
 static_assert(ASTIA_MODULE_ABI_VERSION_MINOR == 1u);
+static_assert(ASTIA_MODULE_CALLBACK_PROCESS == 0);
+static_assert(ASTIA_MODULE_CALLBACK_IRQ == 1);
 static_assert(sizeof(void*) == 8);
 static_assert(sizeof(astia_module_pci_device) == 32);
 static_assert(offsetof(astia_module_pci_device, opaque) == 0);

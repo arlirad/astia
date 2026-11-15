@@ -41,14 +41,27 @@ Invalid or stale MSI-X routes and asynchronous request handles are rejected.
 DMA and pin release operations are idempotent after their output handle has
 been cleared; callers must not copy or fabricate handles.
 
-Module callbacks run in one of three contexts. `match`, `probe`, `remove`,
-the synchronous block callbacks, and selftests run in process context and may
-block. An MSI-X interrupt handler runs in IRQ context: it must not block, call
-the filesystem, allocate, or invoke a synchronous block callback; it should
-only record device state and return. Asynchronous submit, cancel, poll, and
-completion callbacks run in process context, and a module must not complete a
-request from IRQ context. Module callbacks must not retain the device or
-callback context after `remove` returns.
+Module callbacks run in one of two contexts, reported by
+`astia_module_get_callback_context()`. `match`, `probe`, `remove`, the
+synchronous block callbacks, asynchronous submit/cancel/poll, and selftests
+run in process context and may block. An MSI-X interrupt handler runs in IRQ
+context: it must not block, call the filesystem, allocate, or invoke a
+synchronous block callback. A module may inspect device completion state there
+and call `astia_module_io_complete()`: the kernel records the result, wakes
+the parked operation, and returns `-EAGAIN`; the actual completion is applied
+when the next process-context poll resumes. Every accepted request completion
+is one-shot: a second completion returns `-EALREADY`, and cancellation or
+removal invalidates the request handle. Module callbacks must not retain the
+device or callback context after `remove` returns.
+
+The `astia_module_io_request.opaque` value is a kernel-issued, generation
+validated request handle, not a pointer. It identifies both the registering
+module and one bridge slot. The kernel rejects fabricated, copied-to-the
+wrong-device, stale, canceled, and reused-slot handles before dispatching a
+completion. A module must pass the value back unchanged and must not inspect,
+write, or manufacture it. The handle remains valid only between successful
+asynchronous submission and completion or cancellation; destruction of the
+owning device cancels all outstanding bridges before `remove` is called.
 
 MSI-X route pointers are opaque ownership tokens even though the ABI retains
 the 1.1 route layout. The kernel records the device, route geometry, and a

@@ -3,6 +3,8 @@
 #include <stddef.h>
 
 _Static_assert(sizeof(void*) == 8, "module ABI requires 64-bit pointers");
+_Static_assert(ASTIA_MODULE_CALLBACK_PROCESS == 0, "process callback context");
+_Static_assert(ASTIA_MODULE_CALLBACK_IRQ == 1, "IRQ callback context");
 _Static_assert(sizeof(struct astia_module_pci_device) == 32, "device layout");
 _Static_assert(offsetof(struct astia_module_pci_device, bar_present) == 16,
                "device bar layout");
