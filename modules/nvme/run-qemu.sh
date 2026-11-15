@@ -50,7 +50,10 @@ run_case() {
     grep -qF 'nvme: namespace 2 ok' "$case_log"
     grep -qF 'nvme: known sector ok' "$case_log"
     grep -qF 'nvme: write flush reopen ok' "$case_log"
-    grep -qF 'nvme: async error path' "$case_log"
+    grep -qF 'nvme: controller reset' "$case_log"
+    grep -qF 'nvme: controller recovery ok' "$case_log"
+    grep -qF 'nvme: reset recovery persistence ok' "$case_log"
+    grep -qF 'nvme: reset recovery error path' "$case_log"
     if test "$force_polling" = OFF; then
         grep -qF 'nvme: msix enabled' "$case_log"
         grep -qF 'nvme: msix interrupt path' "$case_log"

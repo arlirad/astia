@@ -24,11 +24,14 @@ Reads and writes support aligned transfers up to two `ASTIA_PAGE_SIZE` pages
 (8192 bytes on the x86-64 ABI), including async
 MSI-X and polling fallback paths. Async cancellation quarantines bridge slots
 until completion or controller teardown. Flush is issued per namespace, and
-write errors, invalid geometry, and unknown namespace paths are rejected. The
-controller is reset on bounded command timeout or fatal status and all DMA and
-MSI-X resources are released during teardown.
+write errors, invalid geometry, and unknown namespace paths are rejected. A
+controller timeout or fatal status resets and reinitializes the admin and I/O
+queues, re-identifies every namespace, and preserves the stable namespace
+contexts before I/O resumes. Outstanding asynchronous requests are completed
+with an error during recovery. All DMA and MSI-X resources are released during
+teardown.
 
 `run-qemu.sh` creates two deterministic raw namespace fixtures, builds both
 normal MSI-X and forced-polling configurations, and verifies `/dev/nvme0n1`,
-`/dev/nvme0n2`, async read/write/flush persistence, invalid geometry, unknown
-namespace errors, and interrupt/fallback behavior.
+`/dev/nvme0n2`, async read/write/flush persistence, controller reset recovery,
+invalid geometry, unknown namespace errors, and interrupt/fallback behavior.

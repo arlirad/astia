@@ -66,6 +66,10 @@ namespace nvme_protocol {
                              static_cast<uint32_t>(physical & (ASTIA_PAGE_SIZE - 1u));
     }
 
+    constexpr bool valid_queue_depth(uint32_t requested, uint32_t maximum) {
+        return requested >= 2 && requested <= maximum;
+    }
+
     inline bool encode_io(command& value, uint8_t opcode, uint16_t cid, uint32_t namespace_id,
                           uint64_t physical, uint32_t length, uint64_t offset,
                           uint32_t block_size, bool fua) {

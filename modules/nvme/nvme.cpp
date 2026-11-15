@@ -73,6 +73,7 @@ namespace {
         unsigned short admin_cid = 1;
         unsigned short io_cid = 1;
         bool started = false;
+        bool recovering = false;
         bool msix_active = false;
         volatile bool interrupt_pending = false;
         unsigned interrupts_seen = 0;
@@ -102,11 +103,11 @@ namespace {
             write32(0x1000 + index * doorbell_stride, value);
         }
 
-        bool wait_ready(bool ready) const {
+        bool wait_ready(bool ready, bool reject_fatal = true) const {
             for (unsigned spin = 0; spin < timeout_spins; ++spin) {
                 const bool observed = (read32(0x1c) & 1) != 0;
                 if (observed == ready)
-                    return (read32(0x1c) & 2) == 0;
+                    return !reject_fatal || (read32(0x1c) & csts_fatal) == 0;
                 asm volatile("pause");
             }
             return false;
@@ -116,13 +117,83 @@ namespace {
             return registers != nullptr && (read32(0x1c) & csts_fatal) != 0;
         }
 
-        void abort_controller() {
+        void reset_queue_state() {
+            admin_sq_tail = 0;
+            admin_cq_head = 0;
+            io_sq_tail = 0;
+            io_cq_head = 0;
+            admin_cq_phase = 1;
+            io_cq_phase = 1;
+            admin_cid = 1;
+            io_cid = 1;
+            interrupt_pending = false;
+            dma* queues[] = {&admin_sq, &admin_cq, &io_sq, &io_cq};
+            for (dma* queue : queues) {
+                if (!queue->allocated)
+                    continue;
+                auto* bytes = static_cast<volatile unsigned char*>(
+                    queue->value.virtual_address);
+                const uint64_t size = queue->value.pages * ASTIA_PAGE_SIZE;
+                for (uint64_t i = 0; i < size; ++i)
+                    bytes[i] = 0;
+            }
+        }
+
+        bool controller_reset() {
             if (registers == nullptr)
-                return;
+                return false;
             write32(0x14, 0);
-            (void) wait_ready(false);
+            if (!wait_ready(false, false))
+                return false;
+            reset_queue_state();
             started = false;
             astia_module_log("nvme", fatal() ? "controller fatal" : "controller reset");
+            return true;
+        }
+
+        void fail_async_requests(long result) {
+            for (async_request& pending : async_requests) {
+                if (!pending.used)
+                    continue;
+                if (!pending.canceled && pending.request != nullptr)
+                    astia_module_io_complete(pending.request->opaque, result);
+                pending.bounce.release();
+                pending = {};
+            }
+        }
+
+        bool recover_controller() {
+            if (recovering)
+                return false;
+            recovering = true;
+            fail_async_requests(-5);
+            const bool interrupts = msix_active;
+            const bool masked = !interrupts || astia_module_pci_msix_disable(&msix_route) == 0;
+            const bool reset = masked && controller_reset();
+            const bool ready = reset && reset_and_enable();
+            const bool identified = ready && identify();
+            const bool queues = identified && create_io_queues();
+            const bool enabled = queues &&
+                                 (!interrupts || (astia_module_pci_msix_enable(&msix_route) == 0 &&
+                                                  astia_module_pci_msix_unmask(&msix_route) == 0));
+            recovering = false;
+            if (!masked || !enabled) {
+                started = false;
+                astia_module_log("nvme", "controller recovery failed");
+                return false;
+            }
+            started = true;
+            astia_module_log("nvme", "controller recovery ok");
+            return true;
+        }
+
+        void abort_controller() {
+            if (recovering) {
+                started = false;
+                return;
+            }
+            if (!recover_controller())
+                started = false;
         }
 
         bool valid_transfer(const namespace_device& value, void* buffer, unsigned length,
@@ -155,8 +226,12 @@ namespace {
 
         bool reset_and_enable() {
             doorbell_stride = 4u << static_cast<unsigned>((capability >> 32) & 0xf);
-            write32(0x14, 0);
-            if (!wait_ready(false))
+            if ((read32(0x14) & 1) != 0)
+                write32(0x14, 0);
+            if (!wait_ready(false, false))
+                return false;
+            if (!nvme_protocol::valid_queue_depth(
+                    queue_depth, static_cast<unsigned>((capability & 0xffffu) + 1u)))
                 return false;
             write32(0x24, (queue_depth - 1) << 16 | (queue_depth - 1));
             set_address(0x28, admin_sq.value.physical);
@@ -602,10 +677,7 @@ namespace {
                 (void) astia_module_pci_msix_release(&msix_route);
                 msix_active = false;
             }
-            for (async_request& pending : async_requests) {
-                pending.bounce.release();
-                pending = {};
-            }
+            fail_async_requests(-19);
             admin_sq.release();
             admin_cq.release();
             io_sq.release();
@@ -747,12 +819,27 @@ namespace {
             if (reopened[i] != write_sector[i])
                 return 0;
         astia_module_log("nvme", "write flush reopen ok");
+        if (!device.recover_controller())
+            return 0;
+        char reset_first[512]{};
+        char reset_second[512]{};
+        if (astia_module_read_registered_async("/dev/nvme0n1", reset_first,
+                                               sizeof reset_first, sizeof first) != 0 ||
+            astia_module_read_registered_async("/dev/nvme0n2", reset_second,
+                                               sizeof reset_second, 0) != 0)
+            return 0;
+        for (unsigned i = 0; i < sizeof reset_first; ++i)
+            if (reset_first[i] != write_sector[i])
+                return 0;
+        if (!known(reset_second, "ASTIA_NVME_NAMESPACE_002", 24))
+            return 0;
+        astia_module_log("nvme", "reset recovery persistence ok");
         char invalid[513]{};
         if (astia_module_read_registered_async("/dev/nvme0n1", invalid, sizeof invalid, 0) >= 0 ||
             astia_module_write_registered_async("/dev/nvme0n1", invalid, sizeof invalid, 0) >= 0 ||
             astia_module_read_registered_async("/dev/nvme0n3", invalid, sizeof first, 0) >= 0)
             return 0;
-        astia_module_log("nvme", "async error path");
+        astia_module_log("nvme", "reset recovery error path");
         if (!known(first, "ASTIA_NVME_FIXTURE_SECTOR_000", 29) ||
             !known(second, "ASTIA_NVME_NAMESPACE_002", 24))
             return 0;

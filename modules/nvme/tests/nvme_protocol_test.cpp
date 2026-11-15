@@ -48,6 +48,10 @@ int main() {
     assert(fits_one_page(ASTIA_PAGE_SIZE - 1u, 1));
     assert(!fits_one_page(ASTIA_PAGE_SIZE - 1u, 2));
     assert(!fits_one_page(UINT64_MAX, 1));
+    assert(valid_queue_depth(2, 2));
+    assert(valid_queue_depth(16, 64));
+    assert(!valid_queue_depth(1, 16));
+    assert(!valid_queue_depth(17, 16));
 
     command flush{};
     encode_flush(flush, 9, 1);
