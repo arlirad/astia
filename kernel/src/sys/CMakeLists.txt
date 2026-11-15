@@ -1,5 +1,6 @@
 add_library(sys STATIC
         aio.cpp
+        aio_dispatch.cpp
         aio_ring.cpp
         syscall.cpp
         time.cpp

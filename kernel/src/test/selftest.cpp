@@ -357,6 +357,167 @@ namespace astia::test {
             }
         } parked_node{};
 
+        bool aio_dispatch_boundary_checks() {
+            struct dispatch_probe : fs::file {
+                bool ready = false;
+                bool error = false;
+                u32  submit_calls = 0;
+
+                long submit(io_request& request) override {
+                    ++submit_calls;
+                    if (error)
+                        return -EIO;
+                    if (!ready)
+                        return 0;
+                    if (request.direction() == io_direction::input &&
+                        request.length() != 0)
+                        static_cast<u8*>(request.buffer())[0] = 0xa5;
+                    return static_cast<long>(request.length());
+                }
+            } node;
+            static const char path[] = "/dev/aio_dispatch_boundary";
+            if (fs::register_device(path, mm::shptr<fs::file>::borrowed(&node)) < 0) {
+                logs::error("aio dispatch fail (device registration)");
+                return false;
+            }
+
+            astia_rings* ring = nullptr;
+            auto* current = proc::current_process();
+            fd_t fd{-1};
+            auto fail = [&]() {
+                if (current != nullptr && fd.value >= 0)
+                    current->clear_descriptor(fd);
+                if (ring != nullptr)
+                    (void) sys::io_destroy(ring);
+                return false;
+            };
+            if (current == nullptr || sys::io_setup(8, 0, &ring) < 0 || ring == nullptr)
+                return fail();
+            auto file = fs::open(path);
+            if (!file)
+                return fail();
+            for (i32 value = 3; value < static_cast<i32>(proc::max_process_fds); ++value) {
+                if (current->set_descriptor(fd_t{value}, file)) {
+                    fd = fd_t{value};
+                    break;
+                }
+            }
+            if (fd.value < 0)
+                return fail();
+
+            auto completion = [&](u32 op, i32 result, i32 op_fd, u64 address,
+                                  u32 length, u64 user_data) {
+                astia_sqe* sqe = astia_sqe_slot(ring);
+                if (sqe == nullptr)
+                    return false;
+                *sqe           = astia_sqe{};
+                sqe->op        = op;
+                sqe->fd        = op_fd;
+                sqe->address   = address;
+                sqe->length    = length;
+                sqe->user_data = user_data;
+                astia_sq_publish(ring, 1);
+                if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 1)
+                    return false;
+                astia_cqe* cqe = astia_cq_peek(ring);
+                if (cqe == nullptr || cqe->user_data != user_data ||
+                    cqe->result != result)
+                    return false;
+                astia_cq_consume(ring, 1);
+                return sys::io_submit(ring, 0) == 0;
+            };
+
+            if (!completion(OP_NOP, 0, -1, 0, 0, 0xc0de80) ||
+                !completion(0xffff, -ENOSYS, -1, 0, 0, 0xc0de81) ||
+                !completion(OP_READ, -EBADF, -1, 0, 1, 0xc0de82) ||
+                !completion(OP_READ, -EFAULT, fd.value, 0, 1, 0xc0de83) ||
+                node.submit_calls != 0 ||
+                !completion(OP_READV, -EFAULT, fd.value, 0, 1, 0xc0de84) ||
+                node.submit_calls != 0)
+                return fail();
+
+            u8 buffer = 0;
+            astia_sqe* sqe = astia_sqe_slot(ring);
+            if (sqe == nullptr)
+                return fail();
+            *sqe           = astia_sqe{};
+            sqe->op        = OP_READ;
+            sqe->fd        = fd.value;
+            sqe->address   = reinterpret_cast<u64>(&buffer);
+            sqe->length    = sizeof buffer;
+            sqe->user_data = 0xc0de85;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 0 ||
+                node.submit_calls != 1)
+                return fail();
+
+            node.ready = true;
+            sys::io_device_ready_context(&node);
+            if (astia_cq_ready(ring) != 1 || node.submit_calls != 2)
+                return fail();
+            astia_cqe* cqe = astia_cq_peek(ring);
+            if (cqe == nullptr || cqe->user_data != 0xc0de85 || cqe->result != 1 ||
+                buffer != 0xa5)
+                return fail();
+            astia_cq_consume(ring, 1);
+            if (sys::io_submit(ring, 0) != 0)
+                return fail();
+
+            node.error = true;
+            if (!completion(OP_READ, -EIO, fd.value, reinterpret_cast<u64>(&buffer),
+                            sizeof buffer, 0xc0de86) ||
+                node.submit_calls != 3)
+                return fail();
+            node.error = false;
+            node.ready = false;
+            sqe = astia_sqe_slot(ring);
+            if (sqe == nullptr)
+                return fail();
+            *sqe           = astia_sqe{};
+            sqe->op        = OP_READ;
+            sqe->fd        = fd.value;
+            sqe->address   = reinterpret_cast<u64>(&buffer);
+            sqe->length    = sizeof buffer;
+            sqe->user_data = 0xc0de87;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 0)
+                return fail();
+            sqe = astia_sqe_slot(ring);
+            if (sqe == nullptr)
+                return fail();
+            *sqe           = astia_sqe{};
+            sqe->op        = OP_CANCEL;
+            sqe->offset    = 0xc0de87;
+            sqe->user_data = 0xc0de88;
+            astia_sq_publish(ring, 1);
+            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 2)
+                return fail();
+            cqe = astia_cq_peek(ring);
+            if (cqe == nullptr || cqe->user_data != 0xc0de87 ||
+                cqe->result != -ECANCELED)
+                return fail();
+            astia_cq_consume(ring, 1);
+            cqe = astia_cq_peek(ring);
+            if (cqe == nullptr || cqe->user_data != 0xc0de88 || cqe->result != 0)
+                return fail();
+            astia_cq_consume(ring, 1);
+            if (sys::io_submit(ring, 0) != 0)
+                return fail();
+            node.ready = true;
+            sys::io_device_ready_context(&node);
+            if (astia_cq_ready(ring) != 0)
+                return fail();
+
+            current->clear_descriptor(fd);
+            fd = fd_t{-1};
+            file = {};
+            if (sys::io_destroy(ring) != 0)
+                return false;
+            ring = nullptr;
+            logs::info("aio dispatch boundaries ok");
+            return true;
+        }
+
         bool cq_full_completion_checks() {
             static const char parked_path[] = "/dev/aio_cq_full_probe";
             constexpr u64 inline_tag = 0xC0DE60;
@@ -871,6 +1032,9 @@ namespace astia::test {
             return false;
         }
         if (!clock_checks()) {
+            return false;
+        }
+        if (!aio_dispatch_boundary_checks()) {
             return false;
         }
         if (!statx_checks()) {
