@@ -17,6 +17,13 @@ that would otherwise be implicit padding and must be zero when a module
 creates a structure. Do not use packed or compiler-specific structure
 attributes.
 
+`ASTIA_PAGE_SIZE` is the compile-time memory-page contract shared by the
+kernel MM, module DMA allocation, user-buffer pinning, and protocol helpers.
+The current x86-64 ABI defines it as 4096 bytes. The public header emits a
+compile-time error for non-x86-64 targets rather than claiming that 4096 is
+universal; a future architecture must add an explicit ABI and kernel-MM
+definition before modules can be built for it.
+
 The block-driver table is 128 bytes. Its final callbacks are at offsets 112
 and 120; the preceding read, asynchronous, write, and flush callbacks remain
 at their existing offsets. This preserves the NVMe and VirtIO write, flush,

@@ -8,6 +8,12 @@
 #define ASTIA_MODULE_ABI_VERSION \
     ((ASTIA_MODULE_ABI_VERSION_MAJOR << 16) | ASTIA_MODULE_ABI_VERSION_MINOR)
 
+#if defined(__x86_64__)
+#define ASTIA_PAGE_SIZE 4096u
+#else
+#error "Astia modules currently support only the x86-64 page-size ABI"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -106,6 +112,8 @@ ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(uint8_t) == 1, "uint8_t width");
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(uint16_t) == 2, "uint16_t width");
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(uint32_t) == 4, "uint32_t width");
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(uint64_t) == 8, "uint64_t width");
+ASTIA_MODULE_ABI_STATIC_ASSERT((ASTIA_PAGE_SIZE & (ASTIA_PAGE_SIZE - 1u)) == 0,
+                              "page size must be a power of two");
 
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(struct astia_module_pci_device) == 32,
                               "PCI device layout");

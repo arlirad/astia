@@ -1,10 +1,16 @@
 #include "../virtio_blk_protocol.hpp"
+#include <astia/common.hpp>
 
 #include <cassert>
 #include <cstdint>
 
 int main() {
     using namespace astia_virtio_blk;
+    static_assert(ASTIA_PAGE_SIZE == astia::mm::page_size);
+    assert(max_transfer == ASTIA_PAGE_SIZE * 2u);
+    assert(page_count(0) == 0);
+    assert(page_count(ASTIA_PAGE_SIZE) == 1);
+    assert(page_count(ASTIA_PAGE_SIZE + 1u) == 2);
     uint8_t header[16]{};
     encode_header(header, request_out, 7);
     assert(header[0] == 1 && header[1] == 0 && header[8] == 7 && header[9] == 0);

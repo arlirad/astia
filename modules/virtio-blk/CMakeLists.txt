@@ -5,10 +5,12 @@ set(ASTIA_VIRTIO_BLK_UNIT ${CMAKE_CURRENT_BINARY_DIR}/virtio_blk_unit)
 add_custom_command(
         OUTPUT ${ASTIA_VIRTIO_BLK_UNIT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -pedantic
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_blk_unit.cpp
                 -o ${ASTIA_VIRTIO_BLK_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_blk_unit.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk_protocol.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.h
         VERBATIM)
 add_custom_target(virtio_blk_unit_target ALL DEPENDS ${ASTIA_VIRTIO_BLK_UNIT})
 if(ASTIA_BUILD_TESTS)

@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(__x86_64__)
+#include <astia/module_abi.h>
+#endif
+
 namespace astia {
 
     /// Common type definitions and constants
@@ -80,7 +84,13 @@ namespace astia {
     /// Kernel page geometry.  Keep the size and its low-bit mask together so
     /// generic memory code does not grow independent copies of the geometry.
     namespace mm {
+#if defined(__x86_64__)
+        inline constexpr usize page_size = ASTIA_PAGE_SIZE;
+#elif defined(__aarch64__)
         inline constexpr usize page_size = 4096;
+#else
+#error "Astia kernel page geometry is unsupported on this target"
+#endif
         inline constexpr u64   page_mask = page_size - 1;
     } // namespace mm
 

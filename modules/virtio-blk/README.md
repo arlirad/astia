@@ -7,7 +7,8 @@ configuration regions, negotiates `VIRTIO_F_VERSION_1` and
 block-device ABI.
 
 The driver uses one split virtqueue backed by contiguous DMA memory and bounce
-buffers for reads and writes. Reads and writes are limited to 8192 bytes and
+buffers for reads and writes. Reads and writes are limited to two
+`ASTIA_PAGE_SIZE` pages (8192 bytes on the x86-64 ABI) and
 must be 512-byte aligned. Writes are exposed only when the device is not
 read-only and offers flush; every successful write is followed by a VirtIO
 flush. Completion is bounded polling, with queue reset for timeout and

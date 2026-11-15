@@ -3,7 +3,6 @@
 
 namespace {
 
-    constexpr unsigned page_size = 4096;
     constexpr unsigned queue_depth = 16;
     constexpr unsigned timeout_spins = 4000000;
     constexpr unsigned admin_identify = 0x06;
@@ -195,7 +194,7 @@ namespace {
 
         bool identify_namespace(namespace_device& value) {
             auto* data = static_cast<unsigned char*>(identify_page.value.virtual_address);
-            for (unsigned i = 0; i < page_size; ++i)
+            for (unsigned i = 0; i < ASTIA_PAGE_SIZE; ++i)
                 data[i] = 0;
             command identify_value{};
             identify_value.dword[0] =
@@ -244,7 +243,7 @@ namespace {
 
         bool identify() {
             auto* data = static_cast<unsigned char*>(identify_page.value.virtual_address);
-            for (unsigned i = 0; i < page_size; ++i)
+            for (unsigned i = 0; i < ASTIA_PAGE_SIZE; ++i)
                 data[i] = 0;
             command identify_controller{};
             identify_controller.dword[0] =
@@ -260,7 +259,7 @@ namespace {
             namespace_count = 0;
             unsigned cursor = 0;
             for (;;) {
-                for (unsigned i = 0; i < page_size; ++i)
+                for (unsigned i = 0; i < ASTIA_PAGE_SIZE; ++i)
                     data[i] = 0;
                 command list{};
                 list.dword[0] = admin_identify | (static_cast<unsigned>(admin_cid++) << 16);
@@ -269,10 +268,10 @@ namespace {
                 submit_admin(list, identify_page.value.physical);
                 if (poll_admin() != 0)
                     return false;
-                unsigned ids[page_size / sizeof(unsigned)]{};
+                unsigned ids[ASTIA_PAGE_SIZE / sizeof(unsigned)]{};
                 unsigned entries = 0;
                 unsigned previous = cursor;
-                for (; entries < page_size / sizeof(unsigned); ++entries) {
+                for (; entries < ASTIA_PAGE_SIZE / sizeof(unsigned); ++entries) {
                     const unsigned id = *reinterpret_cast<unsigned*>(data + entries * 4);
                     if (id == 0)
                         break;
@@ -290,7 +289,7 @@ namespace {
                         return false;
                     cursor = value.id;
                 }
-                if (entries < page_size / sizeof(unsigned))
+                if (entries < ASTIA_PAGE_SIZE / sizeof(unsigned))
                     break;
                 if (cursor == 0)
                     return false;
@@ -333,7 +332,7 @@ namespace {
                 if (pending.used)
                     continue;
                 pending = {};
-                if (!pending.bounce.allocate((request->length + page_size - 1) / page_size))
+                if (!pending.bounce.allocate(nvme_protocol::page_count(request->length)))
                     return -12;
                 pending.used = true;
                 pending.request = request;
@@ -523,12 +522,11 @@ namespace {
             if (astia_module_pin_user_write(buffer, length, &physical, &token) != 0)
                 return -14;
             dma bounce;
-            const bool direct = physical != ~0ull &&
-                                length <= page_size - static_cast<unsigned>(physical & (page_size - 1));
+            const bool direct = nvme_protocol::fits_one_page(physical, length);
             if (!direct) {
                 astia_module_unpin(token);
                 token = nullptr;
-                if (!bounce.allocate((length + page_size - 1) / page_size))
+                if (!bounce.allocate(nvme_protocol::page_count(length)))
                     return -12;
                 physical = bounce.value.physical;
             }
@@ -564,12 +562,11 @@ namespace {
             if (astia_module_pin_user_read(buffer, length, &physical, &token) != 0)
                 return -14;
             dma bounce;
-            const bool direct = physical != ~0ull &&
-                                length <= page_size - static_cast<unsigned>(physical & (page_size - 1));
+            const bool direct = nvme_protocol::fits_one_page(physical, length);
             if (!direct) {
                 astia_module_unpin(token);
                 token = nullptr;
-                if (!bounce.allocate((length + page_size - 1) / page_size))
+                if (!bounce.allocate(nvme_protocol::page_count(length)))
                     return -12;
                 auto* source = static_cast<const unsigned char*>(buffer);
                 auto* target = static_cast<unsigned char*>(bounce.value.virtual_address);

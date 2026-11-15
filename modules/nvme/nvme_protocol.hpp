@@ -1,11 +1,12 @@
 #pragma once
 
+#include <astia/module_abi.h>
+
 #include <stdint.h>
 
 namespace nvme_protocol {
 
-    constexpr uint32_t page_size = 4096;
-    constexpr uint32_t max_transfer = 8192;
+    constexpr uint32_t max_transfer = ASTIA_PAGE_SIZE * 2u;
     constexpr uint8_t  flush_opcode = 0x00;
     constexpr uint8_t  write_opcode = 0x01;
     constexpr uint8_t  read_opcode  = 0x02;
@@ -34,19 +35,35 @@ namespace nvme_protocol {
     }
 
     inline bool set_prp(command& value, uint64_t physical, uint32_t length) {
+        if (physical == UINT64_MAX || length == 0)
+            return false;
         value.dword[6] = static_cast<uint32_t>(physical);
         value.dword[7] = static_cast<uint32_t>(physical >> 32);
         value.dword[8] = 0;
         value.dword[9] = 0;
-        const uint32_t first = page_size - static_cast<uint32_t>(physical & (page_size - 1));
+        const uint32_t first = ASTIA_PAGE_SIZE -
+                               static_cast<uint32_t>(physical & (ASTIA_PAGE_SIZE - 1u));
         if (length <= first)
             return true;
-        if (length - first > page_size)
+        if (length - first > ASTIA_PAGE_SIZE)
             return false;
-        const uint64_t second = (physical & ~(static_cast<uint64_t>(page_size) - 1)) + page_size;
+        const uint64_t page = physical & ~(static_cast<uint64_t>(ASTIA_PAGE_SIZE) - 1u);
+        if (page > UINT64_MAX - ASTIA_PAGE_SIZE)
+            return false;
+        const uint64_t second = page + ASTIA_PAGE_SIZE;
         value.dword[8] = static_cast<uint32_t>(second);
         value.dword[9] = static_cast<uint32_t>(second >> 32);
         return true;
+    }
+
+    constexpr uint32_t page_count(uint32_t length) {
+        return length / ASTIA_PAGE_SIZE + (length % ASTIA_PAGE_SIZE != 0 ? 1u : 0u);
+    }
+
+    constexpr bool fits_one_page(uint64_t physical, uint32_t length) {
+        return physical != UINT64_MAX && length != 0 &&
+               length <= ASTIA_PAGE_SIZE -
+                             static_cast<uint32_t>(physical & (ASTIA_PAGE_SIZE - 1u));
     }
 
     inline bool encode_io(command& value, uint8_t opcode, uint16_t cid, uint32_t namespace_id,

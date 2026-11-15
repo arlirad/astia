@@ -30,3 +30,7 @@ add_custom_target(nvme_host_tests
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run-host.sh
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..
         VERBATIM)
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME nvme_protocol_unit
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run-host.sh)
+endif()

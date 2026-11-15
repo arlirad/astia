@@ -5,7 +5,6 @@
 
 namespace {
 
-    constexpr unsigned page_size = 4096;
     constexpr unsigned queue_limit = 8;
     constexpr unsigned timeout_spins = 4000000;
     constexpr unsigned pci_vendor_virtio = 0x1af4;
@@ -153,7 +152,7 @@ namespace {
 
         void clear() {
             auto* bytes = static_cast<unsigned char*>(memory.value.virtual_address);
-            for (unsigned i = 0; i < page_size; ++i)
+            for (unsigned i = 0; i < ASTIA_PAGE_SIZE; ++i)
                 bytes[i] = 0;
             available_index = 0;
             used_index = 0;
@@ -337,7 +336,7 @@ namespace {
             request_queue.descriptor_offset = 0;
             request_queue.available_offset = size * 16;
             request_queue.used_offset = (request_queue.available_offset + 6 + size * 2 + 3) & ~3u;
-            if (request_queue.used_offset + 6 + size * 8 > page_size)
+            if (request_queue.used_offset + 6 + size * 8 > ASTIA_PAGE_SIZE)
                 return false;
             if (!request_queue.memory.allocate(1))
                 return false;
@@ -440,7 +439,7 @@ namespace {
         } pending{};
 
         bool valid_transfer(unsigned length, uint64_t offset, bool write) const {
-            if (!started || failed || length > 8192 ||
+            if (!started || failed || length > astia_virtio_blk::max_transfer ||
                 !astia_virtio_blk::valid_range(capacity, length, offset))
                 return false;
             return !write || write_supported;
@@ -521,7 +520,7 @@ namespace {
                 return write ? -30 : -22;
             const unsigned data_offset = 64;
             const unsigned status_offset = data_offset + length;
-            const unsigned pages = (status_offset + 1 + page_size - 1) / page_size;
+            const unsigned pages = astia_virtio_blk::page_count(status_offset + 1);
             dma request;
             if (!request.allocate(pages))
                 return -12;
@@ -566,7 +565,7 @@ namespace {
             if (!valid_transfer(io->length, io->offset, write))
                 return -22;
             const unsigned status_offset = 64 + io->length;
-            const unsigned pages = (status_offset + 1 + page_size - 1) / page_size;
+            const unsigned pages = astia_virtio_blk::page_count(status_offset + 1);
             pending = {};
             if (!pending.request.allocate(pages))
                 return -12;

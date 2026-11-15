@@ -20,7 +20,8 @@ registered with a path derived from its NSID, so enumeration order cannot
 renumber an existing namespace. The adapter retains a shared controller
 lifetime until every namespace block and its device-file references are gone.
 
-Reads and writes support aligned transfers up to 8192 bytes, including async
+Reads and writes support aligned transfers up to two `ASTIA_PAGE_SIZE` pages
+(8192 bytes on the x86-64 ABI), including async
 MSI-X and polling fallback paths. Async cancellation quarantines bridge slots
 until completion or controller teardown. Flush is issued per namespace, and
 write errors, invalid geometry, and unknown namespace paths are rejected. The
