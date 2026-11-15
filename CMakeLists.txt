@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Arlirad
+
 cmake_minimum_required(VERSION 3.20)
 
 # The repository-level project is the canonical entry point for IDEs.  The
@@ -6,6 +9,10 @@ cmake_minimum_required(VERSION 3.20)
 project(astia LANGUAGES NONE)
 
 enable_testing()
+
+add_test(NAME astia_license_metadata
+        COMMAND ${CMAKE_COMMAND} -P
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/license_metadata_check.cmake)
 
 option(ASTIA_BUILD_TESTS "Build and register host-side unit tests" OFF)
 
