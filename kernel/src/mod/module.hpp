@@ -18,7 +18,7 @@
 namespace astia::mod {
 
     /// A loaded kernel module.
-    struct module {
+    struct loaded_module {
         const char* name; ///< Module name (for diagnostics).
         void*       base; ///< Load address of the image allocation.
         usize       size; ///< Bytes allocated for the image.
@@ -38,24 +38,24 @@ namespace astia::mod {
     ///
     /// `image` need not stay valid after the call: section contents are copied
     /// into frame-allocator memory.
-    const module*        load_module(span<const u8> image);
-    inline const module* load_module(const void* image, usize size) {
+    const loaded_module*        load_module(span<const u8> image);
+    inline const loaded_module* load_module(const void* image, usize size) {
         return load_module(span<const u8>(static_cast<const u8*>(image), size));
     }
 
     /// Unload a module previously returned by load_module(). Frees the image
     /// allocation and drops the registry slot. Returns false if `mod` is not a
     /// registered module.
-    bool unload_module(const module* mod);
+    bool unload_module(const loaded_module* mod);
 
     /// Call a loaded module's entry point. Returns the module's return code, or
     /// -1 if `mod` is null or already running.
-    int run_module(const module* mod);
+    int run_module(const loaded_module* mod);
 
     /// Number of currently loaded modules.
     usize count();
 
     /// The i-th loaded module, or null if `i` is out of range.
-    const module* at(usize i);
+    const loaded_module* at(usize i);
 
 } // namespace astia::mod

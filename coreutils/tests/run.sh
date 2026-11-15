@@ -40,7 +40,7 @@ $clang $common -fno-builtin -nostdinc -isystem "$resource/include" \
     -isystem "$sysroot/include" -c "$root/coreutils/tests/coreutils_test.c" \
     -o "$out/coreutils_test.o"
 # shellcheck disable=SC2086
-$clang $common -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+$clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -o "$out/root/sbin/init" \
     "$crt0" "$out/coreutils_test.o" "$sysroot/lib/libastia_libc.a" \
     "$resource/lib/linux/libclang_rt.builtins-x86_64.a"

@@ -42,7 +42,7 @@ $clang --target=$target -ffreestanding -fno-builtin -fno-pic -fno-pie \
     -nostdinc -isystem "$resource/include" -isystem "$sysroot/include" \
     -c "$root/toolchain/zsh-regression-runner.c" -o "$work/runner.o"
 $clang --target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector \
-    -fno-asynchronous-unwind-tables -mno-red-zone -nostdlib -static -no-pie \
+    -fno-asynchronous-unwind-tables -mno-red-zone -nostdlib -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -o "$work/root/sbin/init" \
     "$build/astia/image/crt0.o" "$work/runner.o" "$sysroot/lib/libastia_libc.a" \
     "$resource/lib/linux/libclang_rt.builtins-x86_64.a"

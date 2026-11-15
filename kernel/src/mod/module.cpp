@@ -14,7 +14,7 @@ namespace astia::mod {
 
     namespace {
 
-        module modules[max_modules] = {};
+        loaded_module modules[max_modules] = {};
         usize  used                 = 0;
 
         /// Frame-allocator-backed memory for the ELF loader.
@@ -46,7 +46,7 @@ namespace astia::mod {
 
     } // namespace
 
-    const module* load_module(span<const u8> image) {
+    const loaded_module* load_module(span<const u8> image) {
         if (image.data() == nullptr || image.size() == 0 || used >= max_modules) {
             return nullptr;
         }
@@ -61,7 +61,7 @@ namespace astia::mod {
             return nullptr;
         }
 
-        module& slot = modules[used];
+        loaded_module& slot = modules[used];
         slot.name    = "module";
         slot.base    = img.base;
         slot.size    = img.size;
@@ -71,7 +71,7 @@ namespace astia::mod {
         return &slot;
     }
 
-    bool unload_module(const module* mod) {
+    bool unload_module(const loaded_module* mod) {
         if (mod == nullptr) {
             return false;
         }
@@ -97,11 +97,11 @@ namespace astia::mod {
         return false;
     }
 
-    int run_module(const module* mod) {
+    int run_module(const loaded_module* mod) {
         if (mod == nullptr || mod->running || mod->entry == nullptr) {
             return -1;
         }
-        const_cast<module*>(mod)->running = true;
+        const_cast<loaded_module*>(mod)->running = true;
         return mod->entry();
     }
 
@@ -109,7 +109,7 @@ namespace astia::mod {
         return used;
     }
 
-    const module* at(usize i) {
+    const loaded_module* at(usize i) {
         return i < used ? &modules[i] : nullptr;
     }
 

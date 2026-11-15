@@ -18,6 +18,8 @@
 extern "C" {
 #endif
 
+int module_main(void);
+
 struct astia_module_pci_device {
     void* opaque;
     uint16_t vendor_id;

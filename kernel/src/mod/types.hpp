@@ -4,5 +4,5 @@
 // (not "module.hpp") from headers that only need the names.
 
 namespace astia::mod {
-    struct module;
+    struct loaded_module;
 } // namespace astia::mod

@@ -19,7 +19,7 @@ namespace astia::fs {
 
         // The loader's ramdisk, split out of the module list by the boot step
         // (boot::boot_info::initrd). A boot without one has nothing to mount.
-        const boot::module& ramdisk = context.info->initrd;
+        const boot::module_info& ramdisk = context.info->initrd;
         if (ramdisk.paddr == 0 || ramdisk.size == 0) {
             return true;
         }

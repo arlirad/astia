@@ -105,7 +105,7 @@ CONFIG_SITE="$build/config.site" PKG_CONFIG=/bin/false NCURSESW_CONFIG=no \
     --disable-nls --disable-utf8 --disable-color --disable-mouse \
     --disable-browser --disable-multibuffer --disable-libmagic --enable-tiny \
     CC="$build/astia-cc" CPPFLAGS="-I$root/toolchain/nano-astia -include $root/toolchain/nano-astia/force-assert.h" CFLAGS='-O0' \
-    LDFLAGS="-nostdlib -static -no-pie -Wl,-Ttext-segment=0x40000000 -L$build/astia" \
+    LDFLAGS="-nostdlib -static -Wl,-no-pie -Wl,-Ttext-segment=0x40000000 -L$build/astia" \
     LIBS="$crt0 $builtins -lncurses $sysroot/lib/libastia_libc.a"
 
 make -j "$jobs"

@@ -29,7 +29,7 @@ for source in "$root"/coreutils/src/*.c; do
     # shellcheck disable=SC2086
     $clang $common -c "$source" -o "$out/obj/$name.o"
     # shellcheck disable=SC2086
-    $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+    $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
         -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
         -o "$out/bin/$name" "$crt0" "$out/obj/$name.o" \
         "$sysroot/lib/libastia_libc.a" "$builtins"

@@ -153,14 +153,14 @@ while IFS= read -r test_name; do
         echo "POSIX build blocker: $test_name" >&2
         exit 1
     }
-    $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+    $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
         -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -o "$test_binary" \
         "$crt0" "$object" "$work/obj/common.o" "$sysroot/lib/libastia_libc.a" "$builtins"
 done <"$selected"
 
 runner_object=$work/obj/posix-runner.o
 $clang $common -c "$root/toolchain/posix-runner.c" -o "$runner_object"
-$clang $common -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+$clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -o "$work/root/sbin/init" \
     "$crt0" "$runner_object" "$sysroot/lib/libastia_libc.a" "$builtins"
 

@@ -137,6 +137,9 @@ set_source_files_properties(src/time.c PROPERTIES
 set_source_files_properties(src/math.c PROPERTIES
   COMPILE_OPTIONS "-fno-builtin"
 )
+set_source_files_properties(src/wchar.c PROPERTIES
+  COMPILE_OPTIONS "-fno-builtin"
+)
 
 install(TARGETS astia_libc ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

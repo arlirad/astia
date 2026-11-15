@@ -2,6 +2,7 @@
 # *system* toolchain and link against the host C library, so undo the
 # freestanding compile/link settings inherited from the parent directory.
 set(CMAKE_CXX_FLAGS "-Wall -Wextra")
+set(CMAKE_C_FLAGS "-Wall -Wextra")
 set_property(DIRECTORY PROPERTY LINK_OPTIONS "")
 option(ASTIA_CROSS_USERSPACE "Use the Clang Astia sysroot for init_libc" OFF)
 
@@ -176,6 +177,37 @@ add_test(NAME astia_platform_api_regression
         -DASTIA_PLATFORM_API_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/platform_api_regression_test.cmake)
 
+add_test(NAME astia_kernel_warning_flags
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_MODE=kernel
+        -DASTIA_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/warning-regression/kernel
+        -DASTIA_COMPILE_COMMANDS=${CMAKE_BINARY_DIR}/compile_commands.json
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/production_warning_flags_test.cmake)
+add_test(NAME astia_module_c_abi_warning_flags
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_MODE=module_c
+        -DASTIA_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/warning-regression/module_abi.o
+        -DASTIA_C_COMPILER=${CMAKE_C_COMPILER}
+        -DASTIA_KERNEL_INCLUDE=${ASTIA_KERNEL_SOURCE_DIR}/include
+        -DASTIA_SOURCE=${ASTIA_KERNEL_SOURCE_DIR}/../modules/tests/module_abi_c_module.c
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/production_warning_flags_test.cmake)
+add_test(NAME astia_nvme_warning_flags
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_MODE=module_cxx
+        -DASTIA_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/warning-regression/nvme.o
+        -DASTIA_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DASTIA_KERNEL_INCLUDE=${ASTIA_KERNEL_SOURCE_DIR}/include
+        -DASTIA_SOURCE=${ASTIA_KERNEL_SOURCE_DIR}/../modules/nvme/nvme.cpp
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/production_warning_flags_test.cmake)
+add_test(NAME astia_virtio_blk_warning_flags
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_MODE=module_cxx
+        -DASTIA_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/warning-regression/virtio_blk.o
+        -DASTIA_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DASTIA_KERNEL_INCLUDE=${ASTIA_KERNEL_SOURCE_DIR}/include
+        -DASTIA_SOURCE=${ASTIA_KERNEL_SOURCE_DIR}/../modules/virtio-blk/virtio_blk.cpp
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/production_warning_flags_test.cmake)
+
 # --- ELF fixtures: compile real images with the host toolchain and byte-embed
 # them, so the loader sees genuine gcc output rather than hand-written ELF.
 set(_fix_dir ${CMAKE_CURRENT_BINARY_DIR}/fixtures)
@@ -201,7 +233,7 @@ endfunction()
 add_custom_command(
         OUTPUT ${_fix_dir}/hello_mod.o
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-        COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+        COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -mcmodel=large
         -fno-stack-protector -fno-asynchronous-unwind-tables
         -o ${_fix_dir}/hello_mod.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.c
         DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.c
@@ -226,7 +258,7 @@ astia_embed_blob(_fixture_dyn_cpp ${_fix_dir}/fixture_dyn.so fixture_dyn_blob)
 add_custom_command(
         OUTPUT ${_fix_dir}/fixture_exec.elf
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-        COMMAND ${CMAKE_C_COMPILER} -no-pie -nostdlib -O0
+        COMMAND ${CMAKE_C_COMPILER} -nostdlib -O0 -Wl,-no-pie
         -Wl,-Ttext-segment=0x10000000 -Wl,-e,fixture_entry
         -o ${_fix_dir}/fixture_exec.elf ${CMAKE_CURRENT_SOURCE_DIR}/fixture_exec.c
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fixture_exec.c
@@ -325,7 +357,7 @@ function(astia_add_arena_test name)
     # does not add the load bias to them (which would move the bitmap far away).
     target_compile_options(${name} PRIVATE -fno-pie)
     target_link_options(${name} PRIVATE
-            "-no-pie"
+            "-Wl,-no-pie"
             "-Wl,--defsym=__kernel_start=0x08000000"
             "-Wl,--defsym=__kernel_end=0x08002000"
     )
@@ -460,7 +492,7 @@ if (ARCH STREQUAL "x86_64")
         add_custom_command(
                 OUTPUT ${_fix_dir}/hello_initrd.o
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -mcmodel=large
                 -fno-stack-protector -fno-asynchronous-unwind-tables
                 -o ${_fix_dir}/hello_initrd.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.c
                 DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.c
@@ -553,7 +585,7 @@ if (ARCH STREQUAL "x86_64")
             add_custom_command(
                     OUTPUT ${_fix_dir}/crt0.o
                     COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-                    COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                    COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -fno-builtin
                     -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                     -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
                     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
@@ -567,7 +599,7 @@ if (ARCH STREQUAL "x86_64")
                     -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                     -o ${_fix_dir}/init_libc_main.o
                     ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
-                    COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                    COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
                     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -lgcc
                     -o ${_fix_dir}/init_libc ${_fix_dir}/crt0.o
                     ${_fix_dir}/init_libc_main.o $<TARGET_FILE:astia_userspace_libc>
@@ -583,11 +615,11 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/hello_initrd.o ${_fix_dir}/boot_stage/
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -fno-builtin
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -o ${_fix_dir}/init_user.o ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/init_user ${_fix_dir}/init_user.o
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/sbin
@@ -655,23 +687,23 @@ if (ARCH STREQUAL "x86_64")
                 -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src
                 -o ${_fix_dir}/native_true.o ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/true.c
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/native_init ${_fix_dir}/crt0.o ${_fix_dir}/native_init.o
                 $<TARGET_FILE:astia_userspace_libc> -lgcc
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/native_daemond ${_fix_dir}/crt0.o ${_fix_dir}/native_daemond.o
                 $<TARGET_FILE:astia_userspace_libc> -lgcc
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/native_daemondctl ${_fix_dir}/crt0.o ${_fix_dir}/native_daemondctl.o
                 $<TARGET_FILE:astia_userspace_libc> -lgcc
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/native_ps ${_fix_dir}/crt0.o ${_fix_dir}/native_ps.o
                 $<TARGET_FILE:astia_userspace_libc> -lgcc
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -no-pie
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
                 -o ${_fix_dir}/native_true ${_fix_dir}/crt0.o ${_fix_dir}/native_true.o
                 $<TARGET_FILE:astia_userspace_libc> -lgcc

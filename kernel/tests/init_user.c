@@ -41,6 +41,21 @@
 #include <astia/api/aio.h>
 #include <astia/api/syscalls.h>
 
+void* memset(void* destination, int value, unsigned long length) {
+    unsigned char* bytes = destination;
+    for (unsigned long i = 0; i < length; ++i)
+        bytes[i] = (unsigned char) value;
+    return destination;
+}
+
+void* memcpy(void* destination, const void* source, unsigned long length) {
+    unsigned char*       output = destination;
+    const unsigned char* input  = source;
+    for (unsigned long i = 0; i < length; ++i)
+        output[i] = input[i];
+    return destination;
+}
+
 static astia_sqe* fill(astia_rings* ring, uint32_t op, int32_t fd, uint64_t address,
                        uint64_t offset, uint32_t length, uint64_t tag) {
     astia_sqe* s = astia_sqe_slot(ring);

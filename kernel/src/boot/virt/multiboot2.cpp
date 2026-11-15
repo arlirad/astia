@@ -101,7 +101,7 @@ namespace astia::boot::virt {
                                       tag->size - sizeof(module_tag)) == nullptr) {
                     return false;
                 }
-                const module value{m->start, static_cast<u64>(m->end) - m->start};
+                const module_info value{m->start, static_cast<u64>(m->end) - m->start};
                 if (parsed.initrd.paddr == 0 && parsed.initrd.size == 0) {
                     parsed.initrd = value;
                 }

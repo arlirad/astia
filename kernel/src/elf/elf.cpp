@@ -46,11 +46,6 @@ namespace astia::elf {
         constexpr u32 pt_dynamic = 2;
         constexpr u32 pt_tls     = 7;
 
-        // Segment permission flags (p_flags / segment::flags).
-        constexpr u32 pf_x = 1;
-        constexpr u32 pf_w = 2;
-        constexpr u32 pf_r = 4;
-
         // .dynamic tags.
         constexpr i64 dt_null    = 0;
         constexpr i64 dt_rela    = 7;

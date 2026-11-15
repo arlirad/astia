@@ -5,6 +5,6 @@
 // definitions stay out of unrelated translation units.
 
 namespace astia::boot {
-    struct module;
+    struct module_info;
     struct boot_info;
 } // namespace astia::boot

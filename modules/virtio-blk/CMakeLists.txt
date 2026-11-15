@@ -23,7 +23,7 @@ add_custom_command(
                 -O2 -std=c++20 -ffreestanding -fno-builtin -fno-pic -fno-pie
                 -fno-exceptions -fno-rtti -fno-threadsafe-statics
                 -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
-                -mcmodel=large -fno-asynchronous-unwind-tables -Wall -Wextra -pedantic
+                -mcmodel=large -fno-asynchronous-unwind-tables -Wall -Wextra -Werror -pedantic
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp -o ${ASTIA_VIRTIO_BLK_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp

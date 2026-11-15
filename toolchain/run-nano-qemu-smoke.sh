@@ -33,7 +33,7 @@ if [ "${NANO_DIRECT_EXEC:-0}" = 1 ]; then
 fi
 # shellcheck disable=SC2086
 $clang $common $init_cppflags -c "$root/toolchain/nano-pty-init.c" -o "$build/nano-init.o"
-$clang $common -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+$clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -o "$build/root/sbin/init" \
     "$crt0" "$build/nano-init.o" "$sysroot/lib/libastia_libc.a" \
     "$resource/lib/linux/libclang_rt.builtins-x86_64.a"

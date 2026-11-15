@@ -31,7 +31,7 @@ namespace astia::mod {
         // Load one ELF image and run it, logging the outcome. `name` labels an
         // initrd file; when null the boot-module index `i` is used instead.
         void load_and_run(span<const u8> data, const char* name, u64 i) {
-            const module* mod = load_module(data);
+            const loaded_module* mod = load_module(data);
             if (mod == nullptr) {
                 if (name != nullptr) {
                     logs::error("%s failed to load", name);
@@ -76,7 +76,7 @@ namespace astia::mod {
 
         // The ramdisk is the fs layer's: it mounts it at / (fs/initrd_init.cpp).
         // What mod takes from it are the kernel modules it carries.
-        const boot::module& ramdisk = ctx.info->initrd;
+        const boot::module_info& ramdisk = ctx.info->initrd;
         if (ramdisk.paddr != 0 && ramdisk.size != 0) {
             const void*     data = mm::kernel_frames().to_virt(ramdisk.paddr);
             initrd::archive arc;
@@ -92,7 +92,7 @@ namespace astia::mod {
         // Every other module the loader reported is a bare ELF image, or
         // something we do not understand.
         for (usize i = 0; i < ctx.info->module_count; ++i) {
-            const boot::module& m = ctx.info->modules[i];
+            const boot::module_info& m = ctx.info->modules[i];
             if (m.paddr == 0 || m.size == 0) {
                 continue;
             }

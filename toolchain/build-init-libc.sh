@@ -52,7 +52,7 @@ $clang $common_flags -c -o "$build/image/crt0.o" "$root/kernel/tests/crt0.S"
 $clang $common_flags -fno-builtin $include_flags -c \
     -o "$build/image/init_libc.o" "$root/kernel/tests/init_libc.c"
 # shellcheck disable=SC2086
-$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
     -o "$build/image/init_libc" "$build/image/crt0.o" "$build/image/init_libc.o" \
     "$sysroot/lib/libastia_libc.a" "$builtins"

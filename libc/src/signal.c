@@ -236,7 +236,7 @@ int sigtimedwait(const sigset_t* set, siginfo_t* info, const struct timespec* ti
 }
 
 int sigignore(int signal_number) {
-    struct sigaction action = {SIG_IGN, 0, 0, 0};
+    struct sigaction action = {.sa_handler = SIG_IGN};
     return sigaction(signal_number, &action, NULL);
 }
 
@@ -282,8 +282,8 @@ int sigsuspend(const sigset_t* mask) {
 }
 
 sighandler_t signal(int signal_number, sighandler_t handler) {
-    struct sigaction next = {handler, 0, 0, 0};
-    struct sigaction old  = {0, 0, 0, 0};
+    struct sigaction next = {.sa_handler = handler};
+    struct sigaction old  = {.sa_handler = SIG_DFL};
     if (sigaction(signal_number, &next, &old) != 0) {
         return SIG_ERR;
     }

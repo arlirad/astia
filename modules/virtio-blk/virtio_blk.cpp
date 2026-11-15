@@ -21,7 +21,6 @@ namespace {
     constexpr unsigned request_out = 1;
     constexpr unsigned request_flush = 4;
     constexpr unsigned status_ok = 0;
-    constexpr unsigned status_ioerr = 1;
     constexpr unsigned status_unsupp = 2;
     constexpr unsigned status_acknowledge = 1;
     constexpr unsigned status_driver = 2;

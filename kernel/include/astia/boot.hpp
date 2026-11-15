@@ -12,7 +12,7 @@ namespace astia::boot {
 
     /// One module the loader handed to the kernel, described by physical
     /// address and size.
-    struct module {
+    struct module_info {
         u64 paddr = 0;
         u64 size  = 0;
     };
@@ -35,8 +35,8 @@ namespace astia::boot {
         /// ABI's convention the first module *is* the ramdisk, which is how
         /// Linux reads it too, so it is split out here and `modules` starts
         /// after it.
-        module initrd;
-        module modules[max_modules]{}; ///< Loader modules besides the initrd.
+        module_info initrd;
+        module_info modules[max_modules]{}; ///< Loader modules besides the initrd.
         usize  module_count = 0;       ///< Number of valid entries in modules.
     };
 

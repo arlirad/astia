@@ -185,15 +185,15 @@ $clang $common_flags -fno-builtin $include_flags \
 $clang $common_flags -fno-builtin $include_flags \
     -c -o "$work/line-reader-runner.o" "$root/toolchain/line-reader-runner.c"
 # shellcheck disable=SC2086
-$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
     -o "$work/runner" "$zsh_build/astia/image/crt0.o" "$work/runner.o" \
     "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
-$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
     -o "$work/line-reader" "$zsh_build/astia/image/crt0.o" "$work/line-reader.o" \
     "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
-$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -no-pie \
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
     -o "$work/line-reader-runner" "$zsh_build/astia/image/crt0.o" \
     "$work/line-reader-runner.o" "$sysroot/lib/libastia_libc.a" \

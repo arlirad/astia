@@ -57,7 +57,7 @@ CONFIG_SITE="$build/config.site" \
     --build=x86_64-pc-linux-gnu \
     CC="$build/astia-cc" \
     CFLAGS='-O0' \
-    LDFLAGS='-nostdlib -static -no-pie -Wl,-Ttext-segment=0x40000000' \
+    LDFLAGS='-nostdlib -static -Wl,-no-pie -Wl,-Ttext-segment=0x40000000' \
     LIBS="$build/astia/image/crt0.o $sysroot/lib/libastia_libc.a $builtins"
 
 make -C "$build" -j "$jobs"

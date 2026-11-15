@@ -9,8 +9,8 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # the 128-byte red zone below RSP, so no function may keep data there.
     set(_astia_freestanding "${_astia_freestanding} -mno-red-zone")
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_astia_freestanding} -fno-omit-frame-pointer -Wall -Wextra")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_astia_freestanding} -fno-omit-frame-pointer -Wall -Wextra")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_astia_freestanding} -fno-omit-frame-pointer -Wall -Wextra -Werror")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_astia_freestanding} -fno-omit-frame-pointer -Wall -Wextra -Werror")
     set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -fno-pie -fno-pic")
 
     if (ARCH STREQUAL "x86_64")
@@ -22,5 +22,5 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endif ()
 
     # Produce a static, non-PIE ELF that fits QEMU's -kernel loader.
-    add_link_options(-nostdlib -nostartfiles -nodefaultlibs -no-pie -static -Wl,--build-id=none)
+    add_link_options(-nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie -Wl,--build-id=none)
 endif ()

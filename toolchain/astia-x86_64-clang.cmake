@@ -43,7 +43,7 @@ string(JOIN " " _astia_user_flags_string ${_astia_user_flags})
 set(CMAKE_C_FLAGS_INIT "${_astia_user_flags_string}")
 set(CMAKE_ASM_FLAGS_INIT "-target x86_64-unknown-elf -fno-pic -fno-pie")
 set(CMAKE_EXE_LINKER_FLAGS_INIT
-        "-target x86_64-unknown-elf -nostdlib -nostartfiles -nodefaultlibs -static -no-pie"
+        "-target x86_64-unknown-elf -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie"
 )
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
