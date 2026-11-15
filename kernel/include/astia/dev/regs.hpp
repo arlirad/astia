@@ -1,6 +1,5 @@
 #pragma once
 
-#include <astia/arch/io.hpp>
 #include <astia/common.hpp>
 #include <astia/dev/capabilities.hpp>
 
@@ -32,10 +31,9 @@ namespace astia::dev {
 
     /// C++ device-driver view of a port-space register block.  Port I/O is
     /// architecture-owned and intentionally separated from MMIO: a port
-    /// number is not a dereferenceable address.  The default backend is an
-    /// architecture adapter; host tests and other architectures can supply
-    /// a backend with the same readN/writeN static operations.
-    template <typename T, typename Backend = arch::pio>
+    /// number is not a dereferenceable address.  The backend is explicit so
+    /// host tests and other architectures cannot accidentally select x86 I/O.
+    template <typename T, typename Backend>
     class ports {
         static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4,
                       "port width must be 1, 2 or 4 bytes");

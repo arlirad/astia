@@ -63,34 +63,34 @@ namespace astia::arch::x86_64 {
     inline void pio_write16(void*, u16 port, u16 value) { outw(port, value); }
     inline void pio_write32(void*, u16 port, u32 value) { outl(port, value); }
 
-    extern dev::pio_bus device_pio;
+    extern dev::pio_bus& device_pio;
 
 } // namespace astia::arch::x86_64
 
 namespace astia::arch {
 
     inline u8 pio::read8(u16 port) {
-        return x86_64::device_pio.read8(port);
+        return x86_64::device_pio.read8(port).value_or(0);
     }
 
     inline u16 pio::read16(u16 port) {
-        return x86_64::device_pio.read16(port);
+        return x86_64::device_pio.read16(port).value_or(0);
     }
 
     inline u32 pio::read32(u16 port) {
-        return x86_64::device_pio.read32(port);
+        return x86_64::device_pio.read32(port).value_or(0);
     }
 
     inline void pio::write8(u16 port, u8 value) {
-        x86_64::device_pio.write8(port, value);
+        (void) x86_64::device_pio.write8(port, value);
     }
 
     inline void pio::write16(u16 port, u16 value) {
-        x86_64::device_pio.write16(port, value);
+        (void) x86_64::device_pio.write16(port, value);
     }
 
     inline void pio::write32(u16 port, u32 value) {
-        x86_64::device_pio.write32(port, value);
+        (void) x86_64::device_pio.write32(port, value);
     }
 
 } // namespace astia::arch

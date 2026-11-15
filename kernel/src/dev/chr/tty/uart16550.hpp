@@ -52,7 +52,7 @@ namespace astia::dev {
         /// divisor 1 (115200 at the standard 1.8432 MHz clock), OUT2 so
         /// the PIC can see the line.  Interrupts stay off — the early
         /// phase runs before the PIC exists.
-        void init_uart();
+        bool init_uart();
 
         /// Arm the receive path: register the IRQ handler, bind the
         /// port to the ring's console fds, enable the data-ready
@@ -64,7 +64,7 @@ namespace astia::dev {
         void irq();
 
         /// Character loopback (MCR bit 4): the port talks to itself.
-        void loopback(bool on);
+        bool loopback(bool on);
 
         protected:
         /// The line runs at the divisor table's rates only; a TCSETS

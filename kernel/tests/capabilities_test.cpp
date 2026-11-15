@@ -1,5 +1,4 @@
-#include <astia/dev/io.hpp>
-#include <astia/dev/irq.hpp>
+#include <astia/dev/capabilities.hpp>
 
 #include <cassert>
 #include <cstdint>
@@ -93,14 +92,20 @@ int main() {
     assert(bus.port == 0x3fd);
     assert(bus.value == 0x20);
     assert(bus.writes == 1);
-    assert(port.read8(5) == 0x20);
+    const auto read8 = port.read8(5);
+    assert(read8.has_value);
+    assert(read8.value == 0x20);
     assert(bus.reads == 1);
 
     port.write16(2, 0xabcd);
     assert(bus.port == 0x3fa);
-    assert(port.read16(2) == 0xabcd);
+    const auto read16 = port.read16(2);
+    assert(read16.has_value);
+    assert(read16.value == 0xabcd);
     port.write32(4, 0x12345678);
-    assert(port.read32(4) == 0x12345678);
+    const auto read32 = port.read32(4);
+    assert(read32.has_value);
+    assert(read32.value == 0x12345678);
 
     fake_irq irq;
     astia::dev::irq_line line = irq.capability();
@@ -108,5 +113,40 @@ int main() {
     assert(irq.handler == handled);
     assert(line.unmask());
     assert(irq.enabled);
+
+    astia::dev::pio_bus empty_pio;
+    astia::dev::io_port empty_port{empty_pio, 0};
+    assert(!empty_pio.valid());
+    assert(!empty_pio.readable());
+    assert(!empty_pio.writable());
+    assert(!empty_port.valid());
+    assert(!empty_port.read8(0));
+    assert(!empty_port.write8(0, 0));
+
+    astia::dev::pio_bus read_only{&bus, fake_pio::read8, fake_pio::read16,
+                                  fake_pio::read32, nullptr, nullptr, nullptr};
+    astia::dev::io_port read_only_port{read_only, 0x3f8};
+    assert(read_only.readable());
+    assert(!read_only.writable());
+    assert(!read_only.valid());
+    assert(read_only_port.read8(0));
+    assert(!read_only_port.write8(0, 1));
+    assert(!read_only_port.read8(0x10000));
+
+    astia::dev::irq_line empty_irq;
+    assert(!empty_irq.valid());
+    assert(!empty_irq.claimable_valid());
+    assert(!empty_irq.unmaskable_valid());
+    assert(!empty_irq.claim(handled));
+    assert(!empty_irq.unmask());
+
+    fake_irq partial_irq;
+    astia::dev::irq_line claim_only{&partial_irq, fake_irq::claim, nullptr};
+    assert(claim_only.claimable_valid());
+    assert(!claim_only.unmaskable_valid());
+    assert(!claim_only.valid());
+    assert(claim_only.claim(handled));
+    assert(!claim_only.claim(nullptr));
+    assert(!claim_only.unmask());
     return 0;
 }

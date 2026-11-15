@@ -75,6 +75,9 @@ astia_add_host_test(astia_common_test common_test.cpp)
 astia_add_host_test(astia_platform_test platform_test.cpp)
 astia_add_host_test(astia_regs_test regs_test.cpp)
 astia_add_host_test(astia_capabilities_test capabilities_test.cpp)
+astia_add_host_test(astia_capabilities_header_test capabilities_header_test.cpp)
+astia_add_host_test(astia_io_header_test io_header_test.cpp)
+astia_add_host_test(astia_irq_header_test irq_header_test.cpp)
 astia_add_host_test(astia_endian_test endian_test.cpp)
 astia_add_host_test(astia_time_test
         time_test.cpp
