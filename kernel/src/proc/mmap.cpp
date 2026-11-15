@@ -26,16 +26,16 @@ namespace astia::proc {
         /// when PROT_WRITE; executable only when PROT_EXEC (x86
         /// defaults to NX).  The arch translates these into its native
         /// bits.
-        arch::page_flags pte_flags(map_protection prot) {
-            auto flags = arch::page_flags::present;
+        mm::mapping_flags pte_flags(map_protection prot) {
+            auto flags = mm::mapping_flags::present;
             if (prot != map_protection::none) {
-                flags = flags | arch::page_flags::user;
+                flags = flags | mm::mapping_flags::user;
             }
             if (has(prot, map_protection::write)) {
-                flags = flags | arch::page_flags::writable;
+                flags = flags | mm::mapping_flags::writable;
             }
             if (!has(prot, map_protection::exec)) {
-                flags = flags | arch::page_flags::no_execute;
+                flags = flags | mm::mapping_flags::no_execute;
             }
             return flags;
         }
@@ -177,7 +177,7 @@ namespace astia::proc {
     }
 
     i32 process::pin_user(u64 addr, usize len, bool destination, mm::iovec& out) {
-        if (address_space_ == nullptr || len == 0) {
+        if (!address_space_.attached() || len == 0) {
             return 0;
         }
         const u64 page_bytes = mm::phys_region::frame_size;
@@ -269,7 +269,7 @@ namespace astia::proc {
 
         const u64 first_page = stack ? pages - 1 : 0;
         const u64 map_pages  = stack ? 1 : pages;
-        auto mapping = mm::address_space::view(address_space_.get());
+        auto& mapping = address_space_;
         mm::mapping_transaction transaction(
             mapping, base + first_page * page_bytes, static_cast<usize>(map_pages));
         for (u64 page = first_page; page < first_page + map_pages; ++page) {
@@ -319,7 +319,7 @@ namespace astia::proc {
     }
 
     bool process::grow_stack(mmap_region* vma, u64 addr, bool write) {
-        if (vma == nullptr || !vma->stack || vma->pending || address_space_ == nullptr ||
+        if (vma == nullptr || !vma->stack || vma->pending || !address_space_.attached() ||
             !vma->covers(addr) || (write && !has(vma->prot, map_protection::write))) {
             return false;
         }
@@ -327,7 +327,7 @@ namespace astia::proc {
         const u64 virt       = addr & ~(page_bytes - 1);
         const u64 frontier   = vma->end() - vma->mapped_pages * page_bytes;
         if (virt >= frontier) {
-            return address_space_->translate(virt) != arch::page_map::invalid;
+            return address_space_.translate(virt) != mm::address_space::invalid;
         }
         const usize first = static_cast<usize>((virt - vma->base) / page_bytes);
         const usize stop  = vma->pages - vma->mapped_pages;
@@ -339,19 +339,19 @@ namespace astia::proc {
             }
             auto page_flags = flags;
             if (!vma->backing->uniquely_held(backing_page)) {
-                page_flags = static_cast<arch::page_flags>(
+                page_flags = static_cast<mm::mapping_flags>(
                     static_cast<u64>(page_flags) &
-                    ~static_cast<u64>(arch::page_flags::writable));
+                    ~static_cast<u64>(mm::mapping_flags::writable));
             }
             const u64 mapped = vma->base + page * page_bytes;
-            if (address_space_->translate(mapped) == arch::page_map::invalid &&
-                !address_space_->map_4k(mapped, vma->backing->page_base(backing_page),
+            if (address_space_.translate(mapped) == mm::address_space::invalid &&
+                !address_space_.map_4k(mapped, vma->backing->page_base(backing_page),
                                          page_flags)) {
                 return false;
             }
             ++vma->mapped_pages;
         }
-        return address_space_->translate(virt) != arch::page_map::invalid;
+        return address_space_.translate(virt) != mm::address_space::invalid;
     }
 
     u64 process::map_anonymous(vaddr_t addr, bytes_t len, map_protection prot,
@@ -371,7 +371,7 @@ namespace astia::proc {
         if (has(flags, map_flags::fixed)) {
             return -ENOSYS;
         }
-        if (address_space_ == nullptr || len == 0) {
+        if (!address_space_.attached() || len == 0) {
             return -EINVAL;
         }
         if (static_cast<u64>(len) > ~u64{0} - mm::page_mask) {
@@ -424,7 +424,7 @@ namespace astia::proc {
         if (has(flags, map_flags::fixed)) {
             return -ENOSYS;
         }
-        if (address_space_ == nullptr || len == 0) {
+        if (!address_space_.attached() || len == 0) {
             return -EINVAL;
         }
         if (static_cast<u64>(len) > ~u64{0} - mm::page_mask) {
@@ -540,7 +540,7 @@ namespace astia::proc {
     }
 
     i32 process::unmap(u64 addr, usize len) {
-        if (address_space_ == nullptr || len == 0 ||
+        if (!address_space_.attached() || len == 0 ||
             (addr % mm::phys_region::frame_size) != 0) {
             return -EINVAL;
         }
@@ -583,8 +583,8 @@ namespace astia::proc {
                 const u64 drop_from = old_base < first ? first : old_base;
                 const u64 drop_to   = old_end > last ? last : old_end;
                 for (u64 virt = drop_from; virt < drop_to; virt += page_bytes) {
-                    address_space_->unmap(virt);
-                    arch::page_map::invalidate(virt);
+                    address_space_.unmap(virt);
+                    mm::address_space::invalidate(virt);
                 }
                 it->backing->unmap_range(
                     it->region_page + (drop_from - old_base) / page_bytes,
@@ -644,7 +644,7 @@ namespace astia::proc {
     }
 
     i32 process::protect(u64 addr, usize len, map_protection prot) {
-        if (address_space_ == nullptr || len == 0 ||
+        if (!address_space_.attached() || len == 0 ||
             (addr % mm::phys_region::frame_size) != 0 ||
             static_cast<u64>(len) > ~u64{0} - mm::page_mask) {
             return -EINVAL;
@@ -763,16 +763,16 @@ namespace astia::proc {
                         const usize count = static_cast<usize>((end - middle) / page_bytes);
                         for (usize offset = 0; offset < count; ++offset) {
                             const u64 virt = middle + offset * page_bytes;
-                            if (address_space_->translate(virt) == arch::page_map::invalid)
+                            if (address_space_.translate(virt) == mm::address_space::invalid)
                                 continue;
                             auto flags = pte_flags(prot);
                             if (!it->shared && has(prot, map_protection::write) &&
                                 !it->backing->uniquely_held(page + offset)) {
-                                flags = static_cast<arch::page_flags>(
+                                flags = static_cast<mm::mapping_flags>(
                                     static_cast<u64>(flags) &
-                                    ~static_cast<u64>(arch::page_flags::writable));
+                                    ~static_cast<u64>(mm::mapping_flags::writable));
                             }
-                            if (!address_space_->protect_4k(virt, flags)) {
+                            if (!address_space_.protect_4k(virt, flags)) {
                                 protected_ok = false;
                                 break;
                             }
@@ -1021,11 +1021,11 @@ namespace astia::proc {
     }
 
     bool process::clone_address_space_cow(process* child) {
-        if (address_space_ == nullptr || child == nullptr ||
-            child->address_space_ != nullptr) {
+        if (!address_space_.attached() || child == nullptr ||
+            child->address_space_.attached()) {
             return false;
         }
-        arch::page_map map = arch::page_map::create(arch::kernel_page_map());
+        mm::address_space map = mm::address_space::create();
         if (!map.valid()) {
             return false;
         }
@@ -1066,9 +1066,9 @@ namespace astia::proc {
                         const u64 virt = it->base + page * page_bytes;
                         if (cow && state_at < saved_writable_count &&
                             saved_writable[state_at] != 0) {
-                            const u64 phys = address_space_->translate(virt);
-                            if (phys != arch::page_map::invalid) {
-                                (void) address_space_->map_4k(virt, phys,
+                            const u64 phys = address_space_.translate(virt);
+                            if (phys != mm::address_space::invalid) {
+                                (void) address_space_.map_4k(virt, phys,
                                                               pte_flags(it->prot));
                         }
                     }
@@ -1081,9 +1081,9 @@ namespace astia::proc {
                 mmap_region* victim  = child->mmap_regions_;
                 child->mmap_regions_ = victim->next;
                 for (usize page = 0; page < victim->pages; ++page) {
-                    child->address_space_ == nullptr
-                        ? map.unmap(victim->base + page * page_bytes)
-                        : child->address_space_->unmap(victim->base + page * page_bytes);
+                    child->address_space_.attached()
+                        ? child->address_space_.unmap(victim->base + page * page_bytes)
+                        : map.unmap(victim->base + page * page_bytes);
                 }
                 victim->backing->unmap_range(victim->region_page, victim->pages);
                 if (victim->holds_ref) {
@@ -1129,8 +1129,8 @@ namespace astia::proc {
                               : it->prot);
             for (u64 page = 0; page < it->pages; ++page) {
                 const u64 virt = it->base + page * page_bytes;
-                const u64 phys = address_space_->translate(virt);
-                if (phys == arch::page_map::invalid) {
+                const u64 phys = address_space_.translate(virt);
+                if (phys == mm::address_space::invalid) {
                     continue;
                 }
                 if (!map.map_4k(virt, phys, flags)) {
@@ -1146,22 +1146,21 @@ namespace astia::proc {
                 for (u64 page = 0; page < it->pages; ++page) {
                     const u64 virt = it->base + page * page_bytes;
                     saved_writable[saved_writable_count++] =
-                        address_space_->writable(virt) ? 1 : 0;
+                        address_space_.writable(virt) ? 1 : 0;
                     if (saved_writable[saved_writable_count - 1] == 0) {
                         continue;
                     }
-                    const u64 phys = address_space_->translate(virt);
-                    if (phys == arch::page_map::invalid ||
-                        !address_space_->map_4k(virt, phys, flags)) {
+                    const u64 phys = address_space_.translate(virt);
+                    if (phys == mm::address_space::invalid ||
+                        !address_space_.map_4k(virt, phys, flags)) {
                         rollback();
                         return false;
                     }
                 }
             }
         }
-        child->address_space_.reset(
-            new arch::page_map(static_cast<arch::page_map&&>(map)));
-        if (child->address_space_ == nullptr) {
+        child->address_space_ = static_cast<mm::address_space&&>(map);
+        if (!child->address_space_.attached()) {
             rollback();
             return false;
         }
@@ -1184,7 +1183,7 @@ namespace astia::proc {
         // stay fatal for now.  The user half runs to 0x800000000000 —
         // user_mmap_top is only the *placement* ceiling; the stack
         // and TLS blocks sit above it and still CoW.
-        if (address_space_ == nullptr || addr >= user_address_limit) {
+        if (!address_space_.attached() || addr >= user_address_limit) {
             return false;
         }
         const u64 page_bytes = mm::phys_region::frame_size;
@@ -1208,7 +1207,7 @@ namespace astia::proc {
         const usize backing_page = vma->region_page + page;
         auto*       back         = vma->backing;
 
-        if (vma->stack && address_space_->translate(virt) == arch::page_map::invalid) {
+        if (vma->stack && address_space_.translate(virt) == mm::address_space::invalid) {
             return grow_stack(vma, addr, write);
         }
         if (!write || vma->shared || !has(vma->prot, map_protection::write)) {
@@ -1230,7 +1229,7 @@ namespace astia::proc {
         if (back->uniquely_held(backing_page)) {
             // Sole mapper left among the sharers: the write bit comes
             // straight back, no copy.
-            return address_space_->map_4k(virt, back->page_base(backing_page), flags);
+            return address_space_.map_4k(virt, back->page_base(backing_page), flags);
         }
 
         // Allocate the VMA nodes before changing the PTE.  If either
@@ -1256,14 +1255,14 @@ namespace astia::proc {
             delete middle;
             return false; // out of frames: stay fatal
         }
-        if (!address_space_->map_4k(virt, copy->base(), flags)) {
+        if (!address_space_.map_4k(virt, copy->base(), flags)) {
             copy->release();
             delete right;
             delete middle;
             return false;
         }
         if (!back->unmap_range(backing_page, 1)) {
-            (void) address_space_->map_4k(virt, back->page_base(backing_page), flags);
+            (void) address_space_.map_4k(virt, back->page_base(backing_page), flags);
             copy->release();
             delete right;
             delete middle;

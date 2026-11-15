@@ -1,9 +1,9 @@
 #include "aio_ring.hpp"
 
 #include "user_mem.hpp"
+#include "../proc/user_layout.hpp"
 
 #include <astia/api/errno.h>
-#include <astia/arch/page_map.hpp>
 #include <astia/memory.hpp>
 
 namespace astia::sys::aio_ring {
@@ -166,7 +166,7 @@ namespace astia::sys::aio_ring {
         proc::process* caller  = proc::current_process();
         for (u32 i = 0; i < slot_count; ++i) {
             if (g_slots[i] != nullptr && g_slots[i]->used &&
-                (((caller == nullptr || caller->address_space() == nullptr) &&
+                (((caller == nullptr || !caller->memory_space().attached()) &&
                   reinterpret_cast<u64>(rings_of(*g_slots[i])) == address) ||
                  (g_slots[i]->owner.get() == caller && g_slots[i]->user_base != 0 &&
                   address == g_slots[i]->user_base +
@@ -232,23 +232,28 @@ namespace astia::sys::aio_ring {
     }
 
     long map_ring_for_user(ring_slot& slot, u32 index, proc::process* owner, u64* out) {
-        arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
-        const arch::page_map* kernel = arch::kernel_page_map();
-        if (space == nullptr || kernel == nullptr)
+        if (owner == nullptr || out == nullptr)
             return -ESRCH;
-        const u64 base  = proc::user_ring_base + proc::user_ring_slot_span * index;
+        auto& space = owner->memory_space();
+        auto  kernel = mm::address_space::kernel();
+        if (!space.valid() || !kernel.valid())
+            return -ESRCH;
+        const u64 base = proc::user_layout_policy::ring_base +
+                         proc::user_layout_policy::ring_slot_span * index;
         const u64 first = reinterpret_cast<u64>(rings_of(slot));
+        mm::mapping_transaction transaction(space, base, user_mapping_pages);
         for (u32 page = 0; page < user_mapping_pages; ++page) {
             const u64 offset = static_cast<u64>(page) * mm::page_size;
-            const u64 phys = kernel->translate(first + offset) & ~mm::page_mask;
-            if (!space->map_4k(base + offset, phys,
-                               arch::page_flags::present | arch::page_flags::writable |
-                                   arch::page_flags::user)) {
-                for (u32 done = 0; done < page; ++done)
-                    (void) space->unmap(base + static_cast<u64>(done) * mm::page_size);
+            const paddr_t phys = kernel.translate(first + offset);
+            if (phys == mm::address_space::invalid ||
+                !transaction.map_4k(base + offset, phys & ~mm::page_mask,
+                                     mm::mapping_flags::present |
+                                         mm::mapping_flags::writable |
+                                         mm::mapping_flags::user)) {
                 return -ENOMEM;
             }
         }
+        transaction.commit();
         slot.user_base = base;
         *out           = base + (first & mm::page_mask);
         return 0;
@@ -257,10 +262,12 @@ namespace astia::sys::aio_ring {
     void unmap_ring_user(ring_slot& slot, proc::process* owner) {
         if (slot.user_base == 0)
             return;
-        arch::page_map* space = owner == nullptr ? nullptr : owner->address_space();
-        if (space != nullptr)
+        if (owner != nullptr && owner->memory_space().valid()) {
+            auto& space = owner->memory_space();
             for (u32 page = 0; page < user_mapping_pages; ++page)
-                (void) space->unmap(slot.user_base + static_cast<u64>(page) * mm::page_size);
+                (void) space.unmap(slot.user_base +
+                                   static_cast<u64>(page) * mm::page_size);
+        }
         slot.user_base = 0;
     }
 
@@ -362,7 +369,7 @@ namespace astia::sys::aio_ring {
 
             astia_rings* visible = r;
             proc::process* owner = proc::current_process();
-            if (owner != nullptr && owner->address_space() != nullptr) {
+            if (owner != nullptr && owner->memory_space().valid()) {
                 u64 user_address = 0;
                 const long rc = map_ring_for_user(slot, i, owner, &user_address);
                 if (rc < 0) {

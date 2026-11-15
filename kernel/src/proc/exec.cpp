@@ -1,7 +1,6 @@
 #include "proc.hpp"
 #include "process.hpp"
 #include <astia/api/syscalls.h>
-#include <astia/arch/page_map.hpp>
 #include <astia/elf.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/frame_allocator.hpp>
@@ -19,7 +18,7 @@ namespace astia::proc {
         };
 
         struct image_map {
-            arch::page_map* map;
+            mm::address_space* map;
             u64             next_base;
             mapped_segment  segs[elf::max_segments]{};
             u32             count = 0;
@@ -32,13 +31,13 @@ namespace astia::proc {
             ~stream_context();
         };
 
-        void unmap_run(arch::page_map& map, u64 virt, u64 pages) {
+        void unmap_run(mm::address_space& map, u64 virt, u64 pages) {
             for (u64 page = 0; page < pages; ++page) {
                 (void) map.unmap(virt + page * elf::page_size);
             }
         }
 
-        void cleanup_pending(image_map& image, arch::page_map& map) {
+        void cleanup_pending(image_map& image, mm::address_space& map) {
             for (u32 i = 0; i < image.count; ++i) {
                 auto& seg = image.segs[i];
                 if (!seg.used) {
@@ -74,8 +73,8 @@ namespace astia::proc {
             for (u64 page = 0; page < pages; ++page) {
                 if (!image.map->map_4k(
                         base + page * elf::page_size, frames + page * elf::page_size,
-                        arch::page_flags::present | arch::page_flags::writable |
-                            arch::page_flags::user)) {
+                        mm::mapping_flags::present | mm::mapping_flags::writable |
+                            mm::mapping_flags::user)) {
                     unmap_run(*image.map, base, page);
                     mm::kernel_frames().release(frames, pages);
                     return nullptr;
@@ -128,7 +127,7 @@ namespace astia::proc {
         // frames come as one contiguous run so the block can be filed
         // as a single VMA (fork shares it copy-on-write); frames_out
         // hands the run back for that adoption.
-        bool map_tls_template(arch::page_map& map, span<const u8> bytes,
+        bool map_tls_template(mm::address_space& map, span<const u8> bytes,
                               const elf::image& image, u64& tp_out, u64& frames_out,
                               u64& pages_out) {
             const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
@@ -147,8 +146,8 @@ namespace astia::proc {
             for (u64 page = 0; page < pages; ++page) {
                 if (!map.map_4k(user_tls_base + page * elf::page_size,
                                 frames + page * elf::page_size,
-                                arch::page_flags::present | arch::page_flags::writable |
-                                    arch::page_flags::user)) {
+                                mm::mapping_flags::present | mm::mapping_flags::writable |
+                                    mm::mapping_flags::user)) {
                     unmap_run(map, user_tls_base, page);
                     mm::kernel_frames().release(frames, pages);
                     return false;
@@ -169,11 +168,11 @@ namespace astia::proc {
 
     bool process::load_user_image(span<const u8> bytes, u64* entry_out) {
         if (bytes.null() || bytes.empty() || entry_out == nullptr ||
-            address_space_ != nullptr || arch::kernel_page_map() == nullptr) {
+            address_space_.attached() || !mm::address_space::kernel().valid()) {
             return false;
         }
 
-        arch::page_map map = arch::page_map::create(arch::kernel_page_map());
+        mm::address_space map = mm::address_space::create();
         if (!map.valid()) {
             return false;
         }
@@ -189,7 +188,7 @@ namespace astia::proc {
         // dropping to the kernel map there faults the caller's very next
         // user instruction.
         const process*        caller = current_process();
-        const arch::page_map* caller_map =
+        const mm::address_space* caller_map =
             caller == nullptr ? nullptr : caller->address_space();
         map.activate();
         const bool loaded = elf::load_executable(bytes, environment, image);
@@ -197,15 +196,15 @@ namespace astia::proc {
             caller_map->activate();
         }
         else {
-            arch::kernel_page_map()->activate();
+            mm::address_space::kernel().activate();
         }
         if (!loaded) {
             cleanup_pending(image_state, map);
             return false;
         }
 
-        address_space_.reset(new arch::page_map(static_cast<arch::page_map&&>(map)));
-        if (address_space_ == nullptr) {
+        address_space_ = static_cast<mm::address_space&&>(map);
+        if (!address_space_.attached()) {
             cleanup_pending(image_state, map);
             return false;
         }
@@ -226,7 +225,7 @@ namespace astia::proc {
                     region->release();
                     image_state.segs[i].used = false;
                 }
-                cleanup_pending(image_state, *address_space_);
+                cleanup_pending(image_state, address_space_);
                 discard_image();
                 return false;
             }
@@ -240,9 +239,9 @@ namespace astia::proc {
             u64 tp         = 0;
             u64 tls_frames = 0;
             u64 tls_pages  = 0;
-            if (!map_tls_template(*address_space_, bytes, image, tp, tls_frames,
+            if (!map_tls_template(address_space_, bytes, image, tp, tls_frames,
                                   tls_pages)) {
-                cleanup_pending(image_state, *address_space_);
+                cleanup_pending(image_state, address_space_);
                 discard_image();
                 return false;
             }
@@ -255,12 +254,12 @@ namespace astia::proc {
                     region->release();
                 }
                 else {
-                    unmap_run(*address_space_, user_tls_base, tls_pages);
+                    unmap_run(address_space_, user_tls_base, tls_pages);
                     mm::kernel_frames().release(tls_frames, tls_pages);
                 }
                 if (region != nullptr)
-                    unmap_run(*address_space_, user_tls_base, tls_pages);
-                cleanup_pending(image_state, *address_space_);
+                    unmap_run(address_space_, user_tls_base, tls_pages);
+                cleanup_pending(image_state, address_space_);
                 discard_image();
                 return false;
             }
@@ -303,7 +302,7 @@ namespace astia::proc {
                             fixed);
         }
 
-        core::task<bool> map_tls_file_async(arch::page_map& map,
+        core::task<bool> map_tls_file_async(mm::address_space& map,
                                              const mm::shptr<fs::open_file>& file,
                                              const elf::image& image, u64& tp_out,
                                              u64& frames_out, u64& pages_out) {
@@ -317,8 +316,8 @@ namespace astia::proc {
             for (u64 page = 0; page < pages; ++page) {
                 if (!map.map_4k(user_tls_base + page * elf::page_size,
                                 frames + page * elf::page_size,
-                                arch::page_flags::present | arch::page_flags::writable |
-                                    arch::page_flags::user)) {
+                                mm::mapping_flags::present | mm::mapping_flags::writable |
+                                    mm::mapping_flags::user)) {
                     unmap_run(map, user_tls_base, page);
                     mm::kernel_frames().release(frames, pages);
                     co_return false;
@@ -347,9 +346,9 @@ namespace astia::proc {
 
     core::task<bool> process::load_user_file_async(
         const mm::shptr<fs::open_file>& file, usize length, u64* entry_out) {
-        if (!file || length == 0 || entry_out == nullptr || address_space_ != nullptr)
+        if (!file || length == 0 || entry_out == nullptr || address_space_.attached())
             co_return false;
-        arch::page_map map = arch::page_map::create(arch::kernel_page_map());
+        mm::address_space map = mm::address_space::create();
         if (!map.valid())
             co_return false;
 
@@ -364,8 +363,8 @@ namespace astia::proc {
         }
         elf::image image = loaded.value;
 
-        address_space_.reset(new arch::page_map(static_cast<arch::page_map&&>(map)));
-        if (address_space_ == nullptr) {
+        address_space_ = static_cast<mm::address_space&&>(map);
+        if (!address_space_.attached()) {
             cleanup_pending(stream.map, map);
             co_return false;
         }
@@ -379,7 +378,7 @@ namespace astia::proc {
                     region->release();
                     seg.used = false;
                 }
-                cleanup_pending(stream.map, *address_space_);
+                cleanup_pending(stream.map, address_space_);
                 discard_image();
                 co_return false;
             }
@@ -387,10 +386,10 @@ namespace astia::proc {
         }
         if (image.tls_memsz != 0) {
             u64 tls_frames = 0, tls_pages = 0, tp = 0;
-            auto tls = co_await map_tls_file_async(*address_space_, file, image, tp,
+            auto tls = co_await map_tls_file_async(address_space_, file, image, tp,
                                                     tls_frames, tls_pages);
             if (!tls || !tls.value) {
-                cleanup_pending(stream.map, *address_space_);
+                cleanup_pending(stream.map, address_space_);
                 discard_image();
                 co_return false;
             }
@@ -401,12 +400,12 @@ namespace astia::proc {
                 if (region != nullptr)
                     region->release();
                 else {
-                    unmap_run(*address_space_, user_tls_base, tls_pages);
+                    unmap_run(address_space_, user_tls_base, tls_pages);
                     mm::kernel_frames().release(tls_frames, tls_pages);
                 }
                 if (region != nullptr)
-                    unmap_run(*address_space_, user_tls_base, tls_pages);
-                cleanup_pending(stream.map, *address_space_);
+                    unmap_run(address_space_, user_tls_base, tls_pages);
+                cleanup_pending(stream.map, address_space_);
                 discard_image();
                 co_return false;
             }

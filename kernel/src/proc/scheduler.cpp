@@ -413,8 +413,8 @@ namespace astia::proc::scheduler {
         if (next->owner()->address_space() != nullptr) {
             next->owner()->address_space()->activate();
         }
-        else if (arch::kernel_page_map() != nullptr) {
-            arch::kernel_page_map()->activate();
+        else if (mm::address_space::kernel().valid()) {
+            mm::address_space::kernel().activate();
         }
         if (next->kernel_stack_top() != 0) {
             arch::cpu::set_kernel_stack(next->kernel_stack_top());

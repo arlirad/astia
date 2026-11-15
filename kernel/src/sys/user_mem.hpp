@@ -178,22 +178,22 @@ namespace astia::sys {
         if (base == 0) {
             return false;
         }
-        auto space = owner == nullptr ? mm::address_space{} : owner->memory_space();
-        if (!space.attached()) {
+        auto* space = owner == nullptr ? nullptr : &owner->memory_space();
+        if (space == nullptr || !space->attached()) {
             return true; // kernel client: kernel pointers, as before
         }
-        if (!space.valid_user_range(base, range.length())) {
+        if (!space->valid_user_range(base, range.length())) {
             return false;
         }
-        if (space.validate(base, range.length(), mm::access::read)) {
+        if (space->validate(base, range.length(), mm::access::read)) {
             return true;
         }
         const u64 first = base & ~mm::page_mask;
         const u64 last  = (base + range.length() - 1) & ~mm::page_mask;
         for (u64 page = first;; page += mm::page_size) {
-            if (!space.user_accessible(page)) {
+            if (!space->user_accessible(page)) {
                 if (!owner->cow_fault(page, false) ||
-                    !space.user_accessible(page)) {
+                    !space->user_accessible(page)) {
                     return false;
                 }
             }
@@ -215,21 +215,21 @@ namespace astia::sys {
         if (base == 0) {
             return false;
         }
-        auto space = owner == nullptr ? mm::address_space{} : owner->memory_space();
-        if (!space.attached()) {
+        auto* space = owner == nullptr ? nullptr : &owner->memory_space();
+        if (space == nullptr || !space->attached()) {
             return true;
         }
-        if (!space.valid_user_range(base, range.length())) {
+        if (!space->valid_user_range(base, range.length())) {
             return false;
         }
-        if (space.validate(base, range.length(), mm::access::write)) {
+        if (space->validate(base, range.length(), mm::access::write)) {
             return true;
         }
         const u64 first = base & ~mm::page_mask;
         const u64 last  = (base + range.length() - 1) & ~mm::page_mask;
         for (u64 page = first;; page += mm::page_size) {
-            if (!space.user_accessible(page) || !space.writable(page)) {
-                if (!owner->cow_fault(page, true) || !space.writable(page)) {
+            if (!space->user_accessible(page) || !space->writable(page)) {
+                if (!owner->cow_fault(page, true) || !space->writable(page)) {
                     return false;
                 }
             }
@@ -243,10 +243,10 @@ namespace astia::sys {
         if (address == 0) {
             return false;
         }
-        auto space = owner == nullptr ? mm::address_space{} : owner->memory_space();
-        return !space.attached() ||
-               (space.valid_user_range(address, 1) &&
-                space.executable(address & ~mm::page_mask));
+        auto* space = owner == nullptr ? nullptr : &owner->memory_space();
+        return space == nullptr || !space->attached() ||
+               (space->valid_user_range(address, 1) &&
+                space->executable(address & ~mm::page_mask));
     }
 
     inline bool user_code_ptr_ok(u64 address) {
@@ -320,13 +320,13 @@ namespace astia::sys {
         // cannot enter the ring-3 page-fault path if the destination still
         // carries that CoW protection.  Resolve each page explicitly before
         // taking the user address as a writable pointer.
-        auto space = owner == nullptr ? mm::address_space{} : owner->memory_space();
-        if (space.attached()) {
+        auto* space = owner == nullptr ? nullptr : &owner->memory_space();
+        if (space != nullptr && space->attached()) {
             const u64 first = destination.address() & ~mm::page_mask;
             const u64 last =
                 (destination.address() + destination.length() - 1) & ~mm::page_mask;
             for (u64 page = first;; page += mm::page_size) {
-                if (!space.writable(page)) {
+                if (!space->writable(page)) {
                     return false;
                 }
                 if (page == last)
@@ -338,7 +338,7 @@ namespace astia::sys {
                 const u64 address = destination.address() + copied;
                 const u64 page    = address & ~mm::page_mask;
                 auto* target = static_cast<u8*>(mm::kernel_frames().to_virt(
-                    space.translate(page)));
+                    space->translate(page)));
                 if (target == nullptr)
                     return false;
                 const usize within = static_cast<usize>(address - page);
@@ -391,10 +391,10 @@ namespace astia::sys {
             return false;
         }
         proc::process*        owner = proc::current_process();
-        auto space = owner == nullptr ? mm::address_space{} : owner->memory_space();
+        auto* space = owner == nullptr ? nullptr : &owner->memory_space();
         const auto*           from  = reinterpret_cast<const u8*>(source.address());
         u64                   byte  = source.address();
-        if (!space.attached()) { // kernel client: bounded straight copy
+        if (space == nullptr || !space->attached()) { // kernel client: bounded straight copy
             for (usize i = 0; i < capacity; ++i) {
                 destination.data()[i] = static_cast<char>(from[i]);
                 if (destination.data()[i] == '\0') {
@@ -403,14 +403,14 @@ namespace astia::sys {
             }
             return false;
         }
-        if (!space.valid_user_range(byte, 1)) {
+        if (!space->valid_user_range(byte, 1)) {
             return false;
         }
         if (!user_span_ok_for(owner, span<u8>::bytes(byte, 1))) {
             return false;
         }
         for (usize i = 0; i < capacity; ++i, ++byte) {
-            if (!space.valid_user_range(byte, 1)) {
+            if (!space->valid_user_range(byte, 1)) {
                 return false;
             }
             if ((byte & mm::page_mask) == 0 &&

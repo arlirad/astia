@@ -1,6 +1,11 @@
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
+#include <astia/arch/user_layout.hpp>
 #include <astia/mm/address_space.hpp>
+
+namespace astia::arch {
+    page_map* kernel_page_map() __attribute__((weak));
+}
 
 namespace astia::mm {
 
@@ -39,7 +44,7 @@ namespace astia::mm {
 
     address_space address_space::create(const address_space* parent) {
         const auto* parent_map = parent == nullptr
-                                     ? nullptr
+                                     ? arch::kernel_page_map()
                                      : static_cast<const arch::page_map*>(parent->native_);
         auto* map = new arch::page_map(arch::page_map::create(parent_map));
         if (map == nullptr || !map->valid()) {
@@ -47,6 +52,10 @@ namespace astia::mm {
             return {};
         }
         return address_space(map, true);
+    }
+
+    address_space address_space::kernel() {
+        return address_space(arch::kernel_page_map(), false);
     }
 
     bool address_space::attached() const {
@@ -90,9 +99,16 @@ namespace astia::mm {
     }
 
     bool address_space::valid_user_range(u64 address, usize length) const {
-        if (length == 0 || address == 0 || address >= arch::kernel_base)
-            return length == 0;
-        return static_cast<u64>(length) <= arch::kernel_base - address;
+        if (length == 0)
+            return true;
+        if (address == 0 ||
+            !arch::user_layout_policy::is_canonical(address) ||
+            address >= arch::user_layout_policy::address_limit)
+            return false;
+        const u64 last = address + static_cast<u64>(length) - 1;
+        if (last < address || last >= arch::user_layout_policy::address_limit)
+            return false;
+        return arch::user_layout_policy::is_canonical(last);
     }
 
     bool address_space::validate(u64 address, usize length, access required) const {
@@ -135,6 +151,8 @@ namespace astia::mm {
         if (finished_ || space_ == nullptr || mapped_ >= pages_ ||
             virt != first_ + mapped_ * page_size ||
             first_ + mapped_ * page_size < first_)
+            return false;
+        if (space_->translate(virt) != address_space::invalid)
             return false;
         if (!space_->map_4k(virt, phys, flags))
             return false;

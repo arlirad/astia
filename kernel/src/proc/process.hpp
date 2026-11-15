@@ -8,7 +8,6 @@
 #include "thread.hpp"
 #include "user_layout.hpp"
 #include <astia/api/syscalls.h>
-#include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
 #include <astia/core/task.hpp>
 #include <astia/core/spinlock.hpp>
@@ -325,18 +324,21 @@ namespace astia::proc {
         /// Find a thread by its process-local tid, retaining it while a
         /// blocking join syscall operates on it.
         mm::shptr<thread>     thread_by_tid(tid_t id);
-        const arch::page_map* address_space() const {
-            return address_space_.get();
+        const mm::address_space* address_space() const {
+            return address_space_.attached() ? &address_space_ : nullptr;
         }
 
-        mm::address_space memory_space() const {
-            return mm::address_space::view(address_space_.get());
+        const mm::address_space& memory_space() const {
+            return address_space_;
         }
 
-        /// Mutable view for the syscall/ring layer, which maps kernel-owned
-        /// pages (the I/O ring) into this process' user half on setup.
-        arch::page_map* address_space() {
-            return address_space_.get();
+        mm::address_space* address_space() {
+            return address_space_.attached() ? &address_space_ : nullptr;
+        }
+
+        /// Mutable process address space for mappings owned by this process.
+        mm::address_space& memory_space() {
+            return address_space_;
         }
 
         /// mmap: anonymous private memory; `addr` is a placement hint
@@ -493,7 +495,7 @@ namespace astia::proc {
         thread*                  waiters_[max_waiters_per_process]{};
         signal_waiter_registry   signal_waiters_{};
         fd_table                 descriptors_;
-        mm::uptr<arch::page_map> address_space_;
+        mm::address_space       address_space_;
         u64                      tls_tp_ = 0;
         astia_rlimit             rlimit_nofile_{max_process_fds, max_process_fds};
         astia_rlimit             rlimit_as_{~u64{0}, ~u64{0}};

@@ -37,6 +37,10 @@ ASTIA_TEST(address_space_validates_user_ranges_and_permissions) {
     ASTIA_CHECK(!space.valid_user_range(0, 1));
     ASTIA_CHECK(!space.valid_user_range(astia::arch::kernel_base, 1));
     ASTIA_CHECK(!space.valid_user_range(astia::arch::kernel_base - 1, 2));
+    ASTIA_CHECK(!space.valid_user_range(0x0000800000000000ull, 1));
+    ASTIA_CHECK(!space.valid_user_range(0x0001000000000000ull, 1));
+    ASTIA_CHECK(!space.valid_user_range(~astia::u64{0} - 1, 4));
+    ASTIA_CHECK(space.valid_user_range(0, 0));
     ASTIA_CHECK(space.map_4k(0x400000, phys, user_rw));
     ASTIA_CHECK(space.validate(0x400001, 0x100, astia::mm::access::read));
     ASTIA_CHECK(space.validate(0x400001, 0x100, astia::mm::access::write));
@@ -77,6 +81,21 @@ ASTIA_TEST(address_space_transaction_commit_keeps_mappings) {
     ASTIA_CHECK(space.unmap(0x601000));
 }
 
+ASTIA_TEST(address_space_transaction_preserves_existing_mapping_on_failure) {
+    auto native = make_map();
+    auto space  = astia::mm::address_space::view(&native);
+    const auto phys = astia_test::arena_base + 0x600000;
+
+    ASTIA_CHECK(space.map_4k(0x800000, phys, user_rw));
+    {
+        astia::mm::mapping_transaction transaction(space, 0x800000, 2);
+        ASTIA_CHECK(!transaction.map_4k(0x800000, phys + 0x1000, user_rw));
+    }
+    ASTIA_CHECK(space.translate(0x800000) == phys);
+    ASTIA_CHECK(space.translate(0x801000) == astia::mm::address_space::invalid);
+    ASTIA_CHECK(space.unmap(0x800000));
+}
+
 ASTIA_TEST(address_space_create_uses_parent_and_owns_backend) {
     auto native = make_map();
     auto parent = astia::mm::address_space::view(&native);
@@ -87,4 +106,36 @@ ASTIA_TEST(address_space_create_uses_parent_and_owns_backend) {
     ASTIA_CHECK(child.map_4k(0x700000, phys, user_rw));
     ASTIA_CHECK(child.translate(0x700000) == phys);
     ASTIA_CHECK(native.translate(0x700000) == astia::arch::page_map::invalid);
+}
+
+ASTIA_TEST(address_space_fork_child_mapping_isolated_from_parent) {
+    auto native = make_map();
+    auto parent = astia::mm::address_space::view(&native);
+    auto child  = astia::mm::address_space::create(&parent);
+    const auto parent_phys = astia_test::arena_base + 0x700000;
+    const auto child_phys  = astia_test::arena_base + 0x701000;
+
+    ASTIA_CHECK(parent.map_4k(0x900000, parent_phys, user_rw));
+    ASTIA_CHECK(child.map_4k(0x900000, child_phys, user_rw));
+    ASTIA_CHECK(parent.translate(0x900000) == parent_phys);
+    ASTIA_CHECK(child.translate(0x900000) == child_phys);
+    ASTIA_CHECK(child.unmap(0x900000));
+    ASTIA_CHECK(parent.translate(0x900000) == parent_phys);
+    ASTIA_CHECK(child.translate(0x900000) == astia::mm::address_space::invalid);
+    ASTIA_CHECK(parent.unmap(0x900000));
+}
+
+ASTIA_TEST(address_space_exec_replaces_image_without_aliasing) {
+    auto native = make_map();
+    auto parent = astia::mm::address_space::view(&native);
+    auto old    = astia::mm::address_space::create(&parent);
+    auto image  = astia::mm::address_space::create(&parent);
+    const auto old_phys = astia_test::arena_base + 0x800000;
+    const auto new_phys = astia_test::arena_base + 0x801000;
+
+    ASTIA_CHECK(old.map_4k(0xa00000, old_phys, user_rw));
+    ASTIA_CHECK(image.map_4k(0xa00000, new_phys, user_rw));
+    old = static_cast<astia::mm::address_space&&>(image);
+    ASTIA_CHECK(old.translate(0xa00000) == new_phys);
+    ASTIA_CHECK(image.translate(0xa00000) == astia::mm::address_space::invalid);
 }

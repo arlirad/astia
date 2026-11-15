@@ -162,7 +162,7 @@ namespace astia::proc {
                 }
                 const u64 page = vaddr & ~mm::page_mask;
                 if (owner == nullptr || owner->address_space() == nullptr ||
-                    (owner->address_space()->translate(page) == arch::page_map::invalid &&
+                    (owner->address_space()->translate(page) == mm::address_space::invalid &&
                      !owner->cow_fault(page, false))) {
                     return false;
                 }
@@ -950,12 +950,12 @@ namespace astia::proc {
     }
 
     bool process::build_user_stack(char* const argv[], char* const envp[], u64* rsp_out) {
-        if (address_space_ == nullptr || rsp_out == nullptr)
+        if (!address_space_.attached() || rsp_out == nullptr)
             return false;
         process*              caller = current_process();
-        const arch::page_map* caller_map =
+        const mm::address_space* caller_map =
             caller == nullptr ? nullptr : caller->address_space();
-        address_space_->activate();
+        address_space_.activate();
         const u64 stack_base = user_stack_top - user_stack_bytes;
         const u64 stack = map_anonymous(
             stack_base, user_stack_bytes, map_protection::read | map_protection::write,
@@ -966,7 +966,7 @@ namespace astia::proc {
             if (caller_map != nullptr)
                 caller_map->activate();
             else
-                arch::kernel_page_map()->activate();
+                mm::address_space::kernel().activate();
             return false;
         }
         const char* argv_list[max_argv_entries]{};
@@ -983,7 +983,7 @@ namespace astia::proc {
         if (caller_map != nullptr)
             caller_map->activate();
         else
-            arch::kernel_page_map()->activate();
+            mm::address_space::kernel().activate();
         if (!built) {
             // The VMA owns the frame run after register_mapping succeeds.
             // Remove it on a malformed or oversized startup vector.
@@ -993,11 +993,10 @@ namespace astia::proc {
     }
 
     void process::replace_image(process& staging) {
-        mm::uptr<arch::page_map> old_map =
-            static_cast<mm::uptr<arch::page_map>&&>(address_space_);
+        mm::address_space old_map = static_cast<mm::address_space&&>(address_space_);
         mmap_region* old_regions = mmap_regions_;
 
-        address_space_ = static_cast<mm::uptr<arch::page_map>&&>(staging.address_space_);
+        address_space_ = static_cast<mm::address_space&&>(staging.address_space_);
         mmap_regions_  = staging.mmap_regions_;
         mapped_bytes_  = staging.mapped_bytes_;
         tls_tp_        = staging.tls_tp_;
@@ -1005,9 +1004,8 @@ namespace astia::proc {
         staging.mapped_bytes_ = 0;
         staging.tls_tp_       = 0;
 
-        if (address_space_ != nullptr)
-            address_space_->activate();
-        old_map.reset();
+        if (address_space_.attached())
+            address_space_.activate();
         while (old_regions != nullptr) {
             mmap_region* next = old_regions->next;
             old_regions->backing->unmap_range(old_regions->region_page,
@@ -1068,7 +1066,7 @@ namespace astia::proc {
 
     mm::shptr<thread> process::create_user_thread(u64 entry, char* const argv[],
                                                   char* const envp[]) {
-        if (address_space_ == nullptr) {
+        if (!address_space_.attached()) {
             return {};
         }
         u64 user_entry_stack = user_stack_top;
@@ -1097,7 +1095,7 @@ namespace astia::proc {
     mm::shptr<thread> process::create_thread(u64 entry, u64 user_stack_top, u64 argument,
                                              u64 argument1, bool owns_user_stack,
                                              u64 user_stack_base, usize user_stack_size) {
-        if (address_space_ == nullptr || entry == 0 || user_stack_top == 0) {
+        if (!address_space_.attached() || entry == 0 || user_stack_top == 0) {
             return {};
         }
         const tid_t id        = proc::allocate_tid();
@@ -1175,12 +1173,12 @@ namespace astia::proc {
         for (usize page = 0; page < source->pages; ++page) {
             __builtin_memcpy(copy->page_direct(page), source->backing->page_direct(page),
                              page_bytes);
-            if (!address_space_->map_4k(
+            if (!address_space_.map_4k(
                     base + page * page_bytes, copy->base() + page * page_bytes,
-                    arch::page_flags::present | arch::page_flags::writable |
-                        arch::page_flags::user)) {
+                    mm::mapping_flags::present | mm::mapping_flags::writable |
+                        mm::mapping_flags::user)) {
                 for (usize done = 0; done < page; ++done) {
-                    address_space_->unmap(base + done * page_bytes);
+                    address_space_.unmap(base + done * page_bytes);
                 }
                 copy->release();
                 return false;
@@ -1189,7 +1187,7 @@ namespace astia::proc {
         if (!register_mapping(base, source->pages,
                               map_protection::read | map_protection::write, copy)) {
             for (usize page = 0; page < source->pages; ++page) {
-                address_space_->unmap(base + page * page_bytes);
+                address_space_.unmap(base + page * page_bytes);
             }
             copy->release();
             return false;

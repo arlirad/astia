@@ -47,6 +47,7 @@ namespace astia::mm {
 
         static address_space view(void* native);
         static address_space create(const address_space* parent = nullptr);
+        static address_space kernel();
 
         bool attached() const;
         bool valid() const;
