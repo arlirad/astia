@@ -366,13 +366,21 @@ namespace astia::ext4 {
     }
 
     bool reader::map_extent_node(const u8* node, u16 depth, u32 logical_block,
-                                 u64& physical_block, u32 number, u32 generation) {
+                                 u64& physical_block, u32 number, u32 generation,
+                                 bool root) {
         if (get16(node) != extent_magic)
             return fail(error::corrupt);
         const u16 entries = get16(node + 2);
         const u16 maximum = get16(node + 4);
-        if (entries > maximum || maximum > (block_size_ - 12) / 12 || depth > 5)
+        if (get16(node + 6) != depth || depth > 5 || entries > maximum)
             return fail(error::corrupt);
+        const u32 available = root ? static_cast<u32>((60 - 12) / 12)
+                                   : (block_size_ - 12 -
+                                      ((feature_ro_compat_ & ro_metadata_csum) != 0 ? 4 : 0)) /
+                                         12;
+        if (maximum > available)
+            return fail(error::corrupt);
+        u64 previous_end = 0;
         if (depth == 0) {
             for (u16 i = 0; i < entries; ++i) {
                 const u8* extent = node + 12 + static_cast<usize>(i) * 12;
@@ -380,11 +388,18 @@ namespace astia::ext4 {
                 const u16 encoded_length = get16(extent + 4);
                 const u32 length = encoded_length > 32768 ? encoded_length - 32768
                                                            : encoded_length;
-                if (length == 0)
+                if (length == 0 || (i != 0 && static_cast<u64>(first) < previous_end))
                     return fail(error::corrupt);
+                const u64 logical_end = static_cast<u64>(first) + length;
+                if (logical_end > (u64{1} << 32))
+                    return fail(error::corrupt);
+                const u64 start = static_cast<u64>(get16(extent + 6)) << 32 |
+                                   get32(extent + 8);
+                const u64 physical_end = start + length;
+                if (start == 0 || physical_end < start || physical_end > blocks_count_)
+                    return fail(error::corrupt);
+                previous_end = logical_end;
                 if (logical_block >= first && logical_block - first < length) {
-                    const u64 start = static_cast<u64>(get16(extent + 6)) << 32 |
-                                       get32(extent + 8);
                     physical_block = encoded_length > 32768
                                           ? 0
                                           : start + (logical_block - first);
@@ -396,10 +411,18 @@ namespace astia::ext4 {
             physical_block = 0;
             return true;
         }
+        u32 previous = 0;
         const u8* selected = nullptr;
         for (u16 i = 0; i < entries; ++i) {
             const u8* index = node + 12 + static_cast<usize>(i) * 12;
-            if (get32(index) <= logical_block)
+            const u32 first = get32(index);
+            const u64 child = static_cast<u64>(get16(index + 8)) << 32 |
+                              get32(index + 4);
+            if ((i == 0 && first != 0) || (i != 0 && first <= previous) ||
+                get16(index + 10) != 0 || child == 0 || child >= blocks_count_)
+                return fail(error::corrupt);
+            previous = first;
+            if (first <= logical_block)
                 selected = index;
         }
         if (selected == nullptr)
@@ -411,7 +434,7 @@ namespace astia::ext4 {
         if (!validate_extent_block(extent_block_, number, generation))
             return false;
         return map_extent_node(extent_block_, static_cast<u16>(depth - 1), logical_block,
-                               physical_block, number, generation);
+                               physical_block, number, generation, false);
     }
 
     bool reader::map_indirect(u64 physical_block, u32 level, u32 logical_block,
@@ -448,7 +471,7 @@ namespace astia::ext4 {
         if ((node.flags & inode_extents) != 0) {
             const u16 depth = get16(node.block + 6);
             return map_extent_node(node.block, depth, logical_block, physical_block,
-                                   node.number, node.generation);
+                                   node.number, node.generation, true);
         }
         if (logical_block < 12) {
             physical_block = get32(node.block + logical_block * 4);

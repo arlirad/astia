@@ -91,7 +91,8 @@ namespace astia::ext4 {
         bool read_block(u64 number, void* buffer);
         bool read_group_inode_table(u32 group, u64& table_block);
         bool map_extent_node(const u8* node, u16 depth, u32 logical_block,
-                             u64& physical_block, u32 inode_number, u32 generation);
+                             u64& physical_block, u32 inode_number, u32 generation,
+                             bool root);
         bool map_indirect(u64 physical_block, u32 level, u32 logical_block,
                           u64& result);
         bool validate_extent_block(const u8* block, u32 inode_number, u32 generation);

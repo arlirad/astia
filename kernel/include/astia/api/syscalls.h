@@ -36,6 +36,10 @@
 
 #include <stdint.h>
 
+#if !defined(__x86_64__) || UINTPTR_MAX != UINT64_MAX
+#error "Astia userspace ABI requires the x86_64 target"
+#endif
+
 #if defined(__cplusplus)
 #if __cplusplus < 201103L
 #error "astia/api/syscalls.h requires C++11 or later"

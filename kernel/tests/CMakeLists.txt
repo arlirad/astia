@@ -341,6 +341,32 @@ astia_add_host_test(astia_ext4_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/ext4/ext4_reader.cpp
 )
 
+find_program(ASTIA_MKFS_EXT4 mkfs.ext4)
+find_program(ASTIA_E2FSCK e2fsck)
+if (ASTIA_MKFS_EXT4 AND ASTIA_E2FSCK)
+    set(_ext4_real_fixture ${CMAKE_CURRENT_BINARY_DIR}/fixtures/ext4-metadata-csum.img)
+    add_custom_command(
+            OUTPUT ${_ext4_real_fixture}
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                    ${CMAKE_CURRENT_BINARY_DIR}/fixtures
+            COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/make_ext4_fixture.sh
+                    ${_ext4_real_fixture}
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/make_ext4_fixture.sh
+            COMMENT "Building metadata-checksummed ext4 fixture"
+            VERBATIM
+    )
+    add_custom_target(astia_ext4_real_fixture DEPENDS ${_ext4_real_fixture})
+    add_executable(astia_ext4_real_test
+            ext4_real_test.cpp
+            ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/ext4/ext4_reader.cpp
+    )
+    set_target_properties(astia_ext4_real_test PROPERTIES LINK_OPTIONS "")
+    target_include_directories(astia_ext4_real_test PRIVATE ${_astia_test_includes})
+    add_dependencies(astia_ext4_real_test astia_ext4_real_fixture)
+    add_test(NAME astia_ext4_real_test
+            COMMAND astia_ext4_real_test ${_ext4_real_fixture})
+endif ()
+
 # memory.cpp is the code under test here, so it overrides the host libc's
 # symbols; -fno-builtin stops the compiler rewriting our loops back into calls.
 astia_add_host_test(astia_memory_test memory_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp)
