@@ -87,6 +87,10 @@ target_compile_definitions(astia_signal_test PRIVATE ASTIA_SIGNAL_HOST_TEST=1)
 astia_add_host_test(astia_aio_test aio_test.cpp)
 astia_add_host_test(astia_socket_abi_test socket_abi_test.cpp)
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
+astia_add_host_test(astia_cwd_context_test
+        cwd_context_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/cwd_context.cpp
+        support/resume_queue_host.cpp)
 astia_add_host_test(astia_tty_test
         tty_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty.cpp

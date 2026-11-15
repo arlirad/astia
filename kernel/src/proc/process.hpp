@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../ipc/signal.hpp"
+#include "cwd_context.hpp"
 #include "fd_table.hpp"
 #include "mmap_region.hpp"
 #include "signal_waiter_registry.hpp"
@@ -121,9 +122,6 @@ namespace astia::proc {
                 return mode.other_allows(want);
             }());
         }
-        const char* cwd() const {
-            return cwd_;
-        }
         i64 change_directory(const char* path);
         i64 copy_cwd(span<char> buffer) const;
         i64 copy_cwd(char* buffer, usize length) const {
@@ -141,6 +139,7 @@ namespace astia::proc {
             return compose_path_at(dirfd, path, span<char>(buffer, length));
         }
         void inherit_groups(const process& parent) {
+            cwd_.inherit_from(parent.cwd_);
             arch::interrupt_spinlock_guard parent_guard(parent.metadata_lock_);
             arch::interrupt_spinlock_guard guard(metadata_lock_);
             if (parent.pid_ == pid_t{}) {
@@ -152,11 +151,6 @@ namespace astia::proc {
                 session_       = parent.session_;
             }
             controlling_terminal_ = parent.controlling_terminal_;
-            for (usize i = 0; i < fs::path_max; ++i) {
-                cwd_[i] = parent.cwd_[i];
-                if (cwd_[i] == '\0')
-                    break;
-            }
             uid_         = parent.uid_;
             euid_        = parent.euid_;
             gid_         = parent.gid_;
@@ -504,7 +498,7 @@ namespace astia::proc {
         astia_rlimit             rlimit_nofile_{max_process_fds, max_process_fds};
         astia_rlimit             rlimit_as_{~u64{0}, ~u64{0}};
         u64                      mapped_bytes_      = 0;
-        char                     cwd_[fs::path_max] = "/";
+        cwd_context              cwd_{};
         mmap_region*             mmap_regions_      = nullptr; // base-sorted
         // Lifecycle/thread state is process-local; keeping this lock on the
         // object avoids serializing unrelated processes.

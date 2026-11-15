@@ -17,96 +17,30 @@ void* operator new[](astia::usize size, void* where) noexcept;
 namespace astia::proc {
 
     i64 process::change_directory(const char* path) {
-        if (path == nullptr || path[0] == '\0')
-            return -EINVAL;
-        char full[fs::path_max]{};
-        const i64 compose_rc = compose_path(path, full, sizeof full);
-        if (compose_rc < 0)
-            return compose_rc;
-        char       resolved[fs::path_max]{};
-        const long resolve_rc = fs::resolve_path(full, resolved, sizeof resolved, true);
-        if (resolve_rc < 0)
-            return resolve_rc;
-        if (fs::node_type(resolved) == fs::directory_unknown)
-            return -ENOENT;
-        if (fs::node_type(resolved) != fs::directory_dir)
-            return -ENOTDIR;
-        usize i = 0;
-        for (; resolved[i] != '\0'; ++i)
-            cwd_[i] = resolved[i];
-        cwd_[i]                = '\0';
-        cwd_[fs::path_max - 1] = '\0';
-        return 0;
+        return cwd_.change_directory(path);
     }
 
     i64 process::copy_cwd(span<char> buffer) const {
-        if (buffer.null() || buffer.empty())
-            return -EINVAL;
-        usize i = 0;
-        for (; cwd_[i] != '\0' && i + 1 < buffer.size(); ++i)
-            buffer.data()[i] = cwd_[i];
-        if (cwd_[i] != '\0')
-            return -ERANGE;
-        buffer.data()[i] = '\0';
-        return static_cast<i64>(i + 1);
+        return cwd_.copy_cwd(buffer);
     }
 
     i64 process::compose_path(const char* path, span<char> buffer) const {
-        if (path == nullptr || buffer.null() || buffer.empty())
-            return -EINVAL;
-        if (path[0] == '/') {
-            usize i = 0;
-            for (; path[i] != '\0' && i + 1 < buffer.size(); ++i)
-                buffer.data()[i] = path[i];
-            if (path[i] != '\0')
-                return -ENAMETOOLONG;
-            buffer.data()[i] = '\0';
-            return 0;
-        }
-        if (path[0] == '.' && path[1] == '\0') {
-            return copy_cwd(buffer) < 0 ? -ERANGE : 0;
-        }
-        usize at = 0;
-        for (; cwd_[at] != '\0' && at + 1 < buffer.size(); ++at)
-            buffer.data()[at] = cwd_[at];
-        if (at > 1 && at + 1 < buffer.size())
-            buffer.data()[at++] = '/';
-        usize source = 0;
-        for (; path[source] != '\0' && at + 1 < buffer.size(); ++source, ++at)
-            buffer.data()[at] = path[source];
-        if (path[source] != '\0')
-            return -ENAMETOOLONG;
-        buffer.data()[at] = '\0';
-        return 0;
+        return cwd_.compose_path(path, buffer);
     }
 
     i64 process::compose_path_at(fd_t dirfd, const char* path, span<char> buffer) const {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
         if (path[0] == '/')
-            return compose_path(path, buffer);
-        if (dirfd.value == -100)
-            return compose_path(path, buffer);
+            return cwd_.compose_path(path, buffer);
+        if (dirfd.value == AT_FDCWD)
+            return cwd_.compose_path(path, buffer);
         auto directory = descriptor(dirfd);
         if (!directory)
             return -EBADF;
         if (!directory->path() || !directory->mode().is_directory())
             return -ENOTDIR;
-        usize       at   = 0;
-        const char* base = directory->path();
-        for (; base[at] != '\0' && at + 1 < buffer.size(); ++at)
-            buffer.data()[at] = base[at];
-        if (base[at] != '\0')
-            return -ENAMETOOLONG;
-        if (at > 1 && at + 1 < buffer.size())
-            buffer.data()[at++] = '/';
-        usize i = 0;
-        for (; path[i] != '\0' && at + 1 < buffer.size(); ++i, ++at)
-            buffer.data()[at] = path[i];
-        if (path[i] != '\0')
-            return -ENAMETOOLONG;
-        buffer.data()[at] = '\0';
-        return 0;
+        return cwd_.compose_path_at(directory->path(), path, buffer);
     }
 
     namespace {

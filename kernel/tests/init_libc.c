@@ -896,6 +896,12 @@ int main(int argc, char** argv) {
         raise(SIGUSR1);
         _Exit(121);
     }
+    if (argc > 1 && strcmp(argv[1], "--exec-cwd-check") == 0) {
+        char cwd[64];
+        if (getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0)
+            _Exit(143);
+        _Exit(0);
+    }
     {
         struct timeval zero = {0, 0};
         struct pollfd fd;
@@ -1268,6 +1274,38 @@ int main(int argc, char** argv) {
         if (direct_chdir("/bin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
             strcmp(cwd, "/bin") != 0)
             return 41;
+        int directory_fd = open("/bin", O_RDONLY | O_DIRECTORY);
+        if (directory_fd < 0 || direct_chdir("/") != 0 || fchdir(directory_fd) != 0 ||
+            getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0 ||
+            close(directory_fd) != 0)
+            return 144;
+        const pid_t fork_cwd_child = fork();
+        if (fork_cwd_child < 0)
+            return 147;
+        if (fork_cwd_child == 0) {
+            if (getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0)
+                _Exit(148);
+            _Exit(0);
+        }
+        int fork_cwd_status = 0;
+        if (waitpid(fork_cwd_child, &fork_cwd_status, 0) != fork_cwd_child ||
+            fork_cwd_status != 0)
+            return 149;
+        const pid_t exec_cwd_child = fork();
+        if (exec_cwd_child < 0)
+            return 150;
+        if (exec_cwd_child == 0) {
+            execl(argv[0], argv[0], "--exec-cwd-check", NULL);
+            _Exit(151);
+        }
+        int exec_cwd_status = 0;
+        if (waitpid(exec_cwd_child, &exec_cwd_status, 0) != exec_cwd_child ||
+            exec_cwd_status != 0)
+            return 152;
+        if (symlink("/bin", "/tmp/cwd-link") != 0 ||
+            direct_chdir("/tmp/cwd-link") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/bin") != 0 || unlink("/tmp/cwd-link") != 0)
+            return 153;
         DIR* bin = opendir(".");
         if (bin == NULL || readdir(bin) == NULL)
             return 42;
