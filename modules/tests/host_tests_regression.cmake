@@ -7,6 +7,9 @@ endif()
 if(NOT EXISTS "${ASTIA_USB_UNIT}")
     message(FATAL_ERROR "missing USB host test: ${ASTIA_USB_UNIT}")
 endif()
+if(NOT EXISTS "${ASTIA_RTL8139_UNIT}")
+    message(FATAL_ERROR "missing RTL8139 host test: ${ASTIA_RTL8139_UNIT}")
+endif()
 
 execute_process(
         COMMAND "${ASTIA_MODULE_ABI_LAYOUT}"
@@ -27,4 +30,11 @@ execute_process(
         RESULT_VARIABLE _astia_usb_result)
 if(NOT _astia_usb_result EQUAL 0)
     message(FATAL_ERROR "USB host test failed: ${_astia_usb_result}")
+endif()
+
+execute_process(
+        COMMAND "${ASTIA_RTL8139_UNIT}"
+        RESULT_VARIABLE _astia_rtl8139_result)
+if(NOT _astia_rtl8139_result EQUAL 0)
+    message(FATAL_ERROR "RTL8139 host test failed: ${_astia_rtl8139_result}")
 endif()
