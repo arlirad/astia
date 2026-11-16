@@ -120,7 +120,8 @@ if(ASTIA_BUILD_TESTS)
             astia_module_cpp_compatibility
             astia_module_abi_header_alone
             virtio_blk_unit_target
-            usb_unit_target)
+            usb_unit_target
+            rtl8139_unit_target)
         if(NOT TARGET ${_astia_module_test_target})
             message(FATAL_ERROR
                     "ASTIA_BUILD_TESTS requires module target ${_astia_module_test_target}")
@@ -134,12 +135,14 @@ if(ASTIA_BUILD_TESTS)
             astia_module_cpp_compatibility
             astia_module_abi_header_alone
             virtio_blk_unit_target
-            usb_unit_target)
+            usb_unit_target
+            rtl8139_unit_target)
 
     add_test(NAME astia_module_host_targets
             COMMAND ${CMAKE_COMMAND}
             -DASTIA_MODULE_ABI_LAYOUT=${CMAKE_CURRENT_BINARY_DIR}/modules/tests/module_abi_layout
             -DASTIA_VIRTIO_BLK_UNIT=${CMAKE_CURRENT_BINARY_DIR}/modules/virtio-blk/virtio_blk_unit
             -DASTIA_USB_UNIT=${CMAKE_CURRENT_BINARY_DIR}/modules/usb/usb_unit
+            -DASTIA_RTL8139_UNIT=${CMAKE_CURRENT_BINARY_DIR}/modules/rtl8139/rtl8139_unit
             -P ${CMAKE_CURRENT_SOURCE_DIR}/modules/tests/host_tests_regression.cmake)
 endif()
