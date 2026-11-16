@@ -152,6 +152,7 @@ astia_add_host_test(astia_pci_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/driver.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/mmio.cpp)
+target_compile_definitions(astia_pci_test PRIVATE ASTIA_HOST_TEST=1)
 target_include_directories(astia_pci_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 astia_add_host_test(astia_driver_manager_test
@@ -850,7 +851,7 @@ if (ARCH STREQUAL "x86_64")
                     ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp_boot PROPERTIES TIMEOUT 30)
             add_test(NAME astia_grub_framebuffer_boot
-                    COMMAND env ASTIA_GRUB_EXPECT_FRAMEBUFFER=unavailable sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
+                    COMMAND env ASTIA_GRUB_EXPECT_FRAMEBUFFER=ready sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                     ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_framebuffer_boot PROPERTIES TIMEOUT 30)
             add_test(NAME astia_grub_smp4_boot

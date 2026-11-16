@@ -2,6 +2,7 @@
 #include "pci.hpp"
 
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/layout.hpp>
 #include <astia/arch/mmio.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/common.hpp>
@@ -71,6 +72,19 @@ namespace astia::dev {
         if (page_map == nullptr) {
             return error_t::enosys;
         }
+
+#ifndef ASTIA_HOST_TEST
+        if (base <= ~u64{0} - arch::kernel_base &&
+            page_map->translate(arch::kernel_base + base) == base) {
+            mmio_mapping result;
+            result.physical_ = physical;
+            result.mapped_base_ = base;
+            result.virtual_base_ = arch::kernel_base + base;
+            result.offset_ = static_cast<usize>(offset);
+            result.length_ = length;
+            return static_cast<mmio_mapping&&>(result);
+        }
+#endif
 
         mmio_mapping result;
         arch::interrupt_spinlock_guard guard(mmio_lock);

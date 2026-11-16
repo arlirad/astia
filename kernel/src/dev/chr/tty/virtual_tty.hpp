@@ -31,5 +31,6 @@ namespace astia::dev {
     inline constexpr char virtual_tty_path[] = "/dev/ttv0";
 
     bool virtual_tty_init();
+    bool virtual_tty_forward_input(u8 byte);
 
 } // namespace astia::dev
