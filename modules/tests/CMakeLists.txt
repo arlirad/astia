@@ -1,4 +1,5 @@
 add_library(astia_module_fixtures INTERFACE)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/AstiaCTest.cmake)
 
 target_include_directories(astia_module_fixtures INTERFACE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../kernel/include)
@@ -82,3 +83,5 @@ add_custom_target(astia_module_abi_layout_target ALL DEPENDS ${ASTIA_MODULE_ABI_
 if(ASTIA_BUILD_TESTS)
     add_test(NAME astia_module_abi_layout COMMAND ${ASTIA_MODULE_ABI_LAYOUT})
 endif()
+
+astia_append_test_label("module;abi;deterministic")
