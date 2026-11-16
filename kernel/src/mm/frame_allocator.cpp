@@ -88,6 +88,12 @@ namespace astia::mm {
         }
     }
 
+    void frame_allocator::reserve(u64 physical, u64 size) {
+        core::spinlock_guard guard(lock_);
+        if (ready_)
+            mark_range(physical, size, true);
+    }
+
     bool frame_allocator::is_used(usize index) const {
         return (bitmap_[index / 64] >> (index % 64)) & u64{1};
     }

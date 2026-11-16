@@ -22,8 +22,14 @@ namespace astia::dev {
     }
 
     bool framebuffer_renderer::valid_info(const boot::framebuffer_info& info) const {
-        if (!info.valid() || info.width < 8 || info.width > ~u32{0} / 4 ||
-            info.pitch < info.width * 4u || info.width / 8 == 0)
+        const u32 bytes_per_pixel =
+            info.pixel_format == boot::framebuffer_pixel_format::rgb888 ||
+                    info.pixel_format == boot::framebuffer_pixel_format::bgr888
+                ? 3
+                : 4;
+        if (!info.valid() || info.width < 8 ||
+            info.width > ~u32{0} / bytes_per_pixel ||
+            info.pitch < info.width * bytes_per_pixel || info.width / 8 == 0)
             return false;
         if (info.width / 8 > max_columns)
             return false;
@@ -67,11 +73,16 @@ namespace astia::dev {
     void framebuffer_renderer::pixel(u32 x, u32 y, u32 value) const {
         if (x >= info_.width || y >= info_.height)
             return;
-        volatile u8* destination = pixels_ + static_cast<usize>(y) * info_.pitch + x * 4;
+        const bool packed = info_.pixel_format == boot::framebuffer_pixel_format::rgb888 ||
+                             info_.pixel_format == boot::framebuffer_pixel_format::bgr888;
+        const u32 bytes_per_pixel = packed ? 3 : 4;
+        volatile u8* destination = pixels_ + static_cast<usize>(y) * info_.pitch +
+                                   static_cast<usize>(x) * bytes_per_pixel;
         const u8 r = static_cast<u8>(value >> 16);
         const u8 g = static_cast<u8>(value >> 8);
         const u8 b = static_cast<u8>(value);
-        if (info_.pixel_format == boot::framebuffer_pixel_format::rgbx8888) {
+        if (info_.pixel_format == boot::framebuffer_pixel_format::rgb888 ||
+            info_.pixel_format == boot::framebuffer_pixel_format::rgbx8888) {
             destination[0] = r;
             destination[1] = g;
             destination[2] = b;
@@ -81,7 +92,8 @@ namespace astia::dev {
             destination[1] = g;
             destination[2] = r;
         }
-        destination[3] = 0;
+        if (!packed)
+            destination[3] = 0;
     }
 
     u32 framebuffer_renderer::colour(u8 index) const {

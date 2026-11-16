@@ -139,7 +139,7 @@ namespace astia::boot::virt {
                 const u32 height = *reinterpret_cast<const u32*>(data + 16);
                 const u8 bpp = data[20];
                 const u8 type = data[21];
-                if (type == 1 && bpp == 32 && tag->size >= 38) {
+                if (type == 1 && (bpp == 24 || bpp == 32) && tag->size >= 38) {
                     const u8 red_position = data[24];
                     const u8 red_size = data[25];
                     const u8 green_position = data[26];
@@ -154,8 +154,11 @@ namespace astia::boot::virt {
                             width,
                             height,
                             pitch,
-                            red_position == 0 ? framebuffer_pixel_format::rgbx8888
-                                              : framebuffer_pixel_format::bgrx8888,
+                            bpp == 24
+                                ? (red_position == 0 ? framebuffer_pixel_format::rgb888
+                                                     : framebuffer_pixel_format::bgr888)
+                                : (red_position == 0 ? framebuffer_pixel_format::rgbx8888
+                                                     : framebuffer_pixel_format::bgrx8888),
                         };
                     }
                 }

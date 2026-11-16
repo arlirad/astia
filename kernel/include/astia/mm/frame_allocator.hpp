@@ -47,6 +47,8 @@ namespace astia::mm {
         /// bitmap itself are reserved.
         void init(const memory_map& map);
 
+        void reserve(u64 physical, u64 size);
+
         /// Allocate `count` contiguous frames. Returns the physical address
         /// of the first frame, or invalid_frame on failure.
         u64 alloc(usize count = 1, frame_flags flags = frame_flags::none);

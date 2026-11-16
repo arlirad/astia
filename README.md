@@ -92,6 +92,11 @@ The launcher is interactive; do not pipe or redirect its standard input. Set
 `ASTIA_ZSH_HARNESS=1` for the automated PTY checks. `ASTIA_CLEAN_BUILD=1`
 forces a clean kernel, zsh, and launcher build.
 
+The GRUB/framebuffer-backed zsh workflow is available separately as
+`toolchain/run-zsh-vga-qemu.sh`; it requires a real Multiboot2 framebuffer and
+uses `/dev/ttv0` for shell I/O. See [`docs/zsh-vga.md`](docs/zsh-vga.md) for
+the graphical smoke harness and explicit UART fallback.
+
 GNU nano is opt-in. The launcher fetches and verifies the pinned source, builds
 it in a private cache, and adds it to the initrd as `/bin/nano`:
 

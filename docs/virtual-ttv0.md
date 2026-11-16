@@ -15,8 +15,8 @@ behavior unchanged while making console selection explicit.
 The backend contract is byte-oriented. On the Multiboot2 boot path, `ttv0` is
 bound to the discovered linear framebuffer after paging is ready. The public
 descriptor carries one physical address, width, height, pitch, and pixel
-format. The implementation currently accepts only 32-bit direct-color RGBX or
-BGRX layouts; indexed, text-mode, packed-pixel, and multiple-framebuffer boot
+format. The implementation accepts 24-bit direct-color RGB or BGR layouts and
+32-bit RGBX or BGRX layouts; indexed, text-mode, and multiple-framebuffer boot
 descriptors are not supported. The framebuffer range is validated and mapped
 through the kernel MMIO mapping API, and the mapping is owned by the backend
 for the lifetime of the device.

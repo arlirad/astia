@@ -26,4 +26,8 @@ namespace astia::dev {
         return true;
     }
 
+    bool virtual_tty_forward_input(u8 byte) {
+        return framebuffer_console_backend() != nullptr && ttv0.inject_input(byte);
+    }
+
 } // namespace astia::dev
