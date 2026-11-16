@@ -170,3 +170,32 @@ calls `kmain()` in the linked-high image.
 
 On success the kernel writes `OK` to COM1 (0x3F8), which QEMU routes to
 stdio. The kernel then idles; press `Ctrl-C` to stop QEMU.
+
+## Direct VGA/GDB developer target
+
+The repository-level CMake project exposes `astia_direct_vga_gdb` for CLion
+and other IDEs. It builds the PVH kernel and a small initrd, then launches
+QEMU directly with no GRUB ISO:
+
+```sh
+cmake --build build --target astia_direct_vga_gdb
+```
+
+The default command uses `-smp 2 -m 256M -vga std -display gtk`, routes the
+serial console to the terminal, and listens on `tcp::1234`. It includes `-S`,
+so attach with the matching kernel ELF before continuing:
+
+```sh
+gdb build/direct-kernel/src/astiakrn
+(gdb) target remote :1234
+```
+
+Use `-DASTIA_DIRECT_GDB_PORT=4321` for another port. Configure
+`-DASTIA_DIRECT_GDB_MODE=attach`, or invoke the launcher with `--attach` or
+`--non-stop`, to omit `-S` and attach to a running guest. GDB's own
+`set non-stop on` controls per-vCPU debugger behavior.
+
+PVH has no Multiboot2 framebuffer handoff. This target deliberately reports
+that the framebuffer descriptor is unavailable and uses the UART fallback;
+it does not synthesize dimensions or a physical address. Use the preserved
+GRUB launcher for a real framebuffer-backed TTV session.
