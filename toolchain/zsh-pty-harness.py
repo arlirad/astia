@@ -167,6 +167,7 @@ def main():
             serial = Serial(serial_fd, trace_stream)
             serial.read_until(PROMPT, time.monotonic() + TIMEOUT)
             run_command(serial, "echo TEST_OK", "TEST_OK\n")
+            run_command(serial, "pty-test", "PTY_OK\n")
             run_command(serial, "pwd", "/\n")
             run_command(serial, "echo PIPE_OK | cat", "PIPE_OK\n")
             run_command(serial, "echo REDIRECT_OK >/tmp/zsh-output; cat /tmp/zsh-output",

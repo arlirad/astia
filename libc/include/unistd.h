@@ -108,6 +108,11 @@ int          mkstemp(char* template_name);
 long         sysconf(int name);
 int          chdir(const char* path);
 unsigned int umask(unsigned int mode);
+int          posix_openpt(int flags);
+int          grantpt(int fd);
+int          unlockpt(int fd);
+char*        ptsname(int fd);
+int          ptsname_r(int fd, char* buffer, unsigned long buffer_size);
 char*        getcwd(char* buffer, unsigned long length);
 void         _exit(int status) __attribute__((noreturn));
 
