@@ -24,6 +24,9 @@ namespace astia::dev {
             return false;
         if (!renderer_.attach(info, mapping.value.base(), font_))
             return false;
+        constexpr char marker[] = "\x1b[1;32mASTIA_VGA_READY\x1b[0m\n";
+        for (usize i = 0; marker[i] != 0; ++i)
+            renderer_.write_byte(static_cast<u8>(marker[i]));
         mapping_ = static_cast<mmio_mapping&&>(mapping.value);
         return true;
     }

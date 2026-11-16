@@ -5,6 +5,8 @@
 namespace astia::boot {
 
     enum class framebuffer_pixel_format : u8 {
+        rgb888,
+        bgr888,
         rgbx8888,
         bgrx8888,
     };

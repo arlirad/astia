@@ -133,6 +133,23 @@ namespace astia::arch::x86_64 {
             }
         }
 
+        if (ctx.info->framebuffer.valid()) {
+            const u64 length = static_cast<u64>(ctx.info->framebuffer.pitch) *
+                               ctx.info->framebuffer.height;
+            if (length == 0 || length > ~u64{0} - ctx.info->framebuffer.physical_address)
+                return false;
+            const u64 first = ctx.info->framebuffer.physical_address & ~mm::page_mask;
+            const u64 end = align_up(ctx.info->framebuffer.physical_address + length,
+                                     static_cast<u64>(mm::page_size));
+            if (end < first)
+                return false;
+            for (u64 p = first; p < end; p += mm::page_size) {
+                if (!map.map_4k(kernel_base + p, p,
+                                rw | page_flags::cache_disable))
+                    return false;
+            }
+        }
+
         // The kernel image at image_base + physical address, one page at a
         // time (the image is not 2 MiB aligned).
         const u64 phys_start = reinterpret_cast<u64>(__kernel_start);

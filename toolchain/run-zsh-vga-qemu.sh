@@ -1,0 +1,361 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+zsh_build=${ZSH_BUILD:-/tmp/astia-zsh-build}
+zsh_source=${ZSH_SOURCE:-$zsh_build/source}
+kernel_build=${ASTIA_KERNEL_BUILD:-$root/kernel/build-tests}
+kernel=${ASTIA_KERNEL:-$kernel_build/src/astiakrn_runtime}
+base_initrd=${ASTIA_INITRD:-$kernel_build/tests/fixtures/boot_initrd.cpio}
+work=${ASTIA_ZSH_VGA_RUN:-/tmp/astia-zsh-vga-run}
+iso=${ASTIA_VGA_ISO:-$work/astia-zsh-vga.iso}
+serial_log=${ASTIA_VGA_SERIAL_LOG:-$work/serial.log}
+clean_build=${ASTIA_CLEAN_BUILD:-0}
+harness=${ASTIA_ZSH_VGA_HARNESS:-${ASTIA_ZSH_HARNESS:-0}}
+line_reader=${ASTIA_LINE_READER:-0}
+nano_binary=${ASTIA_NANO_BINARY:-}
+nano_enabled=${ASTIA_NANO:-0}
+nano_harness=${ASTIA_NANO_HARNESS:-0}
+nano_iterations=${ASTIA_NANO_ITERATIONS:-3}
+fallback=${ASTIA_VGA_FALLBACK:-fail}
+strict=${ASTIA_VGA_STRICT:-0}
+display=${ASTIA_VGA_DISPLAY:-gtk}
+cpus=${ASTIA_VGA_CPUS:-2}
+memory=${ASTIA_VGA_MEMORY:-256M}
+clang=${CLANG:-clang}
+qemu=${QEMU:-qemu-system-x86_64}
+cpio=${ASTIA_CPIO:-cpio}
+grub_file=${GRUB_FILE:-grub-file}
+grub_mkrescue=${GRUB_MKRESCUE:-grub-mkrescue}
+target=x86_64-unknown-elf
+resource_dir=$($clang --target=$target -print-resource-dir)
+sysroot=$zsh_build/sysroot
+
+case "$clean_build" in
+    0|1) ;;
+    *)
+        echo "ASTIA_CLEAN_BUILD must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+case "$harness" in
+    0|1) ;;
+    *)
+        echo "ASTIA_ZSH_VGA_HARNESS must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+case "$line_reader" in
+    0|1) ;;
+    *)
+        echo "ASTIA_LINE_READER must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+case "$nano_enabled" in
+    0|1) ;;
+    *)
+        echo "ASTIA_NANO must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+case "$nano_harness" in
+    0|1) ;;
+    *)
+        echo "ASTIA_NANO_HARNESS must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+case "$nano_iterations" in
+    ''|*[!0-9]*|0)
+        echo "ASTIA_NANO_ITERATIONS must be a positive integer" >&2
+        exit 2
+        ;;
+esac
+
+case "$fallback" in
+    fail|serial) ;;
+    *)
+        echo "ASTIA_VGA_FALLBACK must be fail or serial" >&2
+        exit 2
+        ;;
+esac
+
+case "$strict" in
+    0|1) ;;
+    *)
+        echo "ASTIA_VGA_STRICT must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+case "$cpus" in
+    ''|*[!0-9]*|0)
+        echo "ASTIA_VGA_CPUS must be a positive integer" >&2
+        exit 2
+        ;;
+esac
+case "$memory" in
+    '')
+        echo "ASTIA_VGA_MEMORY must not be empty" >&2
+        exit 2
+        ;;
+esac
+if [ "$strict" = 1 ] && [ "$fallback" != fail ]; then
+    echo "ASTIA_VGA_STRICT=1 requires ASTIA_VGA_FALLBACK=fail" >&2
+    exit 2
+fi
+
+command -v "$qemu" >/dev/null 2>&1 || {
+    echo "QEMU executable not found: $qemu" >&2
+    exit 1
+}
+command -v "$cpio" >/dev/null 2>&1 || {
+    echo "cpio executable not found: $cpio" >&2
+    exit 1
+}
+command -v "$grub_file" >/dev/null 2>&1 || {
+    echo "grub-file executable not found: $grub_file" >&2
+    exit 1
+}
+command -v "$grub_mkrescue" >/dev/null 2>&1 || {
+    echo "grub-mkrescue executable not found: $grub_mkrescue" >&2
+    exit 1
+}
+command -v xorriso >/dev/null 2>&1 || {
+    echo "xorriso executable not found" >&2
+    exit 1
+}
+
+if [ "$clean_build" = 1 ]; then
+    echo "Cleaning kernel, zsh, and VGA launcher build directories." >&2
+    rm -rf "$kernel_build" "$zsh_build" "$work"
+fi
+
+echo "Running the incremental kernel preflight." >&2
+"$root/kernel/scripts/test.sh" "$kernel_build"
+
+if [ -e "$zsh_source" ] && [ ! -d "$zsh_source" ]; then
+    echo "zsh source is not a directory: $zsh_source" >&2
+    exit 1
+fi
+if [ ! -d "$zsh_source" ]; then
+    if [ -n "${ZSH_SOURCE:-}" ]; then
+        echo "ZSH_SOURCE does not exist: $zsh_source" >&2
+        exit 1
+    fi
+    command -v git >/dev/null 2>&1 || {
+        echo "git is required to clone zsh into $zsh_source" >&2
+        exit 1
+    }
+    mkdir -p "$(dirname -- "$zsh_source")"
+    echo "Cloning a clean upstream zsh checkout into $zsh_source" >&2
+    git clone --depth=1 https://github.com/zsh-users/zsh.git "$zsh_source" || {
+        echo "could not clone zsh; set ZSH_SOURCE to a complete checkout" >&2
+        exit 1
+    }
+fi
+
+for source_file in \
+    Src/main.c \
+    Src/zsh.h \
+    Config/version.mk \
+    Makefile.in \
+    configure.ac \
+    Util/preconfig; do
+    if [ ! -f "$zsh_source/$source_file" ]; then
+        echo "incomplete zsh source: missing $zsh_source/$source_file" >&2
+        echo "use a complete clean checkout; do not use a generated or patched source tree" >&2
+        exit 1
+    fi
+done
+
+if [ ! -x "$zsh_source/configure" ]; then
+    zsh_build_source=$zsh_build/source-build
+    rm -rf "$zsh_build_source"
+    mkdir -p "$zsh_build_source"
+    cp -a "$zsh_source"/. "$zsh_build_source"/
+else
+    zsh_build_source=$zsh_source
+fi
+
+mkdir -p "$zsh_build"
+ZSH_SOURCE="$zsh_build_source" ZSH_BUILD="$zsh_build" "$root/toolchain/build-zsh.sh"
+
+if [ ! -x "$kernel" ]; then
+    echo "Astia kernel runtime is missing or not executable: $kernel" >&2
+    echo "build it with kernel/scripts/test.sh, or set ASTIA_KERNEL" >&2
+    exit 1
+fi
+if [ ! -f "$base_initrd" ]; then
+    echo "Astia initrd is missing: $base_initrd" >&2
+    echo "build it with kernel/scripts/test.sh, or set ASTIA_INITRD" >&2
+    exit 1
+fi
+if ! "$cpio" -it --quiet --no-absolute-filenames <"$base_initrd" >/dev/null 2>&1; then
+    echo "Astia initrd is not a readable cpio archive: $base_initrd" >&2
+    echo "rebuild it with kernel/scripts/test.sh, or set ASTIA_INITRD" >&2
+    exit 1
+fi
+
+rm -rf "$work"
+mkdir -p "$work/root/sbin" "$work/root/bin" "$work/root/etc"
+
+ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
+    COREUTILS_BUILD="$work/coreutils" "$root/coreutils/build.sh"
+
+if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
+    if [ -z "$nano_binary" ]; then
+        nano_build=${ASTIA_NANO_BUILD:-/tmp/astia-nano-build}
+        if ! ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
+            NANO_BUILD="$nano_build" "$root/toolchain/build-nano.sh"; then
+            echo "Astia nano build failed in $nano_build." >&2
+            echo "Provide network access for the pinned GNU nano archive, or set ASTIA_NANO_BINARY to a verified build." >&2
+            exit 1
+        fi
+        nano_binary=$nano_build/output/nano
+    fi
+    if [ ! -x "$nano_binary" ]; then
+        echo "Astia nano binary is not executable: $nano_binary" >&2
+        exit 1
+    fi
+fi
+
+(cd "$work/root" && "$cpio" -id --quiet --no-absolute-filenames) <"$base_initrd"
+
+common_flags="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
+include_flags="-nostdinc -isystem $resource_dir/include -isystem $sysroot/include"
+runner_source="$root/toolchain/ttv0-zsh-runner.c"
+if [ "$fallback" = serial ]; then
+    runner_source="$root/toolchain/zsh-runner.c"
+fi
+
+$clang $common_flags -fno-builtin $include_flags \
+    -c -o "$work/runner.o" "$runner_source"
+$clang $common_flags -fno-builtin $include_flags \
+    -c -o "$work/line-reader.o" "$root/toolchain/line-reader.c"
+$clang $common_flags -fno-builtin $include_flags \
+    -c -o "$work/line-reader-runner.o" "$root/toolchain/line-reader-runner.c"
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+    -o "$work/runner" "$zsh_build/astia/image/crt0.o" "$work/runner.o" \
+    "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+    -o "$work/line-reader" "$zsh_build/astia/image/crt0.o" "$work/line-reader.o" \
+    "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+    -o "$work/line-reader-runner" "$zsh_build/astia/image/crt0.o" \
+    "$work/line-reader-runner.o" "$sysroot/lib/libastia_libc.a" \
+    "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
+$clang $common_flags -fno-builtin $include_flags \
+    -c -o "$work/ttv0-line-reader-runner.o" "$root/toolchain/ttv0-line-reader-runner.c"
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+    -o "$work/ttv0-line-reader-runner" "$zsh_build/astia/image/crt0.o" \
+    "$work/ttv0-line-reader-runner.o" "$sysroot/lib/libastia_libc.a" \
+    "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
+
+cp "$work/runner" "$work/root/sbin/init"
+if [ "$line_reader" = 1 ]; then
+    if [ "$fallback" = serial ]; then
+        cp "$work/line-reader-runner" "$work/root/sbin/init"
+    else
+        cp "$work/ttv0-line-reader-runner" "$work/root/sbin/init"
+    fi
+fi
+cp "$zsh_build/output/zsh" "$work/root/bin/zsh"
+cp "$work/line-reader" "$work/root/bin/line-reader"
+cp "$work/coreutils/bin/"* "$work/root/bin/"
+if [ -n "$nano_binary" ]; then
+    cp "$nano_binary" "$work/root/bin/nano"
+fi
+if [ "$fallback" = serial ]; then
+    cat >"$work/root/etc/zshenv" <<'EOF'
+typeset -ga .term.extensions
+.term.extensions=(-query)
+.term.extensions+=(-integration-prompt -integration-output -integration-pwd -bracketed-paste)
+PS1='ASTIA_READY> '
+EOF
+else
+    cat >"$work/root/etc/zshenv" <<'EOF'
+typeset -ga .term.extensions
+.term.extensions=(-query)
+.term.extensions+=(-integration-prompt -integration-output -integration-pwd -bracketed-paste)
+PS1=$'\e[1;32mASTIA_VGA_READY>\e[0m '
+EOF
+fi
+test -x "$work/root/sbin/init"
+test -x "$work/root/bin/zsh"
+test -f "$work/root/etc/zshenv"
+(cd "$work/root" && find hello_initrd.o sbin bin etc -print |
+    "$cpio" -o --format=newc --quiet) >"$work/initrd.cpio"
+
+rm -rf "$work/grub"
+mkdir -p "$work/grub/boot/grub"
+cp "$kernel" "$work/grub/boot/astiakrn"
+cp "$work/initrd.cpio" "$work/grub/boot/initrd.cpio"
+cat >"$work/grub/boot/grub/grub.cfg" <<'EOF'
+set timeout=0
+set default=0
+set gfxmode=1024x768x32
+set gfxpayload=keep
+insmod all_video
+insmod gfxterm
+terminal_output gfxterm
+
+menuentry 'Astia zsh VGA' {
+    multiboot2 /boot/astiakrn
+    module2 /boot/initrd.cpio
+    boot
+}
+EOF
+"$grub_file" --is-x86-multiboot2 "$kernel"
+mkdir -p "$(dirname -- "$iso")"
+"$grub_mkrescue" -o "$iso" "$work/grub" >/dev/null
+test -s "$iso"
+
+if [ "$fallback" = serial ]; then
+    expected_framebuffer=unavailable
+else
+    expected_framebuffer=ready
+fi
+
+command -v python3 >/dev/null 2>&1 || {
+    echo "python3 is required for the VGA launcher" >&2
+    exit 1
+}
+if [ "$harness" = 1 ]; then
+    echo "Starting Astia zsh VGA smoke harness." >&2
+    set -- --smoke
+else
+    echo "Starting Astia zsh VGA session; the graphical window is the terminal." >&2
+    set -- --interactive
+fi
+if [ "$strict" = 1 ]; then
+    set -- "$@" --strict
+fi
+if [ "$line_reader" = 1 ]; then
+    set -- "$@" --line-reader
+fi
+if [ "$fallback" = serial ]; then
+    set -- "$@" --serial-shell
+fi
+if [ "$nano_enabled" = 1 ] || [ -n "$nano_binary" ]; then
+    if [ "$nano_harness" = 1 ]; then
+        set -- "$@" --nano --nano-iterations "$nano_iterations"
+    fi
+fi
+if [ "$fallback" = serial ]; then
+    set -- "$@" --kernel "$kernel" --initrd "$work/initrd.cpio"
+fi
+exec python3 "$root/toolchain/zsh-vga-harness.py" \
+    --qemu "$qemu" --iso "$iso" --display "$display" \
+    --cpus "$cpus" --memory "$memory" \
+    --expected-framebuffer "$expected_framebuffer" --serial-log "$serial_log" \
+    --trace "$work/vga.trace" "$@"

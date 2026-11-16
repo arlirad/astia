@@ -101,6 +101,34 @@ ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
 
 The default launcher never starts the PTY harness or requires Python.
 
+For the GRUB/framebuffer-backed terminal, use the graphical sibling launcher:
+
+```sh
+./toolchain/run-zsh-vga-qemu.sh
+```
+
+It packages the same zsh/coreutils/initrd inputs into a Multiboot2 GRUB ISO,
+opens zsh on `/dev/ttv0`, keeps diagnostics on a separate serial channel, and
+requires the runtime `framebuffer: ready` marker. `ASTIA_VGA_FALLBACK=serial`
+is an explicit UART-only fallback when the host bootloader does not emit a
+framebuffer descriptor. The VGA smoke and capture workflow is documented in
+[`docs/zsh-vga.md`](../docs/zsh-vga.md):
+
+```sh
+ASTIA_ZSH_VGA_HARNESS=1 ./toolchain/run-zsh-vga-qemu.sh
+```
+
+CLion users can configure the repository root with CMake and launch the
+graphical session through the `astia_vga_qemu` target. The standalone launcher,
+its smoke harness, and the CMake target all default to `-smp 2` and `-m 256M`;
+configure `ASTIA_VGA_QEMU`, `ASTIA_VGA_MEMORY`,
+`ASTIA_VGA_CPUS`, `ASTIA_VGA_NANO`, and the `ASTIA_VGA_*_BUILD`/`ASTIA_VGA_RUN`
+paths as needed. The target invokes this launcher directly and does not
+duplicate its QEMU command line.
+
+Set `ASTIA_VGA_STRICT=1` with the harness to require the real 800x600 24-bit
+BGR Multiboot2 descriptor and matching screenshot evidence.
+
 For a clean rebuild of the kernel runtime/initrd, zsh build, and launcher work
 directory, use the explicit clean mode:
 

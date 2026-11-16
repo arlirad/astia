@@ -22,6 +22,10 @@ namespace {
     astia::u8* pixel(astia::u8* buffer, astia::u32 x, astia::u32 y) {
         return buffer + y * 64 + x * 4;
     }
+
+    astia::u8* packed_pixel(astia::u8* buffer, astia::u32 x, astia::u32 y) {
+        return buffer + y * 48 + x * 3;
+    }
 }
 
 ASTIA_TEST(psf1_fixture_reader_validates_glyph_bounds) {
@@ -80,4 +84,19 @@ ASTIA_TEST(framebuffer_renderer_rejects_missing_or_unsafe_surface) {
     bad.pitch = 8;
     ASTIA_CHECK(!renderer.attach(bad, pixels, font));
     ASTIA_CHECK(!renderer.write_byte('A'));
+}
+
+ASTIA_TEST(framebuffer_renderer_draws_24_bit_bgr_pixels) {
+    fixture fixture;
+    astia::dev::psf_font font;
+    astia::dev::framebuffer_renderer renderer;
+    astia::u8 pixels[16 * 48]{};
+    auto info24 = astia::boot::framebuffer_info{
+        1, 16, 16, 48, astia::boot::framebuffer_pixel_format::bgr888};
+    ASTIA_CHECK(font.load({fixture.bytes, sizeof(fixture.bytes)}));
+    ASTIA_CHECK(renderer.attach(info24, pixels, font));
+    ASTIA_CHECK(renderer.write_byte('A'));
+    ASTIA_CHECK(packed_pixel(pixels, 0, 0)[0] == 170);
+    ASTIA_CHECK(packed_pixel(pixels, 0, 0)[1] == 170);
+    ASTIA_CHECK(packed_pixel(pixels, 1, 0)[2] == 5);
 }

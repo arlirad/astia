@@ -2,6 +2,7 @@
 
 #include "../../console.hpp"
 #include "../../device_file.hpp"
+#include "virtual_tty.hpp"
 #include "aio.hpp"
 #include "proc.hpp"
 #include <astia/api/aio.h>
@@ -464,6 +465,7 @@ namespace astia::dev {
             if (!byte)
                 break;
             ready = tty_receive(byte.value) || ready;
+            (void) virtual_tty_forward_input(byte.value);
         }
         if (ready)
             tty_input_ready();

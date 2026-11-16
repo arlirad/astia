@@ -125,3 +125,40 @@ ASTIA_TEST(multiboot2_ignores_unsupported_framebuffer_format) {
     ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(raw, out));
     ASTIA_CHECK(!out.framebuffer.valid());
 }
+
+ASTIA_TEST(multiboot2_discovers_24_bit_bgr_framebuffer) {
+    alignas(8) astia::u8 raw[96]{};
+    *reinterpret_cast<astia::u32*>(raw) = sizeof(raw);
+    auto* fb = reinterpret_cast<tag*>(raw + 8);
+    fb->type = 8;
+    fb->size = 38;
+    *reinterpret_cast<astia::u64*>(raw + 16) = 0xFD000000;
+    *reinterpret_cast<astia::u32*>(raw + 24) = 2400;
+    *reinterpret_cast<astia::u32*>(raw + 28) = 800;
+    *reinterpret_cast<astia::u32*>(raw + 32) = 600;
+    raw[36] = 24;
+    raw[37] = 1;
+    raw[40] = 16;
+    raw[41] = 8;
+    raw[42] = 8;
+    raw[43] = 8;
+    raw[44] = 0;
+    raw[45] = 8;
+    auto* map = reinterpret_cast<mmap*>(raw + 48);
+    map->h = {6, 40};
+    map->entry_size = 24;
+    auto* map_entry = reinterpret_cast<entry*>(raw + 64);
+    *map_entry = {0x100000, 0x400000, 1, 0};
+    auto* end = reinterpret_cast<tag*>(raw + 88);
+    end->type = 0;
+    end->size = 8;
+
+    astia::boot::boot_info out{};
+    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(raw, out));
+    ASTIA_CHECK(out.framebuffer.valid());
+    ASTIA_CHECK(out.framebuffer.physical_address == 0xFD000000);
+    ASTIA_CHECK(out.framebuffer.width == 800 && out.framebuffer.height == 600);
+    ASTIA_CHECK(out.framebuffer.pitch == 2400);
+    ASTIA_CHECK(out.framebuffer.pixel_format ==
+                astia::boot::framebuffer_pixel_format::bgr888);
+}
