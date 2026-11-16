@@ -723,10 +723,13 @@ namespace astia::sys::aio_dispatch {
                 input    = s.offset == TIOCSWINSZ;
                 output   = s.offset == TIOCGWINSZ;
             }
-            else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP) {
+            else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP ||
+                     s.offset == TIOCGPTN || s.offset == TIOCSPTLCK ||
+                     s.offset == TIOCGPTLCK) {
                 expected = sizeof(i32);
-                input    = s.offset == TIOCSPGRP;
-                output   = s.offset == TIOCGPGRP;
+                input    = s.offset == TIOCSPGRP || s.offset == TIOCSPTLCK;
+                output   = s.offset == TIOCGPGRP || s.offset == TIOCGPTN ||
+                           s.offset == TIOCGPTLCK;
             }
             else if (s.offset == TIOCSCTTY) {
                 expected = 0;

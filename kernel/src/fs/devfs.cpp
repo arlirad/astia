@@ -1,5 +1,6 @@
 #include "devfs.hpp"
 
+#include "../dev/chr/tty/pty.hpp"
 #include "../proc/proc.hpp"
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
@@ -49,6 +50,10 @@ namespace astia::fs {
     }
 
     mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags) {
+        if (equal(path, "/ptmx"))
+            return dev::pty_open_master(flags);
+        if (dev::pty_node_exists(path))
+            return dev::pty_open_slave(path, flags);
         if (equal(path, "/tty")) {
             mm::shptr<open_file> terminal = proc::controlling_terminal();
             if (!terminal)
@@ -92,6 +97,10 @@ namespace astia::fs {
         // only opening it requires a controlling terminal.
         if (equal(path, "/tty"))
             return directory_chr;
+        if (dev::pty_node_is_directory(path))
+            return directory_dir;
+        if (dev::pty_node_exists(path) || equal(path, "/ptmx"))
+            return directory_chr;
         for (u32 i = 0; i < devfs_max_entries; ++i)
             if (entries_[i].used && equal(entries_[i].path, path))
                 return directory_chr;
@@ -100,6 +109,10 @@ namespace astia::fs {
 
     file_mode devfs_mount::node_mode(const char* path) const {
         if (equal(path, "/tty"))
+            return file_mode(file_type::character, default_device_permissions);
+        if (dev::pty_node_is_directory(path))
+            return file_mode(file_type::directory, default_directory_permissions);
+        if (dev::pty_node_exists(path) || equal(path, "/ptmx"))
             return file_mode(file_type::character, default_device_permissions);
         mm::shptr<file> object;
         {
