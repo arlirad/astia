@@ -5,6 +5,7 @@
 # setup, and printf for diagnostics — the few things a libc cannot give
 # itself.
 find_package(Threads REQUIRED)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/AstiaCTest.cmake)
 
 add_library(libc_syscalls_header_alone OBJECT syscalls_header_alone.c)
 add_library(libc_syscalls_header_libc OBJECT syscalls_header_libc.c)
@@ -153,3 +154,5 @@ add_test(NAME libc_signal_api_test COMMAND libc_signal_api_test)
 add_executable(libc_semaphore_test semaphore_test.c semaphore_host.c backend_host.c process_host.c alarm_host.c time_host.c)
 target_link_libraries(libc_semaphore_test PRIVATE astia_libc_host)
 add_test(NAME libc_semaphore_test COMMAND libc_semaphore_test)
+
+astia_append_test_label("libc;host;deterministic")
