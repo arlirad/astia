@@ -1,13 +1,14 @@
 #!/bin/sh
 set -eu
 
-if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
+qemu=${QEMU:-qemu-system-x86_64}
+if ! command -v "$qemu" >/dev/null 2>&1; then
     printf '%s\n' 'qemu-system-x86_64 unavailable; capability unit test is the smoke test'
-    exit 0
+    exit 77
 fi
 
 set +e
-timeout 2 qemu-system-x86_64 -machine q35 -nodefaults -device qemu-xhci,id=xhci \
+timeout 2 "$qemu" -machine q35 -nodefaults -device qemu-xhci,id=xhci \
     -display none -serial none -monitor none -S >/dev/null 2>&1
 result=$?
 set -e

@@ -51,7 +51,7 @@ $clang --target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector \
 
 log=$work/qemu.log
 set +e
-timeout "$qemu_timeout_seconds" qemu-system-x86_64 -m 128M -kernel "$kernel" -initrd "$work/initrd.cpio" \
+timeout "$qemu_timeout_seconds" "$qemu" -m 128M -kernel "$kernel" -initrd "$work/initrd.cpio" \
     -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot
 status=$?
 set -e

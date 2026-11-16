@@ -1,4 +1,5 @@
 set(ASTIA_NVME_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/nvme.o)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/AstiaCTest.cmake)
 
 option(ASTIA_NVME_FORCE_POLLING "Build the NVMe fixture without MSI-X" OFF)
 if (ASTIA_NVME_FORCE_POLLING)
@@ -40,4 +41,5 @@ add_custom_target(nvme_host_tests
 if(ASTIA_BUILD_TESTS)
     add_test(NAME nvme_protocol_unit
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run-host.sh)
+    astia_append_test_label("module;nvme;host;deterministic")
 endif()

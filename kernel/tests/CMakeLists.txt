@@ -5,6 +5,7 @@ set(CMAKE_CXX_FLAGS "-Wall -Wextra")
 set(CMAKE_C_FLAGS "-Wall -Wextra")
 set_property(DIRECTORY PROPERTY LINK_OPTIONS "")
 option(ASTIA_CROSS_USERSPACE "Use the Clang Astia sysroot for init_libc" OFF)
+include(${ASTIA_KERNEL_SOURCE_DIR}/../cmake/AstiaCTest.cmake)
 
 # Fail at configure time with an actionable diagnostic instead of registering
 # ELF tests that cannot be built later.
@@ -601,6 +602,14 @@ if (ARCH STREQUAL "x86_64")
         # Prefer the standalone Clang sysroot so this image cannot silently
         # depend on the host compiler's headers or libgcc.
         find_program(ASTIA_CLANG clang)
+        add_custom_command(
+                OUTPUT ${_fix_dir}/crt0.o
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -fno-builtin
+                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
+                COMMENT "Compiling userspace CRT0 fixture")
         if (ASTIA_CROSS_USERSPACE AND ASTIA_CLANG)
             set(_cross_dir ${_fix_dir}/clang)
             file(GLOB _cross_libc_sources CONFIGURE_DEPENDS
@@ -623,15 +632,6 @@ if (ARCH STREQUAL "x86_64")
             )
             set(_init_libc_image ${_cross_dir}/image/init_libc)
         else ()
-            add_custom_command(
-                    OUTPUT ${_fix_dir}/crt0.o
-                    COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-                    COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -fno-builtin
-                    -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                    -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
-                    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
-                    COMMENT "Compiling userspace CRT0 fixture"
-            )
             add_custom_command(
                     OUTPUT ${_fix_dir}/init_libc
                     COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
@@ -872,3 +872,34 @@ if (ARCH STREQUAL "x86_64")
         message(STATUS "astia: qemu-system-x86_64 not found; skipping astia_kernel_boot")
     endif ()
 endif ()
+
+astia_append_test_label("kernel;deterministic")
+foreach (_astia_boot_test IN ITEMS
+        astia_kernel_boot astia_fs_registry_boot astia_kernel_lifecycle_smp2
+        astia_kernel_smp_boot astia_kernel_scheduler_smp2 astia_initrd_boot
+        astia_native_daemond_boot astia_native_daemond_service
+        astia_native_daemond_failure)
+    if(TEST ${_astia_boot_test})
+        astia_add_test_label(${_astia_boot_test} "boot;qemu")
+        set_tests_properties(${_astia_boot_test}
+                PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+    endif()
+endforeach()
+foreach (_astia_grub_test IN ITEMS
+        astia_grub_smp_boot astia_grub_framebuffer_boot astia_grub_smp4_boot)
+    if(TEST ${_astia_grub_test})
+        astia_add_test_label(${_astia_grub_test} "boot;grub;qemu")
+        set_tests_properties(${_astia_grub_test}
+                PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+    endif()
+endforeach()
+foreach (_astia_vga_test IN ITEMS astia_pvh_test astia_framebuffer_test astia_virtual_tty_test)
+    if(TEST ${_astia_vga_test})
+        astia_add_test_label(${_astia_vga_test} "vga;pvh;ttv0")
+    endif()
+endforeach()
+foreach (_astia_ext4_test IN ITEMS astia_ext4_test astia_ext4_real_test astia_ext4_vfs_test)
+    if(TEST ${_astia_ext4_test})
+        astia_add_test_label(${_astia_ext4_test} "ext4;filesystem")
+    endif()
+endforeach()

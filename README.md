@@ -178,6 +178,9 @@ The Open POSIX harness uses an external LTP checkout and only claims the
 selected categories listed in [`toolchain/README.md`](toolchain/README.md).
 It is not a claim of complete POSIX conformance.
 
+CTest suite names, labels, external-test opt-ins, and the reference test count
+are documented in [`docs/ctest.md`](docs/ctest.md).
+
 ## Current limitations and roadmap
 
 - x86-64 `virt` is the only supported production target. AArch64 is a

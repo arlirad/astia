@@ -1,4 +1,5 @@
 set(ASTIA_USB_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb.o)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/AstiaCTest.cmake)
 set(ASTIA_USB_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_unit)
 
 set(ASTIA_USB_ABI_HEADERS
@@ -45,6 +46,7 @@ add_custom_target(usb_unit_target ALL DEPENDS ${ASTIA_USB_UNIT})
 
 if(ASTIA_BUILD_TESTS)
     add_test(NAME usb_protocol_unit COMMAND ${ASTIA_USB_UNIT})
+    astia_append_test_label("module;usb;xhci;host;deterministic")
 endif()
 
 add_custom_target(usb_qemu_capability_smoke

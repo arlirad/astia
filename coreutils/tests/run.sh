@@ -48,6 +48,7 @@ cp "$out/bin/"* "$out/root/bin/"
 cp "$root/daemond/passwd" "$out/root/etc/passwd"
 cp "$root/daemond/group" "$out/root/etc/group"
 init_libc=$kernel_build/tests/fixtures/init_libc
+init_libc=${ASTIA_INIT_LIBC:-$init_libc}
 test -f "$init_libc" || {
     echo "Astia init_libc fixture missing: $init_libc" >&2
     exit 1
