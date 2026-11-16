@@ -1,4 +1,5 @@
 set(ASTIA_VIRTIO_BLK_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/virtio_blk.o)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/AstiaCTest.cmake)
 enable_testing()
 
 set(ASTIA_VIRTIO_BLK_UNIT ${CMAKE_CURRENT_BINARY_DIR}/virtio_blk_unit)
@@ -21,6 +22,7 @@ add_custom_command(
 add_custom_target(virtio_blk_unit_target ALL DEPENDS ${ASTIA_VIRTIO_BLK_UNIT})
 if(ASTIA_BUILD_TESTS)
     add_test(NAME virtio_blk_unit COMMAND ${ASTIA_VIRTIO_BLK_UNIT})
+    astia_append_test_label("module;virtio;host;deterministic")
 endif()
 
 add_custom_command(

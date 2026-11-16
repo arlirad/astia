@@ -5,6 +5,8 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 build=${NVME_BUILD:-$root/build-nvme}
 image=${NVME_IMAGE:-$root/modules/nvme/fixture.raw}
 timeout_seconds=${NVME_TIMEOUT:-40}
+qemu=${QEMU:-qemu-system-x86_64}
+case=${NVME_CASE:-all}
 
 run_case() {
     label=$1
@@ -31,7 +33,7 @@ run_case() {
     (cd "$staging" && find nvme.o -print | cpio -o -H newc > "$initrd")
 
     set +e
-    timeout "$timeout_seconds" qemu-system-x86_64 \
+    timeout "$timeout_seconds" "$qemu" \
         -machine q35 -m 128M -kernel "$case_build/kernel/src/astiakrn_runtime" \
         -initrd "$initrd" \
         -drive "if=none,format=raw,file=$case_image,id=nvme0ns1" \
@@ -65,5 +67,19 @@ run_case() {
     fi
 }
 
-run_case msix "$build-msix" OFF
-run_case polling "$build-polling" ON
+case "$case" in
+    all)
+        run_case msix "$build-msix" OFF
+        run_case polling "$build-polling" ON
+        ;;
+    msix)
+        run_case msix "$build-msix" OFF
+        ;;
+    polling)
+        run_case polling "$build-polling" ON
+        ;;
+    *)
+        echo "NVME_CASE must be all, msix, or polling" >&2
+        exit 2
+        ;;
+esac

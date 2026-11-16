@@ -5,6 +5,7 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 build=${VIRTIO_BLK_BUILD:-$root/build-virtio-blk}
 image=${VIRTIO_BLK_IMAGE:-$root/modules/virtio-blk/fixture.raw}
 timeout_seconds=${VIRTIO_BLK_TIMEOUT:-40}
+qemu=${QEMU:-qemu-system-x86_64}
 log=${VIRTIO_BLK_LOG:-${TMPDIR:-/tmp}/astia-virtio-blk.log}
 readonly=${VIRTIO_BLK_READONLY:-0}
 staging=${build}/virtio-blk-initrd
@@ -24,7 +25,7 @@ if test "$readonly" = 1; then
 fi
 
 set +e
-timeout "$timeout_seconds" qemu-system-x86_64 \
+timeout "$timeout_seconds" "$qemu" \
     -machine q35 -m 128M -kernel "$build/kernel/src/astiakrn_runtime" \
     -initrd "$initrd" \
     -drive "if=none,format=raw,file=$image,id=vblk0$drive_readonly" \
