@@ -52,8 +52,9 @@ ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build \
 ```
 
 The repository-level CMake project exposes the same launcher as the
-`astia_vga_qemu` target. It defaults to two virtual CPUs and 256 MiB of
-memory, and keeps launcher paths in the CMake build tree:
+`astia_vga_qemu` target. The standalone launcher and CMake target both default
+to two virtual CPUs and 256 MiB of memory; CMake keeps launcher paths in its
+build tree:
 
 ```sh
 cmake -S . -B build

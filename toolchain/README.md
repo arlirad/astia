@@ -119,8 +119,9 @@ ASTIA_ZSH_VGA_HARNESS=1 ./toolchain/run-zsh-vga-qemu.sh
 ```
 
 CLion users can configure the repository root with CMake and launch the
-graphical session through the `astia_vga_qemu` target. Its defaults are
-`-smp 2` and `-m 256M`; configure `ASTIA_VGA_QEMU`, `ASTIA_VGA_MEMORY`,
+graphical session through the `astia_vga_qemu` target. The standalone launcher,
+its smoke harness, and the CMake target all default to `-smp 2` and `-m 256M`;
+configure `ASTIA_VGA_QEMU`, `ASTIA_VGA_MEMORY`,
 `ASTIA_VGA_CPUS`, `ASTIA_VGA_NANO`, and the `ASTIA_VGA_*_BUILD`/`ASTIA_VGA_RUN`
 paths as needed. The target invokes this launcher directly and does not
 duplicate its QEMU command line.

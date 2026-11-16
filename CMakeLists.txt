@@ -13,6 +13,9 @@ enable_testing()
 add_test(NAME astia_license_metadata
         COMMAND ${CMAKE_COMMAND} -P
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/license_metadata_check.cmake)
+add_test(NAME astia_vga_launcher_defaults
+        COMMAND ${CMAKE_COMMAND} -P
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/vga_launcher_defaults_check.cmake)
 
 option(ASTIA_BUILD_TESTS "Build and register host-side unit tests" OFF)
 
