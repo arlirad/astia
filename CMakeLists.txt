@@ -18,6 +18,9 @@ add_test(NAME astia_license_metadata
 add_test(NAME astia_vga_launcher_defaults
         COMMAND ${CMAKE_COMMAND} -P
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/vga_launcher_defaults_check.cmake)
+add_test(NAME astia_direct_vga_gdb_smoke
+        COMMAND ${CMAKE_COMMAND} -P
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/direct_vga_gdb_smoke.cmake)
 set_tests_properties(astia_license_metadata astia_vga_launcher_defaults
         PROPERTIES LABELS "repository;deterministic" TIMEOUT 30)
 
@@ -121,6 +124,42 @@ add_custom_target(astia_vga_qemu
         "ASTIA_VGA_STRICT=${_astia_vga_strict}"
         "ASTIA_ZSH_VGA_HARNESS=${_astia_vga_harness}"
         "${CMAKE_SOURCE_DIR}/toolchain/run-zsh-vga-qemu.sh"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    USES_TERMINAL)
+
+set(ASTIA_DIRECT_QEMU "$ENV{QEMU}" CACHE STRING
+    "QEMU executable used by the direct VGA/GDB launcher")
+if(ASTIA_DIRECT_QEMU STREQUAL "")
+    set(ASTIA_DIRECT_QEMU "qemu-system-x86_64" CACHE STRING
+        "QEMU executable used by the direct VGA/GDB launcher" FORCE)
+endif()
+set(ASTIA_DIRECT_MEMORY "256M" CACHE STRING
+    "QEMU memory size for the direct VGA/GDB launcher")
+set(ASTIA_DIRECT_CPUS "2" CACHE STRING
+    "QEMU virtual CPU count for the direct VGA/GDB launcher")
+set(ASTIA_DIRECT_GDB_PORT "1234" CACHE STRING
+    "GDB remote port for the direct VGA/GDB launcher")
+set(ASTIA_DIRECT_DISPLAY "gtk" CACHE STRING
+    "QEMU display backend for the direct VGA/GDB launcher")
+set(ASTIA_DIRECT_GDB_MODE "wait" CACHE STRING
+    "Direct VGA/GDB startup mode: wait or attach")
+set_property(CACHE ASTIA_DIRECT_GDB_MODE PROPERTY STRINGS wait attach)
+set(ASTIA_DIRECT_BUILD "${CMAKE_BINARY_DIR}/direct-kernel" CACHE PATH
+    "Kernel build directory for the direct VGA/GDB launcher")
+set(ASTIA_DIRECT_INITRD "${CMAKE_BINARY_DIR}/direct-vga-gdb-initrd.cpio" CACHE FILEPATH
+    "Initrd artifact for the direct VGA/GDB launcher")
+
+add_custom_target(astia_direct_vga_gdb
+    COMMAND ${CMAKE_COMMAND} -E env
+        "QEMU=${ASTIA_DIRECT_QEMU}"
+        "ASTIA_DIRECT_MEMORY=${ASTIA_DIRECT_MEMORY}"
+        "ASTIA_DIRECT_CPUS=${ASTIA_DIRECT_CPUS}"
+        "ASTIA_DIRECT_GDB_PORT=${ASTIA_DIRECT_GDB_PORT}"
+        "ASTIA_DIRECT_DISPLAY=${ASTIA_DIRECT_DISPLAY}"
+        "ASTIA_DIRECT_GDB_MODE=${ASTIA_DIRECT_GDB_MODE}"
+        "ASTIA_DIRECT_BUILD=${ASTIA_DIRECT_BUILD}"
+        "ASTIA_DIRECT_INITRD=${ASTIA_DIRECT_INITRD}"
+        "${CMAKE_SOURCE_DIR}/kernel/scripts/run-direct-vga-gdb.sh"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     USES_TERMINAL)
 
