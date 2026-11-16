@@ -5,6 +5,7 @@ set(ASTIA_USB_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_unit)
 set(ASTIA_USB_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_core.h
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_pci.h
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_usb.h
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_memory.h
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_io.h
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_interrupt.h
@@ -56,6 +57,11 @@ endif()
 
 add_custom_target(usb_qemu_capability_smoke
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        VERBATIM)
+
+add_custom_target(usb_qemu_keyboard_vga_smoke
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-keyboard-vga-smoke.sh
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         VERBATIM)
 

@@ -2,6 +2,7 @@
 #include <astia/dev/regs.hpp>
 
 #include "xhci.hpp"
+#include "hid_keyboard.hpp"
 
 namespace astia::usb::xhci {
 
