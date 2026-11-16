@@ -36,6 +36,7 @@ set(ASTIA_LIBC_SOURCES
   src/malloc.c
   src/mman.c
   src/process.c
+  src/pty.c
   src/pwd.c
   src/path.c
   src/poll.c

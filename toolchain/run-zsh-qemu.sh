@@ -184,6 +184,8 @@ $clang $common_flags -fno-builtin $include_flags \
     -c -o "$work/line-reader.o" "$root/toolchain/line-reader.c"
 $clang $common_flags -fno-builtin $include_flags \
     -c -o "$work/line-reader-runner.o" "$root/toolchain/line-reader-runner.c"
+$clang $common_flags -fno-builtin $include_flags \
+    -c -o "$work/pty-test.o" "$root/toolchain/pty-test.c"
 # shellcheck disable=SC2086
 $clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
@@ -198,6 +200,10 @@ $clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie 
     -o "$work/line-reader-runner" "$zsh_build/astia/image/crt0.o" \
     "$work/line-reader-runner.o" "$sysroot/lib/libastia_libc.a" \
     "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
+$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+    -o "$work/pty-test" "$zsh_build/astia/image/crt0.o" "$work/pty-test.o" \
+    "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
 
 cp "$work/runner" "$work/root/sbin/init"
 if [ "$line_reader" = 1 ]; then
@@ -205,6 +211,7 @@ if [ "$line_reader" = 1 ]; then
 fi
 cp "$zsh_build/output/zsh" "$work/root/bin/zsh"
 cp "$work/line-reader" "$work/root/bin/line-reader"
+cp "$work/pty-test" "$work/root/bin/pty-test"
 cp "$work/coreutils/bin/"* "$work/root/bin/"
 if [ -n "$nano_binary" ]; then
     cp "$nano_binary" "$work/root/bin/nano"

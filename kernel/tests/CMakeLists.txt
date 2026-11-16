@@ -112,6 +112,13 @@ astia_add_host_test(astia_tty_test
 )
 target_compile_definitions(astia_tty_test PRIVATE ASTIA_TTY_HOST_TEST=1)
 target_include_directories(astia_tty_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_add_host_test(astia_pty_test
+        pty_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/pty.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        )
+target_include_directories(astia_pty_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 astia_add_host_test(astia_virtual_tty_test
         virtual_tty_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp
@@ -445,6 +452,7 @@ astia_add_arena_test(astia_ext4_vfs_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/block_device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        support/pty_vfs_host.cpp
 )
 target_link_libraries(astia_ext4_vfs_test PRIVATE fs)
 target_compile_options(astia_ext4_vfs_test PRIVATE -fno-rtti)

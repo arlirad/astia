@@ -7,6 +7,8 @@ add_library(dev STATIC
         mmio.cpp
         pci.cpp
         chr/tty.cpp
+        chr/tty/pty.cpp
+        chr/tty/pty_vfs.cpp
         chr/tty/virtual_tty.cpp
         chr/tty/virtual_tty_register.cpp
         chr/tty/psf_font.cpp

@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <errno.h>
+#include <pty.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -8,6 +9,23 @@
 static int fail(const char* message) {
     (void) write(STDOUT_FILENO, message, strlen(message));
     return 1;
+}
+
+static int pty_smoke(void) {
+    int master;
+    int slave;
+    char name[32];
+    char value;
+    if (openpty(&master, &slave, name, NULL, NULL) < 0)
+        return -1;
+    if (write(master, "x", 1) != 1 || read(slave, &value, 1) != 1 || value != 'x')
+        return -1;
+    close(master);
+    errno = 0;
+    if (read(slave, &value, 1) != -1 || errno != EIO)
+        return -1;
+    close(slave);
+    return 0;
 }
 
 int main(void) {
@@ -24,6 +42,8 @@ int main(void) {
     if (seed_file >= 0)
         close(seed_file);
     (void) mkdir("/tmp", 0777);
+    if (pty_smoke() < 0)
+        return fail("NANO_SMOKE_PTY_FAIL\n");
 #ifdef NANO_DIRECT_EXEC
     child = fork();
     if (child == 0) {

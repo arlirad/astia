@@ -26,6 +26,8 @@ int ioctl(int fd, unsigned long request, ...) {
         length = sizeof(struct winsize);
     else if (request == TIOCGPGRP || request == TIOCSPGRP)
         length = sizeof(int);
+    else if (request == TIOCGPTN || request == TIOCSPTLCK || request == TIOCGPTLCK)
+        length = sizeof(int);
     else if (request == TIOCSCTTY)
         length = 0;
     else {
