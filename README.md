@@ -71,6 +71,36 @@ Boot the kernel in QEMU with the supported launcher:
 The launcher uses `-kernel`, `-serial stdio`, and no display. Stop the idle
 kernel with `Ctrl-C`.
 
+For a direct graphical VGA session with a GDB remote, configure the
+repository-level CMake project and build the CLion-friendly target:
+
+```sh
+cmake -S . -B build -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt
+cmake --build build --target astia_direct_vga_gdb
+```
+
+The target builds `astiakrn` and a small `newc` initrd, then invokes QEMU
+without a GRUB ISO using two CPUs, 256 MiB, `-vga std`, and `-gdb tcp::1234`.
+QEMU starts paused (`-S`) so GDB can attach before the first instruction:
+
+```sh
+gdb build/direct-kernel/src/astiakrn
+(gdb) target remote :1234
+(gdb) break kmain
+(gdb) continue
+```
+
+Set `-DASTIA_DIRECT_GDB_PORT=4321` or `ASTIA_DIRECT_GDB_PORT=4321` to change
+the port. Set `-DASTIA_DIRECT_GDB_MODE=attach` to let QEMU run immediately;
+the launcher also accepts `--attach` and `--non-stop`. In GDB, use
+`set non-stop on` when independently debugging vCPUs in non-stop mode.
+
+PVH provides memory, modules, command line, and ACPI handoff data, but not a
+Multiboot2 framebuffer tag. The direct target therefore does not invent a
+framebuffer descriptor: it keeps the graphical QEMU VGA device visible while
+using the serial console and the `boot ok` marker. The existing GRUB launcher
+remains the framebuffer-backed path.
+
 ## Userspace and QEMU workflows
 
 The complete interactive zsh workflow builds the kernel test artifacts, Astia
@@ -173,6 +203,9 @@ cmake -S . -B build-tests \
 cmake --build build-tests
 ctest --test-dir build-tests --output-on-failure
 ```
+
+The direct launcher smoke test checks the generated QEMU arguments, the GDB
+endpoint, both paused and attach modes, and the expected serial boot marker.
 
 The Open POSIX harness uses an external LTP checkout and only claims the
 selected categories listed in [`toolchain/README.md`](toolchain/README.md).
