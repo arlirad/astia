@@ -34,6 +34,7 @@ add_custom_command(
         OUTPUT ${ASTIA_USB_UNIT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
                 -I${CMAKE_CURRENT_SOURCE_DIR}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_protocol_test.cpp
                 -o ${ASTIA_USB_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_protocol_test.cpp
@@ -48,6 +49,11 @@ if(ASTIA_BUILD_TESTS)
 endif()
 
 add_custom_target(usb_qemu_capability_smoke
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        VERBATIM)
+
+add_custom_target(usb_qemu_enumeration_smoke
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         VERBATIM)

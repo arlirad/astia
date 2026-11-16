@@ -5,6 +5,7 @@
 #include <cstdint>
 
 using namespace astia::usb;
+using namespace astia::usb::xhci;
 
 namespace {
 
@@ -22,6 +23,49 @@ void unbind(void*) {}
 }
 
 int main() {
+    const setup_packet setup = get_descriptor_request(descriptor_device, 0, 18);
+    const trb setup_trb = astia::usb::xhci::make_setup_trb(setup, true);
+    assert(setup_trb.parameter.get() == 0x0012000001000680ull);
+    assert(setup_trb.status.get() == (8u | (3u << 16)));
+    assert(((setup_trb.control.get() >> 10) & 0x3fu) ==
+           static_cast<uint32_t>(astia::usb::xhci::trb_type::setup_stage));
+    const trb data_trb = astia::usb::xhci::make_data_trb(0x2000, 18, true, 2, true);
+    assert(data_trb.parameter.get() == 0x2000);
+    assert((data_trb.status.get() & 0x1ffffu) == 18);
+    assert(((data_trb.status.get() >> 17) & 0x1fu) == 2);
+    assert((data_trb.control.get() & astia::usb::xhci::trb_direction_in) != 0);
+    assert((astia::usb::xhci::make_status_trb(false, true).control.get() &
+            astia::usb::xhci::trb_interrupt_on_completion) != 0);
+
+    trb ring_memory[64]{};
+    astia::usb::xhci::control_ring<64> ring;
+    ring.initialize(ring_memory, 0x1000);
+    assert(ring.enqueue(setup, 0x2000, 18, 8));
+    assert(ring.busy());
+    assert(((ring.at(0).control.get() >> 10) & 0x3fu) ==
+           static_cast<uint32_t>(astia::usb::xhci::trb_type::setup_stage));
+    assert(((ring.at(1).control.get() >> 10) & 0x3fu) ==
+           static_cast<uint32_t>(astia::usb::xhci::trb_type::data_stage));
+    assert(((ring.at(2).control.get() >> 10) & 0x3fu) ==
+           static_cast<uint32_t>(astia::usb::xhci::trb_type::status_stage));
+    assert(!ring.enqueue(setup, 0x2000, 18, 8));
+    ring.retire();
+
+    astia::usb::xhci::control_transfer_engine<1, 64> engine;
+    assert(engine.initialize_ring(ring_memory, 0x1000));
+    transfer_handle control_handle{};
+    uint8_t control_buffer[18]{};
+    assert(engine.submit(setup, control_buffer, 0x2000, 18, 8, control_handle));
+    assert(engine.cancel(control_handle));
+    assert(engine.complete(control_handle, astia::usb::xhci::completion_code::success, 0));
+    assert(engine.state(control_handle) == transfer_state::canceled);
+    assert(engine.result(control_handle) == -125);
+    assert(engine.release(control_handle));
+    assert(engine.submit(setup, control_buffer, 0x2000, 18, 8, control_handle));
+    assert(engine.complete(control_handle, astia::usb::xhci::completion_code::stall_error, 0));
+    assert(engine.result(control_handle) == -32);
+    assert(engine.release(control_handle));
+
     const uint8_t device[] = {18, 1, 0x00, 0x02, 0, 0, 0, 64, 0x34, 0x12,
                               0x78, 0x56, 0, 1, 1, 2, 3, 1};
     device_descriptor parsed_device{};
@@ -29,6 +73,36 @@ int main() {
     assert(parsed_device.vendor_id == 0x1234);
     assert(parsed_device.product_id == 0x5678);
     assert(parsed_device.usb_version == 0x0200);
+
+    enumeration_session session;
+    assert(session.begin(1, 1, 1, usb_speed::full));
+    setup_packet next_setup{};
+    uint16_t next_length = 0;
+    assert(session.next(next_setup, next_length));
+    assert(next_setup.length == 8 && next_length == 8);
+    assert(session.complete(device, 8));
+    assert(session.next(next_setup, next_length));
+    assert(next_setup.length == 18 && next_length == 18);
+    assert(session.complete(device, sizeof device));
+    assert(session.phase() == enumeration_phase::set_address);
+    assert(session.complete(nullptr, 0));
+    assert(session.next(next_setup, next_length));
+    assert(next_setup.value == static_cast<uint16_t>(descriptor_configuration << 8));
+    const uint8_t configuration_header[] = {9, 2, 32, 0, 1, 1, 0, 0x80, 25};
+    assert(session.complete(configuration_header, sizeof configuration_header));
+    assert(session.next(next_setup, next_length));
+    assert(next_length == 32);
+    const uint8_t configuration_for_session[] = {
+        9, 2, 32, 0, 1, 1, 0, 0x80, 25,
+        9, 4, 0, 0, 2, 3, 1, 1, 0,
+        7, 5, 0x81, 3, 8, 0, 10,
+        7, 5, 0x02, 2, 64, 0, 0,
+    };
+    assert(session.complete(configuration_for_session,
+                            sizeof configuration_for_session));
+    assert(session.phase() == enumeration_phase::set_configuration);
+    assert(session.complete(nullptr, 0));
+    assert(session.phase() == enumeration_phase::complete);
     assert(!parse_device_descriptor(device, 17, parsed_device));
     const uint8_t bad_device[] = {1, 1, 0, 0, 0, 1, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     assert(parse_device_descriptor(bad_device, sizeof bad_device, parsed_device).error ==
@@ -93,7 +167,7 @@ int main() {
     assert(machine.event(enumeration_event::address_complete));
     assert(machine.event(enumeration_event::configuration_complete));
     assert(machine.event(enumeration_event::set_configuration_complete));
-    assert(machine.state() == enumeration_state::configured);
+    assert(machine.state() == astia::usb::enumeration_state::configured);
     assert(!machine.event(enumeration_event::address_complete));
     assert(machine.event(enumeration_event::detach));
 

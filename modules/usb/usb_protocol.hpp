@@ -21,6 +21,48 @@ constexpr uint8_t descriptor_device_capability = 16;
 constexpr uint8_t descriptor_ss_endpoint_companion = 48;
 constexpr uint8_t descriptor_ssp_isochronous_companion = 49;
 
+constexpr uint8_t request_get_status = 0;
+constexpr uint8_t request_clear_feature = 1;
+constexpr uint8_t request_set_feature = 3;
+constexpr uint8_t request_set_address = 5;
+constexpr uint8_t request_get_descriptor = 6;
+constexpr uint8_t request_set_configuration = 9;
+constexpr uint8_t request_type_standard = 0;
+constexpr uint8_t request_recipient_device = 0;
+
+struct setup_packet {
+    uint8_t request_type = 0;
+    uint8_t request = 0;
+    uint16_t value = 0;
+    uint16_t index = 0;
+    uint16_t length = 0;
+};
+
+static_assert(sizeof(setup_packet) == 8, "USB setup packet layout");
+
+constexpr setup_packet get_descriptor_request(uint8_t type, uint8_t index,
+                                              uint16_t length) {
+    return {static_cast<uint8_t>(0x80u | request_type_standard | request_recipient_device),
+            request_get_descriptor, static_cast<uint16_t>((static_cast<uint16_t>(type) << 8) | index),
+            0, length};
+}
+
+constexpr setup_packet set_address_request(uint8_t address) {
+    return {static_cast<uint8_t>(request_type_standard | request_recipient_device),
+            request_set_address, address, 0, 0};
+}
+
+constexpr setup_packet get_configuration_request() {
+    return {static_cast<uint8_t>(0x80u | request_type_standard | request_recipient_device),
+            request_get_descriptor, static_cast<uint16_t>(descriptor_configuration << 8), 0,
+            9};
+}
+
+constexpr setup_packet set_configuration_request(uint8_t value) {
+    return {static_cast<uint8_t>(request_type_standard | request_recipient_device),
+            request_set_configuration, value, 0, 0};
+}
+
 enum class parse_error : uint8_t {
     none,
     null_data,
