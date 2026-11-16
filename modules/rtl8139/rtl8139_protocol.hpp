@@ -226,6 +226,51 @@ inline rx_inspect_result inspect_rx_packet(const uint8_t* ring, uint16_t cursor,
     return rx_inspect_result::ready;
 }
 
+class rx_ring final {
+    uint8_t* data_ = nullptr;
+    uint16_t cursor_ = 0;
+
+    public:
+    rx_ring() = default;
+    explicit rx_ring(uint8_t* data) : data_(data) {}
+
+    void reset(uint8_t* data) {
+        data_ = data;
+        cursor_ = 0;
+    }
+
+    void reset(uint8_t* data, uint16_t cursor) {
+        data_ = data;
+        cursor_ = ring_offset(cursor);
+    }
+
+    uint8_t* data() const { return data_; }
+    uint16_t cursor() const { return cursor_; }
+    bool pending(uint16_t hardware_cursor) const {
+        return cursor_ != ring_offset(hardware_cursor);
+    }
+
+    rx_inspect_result acquire(rx_packet& packet) const {
+        return inspect_rx_packet(data_, cursor_, packet);
+    }
+
+    bool recycle(const rx_packet& packet) {
+        if (data_ == nullptr || packet.view.ring_offset != cursor_ ||
+            packet.view.next_offset == cursor_)
+            return false;
+        cursor_ = packet.view.next_offset;
+        return true;
+    }
+
+    bool recycle_to(uint16_t next) {
+        const uint16_t normalized = ring_offset(next);
+        if (data_ == nullptr || normalized == cursor_)
+            return false;
+        cursor_ = normalized;
+        return true;
+    }
+};
+
 enum class rx_action : uint8_t { recycle, defer, drop };
 using rx_irq_callback = rx_action (*)(void*, const packet_view&);
 using rx_deferred_callback = void (*)(void*, const packet_view&);
@@ -244,6 +289,68 @@ struct tx_request {
 struct tx_completion {
     tx_request request{};
     int status = 0;
+    uint8_t descriptor = 0xff;
+};
+
+enum class tx_slot_state : uint8_t { free, device, completion };
+
+class tx_ring final {
+    struct slot {
+        tx_request request{};
+        tx_slot_state state = tx_slot_state::free;
+    };
+
+    slot slots_[tx_descriptor_count]{};
+
+    public:
+    int available() const {
+        for (uint32_t index = 0; index < tx_descriptor_count; ++index)
+            if (slots_[index].state == tx_slot_state::free)
+                return static_cast<int>(index);
+        return -1;
+    }
+
+    bool claim(uint32_t index, const tx_request& request) {
+        if (index >= tx_descriptor_count || slots_[index].state != tx_slot_state::free)
+            return false;
+        slots_[index].request = request;
+        slots_[index].state = tx_slot_state::device;
+        return true;
+    }
+
+    const tx_request* request(uint32_t index) const {
+        return index < tx_descriptor_count && slots_[index].state != tx_slot_state::free
+                   ? &slots_[index].request
+                   : nullptr;
+    }
+
+    tx_slot_state state(uint32_t index) const {
+        return index < tx_descriptor_count ? slots_[index].state : tx_slot_state::free;
+    }
+
+    bool complete(uint32_t index, int status, tx_completion& completion) {
+        if (index >= tx_descriptor_count || slots_[index].state != tx_slot_state::device)
+            return false;
+        completion.request = slots_[index].request;
+        completion.status = status;
+        completion.descriptor = static_cast<uint8_t>(index);
+        slots_[index].state = tx_slot_state::completion;
+        return true;
+    }
+
+    bool restore(uint32_t index) {
+        if (index >= tx_descriptor_count || slots_[index].state != tx_slot_state::completion)
+            return false;
+        slots_[index].state = tx_slot_state::device;
+        return true;
+    }
+
+    bool release(uint32_t index) {
+        if (index >= tx_descriptor_count || slots_[index].state != tx_slot_state::completion)
+            return false;
+        slots_[index] = {};
+        return true;
+    }
 };
 
 class atomic_u32 final {

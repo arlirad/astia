@@ -31,7 +31,7 @@ add_custom_target(rtl8139_module ALL DEPENDS ${ASTIA_RTL8139_OBJECT})
 
 add_custom_command(
         OUTPUT ${ASTIA_RTL8139_UNIT}
-        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic -pthread
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/rtl8139_protocol_test.cpp
