@@ -329,6 +329,164 @@ class control_transfer_engine {
     }
 };
 
+inline trb make_normal_trb(uint64_t physical, uint32_t length, uint8_t interrupter,
+                           bool cycle, bool interrupt_on_short = true) {
+    trb result{};
+    result.parameter = physical;
+    result.status = (length & 0x1ffffu) | (1u << 17);
+    result.control = trb_type_bits(trb_type::normal) | trb_interrupt_on_completion |
+                     (interrupt_on_short ? (1u << 2) : 0u) |
+                     (static_cast<uint32_t>(interrupter) << 22) | (cycle ? trb_cycle : 0u);
+    return result;
+}
+
+struct interrupt_request {
+    transfer_state state = transfer_state::free;
+    void* buffer = nullptr;
+    uint64_t physical = 0;
+    uint32_t length = 0;
+    uint32_t actual = 0;
+    int64_t result = 0;
+    uint16_t generation = 0;
+    trb descriptor{};
+};
+
+template <unsigned Capacity>
+class interrupt_transfer_engine {
+    interrupt_request requests_[Capacity]{};
+    bool cycle_ = true;
+
+    bool owns(transfer_handle handle) const {
+        return handle.valid() && handle.slot < Capacity &&
+               requests_[handle.slot].generation == handle.generation &&
+               requests_[handle.slot].state != transfer_state::free;
+    }
+
+    static int64_t completion_result(completion_code code, uint32_t length, uint32_t residual) {
+        if (residual > length)
+            return -5;
+        switch (code) {
+        case completion_code::success:
+        case completion_code::short_packet:
+        case completion_code::stopped_short_packet:
+            return static_cast<int64_t>(length - residual);
+        case completion_code::stall_error:
+            return -32;
+        case completion_code::stopped:
+        case completion_code::stopped_length_invalid:
+            return -125;
+        default:
+            return -5;
+        }
+    }
+
+    public:
+    bool submit(void* buffer, uint64_t physical, uint32_t length, uint8_t interrupter,
+                transfer_handle& handle) {
+        handle = {};
+        if (buffer == nullptr || physical == 0 || length == 0)
+            return false;
+        for (unsigned i = 0; i < Capacity; ++i) {
+            interrupt_request& request = requests_[i];
+            if (request.state != transfer_state::free)
+                continue;
+            uint16_t generation = static_cast<uint16_t>(request.generation + 1);
+            if (generation == 0)
+                generation = 1;
+            request = {};
+            request.state = transfer_state::pending;
+            request.buffer = buffer;
+            request.physical = physical;
+            request.length = length;
+            request.generation = generation;
+            request.descriptor = make_normal_trb(physical, length, interrupter, cycle_);
+            handle = {static_cast<uint16_t>(i), generation};
+            if (i + 1 == Capacity)
+                cycle_ = !cycle_;
+            return true;
+        }
+        return false;
+    }
+
+    bool cancel(transfer_handle handle) {
+        if (!owns(handle) || requests_[handle.slot].state != transfer_state::pending)
+            return false;
+        requests_[handle.slot].state = transfer_state::cancel_requested;
+        return true;
+    }
+
+    bool complete(transfer_handle handle, completion_code code, uint32_t residual) {
+        if (!owns(handle))
+            return false;
+        interrupt_request& request = requests_[handle.slot];
+        if (request.state != transfer_state::pending &&
+            request.state != transfer_state::cancel_requested)
+            return false;
+        if (request.state == transfer_state::cancel_requested) {
+            request.state = transfer_state::canceled;
+            request.result = -125;
+            request.actual = 0;
+        } else {
+            request.result = completion_result(code, request.length, residual);
+            request.actual = residual > request.length ? 0 : request.length - residual;
+            request.state = request.result < 0 ? transfer_state::failed
+                                               : transfer_state::completed;
+        }
+        return true;
+    }
+
+    bool release(transfer_handle handle) {
+        if (!owns(handle))
+            return false;
+        interrupt_request& request = requests_[handle.slot];
+        if (request.state != transfer_state::completed && request.state != transfer_state::failed &&
+            request.state != transfer_state::canceled)
+            return false;
+        const uint16_t generation = request.generation;
+        request = {};
+        request.generation = generation;
+        return true;
+    }
+
+    transfer_state state(transfer_handle handle) const {
+        return owns(handle) ? requests_[handle.slot].state : transfer_state::free;
+    }
+
+    int64_t result(transfer_handle handle) const {
+        return owns(handle) ? requests_[handle.slot].result : -22;
+    }
+
+    uint32_t actual(transfer_handle handle) const {
+        return owns(handle) ? requests_[handle.slot].actual : 0;
+    }
+
+    const trb* descriptor(transfer_handle handle) const {
+        return owns(handle) ? &requests_[handle.slot].descriptor : nullptr;
+    }
+};
+
+class deferred_interrupts {
+    volatile bool pending_ = false;
+    bool enabled_ = true;
+
+    public:
+    void irq() {
+        if (enabled_)
+            pending_ = true;
+    }
+
+    bool take() {
+        if (!pending_)
+            return false;
+        pending_ = false;
+        return true;
+    }
+
+    void mask() { enabled_ = false; }
+    void unmask() { enabled_ = true; }
+    bool pending() const { return pending_; }
+};
+
 enum class enumeration_phase : uint8_t {
     idle,
     device_descriptor_short,

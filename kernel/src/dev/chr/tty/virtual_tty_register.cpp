@@ -30,4 +30,14 @@ namespace astia::dev {
         return framebuffer_console_backend() != nullptr && ttv0.inject_input(byte);
     }
 
+    bool virtual_tty_usb_input(const void* buffer, u32 length) {
+        if (buffer == nullptr && length != 0)
+            return false;
+        const auto* bytes = static_cast<const u8*>(buffer);
+        bool accepted = true;
+        for (u32 i = 0; i < length; ++i)
+            accepted = ttv0.inject_input(bytes[i]) && accepted;
+        return accepted;
+    }
+
 } // namespace astia::dev

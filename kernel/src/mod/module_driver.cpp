@@ -5,6 +5,7 @@
 #include "../dev/blk/block_device.hpp"
 #include "../dev/device_file.hpp"
 #include "../dev/pci.hpp"
+#include "../dev/chr/tty/virtual_tty.hpp"
 #include "../sys/aio.hpp"
 #include "../sys/user_mem.hpp"
 #include <astia/api/errno.h>
@@ -34,6 +35,9 @@ namespace astia::mod {
                    reinterpret_cast<u64>(&astia_module_register_pci_block_driver)) &&
             expose("astia_module_register_pci_driver",
                    reinterpret_cast<u64>(&astia_module_register_pci_driver)) &&
+            expose("astia_module_register_usb_driver",
+                   reinterpret_cast<u64>(&astia_module_register_usb_driver)) &&
+            expose("astia_module_tty_input", reinterpret_cast<u64>(&astia_module_tty_input)) &&
             expose("astia_module_pci_enable_bus_master",
                    reinterpret_cast<u64>(&astia_module_pci_enable_bus_master)) &&
             expose("astia_module_pci_map_bar", reinterpret_cast<u64>(&astia_module_pci_map_bar)) &&
@@ -176,6 +180,35 @@ namespace astia::mod {
             registration& registration_;
         };
 
+        struct usb_registration;
+
+        class usb_device final : public dev::device {
+            public:
+            usb_device(usb_registration& registration, void* context)
+                : device("module-usb", dev::dv_sync), registration_(registration),
+                  context_(context) {}
+            ~usb_device();
+
+            long read(void*, u32, u64) override { return -ENODEV; }
+            long write(const void*, u32, u64) override { return -ENODEV; }
+
+            private:
+            usb_registration& registration_;
+            void* context_;
+        };
+
+        class usb_driver final : public dev::driver {
+            public:
+            explicit usb_driver(usb_registration& registration) : registration_(registration) {}
+
+            const char* name() const override;
+            bool match(const dev::device_info& info) const override;
+            mm::shptr<dev::device> probe(const dev::device_info& info) override;
+
+            private:
+            usb_registration& registration_;
+        };
+
         struct registration {
             const astia_module_pci_block_driver* ops = nullptr;
             alignas(driver) u8 storage[sizeof(driver)]{};
@@ -260,6 +293,13 @@ namespace astia::mod {
             pci_driver* instance = nullptr;
         };
 
+        struct usb_registration {
+            const astia_module_usb_driver* ops = nullptr;
+            alignas(usb_driver) u8 storage[sizeof(usb_driver)]{};
+            usb_driver* instance = nullptr;
+        };
+        };
+
         class controller_lifetime final {
             public:
             controller_lifetime(registration& registration, void* context)
@@ -279,6 +319,8 @@ namespace astia::mod {
         u32 registration_count = 0;
         pci_registration pci_registrations[max_registrations]{};
         u32 pci_registration_count = 0;
+        usb_registration usb_registrations[max_registrations]{};
+        u32 usb_registration_count = 0;
         mm::shptr<mm::iovec> pin_tokens[max_pin_tokens]{};
         u32 next_async_generation = 1;
 
@@ -485,6 +527,41 @@ namespace astia::mod {
                            view(pci->mutable_device());
                        return registration_.ops->match(&device_view) != 0;
                    }();
+        }
+
+        usb_device::~usb_device() {
+            if (registration_.ops != nullptr && registration_.ops->remove != nullptr)
+                registration_.ops->remove(context_);
+        }
+
+        const char* usb_driver::name() const {
+            return registration_.ops->name;
+        }
+
+        bool usb_driver::match(const dev::device_info& info) const {
+            const dev::pci_device_info* pci = dev::pci_device_info::get(info);
+            return pci != nullptr && registration_.ops != nullptr &&
+                   registration_.ops->match != nullptr && [&] {
+                       const astia_module_pci_device device_view = view(pci->mutable_device());
+                       return registration_.ops->match(&device_view) != 0;
+                   }();
+        }
+
+        mm::shptr<dev::device> usb_driver::probe(const dev::device_info& info) {
+            const dev::pci_device_info* pci = dev::pci_device_info::get(info);
+            if (pci == nullptr || registration_.ops == nullptr || registration_.ops->probe == nullptr)
+                return {};
+            dev::pci_device* stable = dev::pci_devices().find(pci->device().bdf);
+            if (stable == nullptr)
+                return {};
+            const astia_module_pci_device device_view = view(*stable);
+            void* context = nullptr;
+            if (registration_.ops->probe(&device_view, &context) == 0 || context == nullptr)
+                return {};
+            auto result = mm::share<usb_device>(registration_, context);
+            if (!result && registration_.ops->remove != nullptr)
+                registration_.ops->remove(context);
+            return result;
         }
 
         const char* driver::name() const {
@@ -767,6 +844,23 @@ namespace astia::mod {
         return true;
     }
 
+    bool register_usb_driver(const astia_module_usb_driver& ops) {
+        if (ops.name == nullptr || ops.name[0] == '\0' || ops.match == nullptr ||
+            ops.probe == nullptr || usb_registration_count == max_registrations)
+            return false;
+        usb_registration& slot = usb_registrations[usb_registration_count++];
+        slot.ops = &ops;
+        slot.instance = ::new (slot.storage) usb_driver(slot);
+        if (!dev::drivers().register_driver(*slot.instance)) {
+            slot.instance->~usb_driver();
+            slot.instance = nullptr;
+            slot.ops = nullptr;
+            --usb_registration_count;
+            return false;
+        }
+        return true;
+    }
+
     bool async_handle_checks() {
         async_bridge bridge{};
         io_request request{};
@@ -854,6 +948,21 @@ extern "C" int astia_module_register_pci_block_driver(
     extern "C" int astia_module_register_pci_driver(
             const astia_module_pci_driver* driver) {
         return driver != nullptr && register_pci_driver(*driver) ? 0 : -EINVAL;
+    }
+
+    extern "C" int astia_module_register_usb_driver(
+            const astia_module_usb_driver* driver) {
+        return driver != nullptr && register_usb_driver(*driver) ? 0 : -EINVAL;
+    }
+
+    extern "C" int astia_module_tty_input(const char* path, const void* buffer, uint32_t length) {
+        if (path == nullptr || buffer == nullptr || length == 0)
+            return -EINVAL;
+        const char* expected = astia::dev::virtual_tty_path;
+        for (u32 i = 0; expected[i] != '\0' || path[i] != '\0'; ++i)
+            if (expected[i] != path[i])
+                return -ENODEV;
+        return astia::dev::virtual_tty_usb_input(buffer, length) ? 0 : -EAGAIN;
     }
 
     extern "C" int astia_module_pci_enable_bus_master(void* opaque) {
