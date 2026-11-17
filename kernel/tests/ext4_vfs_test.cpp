@@ -60,7 +60,7 @@ void operator delete[](void* value, std::size_t) noexcept {
 }
 
 #include "../src/dev/device_file.hpp"
-#include <astia/dev/blk/block_device.hpp>
+#include <astia/dev/blk/blkdev.hpp>
 #include "../src/fs/filesystem.hpp"
 
 namespace astia::proc {
@@ -76,11 +76,11 @@ namespace {
     using astia::u32;
     using astia::u64;
 
-    class fake_block_device final : public astia::dev::blk::block_device {
+    class fake_blkdev final : public astia::dev::blk::blkdev {
         public:
         static constexpr u32 image_size = 32 * 1024;
 
-        fake_block_device() : block_device("fake-ext4", image_size, 512) {
+        fake_blkdev() : blkdev("fake-ext4", image_size, 512) {
             make_valid_image();
         }
 
@@ -247,7 +247,7 @@ namespace {
         u32 reads_ = 0;
     };
 
-    fake_block_device fake_device;
+    fake_blkdev fake_device;
     astia::dev::device_file fake_file(&fake_device);
     bool fake_registered = false;
     bool fake_mountpoint = false;
@@ -272,7 +272,7 @@ namespace {
         initialized = true;
     }
 
-    void mount_fixture(fake_block_device& device, astia::dev::device_file& file) {
+    void mount_fixture(fake_blkdev& device, astia::dev::device_file& file) {
         if (!fake_registered) {
             ASTIA_CHECK(astia::fs::register_device(
                             "/dev/fake-ext4",

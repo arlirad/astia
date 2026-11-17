@@ -16,8 +16,9 @@ other HTree operations.
 
 ## Integration blockers
 
-`kernel/include/astia/dev/blk/block_device.hpp` provides the minimal public
-block-driver contract on top of `dev::device`. Requests use the existing
+`kernel/include/astia/dev/blk/blkdev.hpp` provides the minimal public
+block-driver contract on top of `dev::blk::blkdev`, built on `dev::device`.
+Requests use the existing
 `io_request`/`io_flight`/`io_packet` path; offset and length must both be
 multiples of the device block size and invalid requests return `-EINVAL`.
 `dev::device_file` is the small VFS adapter. The block implementation is
