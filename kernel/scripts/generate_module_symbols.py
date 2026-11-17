@@ -20,7 +20,7 @@ def fail(message):
 
 def section_headers(data, header):
     _, _, _, _, _, _, shoff, _, _, _, _, shentsize, shnum, shstrndx = header
-    if shentsize != 64 or shnum == 0:
+    if shentsize != 64 or shnum == 0 or shstrndx >= shnum:
         fail("invalid section header table")
     end = shoff + shentsize * shnum
     if end > len(data):
@@ -32,13 +32,32 @@ def section_headers(data, header):
 def section_name(data, sections, shstrndx, index):
     shstr = sections[shstrndx]
     off, size = shstr[4], shstr[5]
+    if off > len(data) or size > len(data) - off:
+        fail("invalid section-name string table")
     name_off = sections[index][0]
     if name_off >= size:
-        return ""
+        fail("section name offset is out of bounds")
     end = data.find(b"\0", off + name_off, off + size)
     if end < 0:
-        return ""
-    return data[off + name_off:end].decode("ascii")
+        fail("unterminated section name")
+    try:
+        return bytes(data[off + name_off:end]).decode("ascii")
+    except UnicodeDecodeError:
+        fail("section name is not ASCII")
+
+
+def select_symbol(found, symbol, binding, value):
+    previous = found.get(symbol)
+    if previous is None:
+        found[symbol] = (binding, value)
+        return
+    previous_binding, previous_value = previous
+    if previous_binding != binding:
+        if binding == STB_GLOBAL:
+            found[symbol] = (binding, value)
+        return
+    if previous_value != value:
+        fail("conflicting addresses for symbol " + repr(symbol))
 
 
 def symbols(data, sections):
@@ -48,8 +67,11 @@ def symbols(data, sections):
         off, size, entsize, link = section[4], section[5], section[9], section[6]
         if entsize != 24 or size % entsize != 0 or link >= len(sections):
             fail("invalid kernel symtab")
+        if off > len(data) or size > len(data) - off:
+            fail("truncated kernel symtab")
         strings = sections[link]
-        if strings[1] != SHT_STRTAB or strings[4] + strings[5] > len(data):
+        if strings[1] != SHT_STRTAB or strings[4] > len(data) or \
+                strings[5] > len(data) - strings[4]:
             fail("invalid kernel strtab")
         raw = bytes(data[strings[4]:strings[4] + strings[5]])
         found = {}
@@ -58,16 +80,19 @@ def symbols(data, sections):
                 "<IBBHQQ", data, cursor)
             binding = info >> 4
             visibility = other & 0x3
-            if (binding not in (STB_GLOBAL, STB_WEAK) or
-                    visibility != STV_DEFAULT or shndx == 0 or name >= len(raw) or
-                    value == 0):
-                continue
+            if name >= len(raw):
+                fail("symbol name offset is out of bounds")
             end = raw.find(b"\0", name)
-            if end < 0 or end == name:
+            if end < 0:
+                fail("unterminated symbol name")
+            if (binding not in (STB_GLOBAL, STB_WEAK) or
+                    visibility != STV_DEFAULT or shndx == 0):
+                continue
+            if end == name:
                 continue
             symbol = raw[name:end]
-            found.setdefault(symbol, value)
-        return sorted(found.items())
+            select_symbol(found, symbol, binding, value)
+        return sorted((symbol, value) for symbol, (_, value) in found.items())
     fail("kernel symtab is missing")
 
 

@@ -310,6 +310,54 @@ ASTIA_TEST(elf_relocatable_rejects_unresolved_symbol) {
     ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
 }
 
+ASTIA_TEST(elf_relocatable_rejects_unterminated_symbol_name) {
+    blob_copy buf(hello_mod_blob, hello_mod_blob_len);
+    const auto read_u16 = [&buf](size_t offset) {
+        return static_cast<unsigned short>(buf.data[offset]) |
+               (static_cast<unsigned short>(buf.data[offset + 1]) << 8);
+    };
+    const auto read_u32 = [&buf](size_t offset) {
+        return static_cast<unsigned int>(buf.data[offset]) |
+               (static_cast<unsigned int>(buf.data[offset + 1]) << 8) |
+               (static_cast<unsigned int>(buf.data[offset + 2]) << 16) |
+               (static_cast<unsigned int>(buf.data[offset + 3]) << 24);
+    };
+    const auto read_u64 = [&buf](size_t offset) {
+        unsigned long long value = 0;
+        for (size_t i = 0; i < 8; ++i)
+            value |= static_cast<unsigned long long>(buf.data[offset + i]) << (i * 8);
+        return value;
+    };
+    const unsigned long long section_offset = read_u64(40);
+    const unsigned short section_count = read_u16(60);
+    const unsigned short section_size = read_u16(58);
+    size_t string_offset = 0;
+    size_t string_size = 0;
+    for (unsigned short i = 0; i < section_count; ++i) {
+        const size_t section = static_cast<size_t>(section_offset) +
+                               static_cast<size_t>(i) * section_size;
+        if (read_u32(section + 4) != 2)
+            continue;
+        const unsigned int string_index = read_u32(section + 40);
+        const size_t string_section = static_cast<size_t>(section_offset) +
+                                      static_cast<size_t>(string_index) * section_size;
+        string_offset = static_cast<size_t>(read_u64(string_section + 24));
+        string_size = static_cast<size_t>(read_u64(string_section + 32));
+        break;
+    }
+    ASTIA_CHECK(string_size != 0);
+    if (string_size != 0) {
+        buf.data[string_offset + string_size - 1] = 'x';
+        reloc_arena a{};
+        astia::elf::env e{};
+        e.ctx = &a;
+        e.map = reloc_map;
+        e.resolve = reloc_resolve;
+        astia::elf::image img;
+        ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
+    }
+}
+
 // ========================================================================
 //  Linked executables (ET_DYN PIE and ET_EXEC): map segments, bias, run
 // ========================================================================
