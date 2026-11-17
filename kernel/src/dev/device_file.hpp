@@ -1,6 +1,6 @@
 #pragma once
 
-#include "device.hpp"
+#include <astia/dev/device.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/shptr.hpp>
 

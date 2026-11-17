@@ -6,7 +6,7 @@
 #include "mmap_region.hpp"
 #include "signal_waiter_registry.hpp"
 #include "thread.hpp"
-#include "user_layout.hpp"
+#include <astia/proc/user_layout.hpp>
 #include <astia/api/syscalls.h>
 #include <astia/common.hpp>
 #include <astia/core/task.hpp>

@@ -2,7 +2,7 @@
 #include "chr/tty/uart16550.hpp"
 #include "chr/tty/virtual_tty.hpp"
 #include "chr/tty/framebuffer_console.hpp"
-#include "pci.hpp"
+#include <astia/dev/pci.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 

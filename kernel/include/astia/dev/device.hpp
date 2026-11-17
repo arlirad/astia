@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/api/aio.h>
+#include <astia/api/errno.h>
 #include <astia/common.hpp>
 #include <astia/io.hpp>
 #include <astia/span.hpp>
@@ -33,7 +34,7 @@ namespace astia::dev {
         public:
         constexpr device(const char* name, unsigned flags) : _flags(flags) {
             u32 i = 0;
-            while (name != nullptr && name[i] != '\0' && i < sizeof(_name) - 1) {
+            while (i < sizeof(_name) - 1 && name != nullptr && name[i] != '\0') {
                 _name[i] = name[i];
                 ++i;
             }
@@ -74,9 +75,13 @@ namespace astia::dev {
         // pointer and length separately; the virtual compatibility seam above
         // remains unchanged for file/driver implementations.
         long read(astia::span<u8> buffer, u64 off) {
+            if (buffer.size() > static_cast<usize>(~u32{0}))
+                return -EINVAL;
             return read(buffer.data(), static_cast<u32>(buffer.size()), off);
         }
         long write(astia::span<const u8> buffer, u64 off) {
+            if (buffer.size() > static_cast<usize>(~u32{0}))
+                return -EINVAL;
             return write(buffer.data(), static_cast<u32>(buffer.size()), off);
         }
         long ioctl(u64 request, astia::span<u8> argument) {

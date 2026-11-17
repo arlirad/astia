@@ -1,5 +1,5 @@
 #include "device_file.hpp"
-#include "blk/block_device.hpp"
+#include <astia/dev/blk/block_device.hpp>
 
 #include <astia/api/errno.h>
 
