@@ -2,29 +2,48 @@
 
 #include <astia/api/errno.h>
 #include <astia/common.hpp>
-#include <astia/module_abi_net.h>
+#include <astia/mm/shptr.hpp>
 
-namespace astia::net {
+#include "../../src/dev/device.hpp"
 
-    using packet_segment = astia_module_net_packet_segment;
-    using packet_view = astia_module_net_packet_view;
-    using tx_request = astia_module_net_tx_request;
-    using device_abi = astia_module_net_device;
-    using tx_reclaim_fn = astia_module_net_tx_reclaim_fn;
-    using rx_irq_callback = astia_module_net_rx_irq_fn;
-    using rx_deferred_callback = astia_module_net_rx_deferred_fn;
+namespace astia::dev::net {
 
-    enum class rx_action : u8 {
-        recycle = ASTIA_MODULE_NET_RX_RECYCLE,
-        defer = ASTIA_MODULE_NET_RX_DEFER,
-        drop = ASTIA_MODULE_NET_RX_DROP,
+    struct packet_segment {
+        const u8* data = nullptr;
+        u32 length = 0;
     };
 
+    struct packet_view {
+        packet_segment first{};
+        packet_segment second{};
+        u32 length = 0;
+        u32 wire_length = 0;
+        u64 generation = 0;
+        void* owner = nullptr;
+        void (*recycle)(void* owner, int status) = nullptr;
+    };
+
+    struct tx_request;
+    using tx_reclaim_fn = void (*)(void*, const tx_request*, int);
+
+    struct tx_request {
+        const u8* data = nullptr;
+        u64 physical = 0;
+        u32 length = 0;
+        u64 generation = 0;
+        void* cookie = nullptr;
+        tx_reclaim_fn reclaim = nullptr;
+    };
+
+    enum class rx_action : u8 { recycle, defer, drop };
     enum link_flags : u32 {
         link_up = 1u << 0,
         link_running = 1u << 1,
         link_full_duplex = 1u << 2,
     };
+
+    using rx_irq_callback = u8 (*)(void*, const packet_view*);
+    using rx_deferred_callback = void (*)(void*, const packet_view*);
 
     enum class device_state : u8 {
         detached,
@@ -35,9 +54,7 @@ namespace astia::net {
     };
 
     inline rx_action rx_result(u8 value) {
-        return value == ASTIA_MODULE_NET_RX_DEFER
-                   ? rx_action::defer
-                   : value == ASTIA_MODULE_NET_RX_DROP ? rx_action::drop : rx_action::recycle;
+        return value == 1 ? rx_action::defer : value == 2 ? rx_action::drop : rx_action::recycle;
     }
 
     inline void recycle(packet_view& packet, int status = 0) {
@@ -229,6 +246,7 @@ namespace astia::net {
             accepting_ = true;
         }
 
+        void set_generation(u64 value) { generation_ = value == 0 ? 1 : value; }
         u64 generation() const { return generation_; }
     };
 
@@ -246,6 +264,21 @@ namespace astia::net {
                 return action;
             recycle(packet, action == rx_action::defer ? -EAGAIN : 0);
             return action == rx_action::defer ? rx_action::drop : action;
+        }
+
+        rx_action invoke_irq(packet_view& packet) const {
+            return irq_ == nullptr ? rx_action::defer : rx_result(irq_(context_, &packet));
+        }
+
+        void invoke_deferred(packet_view& packet) const {
+            if (deferred_ != nullptr)
+                deferred_(context_, &packet);
+        }
+
+        void set_callbacks(rx_irq_callback irq, rx_deferred_callback deferred, void* context) {
+            irq_ = irq;
+            deferred_ = deferred;
+            context_ = context;
         }
 
         u32 poll() {
@@ -270,23 +303,70 @@ namespace astia::net {
         bounded_spsc_queue<packet_view, depth> deferred_path_;
     };
 
+    class net_device : public device {
+        public:
+        static constexpr u32 tx_pending_depth = 16;
+        static constexpr u32 tx_completion_depth = 4;
+
+        net_device(const char* name, void* context = nullptr,
+                   rx_irq_callback irq = nullptr, rx_deferred_callback deferred = nullptr)
+            : device(name, dv_mqueue | dv_net), context_(context), rx_(irq, deferred, context) {}
+
+        long read(void*, u32, u64) override { return -ENOTSUP; }
+        long write(const void*, u32, u64) override { return -ENOTSUP; }
+
+        void set_mac(const u8* value) {
+            if (value == nullptr)
+                return;
+            for (u32 i = 0; i < 6; ++i)
+                mac_[i] = value[i];
+        }
+        const u8* mac() const { return mac_; }
+        void set_mtu(u16 value) { mtu_ = value; }
+        u16 mtu() const { return mtu_; }
+        void set_link_flags(u32 value) { link_flags_ = value; }
+        u32 link_flags() const { return link_flags_; }
+        void set_generation(u64 value) { tx_.set_generation(value); }
+        u64 generation() const { return tx_.generation(); }
+        void set_running(bool value) { running_ = value; }
+        bool running() const { return running_; }
+        void* module_context() const { return context_; }
+
+        rx_action dispatch_rx(packet_view packet) { return rx_.dispatch_irq(packet); }
+        rx_action invoke_rx_irq(packet_view& packet) const { return rx_.invoke_irq(packet); }
+        void invoke_rx_deferred(packet_view& packet) const { rx_.invoke_deferred(packet); }
+        u32 poll_rx() { return rx_.poll(); }
+        bool rx_deferred_full() const { return rx_.deferred_full(); }
+        void set_callbacks(rx_irq_callback irq, rx_deferred_callback deferred, void* context) {
+            rx_.set_callbacks(irq, deferred, context);
+        }
+        tx_path<tx_pending_depth, tx_completion_depth>& tx() { return tx_; }
+
+        private:
+        u8 mac_[6]{};
+        u16 mtu_ = 1500;
+        u32 link_flags_ = 0;
+        bool running_ = false;
+        void* context_ = nullptr;
+        rx_path rx_;
+        tx_path<tx_pending_depth, tx_completion_depth> tx_;
+    };
+
     class registry final {
         public:
         static constexpr u32 max_devices = 32;
 
-        bool register_device(device_abi& device) {
-            if (device.name == nullptr || device.name[0] == '\0' || device.context == nullptr)
-                return false;
+        bool register_device(net_device& device) {
             for (u32 i = 0; i < count_; ++i)
                 if (devices_[i] == &device)
                     return true;
-            if (count_ == max_devices)
+            if (device.name() == nullptr || device.name()[0] == '\0' || count_ == max_devices)
                 return false;
             devices_[count_++] = &device;
             return true;
         }
 
-        bool unregister_device(device_abi& device) {
+        bool unregister_device(net_device& device) {
             for (u32 i = 0; i < count_; ++i) {
                 if (devices_[i] != &device)
                     continue;
@@ -297,14 +377,40 @@ namespace astia::net {
             return false;
         }
 
-        device_abi* at(u32 index) const { return index < count_ ? devices_[index] : nullptr; }
+        net_device* at(u32 index) const { return index < count_ ? devices_[index] : nullptr; }
         u32 count() const { return count_; }
 
         private:
-        device_abi* devices_[max_devices]{};
+        net_device* devices_[max_devices]{};
         u32 count_ = 0;
     };
 
     registry& devices();
 
+} // namespace astia::dev::net
+
+namespace astia::net {
+    using packet_segment = dev::net::packet_segment;
+    using packet_view = dev::net::packet_view;
+    using tx_request = dev::net::tx_request;
+    using tx_reclaim_fn = dev::net::tx_reclaim_fn;
+    using rx_irq_callback = dev::net::rx_irq_callback;
+    using rx_deferred_callback = dev::net::rx_deferred_callback;
+    using rx_action = dev::net::rx_action;
+    using device_state = dev::net::device_state;
+    using dev::net::bounded_lock_free_mpsc;
+    using dev::net::bounded_lock_free_spsc;
+    using dev::net::bounded_mpsc_queue;
+    using dev::net::bounded_spsc_queue;
+    using dev::net::devices;
+    using dev::net::net_device;
+    using dev::net::registry;
+    using dev::net::recycle;
+    using dev::net::rx_path;
+    using dev::net::rx_result;
+    using dev::net::tx_path;
+    using dev::net::link_flags;
+    using dev::net::link_up;
+    using dev::net::link_running;
+    using dev::net::link_full_duplex;
 } // namespace astia::net

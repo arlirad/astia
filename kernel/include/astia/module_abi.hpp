@@ -2,6 +2,7 @@
 
 #include <astia/module_abi.h>
 #include <astia/mm/shptr.hpp>
+#include <astia/net.hpp>
 
 namespace astia::module {
 
@@ -10,14 +11,14 @@ namespace astia::module {
     using io_request = astia_module_io_request;
     using msix_route = astia_module_msix_route;
 
-    using net_device = astia_module_net_device;
     struct net_driver : astia_module_pci_net_driver {
         constexpr net_driver(const char* name, astia_module_pci_net_match_fn match,
                              astia_module_pci_net_probe_fn probe,
                              astia_module_pci_net_remove_fn remove)
             : astia_module_pci_net_driver{name, match, probe, remove} {}
     };
-    using net_tx_request = astia_module_net_tx_request;
+    using net_device = astia::dev::net::net_device;
+    using net_tx_request = astia::dev::net::tx_request;
 
     static_assert(sizeof(net_driver) == sizeof(astia_module_pci_net_driver));
 

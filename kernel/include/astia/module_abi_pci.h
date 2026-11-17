@@ -28,6 +28,19 @@ struct astia_module_pci_driver {
     astia_module_pci_remove_fn remove;
 };
 
+typedef int (*astia_module_pci_net_match_fn)(
+    const struct astia_module_pci_device* device);
+typedef int (*astia_module_pci_net_probe_fn)(const struct astia_module_pci_device* device,
+                                              void** context);
+typedef void (*astia_module_pci_net_remove_fn)(void* context);
+
+struct astia_module_pci_net_driver {
+    const char* name;
+    astia_module_pci_net_match_fn match;
+    astia_module_pci_net_probe_fn probe;
+    astia_module_pci_net_remove_fn remove;
+};
+
 struct astia_module_pci_namespace {
     uint32_t id;
     uint32_t reserved0;
@@ -60,6 +73,8 @@ ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_device, reserved
                                "PCI device reserved offset");
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(struct astia_module_pci_driver) == 32,
                                "PCI driver layout");
+ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(struct astia_module_pci_net_driver) == 32,
+                               "PCI network driver layout");
 
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(struct astia_module_pci_namespace) == 40,
                               "PCI namespace layout");
@@ -77,6 +92,7 @@ ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_namespace, devic
 ASTIA_MODULE_ABI_EXTERN_C_BEGIN
 int astia_module_register_pci_block_driver(const struct astia_module_pci_block_driver* driver);
 int astia_module_register_pci_driver(const struct astia_module_pci_driver* driver);
+int astia_module_register_pci_net_driver(const struct astia_module_pci_net_driver* driver);
 int astia_module_pci_enable_bus_master(void* device);
 int astia_module_pci_map_bar(void* device, uint8_t index);
 uint64_t astia_module_pci_bar_mapped(void* device, uint8_t index);
