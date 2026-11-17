@@ -17,6 +17,7 @@ find_program(ASTIA_ZSTD zstd REQUIRED)
 add_library(astia_test_support STATIC
         support/main.cpp
         support/arena.cpp
+        support/freestanding_new.cpp
 )
 target_include_directories(astia_test_support PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/support
