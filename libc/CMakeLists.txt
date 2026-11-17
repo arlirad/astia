@@ -144,8 +144,20 @@ set_source_files_properties(src/wchar.c PROPERTIES
 
 install(TARGETS astia_libc ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/astia/api)
+
+set(ASTIA_LIBC_KERNEL_HEADERS
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/aio.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/errno.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/signal.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/signal_stack.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/syscalls.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/termios.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/wait.h
+)
+install(FILES
+  ${ASTIA_LIBC_KERNEL_HEADERS}
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/astia/api
+)
 
 if(ASTIA_BUILD_TESTS)
   enable_testing()

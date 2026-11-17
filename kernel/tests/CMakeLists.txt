@@ -148,6 +148,10 @@ astia_add_host_test(astia_block_device_test
 target_include_directories(astia_block_device_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
+astia_add_host_test(astia_device_test
+        device_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
+
 astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/pci.cpp
@@ -196,6 +200,15 @@ add_test(NAME astia_platform_api_regression
         -DASTIA_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DASTIA_PLATFORM_API_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/platform_api_regression_test.cmake)
+add_test(NAME astia_public_header_alone
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
+        -DASTIA_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DASTIA_PUBLIC_HEADER_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/public-header-alone
+        -DASTIA_PUBLIC_HEADER_TEST_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/public_header_alone.cpp
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/public_header_alone_test.cmake)
+set_tests_properties(astia_public_header_alone
+        PROPERTIES LABELS "kernel;headers;deterministic")
 
 add_test(NAME astia_kernel_warning_flags
         COMMAND ${CMAKE_COMMAND}

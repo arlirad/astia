@@ -1,5 +1,5 @@
-#include "mmio.hpp"
-#include "pci.hpp"
+#include <astia/dev/mmio.hpp>
+#include <astia/dev/pci.hpp>
 
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/layout.hpp>

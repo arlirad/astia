@@ -2,9 +2,9 @@
 
 #include "exports.hpp"
 
-#include "../dev/blk/block_device.hpp"
+#include <astia/dev/blk/block_device.hpp>
 #include "../dev/device_file.hpp"
-#include "../dev/pci.hpp"
+#include <astia/dev/pci.hpp>
 #include "../dev/chr/tty/virtual_tty.hpp"
 #include "../sys/aio.hpp"
 #include "../sys/user_mem.hpp"

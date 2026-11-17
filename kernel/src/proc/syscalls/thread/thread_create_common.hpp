@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../user_layout.hpp"
+#include <astia/proc/user_layout.hpp>
 #include "user_mem.hpp"
 #include <astia/arch/layout.hpp>
 
