@@ -1,6 +1,6 @@
 add_library(dev STATIC
         device.cpp
-        blk/block_device.cpp
+        blk/blkdev.cpp
         device_file.cpp
         console.cpp
         driver.cpp

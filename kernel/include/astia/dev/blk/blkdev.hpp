@@ -4,9 +4,9 @@
 
 namespace astia::dev::blk {
 
-    class block_device : public device {
+    class blkdev : public device {
         public:
-        constexpr block_device(const char* name, u64 size_bytes, u32 block_size)
+        constexpr blkdev(const char* name, u64 size_bytes, u32 block_size)
             : device(name, dv_sync | dv_block), size_bytes_(size_bytes),
               block_size_(block_size) {}
 

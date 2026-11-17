@@ -141,12 +141,15 @@ astia_add_host_test(astia_pseudo_test
 )
 target_include_directories(astia_pseudo_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
-astia_add_host_test(astia_block_device_test
-        block_device_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/block_device.cpp
+astia_add_host_test(astia_blkdev_test
+        blkdev_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
-target_include_directories(astia_block_device_test PRIVATE
+target_include_directories(astia_blkdev_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+
+astia_add_host_test(astia_device_class_names_test
+        device_class_names_test.cpp)
 
 astia_add_host_test(astia_device_test
         device_test.cpp
@@ -469,7 +472,7 @@ astia_add_arena_test(astia_phys_region_test
 astia_add_arena_test(astia_ext4_vfs_test
         ext4_vfs_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/block_device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
         support/pty_vfs_host.cpp
 )

@@ -4,8 +4,9 @@ set(ASTIA_PUBLIC_HEADERS
         astia/boot/framebuffer.hpp
         astia/boot/virt/multiboot2.hpp
         astia/boot/virt/pvh.hpp
-        astia/dev/blk/block_device.hpp
+        astia/dev/blk/blkdev.hpp
         astia/dev/device.hpp
+        astia/dev/chr/chrdev.hpp
         astia/dev/driver.hpp
         astia/dev/io.hpp
         astia/dev/irq.hpp

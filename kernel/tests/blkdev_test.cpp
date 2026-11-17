@@ -1,4 +1,4 @@
-#include <astia/dev/blk/block_device.hpp>
+#include <astia/dev/blk/blkdev.hpp>
 #include "test.hpp"
 
 #include <astia/api/errno.h>
@@ -17,10 +17,10 @@ namespace {
         return length;
     }
 
-    class synthetic_block_device final : public astia::dev::blk::block_device {
+    class synthetic_blkdev final : public astia::dev::blk::blkdev {
         public:
-        synthetic_block_device()
-            : block_device("synthetic", 6, 2), storage_{'a', 's', 't', 'i', 'a', '!'} {}
+        synthetic_blkdev()
+            : blkdev("synthetic", 6, 2), storage_{'a', 's', 't', 'i', 'a', '!'} {}
 
         std::vector<astia::u8> storage_;
 
@@ -32,23 +32,23 @@ namespace {
 
 } // namespace
 
-ASTIA_TEST(block_device_reads_at_offset) {
-    synthetic_block_device device;
+ASTIA_TEST(blkdev_reads_at_offset) {
+    synthetic_blkdev device;
     char buffer[4]{};
     ASTIA_CHECK(device.read(buffer, sizeof buffer, 2) == sizeof buffer);
     ASTIA_CHECK(std::memcmp(buffer, "tia!", sizeof buffer) == 0);
 }
 
-ASTIA_TEST(block_device_rejects_invalid_read) {
-    synthetic_block_device device;
+ASTIA_TEST(blkdev_rejects_invalid_read) {
+    synthetic_blkdev device;
     ASTIA_CHECK(device.read(nullptr, 0, 6) == 0);
     ASTIA_CHECK(device.read(nullptr, 0, 8) == -EINVAL);
     ASTIA_CHECK(device.read(nullptr, 2, 4) == -EINVAL);
     ASTIA_CHECK(device.read(nullptr, 2, 6) == -EINVAL);
 }
 
-ASTIA_TEST(block_device_submit_rejects_unaligned_request) {
-    synthetic_block_device device;
+ASTIA_TEST(blkdev_submit_rejects_unaligned_request) {
+    synthetic_blkdev device;
     char buffer[2]{};
     astia::io_request request(buffer, sizeof buffer, 1, 0, astia::io_direction::input);
     ASTIA_CHECK(device.submit(request) == -EINVAL);
@@ -58,8 +58,8 @@ ASTIA_TEST(block_device_submit_rejects_unaligned_request) {
     ASTIA_CHECK(std::memcmp(buffer, "ti", sizeof buffer) == 0);
 }
 
-ASTIA_TEST(block_device_write_is_read_only) {
-    synthetic_block_device device;
+ASTIA_TEST(blkdev_write_is_read_only) {
+    synthetic_blkdev device;
     const char buffer[2] = {'x', 'y'};
     ASTIA_CHECK(device.write(buffer, sizeof buffer, 0) == -EROFS);
 }

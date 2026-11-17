@@ -2,7 +2,7 @@
 
 #include "exports.hpp"
 
-#include <astia/dev/blk/block_device.hpp>
+#include <astia/dev/blk/blkdev.hpp>
 #include "../dev/device_file.hpp"
 #include <astia/dev/pci.hpp>
 #include "../dev/chr/tty/virtual_tty.hpp"
@@ -106,12 +106,12 @@ namespace astia::mod {
         constexpr u64 async_handle_generation_mask = 0x0000FFFFFFFF0000ull;
 
         struct registration;
-        class block;
+        class blkdev_adapter;
         class controller_lifetime;
 
         struct async_bridge {
             registration* registration_owner = nullptr;
-            block* owner = nullptr;
+            blkdev_adapter* owner = nullptr;
             io_request* request = nullptr;
             astia_module_io_request abi{};
             long result = 0;
@@ -123,14 +123,14 @@ namespace astia::mod {
             bool canceled = false;
         };
 
-        class block final : public dev::blk::block_device {
+        class blkdev_adapter final : public dev::blk::blkdev {
             public:
-            block(registration& registration, void* context, u64 size, u32 block_size,
+            blkdev_adapter(registration& registration, void* context, u64 size, u32 block_size,
                  const mm::shptr<controller_lifetime>& lifetime)
-                : block_device("module-block", size, block_size), registration_(registration),
+                : blkdev("module-block", size, block_size), registration_(registration),
                   context_(context), lifetime_(lifetime) {}
 
-            ~block();
+            ~blkdev_adapter();
 
             void set_file(fs::file* file) { file_ = file; }
             bool complete(async_bridge& bridge, long result);
@@ -154,7 +154,7 @@ namespace astia::mod {
             public:
             device_group() : device("module-controller", dev::dv_sync) {}
 
-            bool add(const mm::shptr<block>& value) {
+            bool add(const mm::shptr<blkdev_adapter>& value) {
                 if (!value || block_count_ == max_namespaces)
                     return false;
                 blocks_[block_count_++] = value;
@@ -170,7 +170,7 @@ namespace astia::mod {
             }
 
             private:
-            mm::shptr<block> blocks_[max_namespaces]{};
+            mm::shptr<blkdev_adapter> blocks_[max_namespaces]{};
             u32 block_count_ = 0;
         };
 
@@ -721,7 +721,7 @@ namespace astia::mod {
             }
 
             for (u32 i = 0; i < namespace_count; ++i) {
-                auto value = mm::share<block>(registration_, namespaces[i].context,
+                auto value = mm::share<blkdev_adapter>(registration_, namespaces[i].context,
                                                namespaces[i].size, namespaces[i].block_size,
                                                lifetime);
                 if (!value || !group->add(value))
@@ -736,17 +736,17 @@ namespace astia::mod {
             return owner;
         }
 
-        long block::read_blocks(void* buffer, u32 length, u64 offset) {
+        long blkdev_adapter::read_blocks(void* buffer, u32 length, u64 offset) {
             return registration_.ops->read(context_, buffer, length, offset);
         }
 
-        long block::write_blocks(const void* buffer, u32 length, u64 offset) {
+        long blkdev_adapter::write_blocks(const void* buffer, u32 length, u64 offset) {
             return registration_.ops->write == nullptr
                        ? -EROFS
                        : registration_.ops->write(context_, buffer, length, offset);
         }
 
-        long block::submit(io_request& request) {
+        long blkdev_adapter::submit(io_request& request) {
             const long valid = validate_request(request);
             if (valid != 0)
                 return valid;
@@ -829,7 +829,7 @@ namespace astia::mod {
             return -EBUSY;
         }
 
-        bool block::complete(async_bridge& bridge, long result) {
+        bool blkdev_adapter::complete(async_bridge& bridge, long result) {
             if (bridge.owner != this || !claim_bridge_completion(bridge))
                 return false;
             bridge.result = result;
@@ -838,12 +838,12 @@ namespace astia::mod {
             return true;
         }
 
-        void block::wake(async_bridge& bridge) {
+        void blkdev_adapter::wake(async_bridge& bridge) {
             if (bridge.owner == this && bridge.used && file_ != nullptr)
                 sys::io_device_ready_context(file_);
         }
 
-        void block::cancel(async_bridge& bridge) {
+        void blkdev_adapter::cancel(async_bridge& bridge) {
             if (!bridge.used || bridge.canceled || bridge.owner != this)
                 return;
             bridge.canceled = true;
@@ -854,13 +854,13 @@ namespace astia::mod {
             bridge.request = nullptr;
         }
 
-        void block::cancel_request(io_request& request) {
+        void blkdev_adapter::cancel_request(io_request& request) {
             auto* bridge = static_cast<async_bridge*>(request.device_state());
             if (bridge != nullptr && bridge->owner != nullptr)
                 bridge->owner->cancel(*bridge);
         }
 
-        block::~block() {
+        blkdev_adapter::~blkdev_adapter() {
             for (async_bridge& bridge : registration_.bridges)
                 if (bridge.owner == this)
                     cancel(bridge);
@@ -1005,7 +1005,7 @@ namespace astia::mod {
         io_request request{};
         bridge.abi.opaque = encode_async_handle(0, 0, 17);
         bridge.generation = 17;
-        bridge.owner = reinterpret_cast<block*>(1);
+        bridge.owner = reinterpret_cast<blkdev_adapter*>(1);
         bridge.request = &request;
         bridge.used = true;
         if (!bridge_handle_matches(bridge, 0, 0, bridge.abi.opaque) ||
