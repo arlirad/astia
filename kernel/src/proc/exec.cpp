@@ -1,5 +1,6 @@
 #include "proc.hpp"
 #include "process.hpp"
+#include "exec_rollback.hpp"
 #include <astia/api/syscalls.h>
 #include <astia/elf.hpp>
 #include <astia/fs.hpp>
@@ -122,6 +123,24 @@ namespace astia::proc {
                     return;
                 }
             }
+        }
+
+        void rollback_unmap(void* context, u64 address, usize pages) {
+            unmap_run(*static_cast<mm::address_space*>(context), address, pages);
+        }
+
+        void rollback_release_frames(void*, u64 frames, u64 pages) {
+            mm::kernel_frames().release(frames, pages);
+        }
+
+        void rollback_release_region(void* region) {
+            static_cast<mm::phys_region*>(region)->release();
+        }
+
+        void rollback_mapping_failure(mm::address_space& map, u64 address, usize pages,
+                                       u64 frames, mm::phys_region* region) {
+            detail::rollback_mapping(&map, address, pages, frames, region, rollback_unmap,
+                                      rollback_release_frames, rollback_release_region);
         }
 
         // The ELF loader reserves and maps one contiguous span for all
@@ -247,11 +266,8 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
                                   region)) {
-                unmap_run(address_space_, seg.virt, seg.pages);
-                if (region != nullptr)
-                    region->release();
-                else
-                    mm::kernel_frames().release(seg.frames, seg.pages);
+                rollback_mapping_failure(address_space_, seg.virt, seg.pages, seg.frames,
+                                         region);
                 image_state.segs[i].used = false;
                 cleanup_pending(image_state, address_space_);
                 discard_image();
@@ -279,11 +295,8 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(user_tls_base, tls_pages,
                                   map_protection::read | map_protection::write, region)) {
-                unmap_run(address_space_, user_tls_base, tls_pages);
-                if (region != nullptr)
-                    region->release();
-                else
-                    mm::kernel_frames().release(tls_frames, tls_pages);
+                rollback_mapping_failure(address_space_, user_tls_base, tls_pages, tls_frames,
+                                         region);
                 unmap_image_segments(image_state, address_space_);
                 cleanup_pending(image_state, address_space_);
                 discard_image();
@@ -400,11 +413,8 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
                                   region)) {
-                unmap_run(address_space_, seg.virt, seg.pages);
-                if (region != nullptr)
-                    region->release();
-                else
-                    mm::kernel_frames().release(seg.frames, seg.pages);
+                rollback_mapping_failure(address_space_, seg.virt, seg.pages, seg.frames,
+                                         region);
                 seg.used = false;
                 cleanup_pending(stream.map, address_space_);
                 discard_image();
@@ -426,11 +436,8 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(user_tls_base, tls_pages,
                                   map_protection::read | map_protection::write, region)) {
-                unmap_run(address_space_, user_tls_base, tls_pages);
-                if (region != nullptr)
-                    region->release();
-                else
-                    mm::kernel_frames().release(tls_frames, tls_pages);
+                rollback_mapping_failure(address_space_, user_tls_base, tls_pages, tls_frames,
+                                         region);
                 unmap_image_segments(stream.map, address_space_);
                 cleanup_pending(stream.map, address_space_);
                 discard_image();

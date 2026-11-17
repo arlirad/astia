@@ -394,6 +394,7 @@ astia_add_host_test(astia_ext4_test
         ext4_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/ext4/ext4_reader.cpp
 )
+astia_add_host_test(astia_exec_rollback_test exec_rollback_test.cpp)
 
 find_program(ASTIA_MKFS_EXT4 mkfs.ext4)
 find_program(ASTIA_E2FSCK e2fsck)
