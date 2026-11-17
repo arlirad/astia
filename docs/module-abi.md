@@ -1,15 +1,12 @@
 # Astia module ABI
 
 The primary module API is the C++ header `kernel/include/astia/module_abi.hpp`.
-It provides typed block-driver descriptors, RAII DMA ownership, shared-owner
-aliases, and the C++ registration adapter used by the NVMe and VirtIO modules.
-The freestanding C headers under `kernel/include/astia` are a compatibility
-shim for the loader entry point and foreign modules: `module_abi_core.h`
-contains version and platform contracts, while `module_abi_pci.h`,
-`module_abi_memory.h`, `module_abi_io.h`, and `module_abi_interrupt.h` retain
-the ABI 1.1 layouts and symbols. `module_abi.h` includes all shim headers for
-source compatibility. `module_main` remains the C-linkage ET_REL loader
-entry; the C++ registration adapter preserves the same exported symbols.
+It provides typed driver descriptors, first-class network devices, RAII DMA
+ownership, shared-owner aliases, and registration adapters used by loadable
+modules. The only C header contract is `module_abi_core.h`: it defines the
+version/platform constants and the C-linkage `module_main` ET_REL loader
+entry. Other module headers are implementation details of the C++ contracts;
+they are not a source-compatibility promise for C modules.
 `ASTIA_MODULE_ABI_VERSION_MAJOR` is incremented for an
 incompatible change; `ASTIA_MODULE_ABI_VERSION_MINOR` is incremented for an
 additive change. The current ABI is version 1.1. Version 1.1 appends the
@@ -24,13 +21,11 @@ Drivers still release DMA, interrupt, and asynchronous resources explicitly
 before their remove callback returns; local C++ RAII wrappers remain valid for
 scoped ownership.
 
-The ABI is the x86-64 C ABI: pointers are 64 bits, `uint8_t`, `uint16_t`,
-`uint32_t`, and `uint64_t` retain their standard widths, and transfer results
-use `int64_t`. The public header contains compile-time size and `offsetof`
-checks for every exported structure. Named `reserved` fields occupy bytes
-that would otherwise be implicit padding and must be zero when a module
-creates a structure. Do not use packed or compiler-specific structure
-attributes.
+The relocation boundary is the x86-64 pointer ABI: pointers are 64 bits,
+`uint8_t`, `uint16_t`, `uint32_t`, and `uint64_t` retain their standard widths,
+and transfer results use `int64_t`. Semantic devices, drivers, packets, and
+registries are C++ contracts and must be consumed through their typed public
+interfaces. Do not use packed or compiler-specific structure attributes.
 
 `ASTIA_PAGE_SIZE` is the compile-time memory-page contract shared by the
 kernel MM, module DMA allocation, user-buffer pinning, and protocol helpers.

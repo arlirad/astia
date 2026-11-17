@@ -12,7 +12,7 @@ void write_ring(uint8_t* ring, uint16_t offset, const uint8_t* data, uint16_t le
         ring[(static_cast<uint32_t>(offset) + index) & (rx_ring_size - 1u)] = data[index];
 }
 
-void reclaim(void*, const tx_request&, int) {}
+void reclaim(void*, const tx_request*, int) {}
 
 }
 

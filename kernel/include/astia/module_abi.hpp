@@ -2,6 +2,14 @@
 
 #include <astia/module_abi.h>
 #include <astia/mm/shptr.hpp>
+#include <astia/net.hpp>
+
+namespace astia::module {
+    struct net_driver;
+}
+
+extern "C" int astia_module_register_pci_net_driver(
+    const astia::module::net_driver* driver);
 
 namespace astia::module {
 
@@ -10,16 +18,23 @@ namespace astia::module {
     using io_request = astia_module_io_request;
     using msix_route = astia_module_msix_route;
 
-    using net_device = astia_module_net_device;
-    struct net_driver : astia_module_pci_net_driver {
-        constexpr net_driver(const char* name, astia_module_pci_net_match_fn match,
-                             astia_module_pci_net_probe_fn probe,
-                             astia_module_pci_net_remove_fn remove)
-            : astia_module_pci_net_driver{name, match, probe, remove} {}
-    };
-    using net_tx_request = astia_module_net_tx_request;
+    using net_match_fn = int (*)(const pci_device*);
+    using net_probe_fn = int (*)(const pci_device*, void**);
+    using net_remove_fn = void (*)(void*);
 
-    static_assert(sizeof(net_driver) == sizeof(astia_module_pci_net_driver));
+    struct net_driver {
+        const char* name;
+        net_match_fn match;
+        net_probe_fn probe;
+        net_remove_fn remove;
+
+        constexpr net_driver(const char* value, net_match_fn match_fn,
+                             net_probe_fn probe_fn, net_remove_fn remove_fn)
+            : name(value), match(match_fn), probe(probe_fn), remove(remove_fn) {}
+    };
+    using net_device = astia::net::netdev;
+    using netdev = astia::net::netdev;
+    using net_tx_request = astia::net::tx_request;
 
     struct block_driver : astia_module_pci_block_driver {
         constexpr block_driver(const char* name, const char* device_path,
