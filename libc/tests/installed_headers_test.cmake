@@ -1,0 +1,49 @@
+if(NOT DEFINED ASTIA_CMAKE_COMMAND OR NOT DEFINED ASTIA_BUILD_DIR OR
+   NOT DEFINED ASTIA_C_COMPILER OR NOT DEFINED ASTIA_LIBC_SOURCE_DIR OR
+   NOT DEFINED ASTIA_HEADER_SOURCE OR NOT DEFINED ASTIA_HEADER_BINARY_DIR)
+  message(FATAL_ERROR "installed header test arguments are incomplete")
+endif()
+
+set(ASTIA_STAGE "${ASTIA_HEADER_BINARY_DIR}/stage")
+file(REMOVE_RECURSE "${ASTIA_HEADER_BINARY_DIR}")
+file(MAKE_DIRECTORY "${ASTIA_STAGE}")
+execute_process(
+  COMMAND "${ASTIA_CMAKE_COMMAND}" --install "${ASTIA_BUILD_DIR}"
+          --prefix "${ASTIA_STAGE}"
+  RESULT_VARIABLE ASTIA_INSTALL_RESULT
+  OUTPUT_VARIABLE ASTIA_INSTALL_OUTPUT
+  ERROR_VARIABLE ASTIA_INSTALL_ERROR)
+if(NOT ASTIA_INSTALL_RESULT EQUAL 0)
+  message(FATAL_ERROR "staged libc install failed:\n${ASTIA_INSTALL_OUTPUT}${ASTIA_INSTALL_ERROR}")
+endif()
+
+execute_process(
+  COMMAND "${ASTIA_C_COMPILER}" -std=c11 -Wall -Wextra -Werror -pedantic
+          -I${ASTIA_STAGE}/include -fsyntax-only "${ASTIA_HEADER_SOURCE}"
+  RESULT_VARIABLE ASTIA_COMPILE_RESULT
+  OUTPUT_VARIABLE ASTIA_COMPILE_OUTPUT
+  ERROR_VARIABLE ASTIA_COMPILE_ERROR)
+if(NOT ASTIA_COMPILE_RESULT EQUAL 0)
+  message(FATAL_ERROR "staged libc headers failed compilation:\n${ASTIA_COMPILE_OUTPUT}${ASTIA_COMPILE_ERROR}")
+endif()
+
+file(GLOB_RECURSE ASTIA_LIBC_HEADERS RELATIVE
+  "${ASTIA_LIBC_SOURCE_DIR}/include" "${ASTIA_LIBC_SOURCE_DIR}/include/*.h")
+foreach(ASTIA_HEADER IN LISTS ASTIA_LIBC_HEADERS)
+  set(ASTIA_PROBE "${ASTIA_HEADER_BINARY_DIR}/probe.c")
+  file(WRITE "${ASTIA_PROBE}" "#include <${ASTIA_HEADER}>\nint astia_header_probe;\n")
+  execute_process(
+    COMMAND "${ASTIA_C_COMPILER}" -std=c11 -Wall -Wextra -Werror -pedantic
+            -I${ASTIA_STAGE}/include -fsyntax-only "${ASTIA_PROBE}"
+    RESULT_VARIABLE ASTIA_PROBE_RESULT
+    OUTPUT_VARIABLE ASTIA_PROBE_OUTPUT
+    ERROR_VARIABLE ASTIA_PROBE_ERROR)
+  if(NOT ASTIA_PROBE_RESULT EQUAL 0)
+    message(FATAL_ERROR "staged header ${ASTIA_HEADER} failed compilation:\n${ASTIA_PROBE_OUTPUT}${ASTIA_PROBE_ERROR}")
+  endif()
+endforeach()
+
+if(EXISTS "${ASTIA_STAGE}/include/astia/boot.hpp" OR
+   EXISTS "${ASTIA_STAGE}/include/astia/dev/device.hpp")
+  message(FATAL_ERROR "staged libc install leaked non-contract kernel headers")
+endif()

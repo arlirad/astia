@@ -18,6 +18,18 @@ target_include_directories(libc_syscalls_header_libc PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../../kernel/include
 )
 
+add_test(NAME libc_installed_headers
+  COMMAND ${CMAKE_COMMAND}
+    -DASTIA_CMAKE_COMMAND=${CMAKE_COMMAND}
+    -DASTIA_BUILD_DIR=${CMAKE_BINARY_DIR}
+    -DASTIA_C_COMPILER=${CMAKE_C_COMPILER}
+    -DASTIA_LIBC_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/..
+    -DASTIA_HEADER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/installed_headers.c
+    -DASTIA_HEADER_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/installed-headers
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/installed_headers_test.cmake)
+set_tests_properties(libc_installed_headers
+  PROPERTIES LABELS "libc;headers;deterministic")
+
 # astia_libc deliberately hides its internal port references.  Give the
 # host seams the same visibility so the linker resolves those references to
 # the test port instead of extracting the real syscall backend from the

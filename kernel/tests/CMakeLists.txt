@@ -148,6 +148,10 @@ astia_add_host_test(astia_block_device_test
 target_include_directories(astia_block_device_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
+astia_add_host_test(astia_device_test
+        device_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
+
 astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/pci.cpp

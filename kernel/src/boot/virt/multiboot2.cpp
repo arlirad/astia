@@ -3,27 +3,6 @@
 namespace astia::boot::virt {
     namespace {
 
-        struct [[gnu::packed]] tag_header {
-            u32 type;
-            u32 size;
-        };
-        struct [[gnu::packed]] mmap_tag {
-            tag_header h;
-            u32        entry_size;
-            u32        version;
-        };
-        struct [[gnu::packed]] mmap_entry {
-            u64 base;
-            u64 length;
-            u32 type;
-            u32 reserved;
-        };
-        struct [[gnu::packed]] module_tag {
-            tag_header h;
-            u32        start;
-            u32        end;
-        };
-
         constexpr u32 tag_end      = 0;
         constexpr u32 tag_cmdline  = 1;
         constexpr u32 tag_module   = 3;
@@ -33,7 +12,7 @@ namespace astia::boot::virt {
         constexpr u32 tag_acpi_new = 15;
 
         constexpr usize align8(usize n) {
-            return (n + 7u) & ~usize(7u);
+            return n > static_cast<usize>(-1) - 7u ? 0 : (n + 7u) & ~usize(7u);
         }
 
         bool range_ok(usize offset, usize length, usize total) {
@@ -48,17 +27,21 @@ namespace astia::boot::virt {
             return nullptr;
         }
 
+        template <typename T>
+        T load(const u8* bytes) {
+            T value{};
+            __builtin_memcpy(&value, bytes, sizeof(value));
+            return value;
+        }
+
     } // namespace
 
     bool parse_multiboot2_info(span<const u8> mbi, boot_info& out) {
         if (mbi.data() == nullptr || mbi.size() < sizeof(u32))
             return false;
 
-        const auto* bytes   = mbi.data();
-        u32         total32 = 0;
-        // The fixed part is deliberately copied bytewise only after the caller has
-        // supplied a non-null address; the structure is little-endian on i386.
-        total32           = *reinterpret_cast<const u32*>(bytes);
+        const auto* bytes = mbi.data();
+        const u32 total32 = load<u32>(bytes);
         const usize total = total32;
         if (total < 16 || (total & 7u) != 0 || total > mbi.size())
             return false;
@@ -69,40 +52,42 @@ namespace astia::boot::virt {
         const u8* preferred_rsdp = nullptr;
 
         for (usize offset = 8; offset < total;) {
-            if (!range_ok(offset, sizeof(tag_header), total))
+            if (!range_ok(offset, 8, total))
                 return false;
-            const auto* tag = reinterpret_cast<const tag_header*>(bytes + offset);
-            if (tag->size < sizeof(tag_header) || !range_ok(offset, tag->size, total))
+            const u32 type = load<u32>(bytes + offset);
+            const u32 size = load<u32>(bytes + offset + sizeof(u32));
+            if (size < 8 || !range_ok(offset, size, total))
                 return false;
-            const usize step = align8(tag->size);
-            if (step < tag->size || !range_ok(offset, step, total))
+            const usize step = align8(size);
+            if (step < size || step == 0 || !range_ok(offset, step, total))
                 return false;
 
-            if (tag->type == tag_end) {
-                if (tag->size != 8)
+            if (type == tag_end) {
+                if (size != 8)
                     return false;
                 saw_end = true;
                 break;
             }
 
-            switch (tag->type) {
+            switch (type) {
             case tag_cmdline: {
-                const char* s = terminated_string(bytes + offset + 8, tag->size - 8);
+                const char* s = terminated_string(bytes + offset + 8, size - 8);
                 if (s == nullptr)
                     return false;
                 parsed.cmdline = s;
                 break;
             }
             case tag_module: {
-                if (tag->size < sizeof(module_tag))
+                if (size < 16)
                     return false;
-                const auto* m = reinterpret_cast<const module_tag*>(tag);
-                if (m->end < m->start ||
-                    terminated_string(bytes + offset + sizeof(module_tag),
-                                      tag->size - sizeof(module_tag)) == nullptr) {
+                const u32 start = load<u32>(bytes + offset + 8);
+                const u32 end = load<u32>(bytes + offset + 12);
+                if (end < start ||
+                    terminated_string(bytes + offset + 16,
+                                      size - 16) == nullptr) {
                     return false;
                 }
-                const module_info value{m->start, static_cast<u64>(m->end) - m->start};
+                const module_info value{start, static_cast<u64>(end) - start};
                 if (parsed.initrd.paddr == 0 && parsed.initrd.size == 0) {
                     parsed.initrd = value;
                 }
@@ -112,34 +97,38 @@ namespace astia::boot::virt {
                 break;
             }
             case tag_mmap: {
-                if (tag->size < sizeof(mmap_tag))
+                if (size < 16)
                     return false;
-                const auto* map = reinterpret_cast<const mmap_tag*>(tag);
-                if (map->entry_size < sizeof(mmap_entry) || (map->entry_size & 7u) != 0 ||
-                    (tag->size - sizeof(mmap_tag)) % map->entry_size != 0) {
+                const u32 entry_size = load<u32>(bytes + offset + 8);
+                if (entry_size < 24 || (entry_size & 7u) != 0 ||
+                    (size - 16) % entry_size != 0) {
                     return false;
                 }
-                const usize count = (tag->size - sizeof(mmap_tag)) / map->entry_size;
+                const usize count = (size - 16) / entry_size;
                 for (usize i = 0; i < count; ++i) {
-                    const auto* e = reinterpret_cast<const mmap_entry*>(
-                        bytes + offset + sizeof(mmap_tag) + i * map->entry_size);
-                    parsed.memory.add(e->base, e->length,
-                                      static_cast<mm::memory_type>(e->type));
+                    const u8* entry = bytes + offset + 16 + i * entry_size;
+                    const u64 base = load<u64>(entry);
+                    const u64 length = load<u64>(entry + 8);
+                    const u32 entry_type = load<u32>(entry + 16);
+                    if (base > static_cast<u64>(-1) - length)
+                        return false;
+                    parsed.memory.add(base, length,
+                                      static_cast<mm::memory_type>(entry_type));
                 }
                 saw_mmap = count != 0;
                 break;
             }
             case tag_framebuffer: {
-                if (tag->size < 32)
+                if (size < 32)
                     return false;
                 const u8* data = bytes + offset + 8;
-                const u64 address = *reinterpret_cast<const u64*>(data);
-                const u32 pitch = *reinterpret_cast<const u32*>(data + 8);
-                const u32 width = *reinterpret_cast<const u32*>(data + 12);
-                const u32 height = *reinterpret_cast<const u32*>(data + 16);
+                const u64 address = load<u64>(data);
+                const u32 pitch = load<u32>(data + 8);
+                const u32 width = load<u32>(data + 12);
+                const u32 height = load<u32>(data + 16);
                 const u8 bpp = data[20];
                 const u8 type = data[21];
-                if (type == 1 && (bpp == 24 || bpp == 32) && tag->size >= 38) {
+                if (type == 1 && (bpp == 24 || bpp == 32) && size >= 38) {
                     const u8 red_position = data[24];
                     const u8 red_size = data[25];
                     const u8 green_position = data[26];
@@ -165,13 +154,13 @@ namespace astia::boot::virt {
                 break;
             }
             case tag_acpi_old:
-                if (tag->size < 8 + 20)
+                if (size < 8 + 20)
                     return false;
                 if (preferred_rsdp == nullptr)
                     preferred_rsdp = bytes + offset + 8;
                 break;
             case tag_acpi_new:
-                if (tag->size < 8 + 36)
+                if (size < 8 + 36)
                     return false;
                 preferred_rsdp = bytes + offset + 8;
                 break;
