@@ -159,6 +159,16 @@ namespace astia::elf {
             return off <= len && size <= len - off;
         }
 
+        void write_u32(u8* destination, u32 value) {
+            for (usize i = 0; i < 4; ++i)
+                destination[i] = static_cast<u8>(value >> (i * 8));
+        }
+
+        void write_u64(u8* destination, u64 value) {
+            for (usize i = 0; i < 8; ++i)
+                destination[i] = static_cast<u8>(value >> (i * 8));
+        }
+
         constexpr u64 align_down(u64 v) {
             return v & ~(page_size - 1);
         }
@@ -204,6 +214,20 @@ namespace astia::elf {
             const char*       str      = nullptr; // symbol string table
             usize             strsize  = 0;
         };
+
+        bool symbol_name(const view& v, const elf64_sym& sym, const char*& out) {
+            if (sym.st_name >= v.strsize)
+                return false;
+            const char* name = v.str + sym.st_name;
+            const usize max = v.strsize - sym.st_name;
+            for (usize i = 0; i < max; ++i) {
+                if (name[i] == '\0') {
+                    out = name;
+                    return true;
+                }
+            }
+            return false;
+        }
 
         // Validate the section table, then locate the symbol table and its
         // linked string table. Returns false on anything malformed or
@@ -257,6 +281,11 @@ namespace astia::elf {
                 v.symcount = sh.sh_size / sizeof(elf64_sym);
                 v.str      = reinterpret_cast<const char*>(v.base + str.sh_offset);
                 v.strsize  = static_cast<usize>(str.sh_size);
+                for (usize j = 0; j < v.symcount; ++j) {
+                    const char* name = nullptr;
+                    if (!symbol_name(v, v.sym[j], name))
+                        return false;
+                }
                 return true;
             }
             // No symbol table: nothing to relocate or enter.
@@ -275,16 +304,9 @@ namespace astia::elf {
             const elf64_sym& sym = v.sym[index];
 
             if (sym.st_shndx == shn_undef) {
-                if (sym.st_name >= v.strsize) {
-                    return false; // name offset runs past the string table
-                }
-                const char* name     = v.str + sym.st_name;
-                const usize name_max = v.strsize - sym.st_name;
-                usize       name_len = 0;
-                while (name_len < name_max && name[name_len] != '\0')
-                    ++name_len;
-                if (name_len == name_max)
-                    return false; // symbol name is not terminated in .strtab
+                const char* name = nullptr;
+                if (!symbol_name(v, sym, name))
+                    return false;
                 u64         resolved = e.resolve != nullptr ? e.resolve(e.ctx, name) : 0;
                 if (resolved == 0) {
                     // A weak undefined symbol is allowed to be null; anything
@@ -320,7 +342,7 @@ namespace astia::elf {
 
     bool load_relocatable(span<const u8> bytes, const env& e, image& out) {
         const usize len = bytes.size();
-        if (e.map == nullptr) {
+        if (e.map == nullptr || e.unmap == nullptr) {
             return false;
         }
 
@@ -361,6 +383,19 @@ namespace astia::elf {
         if (block == nullptr) {
             return false;
         }
+
+        struct mapped_block {
+            const env& environment;
+            void*      address;
+            usize      size;
+
+            ~mapped_block() {
+                if (address != nullptr)
+                    environment.unmap(environment.ctx, address, size);
+            }
+
+            void keep() { address = nullptr; }
+        } mapped{e, block, static_cast<usize>(offset)};
         // Zero the whole block up front so .bss (SHT_NOBITS) and any padding
         // are already cleared without a separate pass.
         {
@@ -447,7 +482,7 @@ namespace astia::elf {
 
                 switch (type) {
                 case r_x86_64_64: {
-                    *reinterpret_cast<u64*>(p) = s + static_cast<u64>(a);
+                    write_u64(reinterpret_cast<u8*>(p), s + static_cast<u64>(a));
                     break;
                 }
                 case r_x86_64_pc32:
@@ -456,7 +491,7 @@ namespace astia::elf {
                     if (rel < -2147483648LL || rel > 2147483647LL) {
                         return false; // does not fit signed 32-bit
                     }
-                    *reinterpret_cast<u32*>(p) = static_cast<u32>(rel);
+                    write_u32(reinterpret_cast<u8*>(p), static_cast<u32>(rel));
                     break;
                 }
                 case r_x86_64_32: {
@@ -464,7 +499,7 @@ namespace astia::elf {
                     if (val > 0xffffffffull) {
                         return false;
                     }
-                    *reinterpret_cast<u32*>(p) = static_cast<u32>(val);
+                    write_u32(reinterpret_cast<u8*>(p), static_cast<u32>(val));
                     break;
                 }
                 case r_x86_64_32s: {
@@ -472,7 +507,7 @@ namespace astia::elf {
                     if (val < -2147483648LL || val > 2147483647LL) {
                         return false;
                     }
-                    *reinterpret_cast<u32*>(p) = static_cast<u32>(val);
+                    write_u32(reinterpret_cast<u8*>(p), static_cast<u32>(val));
                     break;
                 }
                 default:
@@ -487,10 +522,11 @@ namespace astia::elf {
             if (sym.st_shndx == shn_undef || sym.st_shndx >= v.shnum) {
                 continue;
             }
-            if (sym.st_name >= v.strsize) {
-                continue;
+            const char* name = nullptr;
+            if (!symbol_name(v, sym, name)) {
+                return false;
             }
-            if (!str_eq(v.str + sym.st_name, "module_main")) {
+            if (!str_eq(name, "module_main")) {
                 continue;
             }
             u64 addr = 0;
@@ -503,6 +539,7 @@ namespace astia::elf {
             out.loaded    = kind::relocatable;
             out.load_bias = 0;
             out.nsegs     = 0;
+            mapped.keep();
             return true;
         }
 
