@@ -16,6 +16,7 @@ namespace astia::proc {
             u64  frames = 0;
             u64  pages  = 0;
             bool used   = false;
+            bool mapped = false;
         };
 
         struct image_map {
@@ -45,16 +46,9 @@ namespace astia::proc {
                     continue;
                 }
                 unmap_run(map, seg.virt, seg.pages);
+                seg.mapped = false;
                 mm::kernel_frames().release(seg.frames, seg.pages);
                 seg.used = false;
-            }
-        }
-
-        void unmap_image_segments(const image_map& image, mm::address_space& map) {
-            for (u32 i = 0; i < image.count; ++i) {
-                const auto& segment = image.segs[i];
-                if (segment.pages != 0)
-                    unmap_run(map, segment.virt, segment.pages);
             }
         }
 
@@ -89,7 +83,7 @@ namespace astia::proc {
                     return nullptr;
                 }
             }
-            image.segs[image.count] = mapped_segment{base, frames, pages, true};
+            image.segs[image.count] = mapped_segment{base, frames, pages, true, true};
             ++image.count;
             image.next_base = base + size + elf::page_size;
             return reinterpret_cast<void*>(base);
@@ -118,6 +112,7 @@ namespace astia::proc {
                 if (segment.used && segment.virt == reinterpret_cast<u64>(address) &&
                     segment.pages * elf::page_size == size) {
                     unmap_run(*image.map, segment.virt, segment.pages);
+                    segment.mapped = false;
                     mm::kernel_frames().release(segment.frames, segment.pages);
                     segment.used = false;
                     return;
@@ -141,6 +136,18 @@ namespace astia::proc {
                                        u64 frames, mm::phys_region* region) {
             detail::rollback_mapping(&map, address, pages, frames, region, rollback_unmap,
                                       rollback_release_frames, rollback_release_region);
+        }
+
+        void rollback_registered_segments(image_map& image, mm::address_space& map) {
+            detail::rollback_mapping_entry entries[elf::max_segments]{};
+            for (u32 i = 0; i < image.count; ++i) {
+                auto& segment = image.segs[i];
+                entries[i] = {segment.virt, static_cast<usize>(segment.pages),
+                              segment.frames, nullptr, &segment.mapped, false};
+            }
+            detail::rollback_registered_mappings(
+                &map, entries, image.count, rollback_unmap, rollback_release_frames,
+                rollback_release_region);
         }
 
         // The ELF loader reserves and maps one contiguous span for all
@@ -268,6 +275,7 @@ namespace astia::proc {
                                   region)) {
                 rollback_mapping_failure(address_space_, seg.virt, seg.pages, seg.frames,
                                          region);
+                image_state.segs[i].mapped = false;
                 image_state.segs[i].used = false;
                 cleanup_pending(image_state, address_space_);
                 discard_image();
@@ -285,7 +293,7 @@ namespace astia::proc {
             u64 tls_pages  = 0;
             if (!map_tls_template(address_space_, bytes, image, tp, tls_frames,
                                   tls_pages)) {
-                unmap_image_segments(image_state, address_space_);
+                rollback_registered_segments(image_state, address_space_);
                 cleanup_pending(image_state, address_space_);
                 discard_image();
                 return false;
@@ -297,7 +305,7 @@ namespace astia::proc {
                                   map_protection::read | map_protection::write, region)) {
                 rollback_mapping_failure(address_space_, user_tls_base, tls_pages, tls_frames,
                                          region);
-                unmap_image_segments(image_state, address_space_);
+                rollback_registered_segments(image_state, address_space_);
                 cleanup_pending(image_state, address_space_);
                 discard_image();
                 return false;
@@ -415,6 +423,7 @@ namespace astia::proc {
                                   region)) {
                 rollback_mapping_failure(address_space_, seg.virt, seg.pages, seg.frames,
                                          region);
+                seg.mapped = false;
                 seg.used = false;
                 cleanup_pending(stream.map, address_space_);
                 discard_image();
@@ -427,7 +436,7 @@ namespace astia::proc {
             auto tls = co_await map_tls_file_async(address_space_, file, image, tp,
                                                     tls_frames, tls_pages);
             if (!tls || !tls.value) {
-                unmap_image_segments(stream.map, address_space_);
+                rollback_registered_segments(stream.map, address_space_);
                 cleanup_pending(stream.map, address_space_);
                 discard_image();
                 co_return false;
@@ -438,7 +447,7 @@ namespace astia::proc {
                                   map_protection::read | map_protection::write, region)) {
                 rollback_mapping_failure(address_space_, user_tls_base, tls_pages, tls_frames,
                                          region);
-                unmap_image_segments(stream.map, address_space_);
+                rollback_registered_segments(stream.map, address_space_);
                 cleanup_pending(stream.map, address_space_);
                 discard_image();
                 co_return false;
