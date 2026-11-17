@@ -49,6 +49,14 @@ namespace astia::proc {
             }
         }
 
+        void unmap_image_segments(const image_map& image, mm::address_space& map) {
+            for (u32 i = 0; i < image.count; ++i) {
+                const auto& segment = image.segs[i];
+                if (segment.pages != 0)
+                    unmap_run(map, segment.virt, segment.pages);
+            }
+        }
+
         stream_context::~stream_context() {
             if (map.map != nullptr)
                 cleanup_pending(map, *map.map);
@@ -261,6 +269,7 @@ namespace astia::proc {
             u64 tls_pages  = 0;
             if (!map_tls_template(address_space_, bytes, image, tp, tls_frames,
                                   tls_pages)) {
+                unmap_image_segments(image_state, address_space_);
                 cleanup_pending(image_state, address_space_);
                 discard_image();
                 return false;
@@ -275,6 +284,7 @@ namespace astia::proc {
                     region->release();
                 else
                     mm::kernel_frames().release(tls_frames, tls_pages);
+                unmap_image_segments(image_state, address_space_);
                 cleanup_pending(image_state, address_space_);
                 discard_image();
                 return false;
@@ -407,6 +417,7 @@ namespace astia::proc {
             auto tls = co_await map_tls_file_async(address_space_, file, image, tp,
                                                     tls_frames, tls_pages);
             if (!tls || !tls.value) {
+                unmap_image_segments(stream.map, address_space_);
                 cleanup_pending(stream.map, address_space_);
                 discard_image();
                 co_return false;
@@ -420,6 +431,7 @@ namespace astia::proc {
                     region->release();
                 else
                     mm::kernel_frames().release(tls_frames, tls_pages);
+                unmap_image_segments(stream.map, address_space_);
                 cleanup_pending(stream.map, address_space_);
                 discard_image();
                 co_return false;
