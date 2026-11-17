@@ -29,6 +29,8 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
+#include <astia/api/errno.h>
+#include <astia/api/signal_stack.h>
 
 extern long __astia_process_futex(unsigned int* address, unsigned int operation,
                                    unsigned int value, const int64_t* timeout);
@@ -50,6 +52,25 @@ static long direct_chdir(const char* path) {
     return result;
 #else
     (void) path;
+    return -ENOSYS;
+#endif
+}
+
+static long direct_sigaltstack(const astia_stack_t* stack, astia_stack_t* old_stack) {
+#if defined(__x86_64__)
+    long result;
+    register long r10 asm("r10") = 0;
+    register long r8 asm("r8") = 0;
+    register long r9 asm("r9") = 0;
+    asm volatile("syscall"
+                 : "=a"(result)
+                 : "a"(51L), "D"(stack), "S"(old_stack), "d"(0L), "r"(r10), "r"(r8),
+                   "r"(r9)
+                 : "rcx", "r11", "memory");
+    return result;
+#else
+    (void) stack;
+    (void) old_stack;
     return -ENOSYS;
 #endif
 }
@@ -967,6 +988,10 @@ int main(int argc, char** argv) {
             (old.ss_flags & SS_DISABLE) == 0)
             return 58;
         altstack_expected = stack;
+        if (direct_sigaltstack(NULL, (astia_stack_t*) (uintptr_t) 1) != -EFAULT ||
+            sigaltstack(NULL, &old) != 0 || old.ss_sp != stack.ss_sp ||
+            old.ss_size != stack.ss_size || old.ss_flags != 0)
+            return 62;
         action.sa_handler = altstack_handler;
         action.sa_mask    = 0;
         action.sa_flags   = SA_ONSTACK;

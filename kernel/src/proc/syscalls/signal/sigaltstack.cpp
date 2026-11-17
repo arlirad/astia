@@ -13,7 +13,7 @@ namespace astia::proc::syscall {
         if (self == nullptr)
             return -ESRCH;
 
-        sys::validated_user_ptr<astia_stack_t> old_range;
+        optional<sys::validated_user_ptr<astia_stack_t>> old_range;
         astia_stack_t next{};
         astia_stack_t old{};
         if (stack_ptr != 0) {
@@ -49,7 +49,7 @@ namespace astia::proc::syscall {
             else
                 self->signal_stack(next.sp, next.size, 0);
         }
-        if (old_stack_ptr != 0 && !sys::copy_out(old_range.bytes(), &old))
+        if (old_range && !sys::copy_out(old_range.value.bytes(), &old))
             return -EFAULT;
         return 0;
     }
