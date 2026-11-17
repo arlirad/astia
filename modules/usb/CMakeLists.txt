@@ -48,6 +48,10 @@ add_custom_target(usb_unit_target ALL DEPENDS ${ASTIA_USB_UNIT})
 if(ASTIA_BUILD_TESTS)
     add_test(NAME usb_protocol_unit COMMAND ${ASTIA_USB_UNIT})
     astia_append_test_label("module;usb;xhci;host;deterministic")
+    add_test(NAME usb_xhci_qemu_enumeration
+            COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
+    set_tests_properties(usb_xhci_qemu_enumeration PROPERTIES
+            LABELS "module;usb;xhci;qemu;deterministic")
 endif()
 
 add_custom_target(usb_qemu_capability_smoke

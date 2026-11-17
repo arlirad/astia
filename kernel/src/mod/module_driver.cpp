@@ -19,6 +19,7 @@
 #include <new>
 
 extern "C" void* memset(void*, int, unsigned long);
+extern "C" void* memcpy(void*, const void*, unsigned long);
 
 namespace astia::mod {
 
@@ -28,8 +29,11 @@ namespace astia::mod {
             return true;
         const bool ok =
             expose("memset", reinterpret_cast<u64>(&memset)) &&
+            expose("memcpy", reinterpret_cast<u64>(&memcpy)) &&
             expose("astia_module_register_pci_block_driver",
                    reinterpret_cast<u64>(&astia_module_register_pci_block_driver)) &&
+            expose("astia_module_register_pci_driver",
+                   reinterpret_cast<u64>(&astia_module_register_pci_driver)) &&
             expose("astia_module_pci_enable_bus_master",
                    reinterpret_cast<u64>(&astia_module_pci_enable_bus_master)) &&
             expose("astia_module_pci_map_bar", reinterpret_cast<u64>(&astia_module_pci_map_bar)) &&
@@ -180,6 +184,82 @@ namespace astia::mod {
             async_bridge bridges[max_async_requests]{};
         };
 
+        class pci_device final : public dev::device {
+            public:
+            pci_device(const astia_module_pci_driver& ops, void* context)
+                : device(ops.name, dev::dv_sync), ops_(ops), context_(context) {}
+
+            ~pci_device() {
+                if (ops_.remove != nullptr)
+                    ops_.remove(context_);
+            }
+
+            long read(void*, u32, u64) override { return -ENODEV; }
+            long write(const void*, u32, u64) override { return -ENODEV; }
+
+            private:
+            const astia_module_pci_driver& ops_;
+            void* context_;
+        };
+
+        class pci_driver final : public dev::driver {
+            public:
+            explicit pci_driver(const astia_module_pci_driver& ops) : ops_(ops) {}
+
+            const char* name() const override { return ops_.name; }
+
+            bool match(const dev::device_info& info) const override {
+                const dev::pci_device_info* pci = dev::pci_device_info::get(info);
+                if (pci == nullptr || ops_.match == nullptr)
+                    return false;
+                const astia_module_pci_device view = device_view(pci->mutable_device());
+                return ops_.match(&view) != 0;
+            }
+
+            mm::shptr<dev::device> probe(const dev::device_info& info) override {
+                const dev::pci_device_info* pci = dev::pci_device_info::get(info);
+                if (pci == nullptr || ops_.probe == nullptr)
+                    return {};
+                dev::pci_device* stable = dev::pci_devices().find(pci->device().bdf);
+                if (stable == nullptr)
+                    return {};
+                const astia_module_pci_device view = device_view(*stable);
+                void* context = nullptr;
+                if (ops_.probe(&view, &context) != 0 || context == nullptr)
+                    return {};
+                auto result = mm::share<pci_device>(ops_, context);
+                if (!result && ops_.remove != nullptr)
+                    ops_.remove(context);
+                return result;
+            }
+
+            private:
+            static astia_module_pci_device device_view(dev::pci_device& device) {
+                astia_module_pci_device result{};
+                result.opaque = &device;
+                result.vendor_id = device.vendor_id;
+                result.device_id = device.device_id;
+                result.class_code = device.class_code;
+                result.subclass = device.subclass;
+                result.programming_interface = device.programming_interface;
+                result.bar_count = device.bar_count;
+                result.msix = device.interrupt.msix ? 1 : 0;
+                for (u8 i = 0; i < device.bar_count && i < 6; ++i) {
+                    result.bar_present[i] = device.bars[i].present ? 1 : 0;
+                    result.bar_io[i] = device.bars[i].io ? 1 : 0;
+                }
+                return result;
+            }
+
+            const astia_module_pci_driver& ops_;
+        };
+
+        struct pci_registration {
+            const astia_module_pci_driver* ops = nullptr;
+            alignas(pci_driver) u8 storage[sizeof(pci_driver)]{};
+            pci_driver* instance = nullptr;
+        };
+
         class controller_lifetime final {
             public:
             controller_lifetime(registration& registration, void* context)
@@ -197,6 +277,8 @@ namespace astia::mod {
 
         registration registrations[max_registrations]{};
         u32 registration_count = 0;
+        pci_registration pci_registrations[max_registrations]{};
+        u32 pci_registration_count = 0;
         mm::shptr<mm::iovec> pin_tokens[max_pin_tokens]{};
         u32 next_async_generation = 1;
 
@@ -669,6 +751,22 @@ namespace astia::mod {
         return true;
     }
 
+    bool register_pci_driver(const astia_module_pci_driver& ops) {
+        if (ops.name == nullptr || ops.name[0] == '\0' || ops.match == nullptr ||
+            ops.probe == nullptr || pci_registration_count == max_registrations)
+            return false;
+        pci_registration& slot = pci_registrations[pci_registration_count++];
+        slot.ops = &ops;
+        slot.instance = ::new (slot.storage) pci_driver(ops);
+        if (!dev::drivers().register_driver(*slot.instance)) {
+            slot.instance->~pci_driver();
+            slot.instance = nullptr;
+            --pci_registration_count;
+            return false;
+        }
+        return true;
+    }
+
     bool async_handle_checks() {
         async_bridge bridge{};
         io_request request{};
@@ -751,6 +849,11 @@ using namespace astia::mod;
 extern "C" int astia_module_register_pci_block_driver(
         const astia_module_pci_block_driver* driver) {
         return driver != nullptr && register_pci_block_driver(*driver) ? 0 : -EINVAL;
+    }
+
+    extern "C" int astia_module_register_pci_driver(
+            const astia_module_pci_driver* driver) {
+        return driver != nullptr && register_pci_driver(*driver) ? 0 : -EINVAL;
     }
 
     extern "C" int astia_module_pci_enable_bus_master(void* opaque) {

@@ -275,8 +275,9 @@ class controller {
         store32(input_memory_.value.virtual_address, 4, (1u << 0) | (1u << endpoint_control));
         store32(input_memory_.value.virtual_address, context_size + 0,
                 (static_cast<uint32_t>(speed) << slot_speed_shift) |
-                    (static_cast<uint32_t>(port) << slot_port_shift) |
                     (1u << context_entries_shift));
+        store32(input_memory_.value.virtual_address, context_size + 4,
+                static_cast<uint32_t>(port) << slot_port_shift);
         store32(input_memory_.value.virtual_address, context_size + context_size + 4,
                 endpoint_error_count | endpoint_type_control |
                     (static_cast<uint32_t>(max_packet_size) << 16));
@@ -340,11 +341,12 @@ class controller {
 
     int transfer(const setup_packet& setup, uint16_t max_packet_size) {
         transfer_handle handle{};
-        auto* buffer = static_cast<uint8_t*>(transfer_memory_.value.virtual_address) + 256;
+        auto* buffer = static_cast<uint8_t*>(transfer_memory_.value.virtual_address) +
+                       ASTIA_PAGE_SIZE;
         const uint32_t length = setup.length;
-        if (length > ASTIA_PAGE_SIZE * 2 - 256 ||
+        if (length > ASTIA_PAGE_SIZE ||
             !control_.submit(setup, length == 0 ? nullptr : buffer,
-                              length == 0 ? 0 : transfer_memory_.value.physical + 256,
+                              length == 0 ? 0 : transfer_memory_.value.physical + ASTIA_PAGE_SIZE,
                               length, max_packet_size, handle))
             return -22;
         doorbells_.write<uint32_t>(slot_ * 4, endpoint_control);
@@ -399,6 +401,13 @@ class controller {
             return false;
         uint8_t descriptor[4096]{};
         for (;;) {
+            if (session.phase() == enumeration_phase::set_address) {
+                if (!address_device(false, port, speed,
+                                    session.device().descriptor.max_packet_size0) ||
+                    !session.complete_address())
+                    return false;
+                continue;
+            }
             setup_packet setup{};
             uint16_t length = 0;
             if (!session.next(setup, length))
@@ -409,13 +418,9 @@ class controller {
             if (transfer_result < 0 || static_cast<unsigned>(transfer_result) > length)
                 return false;
             for (unsigned i = 0; i < static_cast<unsigned>(transfer_result); ++i)
-                descriptor[i] = static_cast<uint8_t*>(transfer_memory_.value.virtual_address)[256 + i];
+                descriptor[i] = static_cast<uint8_t*>(transfer_memory_.value.virtual_address)[ASTIA_PAGE_SIZE + i];
             if (!session.complete(length == 0 ? nullptr : descriptor,
                                   static_cast<uint16_t>(transfer_result)))
-                return false;
-            if (session.phase() == enumeration_phase::set_address &&
-                !address_device(false, port, speed,
-                                session.device().descriptor.max_packet_size0))
                 return false;
             if (session.phase() == enumeration_phase::complete)
                 break;
@@ -475,6 +480,8 @@ class controller {
     }
 
     int enumerate_port(uint8_t port, device_model& result) { return enumerate(port, result) ? 0 : -95; }
+
+    uint8_t max_ports() const { return capabilities_.max_ports; }
 };
 
 controller controller_instance;
@@ -511,6 +518,43 @@ int enumerate_pci_port(const astia_module_pci_device* device, uint8_t port,
 
 }
 
+namespace astia::usb::xhci {
+
+namespace {
+
+int probe_pci(const astia_module_pci_device* device, void** context) {
+    if (context == nullptr || !pci_match(device))
+        return -19;
+    *context = nullptr;
+    const int result = controller_instance.start(device);
+    if (result != 0) {
+        return result;
+    }
+    device_model model{};
+    for (uint8_t port = 1; port <= controller_instance.max_ports(); ++port) {
+        if (controller_instance.enumerate_port(port, model) != 0)
+            continue;
+        *context = &controller_instance;
+        return 0;
+    }
+    controller_instance.stop();
+    return -19;
+}
+
+int match_pci(const astia_module_pci_device* device) {
+    return pci_match(device) ? 1 : 0;
+}
+
+void remove_pci(void*) {
+    controller_instance.stop();
+}
+
+const astia_module_pci_driver pci_driver{"xhci", match_pci, probe_pci, remove_pci};
+
+}
+
+}
+
 extern "C" int module_main() {
-    return 0;
+    return astia_module_register_pci_driver(&astia::usb::xhci::pci_driver);
 }
