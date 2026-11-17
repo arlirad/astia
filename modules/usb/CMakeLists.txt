@@ -53,6 +53,10 @@ if(ASTIA_BUILD_TESTS)
             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
     set_tests_properties(usb_xhci_qemu_enumeration PROPERTIES
             LABELS "module;usb;xhci;qemu;deterministic")
+    add_test(NAME usb_xhci_qemu_keyboard_ready
+            COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
+    set_tests_properties(usb_xhci_qemu_keyboard_ready PROPERTIES
+            LABELS "module;usb;xhci;hid;keyboard;ttv0;qemu;deterministic")
 endif()
 
 add_custom_target(usb_qemu_capability_smoke

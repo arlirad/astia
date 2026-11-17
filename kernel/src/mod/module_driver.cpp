@@ -298,7 +298,6 @@ namespace astia::mod {
             alignas(usb_driver) u8 storage[sizeof(usb_driver)]{};
             usb_driver* instance = nullptr;
         };
-        };
 
         class controller_lifetime final {
             public:
@@ -556,7 +555,7 @@ namespace astia::mod {
                 return {};
             const astia_module_pci_device device_view = view(*stable);
             void* context = nullptr;
-            if (registration_.ops->probe(&device_view, &context) == 0 || context == nullptr)
+            if (registration_.ops->probe(&device_view, &context) != 0 || context == nullptr)
                 return {};
             auto result = mm::share<usb_device>(registration_, context);
             if (!result && registration_.ops->remove != nullptr)
@@ -1374,7 +1373,7 @@ extern "C" void astia_module_log_u64(const char* source, const char* label, uint
         log::info("%s: %s=%llu", source == nullptr ? "module" : source,
                   label == nullptr ? "value" : label,
                   static_cast<unsigned long long>(value));
-    }
+}
 
 extern "C" int astia_module_run_selftests(void) {
         return run_selftests() ? 0 : -EIO;

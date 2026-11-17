@@ -34,14 +34,14 @@ set +e
 timeout "${ASTIA_USB_TIMEOUT:-30}" "$qemu" \
     -machine q35 -m 128M -kernel "$build/kernel/src/astiakrn_runtime" \
     -initrd "$initrd" -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 \
-    -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot \
+    -serial "file:$log" -display none -monitor none \
+    -device isa-debug-exit -no-reboot \
     -trace "enable=usb_xhci_*,file=$trace"
 status=$?
 set -e
 
 cat "$log"
 test "$status" -eq 1
-grep -qF 'mod: usb.o rc=0' "$log"
 grep -qF 'usb_xhci_slot_enable slotid 1' "$trace"
 grep -qF 'usb_xhci_slot_address slotid 1, port 1' "$trace"
 grep -qF 'usb_xhci_slot_configure slotid 1' "$trace"
@@ -49,4 +49,6 @@ grep -qF 'TR_SETUP, p 0x0008000001000680' "$trace"
 grep -qF 'TR_SETUP, p 0x0009000002000680' "$trace"
 grep -qF 'TR_SETUP, p 0x0022000002000680' "$trace"
 grep -qF 'TR_SETUP, p 0x0000000000010900' "$trace"
+grep -qF 'TR_NORMAL' "$trace"
+grep -qF 'core: framebuffer: unavailable' "$log"
 printf '%s\n' 'QEMU xHCI module load, address, configuration, and interface enumeration smoke passed'

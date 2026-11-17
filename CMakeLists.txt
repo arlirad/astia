@@ -280,6 +280,11 @@ if(ASTIA_BUILD_TESTS)
             ${CMAKE_CURRENT_SOURCE_DIR}/modules/usb/run-qemu.sh
             TIMEOUT 30
             ENV QEMU=${_astia_qemu})
+    astia_register_script_test(astia_usb_xhci_keyboard_ready
+            "usb;xhci;hid;keyboard;ttv0;qemu;deterministic"
+            ${CMAKE_CURRENT_SOURCE_DIR}/modules/usb/run-qemu.sh
+            TIMEOUT 30
+            ENV QEMU=${_astia_qemu})
     set_tests_properties(astia_usb_xhci_qemu PROPERTIES
             RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
 
