@@ -9,7 +9,7 @@
 //
 // A module is a relocatable x86-64 ELF object that exports a `module_main`
 // entry point. The kernel loads it into frame-allocator memory, resolves its
-// undefined symbols against the export table (see "exports.hpp"),
+// undefined symbols against the linked kernel symbol table,
 // applies relocations, and calls `module_main`.
 //
 // This layer owns the policy (where memory comes from, what a symbol means);
