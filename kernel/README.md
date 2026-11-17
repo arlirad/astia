@@ -19,8 +19,9 @@ repository root.
 - `scripts/` - Build/run scripts
 
 Driver-facing contracts live under `include/astia`: device and driver
-interfaces (`dev/device.hpp`, `dev/driver.hpp`, `dev/pci.hpp`, and
-`dev/blk/block_device.hpp`), MMIO ownership (`dev/mmio.hpp`), boot handoff
+interfaces (`dev/device.hpp`, `dev/driver.hpp`, `dev/pci.hpp`,
+`dev/blk/blkdev.hpp`, and `dev/chr/chrdev.hpp`), MMIO ownership
+(`dev/mmio.hpp`), boot handoff
 parsers (`boot/virt/`), and user address policy (`proc/user_layout.hpp`).
 Architecture instruction implementations and subsystem internals remain under
 `src/`.

@@ -1,5 +1,5 @@
 #include "device_file.hpp"
-#include <astia/dev/blk/block_device.hpp>
+#include <astia/dev/blk/blkdev.hpp>
 
 #include <astia/api/errno.h>
 
@@ -44,14 +44,14 @@ namespace astia::dev {
     long device_file::size() const {
         device* value = device_instance();
         if (value != nullptr && (value->flags() & dv_block) != 0)
-            return static_cast<long>(static_cast<const blk::block_device*>(value)->size_bytes());
+            return static_cast<long>(static_cast<const blk::blkdev*>(value)->size_bytes());
         return -ESPIPE;
     }
 
     u32 device_file::block_size() const {
         device* value = device_instance();
         if (value != nullptr && (value->flags() & dv_block) != 0)
-            return static_cast<const blk::block_device*>(value)->block_size();
+            return static_cast<const blk::blkdev*>(value)->block_size();
         return 0;
     }
 
