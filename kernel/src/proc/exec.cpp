@@ -239,10 +239,12 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
                                   region)) {
-                if (region != nullptr) {
+                unmap_run(address_space_, seg.virt, seg.pages);
+                if (region != nullptr)
                     region->release();
-                    image_state.segs[i].used = false;
-                }
+                else
+                    mm::kernel_frames().release(seg.frames, seg.pages);
+                image_state.segs[i].used = false;
                 cleanup_pending(image_state, address_space_);
                 discard_image();
                 return false;
@@ -268,15 +270,11 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(user_tls_base, tls_pages,
                                   map_protection::read | map_protection::write, region)) {
-                if (region != nullptr) {
-                    region->release();
-                }
-                else {
-                    unmap_run(address_space_, user_tls_base, tls_pages);
-                    mm::kernel_frames().release(tls_frames, tls_pages);
-                }
+                unmap_run(address_space_, user_tls_base, tls_pages);
                 if (region != nullptr)
-                    unmap_run(address_space_, user_tls_base, tls_pages);
+                    region->release();
+                else
+                    mm::kernel_frames().release(tls_frames, tls_pages);
                 cleanup_pending(image_state, address_space_);
                 discard_image();
                 return false;
@@ -392,10 +390,12 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
                                   region)) {
-                if (region != nullptr) {
+                unmap_run(address_space_, seg.virt, seg.pages);
+                if (region != nullptr)
                     region->release();
-                    seg.used = false;
-                }
+                else
+                    mm::kernel_frames().release(seg.frames, seg.pages);
+                seg.used = false;
                 cleanup_pending(stream.map, address_space_);
                 discard_image();
                 co_return false;
@@ -415,14 +415,11 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(user_tls_base, tls_pages,
                                   map_protection::read | map_protection::write, region)) {
+                unmap_run(address_space_, user_tls_base, tls_pages);
                 if (region != nullptr)
                     region->release();
-                else {
-                    unmap_run(address_space_, user_tls_base, tls_pages);
+                else
                     mm::kernel_frames().release(tls_frames, tls_pages);
-                }
-                if (region != nullptr)
-                    unmap_run(address_space_, user_tls_base, tls_pages);
                 cleanup_pending(stream.map, address_space_);
                 discard_image();
                 co_return false;
