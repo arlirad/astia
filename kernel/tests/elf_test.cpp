@@ -68,6 +68,8 @@ namespace {
         size_t         back;  // import stubs grow down
         stub_entry     cache[8];
         size_t         cache_n;
+        size_t         mapped;
+        size_t         unmapped;
     };
 
     void* reloc_map(void* ctx, astia::u64, astia::usize size, astia::usize align,
@@ -85,7 +87,12 @@ namespace {
         }
         void* p  = a->base + off;
         a->front = off + size;
+        ++a->mapped;
         return p;
+    }
+
+    void reloc_unmap(void* ctx, void*, astia::usize) {
+        ++static_cast<reloc_arena*>(ctx)->unmapped;
     }
 
     astia::u64 reloc_resolve(void* ctx, const char* name) {
@@ -205,6 +212,7 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
     astia::elf::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
+    e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
@@ -213,6 +221,8 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
     ASTIA_CHECK(img.entry != nullptr);
     ASTIA_CHECK(img.load_bias == 0);
     ASTIA_CHECK(img.nsegs == 0); // relocatable images have no program segments
+    ASTIA_CHECK(a.mapped == 1);
+    ASTIA_CHECK(a.unmapped == 0);
 
     if (img.entry != nullptr) {
         auto entry = reinterpret_cast<int (*)()>(img.entry);
@@ -242,6 +252,7 @@ ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
     astia::elf::env e{};
     e.ctx = &a;
     e.map = reloc_map;
+    e.unmap = reloc_unmap;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
@@ -259,10 +270,41 @@ ASTIA_TEST(elf_relocatable_rejects_bad_magic) {
     astia::elf::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
+    e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
     ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
+    ASTIA_CHECK(a.mapped == a.unmapped);
+}
+
+ASTIA_TEST(elf_failed_relocatable_loads_release_every_mapping) {
+    const size_t cap = 1 << 16;
+    void* mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    ASTIA_CHECK(mem != MAP_FAILED);
+    if (mem == MAP_FAILED)
+        return;
+
+    reloc_arena a{};
+    a.base = static_cast<unsigned char*>(mem);
+    a.capacity = cap;
+    astia::elf::env e{};
+    e.ctx = &a;
+    e.map = reloc_map;
+    e.unmap = reloc_unmap;
+    e.resolve = nullptr;
+    for (size_t i = 0; i < 32; ++i) {
+        a.front = 0;
+        a.back = cap;
+        a.cache_n = 0;
+        astia::elf::image img;
+        ASTIA_CHECK(!astia::elf::load(hello_mod_blob, hello_mod_blob_len, e, img));
+        ASTIA_CHECK(a.mapped == a.unmapped);
+    }
+    ASTIA_CHECK(a.mapped == 32);
+    ASTIA_CHECK(a.unmapped == 32);
+    munmap(mem, cap);
 }
 
 ASTIA_TEST(elf_relocatable_rejects_wrong_machine) {
@@ -274,6 +316,7 @@ ASTIA_TEST(elf_relocatable_rejects_wrong_machine) {
     astia::elf::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
+    e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
@@ -289,6 +332,7 @@ ASTIA_TEST(elf_relocatable_rejects_non_relocatable) {
     astia::elf::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
+    e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
@@ -304,13 +348,14 @@ ASTIA_TEST(elf_relocatable_rejects_unresolved_symbol) {
     astia::elf::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
+    e.unmap   = reloc_unmap;
     e.resolve = nullptr; // no resolver: kernel_add cannot bind
 
     astia::elf::image img;
     ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
 }
 
-ASTIA_TEST(elf_relocatable_rejects_unterminated_symbol_name) {
+ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
     blob_copy buf(hello_mod_blob, hello_mod_blob_len);
     const auto read_u16 = [&buf](size_t offset) {
         return static_cast<unsigned short>(buf.data[offset]) |
@@ -347,11 +392,23 @@ ASTIA_TEST(elf_relocatable_rejects_unterminated_symbol_name) {
     }
     ASTIA_CHECK(string_size != 0);
     if (string_size != 0) {
-        buf.data[string_offset + string_size - 1] = 'x';
+        size_t name_offset = string_size;
+        for (size_t i = 0; i + sizeof("module_main") <= string_size; ++i) {
+            if (std::memcmp(buf.data + string_offset + i, "module_main",
+                            sizeof("module_main") - 1) == 0 &&
+                buf.data[string_offset + i + sizeof("module_main") - 1] == '\0') {
+                name_offset = i;
+                break;
+            }
+        }
+        ASTIA_CHECK(name_offset < string_size);
+        if (name_offset < string_size)
+            buf.data[string_offset + name_offset + sizeof("module_main") - 1] = 'x';
         reloc_arena a{};
         astia::elf::env e{};
         e.ctx = &a;
         e.map = reloc_map;
+        e.unmap = reloc_unmap;
         e.resolve = reloc_resolve;
         astia::elf::image img;
         ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));

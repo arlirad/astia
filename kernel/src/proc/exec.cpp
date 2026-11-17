@@ -177,7 +177,10 @@ namespace astia::proc {
             return false;
         }
         image_map  image_state{&map, user_image_base};
-        elf::env   environment{&image_state, map_user, nullptr, copy_image};
+        elf::env   environment{};
+        environment.ctx = &image_state;
+        environment.map = map_user;
+        environment.copy = copy_image;
         elf::image image{};
 
         // The ELF implementation copies segment bytes through the virtual
