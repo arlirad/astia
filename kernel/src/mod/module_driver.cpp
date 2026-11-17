@@ -197,7 +197,7 @@ namespace astia::mod {
 
         registration registrations[max_registrations]{};
         u32 registration_count = 0;
-        mm::iovec* pin_tokens[max_pin_tokens]{};
+        mm::shptr<mm::iovec> pin_tokens[max_pin_tokens]{};
         u32 next_async_generation = 1;
 
         struct msix_route_handle {
@@ -218,22 +218,25 @@ namespace astia::mod {
         msix_route_handle msix_routes[max_msix_routes]{};
         u16 next_msix_generation = 1;
 
-        bool remember_pin(mm::iovec* value) {
-            for (mm::iovec*& token : pin_tokens) {
-                if (token == nullptr) {
-                    token = value;
-                    return true;
-                }
+        bool remember_pin(mm::shptr<mm::iovec>&& value) {
+            if (!value)
+                return false;
+            for (mm::shptr<mm::iovec>& token : pin_tokens) {
+                if (token)
+                    continue;
+                token = static_cast<mm::shptr<mm::iovec>&&>(value);
+                return true;
             }
             return false;
         }
 
         bool forget_pin(void* value) {
-            for (mm::iovec*& token : pin_tokens) {
-                if (token != value)
+            if (value == nullptr)
+                return false;
+            for (mm::shptr<mm::iovec>& token : pin_tokens) {
+                if (token.get() != value)
                     continue;
-                token = nullptr;
-                delete static_cast<mm::iovec*>(value);
+                token = {};
                 return true;
             }
             return false;
@@ -685,8 +688,20 @@ namespace astia::mod {
         return !bridge_handle_matches(bridge, 0, 0, bridge.abi.opaque);
     }
 
+    bool pin_lifetime_checks() {
+        mm::shptr<mm::iovec> pinned(new mm::iovec());
+        if (!pinned)
+            return false;
+        void* token = pinned.get();
+        if (!remember_pin(static_cast<mm::shptr<mm::iovec>&&>(pinned)) || pinned ||
+            forget_pin(nullptr) || forget_pin(reinterpret_cast<void*>(1)) ||
+            !forget_pin(token) || forget_pin(token))
+            return false;
+        return true;
+    }
+
     bool invalid_handle_checks() {
-        if (!async_handle_checks())
+        if (!async_handle_checks() || !pin_lifetime_checks())
             return false;
         astia_module_msix_route route{};
         route.vector = 1;
@@ -971,18 +986,17 @@ extern "C" int astia_module_pin_user_write(void* address, uint32_t length, uint6
             return -EINVAL;
         *physical = 0;
         *token = nullptr;
-        auto* pinned = new mm::iovec();
-        if (pinned == nullptr || sys::pin_user_span(span<u8>(static_cast<u8*>(address), length),
-                                                    io_direction::input, *pinned) < 0) {
-            delete pinned;
+        mm::shptr<mm::iovec> pinned(new mm::iovec());
+        if (!pinned || sys::pin_user_span(span<u8>(static_cast<u8*>(address), length),
+                                          io_direction::input, *pinned) < 0) {
             return -EFAULT;
         }
-        if (!remember_pin(pinned)) {
-            delete pinned;
+        *physical = pinned->physical();
+        void* pinned_token = pinned.get();
+        if (!remember_pin(static_cast<mm::shptr<mm::iovec>&&>(pinned))) {
             return -EBUSY;
         }
-        *physical = pinned->physical();
-        *token = pinned;
+        *token = pinned_token;
         return 0;
     }
 
@@ -993,19 +1007,18 @@ extern "C" int astia_module_pin_user_read(const void* address, uint32_t length,
             return -EINVAL;
         *physical = 0;
         *token = nullptr;
-        auto* pinned = new mm::iovec();
-        if (pinned == nullptr ||
+        mm::shptr<mm::iovec> pinned(new mm::iovec());
+        if (!pinned ||
             sys::pin_user_span(span<u8>(const_cast<u8*>(static_cast<const u8*>(address)), length),
                                io_direction::output, *pinned) < 0) {
-            delete pinned;
             return -EFAULT;
         }
-        if (!remember_pin(pinned)) {
-            delete pinned;
+        *physical = pinned->physical();
+        void* pinned_token = pinned.get();
+        if (!remember_pin(static_cast<mm::shptr<mm::iovec>&&>(pinned))) {
             return -EBUSY;
         }
-        *physical = pinned->physical();
-        *token = pinned;
+        *token = pinned_token;
         return 0;
     }
 
