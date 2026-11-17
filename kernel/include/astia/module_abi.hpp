@@ -10,6 +10,17 @@ namespace astia::module {
     using io_request = astia_module_io_request;
     using msix_route = astia_module_msix_route;
 
+    using net_device = astia_module_net_device;
+    struct net_driver : astia_module_pci_net_driver {
+        constexpr net_driver(const char* name, astia_module_pci_net_match_fn match,
+                             astia_module_pci_net_probe_fn probe,
+                             astia_module_pci_net_remove_fn remove)
+            : astia_module_pci_net_driver{name, match, probe, remove} {}
+    };
+    using net_tx_request = astia_module_net_tx_request;
+
+    static_assert(sizeof(net_driver) == sizeof(astia_module_pci_net_driver));
+
     struct block_driver : astia_module_pci_block_driver {
         constexpr block_driver(const char* name, const char* device_path,
                                int (*match)(const pci_device*),
@@ -37,6 +48,10 @@ namespace astia::module {
 
     inline int register_block_driver(const block_driver& driver) {
         return astia_module_register_pci_block_driver(&driver);
+    }
+
+    inline int register_net_driver(const net_driver& driver) {
+        return astia_module_register_pci_net_driver(&driver);
     }
 
     class dma_buffer {

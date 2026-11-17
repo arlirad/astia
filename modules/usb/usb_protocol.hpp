@@ -15,11 +15,55 @@ constexpr uint8_t descriptor_configuration = 2;
 constexpr uint8_t descriptor_string = 3;
 constexpr uint8_t descriptor_interface = 4;
 constexpr uint8_t descriptor_endpoint = 5;
+constexpr uint8_t descriptor_hid = 0x21;
+constexpr uint8_t descriptor_hid_report = 0x22;
 constexpr uint8_t descriptor_other_speed_configuration = 7;
 constexpr uint8_t descriptor_bos = 15;
 constexpr uint8_t descriptor_device_capability = 16;
 constexpr uint8_t descriptor_ss_endpoint_companion = 48;
 constexpr uint8_t descriptor_ssp_isochronous_companion = 49;
+
+constexpr uint8_t request_get_status = 0;
+constexpr uint8_t request_clear_feature = 1;
+constexpr uint8_t request_set_feature = 3;
+constexpr uint8_t request_set_address = 5;
+constexpr uint8_t request_get_descriptor = 6;
+constexpr uint8_t request_set_configuration = 9;
+constexpr uint8_t request_type_standard = 0;
+constexpr uint8_t request_recipient_device = 0;
+
+struct setup_packet {
+    uint8_t request_type = 0;
+    uint8_t request = 0;
+    uint16_t value = 0;
+    uint16_t index = 0;
+    uint16_t length = 0;
+};
+
+static_assert(sizeof(setup_packet) == 8, "USB setup packet layout");
+
+constexpr setup_packet get_descriptor_request(uint8_t type, uint8_t index,
+                                              uint16_t length) {
+    return {static_cast<uint8_t>(0x80u | request_type_standard | request_recipient_device),
+            request_get_descriptor, static_cast<uint16_t>((static_cast<uint16_t>(type) << 8) | index),
+            0, length};
+}
+
+constexpr setup_packet set_address_request(uint8_t address) {
+    return {static_cast<uint8_t>(request_type_standard | request_recipient_device),
+            request_set_address, address, 0, 0};
+}
+
+constexpr setup_packet get_configuration_request() {
+    return {static_cast<uint8_t>(0x80u | request_type_standard | request_recipient_device),
+            request_get_descriptor, static_cast<uint16_t>(descriptor_configuration << 8), 0,
+            9};
+}
+
+constexpr setup_packet set_configuration_request(uint8_t value) {
+    return {static_cast<uint8_t>(request_type_standard | request_recipient_device),
+            request_set_configuration, value, 0, 0};
+}
 
 enum class parse_error : uint8_t {
     none,
@@ -33,6 +77,7 @@ enum class parse_error : uint8_t {
     missing_interface,
     missing_companion,
     duplicate_endpoint,
+    malformed_hid,
 };
 
 struct parse_result {
@@ -157,6 +202,50 @@ struct endpoint_model {
     endpoint_companion companion{};
 };
 
+struct hid_descriptor {
+    bool present = false;
+    uint16_t hid_version = 0;
+    uint8_t country_code = 0;
+    uint8_t descriptor_count = 0;
+    uint16_t report_length = 0;
+};
+
+inline parse_result parse_hid_descriptor(const uint8_t* data, uint32_t available,
+                                         hid_descriptor& result) {
+    result = {};
+    descriptor_view view{};
+    parse_result status = descriptor_at(data, available, view);
+    if (!status)
+        return status;
+    if (view.type != descriptor_hid)
+        return {parse_error::wrong_type, 1};
+    if (view.length < 6 || (view.length - 6) % 3 != 0)
+        return {parse_error::bad_length, 0};
+    const uint8_t count = data[5];
+    if (count == 0 || count > 16 || view.length != static_cast<uint8_t>(6 + count * 3))
+        return {parse_error::malformed_hid, 5};
+    bool report_seen = false;
+    uint16_t report_length = 0;
+    for (unsigned i = 0; i < count; ++i) {
+        const uint8_t type = data[6 + i * 3];
+        const uint16_t length = le16(data + 7 + i * 3);
+        if (type != descriptor_hid_report)
+            continue;
+        if (report_seen)
+            return {parse_error::malformed_hid, static_cast<uint32_t>(6 + i * 3)};
+        report_seen = true;
+        report_length = length;
+    }
+    if (!report_seen || report_length == 0)
+        return {parse_error::malformed_hid, 5};
+    result.present = true;
+    result.hid_version = le16(data + 2);
+    result.country_code = data[4];
+    result.descriptor_count = count;
+    result.report_length = report_length;
+    return {};
+}
+
 struct interface_model {
     uint8_t number = 0;
     uint8_t alternate = 0;
@@ -164,6 +253,7 @@ struct interface_model {
     uint8_t interface_subclass = 0;
     uint8_t interface_protocol = 0;
     uint8_t string_index = 0;
+    hid_descriptor hid{};
     uint8_t endpoint_count = 0;
     endpoint_model endpoints[max_endpoints]{};
 };
@@ -360,6 +450,15 @@ inline parse_result parse_configuration_descriptor(const uint8_t* data, uint32_t
                 offset = next + companion.length;
                 continue;
             }
+        } else if (view.type == descriptor_hid) {
+            if (current < 0)
+                return {parse_error::missing_interface, offset};
+            interface_model& item = result.interfaces[current];
+            if (item.hid.present)
+                return {parse_error::malformed_hid, offset};
+            status = parse_hid_descriptor(data + offset, total - offset, item.hid);
+            if (!status)
+                return {status.error, offset + status.offset};
         } else if (view.type == descriptor_ss_endpoint_companion && superspeed) {
             return {parse_error::bad_value, offset};
         }

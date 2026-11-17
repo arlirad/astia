@@ -32,5 +32,6 @@ namespace astia::dev {
 
     bool virtual_tty_init();
     bool virtual_tty_forward_input(u8 byte);
+    bool virtual_tty_usb_input(const void* buffer, u32 length);
 
 } // namespace astia::dev
