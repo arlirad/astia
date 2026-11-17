@@ -1,5 +1,5 @@
 #include "test.hpp"
-#include "../src/proc/user_layout.hpp"
+#include <astia/proc/user_layout.hpp>
 
 using astia::proc::is_user_address_canonical;
 using astia::proc::is_user_address_range;

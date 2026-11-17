@@ -1,7 +1,7 @@
 #pragma once
 
 #include "framebuffer_renderer.hpp"
-#include "../../../dev/mmio.hpp"
+#include <astia/dev/mmio.hpp>
 #include "../../console.hpp"
 #include <astia/boot.hpp>
 

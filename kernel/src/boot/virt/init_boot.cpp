@@ -1,5 +1,5 @@
-#include "multiboot2.hpp"
-#include "pvh.hpp"
+#include <astia/boot/virt/multiboot2.hpp>
+#include <astia/boot/virt/pvh.hpp>
 #include <astia/boot.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>

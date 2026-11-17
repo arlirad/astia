@@ -60,7 +60,7 @@ void operator delete[](void* value, std::size_t) noexcept {
 }
 
 #include "../src/dev/device_file.hpp"
-#include "../src/dev/blk/block_device.hpp"
+#include <astia/dev/blk/block_device.hpp>
 #include "../src/fs/filesystem.hpp"
 
 namespace astia::proc {

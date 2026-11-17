@@ -1,6 +1,6 @@
 #include "gdt.hpp"
 #include "smp.hpp"
-#include "../../dev/pci.hpp"
+#include <astia/dev/pci.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>

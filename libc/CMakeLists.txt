@@ -144,8 +144,8 @@ set_source_files_properties(src/wchar.c PROPERTIES
 
 install(TARGETS astia_libc ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/astia/api)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/astia)
 
 if(ASTIA_BUILD_TESTS)
   enable_testing()

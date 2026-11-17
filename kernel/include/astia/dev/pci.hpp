@@ -5,8 +5,8 @@
 #include <astia/optional.hpp>
 #include <astia/resource_limits.hpp>
 
-#include "driver.hpp"
-#include "mmio.hpp"
+#include <astia/dev/driver.hpp>
+#include <astia/dev/mmio.hpp>
 
 namespace astia::dev {
 

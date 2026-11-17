@@ -1,4 +1,4 @@
-#include "multiboot2.hpp"
+#include <astia/boot/virt/multiboot2.hpp>
 
 namespace astia::boot::virt {
     namespace {

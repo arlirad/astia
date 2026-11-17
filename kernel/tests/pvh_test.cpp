@@ -1,4 +1,4 @@
-#include "pvh.hpp"
+#include <astia/boot/virt/pvh.hpp>
 #include "test.hpp"
 
 // Mirrors the on-the-wire PVH layout; the real structs are private to pvh.cpp.
