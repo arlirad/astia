@@ -15,6 +15,32 @@ namespace {
         astia::u64 base, length;
         astia::u32 type, reserved;
     };
+
+    template <typename T>
+    void put(astia::u8* bytes, astia::usize offset, T value) {
+        __builtin_memcpy(bytes + offset, &value, sizeof(value));
+    }
+}
+
+ASTIA_TEST(multiboot2_reads_unaligned_wire_data) {
+    alignas(8) astia::u8 storage[57]{};
+    astia::u8* raw = storage + 1;
+    put(raw, 0, astia::u32{56});
+    put(raw, 8, astia::u32{6});
+    put(raw, 12, astia::u32{40});
+    put(raw, 16, astia::u32{24});
+    put(raw, 24, astia::u64{0x100000});
+    put(raw, 32, astia::u64{0x400000});
+    put(raw, 40, astia::u32{1});
+    put(raw, 48, astia::u32{0});
+    put(raw, 48, astia::u32{0});
+    put(raw, 52, astia::u32{8});
+
+    astia::boot::boot_info out{};
+    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(
+        astia::span<const astia::u8>(raw, 56), out));
+    ASTIA_CHECK(out.memory.count() == 1);
+    ASTIA_CHECK(out.memory[0].base == 0x100000);
 }
 
 ASTIA_TEST(multiboot2_parses_requested_boot_data) {
@@ -48,7 +74,7 @@ ASTIA_TEST(multiboot2_parses_requested_boot_data) {
     end->size = 8;
 
     astia::boot::boot_info out{};
-    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(raw, out));
+    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(astia::span<const astia::u8>(raw, sizeof(raw)), out));
     ASTIA_CHECK(out.memory.count() == 1);
     ASTIA_CHECK(out.memory[0].base == 0x100000);
     ASTIA_CHECK(out.cmdline != nullptr && out.cmdline[5] == '/');
@@ -62,7 +88,7 @@ ASTIA_TEST(multiboot2_rejects_bad_bounds) {
     bad->type                           = 6;
     bad->size                           = 0xffff;
     astia::boot::boot_info out{};
-    ASTIA_CHECK(!astia::boot::virt::parse_multiboot2_info(raw, out));
+    ASTIA_CHECK(!astia::boot::virt::parse_multiboot2_info(astia::span<const astia::u8>(raw, sizeof(raw)), out));
 }
 
 ASTIA_TEST(multiboot2_discovers_supported_framebuffer_format) {
@@ -93,7 +119,7 @@ ASTIA_TEST(multiboot2_discovers_supported_framebuffer_format) {
     end->size = 8;
 
     astia::boot::boot_info out{};
-    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(raw, out));
+    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(astia::span<const astia::u8>(raw, sizeof(raw)), out));
     ASTIA_CHECK(out.framebuffer.valid());
     ASTIA_CHECK(out.framebuffer.physical_address == 0xE0000000);
     ASTIA_CHECK(out.framebuffer.width == 1024 && out.framebuffer.height == 768);
@@ -122,7 +148,7 @@ ASTIA_TEST(multiboot2_ignores_unsupported_framebuffer_format) {
     end->type = 0;
     end->size = 8;
     astia::boot::boot_info out{};
-    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(raw, out));
+    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(astia::span<const astia::u8>(raw, sizeof(raw)), out));
     ASTIA_CHECK(!out.framebuffer.valid());
 }
 
@@ -154,7 +180,7 @@ ASTIA_TEST(multiboot2_discovers_24_bit_bgr_framebuffer) {
     end->size = 8;
 
     astia::boot::boot_info out{};
-    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(raw, out));
+    ASTIA_CHECK(astia::boot::virt::parse_multiboot2_info(astia::span<const astia::u8>(raw, sizeof(raw)), out));
     ASTIA_CHECK(out.framebuffer.valid());
     ASTIA_CHECK(out.framebuffer.physical_address == 0xFD000000);
     ASTIA_CHECK(out.framebuffer.width == 800 && out.framebuffer.height == 600);
