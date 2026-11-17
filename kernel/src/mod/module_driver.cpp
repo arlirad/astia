@@ -219,6 +219,20 @@ namespace astia::mod {
             const astia_module_pci_driver& ops_;
         };
 
+        class net_device_adapter final : public dev::device {
+            public:
+            explicit net_device_adapter(net::netdev& value)
+                : device(value.name(), 0), value_(value) {}
+
+            long read(void*, u32, u64) override { return -ENOTSUP; }
+            long write(const void*, u32, u64) override { return -ENOTSUP; }
+
+            net::netdev& value() { return value_; }
+
+            private:
+            net::netdev& value_;
+        };
+
         class net_driver final : public dev::driver {
             public:
             explicit net_driver(const astia::module::net_driver& ops) : ops_(ops) {}
@@ -241,31 +255,30 @@ namespace astia::mod {
                 if (stable == nullptr)
                     return {};
                 const astia_module_pci_device device_view = view(*stable);
-                void* context = nullptr;
-                if (ops_.probe(&device_view, &context) != 0 || context == nullptr)
+                net::netdev* value = nullptr;
+                if (ops_.probe(&device_view, &value) != 0 || value == nullptr || !value->valid())
                     return {};
-                auto* net = static_cast<net::netdev*>(context);
-                if ((net->flags() & dev::dv_net) == 0 ||
-                    !net::devices().register_device(*net)) {
+                if (!net::devices().register_device(*value)) {
                     if (ops_.remove != nullptr)
-                        ops_.remove(context);
+                        ops_.remove(value);
                     return {};
                 }
-                auto result = mm::shptr<dev::device>::borrowed(net);
+                auto result = mm::share<net_device_adapter>(*value);
                 if (!result) {
-                    net::devices().unregister_device(*net);
+                    net::devices().unregister_device(*value);
                     if (ops_.remove != nullptr)
-                        ops_.remove(context);
+                        ops_.remove(value);
                 }
                 return result;
             }
 
             void remove(const dev::device_info&, const mm::shptr<dev::device>& value) override {
-                auto* net = static_cast<net::netdev*>(value.get());
-                if (net != nullptr) {
-                    net::devices().unregister_device(*net);
+                auto* adapter = static_cast<net_device_adapter*>(value.get());
+                if (adapter != nullptr) {
+                    auto& netdev = adapter->value();
+                    net::devices().unregister_device(netdev);
                     if (ops_.remove != nullptr)
-                        ops_.remove(net->module_context());
+                        ops_.remove(&netdev);
                 } else if (ops_.remove != nullptr) {
                     ops_.remove(nullptr);
                 }
@@ -302,6 +315,7 @@ namespace astia::mod {
             const astia::module::net_driver* ops = nullptr;
             alignas(net_driver) u8 storage[sizeof(net_driver)]{};
             net_driver* instance = nullptr;
+            bool selftest_done = false;
         };
 
         struct usb_registration {
@@ -960,6 +974,20 @@ namespace astia::mod {
             if (!passed)
                 return false;
             registrations[i].selftest_done = true;
+        }
+        for (u32 i = 0; i < net_registration_count; ++i) {
+            if (net_registrations[i].ops->selftest == nullptr ||
+                net_registrations[i].selftest_done)
+                continue;
+            const bool interrupts = arch::cpu::check_interrupts();
+            if (!interrupts)
+                arch::cpu::interrupts();
+            const bool passed = net_registrations[i].ops->selftest() != 0;
+            if (!interrupts)
+                arch::cpu::nointerrupts();
+            if (!passed)
+                return false;
+            net_registrations[i].selftest_done = true;
         }
         return true;
     }

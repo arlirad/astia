@@ -178,12 +178,13 @@ astia_add_host_test(astia_driver_manager_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
 target_include_directories(astia_driver_manager_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
+find_package(Threads REQUIRED)
+
 astia_add_host_test(astia_net_test
         net_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/net/net.cpp)
-
-find_package(Threads REQUIRED)
+target_link_libraries(astia_net_test PRIVATE Threads::Threads)
 astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)
 target_link_libraries(astia_mpmc_queue_test PRIVATE Threads::Threads)
 astia_add_host_test(astia_rcu_domain_test rcu_domain_test.cpp)

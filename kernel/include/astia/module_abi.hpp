@@ -19,18 +19,22 @@ namespace astia::module {
     using msix_route = astia_module_msix_route;
 
     using net_match_fn = int (*)(const pci_device*);
-    using net_probe_fn = int (*)(const pci_device*, void**);
-    using net_remove_fn = void (*)(void*);
+    using net_probe_fn = int (*)(const pci_device*, astia::net::netdev**);
+    using net_remove_fn = void (*)(astia::net::netdev*);
+    using net_selftest_fn = int (*)();
 
     struct net_driver {
         const char* name;
         net_match_fn match;
         net_probe_fn probe;
         net_remove_fn remove;
+        net_selftest_fn selftest;
 
         constexpr net_driver(const char* value, net_match_fn match_fn,
-                             net_probe_fn probe_fn, net_remove_fn remove_fn)
-            : name(value), match(match_fn), probe(probe_fn), remove(remove_fn) {}
+                             net_probe_fn probe_fn, net_remove_fn remove_fn,
+                             net_selftest_fn selftest_fn = nullptr)
+            : name(value), match(match_fn), probe(probe_fn), remove(remove_fn),
+              selftest(selftest_fn) {}
     };
     using net_device = astia::net::netdev;
     using netdev = astia::net::netdev;
