@@ -59,6 +59,9 @@ add_executable(astiakrn kmain.cpp)
 astia_configure_kernel(astiakrn)
 
 function(astia_generate_module_symbols target)
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
+            ${ASTIA_LINKER_SCRIPT}
+            ${ASTIA_KERNEL_SOURCE_DIR}/scripts/generate_module_symbols.py)
     add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${Python3_EXECUTABLE}
                     ${ASTIA_KERNEL_SOURCE_DIR}/scripts/generate_module_symbols.py

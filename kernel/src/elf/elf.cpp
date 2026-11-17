@@ -279,6 +279,12 @@ namespace astia::elf {
                     return false; // name offset runs past the string table
                 }
                 const char* name     = v.str + sym.st_name;
+                const usize name_max = v.strsize - sym.st_name;
+                usize       name_len = 0;
+                while (name_len < name_max && name[name_len] != '\0')
+                    ++name_len;
+                if (name_len == name_max)
+                    return false; // symbol name is not terminated in .strtab
                 u64         resolved = e.resolve != nullptr ? e.resolve(e.ctx, name) : 0;
                 if (resolved == 0) {
                     // A weak undefined symbol is allowed to be null; anything

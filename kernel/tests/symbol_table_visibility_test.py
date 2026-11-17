@@ -3,12 +3,27 @@ import struct
 import subprocess
 import sys
 import tempfile
+import importlib.util
 from pathlib import Path
 
 
 def main():
     compiler = sys.argv[1]
     generator = sys.argv[2]
+    spec = importlib.util.spec_from_file_location("symbol_generator", generator)
+    symbol_generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(symbol_generator)
+    selected = {}
+    symbol_generator.select_symbol(selected, b"duplicate", symbol_generator.STB_WEAK, 0x10)
+    symbol_generator.select_symbol(selected, b"duplicate", symbol_generator.STB_GLOBAL, 0x20)
+    assert selected[b"duplicate"] == (symbol_generator.STB_GLOBAL, 0x20)
+    try:
+        symbol_generator.select_symbol(selected, b"duplicate", symbol_generator.STB_GLOBAL, 0x30)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("conflicting strong symbols were accepted")
+
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         source = root / "symbols.cpp"
@@ -49,6 +64,41 @@ def main():
         assert b"_Z21visible_kernel_symbolv" in found
         assert not any(b"hidden_kernel_symbol" in name for name in found)
         assert not any(b"local_kernel_symbol" in name for name in found)
+
+        def reject(mutator):
+            malformed = root / ("malformed-%d.elf" % reject.counter)
+            reject.counter += 1
+            corrupted = bytearray(data)
+            mutator(corrupted, sections, shoff)
+            malformed.write_bytes(corrupted)
+            result = subprocess.run([sys.executable, generator, str(malformed)],
+                                    capture_output=True, text=True)
+            assert result.returncode != 0
+            assert "Traceback" not in result.stderr
+
+        reject.counter = 0
+        reject(lambda corrupted, _, __: struct.pack_into("<H", corrupted, 62, 0xffff))
+
+        def corrupt_symtab_offset(corrupted, section_headers, section_table):
+            index = next(i for i, section in enumerate(section_headers)
+                         if section[1] == 2)
+            struct.pack_into("<Q", corrupted, section_table + index * shentsize + 24,
+                             len(corrupted) + 1)
+
+        reject(corrupt_symtab_offset)
+
+        def corrupt_symbol_name(corrupted, section_headers, section_table):
+            section = next(section for section in section_headers if section[1] == 2)
+            struct.pack_into("<I", corrupted, section[4], 0xffffffff)
+
+        reject(corrupt_symbol_name)
+
+        def corrupt_string_terminator(corrupted, section_headers, section_table):
+            section = next(section for section in section_headers if section[1] == 2)
+            strings = section_headers[section[6]]
+            corrupted[strings[4] + strings[5] - 1] = ord("x")
+
+        reject(corrupt_string_terminator)
 
 
 if __name__ == "__main__":
