@@ -66,6 +66,7 @@ struct trb {
 static_assert(sizeof(trb) == 16, "xHCI TRB layout");
 
 constexpr uint32_t trb_cycle = 1u;
+constexpr uint32_t trb_toggle_cycle = 1u << 1;
 constexpr uint32_t trb_chain = 1u << 4;
 constexpr uint32_t trb_interrupt_on_completion = 1u << 5;
 constexpr uint32_t trb_immediate_data = 1u << 6;
@@ -111,7 +112,8 @@ inline trb make_status_trb(bool in, bool cycle) {
 inline trb make_link_trb(uint64_t physical, bool cycle) {
     trb result{};
     result.parameter = physical;
-    result.control = trb_type_bits(trb_type::link) | trb_chain | (cycle ? trb_cycle : 0u);
+    result.control = trb_type_bits(trb_type::link) | trb_toggle_cycle |
+                     (cycle ? trb_cycle : 0u);
     return result;
 }
 
@@ -379,9 +381,7 @@ class enumeration_session {
             length = 18;
             return true;
         case enumeration_phase::set_address:
-            setup = set_address_request(address_);
-            length = 0;
-            return true;
+            return false;
         case enumeration_phase::configuration_header:
             setup = get_descriptor_request(descriptor_configuration, 0, 9);
             length = 9;
@@ -452,6 +452,13 @@ class enumeration_session {
             return false;
         }
     }
+
+    bool complete_address() {
+        if (phase_ != enumeration_phase::set_address)
+            return false;
+        phase_ = enumeration_phase::configuration_header;
+        return true;
+    }
 };
 
 inline bool read8(const volatile uint8_t* base, uint64_t size, uint64_t offset,
@@ -464,23 +471,17 @@ inline bool read8(const volatile uint8_t* base, uint64_t size, uint64_t offset,
 
 inline bool read16(const volatile uint8_t* base, uint64_t size, uint64_t offset,
                    uint16_t& result) {
-    uint8_t bytes[2]{};
-    if (offset > size || size - offset < 2 || !read8(base, size, offset, bytes[0]) ||
-        !read8(base, size, offset + 1, bytes[1]))
+    if (base == nullptr || (offset & 1u) != 0 || offset > size || size - offset < 2)
         return false;
-    result = le16(bytes);
+    result = *reinterpret_cast<volatile const uint16_t*>(base + offset);
     return true;
 }
 
 inline bool read32(const volatile uint8_t* base, uint64_t size, uint64_t offset,
                    uint32_t& result) {
-    uint8_t bytes[4]{};
-    if (offset > size || size - offset < 4)
+    if (base == nullptr || (offset & 3u) != 0 || offset > size || size - offset < 4)
         return false;
-    for (unsigned i = 0; i < 4; ++i)
-        if (!read8(base, size, offset + i, bytes[i]))
-            return false;
-    result = le32(bytes);
+    result = *reinterpret_cast<volatile const uint32_t*>(base + offset);
     return true;
 }
 
@@ -498,17 +499,30 @@ inline bool probe(const volatile uint8_t* base, uint64_t bar_size, probe_result&
         !read32(base, bar_size, 0x10, hccparams) || !read32(base, bar_size, 0x14, doorbell) ||
         !read32(base, bar_size, 0x18, runtime))
         return false;
-    if (cap_length < 0x20 || cap_length >= bar_size || (doorbell & 3u) != 0 ||
-        (runtime & 0x1fu) != 0)
-        return false;
-    const uint8_t max_slots = static_cast<uint8_t>(params1 & 0xffu);
-    const uint16_t max_interrupters = static_cast<uint16_t>((params1 >> 8) & 0x7ffu);
-    const uint8_t max_ports = static_cast<uint8_t>(params1 >> 24);
-    if (max_slots == 0 || max_interrupters == 0 || max_ports == 0)
-        return false;
-    const uint16_t scratchpads = static_cast<uint16_t>(((params2 >> 21) & 0x1fu) << 5 |
-                                                       ((params2 >> 27) & 0x1fu));
     const uint64_t operational = cap_length;
+    const uint64_t doorbell_offset = doorbell & ~3u;
+    const uint64_t runtime_offset = runtime & ~0x1fu;
+    const uint64_t extended_offset = static_cast<uint64_t>(hccparams >> 16) << 2;
+    if (cap_length < 0x20 || operational > bar_size || bar_size - operational < 0x404 ||
+        (doorbell & 3u) != 0 || doorbell_offset > bar_size || bar_size - doorbell_offset < 4 ||
+        (runtime & 0x1fu) != 0 || runtime_offset > bar_size || bar_size - runtime_offset < 0x20 ||
+        (extended_offset != 0 &&
+         (extended_offset > bar_size || bar_size - extended_offset < 4)))
+        return false;
+    result.capabilities.capability_length = cap_length;
+    result.capabilities.interface_version = version;
+    result.capabilities.max_slots = static_cast<uint8_t>(params1 & 0xffu);
+    result.capabilities.max_interrupters = static_cast<uint16_t>((params1 >> 8) & 0x7ffu);
+    result.capabilities.max_ports = static_cast<uint8_t>(params1 >> 24);
+    result.capabilities.max_scratchpad_buffers =
+        static_cast<uint16_t>(((params2 >> 21) & 0x1fu) << 5 | ((params2 >> 27) & 0x1fu));
+    result.capabilities.context_size_64 = (hccparams & (1u << 2)) != 0;
+    result.capabilities.address_64 = (hccparams & 1u) != 0;
+    result.capabilities.doorbell_offset = static_cast<uint32_t>(doorbell_offset);
+    result.capabilities.runtime_offset = static_cast<uint32_t>(runtime_offset);
+    if (result.capabilities.max_slots == 0 || result.capabilities.max_interrupters == 0 ||
+        result.capabilities.max_ports == 0)
+        return false;
     uint32_t status = 0;
     uint32_t page_sizes = 0;
     uint32_t configure = 0;
@@ -518,16 +532,6 @@ inline bool probe(const volatile uint8_t* base, uint64_t bar_size, probe_result&
         !read32(base, bar_size, operational + 0x38, configure) ||
         !read32(base, bar_size, operational + 0x400, port_status))
         return false;
-    result.capabilities.capability_length = cap_length;
-    result.capabilities.interface_version = version;
-    result.capabilities.max_slots = max_slots;
-    result.capabilities.max_interrupters = max_interrupters;
-    result.capabilities.max_ports = max_ports;
-    result.capabilities.max_scratchpad_buffers = scratchpads;
-    result.capabilities.context_size_64 = (hccparams & (1u << 2)) != 0;
-    result.capabilities.address_64 = (hccparams & 1u) != 0;
-    result.capabilities.doorbell_offset = doorbell & ~3u;
-    result.capabilities.runtime_offset = runtime & ~0x1fu;
     result.capabilities.operational_status = status;
     result.capabilities.page_size_mask = page_sizes & 0xffffu;
     result.capabilities.configure = configure;

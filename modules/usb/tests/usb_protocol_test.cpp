@@ -36,6 +36,9 @@ int main() {
     assert((data_trb.control.get() & astia::usb::xhci::trb_direction_in) != 0);
     assert((astia::usb::xhci::make_status_trb(false, true).control.get() &
             astia::usb::xhci::trb_interrupt_on_completion) != 0);
+    const trb link_trb = astia::usb::xhci::make_link_trb(0x1000, true);
+    assert((link_trb.control.get() & astia::usb::xhci::trb_toggle_cycle) != 0);
+    assert((link_trb.control.get() & astia::usb::xhci::trb_chain) == 0);
 
     trb ring_memory[64]{};
     astia::usb::xhci::control_ring<64> ring;
@@ -85,6 +88,7 @@ int main() {
     assert(next_setup.length == 18 && next_length == 18);
     assert(session.complete(device, sizeof device));
     assert(session.phase() == enumeration_phase::set_address);
+    assert(!session.next(next_setup, next_length));
     assert(session.complete(nullptr, 0));
     assert(session.next(next_setup, next_length));
     assert(next_setup.value == static_cast<uint16_t>(descriptor_configuration << 8));
