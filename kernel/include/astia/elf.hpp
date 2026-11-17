@@ -143,7 +143,9 @@ namespace astia::elf {
     /// (one contiguous span, at a fixed address for ET_EXEC or an
     /// allocator-chosen one for ET_DYN), zero the bss, apply the
     /// R_X86_64_RELATIVE dynamic relocations, and set `entry` to e_entry +
-    /// load_bias. Requires `env::map`.
+    /// load_bias. Requires `env::map` and `env::unmap`; failed loads release
+    /// the mapped span, while successful loads transfer ownership to the
+    /// caller.
     bool        load_executable(span<const u8> bytes, const env& e, image& out);
     inline bool load_executable(const void* bytes, usize len, const env& e, image& out) {
         return load_executable(span<const u8>(static_cast<const u8*>(bytes), len), e,
