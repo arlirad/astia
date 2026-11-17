@@ -1,6 +1,8 @@
 #include <astia/net.hpp>
 
 #include <cassert>
+#include <atomic>
+#include <thread>
 
 namespace {
 
@@ -31,6 +33,15 @@ void reclaim_tx(void* context, const astia::net::tx_request*, int status) {
     auto& value = *static_cast<tracker*>(context);
     ++value.reclaimed;
     value.last_status = status;
+}
+
+struct concurrent_tracker {
+    std::atomic<unsigned> reclaimed{0};
+};
+
+void reclaim_concurrent(void* context, const astia::net::tx_request*, int) {
+    static_cast<concurrent_tracker*>(context)->reclaimed.fetch_add(1,
+                                                                    std::memory_order_relaxed);
 }
 
 astia::net::packet_view packet(tracker& value) {
@@ -81,7 +92,7 @@ int main() {
     assert(rx.recycled == 3);
     assert(rx.last_status == 0);
 
-    astia::net::tx_path<2, 2> tx;
+    astia::net::tx_path<2, 2> tx(&rx);
     astia::net::tx_request request{};
     uint8_t data = 0;
     request.data = &data;
@@ -96,8 +107,9 @@ int main() {
     assert(tx.complete(active, 0));
     assert(tx.poll() == 1);
     assert(rx.reclaimed == 1 && rx.last_status == 0);
-    tx.reset();
+    assert(tx.cancel(request));
     assert(rx.reclaimed == 2 && rx.last_status == -ECANCELED);
+    tx.reset();
     assert(tx.generation() == 2);
     assert(!tx.complete(active, 0));
 
@@ -105,7 +117,19 @@ int main() {
     device.set_generation(7);
     assert(device.generation() == 7);
     assert(device.tx().generation() == 7);
+    astia::net::tx_request public_request{};
+    public_request.data = &data;
+    public_request.length = 1;
+    public_request.reclaim = reclaim_tx;
+    assert(device.tx().submit(public_request) == 0);
+    assert(device.tx().dequeue(active));
+    assert(device.tx().complete(active, 0));
+    assert(device.tx().poll() == 1);
+    assert(rx.reclaimed == 3 && rx.last_status == 0);
     astia::net::registry registry;
+    astia::net::netdev malformed(nullptr);
+    assert(!malformed.valid());
+    assert(!registry.register_device(malformed));
     assert(registry.register_device(device));
     assert(registry.count() == 1);
     assert(registry.unregister_device(device));
@@ -118,4 +142,73 @@ int main() {
         assert(registry.count() == 1);
     }
     assert(registry.count() == 0);
+
+    concurrent_tracker concurrent{};
+    astia::net::tx_path<32, 32> concurrent_path(&concurrent);
+    std::atomic<bool> producer_done{false};
+    std::atomic<unsigned> accepted{0};
+    std::thread producer([&] {
+        uint8_t byte = 0;
+        for (unsigned i = 0; i < 512; ++i) {
+            astia::net::tx_request item{};
+            item.data = &byte;
+            item.length = 1;
+            item.reclaim = reclaim_concurrent;
+            while (concurrent_path.submit(item) == -EAGAIN)
+                std::this_thread::yield();
+            accepted.fetch_add(1, std::memory_order_relaxed);
+        }
+        producer_done.store(true, std::memory_order_release);
+    });
+    std::thread consumer([&] {
+        unsigned consumed = 0;
+        astia::net::tx_request item{};
+        while (!producer_done.load(std::memory_order_acquire) ||
+               consumed != accepted.load(std::memory_order_acquire)) {
+            if (!concurrent_path.dequeue(item)) {
+                std::this_thread::yield();
+                continue;
+            }
+            while (!concurrent_path.complete(item, 0))
+                std::this_thread::yield();
+            ++consumed;
+            concurrent_path.poll();
+        }
+        concurrent_path.poll();
+    });
+    producer.join();
+    consumer.join();
+    assert(concurrent.reclaimed.load(std::memory_order_relaxed) == accepted.load());
+
+    concurrent_tracker reset_tracker{};
+    astia::net::tx_path<32, 8> reset_path(&reset_tracker);
+    std::atomic<bool> reset_producer_done{false};
+    std::atomic<unsigned> reset_accepted{0};
+    std::thread reset_producer([&] {
+        uint8_t byte = 0;
+        for (unsigned i = 0; i < 512; ++i) {
+            astia::net::tx_request item{};
+            item.data = &byte;
+            item.length = 1;
+            item.reclaim = reclaim_concurrent;
+            int result = 0;
+            while ((result = reset_path.submit(item)) == -EAGAIN)
+                std::this_thread::yield();
+            if (result == 0)
+                reset_accepted.fetch_add(1, std::memory_order_relaxed);
+        }
+        reset_producer_done.store(true, std::memory_order_release);
+    });
+    std::thread resetter([&] {
+        for (unsigned i = 0; i < 32; ++i) {
+            reset_path.reset();
+            std::this_thread::yield();
+        }
+    });
+    reset_producer.join();
+    resetter.join();
+    reset_path.reset();
+    assert(reset_producer_done.load(std::memory_order_acquire));
+    assert(reset_tracker.reclaimed.load(std::memory_order_relaxed) ==
+           reset_accepted.load(std::memory_order_relaxed));
 }

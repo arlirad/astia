@@ -8,7 +8,7 @@ stack consumes the registry in `<astia/net.hpp>` directly.
 ## Public boundary
 
 The C++ API in `<astia/net.hpp>` is the device boundary. `astia::net::netdev`
-is a first-class `dev::device` with metadata, callback context, RX/TX ownership
+is a standalone typed network object with metadata, callback context, RX/TX ownership
 paths, and generation state. `astia::net::registry` is the single network-device
 registry. The PCI module ABI only supplies match, probe, and remove adapters;
 probe returns the `astia::net::netdev` constructed by the module. Pointers

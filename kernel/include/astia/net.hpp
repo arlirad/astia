@@ -4,8 +4,6 @@
 #include <astia/common.hpp>
 #include <astia/mm/shptr.hpp>
 
-#include <astia/dev/device.hpp>
-
 namespace astia::net {
 
     struct packet_segment {
@@ -74,9 +72,14 @@ namespace astia::net {
         volatile u32 tail_ = 0;
 
         public:
-        bounded_spsc_queue() = default;
+        bounded_spsc_queue() { initialize(); }
         bounded_spsc_queue(const bounded_spsc_queue&) = delete;
         bounded_spsc_queue& operator=(const bounded_spsc_queue&) = delete;
+
+        void initialize() {
+            __atomic_store_n(&head_, 0, __ATOMIC_RELAXED);
+            __atomic_store_n(&tail_, 0, __ATOMIC_RELAXED);
+        }
 
         bool push(const T& value) {
             const u32 head = __atomic_load_n(&head_, __ATOMIC_RELAXED);
@@ -119,11 +122,17 @@ namespace astia::net {
 
         public:
         bounded_mpsc_queue() {
-            for (u32 i = 0; i < Capacity; ++i)
-                __atomic_store_n(&cells_[i].sequence, i, __ATOMIC_RELAXED);
+            initialize();
         }
         bounded_mpsc_queue(const bounded_mpsc_queue&) = delete;
         bounded_mpsc_queue& operator=(const bounded_mpsc_queue&) = delete;
+
+        void initialize() {
+            __atomic_store_n(&enqueue_position_, 0, __ATOMIC_RELAXED);
+            __atomic_store_n(&dequeue_position_, 0, __ATOMIC_RELAXED);
+            for (u32 i = 0; i < Capacity; ++i)
+                __atomic_store_n(&cells_[i].sequence, i, __ATOMIC_RELAXED);
+        }
 
         bool push(const T& value) {
             u32 position = __atomic_load_n(&enqueue_position_, __ATOMIC_RELAXED);
@@ -175,42 +184,109 @@ namespace astia::net {
 
         bounded_mpsc_queue<tx_request, PendingDepth> pending_;
         bounded_spsc_queue<completion, CompletionDepth> completed_;
-        u64 generation_ = 1;
-        bool accepting_ = true;
+        volatile u64 generation_ = 1;
+        volatile u32 accepting_ = 1;
+        volatile u32 submitters_ = 0;
+        volatile u32 completers_ = 0;
+        volatile u32 consumer_lock_ = 0;
 
-        static void reclaim(tx_request& request, int status) {
-            if (request.reclaim != nullptr) {
-                const auto callback = request.reclaim;
-                request.reclaim = nullptr;
-                callback(request.cookie, &request, status);
+        void lock_consumer() {
+            u32 expected = 0;
+            while (!__atomic_compare_exchange_n(&consumer_lock_, &expected, 1, false,
+                                                 __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                expected = 0;
+                asm volatile("pause");
             }
         }
 
-        public:
-        int submit(tx_request request) {
-            if (!accepting_ || request.data == nullptr || request.length == 0 ||
-                request.reclaim == nullptr)
-                return -EINVAL;
-            request.generation = generation_;
-            return pending_.push(request) ? 0 : -EAGAIN;
+        void unlock_consumer() {
+            __atomic_store_n(&consumer_lock_, 0, __ATOMIC_RELEASE);
         }
 
-        bool dequeue(tx_request& request) { return pending_.pop(request); }
+        void reclaim(tx_request& request, int status) {
+            if (request.reclaim != nullptr) {
+                const auto callback = request.reclaim;
+                request.reclaim = nullptr;
+                callback(context_, &request, status);
+            }
+        }
+
+        void stop_accepting() {
+            __atomic_store_n(&accepting_, 0, __ATOMIC_RELEASE);
+            while (__atomic_load_n(&submitters_, __ATOMIC_ACQUIRE) != 0 ||
+                   __atomic_load_n(&completers_, __ATOMIC_ACQUIRE) != 0)
+                asm volatile("pause");
+        }
+
+        void start_accepting() {
+            __atomic_store_n(&accepting_, 1, __ATOMIC_RELEASE);
+        }
+
+        public:
+        explicit tx_path(void* context = nullptr) { initialize(context); }
+
+        tx_path(const tx_path&) = delete;
+        tx_path& operator=(const tx_path&) = delete;
+
+        void initialize(void* context = nullptr) {
+            pending_.initialize();
+            completed_.initialize();
+            __atomic_store_n(&generation_, 1, __ATOMIC_RELAXED);
+            __atomic_store_n(&accepting_, 1, __ATOMIC_RELAXED);
+            __atomic_store_n(&submitters_, 0, __ATOMIC_RELAXED);
+            __atomic_store_n(&completers_, 0, __ATOMIC_RELAXED);
+            __atomic_store_n(&consumer_lock_, 0, __ATOMIC_RELAXED);
+            context_ = context;
+        }
+
+        int submit(tx_request request) {
+            if (request.data == nullptr || request.length == 0 ||
+                request.reclaim == nullptr)
+                return -EINVAL;
+            if (__atomic_load_n(&accepting_, __ATOMIC_ACQUIRE) == 0)
+                return -ECANCELED;
+            __atomic_add_fetch(&submitters_, 1, __ATOMIC_ACQUIRE);
+            if (__atomic_load_n(&accepting_, __ATOMIC_ACQUIRE) == 0) {
+                __atomic_sub_fetch(&submitters_, 1, __ATOMIC_RELEASE);
+                return -ECANCELED;
+            }
+            request.generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
+            const bool pushed = pending_.push(request);
+            __atomic_sub_fetch(&submitters_, 1, __ATOMIC_RELEASE);
+            return pushed ? 0 : -EAGAIN;
+        }
+
+        bool dequeue(tx_request& request) {
+            lock_consumer();
+            const bool result = pending_.pop(request);
+            unlock_consumer();
+            return result;
+        }
 
         bool complete(const tx_request& request, int status) {
-            if (!accepting_ || request.generation != generation_)
+            __atomic_add_fetch(&completers_, 1, __ATOMIC_ACQUIRE);
+            if (__atomic_load_n(&accepting_, __ATOMIC_ACQUIRE) == 0 ||
+                request.generation != __atomic_load_n(&generation_, __ATOMIC_ACQUIRE)) {
+                __atomic_sub_fetch(&completers_, 1, __ATOMIC_RELEASE);
                 return false;
-            return completed_.push({request, status});
+            }
+            const bool pushed = completed_.push({request, status});
+            __atomic_sub_fetch(&completers_, 1, __ATOMIC_RELEASE);
+            return pushed;
         }
 
         bool cancel(const tx_request& request) {
-            if (request.generation != generation_)
+            const u64 generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
+            if (request.generation != 0 && request.generation != generation)
                 return false;
+            stop_accepting();
+            lock_consumer();
             tx_request pending{};
             bool found = false;
             bounded_spsc_queue<tx_request, PendingDepth> retained;
             while (pending_.pop(pending)) {
-                if (!found && pending.cookie == request.cookie) {
+                if (!found && pending.cookie == request.cookie &&
+                    pending.generation == generation) {
                     reclaim(pending, -ECANCELED);
                     found = true;
                 } else {
@@ -219,35 +295,59 @@ namespace astia::net {
             }
             while (retained.pop(pending))
                 pending_.push(pending);
+            unlock_consumer();
+            start_accepting();
             return found;
         }
 
         u32 poll() {
+            lock_consumer();
             u32 count = 0;
             completion item{};
             while (completed_.pop(item)) {
                 reclaim(item.request, item.status);
                 ++count;
             }
+            unlock_consumer();
             return count;
         }
 
         void reset() {
-            accepting_ = false;
+            stop_accepting();
+            lock_consumer();
             tx_request request{};
             while (pending_.pop(request))
                 reclaim(request, -ECANCELED);
             completion item{};
             while (completed_.pop(item))
                 reclaim(item.request, -ECANCELED);
-            ++generation_;
-            if (generation_ == 0)
-                generation_ = 1;
-            accepting_ = true;
+            u64 generation = __atomic_load_n(&generation_, __ATOMIC_RELAXED) + 1;
+            if (generation == 0)
+                generation = 1;
+            __atomic_store_n(&generation_, generation, __ATOMIC_RELEASE);
+            unlock_consumer();
+            start_accepting();
         }
 
-        void set_generation(u64 value) { generation_ = value == 0 ? 1 : value; }
-        u64 generation() const { return generation_; }
+        bool abort_inflight(const tx_request& request, int status) {
+            if (request.reclaim == nullptr)
+                return false;
+            tx_request copy = request;
+            reclaim(copy, status);
+            return true;
+        }
+
+        void set_context(void* context) { context_ = context; }
+        bool accepting() const {
+            return __atomic_load_n(&accepting_, __ATOMIC_ACQUIRE) != 0;
+        }
+        void set_generation(u64 value) {
+            __atomic_store_n(&generation_, value == 0 ? 1 : value, __ATOMIC_RELEASE);
+        }
+        u64 generation() const { return __atomic_load_n(&generation_, __ATOMIC_ACQUIRE); }
+
+        private:
+        void* context_ = nullptr;
     };
 
     class rx_path final {
@@ -303,18 +403,37 @@ namespace astia::net {
         bounded_spsc_queue<packet_view, depth> deferred_path_;
     };
 
-    class netdev : public dev::device {
+    class netdev final {
         public:
         static constexpr u32 tx_pending_depth = 16;
         static constexpr u32 tx_completion_depth = 4;
 
         netdev(const char* name, void* context = nullptr,
                rx_irq_callback irq = nullptr, rx_deferred_callback deferred = nullptr)
-            : dev::device(name, dev::dv_mqueue | dev::dv_net), context_(context),
-              rx_(irq, deferred, context) {}
+            : context_(context), rx_(irq, deferred, context), tx_(context) {
+            initialize(name, context, irq, deferred);
+        }
 
-        long read(void*, u32, u64) override { return -ENOTSUP; }
-        long write(const void*, u32, u64) override { return -ENOTSUP; }
+        void initialize(const char* name, void* context = nullptr,
+                        rx_irq_callback irq = nullptr,
+                        rx_deferred_callback deferred = nullptr) {
+            name_[0] = '\0';
+            u32 index = 0;
+            while (index < sizeof(name_) - 1 && name != nullptr && name[index] != '\0') {
+                name_[index] = name[index];
+                ++index;
+            }
+            name_[index] = '\0';
+            tag_ = contract_tag;
+            context_ = context;
+            rx_.set_callbacks(irq, deferred, context);
+            tx_.initialize(context);
+            running_ = false;
+        }
+
+        static constexpr u64 contract_tag = 0x4E45544445563101ull;
+        bool valid() const { return tag_ == contract_tag && name_[0] != '\0'; }
+        const char* name() const { return name_; }
 
         void set_mac(const u8* value) {
             if (value == nullptr)
@@ -340,10 +459,14 @@ namespace astia::net {
         bool rx_deferred_full() const { return rx_.deferred_full(); }
         void set_callbacks(rx_irq_callback irq, rx_deferred_callback deferred, void* context) {
             rx_.set_callbacks(irq, deferred, context);
+            context_ = context;
+            tx_.set_context(context);
         }
         tx_path<tx_pending_depth, tx_completion_depth>& tx() { return tx_; }
 
         private:
+        char name_[16]{};
+        u64 tag_ = contract_tag;
         u8 mac_[6]{};
         u16 mtu_ = 1500;
         u32 link_flags_ = 0;
@@ -361,7 +484,7 @@ namespace astia::net {
             for (u32 i = 0; i < count_; ++i)
                 if (devices_[i] == &device)
                     return true;
-            if (device.name() == nullptr || device.name()[0] == '\0' || count_ == max_devices)
+            if (!device.valid() || count_ == max_devices)
                 return false;
             devices_[count_++] = &device;
             return true;
