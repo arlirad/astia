@@ -1,6 +1,7 @@
 #include "support/test.hpp"
 #include <astia/mm/shptr.hpp>
 #include <astia/mm/uptr.hpp>
+#include <new>
 
 namespace {
 
@@ -37,4 +38,19 @@ ASTIA_TEST(shptr_borrowed_never_deletes) {
         ASTIA_CHECK(second.get() == &value);
     }
     ASTIA_CHECK(destroyed == 0);
+}
+
+ASTIA_TEST(shptr_borrowed_static_storage_never_deletes) {
+    int destroyed = 0;
+    alignas(probe) unsigned char storage[sizeof(probe)]{};
+    probe* value = ::new (storage) probe{&destroyed};
+    {
+        auto first = astia::mm::shptr<probe>::borrowed(value);
+        auto second = first;
+        ASTIA_CHECK(first.get() == value);
+        ASTIA_CHECK(second.get() == value);
+    }
+    ASTIA_CHECK(destroyed == 0);
+    value->~probe();
+    ASTIA_CHECK(destroyed == 1);
 }
