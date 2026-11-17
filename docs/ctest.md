@@ -4,14 +4,29 @@ Configure and build the repository test tree from a clean directory:
 
 ```sh
 cmake -S . -B build-tests -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt \
-  -DASTIA_BUILD_TESTS=ON -DASTIA_CROSS_USERSPACE=ON
+  -DASTIA_CROSS_USERSPACE=ON
 cmake --build build-tests
 ctest --test-dir build-tests --output-on-failure
 ```
 
-The reference toolchain registers 124 tests. The exact count is reported by
-`ctest --test-dir build-tests -N` because boot tests are omitted when their
-host tools are unavailable.
+The repository-level CMake project enables `ASTIA_BUILD_TESTS` by default, so
+a fresh CLion CMake profile rooted at the repository registers the
+deterministic tests for the CTest Application. Verify discovery without
+running anything with:
+
+```sh
+ctest --test-dir build-tests --show-only=json-v1
+```
+
+External and manual suites remain registered for discovery, but are disabled
+unless explicitly enabled. CLion can display a disabled CTest entry as failed
+with `0 ms`; verify with `ctest -V -R`, which reports `Not Run (Disabled)` and
+does not invoke the test command. This is not a missing executable failure.
+
+The exact count is reported by `ctest --test-dir build-tests -N` because boot
+tests are omitted when their host tools are unavailable. Set
+`-DASTIA_BUILD_TESTS=OFF` only for a build that should expose the three
+repository smoke tests without compiling the host test tree.
 
 Use labels to select suites:
 
@@ -25,10 +40,28 @@ ctest --test-dir build-tests -L qemu --output-on-failure
 ```
 
 The deterministic host, fixture, module, ext4, boot, and local QEMU tests are
-registered by default when `ASTIA_BUILD_TESTS=ON`. External zsh, nano, and LTP
-tests are visible but disabled unless `ASTIA_ENABLE_EXTERNAL_TESTS=ON` is set
-at configure time. Graphical and interactive tests have `manual` labels and
-also require `ASTIA_ENABLE_MANUAL_TESTS=ON`; they never run accidentally in CI.
+registered by default. External zsh, nano, and LTP tests remain disabled
+unless `ASTIA_ENABLE_EXTERNAL_TESTS=ON` is set at configure time. Graphical
+and interactive tests have `manual` labels and also require
+`ASTIA_ENABLE_MANUAL_TESTS=ON`; they never run accidentally in CI. Keep both
+options OFF in the normal CLion profile.
+
+Enabling the external suites requires QEMU, `cpio`, and clean external source
+trees. Provide a clean zsh checkout with `ASTIA_ZSH_SOURCE` and a clean LTP
+checkout with `ASTIA_POSIX_TEST_SOURCE`; the nano smoke test additionally
+needs a built nano binary supplied as `NANO_BINARY=/path/to/nano` when CTest
+runs. VGA tests also require `grub-file`,
+`grub-mkrescue`, `xorriso`, and Python. The graphical VGA test needs a usable
+display, while the PVH fallback test uses the serial path. Enable the suites
+explicitly when those prerequisites are available:
+
+```sh
+cmake -S . -B build-tests -DASTIA_BUILD_TESTS=ON \
+  -DASTIA_ENABLE_EXTERNAL_TESTS=ON \
+  -DASTIA_ENABLE_MANUAL_TESTS=ON \
+  -DASTIA_ZSH_SOURCE=/path/to/zsh \
+  -DASTIA_POSIX_TEST_SOURCE=/path/to/ltp
+```
 
 External source trees can be supplied without changing the repository:
 
