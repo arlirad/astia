@@ -102,6 +102,20 @@ namespace astia::proc {
             return false;
         }
 
+        void unmap_user(void* opaque, void* address, usize size) {
+            auto& image = *static_cast<image_map*>(opaque);
+            for (u32 i = 0; i < image.count; ++i) {
+                auto& segment = image.segs[i];
+                if (segment.used && segment.virt == reinterpret_cast<u64>(address) &&
+                    segment.pages * elf::page_size == size) {
+                    unmap_run(*image.map, segment.virt, segment.pages);
+                    mm::kernel_frames().release(segment.frames, segment.pages);
+                    segment.used = false;
+                    return;
+                }
+            }
+        }
+
         // The ELF loader reserves and maps one contiguous span for all
         // PT_LOAD segments.  Until VMAs can split that span at each
         // segment boundary, keep the span executable and writable:
@@ -180,6 +194,7 @@ namespace astia::proc {
         elf::env   environment{};
         environment.ctx = &image_state;
         environment.map = map_user;
+        environment.unmap = unmap_user;
         environment.copy = copy_image;
         elf::image image{};
 
