@@ -22,9 +22,11 @@ add_test(NAME astia_direct_vga_gdb_smoke
         COMMAND ${CMAKE_COMMAND} -P
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/direct_vga_gdb_smoke.cmake)
 set_tests_properties(astia_license_metadata astia_vga_launcher_defaults
+        astia_direct_vga_gdb_smoke
         PROPERTIES LABELS "repository;deterministic" TIMEOUT 30)
 
-option(ASTIA_BUILD_TESTS "Build and register host-side unit tests" OFF)
+option(ASTIA_BUILD_TESTS
+        "Build and register deterministic host-side tests" ON)
 option(ASTIA_ENABLE_EXTERNAL_TESTS
         "Enable CTest suites requiring external source trees or network access" OFF)
 option(ASTIA_ENABLE_MANUAL_TESTS
@@ -340,7 +342,7 @@ if(ASTIA_BUILD_TESTS)
         list(APPEND _astia_vga_env ZSH_SOURCE=${ASTIA_ZSH_SOURCE})
     endif()
     astia_register_script_test(astia_vga_graphical
-            "vga;graphical;ttv0;external;manual"
+            "vga;graphical;qemu;ttv0;external;manual"
             ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/run-zsh-vga-qemu.sh
             EXTERNAL MANUAL TIMEOUT 360
             ENV
@@ -353,7 +355,7 @@ if(ASTIA_BUILD_TESTS)
                 ASTIA_ZSH_VGA_HARNESS=1
                 ASTIA_VGA_FALLBACK=fail)
     astia_register_script_test(astia_vga_pvh_fallback
-            "vga;pvh;uart;ttv0;external;deterministic"
+            "vga;pvh;uart;qemu;ttv0;external;deterministic"
             ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/run-zsh-vga-qemu.sh
             EXTERNAL TIMEOUT 300
             ENV

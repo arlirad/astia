@@ -204,6 +204,11 @@ cmake --build build-tests
 ctest --test-dir build-tests --output-on-failure
 ```
 
+`ASTIA_BUILD_TESTS` defaults to `ON` for the repository-level CMake project,
+so a fresh CLion CMake profile discovers the deterministic tests in the CTest
+Application. External and interactive suites remain disabled unless their
+explicit opt-in options are enabled; see [`docs/ctest.md`](docs/ctest.md).
+
 The direct launcher smoke test checks the generated QEMU arguments, the GDB
 endpoint, both paused and attach modes, and the expected serial boot marker.
 
