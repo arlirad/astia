@@ -1,16 +1,15 @@
 # RTL8139 bounded network foundation
 
 This directory contains a C++-primary RTL8139C(L)+ C-mode foundation using
-the first-class `astia::net` subsystem. The
-module matches Realtek PCI vendor `10ec`, device `8139`, class `02/00`, enables
-PCI bus mastering, maps a memory BAR, allocates the 8 KiB plus 16 byte C-mode
-receive allocation, performs software reset, configures receive/transmit
-registers, and requests MSI-X when the platform exposes it. The existing
-module ABI has no generic INTx or network-device registration adapter, so a
-QEMU device without MSI-X is reported as `probed_no_irq`; this code does not
-claim a kernel network stack. Net devices are registered through the net ABI
-and are never registered under `/dev`; a future socket/network stack consumes
-them directly.
+the first-class `astia::net::netdev` subsystem. The module matches
+Realtek PCI vendor `10ec`, device `8139`, class `02/00`, enables PCI bus
+mastering, maps a memory BAR, allocates the 8 KiB plus 16 byte C-mode receive
+allocation, performs software reset, configures receive/transmit registers,
+and requests MSI-X when the platform exposes it. The existing module ABI has
+no generic INTx adapter, so a QEMU device without MSI-X is reported as
+`probed_no_irq`; this code does not claim a kernel network stack. The module
+constructs a first-class net device; PCI discovery adds it to the net registry,
+never to `/dev`, and a future socket/network stack consumes it directly.
 
 `rtl8139_protocol.hpp` owns the typed register offsets, little-endian access,
 page-size calculation, C-mode receive-header parsing, and bounded queues. The

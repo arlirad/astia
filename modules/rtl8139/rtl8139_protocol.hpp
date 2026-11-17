@@ -1,8 +1,6 @@
 #pragma once
 
-#include <astia/module_abi_core.h>
-#include <astia/module_abi_pci.h>
-#include <astia/net.hpp>
+#include <astia/module_abi.hpp>
 
 #include <stdint.h>
 
@@ -227,21 +225,10 @@ inline rx_inspect_result inspect_rx_packet(const uint8_t* ring, uint16_t cursor,
     return rx_inspect_result::ready;
 }
 
-enum class rx_action : uint8_t { recycle, defer, drop };
-using rx_irq_callback = rx_action (*)(void*, const packet_view&);
-using rx_deferred_callback = void (*)(void*, const packet_view&);
-
-struct tx_request;
-using tx_reclaim_callback = void (*)(void*, const tx_request&, int);
-
-struct tx_request {
-    const uint8_t* data = nullptr;
-    uint64_t physical = 0;
-    uint16_t length = 0;
-    uint64_t generation = 0;
-    void* cookie = nullptr;
-    tx_reclaim_callback reclaim = nullptr;
-};
+using rx_action = astia::net::rx_action;
+using rx_irq_callback = astia::net::rx_irq_callback;
+using rx_deferred_callback = astia::net::rx_deferred_callback;
+using tx_request = astia::net::tx_request;
 
 struct tx_completion {
     tx_request request{};
@@ -253,16 +240,6 @@ using bounded_mpsc_queue = astia::net::bounded_mpsc_queue<T, Capacity>;
 
 template <typename T, uint32_t Capacity>
 using bounded_spsc_queue = astia::net::bounded_spsc_queue<T, Capacity>;
-
-struct net_device {
-    const char* name = nullptr;
-    uint8_t mac[6]{};
-    uint16_t mtu = 1500;
-    bool running = false;
-    void* context = nullptr;
-    rx_irq_callback rx_irq = nullptr;
-    rx_deferred_callback rx_deferred = nullptr;
-};
 
 enum class device_state : uint8_t {
     detached,

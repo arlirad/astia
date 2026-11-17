@@ -8,7 +8,8 @@ set(ASTIA_RTL8139_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_io.h
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_interrupt.h
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp)
 
 add_custom_command(
         OUTPUT ${ASTIA_RTL8139_OBJECT}

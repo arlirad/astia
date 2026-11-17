@@ -13,7 +13,8 @@ set(ASTIA_MODULE_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.h)
 set(ASTIA_MODULE_ABI_CXX_HEADERS
         ${ASTIA_MODULE_ABI_HEADERS}
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp)
 
 set(ASTIA_MODULE_ABI_HEADER_CXX_OBJECTS)
 foreach(ASTIA_MODULE_ABI_HEADER IN LISTS ASTIA_MODULE_ABI_CXX_HEADERS)
@@ -65,6 +66,7 @@ add_custom_command(
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_abi_cpp_module.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp
         VERBATIM)
 add_custom_target(astia_module_cpp_compatibility ALL DEPENDS ${ASTIA_MODULE_ABI_CPP_OBJECT})
 
@@ -78,6 +80,7 @@ add_custom_command(
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_abi_layout.cpp
                 ${ASTIA_MODULE_ABI_HEADERS}
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp
         VERBATIM)
 add_custom_target(astia_module_abi_layout_target ALL DEPENDS ${ASTIA_MODULE_ABI_LAYOUT})
 if(ASTIA_BUILD_TESTS)

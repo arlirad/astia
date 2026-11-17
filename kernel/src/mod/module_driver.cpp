@@ -219,27 +219,9 @@ namespace astia::mod {
             const astia_module_pci_driver& ops_;
         };
 
-        class net_device final : public dev::device {
-            public:
-            net_device(const astia_module_pci_net_driver& ops, void* context)
-                : device(ops.name, dev::dv_net), ops_(ops), context_(context) {}
-
-            ~net_device() {
-                if (ops_.remove != nullptr)
-                    ops_.remove(context_);
-            }
-
-            long read(void*, u32, u64) override { return -ENOTSUP; }
-            long write(const void*, u32, u64) override { return -ENOTSUP; }
-
-            private:
-            const astia_module_pci_net_driver& ops_;
-            void* context_;
-        };
-
         class net_driver final : public dev::driver {
             public:
-            explicit net_driver(const astia_module_pci_net_driver& ops) : ops_(ops) {}
+            explicit net_driver(const astia::module::net_driver& ops) : ops_(ops) {}
 
             const char* name() const override { return ops_.name; }
 
@@ -262,10 +244,31 @@ namespace astia::mod {
                 void* context = nullptr;
                 if (ops_.probe(&device_view, &context) != 0 || context == nullptr)
                     return {};
-                auto result = mm::share<net_device>(ops_, context);
-                if (!result && ops_.remove != nullptr)
-                    ops_.remove(context);
+                auto* net = static_cast<net::netdev*>(context);
+                if ((net->flags() & dev::dv_net) == 0 ||
+                    !net::devices().register_device(*net)) {
+                    if (ops_.remove != nullptr)
+                        ops_.remove(context);
+                    return {};
+                }
+                auto result = mm::shptr<dev::device>::borrowed(net);
+                if (!result) {
+                    net::devices().unregister_device(*net);
+                    if (ops_.remove != nullptr)
+                        ops_.remove(context);
+                }
                 return result;
+            }
+
+            void remove(const dev::device_info&, const mm::shptr<dev::device>& value) override {
+                auto* net = static_cast<net::netdev*>(value.get());
+                if (net != nullptr) {
+                    net::devices().unregister_device(*net);
+                    if (ops_.remove != nullptr)
+                        ops_.remove(net->module_context());
+                } else if (ops_.remove != nullptr) {
+                    ops_.remove(nullptr);
+                }
             }
 
             private:
@@ -286,7 +289,7 @@ namespace astia::mod {
                 return result;
             }
 
-            const astia_module_pci_net_driver& ops_;
+            const astia::module::net_driver& ops_;
         };
 
         struct pci_registration {
@@ -296,7 +299,7 @@ namespace astia::mod {
         };
 
         struct net_registration {
-            const astia_module_pci_net_driver* ops = nullptr;
+            const astia::module::net_driver* ops = nullptr;
             alignas(net_driver) u8 storage[sizeof(net_driver)]{};
             net_driver* instance = nullptr;
         };
@@ -330,11 +333,6 @@ namespace astia::mod {
         u32 net_registration_count = 0;
         usb_registration usb_registrations[max_registrations]{};
         u32 usb_registration_count = 0;
-        struct net_handle {
-            astia_module_net_device* device = nullptr;
-            bool active = false;
-        };
-        net_handle net_handles[astia::net::registry::max_devices]{};
         mm::shptr<mm::iovec> pin_tokens[max_pin_tokens]{};
         u32 next_async_generation = 1;
 
@@ -858,7 +856,7 @@ namespace astia::mod {
         return true;
     }
 
-    bool register_pci_net_driver(const astia_module_pci_net_driver& ops) {
+    bool register_pci_net_driver(const astia::module::net_driver& ops) {
         if (ops.name == nullptr || ops.name[0] == '\0' || ops.match == nullptr ||
             ops.probe == nullptr || net_registration_count == max_registrations)
             return false;
@@ -873,39 +871,6 @@ namespace astia::mod {
             return false;
         }
         return true;
-    }
-
-    bool register_net_device(const astia_module_net_device& device, void** handle) {
-        if (handle == nullptr || device.name == nullptr || device.name[0] == '\0' ||
-            device.context == nullptr || device.mtu == 0)
-            return false;
-        for (net_handle& current : net_handles) {
-            if (current.active && current.device == &device)
-                return false;
-            if (current.active)
-                continue;
-            current = {const_cast<astia_module_net_device*>(&device), true};
-            if (!astia::net::devices().register_device(*current.device)) {
-                current = {};
-                return false;
-            }
-            *handle = &current;
-            return true;
-        }
-        return false;
-    }
-
-    bool unregister_net_device(void* handle) {
-        if (handle == nullptr)
-            return false;
-        for (net_handle& current : net_handles) {
-            if (handle != &current || !current.active || current.device == nullptr)
-                continue;
-            const bool removed = astia::net::devices().unregister_device(*current.device);
-            current = {};
-            return removed;
-        }
-        return false;
     }
 
     bool register_usb_driver(const astia_module_usb_driver& ops) {
@@ -1014,18 +979,9 @@ extern "C" int astia_module_register_pci_block_driver(
         return driver != nullptr && register_pci_driver(*driver) ? 0 : -EINVAL;
     }
 
-    extern "C" int astia_module_register_pci_net_driver(
-            const astia_module_pci_net_driver* driver) {
+extern "C" int astia_module_register_pci_net_driver(
+        const astia::module::net_driver* driver) {
         return driver != nullptr && register_pci_net_driver(*driver) ? 0 : -EINVAL;
-    }
-
-    extern "C" int astia_module_register_net_device(
-            const astia_module_net_device* device, void** handle) {
-        return device != nullptr && register_net_device(*device, handle) ? 0 : -EINVAL;
-    }
-
-    extern "C" int astia_module_unregister_net_device(void* handle) {
-        return unregister_net_device(handle) ? 0 : -EINVAL;
     }
 
     extern "C" int astia_module_register_usb_driver(
