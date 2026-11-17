@@ -394,8 +394,6 @@ astia_add_host_test(astia_ext4_test
         ext4_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/ext4/ext4_reader.cpp
 )
-astia_add_host_test(astia_exec_rollback_test exec_rollback_test.cpp)
-
 find_program(ASTIA_MKFS_EXT4 mkfs.ext4)
 find_program(ASTIA_E2FSCK e2fsck)
 if (ASTIA_MKFS_EXT4 AND ASTIA_E2FSCK)
@@ -445,6 +443,14 @@ function(astia_add_arena_test name)
     # Compiles out the privileged invlpg / mov cr3 in page_map.cpp.
     target_compile_definitions(${name} PRIVATE ASTIA_HOST_TEST=1)
 endfunction()
+
+astia_add_arena_test(astia_exec_rollback_test
+        exec_rollback_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/address_space.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/page_map.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/layout.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+)
 
 astia_add_arena_test(astia_rcu_hashmap_test
         rcu_hashmap_test.cpp
