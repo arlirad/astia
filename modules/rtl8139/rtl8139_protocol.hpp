@@ -2,6 +2,7 @@
 
 #include <astia/module_abi_core.h>
 #include <astia/module_abi_pci.h>
+#include <astia/net.hpp>
 
 #include <stdint.h>
 
@@ -237,6 +238,7 @@ struct tx_request {
     const uint8_t* data = nullptr;
     uint64_t physical = 0;
     uint16_t length = 0;
+    uint64_t generation = 0;
     void* cookie = nullptr;
     tx_reclaim_callback reclaim = nullptr;
 };
@@ -246,116 +248,11 @@ struct tx_completion {
     int status = 0;
 };
 
-class atomic_u32 final {
-    volatile uint32_t value_ = 0;
-
-    public:
-    atomic_u32() = default;
-    explicit atomic_u32(uint32_t value) : value_(value) {}
-    atomic_u32(const atomic_u32&) = delete;
-    atomic_u32& operator=(const atomic_u32&) = delete;
-
-    uint32_t load(int order = __ATOMIC_RELAXED) const {
-        return __atomic_load_n(&value_, order);
-    }
-
-    void store(uint32_t value, int order = __ATOMIC_RELAXED) {
-        __atomic_store_n(&value_, value, order);
-    }
-
-    bool compare_exchange(uint32_t& expected, uint32_t desired, int success = __ATOMIC_RELAXED,
-                          int failure = __ATOMIC_RELAXED) {
-        return __atomic_compare_exchange_n(&value_, &expected, desired, false, success,
-                                           failure);
-    }
-};
+template <typename T, uint32_t Capacity>
+using bounded_mpsc_queue = astia::net::bounded_mpsc_queue<T, Capacity>;
 
 template <typename T, uint32_t Capacity>
-class bounded_mpsc_queue final {
-    static_assert(Capacity >= 2 && (Capacity & (Capacity - 1u)) == 0,
-                  "queue capacity must be a power of two");
-
-    struct cell {
-        atomic_u32 sequence;
-        T value{};
-    };
-
-    cell cells_[Capacity]{};
-    atomic_u32 enqueue_position_;
-    atomic_u32 dequeue_position_;
-
-    public:
-    bounded_mpsc_queue() {
-        for (uint32_t i = 0; i < Capacity; ++i)
-            cells_[i].sequence.store(i);
-    }
-
-    bounded_mpsc_queue(const bounded_mpsc_queue&) = delete;
-    bounded_mpsc_queue& operator=(const bounded_mpsc_queue&) = delete;
-
-    bool push(const T& value) {
-        uint32_t position = enqueue_position_.load();
-        for (;;) {
-            cell& slot = cells_[position & (Capacity - 1u)];
-            const uint32_t sequence = slot.sequence.load(__ATOMIC_ACQUIRE);
-            const int32_t difference = static_cast<int32_t>(sequence - position);
-            if (difference == 0) {
-                if (enqueue_position_.compare_exchange(position, position + 1u)) {
-                    slot.value = value;
-                    slot.sequence.store(position + 1u, __ATOMIC_RELEASE);
-                    return true;
-                }
-            } else if (difference < 0) {
-                return false;
-            } else {
-                position = enqueue_position_.load();
-            }
-        }
-    }
-
-    bool pop(T& value) {
-        const uint32_t position = dequeue_position_.load();
-        cell& slot = cells_[position & (Capacity - 1u)];
-        const uint32_t sequence = slot.sequence.load(__ATOMIC_ACQUIRE);
-        if (static_cast<int32_t>(sequence - (position + 1u)) < 0)
-            return false;
-        value = slot.value;
-        slot.sequence.store(position + Capacity, __ATOMIC_RELEASE);
-        dequeue_position_.store(position + 1u);
-        return true;
-    }
-};
-
-template <typename T, uint32_t Capacity>
-class bounded_spsc_queue final {
-    static_assert(Capacity >= 2 && (Capacity & (Capacity - 1u)) == 0,
-                  "queue capacity must be a power of two");
-
-    T values_[Capacity]{};
-    atomic_u32 head_;
-    atomic_u32 tail_;
-
-    public:
-    bool push(const T& value) {
-        const uint32_t head = head_.load();
-        const uint32_t tail = tail_.load(__ATOMIC_ACQUIRE);
-        if (head - tail == Capacity)
-            return false;
-        values_[head & (Capacity - 1u)] = value;
-        head_.store(head + 1u, __ATOMIC_RELEASE);
-        return true;
-    }
-
-    bool pop(T& value) {
-        const uint32_t tail = tail_.load();
-        const uint32_t head = head_.load(__ATOMIC_ACQUIRE);
-        if (tail == head)
-            return false;
-        value = values_[tail & (Capacity - 1u)];
-        tail_.store(tail + 1u, __ATOMIC_RELEASE);
-        return true;
-    }
-};
+using bounded_spsc_queue = astia::net::bounded_spsc_queue<T, Capacity>;
 
 struct net_device {
     const char* name = nullptr;
