@@ -11,4 +11,4 @@ target_include_directories(mod PUBLIC
         ${ASTIA_KERNEL_SOURCE_DIR}/src/log
 )
 
-target_link_libraries(mod PUBLIC elf initrd libcore mm dev log)
+target_link_libraries(mod PUBLIC elf initrd libcore mm dev net log)
