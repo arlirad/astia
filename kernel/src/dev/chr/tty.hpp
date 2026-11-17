@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chrdev.hpp"
+#include <astia/dev/chr/chrdev.hpp>
 #include <astia/api/termios.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/io.hpp>

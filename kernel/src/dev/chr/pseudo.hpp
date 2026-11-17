@@ -1,6 +1,6 @@
 #pragma once
 
-#include "chrdev.hpp"
+#include <astia/dev/chr/chrdev.hpp>
 
 namespace astia::dev {
 
