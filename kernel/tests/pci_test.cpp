@@ -1,6 +1,6 @@
-#include "driver.hpp"
-#include "mmio.hpp"
-#include "pci.hpp"
+#include <astia/dev/driver.hpp>
+#include <astia/dev/mmio.hpp>
+#include <astia/dev/pci.hpp>
 #include "test.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/mmio.hpp>

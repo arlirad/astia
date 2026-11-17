@@ -8,8 +8,8 @@
 #ifdef RENAME_WHITEOUT
 #undef RENAME_WHITEOUT
 #endif
-#include "../src/dev/device.hpp"
-#include "../src/dev/driver.hpp"
+#include <astia/dev/device.hpp>
+#include <astia/dev/driver.hpp>
 
 namespace {
 
