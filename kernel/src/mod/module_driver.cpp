@@ -1,7 +1,5 @@
 #include "module_driver.hpp"
 
-#include "exports.hpp"
-
 #include <astia/dev/blk/blkdev.hpp>
 #include "../dev/device_file.hpp"
 #include <astia/dev/pci.hpp>
@@ -20,80 +18,7 @@
 #include <astia/net.hpp>
 #include <new>
 
-extern "C" void* memset(void*, int, unsigned long);
-extern "C" void* memcpy(void*, const void*, unsigned long);
-
 namespace astia::mod {
-
-    bool expose_module_abi() {
-        static bool done = false;
-        if (done)
-            return true;
-        const bool ok =
-            expose("memset", reinterpret_cast<u64>(&memset)) &&
-            expose("memcpy", reinterpret_cast<u64>(&memcpy)) &&
-            expose("astia_module_register_pci_block_driver",
-                   reinterpret_cast<u64>(&astia_module_register_pci_block_driver)) &&
-            expose("astia_module_register_pci_driver",
-                   reinterpret_cast<u64>(&astia_module_register_pci_driver)) &&
-            expose("astia_module_register_pci_net_driver",
-                   reinterpret_cast<u64>(&astia_module_register_pci_net_driver)) &&
-            expose("astia_module_register_net_device",
-                   reinterpret_cast<u64>(&astia_module_register_net_device)) &&
-            expose("astia_module_unregister_net_device",
-                   reinterpret_cast<u64>(&astia_module_unregister_net_device)) &&
-            expose("astia_module_register_usb_driver",
-                   reinterpret_cast<u64>(&astia_module_register_usb_driver)) &&
-            expose("astia_module_tty_input", reinterpret_cast<u64>(&astia_module_tty_input)) &&
-            expose("astia_module_pci_enable_bus_master",
-                   reinterpret_cast<u64>(&astia_module_pci_enable_bus_master)) &&
-            expose("astia_module_pci_map_bar", reinterpret_cast<u64>(&astia_module_pci_map_bar)) &&
-            expose("astia_module_pci_bar_mapped",
-                   reinterpret_cast<u64>(&astia_module_pci_bar_mapped)) &&
-            expose("astia_module_pci_bar_size", reinterpret_cast<u64>(&astia_module_pci_bar_size)) &&
-            expose("astia_module_pci_read32", reinterpret_cast<u64>(&astia_module_pci_read32)) &&
-            expose("astia_module_pci_read16", reinterpret_cast<u64>(&astia_module_pci_read16)) &&
-            expose("astia_module_pci_write16", reinterpret_cast<u64>(&astia_module_pci_write16)) &&
-            expose("astia_module_pci_disable_msix",
-                   reinterpret_cast<u64>(&astia_module_pci_disable_msix)) &&
-            expose("astia_module_pci_msix_request",
-                   reinterpret_cast<u64>(&astia_module_pci_msix_request)) &&
-            expose("astia_module_pci_msix_program",
-                   reinterpret_cast<u64>(&astia_module_pci_msix_program)) &&
-            expose("astia_module_pci_msix_enable",
-                   reinterpret_cast<u64>(&astia_module_pci_msix_enable)) &&
-            expose("astia_module_pci_msix_unmask",
-                   reinterpret_cast<u64>(&astia_module_pci_msix_unmask)) &&
-            expose("astia_module_pci_msix_disable",
-                   reinterpret_cast<u64>(&astia_module_pci_msix_disable)) &&
-            expose("astia_module_pci_msix_release",
-                   reinterpret_cast<u64>(&astia_module_pci_msix_release)) &&
-            expose("astia_module_dma_alloc", reinterpret_cast<u64>(&astia_module_dma_alloc)) &&
-            expose("astia_module_dma_release", reinterpret_cast<u64>(&astia_module_dma_release)) &&
-            expose("astia_module_pin_user_write",
-                   reinterpret_cast<u64>(&astia_module_pin_user_write)) &&
-            expose("astia_module_pin_user_read",
-                   reinterpret_cast<u64>(&astia_module_pin_user_read)) &&
-            expose("astia_module_unpin", reinterpret_cast<u64>(&astia_module_unpin)) &&
-            expose("astia_module_copy_out", reinterpret_cast<u64>(&astia_module_copy_out)) &&
-            expose("astia_module_copy_in", reinterpret_cast<u64>(&astia_module_copy_in)) &&
-            expose("astia_module_read_registered",
-                   reinterpret_cast<u64>(&astia_module_read_registered)) &&
-            expose("astia_module_read_registered_async",
-                   reinterpret_cast<u64>(&astia_module_read_registered_async)) &&
-            expose("astia_module_write_registered_async",
-                   reinterpret_cast<u64>(&astia_module_write_registered_async)) &&
-            expose("astia_module_io_complete",
-                   reinterpret_cast<u64>(&astia_module_io_complete)) &&
-            expose("astia_module_get_callback_context",
-                   reinterpret_cast<u64>(&astia_module_get_callback_context)) &&
-            expose("astia_module_log", reinterpret_cast<u64>(&astia_module_log)) &&
-            expose("astia_module_log_u64", reinterpret_cast<u64>(&astia_module_log_u64)) &&
-            expose("astia_module_run_selftests",
-                   reinterpret_cast<u64>(&astia_module_run_selftests));
-        done = ok;
-        return ok;
-    }
 
     namespace {
 

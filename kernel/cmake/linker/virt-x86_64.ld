@@ -89,6 +89,18 @@ SECTIONS
         *(.eh_frame.*)
     }
 
+    /* Filled after the final link from this image's own ELF symtab. The
+     * reserved bytes keep the linked addresses stable while the build tool
+     * writes the exact names and addresses into the loadable image. */
+    . = ALIGN(8);
+    .kernel_symbols : AT(ADDR(.kernel_symbols) - kernel_image_base) {
+        __kernel_symbol_table_start = .;
+        FILL(0)
+        BYTE(0)
+        . += 524287;
+        __kernel_symbol_table_end = .;
+    }
+
     /* Init steps registered with ASTIA_INIT_STEP* land here. KEEP guards them
      * against --gc-sections; the bounds are what astia::init::run() walks. */
     . = ALIGN(8);

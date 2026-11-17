@@ -35,6 +35,18 @@ extern "C" int kernel_add(int a, int b) {
     return a + b;
 }
 
+namespace kernel_fixture {
+
+    int add(int left, int right) {
+        return left + right;
+    }
+
+    int bias() {
+        return 0;
+    }
+
+}
+
 namespace {
 
     // ====================================================================
@@ -86,6 +98,12 @@ namespace {
         std::uintptr_t target = 0;
         if (std::strcmp(name, "kernel_add") == 0) {
             target = reinterpret_cast<std::uintptr_t>(&kernel_add);
+        }
+        else if (std::strcmp(name, "_ZN14kernel_fixture3addEii") == 0) {
+            target = reinterpret_cast<std::uintptr_t>(&kernel_fixture::add);
+        }
+        else if (std::strcmp(name, "_ZN14kernel_fixture4biasEv") == 0) {
+            target = reinterpret_cast<std::uintptr_t>(&kernel_fixture::bias);
         }
         if (target == 0) {
             return 0;
@@ -204,6 +222,32 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
         ASTIA_CHECK(entry() == 44); // module-local state persists across calls
     }
 
+    munmap(mem, cap);
+}
+
+ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
+    extern unsigned char module_symbols_blob[];
+    extern unsigned int module_symbols_blob_len;
+    const size_t cap = 1 << 20;
+    void* mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    ASTIA_CHECK(mem != MAP_FAILED);
+    if (mem == MAP_FAILED)
+        return;
+
+    reloc_arena a{};
+    a.base = static_cast<unsigned char*>(mem);
+    a.capacity = cap;
+    a.back = cap;
+    astia::elf::env e{};
+    e.ctx = &a;
+    e.map = reloc_map;
+    e.resolve = reloc_resolve;
+
+    astia::elf::image img;
+    ASTIA_CHECK(astia::elf::load(module_symbols_blob, module_symbols_blob_len, e, img));
+    if (img.entry != nullptr)
+        ASTIA_CHECK(reinterpret_cast<int (*)()>(img.entry)() == 42);
     munmap(mem, cap);
 }
 
