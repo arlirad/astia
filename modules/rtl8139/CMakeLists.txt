@@ -57,5 +57,8 @@ if(ASTIA_BUILD_TESTS)
     add_test(NAME rtl8139_qemu_module_load
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu-load.sh)
     set_tests_properties(rtl8139_qemu_module_load
-                         PROPERTIES LABELS "module;rtl8139;qemu;deterministic")
+                         PROPERTIES LABELS "module;rtl8139;qemu;deterministic"
+                         ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}"
+                         FIXTURES_REQUIRED astia-qemu-artifacts
+                         RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
 endif()
