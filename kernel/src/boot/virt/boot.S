@@ -201,6 +201,8 @@ boot_pdpt_img:
     .skip 4096
 .align 16
 boot_stack:
+    .global boot_stack
     .equ boot_stack_bytes, 16384
     .skip boot_stack_bytes
+    .global boot_stack_top
 boot_stack_top:
