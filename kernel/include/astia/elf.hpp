@@ -71,6 +71,7 @@ namespace astia::elf {
     struct env {
         void*         ctx        = nullptr;
         map_fn        map        = nullptr;
+        unmap_fn      unmap      = nullptr;
         resolve_fn    resolve    = nullptr;
         copy_fn       copy       = nullptr;
     };
@@ -129,7 +130,9 @@ namespace astia::elf {
     /// Load a relocatable (ET_REL) object: lay out its SHF_ALLOC sections in
     /// one contiguous block, resolve undefined symbols through `env::resolve`,
     /// apply the section relocations, and set `entry` to the defined
-    /// `module_main` symbol. Requires `env::map`.
+    /// `module_main` symbol. Requires `env::map` and `env::unmap`; failed
+    /// loads release the mapped block, while successful loads transfer
+    /// ownership to the caller.
     bool        load_relocatable(span<const u8> bytes, const env& e, image& out);
     inline bool load_relocatable(const void* bytes, usize len, const env& e, image& out) {
         return load_relocatable(span<const u8>(static_cast<const u8*>(bytes), len), e,
@@ -140,7 +143,9 @@ namespace astia::elf {
     /// (one contiguous span, at a fixed address for ET_EXEC or an
     /// allocator-chosen one for ET_DYN), zero the bss, apply the
     /// R_X86_64_RELATIVE dynamic relocations, and set `entry` to e_entry +
-    /// load_bias. Requires `env::map`.
+    /// load_bias. Requires `env::map` and `env::unmap`; failed loads release
+    /// the mapped span, while successful loads transfer ownership to the
+    /// caller.
     bool        load_executable(span<const u8> bytes, const env& e, image& out);
     inline bool load_executable(const void* bytes, usize len, const env& e, image& out) {
         return load_executable(span<const u8>(static_cast<const u8*>(bytes), len), e,

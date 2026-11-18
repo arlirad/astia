@@ -25,6 +25,7 @@ option(ASTIA_BUILD_EXPERIMENTAL_FIBER
         "Compile the unintegrated stackful core::fiber implementation" OFF)
 option(ASTIA_EXPERIMENTAL_AARCH64
         "Expose the standalone, compile-only AArch64 bring-up port" OFF)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)

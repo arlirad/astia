@@ -454,6 +454,7 @@ namespace astia::proc {
                               mm::phys_region* region);
         bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
         void discard_image();
+        void rollback_tls_failure(void* image, mm::address_space& map);
         void reset_signal_stacks_for_exec();
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
                                   usize& mapping_pages);

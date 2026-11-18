@@ -70,10 +70,6 @@ namespace astia::mod {
         if (ctx.info == nullptr) {
             return false;
         }
-        if (!expose_module_abi()) {
-            return false;
-        }
-
         // The ramdisk is the fs layer's: it mounts it at / (fs/initrd_init.cpp).
         // What mod takes from it are the kernel modules it carries.
         const boot::module_info& ramdisk = ctx.info->initrd;

@@ -159,6 +159,23 @@ namespace astia::elf {
             return off <= len && size <= len - off;
         }
 
+        void write_u32(u8* destination, u32 value) {
+            for (usize i = 0; i < 4; ++i)
+                destination[i] = static_cast<u8>(value >> (i * 8));
+        }
+
+        void write_u64(u8* destination, u64 value) {
+            for (usize i = 0; i < 8; ++i)
+                destination[i] = static_cast<u8>(value >> (i * 8));
+        }
+
+        u64 read_u64_bytes(const u8* source) {
+            u64 value = 0;
+            for (usize i = 0; i < 8; ++i)
+                value |= static_cast<u64>(source[i]) << (i * 8);
+            return value;
+        }
+
         constexpr u64 align_down(u64 v) {
             return v & ~(page_size - 1);
         }
@@ -204,6 +221,20 @@ namespace astia::elf {
             const char*       str      = nullptr; // symbol string table
             usize             strsize  = 0;
         };
+
+        bool symbol_name(const view& v, const elf64_sym& sym, const char*& out) {
+            if (sym.st_name >= v.strsize)
+                return false;
+            const char* name = v.str + sym.st_name;
+            const usize max = v.strsize - sym.st_name;
+            for (usize i = 0; i < max; ++i) {
+                if (name[i] == '\0') {
+                    out = name;
+                    return true;
+                }
+            }
+            return false;
+        }
 
         // Validate the section table, then locate the symbol table and its
         // linked string table. Returns false on anything malformed or
@@ -257,6 +288,11 @@ namespace astia::elf {
                 v.symcount = sh.sh_size / sizeof(elf64_sym);
                 v.str      = reinterpret_cast<const char*>(v.base + str.sh_offset);
                 v.strsize  = static_cast<usize>(str.sh_size);
+                for (usize j = 0; j < v.symcount; ++j) {
+                    const char* name = nullptr;
+                    if (!symbol_name(v, v.sym[j], name))
+                        return false;
+                }
                 return true;
             }
             // No symbol table: nothing to relocate or enter.
@@ -275,10 +311,9 @@ namespace astia::elf {
             const elf64_sym& sym = v.sym[index];
 
             if (sym.st_shndx == shn_undef) {
-                if (sym.st_name >= v.strsize) {
-                    return false; // name offset runs past the string table
-                }
-                const char* name     = v.str + sym.st_name;
+                const char* name = nullptr;
+                if (!symbol_name(v, sym, name))
+                    return false;
                 u64         resolved = e.resolve != nullptr ? e.resolve(e.ctx, name) : 0;
                 if (resolved == 0) {
                     // A weak undefined symbol is allowed to be null; anything
@@ -314,7 +349,7 @@ namespace astia::elf {
 
     bool load_relocatable(span<const u8> bytes, const env& e, image& out) {
         const usize len = bytes.size();
-        if (e.map == nullptr) {
+        if (e.map == nullptr || e.unmap == nullptr) {
             return false;
         }
 
@@ -355,6 +390,19 @@ namespace astia::elf {
         if (block == nullptr) {
             return false;
         }
+
+        struct mapped_block {
+            const env& environment;
+            void*      address;
+            usize      size;
+
+            ~mapped_block() {
+                if (address != nullptr)
+                    environment.unmap(environment.ctx, address, size);
+            }
+
+            void keep() { address = nullptr; }
+        } mapped{e, block, static_cast<usize>(offset)};
         // Zero the whole block up front so .bss (SHT_NOBITS) and any padding
         // are already cleared without a separate pass.
         {
@@ -441,7 +489,7 @@ namespace astia::elf {
 
                 switch (type) {
                 case r_x86_64_64: {
-                    *reinterpret_cast<u64*>(p) = s + static_cast<u64>(a);
+                    write_u64(reinterpret_cast<u8*>(p), s + static_cast<u64>(a));
                     break;
                 }
                 case r_x86_64_pc32:
@@ -450,7 +498,7 @@ namespace astia::elf {
                     if (rel < -2147483648LL || rel > 2147483647LL) {
                         return false; // does not fit signed 32-bit
                     }
-                    *reinterpret_cast<u32*>(p) = static_cast<u32>(rel);
+                    write_u32(reinterpret_cast<u8*>(p), static_cast<u32>(rel));
                     break;
                 }
                 case r_x86_64_32: {
@@ -458,7 +506,7 @@ namespace astia::elf {
                     if (val > 0xffffffffull) {
                         return false;
                     }
-                    *reinterpret_cast<u32*>(p) = static_cast<u32>(val);
+                    write_u32(reinterpret_cast<u8*>(p), static_cast<u32>(val));
                     break;
                 }
                 case r_x86_64_32s: {
@@ -466,7 +514,7 @@ namespace astia::elf {
                     if (val < -2147483648LL || val > 2147483647LL) {
                         return false;
                     }
-                    *reinterpret_cast<u32*>(p) = static_cast<u32>(val);
+                    write_u32(reinterpret_cast<u8*>(p), static_cast<u32>(val));
                     break;
                 }
                 default:
@@ -481,10 +529,11 @@ namespace astia::elf {
             if (sym.st_shndx == shn_undef || sym.st_shndx >= v.shnum) {
                 continue;
             }
-            if (sym.st_name >= v.strsize) {
-                continue;
+            const char* name = nullptr;
+            if (!symbol_name(v, sym, name)) {
+                return false;
             }
-            if (!str_eq(v.str + sym.st_name, "module_main")) {
+            if (!str_eq(name, "module_main")) {
                 continue;
             }
             u64 addr = 0;
@@ -497,6 +546,7 @@ namespace astia::elf {
             out.loaded    = kind::relocatable;
             out.load_bias = 0;
             out.nsegs     = 0;
+            mapped.keep();
             return true;
         }
 
@@ -631,12 +681,12 @@ namespace astia::elf {
                 return false;
             }
             u64         count = rela_size / sizeof(elf64_rela);
-            const auto* rela =
-                reinterpret_cast<const elf64_rela*>(bytes.data() + rela_off);
+            const u8* rela = bytes.data() + rela_off;
 
             for (u64 k = 0; k < count; ++k) {
-                const elf64_rela& r    = rela[k];
-                u32               type = r_type(r.r_info);
+                const u8* entry = rela + k * sizeof(elf64_rela);
+                const u64 r_info = read_u64_bytes(entry + 8);
+                const u32 type = r_type(r_info);
                 if (type == r_x86_64_none) {
                     continue;
                 }
@@ -644,12 +694,12 @@ namespace astia::elf {
                     return false; // needs full dynamic linking, which we do not do
                 }
                 // The patched slot lives in the mapped image at vaddr + bias.
-                u64 loc_vaddr = r.r_offset;
+                u64 loc_vaddr = read_u64_bytes(entry);
                 if (loc_vaddr < span_start || loc_vaddr + sizeof(u64) > span_end) {
                     return false;
                 }
-                u64* loc = reinterpret_cast<u64*>(load_bias + loc_vaddr);
-                *loc     = load_bias + static_cast<u64>(r.r_addend);
+                write_u64(reinterpret_cast<u8*>(load_bias + loc_vaddr),
+                          load_bias + read_u64_bytes(entry + 16));
             }
             return true;
         }
@@ -658,7 +708,7 @@ namespace astia::elf {
 
     bool load_executable(span<const u8> bytes, const env& e, image& out) {
         const usize len = bytes.size();
-        if (e.map == nullptr) {
+        if (e.map == nullptr || e.unmap == nullptr) {
             return false;
         }
         u16 type = 0;
@@ -719,6 +769,18 @@ namespace astia::elf {
         if (mapped == nullptr) {
             return false;
         }
+        struct mapped_block {
+            const env& environment;
+            void*      address;
+            usize      size;
+
+            ~mapped_block() {
+                if (address != nullptr)
+                    environment.unmap(environment.ctx, address, size);
+            }
+
+            void keep() { address = nullptr; }
+        } mapping{e, mapped, static_cast<usize>(span)};
         u64 mapped_addr = reinterpret_cast<u64>(mapped);
         if (fixed && mapped_addr != span_start) {
             return false; // fixed-address map ignored the requested address
@@ -800,6 +862,7 @@ namespace astia::elf {
         out.loaded    = (type == et_dyn) ? kind::dyn : kind::executable;
         out.load_bias = load_bias;
         out.nsegs     = seg_i;
+        mapping.keep();
         return true;
     }
 
@@ -892,22 +955,24 @@ namespace astia::elf {
                 if (read.value != static_cast<i64>(length))
                     co_return error_t::eio;
                 const usize count = length / sizeof(elf64_dyn);
-                const auto* entries = reinterpret_cast<const elf64_dyn*>(buffer);
                 for (usize k = 0; k < count; ++k) {
-                    if (entries[k].d_tag == dt_null) {
+                    const u8* entry = buffer + k * sizeof(elf64_dyn);
+                    const i64 tag = static_cast<i64>(read_u64_bytes(entry));
+                    const u64 value = read_u64_bytes(entry + 8);
+                    if (tag == dt_null) {
                         terminated = true;
                         break;
                     }
-                    if (entries[k].d_tag == dt_rela) {
-                        rela_vaddr = entries[k].d_val;
+                    if (tag == dt_rela) {
+                        rela_vaddr = value;
                         rela_tag = true;
                     }
-                    else if (entries[k].d_tag == dt_relasz) {
-                        rela_size = entries[k].d_val;
+                    else if (tag == dt_relasz) {
+                        rela_size = value;
                         relasz_tag = true;
                     }
-                    else if (entries[k].d_tag == dt_relaent) {
-                        if (entries[k].d_val != sizeof(elf64_rela))
+                    else if (tag == dt_relaent) {
+                        if (value != sizeof(elf64_rela))
                             co_return error_t::einval;
                     }
                 }
@@ -1013,22 +1078,22 @@ namespace astia::elf {
                 if (read.value != static_cast<i64>(length))
                     co_return fail(error_t::eio);
                 const usize count = length / sizeof(elf64_rela);
-                const auto* entries = reinterpret_cast<const elf64_rela*>(rela_buffer);
                 for (usize k = 0; k < count; ++k) {
-                    const elf64_rela& relocation = entries[k];
-                    const u32 relocation_type = r_type(relocation.r_info);
+                    const u8* entry = rela_buffer + k * sizeof(elf64_rela);
+                    const u64 r_info = read_u64_bytes(entry + 8);
+                    const u32 relocation_type = r_type(r_info);
                     if (relocation_type == r_x86_64_none)
                         continue;
                     if (relocation_type != r_x86_64_relative)
                         co_return fail(error_t::einval);
-                    const u64 location_vaddr = relocation.r_offset;
+                    const u64 location_vaddr = read_u64_bytes(entry);
                     if (location_vaddr < span_start || location_vaddr > span_end ||
                         sizeof(u64) > span_end - location_vaddr ||
                         !vaddr_range_in_load(ph, header.e_phnum, location_vaddr,
                                              sizeof(u64)))
                         co_return fail(error_t::einval);
                     const u64 location = mapped_addr + (location_vaddr - span_start);
-                    const u64 value = bias + static_cast<u64>(relocation.r_addend);
+                    const u64 value = bias + read_u64_bytes(entry + 16);
                     if (e.copy != nullptr) {
                         u8 value_bytes[sizeof(value)];
                         for (usize byte = 0; byte < sizeof(value); ++byte)
@@ -1038,7 +1103,7 @@ namespace astia::elf {
                             co_return fail(error_t::eio);
                     }
                     else {
-                        *reinterpret_cast<u64*>(location) = value;
+                        write_u64(reinterpret_cast<u8*>(location), value);
                     }
                 }
                 offset += length;

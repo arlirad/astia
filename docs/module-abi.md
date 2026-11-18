@@ -39,6 +39,17 @@ compile-time error for non-x86-64 targets rather than claiming that 4096 is
 universal; a future architecture must add an explicit ABI and kernel-MM
 definition before modules can be built for it.
 
+## Temporary kernel symbol surface
+
+Until a deliberate kernel-module export policy is introduced, ET_REL modules
+may resolve every defined `STB_GLOBAL` or `STB_WEAK` kernel symbol whose ELF
+visibility is `STV_DEFAULT`. The build generates this resolver table from the
+linked kernel image, preserving the exact symbol spelling (including C++
+mangling) and linked address. Local, hidden, protected, and undefined symbols
+are not visible to modules. This broad surface is temporary and is not a
+module-to-module dependency mechanism; modules still cannot resolve symbols
+from another module.
+
 The block-driver table is 128 bytes. Its final callbacks are at offsets 112
 and 120; the preceding read, asynchronous, write, and flush callbacks remain
 at their existing offsets. This preserves the NVMe and VirtIO write, flush,
