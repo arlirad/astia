@@ -149,6 +149,36 @@ namespace astia::elf::detail {
         return true;
     }
 
+    inline bool checked_biased_value(u64 mapped_addr, u64 span_start, i64 addend,
+                                     u64& result) {
+        if (mapped_addr >= span_start) {
+            const u64 bias = mapped_addr - span_start;
+            if (addend >= 0)
+                return checked_add(bias, static_cast<u64>(addend), result);
+            const u64 magnitude = static_cast<u64>(-(addend + 1)) + 1;
+            if (bias < magnitude)
+                return false;
+            result = bias - magnitude;
+            return true;
+        }
+        const u64 magnitude = span_start - mapped_addr;
+        if (addend >= 0) {
+            const u64 value = static_cast<u64>(addend);
+            if (value >= magnitude) {
+                result = value - magnitude;
+                return true;
+            }
+            result = 0;
+            return false;
+        }
+        const u64 addend_magnitude = static_cast<u64>(-(addend + 1)) + 1;
+        if (magnitude > ~u64{0} - addend_magnitude)
+            return false;
+        const u64 total = magnitude + addend_magnitude;
+        result = 0;
+        return total == 0;
+    }
+
     inline bool in_bounds(u64 off, u64 size, usize len) {
         return off <= len && size <= len - off;
     }

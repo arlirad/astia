@@ -45,7 +45,7 @@ namespace astia::elf {
             if ((sh.sh_flags & shf_alloc) == 0) {
                 continue;
             }
-            const u64 align = sh.sh_addralign;
+            const u64 align = sh.sh_addralign == 0 ? 1 : sh.sh_addralign;
             if (!is_power_of_two(align))
                 return false;
             if (align > max_align) {
@@ -98,7 +98,7 @@ namespace astia::elf {
                 sec_base_storage[i] = nullptr;
                 continue;
             }
-            const u64 align = sh.sh_addralign;
+            const u64 align = sh.sh_addralign == 0 ? 1 : sh.sh_addralign;
             u64       aligned = 0;
             if (!checked_align_up(offset, align, aligned))
                 return false;
