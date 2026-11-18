@@ -95,3 +95,11 @@ option(ASTIA_RUNTIME_SKIP_LIFECYCLE "Skip userspace lifecycle for module-only ru
 if (ASTIA_RUNTIME_SKIP_LIFECYCLE)
     target_compile_definitions(astiakrn_runtime PRIVATE ASTIA_RUN_LIFECYCLE=0)
 endif ()
+
+add_executable(astiakrn_module_runtime
+        test_kmain.cpp
+)
+astia_configure_kernel(astiakrn_module_runtime)
+astia_generate_module_symbols(astiakrn_module_runtime)
+target_compile_definitions(astiakrn_module_runtime PRIVATE
+        ASTIA_RUN_SELFTEST=0 ASTIA_RUN_LIFECYCLE=0)
