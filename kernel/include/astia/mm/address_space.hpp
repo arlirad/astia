@@ -67,10 +67,10 @@ namespace astia::mm {
 
         private:
         explicit address_space(void* native, bool owned)
-            : native_(native), owned_(owned) {}
+            : _native(native), _owned(owned) {}
 
-        void* native_ = nullptr;
-        bool  owned_  = false;
+        void* _native = nullptr;
+        bool  _owned  = false;
     };
 
     class mapping_transaction {
@@ -86,11 +86,11 @@ namespace astia::mm {
         void rollback();
 
         private:
-        address_space* space_   = nullptr;
-        vaddr_t        first_   = 0;
-        usize          pages_   = 0;
-        usize          mapped_  = 0;
-        bool           finished_ = false;
+        address_space* _space   = nullptr;
+        vaddr_t        _first   = 0;
+        usize          _pages   = 0;
+        usize          _mapped  = 0;
+        bool           _finished = false;
     };
 
 } // namespace astia::mm

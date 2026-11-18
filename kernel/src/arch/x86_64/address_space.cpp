@@ -16,24 +16,24 @@ namespace astia::mm {
     } // namespace
 
     address_space::~address_space() {
-        if (owned_)
-            delete static_cast<arch::page_map*>(native_);
+        if (_owned)
+            delete static_cast<arch::page_map*>(_native);
     }
 
     address_space::address_space(address_space&& other) noexcept
-        : native_(other.native_), owned_(other.owned_) {
-        other.native_ = nullptr;
-        other.owned_  = false;
+        : _native(other._native), _owned(other._owned) {
+        other._native = nullptr;
+        other._owned  = false;
     }
 
     address_space& address_space::operator=(address_space&& other) noexcept {
         if (this != &other) {
-            if (owned_)
-                delete static_cast<arch::page_map*>(native_);
-            native_       = other.native_;
-            owned_        = other.owned_;
-            other.native_ = nullptr;
-            other.owned_  = false;
+            if (_owned)
+                delete static_cast<arch::page_map*>(_native);
+            _native       = other._native;
+            _owned        = other._owned;
+            other._native = nullptr;
+            other._owned  = false;
         }
         return *this;
     }
@@ -45,7 +45,7 @@ namespace astia::mm {
     address_space address_space::create(const address_space* parent) {
         const auto* parent_map = parent == nullptr
                                      ? arch::kernel_page_map()
-                                     : static_cast<const arch::page_map*>(parent->native_);
+                                     : static_cast<const arch::page_map*>(parent->_native);
         auto* map = new arch::page_map(arch::page_map::create(parent_map));
         if (map == nullptr || !map->valid()) {
             delete map;
@@ -59,43 +59,43 @@ namespace astia::mm {
     }
 
     bool address_space::attached() const {
-        return native_ != nullptr;
+        return _native != nullptr;
     }
 
     bool address_space::valid() const {
-        return attached() && static_cast<const arch::page_map*>(native_)->valid();
+        return attached() && static_cast<const arch::page_map*>(_native)->valid();
     }
 
     bool address_space::map_4k(vaddr_t virt, paddr_t phys, mapping_flags flags) {
-        return valid() && static_cast<arch::page_map*>(native_)->map_4k(
+        return valid() && static_cast<arch::page_map*>(_native)->map_4k(
                                virt, phys, arch_flags(flags));
     }
 
     bool address_space::unmap(vaddr_t virt) {
-        return valid() && static_cast<arch::page_map*>(native_)->unmap(virt);
+        return valid() && static_cast<arch::page_map*>(_native)->unmap(virt);
     }
 
     bool address_space::protect_4k(vaddr_t virt, mapping_flags flags) {
-        return valid() && static_cast<arch::page_map*>(native_)->protect_4k(
+        return valid() && static_cast<arch::page_map*>(_native)->protect_4k(
                                virt, arch_flags(flags));
     }
 
     paddr_t address_space::translate(vaddr_t virt) const {
-        return valid() ? static_cast<const arch::page_map*>(native_)->translate(virt)
+        return valid() ? static_cast<const arch::page_map*>(_native)->translate(virt)
                        : invalid;
     }
 
     bool address_space::writable(vaddr_t virt) const {
-        return valid() && static_cast<const arch::page_map*>(native_)->writable(virt);
+        return valid() && static_cast<const arch::page_map*>(_native)->writable(virt);
     }
 
     bool address_space::user_accessible(vaddr_t virt) const {
         return valid() &&
-               static_cast<const arch::page_map*>(native_)->user_accessible(virt);
+               static_cast<const arch::page_map*>(_native)->user_accessible(virt);
     }
 
     bool address_space::executable(vaddr_t virt) const {
-        return valid() && static_cast<const arch::page_map*>(native_)->executable(virt);
+        return valid() && static_cast<const arch::page_map*>(_native)->executable(virt);
     }
 
     bool address_space::valid_user_range(u64 address, usize length) const {
@@ -131,7 +131,7 @@ namespace astia::mm {
 
     void address_space::activate() const {
         if (valid())
-            static_cast<const arch::page_map*>(native_)->activate();
+            static_cast<const arch::page_map*>(_native)->activate();
     }
 
     void address_space::invalidate(vaddr_t virt) {
@@ -140,40 +140,40 @@ namespace astia::mm {
 
     mapping_transaction::mapping_transaction(address_space& space, vaddr_t first,
                                              usize pages)
-        : space_(&space), first_(first), pages_(pages) {}
+        : _space(&space), _first(first), _pages(pages) {}
 
     mapping_transaction::~mapping_transaction() {
-        if (!finished_)
+        if (!_finished)
             rollback();
     }
 
     bool mapping_transaction::map_4k(vaddr_t virt, paddr_t phys, mapping_flags flags) {
-        if (finished_ || space_ == nullptr || mapped_ >= pages_ ||
-            virt != first_ + mapped_ * page_size ||
-            first_ + mapped_ * page_size < first_)
+        if (_finished || _space == nullptr || _mapped >= _pages ||
+            virt != _first + _mapped * page_size ||
+            _first + _mapped * page_size < _first)
             return false;
-        if (space_->translate(virt) != address_space::invalid)
+        if (_space->translate(virt) != address_space::invalid)
             return false;
-        if (!space_->map_4k(virt, phys, flags))
+        if (!_space->map_4k(virt, phys, flags))
             return false;
-        ++mapped_;
+        ++_mapped;
         return true;
     }
 
     void mapping_transaction::commit() {
-        finished_ = true;
+        _finished = true;
     }
 
     void mapping_transaction::rollback() {
-        if (finished_ || space_ == nullptr)
+        if (_finished || _space == nullptr)
             return;
-        for (usize page = 0; page < mapped_; ++page) {
-            const vaddr_t virt = first_ + page * page_size;
-            (void) space_->unmap(virt);
+        for (usize page = 0; page < _mapped; ++page) {
+            const vaddr_t virt = _first + page * page_size;
+            (void) _space->unmap(virt);
             address_space::invalidate(virt);
         }
-        finished_ = true;
-        mapped_   = 0;
+        _finished = true;
+        _mapped   = 0;
     }
 
 } // namespace astia::mm

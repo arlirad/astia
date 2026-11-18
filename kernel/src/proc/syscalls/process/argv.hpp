@@ -21,17 +21,17 @@ namespace astia::proc::syscall::detail {
         i64  copy(u64 argv, u64 envp);
 
         char** argv() const {
-            return argv_;
+            return _argv;
         }
         char** envp() const {
-            return envp_;
+            return _envp;
         }
 
         private:
-        u8*    storage_ = nullptr;
-        char** argv_    = nullptr;
-        char** envp_    = nullptr;
-        char*  pool_    = nullptr;
+        u8*    _storage = nullptr;
+        char** _argv    = nullptr;
+        char** _envp    = nullptr;
+        char*  _pool    = nullptr;
     };
 
     i64 copy_in_vector(char** vec, span<char> pool, u64 user_vector);
