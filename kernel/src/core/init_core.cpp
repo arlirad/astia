@@ -1,8 +1,10 @@
 #include <astia/init.hpp>
+#include <astia/core/resume_queue.hpp>
 
 namespace astia::core {
 
     static bool step_core(init::context&) {
+        initialize_resume_queues();
         return true;
     }
 

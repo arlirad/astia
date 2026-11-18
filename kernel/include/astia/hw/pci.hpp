@@ -2,11 +2,10 @@
 
 #include <astia/arch/pci_config.hpp>
 #include <astia/common.hpp>
+#include <astia/hw/driver.hpp>
+#include <astia/hw/mmio.hpp>
 #include <astia/optional.hpp>
 #include <astia/resource_limits.hpp>
-
-#include <astia/dev/driver.hpp>
-#include <astia/dev/mmio.hpp>
 
 namespace astia::hw {
 
@@ -45,7 +44,7 @@ namespace astia::hw {
         u8            address_bits = 0;
         u8            index        = 0;
 
-        optional<dev::mmio_mapping> map() const;
+        optional<hw::mmio_mapping> map() const;
     };
 
     struct pci_capability {
@@ -118,11 +117,16 @@ namespace astia::hw {
         explicit pci_device_info(const pci_device& value) : value_(value) {}
 
         hw::bus_kind bus() const override { return hw::bus_kind::pci; }
+        const void* type_tag() const override { return tag(); }
         bool equals(const hw::device_info& other) const override;
 
         const pci_device& device() const { return value_; }
         pci_device& mutable_device() const { return value_; }
         static const pci_device_info* get(const hw::device_info& value);
+        static const void* tag() {
+            static const u8 value = 0;
+            return &value;
+        }
 
         private:
         mutable pci_device value_;

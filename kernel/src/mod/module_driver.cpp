@@ -25,6 +25,7 @@ namespace astia::mod {
         constexpr u32 max_registrations = 8;
         constexpr u32 max_pin_tokens = 64;
         constexpr u32 max_msix_routes = 64;
+        constexpr u32 max_bound_devices = resource_limits::policy::bound_devices;
 
 
         struct usb_registration;
@@ -38,9 +39,16 @@ namespace astia::mod {
             const char* name() const override;
             bool match(const hw::device_info& info) const override;
             bool probe(const hw::device_info& info) override;
+            void remove(const hw::device_info& info) override;
 
             private:
             usb_registration& registration_;
+            struct binding {
+                hw::pci_bdf bdf{};
+                void* context = nullptr;
+                bool active = false;
+            };
+            binding bindings_[max_bound_devices]{};
         };
 
         class pci_driver final : public hw::driver {
@@ -66,10 +74,33 @@ namespace astia::mod {
                     return false;
                 const astia_module_pci_device view = device_view(*stable);
                 void* context = nullptr;
-                const bool ok = ops_.probe(&view, &context) != 0 && context != nullptr;
-                if (context != nullptr && ops_.remove != nullptr)
+                if (ops_.probe(&view, &context) == 0 || context == nullptr)
+                    return false;
+                for (binding& item : bindings_) {
+                    if (item.active)
+                        continue;
+                    item.bdf = stable->bdf;
+                    item.context = context;
+                    item.active = true;
+                    return true;
+                }
+                if (ops_.remove != nullptr)
                     ops_.remove(context);
-                return ok;
+                return false;
+            }
+
+            void remove(const hw::device_info& info) override {
+                const auto* pci = hw::pci_device_info::get(info);
+                if (pci == nullptr)
+                    return;
+                for (binding& item : bindings_) {
+                    if (!item.active || item.bdf != pci->device().bdf)
+                        continue;
+                    if (ops_.remove != nullptr)
+                        ops_.remove(item.context);
+                    item = {};
+                    return;
+                }
             }
             private:
             static astia_module_pci_device device_view(hw::pci_device& device) {
@@ -90,6 +121,12 @@ namespace astia::mod {
             }
 
             const astia_module_pci_driver& ops_;
+            struct binding {
+                hw::pci_bdf bdf{};
+                void* context = nullptr;
+                bool active = false;
+            };
+            binding bindings_[max_bound_devices]{};
         };
 
         class net_driver final : public hw::driver {
@@ -115,10 +152,33 @@ namespace astia::mod {
                     return false;
                 const astia_module_pci_device device_view = this->view(*stable);
                 void* context = nullptr;
-                const bool ok = ops_.probe(&device_view, &context) != 0 && context != nullptr;
-                if (context != nullptr && ops_.remove != nullptr)
+                if (ops_.probe(&device_view, &context) == 0 || context == nullptr)
+                    return false;
+                for (binding& item : bindings_) {
+                    if (item.active)
+                        continue;
+                    item.bdf = stable->bdf;
+                    item.context = context;
+                    item.active = true;
+                    return true;
+                }
+                if (ops_.remove != nullptr)
                     ops_.remove(context);
-                return ok;
+                return false;
+            }
+
+            void remove(const hw::device_info& info) override {
+                const auto* pci = hw::pci_device_info::get(info);
+                if (pci == nullptr)
+                    return;
+                for (binding& item : bindings_) {
+                    if (!item.active || item.bdf != pci->device().bdf)
+                        continue;
+                    if (ops_.remove != nullptr)
+                        ops_.remove(item.context);
+                    item = {};
+                    return;
+                }
             }
             private:
             static astia_module_pci_device view(hw::pci_device& device) {
@@ -139,6 +199,12 @@ namespace astia::mod {
             }
 
             const astia_module_pci_net_driver& ops_;
+            struct binding {
+                hw::pci_bdf bdf{};
+                void* context = nullptr;
+                bool active = false;
+            };
+            binding bindings_[max_bound_devices]{};
         };
 
         struct pci_registration {
@@ -323,10 +389,33 @@ namespace astia::mod {
                 return false;
             const astia_module_pci_device device_view = view(*stable);
             void* context = nullptr;
-            const bool ok = registration_.ops->probe(&device_view, &context) != 0 && context != nullptr;
-            if (context != nullptr && registration_.ops->remove != nullptr)
+            if (registration_.ops->probe(&device_view, &context) == 0 || context == nullptr)
+                return false;
+            for (binding& item : bindings_) {
+                if (item.active)
+                    continue;
+                item.bdf = stable->bdf;
+                item.context = context;
+                item.active = true;
+                return true;
+            }
+            if (registration_.ops->remove != nullptr)
                 registration_.ops->remove(context);
-            return ok;
+            return false;
+        }
+
+        void usb_driver::remove(const hw::device_info& info) {
+            const auto* pci = hw::pci_device_info::get(info);
+            if (pci == nullptr)
+                return;
+            for (binding& item : bindings_) {
+                if (!item.active || item.bdf != pci->device().bdf)
+                    continue;
+                if (registration_.ops->remove != nullptr)
+                    registration_.ops->remove(item.context);
+                item = {};
+                return;
+            }
         }
 
         arch::interrupt_vector route_vector(const astia_module_msix_route& route) {
@@ -805,6 +894,10 @@ static int registered_async(const char* path, void* buffer, uint32_t length, uin
         const long setup = sys::io_setup(8, 0, &ring);
         if (setup < 0)
             return static_cast<int>(setup);
+        if (!sys::io_allow_kernel_buffers(ring)) {
+            (void) sys::io_destroy(ring);
+            return -EPERM;
+        }
         fd_t fd{-1};
         for (i32 value = 3; value < static_cast<i32>(proc::max_process_fds); ++value) {
             if (current->set_descriptor(fd_t{value}, file)) {

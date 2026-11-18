@@ -12,11 +12,19 @@ namespace astia::hw {
 
     enum class bus_kind : u8 { unknown, pci };
 
+    class product {
+        public:
+        virtual ~product() = default;
+    };
+
+    using product_handle = mm::shptr<product>;
+
     class device_info {
         public:
         virtual ~device_info() = default;
         virtual bus_kind bus() const = 0;
         virtual bool equals(const device_info& other) const = 0;
+        virtual const void* type_tag() const { return nullptr; }
     };
 
     class driver {
@@ -25,6 +33,7 @@ namespace astia::hw {
         virtual const char* name() const = 0;
         virtual bool match(const device_info& device) const = 0;
         virtual bool probe(const device_info& device) = 0;
+        virtual product_handle publish(const device_info&) { return {}; }
         virtual void remove(const device_info&) {}
         virtual bool selftest() { return true; }
     };
@@ -46,6 +55,7 @@ namespace astia::hw {
         struct binding {
             driver* _driver_instance = nullptr;
             mm::shptr<device_info> _device_info_instance;
+            product_handle _product;
         };
 
         driver* _drivers[max_drivers]{};

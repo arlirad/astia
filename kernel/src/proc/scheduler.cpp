@@ -370,6 +370,7 @@ namespace astia::proc::scheduler {
             previous->charge_runtime(nice_charge(previous->nice()));
         }
 
+        sys::io_process_deferred_ready();
         (void) core::drain_resumes();
 
         if (!previous->idle() && (previous->state() == thread_state::running ||

@@ -201,6 +201,7 @@ namespace astia::sys::aio_ring {
         slot.waiters         = 0;
         slot.notify_pending  = false;
         slot.notify_signaled = 0;
+        slot.kernel_buffers  = false;
         slot.owner           = {};
         slot.used            = false;
     }

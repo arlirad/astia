@@ -749,6 +749,7 @@ if (ARCH STREQUAL "x86_64")
                 "mod: hello_initrd.o rc=42"
                 "selftest: statx ok"
                 "user thread exit pid="
+                "spawn reaped pid=1 status=0 path=/sbin/init"
                 "astia: libc ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)

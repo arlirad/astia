@@ -4,8 +4,6 @@ add_library(dev STATIC
         device_file.cpp
         console.cpp
         driver.cpp
-        mmio.cpp
-        ../hw_pci.cpp
         chr/tty.cpp
         chr/tty/pty.cpp
         chr/tty/pty_vfs.cpp
@@ -39,4 +37,4 @@ target_include_directories(dev PUBLIC
         ${ASTIA_KERNEL_SOURCE_DIR}/include
 )
 
-target_link_libraries(dev PUBLIC libcore arch_${ARCH} sys)
+target_link_libraries(dev PUBLIC libcore arch_${ARCH} sys hw)

@@ -2,6 +2,11 @@
 
 #include <cassert>
 
+namespace {
+    int wake_count = 0;
+    void count_wake(void*) { ++wake_count; }
+}
+
 int main() {
     astia::io::generation generations;
     const astia::u64 first = generations.issue();
@@ -21,6 +26,13 @@ int main() {
     assert(request.poll_wakeup());
     request.poll_wakeup(false);
     assert(!request.poll_wakeup());
+    request.generation(17);
+    request.wake_handler_set(count_wake, nullptr);
+    wake_count = 0;
+    assert(!request.wake(16));
+    assert(wake_count == 0);
+    assert(request.wake(17));
+    assert(wake_count == 1);
 
     return 0;
 }

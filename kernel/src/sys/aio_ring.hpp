@@ -64,6 +64,8 @@ namespace astia::sys::aio_ring {
         bool                     timed                 = false;
         bool                     poll_timed            = false;
         bool                     sleep_absolute        = false;
+        bool                     sleep_ready           = false;
+        bool                     device_ready          = false;
         u32                      poll_events           = 0;
         u64                      sleep_deadline        = 0;
         u64                      timeout_deadline      = 0;
@@ -78,6 +80,7 @@ namespace astia::sys::aio_ring {
         mm::shptr<fs::open_file> object;
         mm::iovec                entries;
         io::request               request;
+        u64                      generation = 0;
         usize                    moved = 0;
     };
 
@@ -99,6 +102,7 @@ namespace astia::sys::aio_ring {
         bool                     notify_pending;
         u32                      notify_signaled;
         u32                      pool_index;
+        bool                     kernel_buffers;
         parked_op                park[parked_slot_count];
         parked_cleanup           cleanup;
         alignas(mm::page_size) u8 map[mapping_pages * mm::page_size];

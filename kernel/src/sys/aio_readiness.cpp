@@ -41,7 +41,7 @@ namespace astia::sys::aio_readiness {
             p->request                = io::request(nullptr, 0, 0, s.user_data, io::direction::input);
             publish_waiter_hint(slot, park_index, object->node().get());
             if (ready_generation() != generation)
-                aio_dispatch::resume_parked(ring, *p);
+                aio_dispatch::resume_parked(proc::current_process(), ring, *p);
             return true;
         }
 

@@ -127,6 +127,12 @@ namespace {
         }
     } driver;
 
+    class forged_pci_info final : public astia::hw::device_info {
+        public:
+        astia::hw::bus_kind bus() const override { return astia::hw::bus_kind::pci; }
+        bool equals(const astia::hw::device_info&) const override { return false; }
+    } forged;
+
 }
 
 namespace astia::arch {
@@ -162,6 +168,10 @@ ASTIA_TEST(pci_enumerates_caps_bars_and_filters) {
                     return value.function == 1;
                 }) == 1);
     astia::hw::pci_reset_config_backend();
+}
+
+ASTIA_TEST(pci_type_check_rejects_forged_bus_tag) {
+    ASTIA_CHECK(astia::hw::pci_device_info::get(forged) == nullptr);
 }
 
 ASTIA_TEST(pci_bus_master_and_resource_ownership) {
