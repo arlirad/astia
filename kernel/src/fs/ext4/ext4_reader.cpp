@@ -64,31 +64,31 @@ namespace astia::ext4 {
     }
 
     bool reader::read_bytes(u64 offset, void* buffer, usize length) {
-        if (read_at_ == nullptr || buffer == nullptr)
+        if (_read_at == nullptr || buffer == nullptr)
             return fail(error::invalid_argument);
         if (length > ~u64{0} - offset)
             return fail(error::corrupt);
-        if (!read_at_(context_, offset, buffer, length))
+        if (!_read_at(_context, offset, buffer, length))
             return fail(error::io);
         return true;
     }
 
     bool reader::read_block(u64 number, void* buffer) {
-        if (number >= blocks_count_)
+        if (number >= _blocks_count)
             return fail(error::corrupt);
         u64 offset = 0;
-        if (mul_overflow(number, block_size_, offset))
+        if (mul_overflow(number, _block_size, offset))
             return fail(error::corrupt);
-        return read_bytes(offset, buffer, block_size_);
+        return read_bytes(offset, buffer, _block_size);
     }
 
     bool reader::open(read_at_fn read_at, void* context) {
-        read_at_ = read_at;
-        context_ = context;
-        error_ = error::none;
-        block_size_ = 0;
-        blocks_count_ = 0;
-        inodes_count_ = 0;
+        _read_at = read_at;
+        _context = context;
+        _error = error::none;
+        _block_size = 0;
+        _blocks_count = 0;
+        _inodes_count = 0;
         u8 sb[1024]{};
         if (!read_bytes(1024, sb, sizeof sb))
             return false;
@@ -98,8 +98,8 @@ namespace astia::ext4 {
         const u32 log_block_size = get32(sb + 0x18);
         if (log_block_size > 6)
             return fail(error::corrupt);
-        block_size_ = 1024u << log_block_size;
-        if (block_size_ > sizeof extent_block_)
+        _block_size = 1024u << log_block_size;
+        if (_block_size > sizeof _extent_block)
             return fail(error::unsupported_feature);
         const u64 blocks_lo = get32(sb + 0x04);
         const u64 blocks_hi = get32(sb + 0x150);
@@ -125,31 +125,31 @@ namespace astia::ext4 {
             return fail(error::unsupported_feature);
         if (blocks_hi != 0)
             return fail(error::unsupported_feature);
-        feature_compat_ = compat;
-        feature_incompat_ = incompat;
-        feature_ro_compat_ = ro_compat;
-        blocks_count_ = blocks_lo | (blocks_hi << 32);
-        inodes_count_ = get32(sb + 0x00);
-        blocks_per_group_ = get32(sb + 0x20);
-        inodes_per_group_ = get32(sb + 0x28);
-        inode_size_ = get16(sb + 0x58);
-        descriptor_size_ = get16(sb + 0xFE);
-        if (descriptor_size_ == 0)
-            descriptor_size_ = 32;
-        if (blocks_count_ == 0 || inodes_count_ == 0 || blocks_per_group_ == 0 ||
-            inodes_per_group_ == 0 || inode_size_ < 128 || inode_size_ > block_size_ ||
-            descriptor_size_ < 32 || descriptor_size_ > 64)
+        _feature_compat = compat;
+        _feature_incompat = incompat;
+        _feature_ro_compat = ro_compat;
+        _blocks_count = blocks_lo | (blocks_hi << 32);
+        _inodes_count = get32(sb + 0x00);
+        _blocks_per_group = get32(sb + 0x20);
+        _inodes_per_group = get32(sb + 0x28);
+        _inode_size = get16(sb + 0x58);
+        _descriptor_size = get16(sb + 0xFE);
+        if (_descriptor_size == 0)
+            _descriptor_size = 32;
+        if (_blocks_count == 0 || _inodes_count == 0 || _blocks_per_group == 0 ||
+            _inodes_per_group == 0 || _inode_size < 128 || _inode_size > _block_size ||
+            _descriptor_size < 32 || _descriptor_size > 64)
             return fail(error::corrupt);
-        const u64 group_count = blocks_count_ / blocks_per_group_ +
-                                (blocks_count_ % blocks_per_group_ != 0 ? 1 : 0);
+        const u64 group_count = _blocks_count / _blocks_per_group +
+                                (_blocks_count % _blocks_per_group != 0 ? 1 : 0);
         if (group_count == 0 || group_count > ~u32{0})
             return fail(error::unsupported_feature);
-        group_count_ = static_cast<u32>(group_count);
-        for (u32 i = 0; i < sizeof uuid_; ++i)
-            uuid_[i] = sb[0x68 + i];
-        use_checksum_seed_ = (incompat & incompat_csum_seed) != 0;
-        checksum_seed_ = use_checksum_seed_ ? get32(sb + 0x270)
-                                           : crc32c(~u32{0}, uuid_, sizeof uuid_);
+        _group_count = static_cast<u32>(group_count);
+        for (u32 i = 0; i < sizeof _uuid; ++i)
+            _uuid[i] = sb[0x68 + i];
+        _use_checksum_seed = (incompat & incompat_csum_seed) != 0;
+        _checksum_seed = _use_checksum_seed ? get32(sb + 0x270)
+                                           : crc32c(~u32{0}, _uuid, sizeof _uuid);
         if ((ro_compat & ro_metadata_csum) != 0) {
             u8 saved[4] = {sb[0x3FC], sb[0x3FD], sb[0x3FE], sb[0x3FF]};
             sb[0x3FC] = sb[0x3FD] = sb[0x3FE] = sb[0x3FF] = 0;
@@ -165,30 +165,30 @@ namespace astia::ext4 {
     }
 
     bool reader::read_group_inode_table(u32 group, u64& table_block) {
-        if (group >= group_count_)
+        if (group >= _group_count)
             return fail(error::corrupt);
-        const u64 descriptor_base = block_size_ == 1024 ? 2048 : block_size_;
+        const u64 descriptor_base = _block_size == 1024 ? 2048 : _block_size;
         u64 offset = 0;
-        if (mul_overflow(group, descriptor_size_, offset) ||
+        if (mul_overflow(group, _descriptor_size, offset) ||
             add_overflow(descriptor_base, offset, offset))
             return fail(error::corrupt);
         u8 descriptor[64]{};
-        if (!read_bytes(offset, descriptor, descriptor_size_))
+        if (!read_bytes(offset, descriptor, _descriptor_size))
             return false;
         table_block = get32(descriptor + 0x08);
-        if (descriptor_size_ >= 64 && (feature_incompat_ & incompat_64bit) != 0)
+        if (_descriptor_size >= 64 && (_feature_incompat & incompat_64bit) != 0)
             table_block |= static_cast<u64>(get32(descriptor + 0x28)) << 32;
-        if (table_block >= blocks_count_)
+        if (table_block >= _blocks_count)
             return fail(error::corrupt);
-        if ((feature_ro_compat_ & (ro_gdt_csum | ro_metadata_csum)) != 0) {
+        if ((_feature_ro_compat & (ro_gdt_csum | ro_metadata_csum)) != 0) {
             u8 copy[64]{};
-            copy_bytes(copy, descriptor, descriptor_size_);
+            copy_bytes(copy, descriptor, _descriptor_size);
             const u16 expected = get16(copy + 0x1E);
             copy[0x1E] = copy[0x1F] = 0;
             u8 group_number[4] = {static_cast<u8>(group), static_cast<u8>(group >> 8),
                                   static_cast<u8>(group >> 16), static_cast<u8>(group >> 24)};
-            const u32 actual = crc32c(checksum_seed_, group_number, sizeof group_number);
-            const u16 calculated = static_cast<u16>(crc32c(actual, copy, descriptor_size_));
+            const u32 actual = crc32c(_checksum_seed, group_number, sizeof group_number);
+            const u16 calculated = static_cast<u16>(crc32c(actual, copy, _descriptor_size));
             if (calculated != expected)
                 return fail(error::checksum);
         }
@@ -209,21 +209,21 @@ namespace astia::ext4 {
     }
 
     bool reader::read_inode(u32 number, inode& result) {
-        if (number == 0 || number > inodes_count_)
+        if (number == 0 || number > _inodes_count)
             return fail(error::corrupt);
-        const u32 group = (number - 1) / inodes_per_group_;
-        const u32 index = (number - 1) % inodes_per_group_;
+        const u32 group = (number - 1) / _inodes_per_group;
+        const u32 index = (number - 1) % _inodes_per_group;
         u64 table = 0;
         if (!read_group_inode_table(group, table))
             return false;
         u64 byte_offset = 0;
-        if (mul_overflow(index, inode_size_, byte_offset) ||
-            mul_overflow(table, block_size_, table))
+        if (mul_overflow(index, _inode_size, byte_offset) ||
+            mul_overflow(table, _block_size, table))
             return fail(error::corrupt);
         if (add_overflow(table, byte_offset, byte_offset))
             return fail(error::corrupt);
         u8 raw[4096]{};
-        if (inode_size_ > sizeof raw || !read_bytes(byte_offset, raw, inode_size_))
+        if (_inode_size > sizeof raw || !read_bytes(byte_offset, raw, _inode_size))
             return false;
         result = inode{};
         result.number = number;
@@ -235,20 +235,20 @@ namespace astia::ext4 {
         result.flags = get32(raw + 0x20);
         result.generation = get32(raw + 0x64);
         copy_bytes(result.block, raw + 0x28, sizeof result.block);
-        if ((feature_ro_compat_ & ro_metadata_csum) != 0 && inode_size_ >= 128) {
+        if ((_feature_ro_compat & ro_metadata_csum) != 0 && _inode_size >= 128) {
             u8 copy[4096]{};
-            copy_bytes(copy, raw, inode_size_);
+            copy_bytes(copy, raw, _inode_size);
             const u32 expected = get16(raw + 0x7C) |
                                  static_cast<u32>(get16(raw + 0x82)) << 16;
             copy[0x7C] = copy[0x7D] = copy[0x82] = copy[0x83] = 0;
             u8 number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
                                   static_cast<u8>(number >> 16), static_cast<u8>(number >> 24)};
-            const u32 first = crc32c(checksum_seed_, number_bytes, sizeof number_bytes);
+            const u32 first = crc32c(_checksum_seed, number_bytes, sizeof number_bytes);
             const u32 second = crc32c(first, raw + 0x64, 4);
-            const bool has_high = inode_size_ >= 132 && get16(raw + 0x80) >= 4;
+            const bool has_high = _inode_size >= 132 && get16(raw + 0x80) >= 4;
             if (has_high)
                 copy[0x82] = copy[0x83] = 0;
-            const u32 actual = crc32c(second, copy, inode_size_);
+            const u32 actual = crc32c(second, copy, _inode_size);
             if ((has_high ? actual : actual & 0xFFFFu) !=
                 (has_high ? expected : expected & 0xFFFFu))
                 return fail(error::checksum);
@@ -257,24 +257,24 @@ namespace astia::ext4 {
     }
 
     bool reader::validate_extent_block(const u8* block, u32 number, u32 generation) {
-        if ((feature_ro_compat_ & ro_metadata_csum) == 0)
+        if ((_feature_ro_compat & ro_metadata_csum) == 0)
             return true;
-        const u32 expected = get32(block + block_size_ - 4);
+        const u32 expected = get32(block + _block_size - 4);
         u8 number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
                               static_cast<u8>(number >> 16), static_cast<u8>(number >> 24)};
         u8 generation_bytes[4] = {static_cast<u8>(generation), static_cast<u8>(generation >> 8),
                                   static_cast<u8>(generation >> 16), static_cast<u8>(generation >> 24)};
-        const u32 first = crc32c(checksum_seed_, number_bytes, sizeof number_bytes);
+        const u32 first = crc32c(_checksum_seed, number_bytes, sizeof number_bytes);
         const u32 second = crc32c(first, generation_bytes, sizeof generation_bytes);
-        if (crc32c(second, block, block_size_ - 4) != expected)
+        if (crc32c(second, block, _block_size - 4) != expected)
             return fail(error::checksum);
         return true;
     }
 
     bool reader::validate_index_block(const u8* block, bool root) {
-        if (block_size_ < 8)
+        if (_block_size < 8)
             return fail(error::corrupt);
-        if (!root && (get32(block) != 0 || get16(block + 4) != block_size_ ||
+        if (!root && (get32(block) != 0 || get16(block + 4) != _block_size ||
                       block[6] != 0 || block[7] != 0))
             return fail(error::corrupt);
         return true;
@@ -292,10 +292,10 @@ namespace astia::ext4 {
                 block[0x1D] != 8 || block[0x1F] != 0 ||
                 get32(block) != node.number || get16(block + 4) != 12 || block[6] != 1 ||
                 block[8] != '.' || get32(block + 0x0C) == 0 ||
-                get16(block + 0x10) != block_size_ - 12 || block[0x12] != 2 ||
+                get16(block + 0x10) != _block_size - 12 || block[0x12] != 2 ||
                 block[0x14] != '.')
                 return fail(error::corrupt);
-            const u16 max_depth = (feature_incompat_ & incompat_largedir) != 0 ? 3 : 2;
+            const u16 max_depth = (_feature_incompat & incompat_largedir) != 0 ? 3 : 2;
             if (depth > max_depth)
                 return fail(error::unsupported_feature);
             limit = get16(block + 0x20);
@@ -312,13 +312,13 @@ namespace astia::ext4 {
             entries_offset = 0x12;
         }
         const u32 count_offset = root ? 0x20 : 8;
-        const u32 tail = (feature_ro_compat_ & ro_metadata_csum) != 0 ? 8 : 0;
+        const u32 tail = (_feature_ro_compat & ro_metadata_csum) != 0 ? 8 : 0;
         if (count < 1 || count > limit || count > child_capacity ||
-            limit > (block_size_ - count_offset - tail) / 8)
+            limit > (_block_size - count_offset - tail) / 8)
             return fail(error::corrupt);
-        if ((feature_ro_compat_ & ro_metadata_csum) != 0) {
+        if ((_feature_ro_compat & ro_metadata_csum) != 0) {
             const u32 tail_offset = count_offset + static_cast<u32>(limit) * 8;
-            if (tail_offset + 8 != block_size_)
+            if (tail_offset + 8 != _block_size)
                 return fail(error::corrupt);
             u8 checksum_tail[8]{};
             copy_bytes(checksum_tail, block + tail_offset, sizeof checksum_tail);
@@ -332,7 +332,7 @@ namespace astia::ext4 {
                                       static_cast<u8>(node.generation >> 8),
                                       static_cast<u8>(node.generation >> 16),
                                       static_cast<u8>(node.generation >> 24)};
-            const u32 first = crc32c(checksum_seed_, number_bytes, sizeof number_bytes);
+            const u32 first = crc32c(_checksum_seed, number_bytes, sizeof number_bytes);
             const u32 second = crc32c(first, generation_bytes, sizeof generation_bytes);
             const u32 third = crc32c(second, block, count_offset + count * 8);
             if (crc32c(third, checksum_tail, sizeof checksum_tail) != expected)
@@ -355,9 +355,9 @@ namespace astia::ext4 {
             if (depth != 0) {
                 u64 physical = 0;
                 if (!map_file_block(node, children[i], physical) || physical == 0 ||
-                    !read_block(physical, extent_block_))
+                    !read_block(physical, _extent_block))
                     return fail(error::corrupt);
-                if (!validate_index_node(node, directory_blocks, extent_block_,
+                if (!validate_index_node(node, directory_blocks, _extent_block,
                                          static_cast<u16>(depth - 1), false))
                     return false;
             }
@@ -375,8 +375,8 @@ namespace astia::ext4 {
         if (get16(node + 6) != depth || depth > 5 || entries > maximum)
             return fail(error::corrupt);
         const u32 available = root ? static_cast<u32>((60 - 12) / 12)
-                                   : (block_size_ - 12 -
-                                      ((feature_ro_compat_ & ro_metadata_csum) != 0 ? 4 : 0)) /
+                                   : (_block_size - 12 -
+                                      ((_feature_ro_compat & ro_metadata_csum) != 0 ? 4 : 0)) /
                                          12;
         if (maximum > available)
             return fail(error::corrupt);
@@ -396,14 +396,14 @@ namespace astia::ext4 {
                 const u64 start = static_cast<u64>(get16(extent + 6)) << 32 |
                                    get32(extent + 8);
                 const u64 physical_end = start + length;
-                if (start == 0 || physical_end < start || physical_end > blocks_count_)
+                if (start == 0 || physical_end < start || physical_end > _blocks_count)
                     return fail(error::corrupt);
                 previous_end = logical_end;
                 if (logical_block >= first && logical_block - first < length) {
                     physical_block = encoded_length > 32768
                                           ? 0
                                           : start + (logical_block - first);
-                    if (physical_block != 0 && physical_block >= blocks_count_)
+                    if (physical_block != 0 && physical_block >= _blocks_count)
                         return fail(error::corrupt);
                     return true;
                 }
@@ -419,7 +419,7 @@ namespace astia::ext4 {
             const u64 child = static_cast<u64>(get16(index + 8)) << 32 |
                               get32(index + 4);
             if ((i == 0 && first != 0) || (i != 0 && first <= previous) ||
-                get16(index + 10) != 0 || child == 0 || child >= blocks_count_)
+                get16(index + 10) != 0 || child == 0 || child >= _blocks_count)
                 return fail(error::corrupt);
             previous = first;
             if (first <= logical_block)
@@ -429,11 +429,11 @@ namespace astia::ext4 {
             return fail(error::corrupt);
         const u64 child = static_cast<u64>(get16(selected + 8)) << 32 |
                           get32(selected + 4);
-        if (child == 0 || child >= blocks_count_ || !read_block(child, extent_block_))
+        if (child == 0 || child >= _blocks_count || !read_block(child, _extent_block))
             return fail(error::corrupt);
-        if (!validate_extent_block(extent_block_, number, generation))
+        if (!validate_extent_block(_extent_block, number, generation))
             return false;
-        return map_extent_node(extent_block_, static_cast<u16>(depth - 1), logical_block,
+        return map_extent_node(_extent_block, static_cast<u16>(depth - 1), logical_block,
                                physical_block, number, generation, false);
     }
 
@@ -443,24 +443,24 @@ namespace astia::ext4 {
             result = 0;
             return true;
         }
-        if (level == 0 || physical_block >= blocks_count_)
+        if (level == 0 || physical_block >= _blocks_count)
             return fail(error::corrupt);
         u8 pointers[4096]{};
         if (!read_block(physical_block, pointers))
             return false;
         u32 span = 1;
         for (u32 i = 1; i < level; ++i) {
-            if (span > 0xFFFFFFFFu / (block_size_ / 4))
+            if (span > 0xFFFFFFFFu / (_block_size / 4))
                 return fail(error::corrupt);
-            span *= block_size_ / 4;
+            span *= _block_size / 4;
         }
         const u32 index = logical_block / span;
-        if (index >= block_size_ / 4)
+        if (index >= _block_size / 4)
             return fail(error::corrupt);
         const u64 child = get32(pointers + index * 4);
         if (level == 1) {
             result = child;
-            if (result >= blocks_count_)
+            if (result >= _blocks_count)
                 return fail(error::corrupt);
             return true;
         }
@@ -475,12 +475,12 @@ namespace astia::ext4 {
         }
         if (logical_block < 12) {
             physical_block = get32(node.block + logical_block * 4);
-            if (physical_block >= blocks_count_)
+            if (physical_block >= _blocks_count)
                 return fail(error::corrupt);
             return true;
         }
         logical_block -= 12;
-        const u32 pointers = block_size_ / 4;
+        const u32 pointers = _block_size / 4;
         if (logical_block < pointers)
             return map_indirect(get32(node.block + 48), 1, logical_block, physical_block);
         logical_block -= pointers;
@@ -502,13 +502,13 @@ namespace astia::ext4 {
         auto* output = static_cast<u8*>(buffer);
         u8 block[4096]{};
         while (length != 0) {
-            const u64 logical_wide = offset / block_size_;
+            const u64 logical_wide = offset / _block_size;
             if (logical_wide > ~u32{0})
                 return fail(error::unsupported_feature);
             const u32 logical = static_cast<u32>(logical_wide);
-            const u32 within = static_cast<u32>(offset % block_size_);
-            const usize amount = (length < block_size_ - within) ? length
-                                                                  : block_size_ - within;
+            const u32 within = static_cast<u32>(offset % _block_size);
+            const usize amount = (length < _block_size - within) ? length
+                                                                  : _block_size - within;
             u64 physical = 0;
             if (!map_file_block(node, logical, physical))
                 return false;
@@ -527,20 +527,20 @@ namespace astia::ext4 {
     }
 
     bool reader::validate_directory_block(const u8* block, u32 number, u32 generation) {
-        if ((feature_ro_compat_ & ro_metadata_csum) == 0)
+        if ((_feature_ro_compat & ro_metadata_csum) == 0)
             return true;
-        if (block_size_ < 12 || get32(block + block_size_ - 12) != 0 ||
-            get16(block + block_size_ - 8) != 12 || block[block_size_ - 6] != 0 ||
-            block[block_size_ - 5] != 0xDE)
+        if (_block_size < 12 || get32(block + _block_size - 12) != 0 ||
+            get16(block + _block_size - 8) != 12 || block[_block_size - 6] != 0 ||
+            block[_block_size - 5] != 0xDE)
             return fail(error::corrupt);
-        const u32 expected = get32(block + block_size_ - 4);
+        const u32 expected = get32(block + _block_size - 4);
         u8 number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
                               static_cast<u8>(number >> 16), static_cast<u8>(number >> 24)};
         u8 generation_bytes[4] = {static_cast<u8>(generation), static_cast<u8>(generation >> 8),
                                   static_cast<u8>(generation >> 16), static_cast<u8>(generation >> 24)};
-        const u32 first = crc32c(checksum_seed_, number_bytes, sizeof number_bytes);
+        const u32 first = crc32c(_checksum_seed, number_bytes, sizeof number_bytes);
         const u32 second = crc32c(first, generation_bytes, sizeof generation_bytes);
-        if (crc32c(second, block, block_size_ - 12) != expected)
+        if (crc32c(second, block, _block_size - 12) != expected)
             return fail(error::checksum);
         return true;
     }
@@ -549,13 +549,13 @@ namespace astia::ext4 {
         if (node.type() != node_type::directory || callback == nullptr)
             return fail(error::unsupported_feature);
         u8 block[4096]{};
-        if ((node.flags & inode_index) != 0 && (feature_compat_ & compat_dir_index) == 0)
+        if ((node.flags & inode_index) != 0 && (_feature_compat & compat_dir_index) == 0)
             return fail(error::unsupported_feature);
-        if ((feature_incompat_ & incompat_largedir) == 0 && node.size > 0xFFFFFFFFu)
+        if ((_feature_incompat & incompat_largedir) == 0 && node.size > 0xFFFFFFFFu)
             return fail(error::unsupported_feature);
-        if (node.size > ~u64{0} - (block_size_ - 1))
+        if (node.size > ~u64{0} - (_block_size - 1))
             return fail(error::corrupt);
-        const u64 count_wide = (node.size + block_size_ - 1) / block_size_;
+        const u64 count_wide = (node.size + _block_size - 1) / _block_size;
         if (count_wide > ~u32{0})
             return fail(error::unsupported_feature);
         const u32 count = static_cast<u32>(count_wide);
@@ -577,25 +577,25 @@ namespace astia::ext4 {
                     return false;
             }
             else if ((node.flags & inode_index) != 0 && block[0] == 0 &&
-                     get16(block + 4) == block_size_ && block[6] == 0 && block[7] == 0)
+                     get16(block + 4) == _block_size && block[6] == 0 && block[7] == 0)
                 continue;
             else if (!validate_directory_block(block, node.number, node.generation))
                 return false;
             u32 offset = 0;
-            while (offset < block_size_) {
-                if (block_size_ - offset < 8)
+            while (offset < _block_size) {
+                if (_block_size - offset < 8)
                     return fail(error::corrupt);
                 const u32 entry_inode = get32(block + offset);
                 const u16 record_length = get16(block + offset + 4);
-                const u8 name_length = (feature_incompat_ & incompat_filetype) != 0
+                const u8 name_length = (_feature_incompat & incompat_filetype) != 0
                                            ? block[offset + 6]
                                            : static_cast<u8>(get16(block + offset + 6));
                 if (record_length < 8 || (record_length & 3) != 0 ||
-                    record_length > block_size_ - offset ||
+                    record_length > _block_size - offset ||
                     name_length > record_length - 8)
                     return fail(error::corrupt);
-                if ((feature_ro_compat_ & ro_metadata_csum) != 0 &&
-                    offset == block_size_ - 12) {
+                if ((_feature_ro_compat & ro_metadata_csum) != 0 &&
+                    offset == _block_size - 12) {
                     if (entry_inode != 0 || record_length != 12 || name_length != 0 ||
                         block[offset + 7] != 0xDE)
                         return fail(error::corrupt);
@@ -606,7 +606,7 @@ namespace astia::ext4 {
                     entry.inode = entry_inode;
                     entry.name = block + offset + 8;
                     entry.name_length = name_length;
-                    if ((feature_incompat_ & incompat_filetype) != 0) {
+                    if ((_feature_incompat & incompat_filetype) != 0) {
                         switch (block[offset + 7]) {
                         case 1: entry.type = node_type::regular; break;
                         case 2: entry.type = node_type::directory; break;

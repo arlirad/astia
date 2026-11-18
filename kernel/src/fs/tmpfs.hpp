@@ -24,75 +24,75 @@ namespace astia::fs {
         long        size() const override;
         const void* capability(file_capability kind) const override;
         u64         inode() const override {
-            core::spinlock_guard guard(lock_);
-            return inode_;
+            core::spinlock_guard guard(_lock);
+            return _inode;
         }
         u32 nlink() const override {
-            core::spinlock_guard guard(lock_);
-            return nlink_;
+            core::spinlock_guard guard(_lock);
+            return _nlink;
         }
         void add_link() {
-            core::spinlock_guard guard(lock_);
-            ++nlink_;
+            core::spinlock_guard guard(_lock);
+            ++_nlink;
         }
         void drop_link() {
-            core::spinlock_guard guard(lock_);
-            if (nlink_ != 0)
-                --nlink_;
+            core::spinlock_guard guard(_lock);
+            if (_nlink != 0)
+                --_nlink;
         }
         file_mode mode() const override {
-            core::spinlock_guard guard(lock_);
-            return mode_;
+            core::spinlock_guard guard(_lock);
+            return _mode;
         }
         uid_t uid() const override {
-            core::spinlock_guard guard(lock_);
-            return uid_;
+            core::spinlock_guard guard(_lock);
+            return _uid;
         }
         gid_t gid() const override {
-            core::spinlock_guard guard(lock_);
-            return gid_;
+            core::spinlock_guard guard(_lock);
+            return _gid;
         }
         long chmod(file_permissions permissions) override {
-            core::spinlock_guard guard(lock_);
-            mode_ = mode_.chmod(permissions);
+            core::spinlock_guard guard(_lock);
+            _mode = _mode.chmod(permissions);
             return 0;
         }
         long chown(uid_t owner, gid_t group) override {
-            core::spinlock_guard guard(lock_);
-            uid_ = owner;
-            gid_ = group;
+            core::spinlock_guard guard(_lock);
+            _uid = owner;
+            _gid = group;
             return 0;
         }
         u64 mtime_sec() const override {
-            core::spinlock_guard guard(lock_);
-            return mtime_sec_;
+            core::spinlock_guard guard(_lock);
+            return _mtime_sec;
         }
         u64 mtime_nsec() const override {
-            core::spinlock_guard guard(lock_);
-            return mtime_nsec_;
+            core::spinlock_guard guard(_lock);
+            return _mtime_nsec;
         }
         long touch(u64 sec, u64 nsec) override;
         void set_mode(file_mode mode) {
-            core::spinlock_guard guard(lock_);
-            mode_ = mode;
+            core::spinlock_guard guard(_lock);
+            _mode = mode;
         }
         mm::phys_region* memory_region() override {
-            return storage_;
+            return _storage;
         }
         long truncate(u64 length) override;
 
         private:
-        mm::phys_region* storage_ = nullptr;
-        u64              size_    = 0;
-        file_mode        mode_ = file_mode(file_type::regular, default_file_permissions);
-        uid_t            uid_{};
-        gid_t            gid_{};
-        u64              mtime_sec_  = 0;
-        u64              mtime_nsec_ = 0;
-        u64              inode_      = 0;
-        u32              nlink_      = 1;
+        mm::phys_region* _storage = nullptr;
+        u64              _size    = 0;
+        file_mode        _mode = file_mode(file_type::regular, default_file_permissions);
+        uid_t            _uid{};
+        gid_t            _gid{};
+        u64              _mtime_sec  = 0;
+        u64              _mtime_nsec = 0;
+        u64              _inode      = 0;
+        u32              _nlink      = 1;
         // File lock is always acquired after a mount namespace lock.
-        mutable core::spinlock lock_;
+        mutable core::spinlock _lock;
     };
 
     class tmpfs_mount final : public mount {
@@ -128,10 +128,10 @@ namespace astia::fs {
             char                  path[path_max]{};
             mm::shptr<tmpfs_file> object;
         };
-        entry entries_[tmpfs_max_entries]{};
+        entry _entries[tmpfs_max_entries]{};
         // Namespace lock protects entry publication and path identity.
         // Callers may then acquire a file lock, never the reverse.
-        mutable core::spinlock namespace_lock_;
+        mutable core::spinlock _namespace_lock;
     };
 
     class tmpfs final : public filesystem {
