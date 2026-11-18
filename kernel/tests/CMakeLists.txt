@@ -934,7 +934,8 @@ foreach (_astia_boot_test IN ITEMS
     if(TEST ${_astia_boot_test})
         astia_add_test_label(${_astia_boot_test} "boot;qemu")
         set_tests_properties(${_astia_boot_test}
-                PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+                PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE
+                FIXTURES_REQUIRED astia-qemu-artifacts)
     endif()
 endforeach()
 foreach (_astia_grub_test IN ITEMS
@@ -942,7 +943,8 @@ foreach (_astia_grub_test IN ITEMS
     if(TEST ${_astia_grub_test})
         astia_add_test_label(${_astia_grub_test} "boot;grub;qemu")
         set_tests_properties(${_astia_grub_test}
-                PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+                PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE
+                FIXTURES_REQUIRED astia-qemu-artifacts)
     endif()
 endforeach()
 foreach (_astia_vga_test IN ITEMS astia_pvh_test astia_framebuffer_test astia_virtual_tty_test)

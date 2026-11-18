@@ -176,8 +176,13 @@ if(ASTIA_BUILD_TESTS)
     foreach(_astia_qemu_target
             astiakrn_runtime
             astiakrn_module_runtime
+            astiakrn_test
             astia_boot_initrd
             astia_cross_libc
+            astia_native_boot_initrd
+            astia_native_service_boot_initrd
+            astia_native_failure_boot_initrd
+            astia_grub_iso
             nvme_msix_module
             nvme_polling_module
             virtio_blk_module
