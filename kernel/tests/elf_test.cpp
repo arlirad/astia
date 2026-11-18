@@ -168,6 +168,39 @@ namespace {
         ++a->unmapped;
     }
 
+    void* congruent_exec_map(void* ctx, astia::u64 hint, astia::usize size,
+                             astia::usize align, bool fixed) {
+        auto* arena = static_cast<exec_arena*>(ctx);
+        if (fixed) {
+            void* p = mmap(reinterpret_cast<void*>(hint), size,
+                           PROT_READ | PROT_WRITE | PROT_EXEC,
+                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+            if (p == MAP_FAILED)
+                return nullptr;
+            arena->base = p;
+            arena->span = size;
+            ++arena->mapped;
+            return p;
+        }
+        const astia::u64 residues[] = {0x500000000000ull, 0x600000000000ull,
+                                       0x700000000000ull};
+        void* p = MAP_FAILED;
+        for (const auto envelope : residues) {
+            const astia::u64 candidate = envelope + (hint & (align - 1));
+            p = mmap(reinterpret_cast<void*>(candidate), size,
+                     PROT_READ | PROT_WRITE | PROT_EXEC,
+                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+            if (p != MAP_FAILED)
+                break;
+        }
+        if (p == MAP_FAILED)
+            return nullptr;
+        arena->base = p;
+        arena->span = size;
+        ++arena->mapped;
+        return p;
+    }
+
     // Map a fixed-capacity copy of a fixture we can corrupt per test.
     struct blob_copy {
         unsigned char data[16384];
@@ -273,6 +306,46 @@ namespace {
         size_t                copy_calls = 0;
         size_t                fail_copy_after = ~size_t{0};
     };
+
+    void* congruent_stream_map(void* ctx, astia::u64 hint, astia::usize size,
+                               astia::usize align, bool fixed) {
+        auto* context = static_cast<stream_exec_context*>(ctx);
+        return congruent_exec_map(&context->arena, hint, size, align, fixed);
+    }
+
+    blob_copy make_nonpage_aligned_executable(bool fixed, bool congruent) {
+        blob_copy blob(fixture_exec_blob, fixture_exec_blob_len);
+        for (size_t i = 0; i < 0x3020; ++i)
+            blob.data[i] = 0;
+        blob.len = 0x3020;
+        blob.data[0] = 0x7f;
+        blob.data[1] = 'E';
+        blob.data[2] = 'L';
+        blob.data[3] = 'F';
+        blob.data[4] = 2;
+        blob.data[5] = 1;
+        blob.data[16] = fixed ? 2 : 3;
+        blob.data[18] = 62;
+        blob_put_u32(blob, 20, 1);
+        const astia::u64 vaddr = fixed ? 0x700000003000ull : 0x3000ull;
+        blob_put_u64(blob, 24, vaddr);
+        blob_put_u64(blob, 32, 64);
+        blob_put_u64(blob, 40, 0);
+        blob.data[52] = 64;
+        blob.data[54] = 56;
+        blob.data[56] = 1;
+        blob_put_u32(blob, 64, 1);
+        blob_put_u32(blob, 68, 5);
+        blob_put_u64(blob, 72, 0x3000);
+        blob_put_u64(blob, 80, vaddr);
+        blob_put_u64(blob, 96, 1);
+        blob_put_u64(blob, 104, 0x100);
+        blob_put_u64(blob, 112, 0x2000);
+        blob.data[0x3000] = 0xc3;
+        if (!congruent)
+            blob_put_u64(blob, 72, 0x2000);
+        return blob;
+    }
 
     void* stream_map(void* ctx, astia::u64 hint, astia::usize size, astia::usize align,
                      bool fixed) {
@@ -693,6 +766,58 @@ ASTIA_TEST(elf_loads_and_runs_fixed_executable) {
     }
 
     munmap(a.base, a.span);
+}
+
+ASTIA_TEST(elf_accepts_nonpage_load_alignment) {
+    blob_copy dyn_blob = make_nonpage_aligned_executable(false, true);
+    exec_arena dyn_arena{};
+    astia::elf::env dyn_env{};
+    dyn_env.ctx = &dyn_arena;
+    dyn_env.map = congruent_exec_map;
+    dyn_env.unmap = exec_unmap;
+    astia::elf::image dyn_image{};
+    ASTIA_CHECK(astia::elf::load(dyn_blob.data, dyn_blob.len, dyn_env, dyn_image));
+    ASTIA_CHECK(dyn_arena.mapped == 1);
+    if (dyn_arena.base != nullptr)
+        munmap(dyn_arena.base, dyn_arena.span);
+
+    blob_copy fixed_blob = make_nonpage_aligned_executable(true, true);
+    exec_arena fixed_arena{};
+    astia::elf::env fixed_env{};
+    fixed_env.ctx = &fixed_arena;
+    fixed_env.map = congruent_exec_map;
+    fixed_env.unmap = exec_unmap;
+    astia::elf::image fixed_image{};
+    ASTIA_CHECK(astia::elf::load(fixed_blob.data, fixed_blob.len, fixed_env, fixed_image));
+    ASTIA_CHECK(fixed_arena.mapped == 1);
+    if (fixed_arena.base != nullptr)
+        munmap(fixed_arena.base, fixed_arena.span);
+
+    stream_exec_context stream_context{dyn_blob.data, dyn_blob.len, {}};
+    astia::elf::async_env stream_env{};
+    stream_env.ctx = &stream_context;
+    stream_env.map = congruent_stream_map;
+    stream_env.read = stream_read;
+    stream_env.unmap = stream_unmap;
+    auto task = astia::elf::load_executable_stream(stream_env, dyn_blob.len);
+    while (!task.done())
+        task.resume();
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(stream_context.arena.mapped == 1);
+    if (stream_context.arena.base != nullptr)
+        munmap(stream_context.arena.base, stream_context.arena.span);
+}
+
+ASTIA_TEST(elf_rejects_noncongruent_load_alignment) {
+    blob_copy blob = make_nonpage_aligned_executable(false, false);
+    exec_arena arena{};
+    astia::elf::env environment{};
+    environment.ctx = &arena;
+    environment.map = congruent_exec_map;
+    environment.unmap = exec_unmap;
+    astia::elf::image image{};
+    ASTIA_CHECK(!astia::elf::load(blob.data, blob.len, environment, image));
+    ASTIA_CHECK(arena.mapped == 0);
 }
 
 ASTIA_TEST(elf_nonstream_unaligned_relative_relocation_is_safe) {

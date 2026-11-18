@@ -277,7 +277,7 @@ namespace astia::elf {
         // picks the base and we derive the bias from it.
         bool  fixed  = (type == et_exec);
         void* mapped = e.map(e.ctx, span_start, static_cast<usize>(span),
-                             static_cast<usize>(map_alignment), fixed);
+                             static_cast<usize>(fixed ? page_size : map_alignment), fixed);
         if (mapped == nullptr) {
             return false;
         }
@@ -552,7 +552,7 @@ namespace astia::elf {
 
         const bool fixed = type == et_exec;
         void* mapped = e.map(e.ctx, span_start, static_cast<usize>(image_span),
-                             static_cast<usize>(map_alignment), fixed);
+                             static_cast<usize>(fixed ? page_size : map_alignment), fixed);
         if (mapped == nullptr)
             co_return error_t::enomem;
         async_mapping mapping{e, mapped, static_cast<usize>(image_span)};
