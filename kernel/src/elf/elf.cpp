@@ -62,7 +62,8 @@ namespace astia::elf {
             // Locate SHT_SYMTAB and follow sh_link to its SHT_STRTAB.
             for (u16 i = 0; i < v.shnum; ++i) {
                 const elf64_shdr& sh = v.sh[i];
-                if (i != 0 && !is_power_of_two(sh.sh_addralign))
+                if (i != 0 && sh.sh_addralign != 0 &&
+                    !is_power_of_two(sh.sh_addralign))
                     return false;
                 if (sh.sh_type != sht_symtab) {
                     continue;

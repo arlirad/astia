@@ -27,6 +27,36 @@ namespace astia::elf {
             ~async_mapping() { reset(); }
         };
 
+        bool validate_load_phdr(const elf64_phdr& ph, usize file_size,
+                                u64& map_alignment) {
+            if (ph.p_memsz < ph.p_filesz ||
+                ph.p_vaddr > ~u64{0} - ph.p_memsz ||
+                !in_bounds(ph.p_offset, ph.p_filesz, file_size))
+                return false;
+            if (ph.p_align > 1) {
+                if (!is_power_of_two(ph.p_align) ||
+                    (ph.p_vaddr & (ph.p_align - 1)) !=
+                        (ph.p_offset & (ph.p_align - 1)))
+                    return false;
+                if (ph.p_align > static_cast<u64>(~usize{0}))
+                    return false;
+                if (ph.p_align > map_alignment)
+                    map_alignment = ph.p_align;
+            }
+            return true;
+        }
+
+        bool load_bias_alignment_ok(const elf64_phdr* ph, u16 phnum,
+                                    u64 mapped_addr, u64 span_start) {
+            for (u16 i = 0; i < phnum; ++i) {
+                if (ph[i].p_type == pt_load && ph[i].p_align > 1 &&
+                    (mapped_addr & (ph[i].p_align - 1)) !=
+                        (span_start & (ph[i].p_align - 1)))
+                    return false;
+            }
+            return true;
+        }
+
         bool vaddr_range_to_off(const elf64_phdr* ph, u16 phnum, u64 vaddr, u64 size,
                                 usize len, u64& off) {
             for (u16 i = 0; i < phnum; ++i) {
@@ -81,7 +111,7 @@ namespace astia::elf {
         // Any other dynamic relocation type means real dynamic linking, which
         // this loader deliberately does not do, so we reject it.
         bool apply_relative_relocs(span<const u8> bytes, const elf64_phdr* ph, u16 phnum,
-                                   u64 load_bias, u64 span_start, u64 span_end) {
+                                   u64 mapped_addr, u64 span_start, u64 span_end) {
             const usize len = bytes.size();
             // Find PT_DYNAMIC; a fully static ET_EXEC has none, which is fine.
             const elf64_dyn* dyn       = nullptr;
@@ -163,14 +193,17 @@ namespace astia::elf {
                 if (loc_vaddr < span_start || loc_vaddr > span_end ||
                     sizeof(u64) > span_end - loc_vaddr ||
                     !vaddr_range_in_load(ph, phnum, loc_vaddr, sizeof(u64)) ||
-                    loc_vaddr > ~u64{0} - load_bias) {
+                    loc_vaddr - span_start > ~u64{0} - mapped_addr) {
                     return false;
                 }
                 const u64 addend = read_u64_bytes(entry + 16);
-                if (load_bias > ~u64{0} - addend)
+                u64 value = 0;
+                if (!checked_biased_value(mapped_addr, span_start,
+                                          static_cast<i64>(addend), value))
                     return false;
-                write_u64(reinterpret_cast<u8*>(load_bias + loc_vaddr),
-                          load_bias + addend);
+                write_u64(reinterpret_cast<u8*>(
+                              mapped_addr + (loc_vaddr - span_start)),
+                          value);
             }
             return true;
         }
@@ -206,6 +239,7 @@ namespace astia::elf {
         // preserved; the load bias shifts the whole set at once.
         u64   min_vaddr = ~u64{0};
         u64   max_end   = 0;
+        u64   map_alignment = page_size;
         usize nsegs     = 0;
         for (u16 i = 0; i < phnum; ++i) {
             if (ph[i].p_type != pt_load) {
@@ -214,8 +248,7 @@ namespace astia::elf {
             if (nsegs >= max_segments) {
                 return false; // too many segments for our fixed cap
             }
-            if (ph[i].p_memsz < ph[i].p_filesz ||
-                ph[i].p_vaddr > ~u64{0} - ph[i].p_memsz) {
+            if (!validate_load_phdr(ph[i], len, map_alignment)) {
                 return false;
             }
             if (ph[i].p_vaddr < min_vaddr) {
@@ -244,7 +277,7 @@ namespace astia::elf {
         // picks the base and we derive the bias from it.
         bool  fixed  = (type == et_exec);
         void* mapped = e.map(e.ctx, span_start, static_cast<usize>(span),
-                             static_cast<usize>(page_size), fixed);
+                             static_cast<usize>(map_alignment), fixed);
         if (mapped == nullptr) {
             return false;
         }
@@ -261,16 +294,33 @@ namespace astia::elf {
             void keep() { address = nullptr; }
         } mapping{e, mapped, static_cast<usize>(span)};
         u64 mapped_addr = reinterpret_cast<u64>(mapped);
-        if ((fixed && mapped_addr != span_start) || mapped_addr < span_start) {
+        if (fixed && mapped_addr != span_start) {
             return false; // fixed-address map ignored the requested address
         }
+        if (!load_bias_alignment_ok(ph, phnum, mapped_addr, span_start))
+            return false;
         if (span > ~u64{0} - mapped_addr)
             return false;
         u64 load_bias = mapped_addr - span_start;
 
-        // map_fn allocates zeroed frames, so the whole span (including BSS
-        // and inter-segment gaps) is already clear.  Do not dereference the
-        // freshly mapped user virtual range from this kernel context.
+        if (e.copy == nullptr) {
+            auto* zero = static_cast<u8*>(mapped);
+            for (u64 i = 0; i < span; ++i)
+                zero[i] = 0;
+        }
+        else {
+            u8 zero[4096] = {};
+            u64 cleared = 0;
+            while (cleared < span) {
+                const usize length = span - cleared < sizeof(zero)
+                                         ? static_cast<usize>(span - cleared)
+                                         : sizeof(zero);
+                if (!e.copy(e.ctx, mapped_addr + cleared,
+                            astia::span<const u8>(zero, length)))
+                    return false;
+                cleared += length;
+            }
+        }
 
         // --- Pass 2: copy each segment's file bytes into place.
         usize seg_i = 0;
@@ -319,7 +369,7 @@ namespace astia::elf {
 
         // --- Apply R_X86_64_RELATIVE dynamic relocations (a PIE needs them to
         // make its internal pointers valid at the run address).
-        if (!apply_relative_relocs(bytes, ph, phnum, load_bias, span_start, span_end)) {
+        if (!apply_relative_relocs(bytes, ph, phnum, mapped_addr, span_start, span_end)) {
             return false;
         }
 
@@ -354,9 +404,10 @@ namespace astia::elf {
 
         if (eh->e_entry < span_start || eh->e_entry >= span_end ||
             !vaddr_range_in_load(ph, phnum, eh->e_entry, 1) ||
-            eh->e_entry > ~u64{0} - load_bias)
+            eh->e_entry - span_start > ~u64{0} - mapped_addr)
             return false;
-        out.entry     = reinterpret_cast<void*>(eh->e_entry + load_bias);
+        out.entry = reinterpret_cast<void*>(
+            mapped_addr + (eh->e_entry - span_start));
         out.base      = mapped;
         out.size      = static_cast<usize>(span);
         out.loaded    = (type == et_dyn) ? kind::dyn : kind::executable;
@@ -405,13 +456,13 @@ namespace astia::elf {
 
         u64   min_vaddr = ~u64{0};
         u64   max_end   = 0;
+        u64   map_alignment = page_size;
         usize nsegs     = 0;
         for (u16 i = 0; i < header.e_phnum; ++i) {
             if (ph[i].p_type != pt_load)
                 continue;
-            if (nsegs >= max_segments || ph[i].p_memsz < ph[i].p_filesz ||
-                !in_bounds(ph[i].p_offset, ph[i].p_filesz, file_size) ||
-                ph[i].p_vaddr > ~u64{0} - ph[i].p_memsz)
+            if (nsegs >= max_segments ||
+                !validate_load_phdr(ph[i], file_size, map_alignment))
                 co_return error_t::einval;
             min_vaddr = ph[i].p_vaddr < min_vaddr ? ph[i].p_vaddr : min_vaddr;
             const u64 end = ph[i].p_vaddr + ph[i].p_memsz;
@@ -501,7 +552,7 @@ namespace astia::elf {
 
         const bool fixed = type == et_exec;
         void* mapped = e.map(e.ctx, span_start, static_cast<usize>(image_span),
-                             static_cast<usize>(page_size), fixed);
+                             static_cast<usize>(map_alignment), fixed);
         if (mapped == nullptr)
             co_return error_t::enomem;
         async_mapping mapping{e, mapped, static_cast<usize>(image_span)};
@@ -510,7 +561,8 @@ namespace astia::elf {
             return error;
         };
         const u64 mapped_addr = reinterpret_cast<u64>(mapped);
-        if ((fixed && mapped_addr != span_start) || mapped_addr < span_start ||
+        if ((fixed && mapped_addr != span_start) ||
+            !load_bias_alignment_ok(ph, header.e_phnum, mapped_addr, span_start) ||
             image_span > ~u64{0} - mapped_addr)
             co_return fail(error_t::einval);
         const u64 bias = mapped_addr - span_start;
@@ -597,13 +649,14 @@ namespace astia::elf {
                         sizeof(u64) > span_end - location_vaddr ||
                         !vaddr_range_in_load(ph, header.e_phnum, location_vaddr,
                                              sizeof(u64)) ||
-                        location_vaddr > ~u64{0} - mapped_addr)
+                        location_vaddr - span_start > ~u64{0} - mapped_addr)
                         co_return fail(error_t::einval);
                     const u64 location = mapped_addr + (location_vaddr - span_start);
                     const u64 addend = read_u64_bytes(entry + 16);
-                    if (bias > ~u64{0} - addend)
+                    u64 value = 0;
+                    if (!checked_biased_value(mapped_addr, span_start,
+                                              static_cast<i64>(addend), value))
                         co_return fail(error_t::einval);
-                    const u64 value = bias + addend;
                     if (e.copy != nullptr) {
                         u8 value_bytes[sizeof(value)];
                         for (usize byte = 0; byte < sizeof(value); ++byte)
@@ -647,7 +700,7 @@ namespace astia::elf {
 
         if (header.e_entry < span_start || header.e_entry >= span_end ||
             !vaddr_range_in_load(ph, header.e_phnum, header.e_entry, 1) ||
-            header.e_entry > ~u64{0} - mapped_addr)
+            header.e_entry - span_start > ~u64{0} - mapped_addr)
             co_return fail(error_t::einval);
         result.entry = reinterpret_cast<void*>(mapped_addr + (header.e_entry - span_start));
         result.base      = mapped;

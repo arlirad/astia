@@ -563,19 +563,31 @@ ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
 
 ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
     auto load_bad = [](blob_copy& buf) {
+        unsigned char storage[1 << 16]{};
         reloc_arena arena{};
+        arena.base = storage;
+        arena.capacity = sizeof(storage);
+        arena.back = sizeof(storage);
         astia::elf::env environment{};
         environment.ctx = &arena;
         environment.map = reloc_map;
         environment.unmap = reloc_unmap;
+        environment.resolve = reloc_resolve;
         astia::elf::image image;
-        return astia::elf::load(buf.data, buf.len, environment, image);
+        const bool loaded = astia::elf::load(buf.data, buf.len, environment, image);
+        if (loaded)
+            reloc_unmap(&arena, image.base, image.size);
+        return loaded;
     };
 
+    blob_copy zero_alignment(hello_mod_blob, hello_mod_blob_len);
+    const size_t section_offset = static_cast<size_t>(blob_u64(zero_alignment, 40));
+    const size_t section_size = static_cast<size_t>(zero_alignment.data[58]) |
+                                (static_cast<size_t>(zero_alignment.data[59]) << 8);
+    blob_put_u64(zero_alignment, section_offset + section_size * 4 + 48, 0);
+    ASTIA_CHECK(load_bad(zero_alignment));
+
     blob_copy bad_alignment(hello_mod_blob, hello_mod_blob_len);
-    const size_t section_offset = static_cast<size_t>(blob_u64(bad_alignment, 40));
-    const size_t section_size = static_cast<size_t>(bad_alignment.data[58]) |
-                                (static_cast<size_t>(bad_alignment.data[59]) << 8);
     blob_put_u64(bad_alignment, section_offset + section_size + 48, 3);
     ASTIA_CHECK(!load_bad(bad_alignment));
 
