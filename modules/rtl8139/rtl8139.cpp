@@ -1,10 +1,11 @@
-#include <astia/module_abi.hpp>
+#include <astia/module_abi.h>
+#include <astia/mm/dma_buffer.hpp>
 
 #include "rtl8139_protocol.hpp"
 
 namespace {
 
-using astia::module::dma_buffer;
+using astia::mm::dma_buffer;
 using astia::rtl8139::bounded_mpsc_queue;
 using astia::rtl8139::bounded_spsc_queue;
 using astia::rtl8139::device_state;
@@ -54,8 +55,8 @@ class rtl8139_controller final {
     astia_module_net_device net_abi_{};
 
     uint8_t* rx_ring() const {
-        return rx_ring_dma_.allocated
-                   ? static_cast<uint8_t*>(rx_ring_dma_.value.virtual_address)
+        return static_cast<bool>(rx_ring_dma_)
+                   ? static_cast<uint8_t*>(rx_ring_dma_.data())
                    : nullptr;
     }
 
@@ -74,10 +75,10 @@ class rtl8139_controller final {
     }
 
     bool configure_hardware() {
-        if (!physical_address_ok(rx_ring_dma_.value.physical))
+        if (!physical_address_ok(rx_ring_dma_.physical()))
             return false;
         registers_.write32(register_offset::rx_buffer_start,
-                           static_cast<uint32_t>(rx_ring_dma_.value.physical));
+                           static_cast<uint32_t>(rx_ring_dma_.physical()));
         registers_.write32(register_offset::rx_config, (3u << 8) | 0x0fu);
         registers_.write32(register_offset::tx_config, 6u << 8);
         registers_.write8(register_offset::command,
@@ -465,7 +466,7 @@ extern "C" void rtl8139_pci_remove_net(void*) {
 }
 
 extern "C" int module_main() {
-    static const astia::module::net_driver driver{
+    static const astia_module_pci_net_driver driver{
         "rtl8139", rtl8139_pci_match, rtl8139_pci_probe_net, rtl8139_pci_remove_net};
     return astia_module_register_pci_net_driver(&driver);
 }

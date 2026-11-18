@@ -26,8 +26,11 @@ add_custom_command(
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_io.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_memory.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_pci.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/shptr.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/dev/blk/blkdev.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/hw/pci.hpp
         COMMENT "Compiling NVMe loadable module"
         VERBATIM
 )

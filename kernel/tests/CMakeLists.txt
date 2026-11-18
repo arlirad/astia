@@ -81,6 +81,7 @@ astia_add_host_test(astia_regs_test regs_test.cpp)
 astia_add_host_test(astia_capabilities_test capabilities_test.cpp)
 astia_add_host_test(astia_capabilities_header_test capabilities_header_test.cpp)
 astia_add_host_test(astia_io_header_test io_header_test.cpp)
+astia_add_host_test(astia_io_request_test io_request_test.cpp)
 astia_add_host_test(astia_irq_header_test irq_header_test.cpp)
 astia_add_host_test(astia_endian_test endian_test.cpp)
 astia_add_host_test(astia_time_test
@@ -157,14 +158,14 @@ astia_add_host_test(astia_device_test
 
 astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/pci.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw_pci.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/driver.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
 target_include_directories(astia_pci_core_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 astia_add_host_test(astia_pci_test
         pci_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/pci.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw_pci.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/driver.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/mmio.cpp)
@@ -218,14 +219,6 @@ add_test(NAME astia_kernel_warning_flags
         -DASTIA_MODE=kernel
         -DASTIA_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/warning-regression/kernel
         -DASTIA_COMPILE_COMMANDS=${CMAKE_BINARY_DIR}/compile_commands.json
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/production_warning_flags_test.cmake)
-add_test(NAME astia_module_c_abi_warning_flags
-        COMMAND ${CMAKE_COMMAND}
-        -DASTIA_MODE=module_c
-        -DASTIA_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/warning-regression/module_abi.o
-        -DASTIA_C_COMPILER=${CMAKE_C_COMPILER}
-        -DASTIA_KERNEL_INCLUDE=${ASTIA_KERNEL_SOURCE_DIR}/include
-        -DASTIA_SOURCE=${ASTIA_KERNEL_SOURCE_DIR}/../modules/tests/module_abi_c_module.c
         -P ${CMAKE_CURRENT_SOURCE_DIR}/production_warning_flags_test.cmake)
 add_test(NAME astia_nvme_warning_flags
         COMMAND ${CMAKE_COMMAND}

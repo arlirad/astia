@@ -1,6 +1,6 @@
 #include <astia/dev/driver.hpp>
 #include <astia/dev/mmio.hpp>
-#include <astia/dev/pci.hpp>
+#include <astia/hw/pci.hpp>
 #include "test.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/mmio.hpp>
@@ -63,22 +63,22 @@ namespace {
 
     fake_pci state;
 
-    class capture_driver final : public astia::dev::driver {
+    class capture_driver final : public astia::hw::driver {
         public:
         const char* name() const override {
             return "capture";
         }
-        bool match(const astia::dev::device_info&) const override {
+        bool match(const astia::hw::device_info&) const override {
             return true;
         }
-        astia::mm::shptr<astia::dev::device> probe(const astia::dev::device_info& value) override {
-            const auto* pci = astia::dev::pci_device_info::get(value);
+        astia::mm::shptr<astia::dev::device> probe(const astia::hw::device_info& value) override {
+            const auto* pci = astia::hw::pci_device_info::get(value);
             if (pci != nullptr)
                 captured = pci->device();
             return {};
         }
 
-        astia::dev::pci_device captured{};
+        astia::hw::pci_device captured{};
     };
 
     capture_driver capture;
@@ -123,8 +123,8 @@ namespace astia::arch {
 } // namespace astia::arch
 
 ASTIA_TEST(pci_enumeration_discovers_bar_geometry) {
-    ASTIA_CHECK(astia::dev::drivers().register_driver(capture));
-    ASTIA_CHECK(astia::dev::pci_enumerate() == 1);
+    ASTIA_CHECK(astia::hw::drivers().register_driver(capture));
+    ASTIA_CHECK(astia::hw::pci_enumerate() == 1);
 
     const auto& first = capture.captured.bars[0];
     ASTIA_CHECK(first.address == 0x80000000ull);

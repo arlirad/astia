@@ -50,7 +50,7 @@ ASTIA_TEST(blkdev_rejects_invalid_read) {
 ASTIA_TEST(blkdev_submit_rejects_unaligned_request) {
     synthetic_blkdev device;
     char buffer[2]{};
-    astia::io_request request(buffer, sizeof buffer, 1, 0, astia::io_direction::input);
+    astia::io::request request(buffer, sizeof buffer, 1, 0, astia::io::direction::input);
     ASTIA_CHECK(device.submit(request) == -EINVAL);
 
     request.offset(2);

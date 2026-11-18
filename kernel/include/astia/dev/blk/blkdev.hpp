@@ -12,7 +12,7 @@ namespace astia::dev::blk {
 
         long read(void* buffer, u32 length, u64 offset) override;
         long write(const void* buffer, u32 length, u64 offset) override;
-        long submit(io_request& request) override;
+        long submit(io::request& request) override;
 
         u64 size_bytes() const {
             return size_bytes_;
@@ -31,7 +31,7 @@ namespace astia::dev::blk {
         virtual long write_blocks(const void* buffer, u32 length, u64 offset);
 
         protected:
-        long validate_request(const io_request& request) const {
+        long validate_request(const io::request& request) const {
             return validate(request.buffer(), request.length(), request.offset());
         }
 

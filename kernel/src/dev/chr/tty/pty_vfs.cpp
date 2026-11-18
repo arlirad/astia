@@ -32,7 +32,7 @@ namespace astia::dev {
             long write(const void* buffer, u32 length, u64 offset) override {
                 return owner_->write(buffer, length, offset);
             }
-            long submit(io_request& request) override {
+            long submit(io::request& request) override {
                 return owner_->submit(request);
             }
             u32 poll(u32 events, u32 flags) override {
@@ -69,7 +69,7 @@ namespace astia::dev {
             long write(const void* buffer, u32 length, u64) override {
                 return owner_->master_write(buffer, length);
             }
-            long submit(io_request& request) override {
+            long submit(io::request& request) override {
                 return owner_->master_submit(request);
             }
             u32 poll(u32 events, u32) override { return owner_->master_poll(events); }

@@ -98,13 +98,13 @@ namespace astia::fs {
                 __atomic_fetch_add(count, 1u, __ATOMIC_ACQ_REL);
             }
 
-            long submit(io_request& request) override {
-                const long result = request.direction() == io_direction::input
+            long submit(io::request& request) override {
+                const long result = request.direction() == io::direction::input
                                         ? read(request.buffer(), request.length(), 0)
                                         : write(request.buffer(), request.length(), 0);
                 if (result == 0 && request.length() == 0)
                     request.complete(true);
-                else if (result == 0 && request.direction() == io_direction::input &&
+                else if (result == 0 && request.direction() == io::direction::input &&
                          __atomic_load_n(&writers_, __ATOMIC_ACQUIRE) == 0)
                     request.complete(true);
                 else if (result == 0)

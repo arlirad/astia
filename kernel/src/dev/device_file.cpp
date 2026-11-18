@@ -20,7 +20,7 @@ namespace astia::dev {
                          astia::span<const u8>(static_cast<const u8*>(buf), len), offset);
     }
 
-    long device_file::submit(io_request& request) {
+    long device_file::submit(io::request& request) {
         device* value = device_instance();
         return value == nullptr ? -EINVAL : value->submit(request);
     }

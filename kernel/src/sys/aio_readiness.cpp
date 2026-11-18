@@ -38,7 +38,7 @@ namespace astia::sys::aio_readiness {
             p->poll_events            = s.aux;
             p->fd                     = s.fd;
             p->object                 = object;
-            p->request                = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
+            p->request                = io::request(nullptr, 0, 0, s.user_data, io::direction::input);
             publish_waiter_hint(slot, park_index, object->node().get());
             if (ready_generation() != generation)
                 aio_dispatch::resume_parked(ring, *p);
@@ -83,7 +83,7 @@ namespace astia::sys::aio_readiness {
                                                                            : now + s.offset);
             p->sleep_remaining_user = absolute ? 0 : s.address;
             p->fd                   = -1;
-            p->request              = io_request(nullptr, 0, 0, s.user_data, io_direction::input);
+            p->request              = io::request(nullptr, 0, 0, s.user_data, io::direction::input);
             return true;
         }
 

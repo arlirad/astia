@@ -197,7 +197,7 @@ namespace astia::fs {
         long (*write)(file*, const void*, u32, u64);
     };
     struct file_submit_capability {
-        long (*submit)(file*, io_request&);
+        long (*submit)(file*, io::request&);
     };
     struct file_poll_capability {
         u32 (*poll)(const file*, u32, u32);
@@ -235,7 +235,7 @@ namespace astia::fs {
         virtual ~file() = default;
         virtual long             read(void* buf, u32 len, u64 offset);
         virtual long             write(const void* buf, u32 len, u64 offset);
-        virtual long             submit(io_request& request);
+        virtual long             submit(io::request& request);
         virtual u32              poll(u32 events, u32 flags);
         virtual long             ioctl(u64 request, void* argp, usize size);
         virtual long             acquire_controlling_terminal(i32 group);
@@ -309,7 +309,7 @@ namespace astia::fs {
         long read(void* buf, u32 len, u64 offset = offset_current);
         long write(const void* buf, u32 len, u64 offset = offset_current);
         long seek(i64 offset, i32 whence);
-        long submit(io_request& request);
+        long submit(io::request& request);
         u32  poll(u32 events) const;
         u32  flags() const {
             return _flags;
@@ -390,8 +390,8 @@ namespace astia::fs {
     class io_packet {
         public:
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
-                  io_direction direction, mm::uptr<core::async_operation<i64>> completion)
-            : file_(file), flight_(new io_flight(buffer, length, offset, direction,
+                  io::direction direction, mm::uptr<core::async_operation<i64>> completion)
+            : file_(file), flight_(new io::flight(buffer, length, offset, direction,
                                                  static_cast<mm::uptr<core::async_operation<i64>>&&>(completion))) {}
 
         ~io_packet() {
@@ -404,18 +404,18 @@ namespace astia::fs {
 
         explicit operator bool() const { return flight_ != nullptr; }
         long submit() { return file_ && flight_ ? file_->submit(flight_->request()) : -EBADF; }
-        io_request& request() { return flight_->request(); }
-        const io_request& request() const { return flight_->request(); }
+        io::request& request() { return flight_->request(); }
+        const io::request& request() const { return flight_->request(); }
         core::async_operation<i64>* completion() const { return request().completion(); }
         const mm::shptr<open_file>& file() const { return file_; }
 
         private:
         mm::shptr<open_file> file_;
-        io_flight*           flight_;
+        io::flight*           flight_;
     };
 
     core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,
-                           u64 offset, io_direction direction);
+                           u64 offset, io::direction direction);
     core::task<i64> read(const mm::shptr<open_file>& file, span<u8> buffer,
                          u64 offset = offset_current);
     core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer,

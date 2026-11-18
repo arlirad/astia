@@ -35,7 +35,7 @@ namespace astia::elf {
     inline constexpr usize elf_ident_size = 16;
 
     /// Fixed caps used by the loader's stack-backed metadata tables.
-    inline constexpr usize max_sections        = 64;
+    inline constexpr usize max_sections        = 256;
     inline constexpr usize max_program_headers = 64;
 
     /// What kind of ELF image this is (from the header's e_type, after
