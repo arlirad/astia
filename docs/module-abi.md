@@ -37,3 +37,6 @@ block-driver/request layouts were removed rather than retained as aliases.
 policy; block devices add alignment, capacity, and flush policy; network will
 reuse request ownership primitives while retaining packet ownership,
 backpressure, and IRQ/deferred semantics in a follow-up contract.
+
+The complete header, symbol, ownership, unload, and validation inventory is
+in `docs/module-abi-inventory.md`.

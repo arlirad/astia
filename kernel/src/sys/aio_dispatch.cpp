@@ -27,6 +27,15 @@ namespace astia::sys::aio_dispatch {
     using namespace aio_ring;
 
     namespace detail {
+        u64 next_request_generation = 1;
+
+        u64 issue_request_generation() {
+            const u64 result = next_request_generation;
+            next_request_generation =
+                next_request_generation == ~u64{0} ? 1 : next_request_generation + 1;
+            return result;
+        }
+
         void wake_request(void* context) {
             if (context != nullptr)
                 sys::io_device_ready_context(static_cast<io_device*>(context));
@@ -281,9 +290,11 @@ namespace astia::sys::aio_dispatch {
                 const bool append_reserved = op.request.append_reserved();
                 const bool has_append_length = op.request.has_append_length();
                 const u32 append_length = op.request.append_length();
+                const u64 request_generation = op.request.generation();
                 op.request = io::request(
                     op.entries.window(), static_cast<u32>(op.entries.chunk()),
                     op.request.offset(), op.request.user_data(), op.request.direction());
+                op.request.generation(request_generation);
                 op.request.wake_handler_set(wake_request, op.object->node().get());
                 op.request.updates_position(updates_position);
                 if (has_append_length)
@@ -292,19 +303,20 @@ namespace astia::sys::aio_dispatch {
             }
         }
 
-        void complete_recvfrom_address(parked_op& op, long& result) {
+        void complete_recvfrom_address(proc::process* owner, parked_op& op, long& result) {
             if (op.recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
                 const auto*    socket = op.object->node()->unix_socket_capability();
                 const auto     destination =
-                    sys::user_ptr<astia_sockaddr>(op.recvfrom_address_user).validate();
+                    sys::user_ptr<astia_sockaddr>(op.recvfrom_address_user)
+                        .validate_for(owner);
                 if (socket == nullptr || !socket->recvfrom_address(*op.object, address) ||
-                    !destination || !sys::copy_out(destination.value.bytes(), &address))
+                    !destination || !sys::copy_out_for(owner, destination.value.bytes(), &address))
                     result = -EFAULT;
             }
         }
 
-        void resume_parked(astia_rings* ring, parked_op& op);
+        void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op);
 
         bool publish_pending(astia_rings* ring, parked_op& op) {
             if (!op.pending_cqe)
@@ -373,7 +385,8 @@ namespace astia::sys::aio_dispatch {
             // buffer the operation is filling — cannot move or free what the
             // device is working on.
             for (u32 i = 0; i < count; ++i) {
-                const long pinned = sys::pin_user_span(entries[i], direction, p->entries);
+                const long pinned = sys::pin_user_span_for(
+                    slot.owner.get(), entries[i], direction, p->entries, slot.kernel_buffers);
                 if (pinned < 0) {
                     // A failed submission keeps nothing: release whatever the
                     // earlier entries had already taken, so a refused readv()
@@ -398,6 +411,8 @@ namespace astia::sys::aio_dispatch {
             p->request =
                 io::request(p->entries.window(), static_cast<u32>(p->entries.chunk()),
                            s.offset, s.user_data, direction);
+            p->generation = issue_request_generation();
+            p->request.generation(p->generation);
             p->request.wake_handler_set(wake_request, p->object->node().get());
             p->request.append_length(static_cast<u32>(p->entries.bytes()));
             p->request.updates_position((s.op_flags & ASTIA_AIO_POSITIONED) == 0);
@@ -410,10 +425,10 @@ namespace astia::sys::aio_dispatch {
                 arm_request_timeout(*p);
                 publish_waiter_hint(slot, park_index, p->object->node().get());
                 if (ready_generation() != generation)
-                    resume_parked(ring, *p);
+                    p->device_ready = true;
                 return true; // parked: a device resume completes it
             }
-            complete_recvfrom_address(*p, result);
+            complete_recvfrom_address(slot.owner.get(), *p, result);
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
@@ -441,7 +456,7 @@ namespace astia::sys::aio_dispatch {
         /// up from request.stage(), and a stretch that finishes hands the
         /// operation on to the next entry.  A device that is still not ready
         /// returns 0 and stays parked.
-        void resume_parked(astia_rings* ring, parked_op& op) {
+        void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op) {
             // Cancellation posts the target CQE and marks the operation done,
             // but the readiness nudge that was already in flight may still
             // reach this slot before task context reaps it.  Never post a
@@ -481,7 +496,7 @@ namespace astia::sys::aio_dispatch {
                 op.resuming = false;
                 return;
             }
-            complete_recvfrom_address(op, result);
+            complete_recvfrom_address(owner, op, result);
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.
             if (op.request.completion() != nullptr) {
@@ -577,7 +592,10 @@ namespace astia::sys::aio_dispatch {
             // from under the device.
             usize total = 0;
             for (u32 i = 0; i < count; ++i) {
-                if (!sys::user_span_ok(ranges[i])) {
+                const bool kernel_buffer =
+                    context.slot.kernel_buffers && sys::kernel_span_ok(ranges[i]);
+                if (!kernel_buffer &&
+                    !sys::user_span_ok_for(context.slot.owner.get(), ranges[i])) {
                     return context.complete(-EFAULT);
                 }
                 if (ranges[i].length() > max_operation_bytes ||
@@ -880,8 +898,8 @@ namespace astia::sys::aio_dispatch {
         detail::retry_pending(slot, ring);
     }
 
-    void resume_parked(astia_rings* ring, parked_op& op) {
-        detail::resume_parked(ring, op);
+    void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op) {
+        detail::resume_parked(owner, ring, op);
     }
 
     void complete_control(proc::process* owner, astia_rings* ring, parked_op& op,

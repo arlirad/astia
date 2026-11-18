@@ -3,6 +3,7 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/common.hpp>
+#include <astia/hw/driver.hpp>
 #include <astia/io.hpp>
 #include <astia/span.hpp>
 
@@ -30,7 +31,7 @@ namespace astia::dev {
     /// Hardware/device abstraction.  Filesystem exposure is deliberately
     /// a separate adapter (`device_file`), so hardware objects do not
     /// become filesystem objects by inheritance.
-    class device {
+    class device : public hw::product {
         public:
         constexpr device(const char* name, unsigned flags) : _flags(flags) {
             u32 i = 0;

@@ -88,6 +88,8 @@ namespace astia::io {
         u64 user_data() const {
             return _user_data;
         }
+        u64 generation() const { return _generation; }
+        void generation(u64 value) { _generation = value; }
         astia::io::direction direction() const {
             return _direction;
         }
@@ -202,6 +204,13 @@ namespace astia::io {
                 _wake_handler(_wake_context);
         }
 
+        bool wake(u64 generation) const {
+            if (_generation != generation)
+                return false;
+            wake();
+            return true;
+        }
+
         bool park_device();
         bool canceled() const;
         bool begin_device();
@@ -222,6 +231,7 @@ namespace astia::io {
         u32          _length       = 0;
         u64          _offset       = 0;
         u64          _user_data    = 0;
+        u64          _generation   = 0;
         void*        _device_state = nullptr;
         astia::io::direction _direction = astia::io::direction::input;
         bool         _updates_position = true;

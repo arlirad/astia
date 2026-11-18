@@ -23,6 +23,7 @@ namespace astia::core {
         optional<T>              result_;
         u8                       state_ = static_cast<u8>(state::pending);
         u8                       deferred_inflight_ = 0;
+        u64                      generation_ = 1;
         std::coroutine_handle<>  continuation_{};
 
         bool finished() const {
@@ -41,10 +42,12 @@ namespace astia::core {
 
         void wake_deferred() {
             __atomic_store_n(&deferred_inflight_, 1, __ATOMIC_RELEASE);
+            const u64 generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
             auto continuation = __atomic_exchange_n(
                 reinterpret_cast<void**>(&continuation_), nullptr, __ATOMIC_ACQ_REL);
             if (continuation != nullptr &&
-                !schedule_resume(std::coroutine_handle<>::from_address(continuation)))
+                !schedule_resume(std::coroutine_handle<>::from_address(continuation),
+                                 generation))
                 __builtin_trap();
             __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
         }
@@ -53,26 +56,30 @@ namespace astia::core {
         class awaiter {
             async_operation*       operation_;
             std::coroutine_handle<> continuation_{};
+            u64                    generation_ = 0;
 
             public:
             explicit awaiter(async_operation* operation) : operation_(operation) {}
             awaiter(const awaiter&)            = delete;
             awaiter& operator=(const awaiter&) = delete;
             awaiter(awaiter&& other) noexcept
-                : operation_(other.operation_), continuation_(other.continuation_) {
+                : operation_(other.operation_), continuation_(other.continuation_),
+                  generation_(other.generation_) {
                 other.operation_    = nullptr;
                 other.continuation_ = {};
+                other.generation_   = 0;
             }
             ~awaiter() {
                 if (operation_ != nullptr)
-                    operation_->detach(continuation_);
+                    operation_->detach(continuation_, generation_);
             }
 
             bool await_ready() const noexcept { return operation_->finished(); }
 
             bool await_suspend(std::coroutine_handle<> continuation) noexcept {
                 continuation_ = continuation;
-                return operation_->attach(continuation);
+                generation_ = operation_->attach(continuation);
+                return generation_ != 0;
             }
 
             optional<T> await_resume() {
@@ -164,28 +171,30 @@ namespace astia::core {
             __atomic_store_n(&state_, static_cast<u8>(value), __ATOMIC_RELEASE);
         }
 
-        bool attach(std::coroutine_handle<> continuation) noexcept {
+        u64 attach(std::coroutine_handle<> continuation) noexcept {
             if (finished())
-                return false;
+                return 0;
+            const u64 generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
             void* expected = nullptr;
             if (!__atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
                                               &expected, continuation.address(), false,
                                               __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
-                return false;
+                return 0;
             if (finished()) {
                 void* value = continuation.address();
                 if (__atomic_compare_exchange_n(
                         reinterpret_cast<void**>(&continuation_), &value, nullptr, false,
                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                    return false;
-                return true;
+                    return 0;
+                return generation;
             }
-            return true;
+            return generation;
         }
 
-        void detach(std::coroutine_handle<> continuation) noexcept {
+        void detach(std::coroutine_handle<> continuation, u64 generation) noexcept {
             if (!continuation)
                 return;
+            __atomic_add_fetch(&generation_, 1, __ATOMIC_ACQ_REL);
             void* expected = continuation.address();
             const bool detached = __atomic_compare_exchange_n(
                 reinterpret_cast<void**>(&continuation_), &expected, nullptr, false,
@@ -194,7 +203,7 @@ namespace astia::core {
                 while (__atomic_load_n(&deferred_inflight_, __ATOMIC_ACQUIRE) != 0)
                     ASTIA_CPU_RELAX();
             }
-            cancel_resume(continuation);
+            cancel_resume(continuation, generation);
         }
     };
 

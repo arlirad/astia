@@ -13,6 +13,13 @@
 
 namespace {
 
+    void copy_bytes(void* destination, const void* source, unsigned length) {
+        auto*       to   = static_cast<unsigned char*>(destination);
+        const auto* from = static_cast<const unsigned char*>(source);
+        for (unsigned i = 0; i < length; ++i)
+            to[i] = from[i];
+    }
+
     constexpr unsigned queue_limit = 8;
     constexpr unsigned timeout_spins = 4000000;
     constexpr unsigned pci_vendor_virtio = 0x1af4;
@@ -502,10 +509,9 @@ namespace {
             const uint8_t status = static_cast<unsigned char*>(request.data())[status_offset];
             if (status != status_ok)
                 return status == status_unsupp ? -95 : -5;
-            if (!write && buffer != nullptr &&
-                astia_module_copy_out(buffer, data_length,
-                                      static_cast<unsigned char*>(request.data()) + 64) != 0)
-                return -14;
+            if (!write && buffer != nullptr)
+                copy_bytes(buffer, static_cast<unsigned char*>(request.data()) + 64,
+                           data_length);
             return static_cast<long>(data_length);
         }
 
@@ -518,12 +524,9 @@ namespace {
             dma request;
             if (!request.allocate(pages))
                 return -12;
-            if (write && astia_module_copy_in(static_cast<unsigned char*>(request.data()) +
-                                                   data_offset,
-                                               length, buffer) != 0) {
-                request.release();
-                return -14;
-            }
+            if (write)
+                copy_bytes(static_cast<unsigned char*>(request.data()) + data_offset, buffer,
+                           length);
             if (!enqueue(request, data_offset, length, write, status_offset,
                          write ? _requestout : _requestin, offset)) {
                 request.release();
@@ -569,13 +572,9 @@ namespace {
             pending.status_offset = status_offset;
             pending.write = write;
             pending.active = true;
-            if (write && astia_module_copy_in(static_cast<unsigned char*>(pending.request.data()) +
-                                                   64,
-                                               io.length(), io.buffer()) != 0) {
-                pending.request.release();
-                pending = {};
-                return -14;
-            }
+            if (write)
+                copy_bytes(static_cast<unsigned char*>(pending.request.data()) + 64,
+                           io.buffer(), io.length());
             if (!enqueue(pending.request, 64, io.length(), write, status_offset,
                          write ? _requestout : _requestin, io.offset())) {
                 pending.request.release();
@@ -621,11 +620,8 @@ namespace {
                 return -5;
             }
             if (!pending.write) {
-                const long result = astia_module_copy_out(pending.io->buffer(), pending.length,
-                                                           bytes + 64) == 0
-                                        ? static_cast<long>(pending.length)
-                                        : -14;
-                pending.result = result;
+                copy_bytes(pending.io->buffer(), bytes + 64, pending.length);
+                pending.result = static_cast<long>(pending.length);
                 pending.completed = true;
                 if (pending.io->device_state() != nullptr)
                     pending.io->wake();
@@ -767,6 +763,9 @@ namespace {
             _product = block;
             return true;
         }
+        astia::hw::product_handle publish(const astia::hw::device_info&) override {
+            return _product;
+        }
         void remove(const astia::hw::device_info&) override {
             _product = {};
             device.release();
@@ -787,7 +786,15 @@ namespace {
                 return false;
             astia_module_log("vblk", "known sector ok");
             astia_module_log("vblk", "invalid geometry rejected");
+            char async_read[512]{};
+            if (astia_module_read_registered_async("/dev/vblk0", async_read,
+                                                   sizeof async_read, 0) != 0 ||
+                async_read[0] != 'A' || async_read[1] != 'S' || async_read[2] != 'T' ||
+                async_read[3] != 'I' || async_read[4] != 'A' || async_read[5] != '_' ||
+                async_read[6] != 'V' || async_read[7] != 'I')
+                return false;
             if (!device.write_supported) {
+                astia_module_log("vblk", "attached kernel-buffer async read ok");
                 astia_module_log("vblk", "write rejected: read-only or no flush");
                 return true;
             }

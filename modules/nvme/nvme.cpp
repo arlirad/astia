@@ -836,6 +836,10 @@ namespace {
             return true;
         }
 
+        astia::hw::product_handle publish(const astia::hw::device_info&) override {
+            return _product;
+        }
+
         void remove(const astia::hw::device_info&) override {
             _product = {};
             device.stop();

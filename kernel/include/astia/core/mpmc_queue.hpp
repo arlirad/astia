@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/core/spinlock.hpp>
 
 // The kernel supplies placement new without pulling in a hosted C++ runtime.
 void* operator new(astia::usize size, void* where) noexcept;
@@ -34,6 +35,7 @@ namespace astia::core {
         alignas(cache_line_bytes) u64 enqueue_position_ = 0;
         alignas(cache_line_bytes) u64 dequeue_position_ = 0;
         slot slots_[Capacity];
+        u8 initialized_ = 0;
 
         static T* value(slot& entry) {
             return reinterpret_cast<T*>(entry.storage);
@@ -108,12 +110,32 @@ namespace astia::core {
 
         public:
         mpmc_queue() {
+            initialize();
+        }
+
+        void initialize() {
+            u8 expected = 0;
+            if (!__atomic_compare_exchange_n(&initialized_, &expected, 1, false,
+                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                while (__atomic_load_n(&initialized_, __ATOMIC_ACQUIRE) == 1)
+                    ASTIA_CPU_RELAX();
+                return;
+            }
+            __atomic_store_n(&enqueue_position_, u64{0}, __ATOMIC_RELAXED);
+            __atomic_store_n(&dequeue_position_, u64{0}, __ATOMIC_RELAXED);
             for (u64 i = 0; i < static_cast<u64>(Capacity); ++i) {
                 __atomic_store_n(&slots_[i].sequence, i, __ATOMIC_RELAXED);
             }
+            __atomic_store_n(&initialized_, 2, __ATOMIC_RELEASE);
+        }
+
+        bool initialized() const {
+            return __atomic_load_n(&initialized_, __ATOMIC_ACQUIRE) == 2;
         }
 
         ~mpmc_queue() {
+            if (!initialized())
+                return;
             while (try_discard()) {
             }
         }
@@ -127,6 +149,8 @@ namespace astia::core {
 
         template <typename... Args>
         bool try_emplace(Args&&... args) {
+            if (!initialized())
+                return false;
             u64   position = __atomic_load_n(&enqueue_position_, __ATOMIC_RELAXED);
             slot* entry    = nullptr;
             if (!claim_enqueue(position, entry)) {
@@ -150,6 +174,8 @@ namespace astia::core {
         /// `output` must be assignable from T. The queue slot is destroyed
         /// and released before this function returns.
         bool try_pop(T& output) {
+            if (!initialized())
+                return false;
             u64   position = __atomic_load_n(&dequeue_position_, __ATOMIC_RELAXED);
             slot* entry    = nullptr;
             if (!claim_dequeue(position, entry)) {
@@ -162,6 +188,8 @@ namespace astia::core {
         }
 
         bool try_discard() {
+            if (!initialized())
+                return false;
             const u64 position = __atomic_load_n(&dequeue_position_, __ATOMIC_RELAXED);
             return try_discard_at(position);
         }
@@ -169,6 +197,8 @@ namespace astia::core {
         /// Approximate item count. It is only a snapshot and may be stale
         /// immediately after returning when producers or consumers race.
         usize size_approx() const {
+            if (!initialized())
+                return 0;
             const u64 tail = __atomic_load_n(&enqueue_position_, __ATOMIC_ACQUIRE);
             const u64 head = __atomic_load_n(&dequeue_position_, __ATOMIC_ACQUIRE);
             const u64 size = tail - head;

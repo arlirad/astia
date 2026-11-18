@@ -46,7 +46,7 @@ namespace {
             static_cast<astia::mm::shptr<test_info>&&>(value));
     }
 
-    class test_driver final : public astia::hw::driver {
+    class test_driver : public astia::hw::driver {
         public:
         test_driver(bool should_match, bool should_probe)
             : should_match_(should_match), should_probe_(should_probe) {}
@@ -83,6 +83,15 @@ namespace {
         mutable astia::u32 matched_value_ = 0;
         astia::u32 probed_value_ = 0;
         astia::u32 removed_value_ = 0;
+    };
+
+    class test_product final : public astia::hw::product {
+        public:
+        explicit test_product(int* destroyed) : destroyed_(destroyed) {}
+        ~test_product() { ++*destroyed_; }
+
+        private:
+        int* destroyed_;
     };
 
 }
@@ -150,4 +159,25 @@ ASTIA_TEST(driver_manager_rejects_equal_candidates) {
     ASTIA_CHECK(!manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(second))));
     ASTIA_CHECK(manager.device_count() == 1);
     manager.unbind_all();
+}
+
+ASTIA_TEST(driver_manager_owns_published_product_until_unbind) {
+    int destroyed = 0;
+    class publishing_driver final : public test_driver {
+        public:
+        explicit publishing_driver(int* destroyed) : test_driver(true, true), destroyed_(destroyed) {}
+        astia::hw::product_handle publish(const astia::hw::device_info&) override {
+            return astia::hw::product_handle(new test_product(destroyed_));
+        }
+
+        private:
+        int* destroyed_;
+    } driver(&destroyed);
+    astia::hw::driver_registry manager;
+    astia::mm::shptr<test_info> info(new test_info(12));
+    ASTIA_CHECK(manager.register_driver(driver));
+    ASTIA_CHECK(manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info))));
+    ASTIA_CHECK(destroyed == 0);
+    manager.unbind_all();
+    ASTIA_CHECK(destroyed == 1);
 }

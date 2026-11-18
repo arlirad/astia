@@ -31,8 +31,10 @@ namespace astia::hw {
             if (!candidate_driver.probe(*info)) {
                 continue;
             }
+            product_handle product = candidate_driver.publish(*info);
             _bindings[_device_count++] = {&candidate_driver,
-                                          static_cast<mm::shptr<device_info>&&>(info)};
+                                          static_cast<mm::shptr<device_info>&&>(info),
+                                          static_cast<product_handle&&>(product)};
             return true;
         }
         return false;

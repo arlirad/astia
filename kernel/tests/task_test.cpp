@@ -278,3 +278,14 @@ ASTIA_TEST(async_operation_deferred_completion_requests_scheduler_resume) {
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(resumed == 1);
 }
+
+ASTIA_TEST(resume_queue_rejects_stale_generation) {
+    astia::core::initialize_resume_queues();
+    const auto continuation = std::noop_coroutine();
+    ASTIA_CHECK(astia::core::schedule_resume(continuation, 11));
+    astia::core::cancel_resume(continuation, 10);
+    ASTIA_CHECK(astia::core::drain_resumes() == 1);
+    ASTIA_CHECK(astia::core::schedule_resume(continuation, 12));
+    astia::core::cancel_resume(continuation, 12);
+    ASTIA_CHECK(astia::core::drain_resumes() == 0);
+}
