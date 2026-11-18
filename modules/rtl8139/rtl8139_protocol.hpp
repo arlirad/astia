@@ -93,29 +93,29 @@ constexpr void store_le32(uint8_t* data, uint32_t value) {
 }
 
 class register_file final {
-    volatile uint8_t* base_ = nullptr;
-    uint64_t size_ = 0;
+    volatile uint8_t* _base = nullptr;
+    uint64_t _size = 0;
 
     bool contains(register_offset offset, uint64_t width) const {
         const uint64_t value = static_cast<uint16_t>(offset);
-        return base_ != nullptr && value <= size_ && width <= size_ - value;
+        return _base != nullptr && value <= _size && width <= _size - value;
     }
 
     public:
     register_file() = default;
-    register_file(volatile uint8_t* base, uint64_t size) : base_(base), size_(size) {}
+    register_file(volatile uint8_t* base, uint64_t size) : _base(base), _size(size) {}
 
-    bool valid() const { return base_ != nullptr && size_ >= 0x100; }
+    bool valid() const { return _base != nullptr && _size >= 0x100; }
 
     uint8_t read8(register_offset offset) const {
-        return contains(offset, 1) ? base_[static_cast<uint16_t>(offset)] : 0xff;
+        return contains(offset, 1) ? _base[static_cast<uint16_t>(offset)] : 0xff;
     }
 
     uint16_t read16(register_offset offset) const {
         if (!contains(offset, 2))
             return 0xffff;
         const uint16_t address = static_cast<uint16_t>(offset);
-        const uint8_t bytes[] = {base_[address], base_[address + 1]};
+        const uint8_t bytes[] = {_base[address], _base[address + 1]};
         return le16(bytes);
     }
 
@@ -123,32 +123,32 @@ class register_file final {
         if (!contains(offset, 4))
             return 0xffffffffu;
         const uint16_t address = static_cast<uint16_t>(offset);
-        const uint8_t bytes[] = {base_[address], base_[address + 1], base_[address + 2],
-                                 base_[address + 3]};
+        const uint8_t bytes[] = {_base[address], _base[address + 1], _base[address + 2],
+                                 _base[address + 3]};
         return le32(bytes);
     }
 
     void write8(register_offset offset, uint8_t value) const {
         if (contains(offset, 1))
-            base_[static_cast<uint16_t>(offset)] = value;
+            _base[static_cast<uint16_t>(offset)] = value;
     }
 
     void write16(register_offset offset, uint16_t value) const {
         if (!contains(offset, 2))
             return;
         const uint16_t address = static_cast<uint16_t>(offset);
-        base_[address] = static_cast<uint8_t>(value);
-        base_[address + 1] = static_cast<uint8_t>(value >> 8);
+        _base[address] = static_cast<uint8_t>(value);
+        _base[address + 1] = static_cast<uint8_t>(value >> 8);
     }
 
     void write32(register_offset offset, uint32_t value) const {
         if (!contains(offset, 4))
             return;
         const uint16_t address = static_cast<uint16_t>(offset);
-        base_[address] = static_cast<uint8_t>(value);
-        base_[address + 1] = static_cast<uint8_t>(value >> 8);
-        base_[address + 2] = static_cast<uint8_t>(value >> 16);
-        base_[address + 3] = static_cast<uint8_t>(value >> 24);
+        _base[address] = static_cast<uint8_t>(value);
+        _base[address + 1] = static_cast<uint8_t>(value >> 8);
+        _base[address + 2] = static_cast<uint8_t>(value >> 16);
+        _base[address + 3] = static_cast<uint8_t>(value >> 24);
     }
 };
 
@@ -226,42 +226,42 @@ inline rx_inspect_result inspect_rx_packet(const uint8_t* ring, uint16_t cursor,
 }
 
 class rx_ring final {
-    uint8_t* data_ = nullptr;
-    uint16_t cursor_ = 0;
+    uint8_t* _data = nullptr;
+    uint16_t _cursor = 0;
 
     public:
     void initialize(uint8_t* data = nullptr) {
-        data_ = data;
-        cursor_ = 0;
+        _data = data;
+        _cursor = 0;
     }
 
     void reset(uint8_t* data, uint16_t cursor = 0) {
-        data_ = data;
-        cursor_ = ring_offset(cursor);
+        _data = data;
+        _cursor = ring_offset(cursor);
     }
 
-    uint16_t cursor() const { return cursor_; }
+    uint16_t cursor() const { return _cursor; }
     bool pending(uint16_t hardware_cursor) const {
-        return data_ != nullptr && cursor_ != ring_offset(hardware_cursor);
+        return _data != nullptr && _cursor != ring_offset(hardware_cursor);
     }
 
     rx_inspect_result acquire(rx_packet& packet) const {
-        return inspect_rx_packet(data_, cursor_, packet);
+        return inspect_rx_packet(_data, _cursor, packet);
     }
 
     bool recycle(const rx_packet& packet) {
-        if (data_ == nullptr || packet.view.ring_offset != cursor_ ||
-            packet.view.next_offset == cursor_)
+        if (_data == nullptr || packet.view.ring_offset != _cursor ||
+            packet.view.next_offset == _cursor)
             return false;
-        cursor_ = packet.view.next_offset;
+        _cursor = packet.view.next_offset;
         return true;
     }
 
     bool recycle_to(uint16_t next) {
         const uint16_t normalized = ring_offset(next);
-        if (data_ == nullptr || normalized == cursor_)
+        if (_data == nullptr || normalized == _cursor)
             return false;
-        cursor_ = normalized;
+        _cursor = normalized;
         return true;
     }
 };
@@ -284,58 +284,58 @@ class tx_ring final {
         tx_slot_state state = tx_slot_state::free;
     };
 
-    slot slots_[tx_descriptor_count]{};
+    slot _slots[tx_descriptor_count]{};
 
     public:
     void initialize() {
-        for (slot& value : slots_)
+        for (slot& value : _slots)
             value = {};
     }
 
     int available() const {
         for (uint32_t index = 0; index < tx_descriptor_count; ++index)
-            if (slots_[index].state == tx_slot_state::free)
+            if (_slots[index].state == tx_slot_state::free)
                 return static_cast<int>(index);
         return -1;
     }
 
     bool claim(uint32_t index, const tx_request& request) {
-        if (index >= tx_descriptor_count || slots_[index].state != tx_slot_state::free)
+        if (index >= tx_descriptor_count || _slots[index].state != tx_slot_state::free)
             return false;
-        slots_[index].request = request;
-        slots_[index].state = tx_slot_state::device;
+        _slots[index].request = request;
+        _slots[index].state = tx_slot_state::device;
         return true;
     }
 
     const tx_request* request(uint32_t index) const {
-        return index < tx_descriptor_count && slots_[index].state != tx_slot_state::free
-                   ? &slots_[index].request
+        return index < tx_descriptor_count && _slots[index].state != tx_slot_state::free
+                   ? &_slots[index].request
                    : nullptr;
     }
 
     tx_slot_state state(uint32_t index) const {
-        return index < tx_descriptor_count ? slots_[index].state : tx_slot_state::free;
+        return index < tx_descriptor_count ? _slots[index].state : tx_slot_state::free;
     }
 
     bool complete(uint32_t index, tx_request& result) {
-        if (index >= tx_descriptor_count || slots_[index].state != tx_slot_state::device)
+        if (index >= tx_descriptor_count || _slots[index].state != tx_slot_state::device)
             return false;
-        result = slots_[index].request;
-        slots_[index].state = tx_slot_state::completion;
+        result = _slots[index].request;
+        _slots[index].state = tx_slot_state::completion;
         return true;
     }
 
     bool restore(uint32_t index) {
-        if (index >= tx_descriptor_count || slots_[index].state != tx_slot_state::completion)
+        if (index >= tx_descriptor_count || _slots[index].state != tx_slot_state::completion)
             return false;
-        slots_[index].state = tx_slot_state::device;
+        _slots[index].state = tx_slot_state::device;
         return true;
     }
 
     bool release(uint32_t index) {
-        if (index >= tx_descriptor_count || slots_[index].state == tx_slot_state::free)
+        if (index >= tx_descriptor_count || _slots[index].state == tx_slot_state::free)
             return false;
-        slots_[index] = {};
+        _slots[index] = {};
         return true;
     }
 };
