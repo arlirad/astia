@@ -211,7 +211,8 @@ class rtl8139_controller final {
             const tx_request* request = tx_ring_.request(index);
             if (request == nullptr)
                 continue;
-            net_device_.tx().abort_inflight(*request, -125);
+            if (tx_ring_.state(index) == tx_slot_state::device)
+                net_device_.tx().abort_inflight(*request, -125);
             tx_ring_.release(index);
         }
         net_device_.tx().reset();
