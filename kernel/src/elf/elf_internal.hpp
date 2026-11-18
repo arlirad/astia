@@ -131,6 +131,24 @@ namespace astia::elf::detail {
 
     inline constexpr u8 stb_weak = 2;
 
+    inline bool is_power_of_two(u64 value) {
+        return value != 0 && (value & (value - 1)) == 0;
+    }
+
+    inline bool checked_add(u64 left, u64 right, u64& result) {
+        if (left > ~u64{0} - right)
+            return false;
+        result = left + right;
+        return true;
+    }
+
+    inline bool checked_align_up(u64 value, u64 alignment, u64& result) {
+        if (!is_power_of_two(alignment) || value > ~u64{0} - (alignment - 1))
+            return false;
+        result = (value + alignment - 1) & ~(alignment - 1);
+        return true;
+    }
+
     inline bool in_bounds(u64 off, u64 size, usize len) {
         return off <= len && size <= len - off;
     }
@@ -180,6 +198,7 @@ namespace astia::elf::detail {
         const elf64_ehdr* eh       = nullptr;
         const elf64_shdr* sh       = nullptr;
         u16               shnum    = 0;
+        u16               sym_index = 0;
         const elf64_sym*  sym      = nullptr;
         usize             symcount = 0;
         const char*       str      = nullptr;

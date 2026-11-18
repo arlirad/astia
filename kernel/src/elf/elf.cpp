@@ -62,10 +62,15 @@ namespace astia::elf {
             // Locate SHT_SYMTAB and follow sh_link to its SHT_STRTAB.
             for (u16 i = 0; i < v.shnum; ++i) {
                 const elf64_shdr& sh = v.sh[i];
+                if (i != 0 && !is_power_of_two(sh.sh_addralign))
+                    return false;
                 if (sh.sh_type != sht_symtab) {
                     continue;
                 }
                 if (sh.sh_entsize != sizeof(elf64_sym)) {
+                    return false;
+                }
+                if (sh.sh_size % sizeof(elf64_sym) != 0) {
                     return false;
                 }
                 if (!in_bounds(sh.sh_offset, sh.sh_size, len)) {
@@ -83,6 +88,7 @@ namespace astia::elf {
                 v.symcount = sh.sh_size / sizeof(elf64_sym);
                 v.str      = reinterpret_cast<const char*>(v.base + str.sh_offset);
                 v.strsize  = static_cast<usize>(str.sh_size);
+                v.sym_index = i;
                 for (usize j = 0; j < v.symcount; ++j) {
                     const char* name = nullptr;
                     if (!symbol_name(v, v.sym[j], name))
@@ -132,6 +138,10 @@ namespace astia::elf {
             if (sym.st_shndx >= v.shnum || sec_base[sym.st_shndx] == nullptr) {
                 return false; // symbol lives in a non-allocated section
             }
+            const elf64_shdr& section = v.sh[sym.st_shndx];
+            if (sym.st_value >= section.sh_size ||
+                sym.st_value > ~u64{0} - reinterpret_cast<u64>(sec_base[sym.st_shndx]))
+                return false;
             out = reinterpret_cast<u64>(sec_base[sym.st_shndx]) + sym.st_value;
             return true;
         }

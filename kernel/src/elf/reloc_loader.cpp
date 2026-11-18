@@ -45,18 +45,23 @@ namespace astia::elf {
             if ((sh.sh_flags & shf_alloc) == 0) {
                 continue;
             }
-            u64 align = sh.sh_addralign != 0 ? sh.sh_addralign : 1;
+            const u64 align = sh.sh_addralign;
+            if (!is_power_of_two(align))
+                return false;
             if (align > max_align) {
                 max_align = align;
             }
-            // Round offset up to the section's alignment.
-            offset = (offset + align - 1) & ~(align - 1);
-            offset += sh.sh_size;
+            u64 aligned = 0;
+            if (!checked_align_up(offset, align, aligned) ||
+                !checked_add(aligned, sh.sh_size, offset))
+                return false;
             any_alloc = true;
         }
         if (!any_alloc || offset == 0) {
             return false;
         }
+        if (offset > static_cast<u64>(~usize{0}))
+            return false;
 
         void* block = e.map(e.ctx, 0, static_cast<usize>(offset),
                             static_cast<usize>(max_align), false);
@@ -93,8 +98,11 @@ namespace astia::elf {
                 sec_base_storage[i] = nullptr;
                 continue;
             }
-            u64 align           = sh.sh_addralign != 0 ? sh.sh_addralign : 1;
-            offset              = (offset + align - 1) & ~(align - 1);
+            const u64 align = sh.sh_addralign;
+            u64       aligned = 0;
+            if (!checked_align_up(offset, align, aligned))
+                return false;
+            offset = aligned;
             u8* dst             = static_cast<u8*>(block) + offset;
             sec_base_storage[i] = dst;
 
@@ -109,7 +117,8 @@ namespace astia::elf {
                     dst[k] = src[k];
                 }
             }
-            offset += sh.sh_size;
+            if (!checked_add(offset, sh.sh_size, offset))
+                return false;
         }
 
         const void* const* sec_base = sec_base_storage;
@@ -124,14 +133,15 @@ namespace astia::elf {
             if (sh.sh_info >= v.shnum) {
                 return false;
             }
+            if (sh.sh_link != v.sym_index || sh.sh_entsize != sizeof(elf64_rela) ||
+                sh.sh_size % sizeof(elf64_rela) != 0 ||
+                !in_bounds(sh.sh_offset, sh.sh_size, len)) {
+                return false;
+            }
             // A relocation against a section we did not load (.comment,
             // .debug_*, ...) patches data that is not in memory; skip it.
             if (sec_base[sh.sh_info] == nullptr) {
                 continue;
-            }
-            if (sh.sh_entsize != sizeof(elf64_rela) ||
-                !in_bounds(sh.sh_offset, sh.sh_size, len)) {
-                return false;
             }
             u8*               target = static_cast<u8*>(sec_base_storage[sh.sh_info]);
             u64               target_size = v.sh[sh.sh_info].sh_size;

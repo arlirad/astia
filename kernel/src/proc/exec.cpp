@@ -9,6 +9,17 @@
 namespace astia::proc {
 
     namespace {
+        bool is_power_of_two(u64 value) {
+            return value != 0 && (value & (value - 1)) == 0;
+        }
+
+        bool checked_align_up(u64 value, u64 alignment, u64& result) {
+            if (!is_power_of_two(alignment) || value > ~u64{0} - (alignment - 1))
+                return false;
+            result = (value + alignment - 1) & ~(alignment - 1);
+            return true;
+        }
+
         /// One PT_LOAD segment's physical run, recorded at map time so
         /// the load can file it as a VMA afterwards.
         struct mapped_segment {
@@ -165,13 +176,27 @@ namespace astia::proc {
         // frames come as one contiguous run so the block can be filed
         // as a single VMA (fork shares it copy-on-write); frames_out
         // hands the run back for that adoption.
+        bool tls_layout(const elf::image& image, u64& tls_span, u64& pages) {
+            const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
+            if (image.tls_filesz > image.tls_memsz ||
+                !is_power_of_two(align) ||
+                !checked_align_up(image.tls_memsz, align, tls_span) ||
+                tls_span > ~u64{0} - user_tls_tcb_headroom ||
+                tls_span + user_tls_tcb_headroom >
+                    ~u64{0} - (elf::page_size - 1))
+                return false;
+            const u64 total = tls_span + user_tls_tcb_headroom + elf::page_size - 1;
+            pages = total / elf::page_size;
+            return pages != 0;
+        }
+
         bool map_tls_template(mm::address_space& map, span<const u8> bytes,
                               const elf::image& image, u64& tp_out, u64& frames_out,
                               u64& pages_out) {
-            const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
-            const u64 tls_span = (image.tls_memsz + align - 1) & ~(align - 1);
-            const u64 pages =
-                (tls_span + user_tls_tcb_headroom + elf::page_size - 1) / elf::page_size;
+            u64 tls_span = 0;
+            u64 pages = 0;
+            if (!tls_layout(image, tls_span, pages))
+                return false;
             if (image.tls_offset > bytes.size() ||
                 image.tls_filesz > bytes.size() - image.tls_offset)
                 return false;
@@ -374,10 +399,10 @@ namespace astia::proc {
                                              mm::shptr<fs::open_file> file,
                                              const elf::image& image, u64& tp_out,
                                              u64& frames_out, u64& pages_out) {
-            const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
-            const u64 tls_span = (image.tls_memsz + align - 1) & ~(align - 1);
-            const u64 pages =
-                (tls_span + user_tls_tcb_headroom + elf::page_size - 1) / elf::page_size;
+            u64 tls_span = 0;
+            u64 pages = 0;
+            if (!tls_layout(image, tls_span, pages))
+                co_return false;
             const u64 frames = mm::kernel_frames().alloc(pages, mm::frame_flags::zeroed);
             if (frames == mm::frame_allocator::invalid_frame)
                 co_return false;
