@@ -123,19 +123,15 @@ namespace astia::fs {
 
     }
 
-    long create_pipe(mm::shptr<open_file>& read_end, mm::shptr<open_file>& write_end) {
+    optional<pipe_endpoints> create_pipe() {
         mm::shptr<pipe_file> object(new pipe_file{});
         if (!object)
-            return -ENOMEM;
-        read_end  = mm::share<open_file>(object, pipe_read_endpoint_flag);
-        write_end = mm::share<open_file>(object, pipe_write_endpoint_flag);
+            return error_t::enomem;
+        auto read_end  = mm::share<open_file>(object, pipe_read_endpoint_flag);
+        auto write_end = mm::share<open_file>(object, pipe_write_endpoint_flag);
         if (read_end && write_end)
-            return 0;
-        // Do not leave callers with a usable-looking half of a pipe after
-        // an allocation failure.  In particular, the syscall layer cannot
-        // install both descriptors atomically from a partial result.
-        read_end  = {};
-        write_end = {};
-        return -ENOMEM;
+            return pipe_endpoints{static_cast<mm::shptr<open_file>&&>(read_end),
+                                  static_cast<mm::shptr<open_file>&&>(write_end)};
+        return error_t::enomem;
     }
 }
