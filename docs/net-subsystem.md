@@ -7,14 +7,15 @@ stack consumes the registry in `<astia/net.hpp>` directly.
 
 ## Public boundary
 
-The C layout in `<astia/module_abi_net.h>` is the stable module boundary.
-The C++ API in `<astia/net.hpp>` supplies queue, callback, registry, and
-lifetime helpers. Pointers are 64-bit, lengths are byte counts, and the ABI
-page size is `ASTIA_PAGE_SIZE` (4096 on the supported x86-64 target). Device
-register access remains driver-specific; RTL8139 uses typed offsets and
-little-endian accessors in its protocol header. Network metadata contains a
-stable name, MAC address, MTU, link flags, and a monotonically changing
-generation.
+The C++ API in `<astia/net.hpp>` is the device boundary. `astia::net::netdev`
+is a standalone typed network object with metadata, callback context, RX/TX ownership
+paths, and generation state. `astia::net::registry` is the single network-device
+registry. The PCI module ABI only supplies match, probe, and remove adapters;
+probe returns the `astia::net::netdev` constructed by the module. Pointers
+are 64-bit, lengths are byte counts, and the ABI page size is
+`ASTIA_PAGE_SIZE` (4096 on the supported x86-64 target). Device register
+access remains driver-specific; RTL8139 uses typed offsets and little-endian
+accessors in its protocol header.
 
 ## Packet ownership
 
@@ -56,13 +57,13 @@ completion or request from an earlier generation is rejected.
 
 ## Discovery
 
-Modules register a PCI net driver with
-`astia_module_register_pci_net_driver`. PCI discovery invokes its match and
-probe callbacks; a successful probe registers an
-`astia_module_net_device` with `astia_module_register_net_device`. Removal
-unregisters that object before the driver context is destroyed. This path
-uses the net registry only and has no device-file adapter.
+Modules register a PCI net driver with `astia::module::register_net_driver`.
+PCI discovery invokes its match and probe callbacks; a successful probe
+returns the module-owned `astia::net::netdev`, which the loader adds to the
+single network registry. Removal unregisters that object before the driver
+context is destroyed. This path uses the net registry only and has no
+device-file adapter.
 
-RTL8139 currently provides the C-mode ring/parser, bounded paths, reset and
+RTL8139 currently provides the typed C++ ring/parser, bounded paths, reset and
 cancel behavior, and QEMU device-creation smoke. It does not claim a TCP/IP
 stack or a packet-delivery integration beyond the net subsystem callbacks.
