@@ -9,7 +9,7 @@ namespace astia {
     class span {
         public:
         constexpr span() = default;
-        constexpr span(T* data, usize size) : data_(data), size_(size) {}
+        constexpr span(T* data, usize size) : _data(data), _size(size) {}
         static span bytes(u64 address, usize length) {
             return span(reinterpret_cast<T*>(address), length);
         }
@@ -17,30 +17,30 @@ namespace astia {
             return span(reinterpret_cast<T*>(address), 0);
         }
         T* data() const {
-            return data_;
+            return _data;
         }
         usize size() const {
-            return size_;
+            return _size;
         }
         u64 address() const {
-            return reinterpret_cast<u64>(data_);
+            return reinterpret_cast<u64>(_data);
         }
         usize length() const {
-            return size_;
+            return _size;
         }
         bool null() const {
-            return data_ == nullptr;
+            return _data == nullptr;
         }
         bool empty() const {
-            return size_ == 0;
+            return _size == 0;
         }
         T& operator[](usize index) const {
-            return data_[index];
+            return _data[index];
         }
 
         private:
-        T*    data_ = nullptr;
-        usize size_ = 0;
+        T*    _data = nullptr;
+        usize _size = 0;
     };
 
 } // namespace astia
