@@ -19,7 +19,7 @@ namespace astia::dev {
         void duplicate(u32 flags);
         void close(u32 flags);
 
-        u32 index() const { return index_; }
+        u32 index() const { return _index; }
         bool open_slave();
         void bind_master(fs::file* master);
         void master_closed();
@@ -44,18 +44,18 @@ namespace astia::dev {
         bool master_queue_empty() const;
 
         static constexpr u32 queue_capacity = 4096;
-        u32              index_ = 0;
-        mutable core::spinlock pty_lock_;
-        u8               master_queue_[queue_capacity]{};
-        u32              master_head_ = 0;
-        u32              master_tail_ = 0;
-        u32              master_refs_ = 1;
-        u32              slave_refs_ = 0;
-        bool             master_open_ = true;
-        bool             locked_ = true;
-        fs::file*        master_file_ = nullptr;
-        fs::file*        slave_file_ = nullptr;
-        struct winsize   winsize_{24, 80, 0, 0};
+        u32              _index = 0;
+        mutable core::spinlock _pty_lock;
+        u8               _master_queue[queue_capacity]{};
+        u32              _master_head = 0;
+        u32              _master_tail = 0;
+        u32              _master_refs = 1;
+        u32              _slave_refs = 0;
+        bool             _master_open = true;
+        bool             _locked = true;
+        fs::file*        _master_file = nullptr;
+        fs::file*        _slave_file = nullptr;
+        struct winsize   _winsize{24, 80, 0, 0};
     };
 
     mm::shptr<fs::open_file> pty_open_master(u32 flags);
