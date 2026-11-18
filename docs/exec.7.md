@@ -13,7 +13,7 @@ long execve(const char *path, char *const argv[], char *const envp[]);
 
 ```cpp
 core::task<elf::image> elf::load_executable_stream(
-    const elf::async_env&, usize file_size);
+    elf::async_env, usize file_size);
 ```
 
 ## DESCRIPTION
@@ -66,6 +66,26 @@ mapped `-EINVAL`. File and device failures propagate their negative errno.
 No error path changes the old process image. A successful `execve` does not
 return to the old userspace instruction; it enters the new image with its new
 entry point and startup stack.
+
+## ELF API INVENTORY
+
+The ELF core parser and validation primitives live in `elf.cpp`. The ET_REL
+loader lives in `reloc_loader.cpp`; ET_EXEC/ET_DYN image loaders live in
+`exec_loader.cpp`. All loaders share the private on-disk parser definitions;
+there is no second parser.
+
+| Entry point | Production callsites | Test coverage |
+| --- | --- | --- |
+| `elf::kind_of` | ELF probing helpers | `kernel/tests/elf_test.cpp` |
+| `elf::load_relocatable` | reached through `elf::load` by `mod/module.cpp` | ET_REL relocation tests |
+| `elf::load_executable` | `process::load_user_image` | contiguous executable tests |
+| `elf::load_executable_stream` | `process::load_user_file_async` | bounded, malformed, truncated, cleanup and relocation tests |
+| `elf::load` | `mod/module.cpp`; generic test dispatch | ET_REL and executable dispatch tests |
+
+The former `proc::load_elf` declaration and implementation were dead APIs with
+no callers. They were removed instead of wrapping the contiguous loader with a
+full-file allocation. File-backed executable loading uses the bounded streaming
+entry point above.
 
 ## NOTES
 

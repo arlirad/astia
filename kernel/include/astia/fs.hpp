@@ -414,13 +414,13 @@ namespace astia::fs {
         io_flight*           _flight;
     };
 
-    core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,
+    core::task<i64> submit(mm::shptr<open_file> file, void* buffer, u32 length,
                            u64 offset, io_direction direction);
-    core::task<i64> read(const mm::shptr<open_file>& file, span<u8> buffer,
+    core::task<i64> read(mm::shptr<open_file> file, span<u8> buffer,
                          u64 offset = offset_current);
-    core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer,
+    core::task<i64> write(mm::shptr<open_file> file, span<const u8> buffer,
                           u64 offset = offset_current);
-    core::task<i64> read_exact(const mm::shptr<open_file>& file, span<u8> buffer,
+    core::task<i64> read_exact(mm::shptr<open_file> file, span<u8> buffer,
                                u64 offset = offset_current);
 
     /// Reset the fixed VFS tables.  Called by the `fs` init step before
