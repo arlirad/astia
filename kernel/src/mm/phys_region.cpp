@@ -39,20 +39,20 @@ namespace astia::mm {
             }
             page_bases = bases.value;
         }
-        base_      = base;
-        pages_     = pages;
-        identity_  = static_cast<shptr<phys_region_identity>&&>(identity);
-        page_refs_ = static_cast<u16*>(static_cast<void*>(storage.value));
-        dest_refs_ = static_cast<u16*>(static_cast<void*>(destinations.value));
-        page_bases_ = static_cast<u64*>(page_bases);
+        _base      = base;
+        _pages     = pages;
+        _identity  = static_cast<shptr<phys_region_identity>&&>(identity);
+        _page_refs = static_cast<u16*>(static_cast<void*>(storage.value));
+        _dest_refs = static_cast<u16*>(static_cast<void*>(destinations.value));
+        _page_bases = static_cast<u64*>(page_bases);
         // A freshly-created/adopted region carries its initial
         // mapping reference.  This preserves the existing ownership
         // contract: the creator transfers that reference to its VMA.
         for (usize i = 0; i < pages; ++i) {
-            page_refs_[i] = 1;
-            dest_refs_[i] = 0;
-            if (page_bases_ != nullptr)
-                page_bases_[i] = frame_allocator::invalid_frame;
+            _page_refs[i] = 1;
+            _dest_refs[i] = 0;
+            if (_page_bases != nullptr)
+                _page_bases[i] = frame_allocator::invalid_frame;
         }
         return true;
     }
@@ -105,17 +105,17 @@ namespace astia::mm {
         if (count == 0) {
             return true;
         }
-        if (first >= pages_ || count > pages_ - first || page_refs_ == nullptr) {
+        if (first >= _pages || count > _pages - first || _page_refs == nullptr) {
             return false;
         }
         usize changed = 0;
         for (; changed < count; ++changed) {
-            u16* slot = &page_refs_[first + changed];
+            u16* slot = &_page_refs[first + changed];
             u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
             for (;;) {
                 if (old == 0 || old == max_page_mappings) {
                     for (usize rollback = 0; rollback < changed; ++rollback) {
-                        u16* prior = &page_refs_[first + rollback];
+                        u16* prior = &_page_refs[first + rollback];
                         __atomic_fetch_sub(prior, u16{1}, __ATOMIC_ACQ_REL);
                     }
                     return false;
@@ -134,11 +134,11 @@ namespace astia::mm {
         if (count == 0) {
             return true;
         }
-        if (first >= pages_ || count > pages_ - first || page_refs_ == nullptr) {
+        if (first >= _pages || count > _pages - first || _page_refs == nullptr) {
             return false;
         }
         for (usize i = 0; i < count; ++i) {
-            u16* slot = &page_refs_[first + i];
+            u16* slot = &_page_refs[first + i];
             u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
             for (;;) {
                 // A page may already be zero when a caller is releasing
@@ -153,8 +153,8 @@ namespace astia::mm {
                     if (old == 1) {
                         const u64 frame = page_base(first + i);
                         if (frame != frame_allocator::invalid_frame) {
-                            if (page_bases_ != nullptr)
-                                __atomic_store_n(&page_bases_[first + i],
+                            if (_page_bases != nullptr)
+                                __atomic_store_n(&_page_bases[first + i],
                                                  frame_allocator::invalid_frame,
                                                  __ATOMIC_RELEASE);
                             kernel_frames().release(frame);
@@ -168,19 +168,19 @@ namespace astia::mm {
     }
 
     bool phys_region::share_range(usize first, usize count) {
-        if (count == 0 || first >= pages_ || count > pages_ - first) {
+        if (count == 0 || first >= _pages || count > _pages - first) {
             return false;
         }
         {
-            core::spinlock_guard guard(lock_);
-            if (refs_ == ~u32{0}) {
+            core::spinlock_guard guard(_lock);
+            if (_refs == ~u32{0}) {
                 return false;
             }
-            ++refs_;
+            ++_refs;
         }
         if (!retain_mapping(first, count)) {
-            core::spinlock_guard guard(lock_);
-            --refs_;
+            core::spinlock_guard guard(_lock);
+            --_refs;
             return false;
         }
         return true;
@@ -189,12 +189,12 @@ namespace astia::mm {
     bool phys_region::addref() {
         // Legacy full-range sharing API.  New VMA code uses share_range()
         // so partial file mappings do not charge unrelated pages.
-        return share_range(0, pages_);
+        return share_range(0, _pages);
     }
 
     u32 phys_region::references() {
-        core::spinlock_guard guard(lock_);
-        return refs_;
+        core::spinlock_guard guard(_lock);
+        return _refs;
     }
 
     void* phys_region::page_direct(usize index) {
@@ -203,26 +203,26 @@ namespace astia::mm {
     }
 
     u64 phys_region::page_base(usize index) const {
-        if (index >= pages_) {
+        if (index >= _pages) {
             return frame_allocator::invalid_frame;
         }
-        if (page_bases_ != nullptr) {
-            return __atomic_load_n(&page_bases_[index], __ATOMIC_ACQUIRE);
+        if (_page_bases != nullptr) {
+            return __atomic_load_n(&_page_bases[index], __ATOMIC_ACQUIRE);
         }
-        return base_ + index * frame_size;
+        return _base + index * frame_size;
     }
 
     bool phys_region::ensure_page(usize index, bool zero, bool* created) {
         if (created != nullptr)
             *created = false;
-        if (index >= pages_) {
+        if (index >= _pages) {
             return false;
         }
-        if (page_bases_ == nullptr) {
+        if (_page_bases == nullptr) {
             return page_base(index) != frame_allocator::invalid_frame;
         }
-        core::spinlock_guard guard(lock_);
-        if (page_bases_[index] != frame_allocator::invalid_frame) {
+        core::spinlock_guard guard(_lock);
+        if (_page_bases[index] != frame_allocator::invalid_frame) {
             return true;
         }
         const u64 frame = kernel_frames().alloc(1, zero ? frame_flags::zeroed
@@ -230,7 +230,7 @@ namespace astia::mm {
         if (frame == frame_allocator::invalid_frame) {
             return false;
         }
-        page_bases_[index] = frame;
+        _page_bases[index] = frame;
         if (created != nullptr)
             *created = true;
         return true;
@@ -240,19 +240,19 @@ namespace astia::mm {
         child*       orphans = nullptr;
         phys_region* parent  = nullptr;
         {
-            core::spinlock_guard guard(lock_);
-            if (refs_ == 0) {
+            core::spinlock_guard guard(_lock);
+            if (_refs == 0) {
                 return;
             }
-            if (refs_ > 1) {
-                --refs_;
+            if (_refs > 1) {
+                --_refs;
                 return;
             }
-            refs_     = 0;
-            orphans   = children_;
-            children_ = nullptr;
-            parent    = parent_;
-            parent_   = nullptr;
+            _refs     = 0;
+            orphans   = _children;
+            _children = nullptr;
+            parent    = _parent;
+            _parent   = nullptr;
         }
 
         while (orphans != nullptr) {
@@ -268,24 +268,24 @@ namespace astia::mm {
         // Any still-live pages are owned by this last allocation
         // reference.  Normally their mapping counters are already zero;
         // releasing here is the defensive final cleanup.
-        for (usize i = 0; i < pages_; ++i) {
-            u16 old = __atomic_exchange_n(&page_refs_[i], u16{0}, __ATOMIC_ACQ_REL);
+        for (usize i = 0; i < _pages; ++i) {
+            u16 old = __atomic_exchange_n(&_page_refs[i], u16{0}, __ATOMIC_ACQ_REL);
             if (old != 0) {
                 const u64 frame = page_base(i);
                 if (frame != frame_allocator::invalid_frame) {
-                    if (page_bases_ != nullptr)
-                        __atomic_store_n(&page_bases_[i], frame_allocator::invalid_frame,
+                    if (_page_bases != nullptr)
+                        __atomic_store_n(&_page_bases[i], frame_allocator::invalid_frame,
                                          __ATOMIC_RELEASE);
                     kernel_frames().release(frame);
                 }
             }
         }
-        heap::free(dest_refs_);
-        dest_refs_ = nullptr;
-        heap::free(page_bases_);
-        page_bases_ = nullptr;
-        heap::free(page_refs_);
-        identity_ = {};
+        heap::free(_dest_refs);
+        _dest_refs = nullptr;
+        heap::free(_page_bases);
+        _page_bases = nullptr;
+        heap::free(_page_refs);
+        _identity = {};
         heap::free(this);
     }
 
@@ -300,15 +300,15 @@ namespace astia::mm {
     void phys_region::release() {
         // Legacy full-range release.  VMA teardown uses unmap_range for
         // every surviving sibling and then release_ref() once.
-        (void) unmap_range(0, pages_);
+        (void) unmap_range(0, _pages);
         release_ref();
     }
 
     void phys_region::unlink_child(phys_region* target) {
         child* dead = nullptr;
         {
-            core::spinlock_guard guard(lock_);
-            child**              link = &children_;
+            core::spinlock_guard guard(_lock);
+            child**              link = &_children;
             while (*link != nullptr) {
                 if ((*link)->region == target) {
                     dead  = *link;
@@ -320,7 +320,7 @@ namespace astia::mm {
         }
 
         // Heap operations are external to the region's lock.  In particular,
-        // keeping this lock while taking heap::lock_ would invert the order
+        // keeping this lock while taking heap::_lock would invert the order
         // against callers that already own heap metadata and then touch a
         // region.
         if (dead != nullptr)
@@ -328,9 +328,9 @@ namespace astia::mm {
     }
 
     void phys_region::detach_parent(const phys_region* expected) {
-        core::spinlock_guard guard(lock_);
-        if (parent_ == expected) {
-            parent_ = nullptr;
+        core::spinlock_guard guard(_lock);
+        if (_parent == expected) {
+            _parent = nullptr;
         }
     }
 
@@ -346,9 +346,9 @@ namespace astia::mm {
 
     phys_region* phys_region::copy_page(usize index) {
         // Keep a temporary atomic page claim while allocation and copying run
-        // without lock_.  A concurrent unmap can consume its own claim, but
+        // without _lock.  A concurrent unmap can consume its own claim, but
         // cannot free the source frame until this claim is dropped.
-        if (index >= pages_ || page_refs_ == nullptr || !retain_mapping(index, 1)) {
+        if (index >= _pages || _page_refs == nullptr || !retain_mapping(index, 1)) {
             return nullptr;
         }
         auto* copy = create(1, false); // the bytes come over below
@@ -379,34 +379,34 @@ namespace astia::mm {
 
         auto* list_node = static_cast<child*>(static_cast<void*>(node.value));
         {
-            core::spinlock_guard guard(lock_);
+            core::spinlock_guard guard(_lock);
             list_node->region      = copy;
             list_node->parent_page = index;
-            list_node->next        = children_;
-            children_              = list_node;
-            copy->parent_          = this;
-            copy->parent_page_     = index;
+            list_node->next        = _children;
+            _children              = list_node;
+            copy->_parent          = this;
+            copy->_parent_page     = index;
         }
         return copy;
     }
 
     bool phys_region::uniquely_held(usize index) {
-        if (index >= pages_ || page_refs_ == nullptr) {
+        if (index >= _pages || _page_refs == nullptr) {
             return false;
         }
-        return __atomic_load_n(&page_refs_[index], __ATOMIC_ACQUIRE) == 1;
+        return __atomic_load_n(&_page_refs[index], __ATOMIC_ACQUIRE) == 1;
     }
 
     bool phys_region::retain_destination(usize first, usize count) {
         if (count == 0) {
             return true;
         }
-        if (first >= pages_ || count > pages_ - first || dest_refs_ == nullptr) {
+        if (first >= _pages || count > _pages - first || _dest_refs == nullptr) {
             return false;
         }
         usize marked = 0;
         for (; marked < count; ++marked) {
-            u16* slot = &dest_refs_[first + marked];
+            u16* slot = &_dest_refs[first + marked];
             u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
             for (;;) {
                 if (old == max_page_mappings) {
@@ -424,12 +424,12 @@ namespace astia::mm {
     }
 
     void phys_region::release_destination(usize first, usize count) {
-        if (count == 0 || first >= pages_ || count > pages_ - first ||
-            dest_refs_ == nullptr) {
+        if (count == 0 || first >= _pages || count > _pages - first ||
+            _dest_refs == nullptr) {
             return;
         }
         for (usize i = 0; i < count; ++i) {
-            u16* slot = &dest_refs_[first + i];
+            u16* slot = &_dest_refs[first + i];
             u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
             for (;;) {
                 if (old == 0) {
@@ -445,10 +445,10 @@ namespace astia::mm {
     }
 
     bool phys_region::destination_pinned(usize index) const {
-        if (index >= pages_ || dest_refs_ == nullptr) {
+        if (index >= _pages || _dest_refs == nullptr) {
             return false;
         }
-        return __atomic_load_n(&dest_refs_[index], __ATOMIC_ACQUIRE) != 0;
+        return __atomic_load_n(&_dest_refs[index], __ATOMIC_ACQUIRE) != 0;
     }
 
 } // namespace astia::mm

@@ -3,25 +3,25 @@
 namespace astia::mm {
 
     pinned_buffer::pinned_buffer(pinned_buffer&& other) noexcept
-        : region_(other.region_), first_(other.first_), count_(other.count_),
-          destination_(other.destination_) {
-        other.region_      = nullptr;
-        other.first_       = 0;
-        other.count_       = 0;
-        other.destination_ = false;
+        : _region(other._region), _first(other._first), _count(other._count),
+          _destination(other._destination) {
+        other._region      = nullptr;
+        other._first       = 0;
+        other._count       = 0;
+        other._destination = false;
     }
 
     pinned_buffer& pinned_buffer::operator=(pinned_buffer&& other) noexcept {
         if (this != &other) {
             release();
-            region_            = other.region_;
-            first_             = other.first_;
-            count_             = other.count_;
-            destination_       = other.destination_;
-            other.region_      = nullptr;
-            other.first_       = 0;
-            other.count_       = 0;
-            other.destination_ = false;
+            _region            = other._region;
+            _first             = other._first;
+            _count             = other._count;
+            _destination       = other._destination;
+            other._region      = nullptr;
+            other._first       = 0;
+            other._count       = 0;
+            other._destination = false;
         }
         return *this;
     }
@@ -46,24 +46,24 @@ namespace astia::mm {
             region->release_range(first, count);
             return false;
         }
-        region_      = region;
-        first_       = first;
-        count_       = count;
-        destination_ = destination;
+        _region      = region;
+        _first       = first;
+        _count       = count;
+        _destination = destination;
         return true;
     }
 
     void pinned_buffer::release() {
         // Clear first.  release_range() may free the region object — the pin
         // can be its last reference — so nothing here may touch it after.
-        phys_region* region      = region_;
-        const usize  first       = first_;
-        const usize  count       = count_;
-        const bool   destination = destination_;
-        region_                  = nullptr;
-        first_                   = 0;
-        count_                   = 0;
-        destination_             = false;
+        phys_region* region      = _region;
+        const usize  first       = _first;
+        const usize  count       = _count;
+        const bool   destination = _destination;
+        _region                  = nullptr;
+        _first                   = 0;
+        _count                   = 0;
+        _destination             = false;
         if (region != nullptr) {
             if (destination) {
                 region->release_destination(first, count);
@@ -73,15 +73,15 @@ namespace astia::mm {
     }
 
     void* pinned_buffer::direct(usize index) const {
-        return region_ == nullptr ? nullptr : region_->page_direct(first_ + index);
+        return _region == nullptr ? nullptr : _region->page_direct(_first + index);
     }
 
     bool pinned_buffer::contiguous() const {
-        if (region_ == nullptr || count_ < 2)
+        if (_region == nullptr || _count < 2)
             return true;
-        u64 prior = region_->page_base(first_);
-        for (usize i = 1; i < count_; ++i) {
-            const u64 current = region_->page_base(first_ + i);
+        u64 prior = _region->page_base(_first);
+        for (usize i = 1; i < _count; ++i) {
+            const u64 current = _region->page_base(_first + i);
             if (current != prior + phys_region::frame_size)
                 return false;
             prior = current;
@@ -90,8 +90,8 @@ namespace astia::mm {
     }
 
     u64 pinned_buffer::phys(usize index) const {
-        return region_ == nullptr ? 0
-                                  : region_->base() + static_cast<u64>(first_ + index) *
+        return _region == nullptr ? 0
+                                  : _region->base() + static_cast<u64>(_first + index) *
                                                           phys_region::frame_size;
     }
 
