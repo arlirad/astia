@@ -18,7 +18,8 @@ set(ASTIA_PUBLIC_HEADERS
         astia/mm/memory_map.hpp
         astia/module_abi.hpp
         astia/net.hpp
-        astia/proc/user_layout.hpp)
+        astia/proc/user_layout.hpp
+        astia/tuple.hpp)
 
 file(MAKE_DIRECTORY "${ASTIA_PUBLIC_HEADER_TEST_BINARY_DIR}")
 foreach(ASTIA_PUBLIC_HEADER IN LISTS ASTIA_PUBLIC_HEADERS)

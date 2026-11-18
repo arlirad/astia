@@ -99,6 +99,7 @@ astia_add_host_test(astia_aio_filesystem_test aio_filesystem_test.cpp)
 astia_add_host_test(astia_aio_readiness_test aio_readiness_test.cpp)
 astia_add_host_test(astia_aio_socket_test aio_socket_test.cpp)
 astia_add_host_test(astia_socket_abi_test socket_abi_test.cpp)
+astia_add_host_test(astia_pipe_api_test pipe_api_test.cpp)
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_cwd_context_test
         cwd_context_test.cpp
