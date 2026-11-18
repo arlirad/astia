@@ -69,9 +69,10 @@ entry point and startup stack.
 
 ## ELF API INVENTORY
 
-The ELF core parser and ET_REL relocation loader live in `elf.cpp`. The
-ET_EXEC/ET_DYN image loaders live in `exec_loader.cpp` and share the private
-on-disk parser definitions; there is no second parser.
+The ELF core parser and validation primitives live in `elf.cpp`. The ET_REL
+loader lives in `reloc_loader.cpp`; ET_EXEC/ET_DYN image loaders live in
+`exec_loader.cpp`. All loaders share the private on-disk parser definitions;
+there is no second parser.
 
 | Entry point | Production callsites | Test coverage |
 | --- | --- | --- |

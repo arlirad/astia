@@ -325,6 +325,7 @@ astia_add_host_test(astia_elf_test
         ${_fixture_exec_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/exec_loader.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/reloc_loader.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         support/resume_queue_host.cpp
 )
