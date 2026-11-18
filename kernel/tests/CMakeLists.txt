@@ -48,6 +48,7 @@ function(astia_add_host_test name)
     target_link_libraries(${name} PRIVATE astia_test_support)
     target_include_directories(${name} PRIVATE ${_astia_test_includes})
     add_test(NAME ${name} COMMAND ${name})
+    astia_add_test_label(${name} "host")
 endfunction()
 
 # --- Pure logic: no hardware, no fake memory needed. ------------------------
@@ -855,6 +856,8 @@ if (ARCH STREQUAL "x86_64")
                 COMMENT "Packing native service supervision initrd")
         add_custom_target(astia_native_service_boot_initrd ALL
                 DEPENDS ${_fix_dir}/native_service_boot_initrd.cpio)
+        add_dependencies(astia_native_service_boot_initrd
+                astia_native_boot_initrd)
         add_test(NAME astia_native_daemond_service
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
@@ -885,6 +888,8 @@ if (ARCH STREQUAL "x86_64")
                 COMMENT "Packing failing native daemond initrd")
         add_custom_target(astia_native_failure_boot_initrd ALL
                 DEPENDS ${_fix_dir}/native_failure_boot_initrd.cpio)
+        add_dependencies(astia_native_failure_boot_initrd
+                astia_native_service_boot_initrd)
         add_test(NAME astia_native_daemond_failure
                 COMMAND env
                 ASTIA_EXPECT_QEMU_STATUS=3
@@ -934,7 +939,7 @@ foreach (_astia_boot_test IN ITEMS
     if(TEST ${_astia_boot_test})
         astia_add_test_label(${_astia_boot_test} "boot;qemu")
         set_tests_properties(${_astia_boot_test}
-                PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE
+                PROPERTIES RESOURCE_LOCK astia-qemu
                 FIXTURES_REQUIRED astia-qemu-artifacts)
     endif()
 endforeach()
@@ -943,7 +948,7 @@ foreach (_astia_grub_test IN ITEMS
     if(TEST ${_astia_grub_test})
         astia_add_test_label(${_astia_grub_test} "boot;grub;qemu")
         set_tests_properties(${_astia_grub_test}
-                PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE
+                PROPERTIES RESOURCE_LOCK astia-qemu
                 FIXTURES_REQUIRED astia-qemu-artifacts)
     endif()
 endforeach()
