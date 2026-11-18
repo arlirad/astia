@@ -245,6 +245,8 @@ if(ASTIA_BUILD_TESTS)
     set_tests_properties(astia_module_host_targets
             PROPERTIES LABELS "module;abi;host;deterministic"
             TIMEOUT 60 FIXTURES_REQUIRED astia-module-host)
+    set_tests_properties(astia_qemu_prepare
+            PROPERTIES DEPENDS astia_module_host_prepare)
 
     set(_astia_kernel_runtime ${CMAKE_BINARY_DIR}/kernel/src/astiakrn_runtime)
     set(_astia_boot_initrd ${CMAKE_BINARY_DIR}/kernel/tests/fixtures/boot_initrd.cpio)
@@ -288,7 +290,7 @@ if(ASTIA_BUILD_TESTS)
                 COREUTILS_TEST_BUILD=${CMAKE_BINARY_DIR}/coreutils-test
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
     set_tests_properties(astia_coreutils_qemu PROPERTIES
-            DEPENDS astia_libc_cross RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+            DEPENDS astia_libc_cross RESOURCE_LOCK astia-qemu)
 
     astia_register_script_test(astia_nvme_msix
             "nvme;qemu;msix;read-write;multi-namespace;deterministic"
@@ -309,7 +311,7 @@ if(ASTIA_BUILD_TESTS)
                 NVME_CASE=polling
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
     set_tests_properties(astia_nvme_msix astia_nvme_polling
-            PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+            PROPERTIES RESOURCE_LOCK astia-qemu)
 
     astia_register_script_test(astia_virtio_blk_read_write
             "virtio;qemu;read-write;deterministic"
@@ -330,7 +332,7 @@ if(ASTIA_BUILD_TESTS)
                 VIRTIO_BLK_READONLY=1
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
     set_tests_properties(astia_virtio_blk_read_write astia_virtio_blk_read_only
-            PROPERTIES RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+            PROPERTIES RESOURCE_LOCK astia-qemu)
 
     astia_register_script_test(astia_usb_xhci_qemu
             "usb;xhci;qemu;deterministic"
@@ -341,7 +343,7 @@ if(ASTIA_BUILD_TESTS)
                 ASTIA_USB_BUILD=${CMAKE_BINARY_DIR}/usb-state
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
     set_tests_properties(astia_usb_xhci_qemu PROPERTIES
-            RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
+            RESOURCE_LOCK astia-qemu SKIP_RETURN_CODE 77)
 
     set(_astia_zsh_env)
     if(ASTIA_ZSH_SOURCE)
@@ -450,7 +452,7 @@ if(ASTIA_BUILD_TESTS)
                 POSIX_TEST_BUILD=${CMAKE_BINARY_DIR}/external/posix
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
     set_tests_properties(astia_posix_batch PROPERTIES
-            DEPENDS astia_libc_cross RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+            DEPENDS astia_libc_cross RESOURCE_LOCK astia-qemu)
 
     set(_astia_shared_qemu_tests
             astia_coreutils_qemu
