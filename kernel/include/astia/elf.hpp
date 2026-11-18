@@ -154,7 +154,9 @@ namespace astia::elf {
 
     /// Streaming executable loader. Reads only the ELF header/PHDR table and
     /// then fetches PT_LOAD file ranges through the async environment.
-    core::task<image> load_executable_stream(const async_env& e, usize file_size);
+    /// The callback context must remain valid until the returned task is done.
+    /// The callback table itself is copied into the coroutine frame.
+    core::task<image> load_executable_stream(async_env e, usize file_size);
 
     /// Dispatch to the right loader based on kind_of(). Returns false for
     /// anything that is not a supported ELF image.

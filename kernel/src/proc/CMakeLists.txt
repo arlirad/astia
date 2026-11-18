@@ -1,6 +1,5 @@
 add_library(proc STATIC
         cwd_context.cpp
-        elf_loader.cpp
         proc.cpp
         process.cpp
         exec.cpp

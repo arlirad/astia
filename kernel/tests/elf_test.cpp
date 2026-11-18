@@ -266,6 +266,9 @@ namespace {
         const unsigned char* source;
         size_t                source_size;
         exec_arena            arena;
+        size_t                read_calls = 0;
+        size_t                read_bytes = 0;
+        size_t                max_read = 0;
     };
 
     void* stream_map(void* ctx, astia::u64 hint, astia::usize size, astia::usize align,
@@ -286,6 +289,10 @@ namespace {
         if (offset > context->source_size ||
             destination.size() > context->source_size - offset)
             co_return astia::error_t::erange;
+        ++context->read_calls;
+        context->read_bytes += destination.size();
+        if (destination.size() > context->max_read)
+            context->max_read = destination.size();
         for (astia::usize i = 0; i < destination.size(); ++i)
             destination[i] = context->source[offset + i];
         co_return static_cast<astia::i64>(destination.size());
@@ -670,6 +677,76 @@ ASTIA_TEST(elf_stream_unaligned_relative_relocation_is_safe) {
     ASTIA_CHECK(context.arena.unmapped == 0);
     if (context.arena.base != nullptr)
         munmap(context.arena.base, context.arena.span);
+}
+
+ASTIA_TEST(elf_stream_uses_bounded_reads) {
+    stream_exec_context context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
+    astia::elf::async_env environment{};
+    environment.ctx = &context;
+    environment.map = stream_map;
+    environment.read = stream_read;
+    environment.unmap = stream_unmap;
+
+    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    while (!task.done())
+        task.resume();
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(context.read_calls > 0);
+    ASTIA_CHECK(context.max_read <= 4096);
+    ASTIA_CHECK(context.read_bytes < fixture_dyn_blob_len);
+    if (context.arena.base != nullptr)
+        munmap(context.arena.base, context.arena.span);
+}
+
+ASTIA_TEST(elf_stream_rejects_truncated_program_headers) {
+    stream_exec_context context{fixture_exec_blob, 60, {}};
+    astia::elf::async_env environment{};
+    environment.ctx = &context;
+    environment.map = stream_map;
+    environment.read = stream_read;
+    environment.unmap = stream_unmap;
+
+    auto task = astia::elf::load_executable_stream(environment, context.source_size);
+    while (!task.done())
+        task.resume();
+    ASTIA_CHECK(task.failed());
+    ASTIA_CHECK(context.arena.mapped == 0);
+}
+
+ASTIA_TEST(elf_stream_rejects_malformed_segment_sizes) {
+    blob_copy buf(fixture_exec_blob, fixture_exec_blob_len);
+    const size_t phoff = static_cast<size_t>(blob_u64(buf, 32));
+    const size_t phentsize = static_cast<size_t>(buf.data[54]) |
+                             (static_cast<size_t>(buf.data[55]) << 8);
+    const size_t phnum = static_cast<size_t>(buf.data[56]) |
+                         (static_cast<size_t>(buf.data[57]) << 8);
+    bool changed = false;
+    for (size_t i = 0; i < phnum; ++i) {
+        const size_t ph = phoff + i * phentsize;
+        const unsigned int type = static_cast<unsigned int>(buf.data[ph]) |
+                                  (static_cast<unsigned int>(buf.data[ph + 1]) << 8) |
+                                  (static_cast<unsigned int>(buf.data[ph + 2]) << 16) |
+                                  (static_cast<unsigned int>(buf.data[ph + 3]) << 24);
+        if (type != 1)
+            continue;
+        const auto filesz = blob_u64(buf, ph + 32);
+        blob_put_u64(buf, ph + 40, filesz - 1);
+        changed = true;
+        break;
+    }
+    ASTIA_CHECK(changed);
+
+    stream_exec_context context{buf.data, buf.len, {}};
+    astia::elf::async_env environment{};
+    environment.ctx = &context;
+    environment.map = stream_map;
+    environment.read = stream_read;
+    environment.unmap = stream_unmap;
+    auto task = astia::elf::load_executable_stream(environment, buf.len);
+    while (!task.done())
+        task.resume();
+    ASTIA_CHECK(task.failed());
+    ASTIA_CHECK(context.arena.mapped == 0);
 }
 
 ASTIA_TEST(elf_executable_rejects_bad_magic) {
