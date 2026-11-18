@@ -290,6 +290,20 @@ class controller {
                 device_context_.value.physical);
     }
 
+    uint16_t initial_control_packet_size() const {
+        switch (speed_) {
+        case usb_speed::high:
+            return 64;
+        case usb_speed::super:
+        case usb_speed::super_plus:
+            return 512;
+        case usb_speed::low:
+        case usb_speed::full:
+        default:
+            return 8;
+        }
+    }
+
     bool address_device(bool block_address, uint8_t port, uint8_t speed,
                         uint16_t max_packet_size) {
         make_input_context(port, speed, max_packet_size);
@@ -395,7 +409,7 @@ class controller {
             return false;
         const uint8_t address = next_address_ == 0 || next_address_ > 127 ? 1 : next_address_++;
         const uint8_t speed = static_cast<uint8_t>(speed_);
-        if (!address_device(true, port, speed, 8))
+        if (!address_device(true, port, speed, initial_control_packet_size()))
             return false;
         enumeration_session session;
         if (!session.begin(slot_, port, address, speed_))
