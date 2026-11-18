@@ -174,4 +174,21 @@ namespace astia::elf::detail {
         return true;
     }
 
+    struct view {
+        const u8*         base     = nullptr;
+        usize             len      = 0;
+        const elf64_ehdr* eh       = nullptr;
+        const elf64_shdr* sh       = nullptr;
+        u16               shnum    = 0;
+        const elf64_sym*  sym      = nullptr;
+        usize             symcount = 0;
+        const char*       str      = nullptr;
+        usize             strsize  = 0;
+    };
+
+    bool symbol_name(const view& v, const elf64_sym& sym, const char*& out);
+    bool parse_relocatable(span<const u8> bytes, view& v);
+    bool sym_addr(const view& v, const env& e, const void* const* sec_base, u32 index,
+                  u64& out);
+
 } // namespace astia::elf::detail
