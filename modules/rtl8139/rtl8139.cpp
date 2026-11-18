@@ -17,7 +17,10 @@ using astia::rtl8139::rx_deferred_callback;
 using astia::rtl8139::rx_inspect_result;
 using astia::rtl8139::rx_irq_callback;
 using astia::rtl8139::rx_packet;
+using astia::rtl8139::rx_ring;
 using astia::rtl8139::tx_request;
+using astia::rtl8139::tx_ring;
+using astia::rtl8139::tx_slot_state;
 
 constexpr uint32_t max_irq_rx_packets = 32;
 
@@ -25,19 +28,12 @@ register_offset offset_for(uint16_t offset) {
     return static_cast<register_offset>(offset);
 }
 
-struct tx_slot {
-    bool active = false;
-    bool completion_queued = false;
-    int completion_status = 0;
-    tx_request request{};
-};
-
 class rtl8139_controller final {
     astia_module_pci_device* pci_ = nullptr;
     register_file registers_;
     dma_buffer rx_ring_dma_;
-    uint16_t rx_cursor_ = 0;
-    tx_slot tx_slots_[astia::rtl8139::tx_descriptor_count]{};
+    rx_ring rx_ring_;
+    tx_ring tx_ring_;
     bounded_spsc_queue<rx_packet, astia::rtl8139::rx_deferred_depth> rx_deferred_;
     astia_module_msix_route irq_route_{};
     net_device net_device_{"rtl8139", this};
@@ -66,7 +62,7 @@ class rtl8139_controller final {
         __atomic_store_n(&process_lock_, 0, __ATOMIC_RELEASE);
     }
 
-    uint8_t* rx_ring() const {
+    uint8_t* rx_buffer() const {
         return rx_ring_dma_.allocated
                    ? static_cast<uint8_t*>(rx_ring_dma_.value.virtual_address)
                    : nullptr;
@@ -98,9 +94,8 @@ class rtl8139_controller final {
                               astia::rtl8139::command_transmitter_enable);
         registers_.write16(register_offset::interrupt_status, 0xffffu);
         registers_.write16(register_offset::interrupt_mask, astia::rtl8139::interrupt_rx_tx);
-        rx_cursor_ = 0;
         registers_.write16(register_offset::current_address,
-                           astia::rtl8139::capr_for_cursor(rx_cursor_));
+                           astia::rtl8139::capr_for_cursor(rx_ring_.cursor()));
         return true;
     }
 
@@ -130,23 +125,29 @@ class rtl8139_controller final {
     }
 
     void recycle_rx(uint16_t next) {
-        rx_cursor_ = next;
-        registers_.write16(register_offset::current_address,
-                           astia::rtl8139::capr_for_cursor(rx_cursor_));
+        if (rx_ring_.recycle_to(next))
+            registers_.write16(register_offset::current_address,
+                               astia::rtl8139::capr_for_cursor(rx_ring_.cursor()));
+    }
+
+    void recycle_rx(const rx_packet& packet) {
+        if (rx_ring_.recycle(packet))
+            registers_.write16(register_offset::current_address,
+                               astia::rtl8139::capr_for_cursor(rx_ring_.cursor()));
     }
 
     bool inspect_and_dispatch(rx_packet& packet) {
-        const rx_inspect_result result =
-            astia::rtl8139::inspect_rx_packet(rx_ring(), rx_cursor_, packet);
+        const rx_inspect_result result = rx_ring_.acquire(packet);
         if (result == rx_inspect_result::empty)
             return false;
         if (result == rx_inspect_result::malformed) {
             const uint16_t wire_length = static_cast<uint16_t>(
-                astia::rtl8139::ring_byte(rx_ring(), rx_cursor_ + 2) |
-                static_cast<uint16_t>(astia::rtl8139::ring_byte(rx_ring(), rx_cursor_ + 3) << 8));
+                astia::rtl8139::ring_byte(rx_buffer(), rx_ring_.cursor() + 2) |
+                static_cast<uint16_t>(
+                    astia::rtl8139::ring_byte(rx_buffer(), rx_ring_.cursor() + 3) << 8));
             if (wire_length >= astia::rtl8139::rx_crc_size &&
                 wire_length <= astia::rtl8139::rx_max_frame_with_crc) {
-                recycle_rx(astia::rtl8139::ring_offset(static_cast<uint32_t>(rx_cursor_) +
+                recycle_rx(astia::rtl8139::ring_offset(static_cast<uint32_t>(rx_ring_.cursor()) +
                                                        astia::rtl8139::rx_header_size +
                                                        wire_length + 3u));
                 return true;
@@ -167,7 +168,7 @@ class rtl8139_controller final {
             action = rx_action::drop;
         }
         if (action == rx_action::recycle || action == rx_action::drop)
-            recycle_rx(packet.view.next_offset);
+            recycle_rx(packet);
         return true;
     }
 
@@ -175,7 +176,7 @@ class rtl8139_controller final {
         const uint16_t hardware_cursor = static_cast<uint16_t>(
             registers_.read16(register_offset::current_buffer) & (astia::rtl8139::rx_ring_size - 1u));
         rx_packet packet{};
-        for (uint32_t count = 0; count < max_irq_rx_packets && rx_cursor_ != hardware_cursor;
+        for (uint32_t count = 0; count < max_irq_rx_packets && rx_ring_.pending(hardware_cursor);
              ++count) {
             if (!inspect_and_dispatch(packet))
                 break;
@@ -184,40 +185,39 @@ class rtl8139_controller final {
 
     void drain_tx_irq() {
         for (uint32_t index = 0; index < astia::rtl8139::tx_descriptor_count; ++index) {
-            tx_slot& slot = tx_slots_[index];
-            if (!slot.active)
+            if (tx_ring_.state(index) != tx_slot_state::device)
                 continue;
             const uint32_t status = registers_.read32(
                 offset_for(static_cast<uint16_t>(register_offset::tx_status0) + index * 4u));
             if ((status & astia::rtl8139::tx_status_own) == 0)
                 continue;
-            if (!slot.completion_queued) {
-                slot.completion_status = (status & astia::rtl8139::tx_status_ok) != 0 ? 0 : -5;
-                slot.completion_queued = true;
-            }
-            if (net_device_.tx().complete(slot.request, slot.completion_status))
-                slot = {};
+            tx_request completed{};
+            if (!tx_ring_.complete(index, completed))
+                continue;
+            const int result = (status & astia::rtl8139::tx_status_ok) != 0 ? 0 : -5;
+            if (net_device_.tx().complete(completed, result))
+                tx_ring_.release(index);
+            else
+                tx_ring_.restore(index);
         }
     }
 
     int available_tx_slot() const {
-        for (uint32_t i = 0; i < astia::rtl8139::tx_descriptor_count; ++i)
-            if (!tx_slots_[i].active)
-                return static_cast<int>(i);
-        return -1;
+        return tx_ring_.available();
     }
 
     void cancel_all_process() {
-        for (tx_slot& slot : tx_slots_) {
-            if (!slot.active)
+        for (uint32_t index = 0; index < astia::rtl8139::tx_descriptor_count; ++index) {
+            const tx_request* request = tx_ring_.request(index);
+            if (request == nullptr)
                 continue;
-            net_device_.tx().abort_inflight(slot.request, -125);
-            slot = {};
+            net_device_.tx().abort_inflight(*request, -125);
+            tx_ring_.release(index);
         }
         net_device_.tx().reset();
         rx_packet packet{};
         while (rx_deferred_.pop(packet))
-            recycle_rx(packet.view.next_offset);
+            recycle_rx(packet);
     }
 
     int attach(astia_module_pci_device* device) {
@@ -246,6 +246,7 @@ class rtl8139_controller final {
             registers_ = {};
             return -12;
         }
+        rx_ring_.reset(rx_buffer());
         uint8_t mac[6]{};
         for (unsigned i = 0; i < 6; ++i)
             mac[i] = registers_.read8(offset_for(i));
@@ -284,9 +285,8 @@ class rtl8139_controller final {
         tx_request request{};
         while (available_tx_slot() >= 0 && net_device_.tx().dequeue(request)) {
             const unsigned slot_index = static_cast<unsigned>(available_tx_slot());
-            tx_slot& slot = tx_slots_[slot_index];
-            slot.active = true;
-            slot.request = request;
+            if (!tx_ring_.claim(slot_index, request))
+                break;
             registers_.write32(offset_for(static_cast<uint16_t>(register_offset::tx_address0) +
                                           slot_index * 4u), request.physical);
             registers_.write32(offset_for(static_cast<uint16_t>(register_offset::tx_status0) +
@@ -310,7 +310,7 @@ class rtl8139_controller final {
                 view.wire_length = packet.view.wire_length;
                 view.generation = net_device_.generation();
                 net_device_.invoke_rx_deferred(view);
-                recycle_rx(packet.view.next_offset);
+                recycle_rx(packet);
             }
         }
         unlock_process();
@@ -403,6 +403,8 @@ class rtl8139_controller final {
 
     void initialize() {
         net_device_.initialize("rtl8139", this);
+        rx_ring_.initialize();
+        tx_ring_.initialize();
     }
 
     net_device* device() { return &net_device_; }
