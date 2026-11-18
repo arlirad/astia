@@ -24,42 +24,42 @@ namespace astia::core {
         spinlock& operator=(const spinlock&) = delete;
 
         void lock() {
-            while (__atomic_test_and_set(&flag_, __ATOMIC_ACQUIRE)) {
+            while (__atomic_test_and_set(&_flag, __ATOMIC_ACQUIRE)) {
                 ASTIA_CPU_RELAX();
             }
         }
 
         void unlock() {
-            __atomic_clear(&flag_, __ATOMIC_RELEASE);
+            __atomic_clear(&_flag, __ATOMIC_RELEASE);
         }
 
         private:
-        bool flag_ = false;
+        bool _flag = false;
     };
 
     /// Scoped (RAII) lock guard.
     class spinlock_guard {
         public:
-        explicit spinlock_guard(spinlock& lock) : lock_(&lock) {
-            lock_->lock();
+        explicit spinlock_guard(spinlock& lock) : _lock(&lock) {
+            _lock->lock();
         }
         ~spinlock_guard() {
-            if (lock_ != nullptr)
-                lock_->unlock();
+            if (_lock != nullptr)
+                _lock->unlock();
         }
 
         spinlock_guard(const spinlock_guard&)            = delete;
         spinlock_guard& operator=(const spinlock_guard&) = delete;
 
         void unlock() {
-            if (lock_ != nullptr) {
-                lock_->unlock();
-                lock_ = nullptr;
+            if (_lock != nullptr) {
+                _lock->unlock();
+                _lock = nullptr;
             }
         }
 
         private:
-        spinlock* lock_;
+        spinlock* _lock;
     };
 
 } // namespace astia::core

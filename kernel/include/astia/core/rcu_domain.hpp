@@ -25,12 +25,12 @@ namespace astia::core {
             u32 retired_count = 0;
         };
 
-        alignas(cache_line_bytes) u64 epoch_ = 1;
-        cpu_state cpus_[CpuCount]{};
+        alignas(cache_line_bytes) u64 _epoch = 1;
+        cpu_state _cpus[CpuCount]{};
 
         bool grace_complete(u64 retired_epoch) const {
             for (u32 cpu = 0; cpu < CpuCount; ++cpu) {
-                const cpu_state& state = cpus_[cpu];
+                const cpu_state& state = _cpus[cpu];
                 if (state.nesting != 0 && state.epoch <= retired_epoch)
                     return false;
             }
@@ -40,27 +40,27 @@ namespace astia::core {
         public:
         class read_guard {
             public:
-            read_guard(rcu_domain& domain, u32 cpu) : domain_(domain), cpu_(cpu) {
-                if (cpu_ >= CpuCount)
+            read_guard(rcu_domain& domain, u32 cpu) : _domain(domain), _cpu(cpu) {
+                if (_cpu >= CpuCount)
                     return;
-                cpu_state& state = domain_.cpus_[cpu_];
+                cpu_state& state = _domain._cpus[_cpu];
                 if (state.nesting++ == 0)
-                    state.epoch = __atomic_load_n(&domain_.epoch_, __ATOMIC_SEQ_CST);
-                active_ = true;
+                    state.epoch = __atomic_load_n(&_domain._epoch, __ATOMIC_SEQ_CST);
+                _active = true;
             }
             ~read_guard() {
-                if (active_)
-                    --domain_.cpus_[cpu_].nesting;
+                if (_active)
+                    --_domain._cpus[_cpu].nesting;
             }
             read_guard(const read_guard&) = delete;
             read_guard& operator=(const read_guard&) = delete;
 
-            bool active() const { return active_; }
+            bool active() const { return _active; }
 
             private:
-            rcu_domain& domain_;
-            u32          cpu_;
-            bool         active_ = false;
+            rcu_domain& _domain;
+            u32          _cpu;
+            bool         _active = false;
         };
 
         /// Retire an object after removing it from the published structure.
@@ -68,11 +68,11 @@ namespace astia::core {
         bool retire(u32 cpu, void* value, void (*destroy)(void*)) {
             if (cpu >= CpuCount || value == nullptr || destroy == nullptr)
                 return false;
-            cpu_state& state = cpus_[cpu];
+            cpu_state& state = _cpus[cpu];
             if (state.retired_count == RetireCapacity)
                 return false;
             state.retired[state.retired_count++] = {value, destroy,
-                                                    __atomic_load_n(&epoch_, __ATOMIC_SEQ_CST)};
+                                                    __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST)};
             return true;
         }
 
@@ -83,10 +83,10 @@ namespace astia::core {
         /// Advance the epoch and reclaim objects whose pre-existing readers
         /// have all left. Destructors run outside any lock by construction.
         u32 poll() {
-            __atomic_add_fetch(&epoch_, 1, __ATOMIC_SEQ_CST);
+            __atomic_add_fetch(&_epoch, 1, __ATOMIC_SEQ_CST);
             u32 reclaimed = 0;
             for (u32 cpu = 0; cpu < CpuCount; ++cpu) {
-                cpu_state& state = cpus_[cpu];
+                cpu_state& state = _cpus[cpu];
                 u32 write = 0;
                 for (u32 read = 0; read < state.retired_count; ++read) {
                     retired_item item = state.retired[read];
@@ -106,14 +106,14 @@ namespace astia::core {
         u32 pending() const {
             u32 total = 0;
             for (u32 cpu = 0; cpu < CpuCount; ++cpu)
-                total += cpus_[cpu].retired_count;
+                total += _cpus[cpu].retired_count;
             return total;
         }
         void quiescent(u32 cpu) {
-            if (cpu < CpuCount && cpus_[cpu].nesting == 0)
-                cpus_[cpu].epoch = __atomic_load_n(&epoch_, __ATOMIC_SEQ_CST);
+            if (cpu < CpuCount && _cpus[cpu].nesting == 0)
+                _cpus[cpu].epoch = __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST);
         }
-        u64 epoch() const { return __atomic_load_n(&epoch_, __ATOMIC_SEQ_CST); }
+        u64 epoch() const { return __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST); }
     };
 
 } // namespace astia::core
