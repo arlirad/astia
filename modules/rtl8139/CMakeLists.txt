@@ -8,7 +8,8 @@ set(ASTIA_RTL8139_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_io.h
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_interrupt.h
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp)
 
 add_custom_command(
         OUTPUT ${ASTIA_RTL8139_OBJECT}
@@ -51,3 +52,10 @@ add_custom_target(rtl8139_qemu_probe_smoke
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         VERBATIM)
+
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME rtl8139_qemu_module_load
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu-load.sh)
+    set_tests_properties(rtl8139_qemu_module_load
+                         PROPERTIES LABELS "module;rtl8139;qemu;deterministic")
+endif()

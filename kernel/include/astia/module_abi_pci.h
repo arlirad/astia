@@ -60,7 +60,6 @@ ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_device, reserved
                                "PCI device reserved offset");
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(struct astia_module_pci_driver) == 32,
                                "PCI driver layout");
-
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(struct astia_module_pci_namespace) == 40,
                               "PCI namespace layout");
 ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_namespace, id) == 0,
