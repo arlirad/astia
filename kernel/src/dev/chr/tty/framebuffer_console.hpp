@@ -11,16 +11,16 @@ namespace astia::dev {
         public:
         bool initialize(const boot::framebuffer_info& info);
         bool write_byte(u8 byte) override {
-            return renderer_.write_byte(byte);
+            return _renderer.write_byte(byte);
         }
         bool available() const {
-            return renderer_.ready();
+            return _renderer.ready();
         }
 
         private:
-        mmio_mapping mapping_{};
-        psf_font font_{};
-        framebuffer_renderer renderer_{};
+        mmio_mapping _mapping{};
+        psf_font _font{};
+        framebuffer_renderer _renderer{};
     };
 
     framebuffer_console* framebuffer_console_backend();

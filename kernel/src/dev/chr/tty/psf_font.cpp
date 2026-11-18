@@ -8,10 +8,10 @@ namespace astia::dev {
     }
 
     bool psf_font::load(span<const u8> bytes) {
-        bytes_ = nullptr;
-        length_ = 0;
-        height_ = 0;
-        count_ = 0;
+        _bytes = nullptr;
+        _length = 0;
+        _height = 0;
+        _count = 0;
         if (bytes.data() == nullptr || bytes.size() < 4 ||
             (static_cast<u16>(bytes[0]) | (static_cast<u16>(bytes[1]) << 8)) != psf1_magic) {
             return false;
@@ -23,17 +23,17 @@ namespace astia::dev {
             4 + static_cast<usize>(count) * height > bytes.size()) {
             return false;
         }
-        bytes_ = bytes.data() + 4;
-        length_ = bytes.size() - 4;
-        height_ = height;
-        count_ = count;
+        _bytes = bytes.data() + 4;
+        _length = bytes.size() - 4;
+        _height = height;
+        _count = count;
         return true;
     }
 
     const u8* psf_font::glyph(u16 codepoint) const {
-        if (!valid() || codepoint >= count_)
+        if (!valid() || codepoint >= _count)
             return nullptr;
-        return bytes_ + static_cast<usize>(codepoint) * height_;
+        return _bytes + static_cast<usize>(codepoint) * _height;
     }
 
 } // namespace astia::dev
