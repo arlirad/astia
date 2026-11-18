@@ -31,9 +31,9 @@ namespace astia::core {
 
         static constexpr u64 mask = static_cast<u64>(Capacity - 1);
 
-        alignas(cache_line_bytes) u64 enqueue_position_ = 0;
-        alignas(cache_line_bytes) u64 dequeue_position_ = 0;
-        slot slots_[Capacity];
+        alignas(cache_line_bytes) u64 _enqueue_position = 0;
+        alignas(cache_line_bytes) u64 _dequeue_position = 0;
+        slot _slots[Capacity];
 
         static T* value(slot& entry) {
             return reinterpret_cast<T*>(entry.storage);
@@ -49,11 +49,11 @@ namespace astia::core {
 
         bool claim_enqueue(u64& position, slot*& entry) {
             for (;;) {
-                entry              = &slots_[position & mask];
+                entry              = &_slots[position & mask];
                 const u64 sequence = __atomic_load_n(&entry->sequence, __ATOMIC_ACQUIRE);
                 const i64 difference = distance(sequence, position);
                 if (difference == 0) {
-                    if (__atomic_compare_exchange_n(&enqueue_position_, &position,
+                    if (__atomic_compare_exchange_n(&_enqueue_position, &position,
                                                     position + 1, false, __ATOMIC_RELAXED,
                                                     __ATOMIC_RELAXED)) {
                         return true;
@@ -63,17 +63,17 @@ namespace astia::core {
                 if (difference < 0) {
                     return false;
                 }
-                position = __atomic_load_n(&enqueue_position_, __ATOMIC_RELAXED);
+                position = __atomic_load_n(&_enqueue_position, __ATOMIC_RELAXED);
             }
         }
 
         bool claim_dequeue(u64& position, slot*& entry) {
             for (;;) {
-                entry              = &slots_[position & mask];
+                entry              = &_slots[position & mask];
                 const u64 sequence = __atomic_load_n(&entry->sequence, __ATOMIC_ACQUIRE);
                 const i64 difference = distance(sequence, position + 1);
                 if (difference == 0) {
-                    if (__atomic_compare_exchange_n(&dequeue_position_, &position,
+                    if (__atomic_compare_exchange_n(&_dequeue_position, &position,
                                                     position + 1, false, __ATOMIC_RELAXED,
                                                     __ATOMIC_RELAXED)) {
                         return true;
@@ -83,7 +83,7 @@ namespace astia::core {
                 if (difference < 0) {
                     return false;
                 }
-                position = __atomic_load_n(&dequeue_position_, __ATOMIC_RELAXED);
+                position = __atomic_load_n(&_dequeue_position, __ATOMIC_RELAXED);
             }
         }
 
@@ -109,7 +109,7 @@ namespace astia::core {
         public:
         mpmc_queue() {
             for (u64 i = 0; i < static_cast<u64>(Capacity); ++i) {
-                __atomic_store_n(&slots_[i].sequence, i, __ATOMIC_RELAXED);
+                __atomic_store_n(&_slots[i].sequence, i, __ATOMIC_RELAXED);
             }
         }
 
@@ -127,7 +127,7 @@ namespace astia::core {
 
         template <typename... Args>
         bool try_emplace(Args&&... args) {
-            u64   position = __atomic_load_n(&enqueue_position_, __ATOMIC_RELAXED);
+            u64   position = __atomic_load_n(&_enqueue_position, __ATOMIC_RELAXED);
             slot* entry    = nullptr;
             if (!claim_enqueue(position, entry)) {
                 return false;
@@ -150,7 +150,7 @@ namespace astia::core {
         /// `output` must be assignable from T. The queue slot is destroyed
         /// and released before this function returns.
         bool try_pop(T& output) {
-            u64   position = __atomic_load_n(&dequeue_position_, __ATOMIC_RELAXED);
+            u64   position = __atomic_load_n(&_dequeue_position, __ATOMIC_RELAXED);
             slot* entry    = nullptr;
             if (!claim_dequeue(position, entry)) {
                 return false;
@@ -162,15 +162,15 @@ namespace astia::core {
         }
 
         bool try_discard() {
-            const u64 position = __atomic_load_n(&dequeue_position_, __ATOMIC_RELAXED);
+            const u64 position = __atomic_load_n(&_dequeue_position, __ATOMIC_RELAXED);
             return try_discard_at(position);
         }
 
         /// Approximate item count. It is only a snapshot and may be stale
         /// immediately after returning when producers or consumers race.
         usize size_approx() const {
-            const u64 tail = __atomic_load_n(&enqueue_position_, __ATOMIC_ACQUIRE);
-            const u64 head = __atomic_load_n(&dequeue_position_, __ATOMIC_ACQUIRE);
+            const u64 tail = __atomic_load_n(&_enqueue_position, __ATOMIC_ACQUIRE);
+            const u64 head = __atomic_load_n(&_dequeue_position, __ATOMIC_ACQUIRE);
             const u64 size = tail - head;
             return size > static_cast<u64>(Capacity) ? Capacity
                                                      : static_cast<usize>(size);
