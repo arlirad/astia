@@ -14,25 +14,25 @@ namespace astia::dev {
 
         bool write_byte(u8 byte);
         bool ready() const {
-            return pixels_ != nullptr;
+            return _pixels != nullptr;
         }
         u32 columns() const {
-            return columns_;
+            return _columns;
         }
         u32 rows() const {
-            return rows_;
+            return _rows;
         }
         u32 cursor_column() const {
-            return cursor_column_;
+            return _cursor_column;
         }
         u32 cursor_row() const {
-            return cursor_row_;
+            return _cursor_row;
         }
         u8 foreground() const {
-            return foreground_;
+            return _foreground;
         }
         u8 background() const {
-            return background_;
+            return _background;
         }
 
         static constexpr u32 max_columns = 256;
@@ -62,23 +62,23 @@ namespace astia::dev {
         u32 colour(u8 index) const;
         void pixel(u32 x, u32 y, u32 colour) const;
 
-        volatile u8* pixels_ = nullptr;
-        boot::framebuffer_info info_{};
-        const psf_font* font_ = nullptr;
-        u32 columns_ = 0;
-        u32 rows_ = 0;
-        u32 cursor_column_ = 0;
-        u32 cursor_row_ = 0;
-        u8 foreground_ = 7;
-        u8 background_ = 0;
-        bool cursor_drawn_ = false;
-        escape_state escape_state_ = escape_state::normal;
-        bool csi_private_ = false;
-        u32 csi_values_[8]{};
-        u32 csi_count_ = 0;
-        u32 csi_value_ = 0;
-        bool csi_have_value_ = false;
-        cell cells_[max_columns * max_rows]{};
+        volatile u8* _pixels = nullptr;
+        boot::framebuffer_info _info{};
+        const psf_font* _font = nullptr;
+        u32 _columns = 0;
+        u32 _rows = 0;
+        u32 _cursor_column = 0;
+        u32 _cursor_row = 0;
+        u8 _foreground = 7;
+        u8 _background = 0;
+        bool _cursor_drawn = false;
+        escape_state _escape_state = escape_state::normal;
+        bool _csi_private = false;
+        u32 _csi_values[8]{};
+        u32 _csi_count = 0;
+        u32 _csi_value = 0;
+        bool _csi_have_value = false;
+        cell _cells[max_columns * max_rows]{};
     };
 
 } // namespace astia::dev
