@@ -167,7 +167,10 @@ astia_add_host_test(astia_device_class_names_test
 
 astia_add_host_test(astia_device_test
         device_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        support/file_host.cpp)
 
 astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp

@@ -295,6 +295,26 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
 }
 
+ASTIA_TEST(devfs_unregister_and_reprobe_replaces_node) {
+    initialize_runtime();
+    mount_fixture(fake_device, fake_file);
+    auto registered = astia::mm::shptr<astia::fs::file>::borrowed(&fake_file);
+    auto old = astia::fs::open("/dev/fake-ext4");
+    ASTIA_CHECK(old);
+    ASTIA_CHECK(astia::fs::unregister_device("/dev/fake-ext4", registered) == 0);
+    fake_registered = false;
+    ASTIA_CHECK(astia::fs::unregister_device("/dev/fake-ext4", registered) == -ENOENT);
+    ASTIA_CHECK(!astia::fs::node_mode("/dev/fake-ext4").exists());
+    ASTIA_CHECK(astia::fs::register_device("/dev/fake-ext4", registered) == 0);
+    fake_registered = true;
+    auto current = astia::fs::open("/dev/fake-ext4");
+    ASTIA_CHECK(current);
+    char data[512]{};
+    ASTIA_CHECK(old && old->read(data, sizeof data) == 512);
+    ASTIA_CHECK(current && current->read(data, sizeof data) == 512);
+    ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
+}
+
 ASTIA_TEST(ext4_vfs_rejects_bad_images_and_mutations) {
     initialize_runtime();
     mount_fixture(fake_device, fake_file);

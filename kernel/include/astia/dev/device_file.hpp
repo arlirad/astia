@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/dev/device.hpp>
+#include <astia/core/spinlock.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/shptr.hpp>
 
@@ -11,6 +12,7 @@ namespace astia::dev {
         constexpr explicit device_file(device* device) : borrowed_(device) {}
         explicit device_file(const mm::shptr<device>& device) : owner_(device) {}
 
+        void detach();
         long read(void* buf, u32 len, u64 offset) override;
         long write(const void* buf, u32 len, u64 offset) override;
         long submit(io::request& request) override;
@@ -30,10 +32,14 @@ namespace astia::dev {
         private:
         device* borrowed_ = nullptr;
         mm::shptr<device> owner_;
+        mutable u32 active_ = 0;
+        bool detached_ = false;
 
         device* device_instance() const {
             return owner_ ? owner_.get() : borrowed_;
         }
+        device* begin_operation() const;
+        void end_operation() const;
     };
 
 } // namespace astia::dev

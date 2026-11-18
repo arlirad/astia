@@ -821,16 +821,28 @@ namespace {
             if (stable == nullptr || !probe_pci(*stable))
                 return {};
             auto group = astia::mm::share<nvme_group>();
-            if (!group)
+            if (!group) {
+                device.stop();
                 return {};
+            }
             for (astia::u32 i = 0; i < device.namespace_count; ++i) {
                 auto block = astia::mm::share<namespace_block>(device.namespaces[i]);
-                if (!block || !group->add(block))
+                if (!block || !group->add(block)) {
+                    rollback_probe();
                     return {};
+                }
                 astia::mm::shptr<astia::dev::device> owner = block;
                 auto file = astia::mm::share<astia::dev::device_file>(owner);
-                if (!file || astia::fs::register_device(device.namespaces[i].path, file) < 0)
+                if (!file) {
+                    rollback_probe();
                     return {};
+                }
+                if (astia::fs::register_device(device.namespaces[i].path, file) < 0) {
+                    rollback_probe();
+                    return {};
+                }
+                _files[i] = file;
+                ++_file_count;
             }
             _product = group;
             return true;
@@ -841,6 +853,7 @@ namespace {
         }
 
         void remove(const astia::hw::device_info&) override {
+            unregister_nodes();
             _product = {};
             device.stop();
         }
@@ -925,7 +938,24 @@ namespace {
         }
 
         private:
+        void unregister_nodes() {
+            for (astia::u32 i = 0; i < _file_count; ++i)
+                if (_files[i]) {
+                    _files[i]->detach();
+                    (void) astia::fs::unregister_device(device.namespaces[i].path, _files[i]);
+                    _files[i] = {};
+                }
+            _file_count = 0;
+        }
+
+        void rollback_probe() {
+            unregister_nodes();
+            device.stop();
+        }
+
         astia::mm::shptr<astia::dev::device> _product;
+        astia::mm::shptr<astia::dev::device_file> _files[max_namespaces]{};
+        astia::u32 _file_count = 0;
 
     };
 

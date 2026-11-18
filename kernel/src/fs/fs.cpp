@@ -313,6 +313,12 @@ namespace astia::fs {
         return -ENOSYS;
     }
 
+    long mount::unregister_file(const char* path, const mm::shptr<file>& object) {
+        (void) path;
+        (void) object;
+        return -ENOSYS;
+    }
+
     long mount::read_directory(const char*, u64, char*, u32, file_type*) {
         return -ENOSYS;
     }
@@ -661,6 +667,14 @@ namespace astia::fs {
         if (!operation)
             return -ENOENT;
         return operation.instance()->register_file(
+            relative_path(*operation.entry(), path), object);
+    }
+
+    long unregister_device(const char* path, const mm::shptr<file>& object) {
+        mount_operation operation(path);
+        if (!operation)
+            return -ENOENT;
+        return operation.instance()->unregister_file(
             relative_path(*operation.entry(), path), object);
     }
 
