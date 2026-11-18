@@ -662,7 +662,7 @@ if (ARCH STREQUAL "x86_64")
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
                 COMMENT "Compiling userspace CRT0 fixture")
         if (ASTIA_CROSS_USERSPACE AND ASTIA_CLANG)
-            set(_cross_dir ${_fix_dir}/clang)
+            set(_cross_dir ${CMAKE_BINARY_DIR}/cross-libc)
             file(GLOB _cross_libc_sources CONFIGURE_DEPENDS
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/*.c)
             add_custom_command(
@@ -681,6 +681,7 @@ if (ARCH STREQUAL "x86_64")
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/CMakeLists.txt
                     COMMENT "Cross-building libc-backed userspace image init_libc"
             )
+            add_custom_target(astia_cross_libc DEPENDS ${_cross_dir}/image/init_libc)
             set(_init_libc_image ${_cross_dir}/image/init_libc)
         else ()
             add_custom_command(

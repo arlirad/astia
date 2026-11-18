@@ -133,11 +133,16 @@ command -v xorriso >/dev/null 2>&1 || {
 
 if [ "$clean_build" = 1 ]; then
     echo "Cleaning kernel, zsh, and VGA launcher build directories." >&2
-    rm -rf "$kernel_build" "$zsh_build" "$work"
+    if [ -z "${ASTIA_TEST_BUILD:-}" ]; then
+        rm -rf "$kernel_build"
+    fi
+    rm -rf "$zsh_build" "$work"
 fi
 
 echo "Running the incremental kernel preflight." >&2
-"$root/kernel/scripts/test.sh" "$kernel_build"
+if [ -z "${ASTIA_TEST_BUILD:-}" ]; then
+    "$root/kernel/scripts/test.sh" "$kernel_build"
+fi
 
 if [ -e "$zsh_source" ] && [ ! -d "$zsh_source" ]; then
     echo "zsh source is not a directory: $zsh_source" >&2

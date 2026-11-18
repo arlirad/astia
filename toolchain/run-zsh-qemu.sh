@@ -4,7 +4,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 zsh_build=${ZSH_BUILD:-/tmp/astia-zsh-build}
 zsh_source=${ZSH_SOURCE:-$zsh_build/source}
-kernel_build=$root/kernel/build-tests
+kernel_build=${ASTIA_TEST_BUILD:-$root/kernel/build-tests}
 kernel=${ASTIA_KERNEL:-$kernel_build/src/astiakrn_runtime}
 base_initrd=${ASTIA_INITRD:-$kernel_build/tests/fixtures/boot_initrd.cpio}
 work=${ASTIA_ZSH_RUN:-/tmp/astia-zsh-run}
@@ -80,11 +80,16 @@ command -v "$cpio" >/dev/null 2>&1 || {
 
 if [ "$clean_build" = 1 ]; then
     echo "Cleaning kernel, zsh, and launcher build directories." >&2
-    rm -rf "$kernel_build" "$zsh_build" "$work"
+    if [ -z "${ASTIA_TEST_BUILD:-}" ]; then
+        rm -rf "$kernel_build"
+    fi
+    rm -rf "$zsh_build" "$work"
 fi
 
 echo "Running the incremental kernel preflight." >&2
-"$root/kernel/scripts/test.sh" "$kernel_build"
+if [ -z "${ASTIA_TEST_BUILD:-}" ]; then
+    "$root/kernel/scripts/test.sh" "$kernel_build"
+fi
 
 if [ -e "$zsh_source" ] && [ ! -d "$zsh_source" ]; then
     echo "zsh source is not a directory: $zsh_source" >&2
