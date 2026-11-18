@@ -754,12 +754,21 @@ namespace {
             if (stable == nullptr || !probe_pci(*stable))
                 return {};
             auto block = astia::mm::share<virtio_block>(device);
-            if (!block)
+            if (!block) {
+                device.release();
                 return {};
+            }
             astia::mm::shptr<astia::dev::device> owner = block;
             auto file = astia::mm::share<astia::dev::device_file>(owner);
-            if (!file || astia::fs::register_device("/dev/vblk0", file) < 0)
+            if (!file) {
+                device.release();
                 return {};
+            }
+            if (astia::fs::register_device("/dev/vblk0", file) < 0) {
+                device.release();
+                return {};
+            }
+            _file = file;
             _product = block;
             return true;
         }
@@ -767,6 +776,11 @@ namespace {
             return _product;
         }
         void remove(const astia::hw::device_info&) override {
+            if (_file) {
+                _file->detach();
+                (void) astia::fs::unregister_device("/dev/vblk0", _file);
+                _file = {};
+            }
             _product = {};
             device.release();
         }
@@ -820,6 +834,7 @@ namespace {
         private:
         controller device;
         astia::mm::shptr<astia::dev::device> _product;
+        astia::mm::shptr<astia::dev::device_file> _file;
     };
 
     virtio_driver driver;

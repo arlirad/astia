@@ -431,6 +431,7 @@ namespace astia::fs {
     /// directories are intentionally deferred; the first useful VFS
     /// shape is enough for /dev/tts0 and future block nodes.
     long register_device(const char* path, const mm::shptr<file>& object);
+    long unregister_device(const char* path, const mm::shptr<file>& object = {});
 
     /// Resolve a path through the mounted filesystem namespace.
     mm::shptr<open_file> open_path(const char* path, u32 flags = 0);

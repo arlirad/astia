@@ -158,6 +158,7 @@ ASTIA_TEST(pci_enumerates_caps_bars_and_filters) {
     ASTIA_CHECK(device->bars[0].size == 0x1000);
     ASTIA_CHECK(device->bars[0].address == 0x80001000);
     ASTIA_CHECK(device->bars[2].size == 0x400);
+    ASTIA_CHECK((config_read(device->bdf, 0x04) >> 16) == 0x0010);
     ASTIA_CHECK(device->capability_count == 2);
     ASTIA_CHECK(device->extended_count == 1);
     ASTIA_CHECK(device->interrupt.msix);
