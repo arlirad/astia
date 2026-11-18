@@ -60,5 +60,5 @@ if(ASTIA_BUILD_TESTS)
                          PROPERTIES LABELS "module;rtl8139;qemu;deterministic"
                          ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}"
                          FIXTURES_REQUIRED astia-qemu-artifacts
-                         RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+                         RESOURCE_LOCK astia-qemu)
 endif()

@@ -55,7 +55,7 @@ if(ASTIA_BUILD_TESTS)
             LABELS "module;usb;xhci;qemu;deterministic"
             ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}"
             FIXTURES_REQUIRED astia-qemu-artifacts
-            RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+            RESOURCE_LOCK astia-qemu)
 endif()
 
 add_custom_target(usb_qemu_capability_smoke
