@@ -35,8 +35,8 @@ namespace astia::proc {
             mm::shptr<fs::open_file> file;
             u32                      flags = 0;
         };
-        entry                  entries_[max_process_fds];
-        mutable core::spinlock lock_;
+        entry                  _entries[max_process_fds];
+        mutable core::spinlock _lock;
     };
 
 } // namespace astia::proc

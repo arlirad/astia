@@ -109,11 +109,11 @@ namespace astia::fs {
             public:
             explicit type_operation(const char* name) {
                 core::spinlock_guard guard(mount_registry_lock);
-                entry_ = find_type_locked(name);
-                if (entry_ == nullptr)
+                _entry = find_type_locked(name);
+                if (_entry == nullptr)
                     return;
-                ++entry_->active_operations;
-                instance_ = entry_->type;
+                ++_entry->active_operations;
+                _instance = _entry->type;
             }
 
             explicit type_operation(type_entry* entry) {
@@ -121,33 +121,33 @@ namespace astia::fs {
                 if (entry == nullptr || entry->type == nullptr)
                     return;
                 ++entry->active_operations;
-                entry_    = entry;
-                instance_ = entry->type;
+                _entry    = entry;
+                _instance = entry->type;
             }
 
             ~type_operation() {
-                if (entry_ == nullptr)
+                if (_entry == nullptr)
                     return;
                 core::spinlock_guard guard(mount_registry_lock);
-                --entry_->active_operations;
+                --_entry->active_operations;
             }
 
             type_operation(const type_operation&)            = delete;
             type_operation& operator=(const type_operation&) = delete;
 
             explicit operator bool() const {
-                return entry_ != nullptr;
+                return _entry != nullptr;
             }
             const filesystem* instance() const {
-                return instance_;
+                return _instance;
             }
             type_entry* owner() const {
-                return entry_;
+                return _entry;
             }
 
             private:
-            type_entry*        entry_    = nullptr;
-            const filesystem*  instance_ = nullptr;
+            type_entry*        _entry    = nullptr;
+            const filesystem*  _instance = nullptr;
         };
 
         bool path_matches(const char* target, const char* path) {
@@ -247,40 +247,40 @@ namespace astia::fs {
             explicit mount_operation(const char* path) {
                 const u32            snapshot_index = find_mount_snapshot_index(path);
                 core::spinlock_guard guard(mount_registry_lock);
-                entry_ = snapshot_index < max_mounts && mounts[snapshot_index].used &&
+                _entry = snapshot_index < max_mounts && mounts[snapshot_index].used &&
                                  mounts[snapshot_index].instance != nullptr &&
                                  path_matches(mounts[snapshot_index].target, path)
                              ? &mounts[snapshot_index]
                              : find_mount_locked(path);
-                if (entry_ == nullptr || !entry_->used || entry_->instance == nullptr) {
-                    entry_ = nullptr;
+                if (_entry == nullptr || !_entry->used || _entry->instance == nullptr) {
+                    _entry = nullptr;
                     return;
                 }
-                ++entry_->active_operations;
-                instance_ = entry_->instance;
+                ++_entry->active_operations;
+                _instance = _entry->instance;
             }
             ~mount_operation() {
-                if (entry_ == nullptr)
+                if (_entry == nullptr)
                     return;
                 core::spinlock_guard guard(mount_registry_lock);
-                --entry_->active_operations;
+                --_entry->active_operations;
             }
 
             mount_operation(const mount_operation&)            = delete;
             mount_operation& operator=(const mount_operation&) = delete;
             explicit         operator bool() const {
-                return entry_ != nullptr;
+                return _entry != nullptr;
             }
             mount_entry* entry() const {
-                return entry_;
+                return _entry;
             }
             mount* instance() const {
-                return instance_;
+                return _instance;
             }
 
             private:
-            mount_entry* entry_    = nullptr;
-            mount*       instance_ = nullptr;
+            mount_entry* _entry    = nullptr;
+            mount*       _instance = nullptr;
         };
 
         const char* relative_path(const mount_entry& entry, const char* path) {
