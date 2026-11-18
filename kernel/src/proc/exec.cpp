@@ -371,7 +371,7 @@ namespace astia::proc {
         }
 
         core::task<bool> map_tls_file_async(mm::address_space& map,
-                                             const mm::shptr<fs::open_file>& file,
+                                             mm::shptr<fs::open_file> file,
                                              const elf::image& image, u64& tp_out,
                                              u64& frames_out, u64& pages_out) {
             const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
@@ -413,7 +413,7 @@ namespace astia::proc {
     }
 
     core::task<bool> process::load_user_file_async(
-        const mm::shptr<fs::open_file>& file, usize length, u64* entry_out) {
+        mm::shptr<fs::open_file> file, usize length, u64* entry_out) {
         if (!file || length == 0 || entry_out == nullptr || _address_space.attached())
             co_return false;
         mm::address_space map = mm::address_space::create();

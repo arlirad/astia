@@ -4,7 +4,7 @@
 namespace astia::fs {
 
     namespace {
-        core::task<i64> submit_async(const mm::shptr<open_file>& file, void* buffer,
+        core::task<i64> submit_async(mm::shptr<open_file> file, void* buffer,
                                      u32 length, u64 offset, io_direction direction) {
             if (!file)
                 co_return error_t::ebadf;
@@ -39,26 +39,26 @@ namespace astia::fs {
         }
     }
 
-    core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,
+    core::task<i64> submit(mm::shptr<open_file> file, void* buffer, u32 length,
                            u64 offset, io_direction direction) {
         return submit_async(file, buffer, length, offset, direction);
     }
 
-    core::task<i64> read(const mm::shptr<open_file>& file, span<u8> buffer, u64 offset) {
+    core::task<i64> read(mm::shptr<open_file> file, span<u8> buffer, u64 offset) {
         if (buffer.size() > static_cast<usize>(~u32{0}))
             return core::task<i64>(error_t::erange);
         return submit(file, buffer.data(), static_cast<u32>(buffer.size()), offset,
                       io_direction::input);
     }
 
-    core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer, u64 offset) {
+    core::task<i64> write(mm::shptr<open_file> file, span<const u8> buffer, u64 offset) {
         if (buffer.size() > static_cast<usize>(~u32{0}))
             return core::task<i64>(error_t::erange);
         return submit(file, const_cast<u8*>(buffer.data()), static_cast<u32>(buffer.size()),
                       offset, io_direction::output);
     }
 
-    core::task<i64> read_exact(const mm::shptr<open_file>& file, span<u8> buffer, u64 offset) {
+    core::task<i64> read_exact(mm::shptr<open_file> file, span<u8> buffer, u64 offset) {
         auto result = co_await read(file, buffer, offset);
         if (!result)
             co_return result.error;

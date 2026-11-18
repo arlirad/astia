@@ -1,5 +1,6 @@
 add_library(elf STATIC
         elf.cpp
+        exec_loader.cpp
 )
 
 target_include_directories(elf PUBLIC
