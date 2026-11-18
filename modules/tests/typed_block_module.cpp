@@ -23,8 +23,7 @@ namespace {
         public:
         const char* name() const override { return "typed"; }
         bool match(const astia::hw::device_info&) const override { return false; }
-        astia::mm::shptr<astia::dev::device> probe(
-                const astia::hw::device_info&) override { return {}; }
+        bool probe(const astia::hw::device_info&) override { return false; }
     };
 
     fixture_driver driver;

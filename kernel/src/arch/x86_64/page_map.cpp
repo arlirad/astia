@@ -6,6 +6,9 @@
 #endif
 #include <astia/mm/frame_allocator.hpp>
 
+extern "C" char boot_stack[];
+extern "C" char boot_stack_top[];
+
 // x86_64 4-level paging (Intel SDM Vol. 3A, "IA-32e Paging"):
 //   virtual address = PML4[47:39] PDPT[38:30] PD[29:21] PT[20:12] offset[11:0]
 // Each table is 4 KiB holding 512 eight-byte entries; an entry's physical
@@ -171,6 +174,33 @@ namespace astia::arch {
             return reinterpret_cast<u64*>(phys);
         }
 
+        bool map_boot_stack(page_map& map, const page_map* parent) {
+#ifdef ASTIA_HOST_TEST
+            (void) map;
+            (void) parent;
+            return true;
+#else
+            if (parent == nullptr || !parent->valid()) {
+                return true;
+            }
+            const vaddr_t first =
+                reinterpret_cast<vaddr_t>(boot_stack) & ~mm::page_mask;
+            const vaddr_t last =
+                (reinterpret_cast<vaddr_t>(boot_stack_top) - 1) & ~mm::page_mask;
+            for (vaddr_t virt = first;; virt += mm::page_size) {
+                const paddr_t phys = parent->translate(virt);
+                if (phys == page_map::invalid ||
+                    !map.map_4k(virt, phys,
+                                page_flags::present | page_flags::writable)) {
+                    return false;
+                }
+                if (virt == last) {
+                    return true;
+                }
+            }
+#endif
+        }
+
         /// `owner`'s root-table page.
         u64* root_table(const page_map& owner) {
             if (active_map == &owner) {
@@ -301,6 +331,9 @@ namespace astia::arch {
         // *own* root (overwriting anything inherited above), so walking the
         // recursive window through this map addresses this map's tables.
         dst[recursive_slot] = (frame & address_mask) | entry_present | entry_writable;
+        if (!map_boot_stack(map, parent)) {
+            return page_map{};
+        }
         return map;
     }
 

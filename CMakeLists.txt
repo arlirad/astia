@@ -95,6 +95,26 @@ set(ASTIA_VGA_STRICT OFF CACHE BOOL
 set(ASTIA_VGA_HARNESS OFF CACHE BOOL
     "Run the Astia VGA launcher smoke harness instead of interactive mode")
 
+set(_astia_host_sanitizer_flags)
+foreach(_astia_sanitizer_flag_source
+        CMAKE_C_FLAGS
+        CMAKE_CXX_FLAGS
+        CMAKE_EXE_LINKER_FLAGS
+        CMAKE_SHARED_LINKER_FLAGS
+        CMAKE_MODULE_LINKER_FLAGS)
+    string(REGEX MATCHALL "-fsanitize=[^ \t;]+" _astia_sanitizer_flags
+            "${${_astia_sanitizer_flag_source}}")
+    list(APPEND _astia_host_sanitizer_flags ${_astia_sanitizer_flags})
+    string(REGEX REPLACE "(^|[ \t])-fsanitize=[^ \t;]+" ""
+            _astia_sanitizer_cleaned "${${_astia_sanitizer_flag_source}}")
+    set(${_astia_sanitizer_flag_source} "${_astia_sanitizer_cleaned}")
+endforeach()
+list(REMOVE_DUPLICATES _astia_host_sanitizer_flags)
+set(ASTIA_HOST_SANITIZER_COMPILE_OPTIONS
+        ${_astia_host_sanitizer_flags})
+set(ASTIA_HOST_SANITIZER_LINK_OPTIONS
+        ${_astia_host_sanitizer_flags})
+
 if(ASTIA_VGA_NANO)
     set(_astia_vga_nano 1)
 else()

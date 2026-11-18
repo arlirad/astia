@@ -20,4 +20,20 @@ namespace astia::arch {
         return interrupts_enabled;
     }
 
+    static bool reschedule_pending = false;
+
+    void cpu::request_local_reschedule() {
+        reschedule_pending = true;
+    }
+
+    namespace test {
+        void clear_reschedule_request() {
+            reschedule_pending = false;
+        }
+
+        bool reschedule_requested() {
+            return reschedule_pending;
+        }
+    }
+
 }

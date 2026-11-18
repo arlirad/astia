@@ -6,6 +6,7 @@ set(ASTIA_VIRTIO_BLK_UNIT ${CMAKE_CURRENT_BINARY_DIR}/virtio_blk_unit)
 add_custom_command(
         OUTPUT ${ASTIA_VIRTIO_BLK_UNIT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_blk_unit.cpp
                 -o ${ASTIA_VIRTIO_BLK_UNIT}
