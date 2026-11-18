@@ -55,28 +55,28 @@ namespace astia::ext4 {
         bool open(read_at_fn read_at, void* context);
 
         error last_error() const {
-            return error_;
+            return _error;
         }
         u32 block_size() const {
-            return block_size_;
+            return _block_size;
         }
         u64 block_count() const {
-            return blocks_count_;
+            return _blocks_count;
         }
         u32 inode_count() const {
-            return inodes_count_;
+            return _inodes_count;
         }
         u32 inode_size() const {
-            return inode_size_;
+            return _inode_size;
         }
         u32 feature_compat() const {
-            return feature_compat_;
+            return _feature_compat;
         }
         u32 feature_incompat() const {
-            return feature_incompat_;
+            return _feature_incompat;
         }
         u32 feature_ro_compat() const {
-            return feature_ro_compat_;
+            return _feature_ro_compat;
         }
 
         bool read_inode(u32 number, inode& result);
@@ -101,28 +101,28 @@ namespace astia::ext4 {
         bool validate_index_node(const inode& node, u32 directory_blocks,
                                  const u8* block, u16 depth, bool root);
         bool fail(error value) {
-            error_ = value;
+            _error = value;
             return false;
         }
 
-        read_at_fn read_at_ = nullptr;
-        void* context_ = nullptr;
-        error error_ = error::none;
-        u32 block_size_ = 0;
-        u64 blocks_count_ = 0;
-        u32 inodes_count_ = 0;
-        u32 blocks_per_group_ = 0;
-        u32 inodes_per_group_ = 0;
-        u32 inode_size_ = 0;
-        u32 descriptor_size_ = 0;
-        u32 group_count_ = 0;
-        u32 feature_compat_ = 0;
-        u32 feature_incompat_ = 0;
-        u32 feature_ro_compat_ = 0;
-        u8 uuid_[16]{};
-        u32 checksum_seed_ = 0;
-        bool use_checksum_seed_ = false;
-        u8 extent_block_[4096]{};
+        read_at_fn _read_at = nullptr;
+        void* _context = nullptr;
+        error _error = error::none;
+        u32 _block_size = 0;
+        u64 _blocks_count = 0;
+        u32 _inodes_count = 0;
+        u32 _blocks_per_group = 0;
+        u32 _inodes_per_group = 0;
+        u32 _inode_size = 0;
+        u32 _descriptor_size = 0;
+        u32 _group_count = 0;
+        u32 _feature_compat = 0;
+        u32 _feature_incompat = 0;
+        u32 _feature_ro_compat = 0;
+        u8 _uuid[16]{};
+        u32 _checksum_seed = 0;
+        bool _use_checksum_seed = false;
+        u8 _extent_block[4096]{};
     };
 
 } // namespace astia::ext4

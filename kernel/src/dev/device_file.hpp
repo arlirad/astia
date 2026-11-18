@@ -11,8 +11,8 @@ namespace astia::dev {
 
     class device_file : public fs::file {
         public:
-        constexpr explicit device_file(device* device) : borrowed_(device) {}
-        explicit device_file(const mm::shptr<device>& device) : owner_(device) {}
+        constexpr explicit device_file(device* device) : _borrowed(device) {}
+        explicit device_file(const mm::shptr<device>& device) : _owner(device) {}
 
         long          read(void* buf, u32 len, u64 offset) override;
         long          write(const void* buf, u32 len, u64 offset) override;
@@ -31,11 +31,11 @@ namespace astia::dev {
         }
 
         private:
-        device*            borrowed_ = nullptr;
-        mm::shptr<device>  owner_;
+        device*            _borrowed = nullptr;
+        mm::shptr<device>  _owner;
 
         device* device_instance() const {
-            return owner_ ? owner_.get() : borrowed_;
+            return _owner ? _owner.get() : _borrowed;
         }
     };
 

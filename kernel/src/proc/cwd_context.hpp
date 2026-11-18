@@ -35,8 +35,8 @@ namespace astia::proc {
         i64 compose_from_locked(const char* base, const char* path,
                                 span<char> buffer) const;
 
-        mutable core::spinlock lock_{};
-        char                     cwd_[fs::path_max] = "/";
+        mutable core::spinlock _lock{};
+        char                     _cwd[fs::path_max] = "/";
     };
 
 } // namespace astia::proc

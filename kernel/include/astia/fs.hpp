@@ -77,18 +77,18 @@ namespace astia::fs {
     class file_permissions {
         public:
         constexpr file_permissions(u16 value = 0)
-            : value_(value & file_permissions_mask) {}
+            : _value(value & file_permissions_mask) {}
         constexpr u16 raw() const {
-            return value_;
+            return _value;
         }
         constexpr u8 owner() const {
-            return static_cast<u8>((value_ >> 6) & 7);
+            return static_cast<u8>((_value >> 6) & 7);
         }
         constexpr u8 group() const {
-            return static_cast<u8>((value_ >> 3) & 7);
+            return static_cast<u8>((_value >> 3) & 7);
         }
         constexpr u8 other() const {
-            return static_cast<u8>(value_ & 7);
+            return static_cast<u8>(_value & 7);
         }
         constexpr bool owner_allows(permission_bits bits) const {
             return (owner() & static_cast<u8>(bits)) == static_cast<u8>(bits);
@@ -100,14 +100,14 @@ namespace astia::fs {
             return (other() & static_cast<u8>(bits)) == static_cast<u8>(bits);
         }
         constexpr file_permissions chmod_mask() const {
-            return file_permissions(value_ & file_permissions_mask);
+            return file_permissions(_value & file_permissions_mask);
         }
         constexpr file_permissions with_permissions(file_permissions value) const {
             return file_permissions(value.raw());
         }
 
         private:
-        u16 value_;
+        u16 _value;
     };
 
     // Filesystem policy modes.  Keep these in the kernel VFS namespace so
@@ -123,53 +123,53 @@ namespace astia::fs {
         public:
         constexpr file_mode(file_type        type        = file_type::unknown,
                             file_permissions permissions = {})
-            : type_(type), permissions_(permissions) {}
+            : _type(type), _permissions(permissions) {}
         constexpr file_type type() const {
-            return type_;
+            return _type;
         }
         constexpr file_permissions permissions() const {
-            return permissions_;
+            return _permissions;
         }
         constexpr bool exists() const {
-            return type_ != file_type::unknown;
+            return _type != file_type::unknown;
         }
         constexpr bool is_fifo() const {
-            return type_ == file_type::fifo;
+            return _type == file_type::fifo;
         }
         constexpr bool is_character_device() const {
-            return type_ == file_type::character;
+            return _type == file_type::character;
         }
         constexpr bool is_block_device() const {
-            return type_ == file_type::block;
+            return _type == file_type::block;
         }
         constexpr bool is_directory() const {
-            return type_ == file_type::directory;
+            return _type == file_type::directory;
         }
         constexpr bool is_regular() const {
-            return type_ == file_type::regular;
+            return _type == file_type::regular;
         }
         constexpr bool is_symlink() const {
-            return type_ == file_type::symlink;
+            return _type == file_type::symlink;
         }
         constexpr bool is_socket() const {
-            return type_ == file_type::socket;
+            return _type == file_type::socket;
         }
         constexpr bool owner_allows(permission_bits bits) const {
-            return permissions_.owner_allows(bits);
+            return _permissions.owner_allows(bits);
         }
         constexpr bool group_allows(permission_bits bits) const {
-            return permissions_.group_allows(bits);
+            return _permissions.group_allows(bits);
         }
         constexpr bool other_allows(permission_bits bits) const {
-            return permissions_.other_allows(bits);
+            return _permissions.other_allows(bits);
         }
         constexpr file_mode chmod(file_permissions permissions) const {
-            return file_mode(type_, permissions.chmod_mask());
+            return file_mode(_type, permissions.chmod_mask());
         }
 
         private:
-        file_type        type_;
-        file_permissions permissions_;
+        file_type        _type;
+        file_permissions _permissions;
     };
 
     inline constexpr u32 max_nodes      = 32;
@@ -391,27 +391,27 @@ namespace astia::fs {
         public:
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
                   io_direction direction, mm::uptr<core::async_operation<i64>> completion)
-            : file_(file), flight_(new io_flight(buffer, length, offset, direction,
+            : _file(file), _flight(new io_flight(buffer, length, offset, direction,
                                                  static_cast<mm::uptr<core::async_operation<i64>>&&>(completion))) {}
 
         ~io_packet() {
-            if (flight_ != nullptr)
-                flight_->cancel_owner();
+            if (_flight != nullptr)
+                _flight->cancel_owner();
         }
 
         io_packet(const io_packet&)            = delete;
         io_packet& operator=(const io_packet&) = delete;
 
-        explicit operator bool() const { return flight_ != nullptr; }
-        long submit() { return file_ && flight_ ? file_->submit(flight_->request()) : -EBADF; }
-        io_request& request() { return flight_->request(); }
-        const io_request& request() const { return flight_->request(); }
+        explicit operator bool() const { return _flight != nullptr; }
+        long submit() { return _file && _flight ? _file->submit(_flight->request()) : -EBADF; }
+        io_request& request() { return _flight->request(); }
+        const io_request& request() const { return _flight->request(); }
         core::async_operation<i64>* completion() const { return request().completion(); }
-        const mm::shptr<open_file>& file() const { return file_; }
+        const mm::shptr<open_file>& file() const { return _file; }
 
         private:
-        mm::shptr<open_file> file_;
-        io_flight*           flight_;
+        mm::shptr<open_file> _file;
+        io_flight*           _flight;
     };
 
     core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,

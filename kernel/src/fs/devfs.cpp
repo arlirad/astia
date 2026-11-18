@@ -30,19 +30,19 @@ namespace astia::fs {
     }
 
     long devfs_mount::register_file(const char* path, const mm::shptr<file>& object) {
-        core::spinlock_guard guard(namespace_lock_);
+        core::spinlock_guard guard(_namespace_lock);
         if (!object || path == nullptr || path[0] != '/')
             return -EINVAL;
         for (u32 i = 0; i < devfs_max_entries; ++i) {
-            if (entries_[i].used && equal(entries_[i].path, path))
+            if (_entries[i].used && equal(_entries[i].path, path))
                 return -EEXIST;
         }
         for (u32 i = 0; i < devfs_max_entries; ++i) {
-            if (!entries_[i].used) {
-                if (!copy_path(entries_[i].path, path))
+            if (!_entries[i].used) {
+                if (!copy_path(_entries[i].path, path))
                     return -ENAMETOOLONG;
-                entries_[i].used   = true;
-                entries_[i].object = object;
+                _entries[i].used   = true;
+                _entries[i].object = object;
                 return 0;
             }
         }
@@ -65,10 +65,10 @@ namespace astia::fs {
         }
         mm::shptr<file> object;
         {
-            core::spinlock_guard guard(namespace_lock_);
+            core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < devfs_max_entries; ++i)
-                if (entries_[i].used && equal(entries_[i].path, path)) {
-                    object = entries_[i].object;
+                if (_entries[i].used && equal(_entries[i].path, path)) {
+                    object = _entries[i].object;
                     break;
                 }
         }
@@ -92,7 +92,7 @@ namespace astia::fs {
     }
 
     file_type devfs_mount::node_type(const char* path) const {
-        core::spinlock_guard guard(namespace_lock_);
+        core::spinlock_guard guard(_namespace_lock);
         // The node exists independently of whether the caller has a ctty;
         // only opening it requires a controlling terminal.
         if (equal(path, "/tty"))
@@ -102,7 +102,7 @@ namespace astia::fs {
         if (dev::pty_node_exists(path) || equal(path, "/ptmx"))
             return directory_chr;
         for (u32 i = 0; i < devfs_max_entries; ++i)
-            if (entries_[i].used && equal(entries_[i].path, path))
+            if (_entries[i].used && equal(_entries[i].path, path))
                 return directory_chr;
         return directory_unknown;
     }
@@ -116,10 +116,10 @@ namespace astia::fs {
             return file_mode(file_type::character, default_device_permissions);
         mm::shptr<file> object;
         {
-            core::spinlock_guard guard(namespace_lock_);
+            core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < devfs_max_entries; ++i)
-                if (entries_[i].used && equal(entries_[i].path, path)) {
-                    object = entries_[i].object;
+                if (_entries[i].used && equal(_entries[i].path, path)) {
+                    object = _entries[i].object;
                     break;
                 }
         }
@@ -137,7 +137,7 @@ namespace astia::fs {
 
     fs::mount* devfs::mount(const char* source) const {
         (void) source;
-        return instance_;
+        return _instance;
     }
 
 } // namespace astia::fs
