@@ -1,5 +1,6 @@
 #include <astia/common.hpp>
 #include <astia/mm/heap.hpp>
+#include <new>
 
 // Global allocation, backed by mm::heap.
 //
@@ -42,59 +43,50 @@ namespace {
 
 } // namespace
 
-void* operator new(astia::usize size) {
+__attribute__((weak)) void* operator new(astia::usize size) {
     return allocate(size);
 }
 
-void* operator new[](astia::usize size) {
+__attribute__((weak)) void* operator new[](astia::usize size) {
     return allocate(size);
 }
 
-void* operator new(astia::usize size, std::align_val_t alignment) {
+__attribute__((weak)) void* operator new(astia::usize size, std::align_val_t alignment) {
     return allocate_aligned(size, static_cast<astia::usize>(alignment));
 }
 
-void* operator new[](astia::usize size, std::align_val_t alignment) {
+__attribute__((weak)) void* operator new[](astia::usize size, std::align_val_t alignment) {
     return allocate_aligned(size, static_cast<astia::usize>(alignment));
 }
 
-void operator delete(void* ptr) noexcept {
+__attribute__((weak)) void operator delete(void* ptr) noexcept {
     astia::mm::heap::free(ptr);
 }
 
-void operator delete[](void* ptr) noexcept {
+__attribute__((weak)) void operator delete[](void* ptr) noexcept {
     astia::mm::heap::free(ptr);
 }
 
-void operator delete(void* ptr, std::align_val_t) noexcept {
+__attribute__((weak)) void operator delete(void* ptr, std::align_val_t) noexcept {
     free_aligned(ptr);
 }
 
-void operator delete[](void* ptr, std::align_val_t) noexcept {
+__attribute__((weak)) void operator delete[](void* ptr, std::align_val_t) noexcept {
     free_aligned(ptr);
 }
 
-void operator delete(void* ptr, astia::usize, std::align_val_t) noexcept {
+__attribute__((weak)) void operator delete(void* ptr, astia::usize, std::align_val_t) noexcept {
     free_aligned(ptr);
 }
 
-void operator delete[](void* ptr, astia::usize, std::align_val_t) noexcept {
+__attribute__((weak)) void operator delete[](void* ptr, astia::usize, std::align_val_t) noexcept {
     free_aligned(ptr);
 }
 
-void operator delete(void* ptr, astia::usize) noexcept {
+__attribute__((weak)) void operator delete(void* ptr, astia::usize) noexcept {
     astia::mm::heap::free(ptr);
 }
 
-void operator delete[](void* ptr, astia::usize) noexcept {
+__attribute__((weak)) void operator delete[](void* ptr, astia::usize) noexcept {
     astia::mm::heap::free(ptr);
-}
-
-// Placement forms: always succeed.
-void* operator new(astia::usize, void* where) noexcept {
-    return where;
-}
-
-void* operator new[](astia::usize, void* where) noexcept {
-    return where;
 }

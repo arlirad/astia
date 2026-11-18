@@ -20,6 +20,7 @@ foreach(ASTIA_TYPED_HEADER IN LISTS ASTIA_TYPED_HEADERS)
     add_custom_command(
             OUTPUT ${ASTIA_TYPED_HEADER_OBJECT}
             COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+                    ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                     -I${ASTIA_KERNEL_SOURCE_DIR}/include
                     -include ${ASTIA_TYPED_HEADER}
                     -c ${CMAKE_CURRENT_SOURCE_DIR}/typed_header_alone.cpp
@@ -51,6 +52,7 @@ set(ASTIA_TYPED_LAYOUT ${CMAKE_CURRENT_BINARY_DIR}/typed_contract_layout)
 add_custom_command(
         OUTPUT ${ASTIA_TYPED_LAYOUT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 ${CMAKE_CURRENT_SOURCE_DIR}/typed_contract_layout.cpp
                 -o ${ASTIA_TYPED_LAYOUT}

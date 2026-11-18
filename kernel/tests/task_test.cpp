@@ -1,4 +1,5 @@
 #include "support/test.hpp"
+#include "support/resume_queue_host.hpp"
 #include <astia/core/task.hpp>
 #include <astia/core/async_operation.hpp>
 #include <astia/mm/shptr.hpp>
@@ -261,4 +262,19 @@ ASTIA_TEST(async_operation_deferred_completion_is_canceled_before_destroy) {
     task.reset();
     ASTIA_CHECK(astia::core::drain_resumes() == 0);
     ASTIA_CHECK(resumed == 0);
+}
+
+ASTIA_TEST(async_operation_deferred_completion_requests_scheduler_resume) {
+    astia::core::async_operation<int> operation;
+    int resumed = 0;
+    auto task = waits_for_deferred_operation(operation, resumed);
+
+    ASTIA_CHECK(task.resume());
+    astia::arch::test::clear_reschedule_request();
+    ASTIA_CHECK(operation.complete_deferred(7));
+    ASTIA_CHECK(astia::arch::test::reschedule_requested());
+    ASTIA_CHECK(!task.done());
+    ASTIA_CHECK(astia::core::drain_resumes() == 1);
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(resumed == 1);
 }

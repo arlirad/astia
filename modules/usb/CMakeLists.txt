@@ -34,6 +34,7 @@ add_custom_target(usb_module ALL DEPENDS ${ASTIA_USB_OBJECT})
 add_custom_command(
         OUTPUT ${ASTIA_USB_UNIT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_protocol_test.cpp

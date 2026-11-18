@@ -7,6 +7,17 @@ set_property(DIRECTORY PROPERTY LINK_OPTIONS "")
 option(ASTIA_CROSS_USERSPACE "Use the Clang Astia sysroot for init_libc" OFF)
 include(${ASTIA_KERNEL_SOURCE_DIR}/../cmake/AstiaCTest.cmake)
 
+function(astia_apply_host_sanitizers target)
+    if(ASTIA_HOST_SANITIZER_COMPILE_OPTIONS)
+        target_compile_options(${target} PRIVATE
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS})
+    endif()
+    if(ASTIA_HOST_SANITIZER_LINK_OPTIONS)
+        target_link_options(${target} PRIVATE
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS})
+    endif()
+endfunction()
+
 # Fail at configure time with an actionable diagnostic instead of registering
 # ELF tests that cannot be built later.
 find_program(ASTIA_XXD xxd REQUIRED)
@@ -19,6 +30,7 @@ add_library(astia_test_support STATIC
         support/arena.cpp
         support/freestanding_new.cpp
 )
+astia_apply_host_sanitizers(astia_test_support)
 target_include_directories(astia_test_support PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/support
         ${ASTIA_KERNEL_SOURCE_DIR}/include
@@ -47,6 +59,7 @@ function(astia_add_host_test name)
     set_target_properties(${name} PROPERTIES LINK_OPTIONS "")
     target_link_libraries(${name} PRIVATE astia_test_support)
     target_include_directories(${name} PRIVATE ${_astia_test_includes})
+    astia_apply_host_sanitizers(${name})
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
@@ -407,6 +420,7 @@ if (ASTIA_MKFS_EXT4 AND ASTIA_E2FSCK)
             ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/ext4/ext4_reader.cpp
     )
     set_target_properties(astia_ext4_real_test PROPERTIES LINK_OPTIONS "")
+    astia_apply_host_sanitizers(astia_ext4_real_test)
     target_include_directories(astia_ext4_real_test PRIVATE ${_astia_test_includes})
     add_dependencies(astia_ext4_real_test astia_ext4_real_fixture)
     add_test(NAME astia_ext4_real_test

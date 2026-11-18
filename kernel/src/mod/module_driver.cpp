@@ -23,7 +23,6 @@ namespace astia::mod {
     namespace {
 
         constexpr u32 max_registrations = 8;
-        constexpr u32 max_namespaces = 16;
         constexpr u32 max_pin_tokens = 64;
         constexpr u32 max_msix_routes = 64;
 

@@ -118,6 +118,13 @@ namespace astia::core {
 
         rcu_hashmap(Hash hash, bool (*equal)(const Key&, const Key&))
             : hash_(hash), equal_(equal) {}
+        ~rcu_hashmap() {
+            for (shard& state : shards_) {
+                __atomic_store_n(&state.readers, 0, __ATOMIC_SEQ_CST);
+                reclaim(state);
+                delete __atomic_exchange_n(&state.published, nullptr, __ATOMIC_SEQ_CST);
+            }
+        }
         rcu_hashmap(const rcu_hashmap&)            = delete;
         rcu_hashmap& operator=(const rcu_hashmap&) = delete;
 

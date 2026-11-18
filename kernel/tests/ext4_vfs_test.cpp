@@ -12,52 +12,8 @@
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
 #include <cstring>
-#include <cstdlib>
 
 alignas(16) unsigned char ext4_test_heap_storage[256 * 1024];
-
-namespace {
-    bool is_heap_pointer(void* value) {
-        const auto address = reinterpret_cast<astia::u64>(value);
-        const auto begin = reinterpret_cast<astia::u64>(ext4_test_heap_storage);
-        return address >= begin && address < begin + sizeof ext4_test_heap_storage;
-    }
-}
-
-void* operator new(std::size_t size) {
-    if (void* value = std::malloc(size == 0 ? 1 : size))
-        return value;
-    std::abort();
-}
-void* operator new[](std::size_t size) {
-    if (void* value = std::malloc(size == 0 ? 1 : size))
-        return value;
-    std::abort();
-}
-void operator delete(void* value) noexcept {
-    if (is_heap_pointer(value))
-        astia::mm::heap::free(value);
-    else
-        std::free(value);
-}
-void operator delete[](void* value) noexcept {
-    if (is_heap_pointer(value))
-        astia::mm::heap::free(value);
-    else
-        std::free(value);
-}
-void operator delete(void* value, std::size_t) noexcept {
-    if (is_heap_pointer(value))
-        astia::mm::heap::free(value);
-    else
-        std::free(value);
-}
-void operator delete[](void* value, std::size_t) noexcept {
-    if (is_heap_pointer(value))
-        astia::mm::heap::free(value);
-    else
-        std::free(value);
-}
 
 #include "../src/dev/device_file.hpp"
 #include <astia/dev/blk/blkdev.hpp>

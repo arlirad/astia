@@ -71,11 +71,11 @@ namespace {
         bool match(const astia::hw::device_info&) const override {
             return true;
         }
-        astia::mm::shptr<astia::dev::device> probe(const astia::hw::device_info& value) override {
+        bool probe(const astia::hw::device_info& value) override {
             const auto* pci = astia::hw::pci_device_info::get(value);
             if (pci != nullptr)
                 captured = pci->device();
-            return {};
+            return pci != nullptr;
         }
 
         astia::hw::pci_device captured{};

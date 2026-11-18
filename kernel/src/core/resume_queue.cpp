@@ -88,12 +88,16 @@ namespace astia::core {
         __atomic_store_n(&slot.state, static_cast<u8>(slot_state::queued),
                          __ATOMIC_RELEASE);
         if (!queue.overflow.empty_approx()) {
-            if (queue.overflow.try_push(free))
+            if (queue.overflow.try_push(free)) {
+                arch::cpu::request_local_reschedule();
                 return true;
+            }
             __builtin_trap();
         }
-        if (queue.ready.try_push(free) || queue.overflow.try_push(free))
+        if (queue.ready.try_push(free) || queue.overflow.try_push(free)) {
+            arch::cpu::request_local_reschedule();
             return true;
+        }
 
         __builtin_trap();
     }

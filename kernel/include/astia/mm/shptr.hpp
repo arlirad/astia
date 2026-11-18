@@ -36,6 +36,13 @@ namespace astia::mm {
             return result;
         }
 
+        template <typename U>
+        static shptr adopt(U* value, void (*destroy)(void*)) {
+            shptr result;
+            result.acquire(value, destroy);
+            return result;
+        }
+
         shptr(const shptr& other) : _control(other._control) {
             retain();
         }
