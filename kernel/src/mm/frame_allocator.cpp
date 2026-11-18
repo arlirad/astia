@@ -14,7 +14,7 @@ namespace astia::mm {
     }
 
     void frame_allocator::init(const memory_map& map) {
-        core::spinlock_guard guard(lock_);
+        core::spinlock_guard guard(_lock);
 
         // Track everything up to the highest usable byte.
         u64 limit = 0;
@@ -27,28 +27,28 @@ namespace astia::mm {
                 limit = top;
             }
         }
-        frame_count_ = limit / frame_size;
-        words_       = (frame_count_ + 63) / 64;
+        _frame_count = limit / frame_size;
+        _words       = (_frame_count + 63) / 64;
 
         // Park the bitmap directly past the kernel image; the kernel range
         // is reserved below, so the bitmap is never handed out.
         const u64 bitmap_base = align_up(reinterpret_cast<u64>(__kernel_end), frame_size);
-        bitmap_physical_      = bitmap_base;
-        if (access_ == nullptr)
-            access_ = identity_access;
+        _bitmap_physical      = bitmap_base;
+        if (_access == nullptr)
+            _access = identity_access;
         // Access hooks can be arch callbacks (and may take paging locks), so
         // never invoke one while holding the allocator lock.  The allocator
         // is not published until the bitmap has been initialized below.
-        const frame_access_fn access = access_;
+        const frame_access_fn access = _access;
         guard.unlock();
         u64* const           bitmap = static_cast<u64*>(access(bitmap_base));
-        core::spinlock_guard publish(lock_);
-        bitmap_ = bitmap;
+        core::spinlock_guard publish(_lock);
+        _bitmap = bitmap;
 
-        for (usize i = 0; i < words_; ++i) {
-            bitmap_[i] = ~u64{0};
+        for (usize i = 0; i < _words; ++i) {
+            _bitmap[i] = ~u64{0};
         }
-        free_count_ = 0;
+        _free_count = 0;
 
         // Everything usable is initially free ...
         for (const auto& region : map) {
@@ -65,15 +65,15 @@ namespace astia::mm {
                    reinterpret_cast<u64>(__kernel_end) -
                        reinterpret_cast<u64>(__kernel_start),
                    true);
-        mark_range(bitmap_base, words_ * sizeof(u64), true);
+        mark_range(bitmap_base, _words * sizeof(u64), true);
 
-        ready_ = true;
+        _ready = true;
     }
 
     void frame_allocator::configure_access(frame_access_fn access) {
-        core::spinlock_guard  guard(lock_);
+        core::spinlock_guard  guard(_lock);
         const frame_access_fn selected = access == nullptr ? identity_access : access;
-        const u64             physical = bitmap_physical_;
+        const u64             physical = _bitmap_physical;
         guard.unlock();
 
         // As in init(), resolve the physical address without the allocator
@@ -81,25 +81,25 @@ namespace astia::mm {
         // in the allocator's critical section.
         u64* bitmap = physical == 0 ? nullptr : static_cast<u64*>(selected(physical));
 
-        core::spinlock_guard publish(lock_);
-        access_ = selected;
+        core::spinlock_guard publish(_lock);
+        _access = selected;
         if (physical != 0) {
-            bitmap_ = bitmap;
+            _bitmap = bitmap;
         }
     }
 
     void frame_allocator::reserve(u64 physical, u64 size) {
-        core::spinlock_guard guard(lock_);
-        if (ready_)
+        core::spinlock_guard guard(_lock);
+        if (_ready)
             mark_range(physical, size, true);
     }
 
     bool frame_allocator::is_used(usize index) const {
-        return (bitmap_[index / 64] >> (index % 64)) & u64{1};
+        return (_bitmap[index / 64] >> (index % 64)) & u64{1};
     }
 
     void frame_allocator::set_used(usize index, bool used) {
-        u64&       word     = bitmap_[index / 64];
+        u64&       word     = _bitmap[index / 64];
         const u64  mask     = u64{1} << (index % 64);
         const bool was_used = (word & mask) != 0;
         if (used == was_used) {
@@ -107,11 +107,11 @@ namespace astia::mm {
         }
         if (used) {
             word |= mask;
-            --free_count_;
+            --_free_count;
         }
         else {
             word &= ~mask;
-            ++free_count_;
+            ++_free_count;
         }
     }
 
@@ -121,7 +121,7 @@ namespace astia::mm {
         }
         const u64 first = base / frame_size;
         const u64 last  = (base + size + frame_size - 1) / frame_size;
-        const u64 stop  = last < frame_count_ ? last : frame_count_;
+        const u64 stop  = last < _frame_count ? last : _frame_count;
         for (u64 index = first; index < stop; ++index) {
             set_used(static_cast<usize>(index), used);
         }
@@ -131,8 +131,8 @@ namespace astia::mm {
         if (count == 0) {
             return invalid_frame;
         }
-        core::spinlock_guard guard(lock_);
-        if (!ready_ || count > free_count_) {
+        core::spinlock_guard guard(_lock);
+        if (!_ready || count > _free_count) {
             return invalid_frame;
         }
 
@@ -140,7 +140,7 @@ namespace astia::mm {
         usize found = 0;
         usize run   = 0;
         bool  have  = false;
-        for (usize index = 0; index < frame_count_; ++index) {
+        for (usize index = 0; index < _frame_count; ++index) {
             if (is_used(index)) {
                 run = 0;
                 continue;
@@ -166,7 +166,7 @@ namespace astia::mm {
             // The used bits reserve these frames until the caller receives
             // them. Copy the access hook under the bitmap lock, then keep the
             // potentially slow callback outside it.
-            const frame_access_fn access = access_;
+            const frame_access_fn access = _access;
             guard.unlock();
             fill_zero(access(frame), static_cast<usize>(count) * frame_size);
         }
@@ -174,12 +174,12 @@ namespace astia::mm {
     }
 
     void frame_allocator::release(u64 frame, usize count) {
-        core::spinlock_guard guard(lock_);
-        if (!ready_) {
+        core::spinlock_guard guard(_lock);
+        if (!_ready) {
             return;
         }
         const usize first = static_cast<usize>(frame / frame_size);
-        for (usize index = first; index < first + count && index < frame_count_;
+        for (usize index = first; index < first + count && index < _frame_count;
              ++index) {
             set_used(index, false);
         }

@@ -121,12 +121,12 @@ namespace astia::mm {
         usize advance(usize bytes);
 
         private:
-        pinned_segment segments_[max_segments];
-        usize          count_     = 0;
-        usize          total_     = 0;
-        usize          index_     = 0;
-        usize          offset_    = 0;
-        usize          remaining_ = 0;
+        pinned_segment _segments[max_segments];
+        usize          _count     = 0;
+        usize          _total     = 0;
+        usize          _index     = 0;
+        usize          _offset    = 0;
+        usize          _remaining = 0;
     };
 
 } // namespace astia::mm

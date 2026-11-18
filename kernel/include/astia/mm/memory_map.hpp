@@ -30,28 +30,28 @@ namespace astia::mm {
         static constexpr usize max_regions = 128;
 
         void add(u64 base, u64 size, memory_type type) {
-            if (count_ >= max_regions) {
+            if (_count >= max_regions) {
                 return;
             }
-            regions_[count_++] = {base, size, type};
+            _regions[_count++] = {base, size, type};
         }
 
         usize count() const {
-            return count_;
+            return _count;
         }
         const memory_region* begin() const {
-            return regions_;
+            return _regions;
         }
         const memory_region* end() const {
-            return regions_ + count_;
+            return _regions + _count;
         }
         const memory_region& operator[](usize index) const {
-            return regions_[index];
+            return _regions[index];
         }
 
         private:
-        memory_region regions_[max_regions]{};
-        usize         count_ = 0;
+        memory_region _regions[max_regions]{};
+        usize         _count = 0;
     };
 
 } // namespace astia::mm

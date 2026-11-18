@@ -11,7 +11,7 @@ namespace astia::mm {
 
     /// A contiguous run of physical frames, with exact per-page mapping
     /// coverage.  The allocation-level reference count is a cheap
-    /// sharing hint; page_refs_ is authoritative for CoW and reclamation.
+    /// sharing hint; _page_refs is authoritative for CoW and reclamation.
     ///
     /// The metadata is allocation-local, not a kernel-wide frame table.
     /// A range share/unshare walks only the VMA's pages and updates their
@@ -73,10 +73,10 @@ namespace astia::mm {
         void release();
 
         u64 base() const {
-            return base_;
+            return _base;
         }
         usize pages() const {
-            return pages_;
+            return _pages;
         }
 
         /// Physical base of a page, or invalid_frame when a lazy page has
@@ -97,7 +97,7 @@ namespace astia::mm {
         }
 
         shptr<phys_region_identity> identity() const {
-            return identity_;
+            return _identity;
         }
 
         /// Direct-map address of page `index`: the window through
@@ -153,17 +153,17 @@ namespace astia::mm {
         void detach_parent(const phys_region* expected);
         bool initialize(u64 base, usize pages, bool lazy = false);
 
-        core::spinlock lock_{};
-        u64            base_        = 0;
-        usize          pages_       = 0;
-        u32            refs_        = 1;
-        u16*           page_refs_   = nullptr;
-        u16*           dest_refs_   = nullptr; ///< in-flight destination pins
-        u64*           page_bases_  = nullptr; ///< non-null for lazy regions
-        child*         children_    = nullptr;
-        phys_region*   parent_      = nullptr;
-        usize          parent_page_ = 0;
-        shptr<phys_region_identity> identity_;
+        core::spinlock _lock{};
+        u64            _base        = 0;
+        usize          _pages       = 0;
+        u32            _refs        = 1;
+        u16*           _page_refs   = nullptr;
+        u16*           _dest_refs   = nullptr; ///< in-flight destination pins
+        u64*           _page_bases  = nullptr; ///< non-null for lazy regions
+        child*         _children    = nullptr;
+        phys_region*   _parent      = nullptr;
+        usize          _parent_page = 0;
+        shptr<phys_region_identity> _identity;
     };
 
 } // namespace astia::mm
