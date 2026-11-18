@@ -72,7 +72,18 @@ namespace astia::proc {
 
         void* map_user(void* opaque, u64 hint, usize size, usize align, bool fixed) {
             auto&     image = *static_cast<image_map*>(opaque);
-            const u64 base  = fixed ? hint : (image.next_base + align - 1) & ~(align - 1);
+            if (align == 0 || (align & (align - 1)) != 0)
+                return nullptr;
+            u64 base = hint;
+            if (!fixed) {
+                base = image.next_base;
+                const u64 residue = hint & (align - 1);
+                const u64 current = base & (align - 1);
+                const u64 delta = (residue + align - current) & (align - 1);
+                if (base > ~u64{0} - delta)
+                    return nullptr;
+                base += delta;
+            }
             if (base < user_image_base || base + size >= user_address_limit ||
                 image.count >= elf::max_segments) {
                 return nullptr;
