@@ -194,7 +194,7 @@ namespace astia::proc {
     }
 
     core::task<mm::shptr<process>> spawnve(
-        process* parent, const mm::shptr<fs::open_file>& file, usize length,
+        process* parent, mm::shptr<fs::open_file> file, usize length,
         char* const argv[], char* const envp[]) {
         if (parent == nullptr || !file || length == 0)
             co_return error_t::einval;
