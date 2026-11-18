@@ -63,7 +63,7 @@ namespace astia::dev {
         // inline ever needs; a device that has to wait for hardware
         // overrides this, parks the request (returns 0), and resumes it
         // by stage from its interrupt handler.  See <astia/io.hpp>.
-        virtual long submit(io_request& request);
+        virtual long submit(io::request& request);
         virtual u32  poll(u32 events, u32 flags);
 
         // Device-specific control: TCGETS/TCSETS on a tty, geometry on

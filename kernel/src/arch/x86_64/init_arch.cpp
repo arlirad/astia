@@ -1,6 +1,6 @@
 #include "gdt.hpp"
 #include "smp.hpp"
-#include <astia/dev/pci.hpp>
+#include <astia/hw/pci.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
@@ -170,7 +170,7 @@ namespace astia::arch::x86_64 {
         kernel_map_live = true;
         kernel_map.activate();
         mm::kernel_frames().configure_access(direct_access);
-        dev::pci_set_mmio_mapper(map_pci_mmio, unmap_pci_mmio);
+        hw::pci_set_mmio_mapper(map_pci_mmio, unmap_pci_mmio);
         return true;
     }
 

@@ -1,18 +1,18 @@
-#include <astia/dev/pci.hpp>
+#include <astia/hw/pci.hpp>
 
 #include <astia/dev/driver.hpp>
 #include <astia/core/endian.hpp>
 #include <astia/arch/layout.hpp>
 
-namespace astia::dev {
+namespace astia::hw {
 
-    const pci_device_info* pci_device_info::get(const device_info& value) {
-        return value.bus() == device_bus::pci
+    const pci_device_info* pci_device_info::get(const hw::device_info& value) {
+        return value.bus() == hw::bus_kind::pci
                    ? static_cast<const pci_device_info*>(&value)
                    : nullptr;
     }
 
-    bool pci_device_info::equals(const device_info& other) const {
+    bool pci_device_info::equals(const hw::device_info& other) const {
         const pci_device_info* pci = get(other);
         return pci != nullptr && device().bdf == pci->device().bdf;
     }
@@ -371,7 +371,7 @@ namespace astia::dev {
     }
 
     u32 pci_enumerate(pci_filter_fn filter) {
-        drivers().unbind_all();
+        hw::drivers().unbind_all();
         pci_devices().clear();
         u32 found = 0;
         for (u32 bus = 0; bus < 256; ++bus) {
@@ -397,8 +397,8 @@ namespace astia::dev {
                     if (added == nullptr)
                         return found;
                     ++found;
-                    mm::shptr<device_info> candidate(new pci_device_info(*added));
-                    drivers().bind(static_cast<mm::shptr<device_info>&&>(candidate));
+                    mm::shptr<hw::device_info> candidate(new pci_device_info(*added));
+                    hw::drivers().bind(static_cast<mm::shptr<hw::device_info>&&>(candidate));
                 }
             }
         }
@@ -537,4 +537,4 @@ namespace astia::dev {
         return true;
     }
 
-} // namespace astia::dev
+} // namespace astia::hw

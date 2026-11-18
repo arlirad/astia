@@ -336,7 +336,7 @@ namespace astia::test {
                 return 4096;
             }
 
-            long submit(io_request& request) override {
+            long submit(io::request& request) override {
                 ++submit_calls;
                 return static_cast<long>(request.length());
             }
@@ -347,11 +347,11 @@ namespace astia::test {
             bool ready = false;
             u32  submit_calls = 0;
 
-            long submit(io_request& request) override {
+            long submit(io::request& request) override {
                 ++submit_calls;
                 if (!ready)
                     return 0;
-                if (request.direction() == io_direction::input && request.length() != 0)
+                if (request.direction() == io::direction::input && request.length() != 0)
                     static_cast<u8*>(request.buffer())[0] = 0x5a;
                 return static_cast<long>(request.length());
             }
@@ -388,11 +388,11 @@ namespace astia::test {
                 bool ready = false;
                 u32  submit_calls = 0;
 
-                long submit(io_request& request) override {
+                long submit(io::request& request) override {
                     ++submit_calls;
                     if (!ready)
                         return 0;
-                    if (request.direction() == io_direction::input &&
+                    if (request.direction() == io::direction::input &&
                         request.length() != 0)
                         static_cast<u8*>(request.buffer())[0] = 0x6b;
                     return static_cast<long>(request.length());
@@ -529,13 +529,13 @@ namespace astia::test {
                 bool error = false;
                 u32  submit_calls = 0;
 
-                long submit(io_request& request) override {
+                long submit(io::request& request) override {
                     ++submit_calls;
                     if (error)
                         return -EIO;
                     if (!ready)
                         return 0;
-                    if (request.direction() == io_direction::input &&
+                    if (request.direction() == io::direction::input &&
                         request.length() != 0)
                         static_cast<u8*>(request.buffer())[0] = 0xa5;
                     return static_cast<long>(request.length());
@@ -880,7 +880,7 @@ namespace astia::test {
 
         bool aio_cancel_checks() {
             struct cancel_probe : fs::file {
-                long submit(io_request& request) override {
+                long submit(io::request& request) override {
                     return ready ? static_cast<long>(request.length()) : 0;
                 }
 

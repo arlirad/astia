@@ -282,7 +282,7 @@ namespace astia::sys {
     /// be refused.  A caller with no address space has nothing to snapshot, so
     /// its range is recorded as a plain kernel-memory entry: it cannot move,
     /// but the operation still has to walk it like every other entry.
-    inline long pin_user_span(span<u8> range, io_direction direction, mm::iovec& out) {
+    inline long pin_user_span(span<u8> range, io::direction direction, mm::iovec& out) {
         if (range.empty()) {
             return 0;
         }
@@ -298,7 +298,7 @@ namespace astia::sys {
                        : -ENOMEM;
         }
         return owner->pin_user(range.address(), range.length(),
-                               direction == io_direction::input, out);
+                               direction == io::direction::input, out);
     }
 
     /// Copy out of the kernel into a validated user range.  The count comes

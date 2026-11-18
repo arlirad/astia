@@ -9,7 +9,7 @@ namespace astia::fs {
     struct unix_socket_operations {
         long (*bind)(open_file&, const astia_sockaddr&);
         long (*listen)(open_file&, u32);
-        long (*accept)(open_file&, io_request&);
+        long (*accept)(open_file&, io::request&);
         long (*connect)(open_file&, const astia_sockaddr&);
         long (*shutdown)(open_file&, u32);
         long (*getsockopt)(open_file&, u32, u32, u32*);

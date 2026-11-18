@@ -19,7 +19,7 @@ namespace astia::dev {
         return -ENOTTY;
     }
 
-    long device::submit(io_request& request) {
+    long device::submit(io::request& request) {
         // Inline default: route to the sync read/write pair.  A device that
         // cannot finish without waiting overrides this and parks.  The base
         // path is synchronous, so a zero result is a completed operation,
@@ -27,7 +27,7 @@ namespace astia::dev {
         // devices (notably tty) override submit() and explicitly leave the
         // request incomplete when they need an interrupt-driven resume.
         const long result =
-            request.direction() == io_direction::input
+            request.direction() == io::direction::input
                 ? read(request.buffer(), request.length(), request.offset())
                 : write(request.buffer(), request.length(), request.offset());
         if (result == 0) {

@@ -8,15 +8,16 @@ set(ASTIA_PUBLIC_HEADERS
         astia/dev/device.hpp
         astia/dev/chr/chrdev.hpp
         astia/dev/driver.hpp
+        astia/hw/driver.hpp
         astia/dev/io.hpp
         astia/dev/irq.hpp
         astia/dev/mmio.hpp
-        astia/dev/pci.hpp
+        astia/hw/pci.hpp
         astia/dev/regs.hpp
         astia/io.hpp
         astia/mm/iovec.hpp
+        astia/mm/dma_buffer.hpp
         astia/mm/memory_map.hpp
-        astia/module_abi.hpp
         astia/net.hpp
         astia/proc/user_layout.hpp)
 

@@ -5,7 +5,7 @@ add_library(dev STATIC
         console.cpp
         driver.cpp
         mmio.cpp
-        pci.cpp
+        ../hw_pci.cpp
         chr/tty.cpp
         chr/tty/pty.cpp
         chr/tty/pty_vfs.cpp

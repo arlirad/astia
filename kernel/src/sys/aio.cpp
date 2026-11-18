@@ -168,6 +168,11 @@ namespace astia::sys {
                     op.request.timeout_expired(true);
                     aio_dispatch::resume_parked(ring, op);
                 }
+                if (op.used && !op.done && op.poll_timed && now >= op.poll_deadline) {
+                    op.poll_timed = false;
+                    op.request.poll_wakeup(true);
+                    aio_dispatch::resume_parked(ring, op);
+                }
             }
             cq_retrigger(slot, ring);
         }

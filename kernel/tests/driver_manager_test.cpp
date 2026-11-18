@@ -13,15 +13,15 @@
 
 namespace {
 
-    class test_info final : public astia::dev::device_info {
+    class test_info final : public astia::hw::device_info {
         public:
         explicit test_info(astia::u32 value) : value_(value) {}
 
-        astia::dev::device_bus bus() const override {
-            return astia::dev::device_bus::unknown;
+        astia::hw::bus_kind bus() const override {
+            return astia::hw::bus_kind::unknown;
         }
 
-        bool equals(const astia::dev::device_info& other) const override {
+        bool equals(const astia::hw::device_info& other) const override {
             const auto* value = static_cast<const test_info*>(&other);
             return value_ == value->value_;
         }
@@ -34,9 +34,9 @@ namespace {
         astia::u32 value_;
     };
 
-    astia::mm::shptr<astia::dev::device_info> device_candidate(
+    astia::mm::shptr<astia::hw::device_info> device_candidate(
         astia::mm::shptr<test_info>&& value) {
-        return astia::mm::shptr<astia::dev::device_info>(
+        return astia::mm::shptr<astia::hw::device_info>(
             static_cast<astia::mm::shptr<test_info>&&>(value));
     }
 
@@ -61,7 +61,7 @@ namespace {
         int* destroyed_;
     };
 
-    class test_driver final : public astia::dev::driver {
+    class test_driver final : public astia::hw::driver {
         public:
         test_driver(bool should_match, bool should_probe, int* destroyed)
             : should_match_(should_match), should_probe_(should_probe), destroyed_(destroyed) {}
@@ -70,7 +70,7 @@ namespace {
             return "driver-test";
         }
 
-        bool match(const astia::dev::device_info& info) const override {
+        bool match(const astia::hw::device_info& info) const override {
             const auto& value = static_cast<const test_info&>(info);
             matched_value_ = value.value();
             ++match_count_;
@@ -78,7 +78,7 @@ namespace {
         }
 
         astia::mm::shptr<astia::dev::device> probe(
-            const astia::dev::device_info& info) override {
+            const astia::hw::device_info& info) override {
             const auto& value = static_cast<const test_info&>(info);
             probed_value_ = value.value();
             ++probe_count_;
@@ -88,7 +88,7 @@ namespace {
                        : astia::mm::shptr<astia::dev::device>{};
         }
 
-        void remove(const astia::dev::device_info& info,
+        void remove(const astia::hw::device_info& info,
                     const astia::mm::shptr<astia::dev::device>& value) override {
             const auto& candidate = static_cast<const test_info&>(info);
             removed_value_ = candidate.value();
@@ -113,7 +113,7 @@ namespace {
 ASTIA_TEST(driver_manager_passes_candidate_to_match_and_probe) {
     int destroyed = 0;
     test_driver driver(true, true, &destroyed);
-    astia::dev::driver_manager manager;
+    astia::hw::driver_registry manager;
     astia::mm::shptr<test_info> info(new test_info(42));
     ASTIA_CHECK(info);
 
@@ -133,7 +133,7 @@ ASTIA_TEST(driver_manager_passes_candidate_to_match_and_probe) {
 ASTIA_TEST(driver_manager_rejects_failed_probe) {
     int destroyed = 0;
     test_driver driver(true, false, &destroyed);
-    astia::dev::driver_manager manager;
+    astia::hw::driver_registry manager;
     astia::mm::shptr<test_info> info(new test_info(7));
     ASTIA_CHECK(info);
 
@@ -148,7 +148,7 @@ ASTIA_TEST(driver_manager_rejects_failed_probe) {
 ASTIA_TEST(driver_manager_shared_device_lifetime) {
     int destroyed = 0;
     test_driver driver(true, true, &destroyed);
-    astia::dev::driver_manager manager;
+    astia::hw::driver_registry manager;
     astia::mm::shptr<test_info> info(new test_info(9));
     ASTIA_CHECK(info);
 
@@ -170,7 +170,7 @@ ASTIA_TEST(driver_manager_shared_device_lifetime) {
 ASTIA_TEST(driver_manager_rejects_equal_candidates) {
     int destroyed = 0;
     test_driver driver(true, true, &destroyed);
-    astia::dev::driver_manager manager;
+    astia::hw::driver_registry manager;
     astia::mm::shptr<test_info> first(new test_info(11));
     astia::mm::shptr<test_info> second(new test_info(11));
 

@@ -139,7 +139,7 @@ namespace astia::dev {
         return static_cast<long>(sent);
     }
 
-    long tty::submit(io_request& request) {
+    long tty::submit(io::request& request) {
         termios current;
         bool    eof_pending;
         {
@@ -147,7 +147,7 @@ namespace astia::dev {
             current     = _termios;
             eof_pending = _eof_pending;
         }
-        if (request.direction() == io_direction::output) {
+        if (request.direction() == io::direction::output) {
             return write(request.buffer(), request.length(), request.offset());
         }
         // A canonical VEOF at an empty line completes a parked read with

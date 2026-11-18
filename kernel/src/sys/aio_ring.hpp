@@ -62,10 +62,12 @@ namespace astia::sys::aio_ring {
         bool                     readiness             = false;
         bool                     sleeping              = false;
         bool                     timed                 = false;
+        bool                     poll_timed            = false;
         bool                     sleep_absolute        = false;
         u32                      poll_events           = 0;
         u64                      sleep_deadline        = 0;
         u64                      timeout_deadline      = 0;
+        u64                      poll_deadline         = 0;
         u64                      sleep_remaining_user  = 0;
         bool                     recvfrom_address      = false;
         u64                      recvfrom_address_user = 0;
@@ -75,7 +77,7 @@ namespace astia::sys::aio_ring {
         i32                      fd;
         mm::shptr<fs::open_file> object;
         mm::iovec                entries;
-        io_request               request;
+        io::request               request;
         usize                    moved = 0;
     };
 
