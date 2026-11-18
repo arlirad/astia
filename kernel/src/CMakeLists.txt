@@ -58,6 +58,18 @@ endfunction()
 add_executable(astiakrn kmain.cpp)
 astia_configure_kernel(astiakrn)
 
+function(astia_generate_module_symbols target)
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
+            ${ASTIA_LINKER_SCRIPT}
+            ${ASTIA_KERNEL_SOURCE_DIR}/scripts/generate_module_symbols.py)
+    add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${Python3_EXECUTABLE}
+                    ${ASTIA_KERNEL_SOURCE_DIR}/scripts/generate_module_symbols.py
+                    $<TARGET_FILE:${target}>
+            VERBATIM)
+endfunction()
+astia_generate_module_symbols(astiakrn)
+
 if (ARCH STREQUAL "x86_64")
     set(ASTIA_SELFTEST_ARCH_SOURCE test/selftest_x86_64.cpp)
 else ()
@@ -71,11 +83,13 @@ add_executable(astiakrn_test
 )
 astia_configure_kernel(astiakrn_test)
 target_compile_definitions(astiakrn_test PRIVATE ASTIA_RUN_SELFTEST=1)
+astia_generate_module_symbols(astiakrn_test)
 
 add_executable(astiakrn_runtime
         test_kmain.cpp
 )
 astia_configure_kernel(astiakrn_runtime)
+astia_generate_module_symbols(astiakrn_runtime)
 target_compile_definitions(astiakrn_runtime PRIVATE ASTIA_RUN_SELFTEST=0)
 option(ASTIA_RUNTIME_SKIP_LIFECYCLE "Skip userspace lifecycle for module-only runtime fixtures" OFF)
 if (ASTIA_RUNTIME_SKIP_LIFECYCLE)

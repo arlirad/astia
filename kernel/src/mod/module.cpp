@@ -1,7 +1,7 @@
 // Module registry: the policy layer over the pure ELF loader.
 //
 // Memory comes from the kernel frame allocator; undefined symbols resolve
-// against the export table (exports.cpp). Both are wired in here as plain
+// against the linked kernel symbol table. Both are wired in here as plain
 // callbacks — no dependency injection, the loader just takes function pointers.
 
 #include "module.hpp"
@@ -38,8 +38,14 @@ namespace astia::mod {
             return reinterpret_cast<void*>(static_cast<usize>(phys));
         }
 
-        /// Backs the loader's undefined-symbol resolution with the export
-        /// table. Signature must match elf::resolve_fn.
+        void image_unmap(void*, void* address, usize size) {
+            using fa = mm::frame_allocator;
+            usize frames = (size + fa::frame_size - 1) / fa::frame_size;
+            mm::kernel_frames().release(reinterpret_cast<u64>(address), frames);
+        }
+
+        /// Backs the loader's undefined-symbol resolution with the linked
+        /// kernel symbol table. Signature must match elf::resolve_fn.
         u64 image_resolve(void*, const char* name) {
             return resolve(name);
         }
@@ -54,6 +60,7 @@ namespace astia::mod {
         elf::env e{};
         e.ctx     = nullptr;
         e.map     = image_map;
+        e.unmap   = image_unmap;
         e.resolve = image_resolve;
 
         elf::image img;

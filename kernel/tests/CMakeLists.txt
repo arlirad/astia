@@ -277,6 +277,17 @@ add_custom_command(
 )
 astia_embed_blob(_hello_mod_cpp ${_fix_dir}/hello_mod.o hello_mod_blob)
 
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_symbols.o
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -fno-exceptions -fno-rtti -fno-stack-protector -fno-asynchronous-unwind-tables
+        -mcmodel=large -o ${_fix_dir}/module_symbols.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_symbols.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_symbols.cpp
+        COMMENT "Compiling C++ ET_REL symbol fixture"
+)
+astia_embed_blob(_module_symbols_cpp ${_fix_dir}/module_symbols.o module_symbols_blob)
+
 # ET_DYN (PIE) executable: self-contained, entry at fixture_entry, with a data
 # pointer that forces an R_X86_64_RELATIVE dynamic relocation.
 add_custom_command(
@@ -306,6 +317,7 @@ astia_embed_blob(_fixture_exec_cpp ${_fix_dir}/fixture_exec.elf fixture_exec_blo
 astia_add_host_test(astia_elf_test
         elf_test.cpp
         ${_hello_mod_cpp}
+        ${_module_symbols_cpp}
         ${_fixture_dyn_cpp}
         ${_fixture_exec_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
@@ -366,17 +378,22 @@ astia_add_host_test(astia_initrd_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/initrd.cpp
 )
 
-# mod: the export table (the ELF loader itself is covered by astia_elf_test).
+# mod: the linked kernel symbol resolver (the ELF loader itself is covered by astia_elf_test).
 astia_add_host_test(astia_mod_test
         mod_test.cpp
+        kernel_symbol_table_fixture.S
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/exports.cpp
 )
+add_test(NAME astia_kernel_symbol_visibility
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/symbol_table_visibility_test.py
+                ${CMAKE_CXX_COMPILER}
+                ${ASTIA_KERNEL_SOURCE_DIR}/scripts/generate_module_symbols.py)
 
 astia_add_host_test(astia_ext4_test
         ext4_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/ext4/ext4_reader.cpp
 )
-
 find_program(ASTIA_MKFS_EXT4 mkfs.ext4)
 find_program(ASTIA_E2FSCK e2fsck)
 if (ASTIA_MKFS_EXT4 AND ASTIA_E2FSCK)
@@ -426,6 +443,14 @@ function(astia_add_arena_test name)
     # Compiles out the privileged invlpg / mov cr3 in page_map.cpp.
     target_compile_definitions(${name} PRIVATE ASTIA_HOST_TEST=1)
 endfunction()
+
+astia_add_arena_test(astia_exec_rollback_test
+        exec_rollback_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/address_space.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/page_map.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/layout.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+)
 
 astia_add_arena_test(astia_rcu_hashmap_test
         rcu_hashmap_test.cpp
