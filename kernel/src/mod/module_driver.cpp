@@ -222,52 +222,52 @@ namespace astia::mod {
         class net_device_adapter final : public dev::device {
             public:
             explicit net_device_adapter(net::netdev& value)
-                : device(value.name(), 0), value_(value) {}
+                : device(value.name(), 0), _value(value) {}
 
             long read(void*, u32, u64) override { return -ENOTSUP; }
             long write(const void*, u32, u64) override { return -ENOTSUP; }
 
-            net::netdev& value() { return value_; }
+            net::netdev& value() { return _value; }
 
             private:
-            net::netdev& value_;
+            net::netdev& _value;
         };
 
         class net_driver final : public dev::driver {
             public:
-            explicit net_driver(const astia::module::net_driver& ops) : ops_(ops) {}
+            explicit net_driver(const astia::module::net_driver& ops) : _ops(ops) {}
 
-            const char* name() const override { return ops_.name; }
+            const char* name() const override { return _ops.name; }
 
             bool match(const dev::device_info& info) const override {
                 const dev::pci_device_info* pci = dev::pci_device_info::get(info);
-                if (pci == nullptr || ops_.match == nullptr)
+                if (pci == nullptr || _ops.match == nullptr)
                     return false;
                 const astia_module_pci_device device_view = view(pci->mutable_device());
-                return ops_.match(&device_view) != 0;
+                return _ops.match(&device_view) != 0;
             }
 
             mm::shptr<dev::device> probe(const dev::device_info& info) override {
                 const dev::pci_device_info* pci = dev::pci_device_info::get(info);
-                if (pci == nullptr || ops_.probe == nullptr)
+                if (pci == nullptr || _ops.probe == nullptr)
                     return {};
                 dev::pci_device* stable = dev::pci_devices().find(pci->device().bdf);
                 if (stable == nullptr)
                     return {};
                 const astia_module_pci_device device_view = view(*stable);
                 net::netdev* value = nullptr;
-                if (ops_.probe(&device_view, &value) != 0 || value == nullptr || !value->valid())
+                if (_ops.probe(&device_view, &value) != 0 || value == nullptr || !value->valid())
                     return {};
                 if (!net::devices().register_device(*value)) {
-                    if (ops_.remove != nullptr)
-                        ops_.remove(value);
+                    if (_ops.remove != nullptr)
+                        _ops.remove(value);
                     return {};
                 }
                 auto result = mm::share<net_device_adapter>(*value);
                 if (!result) {
                     net::devices().unregister_device(*value);
-                    if (ops_.remove != nullptr)
-                        ops_.remove(value);
+                    if (_ops.remove != nullptr)
+                        _ops.remove(value);
                 }
                 return result;
             }
@@ -277,10 +277,10 @@ namespace astia::mod {
                 if (adapter != nullptr) {
                     auto& netdev = adapter->value();
                     net::devices().unregister_device(netdev);
-                    if (ops_.remove != nullptr)
-                        ops_.remove(&netdev);
-                } else if (ops_.remove != nullptr) {
-                    ops_.remove(nullptr);
+                    if (_ops.remove != nullptr)
+                        _ops.remove(&netdev);
+                } else if (_ops.remove != nullptr) {
+                    _ops.remove(nullptr);
                 }
             }
 
@@ -302,7 +302,7 @@ namespace astia::mod {
                 return result;
             }
 
-            const astia::module::net_driver& ops_;
+            const astia::module::net_driver& _ops;
         };
 
         struct pci_registration {
