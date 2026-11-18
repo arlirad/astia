@@ -61,24 +61,24 @@ namespace astia::mm {
         /// active address space (e.g. building a child's startup stack
         /// before its page map is ever activated).
         void* to_virt(u64 physical) const {
-            return access_ == nullptr
+            return _access == nullptr
                        ? reinterpret_cast<void*>(static_cast<usize>(physical))
-                       : access_(physical);
+                       : _access(physical);
         }
 
         /// Release `count` frames starting at physical address `frame`.
         void release(u64 frame, usize count = 1);
 
         bool initialized() const {
-            return ready_;
+            return _ready;
         }
 
         usize total_frames() const {
-            return frame_count_;
+            return _frame_count;
         }
 
         usize available_frames() const {
-            return free_count_;
+            return _free_count;
         }
 
         private:
@@ -86,14 +86,14 @@ namespace astia::mm {
         void set_used(usize index, bool used);
         void mark_range(u64 base, u64 size, bool used);
 
-        core::spinlock  lock_{};
-        u64*            bitmap_          = nullptr;
-        u64             bitmap_physical_ = 0;
-        frame_access_fn access_          = nullptr;
-        usize           words_           = 0;
-        usize           frame_count_     = 0;
-        usize           free_count_      = 0;
-        bool            ready_           = false;
+        core::spinlock  _lock{};
+        u64*            _bitmap          = nullptr;
+        u64             _bitmap_physical = 0;
+        frame_access_fn _access          = nullptr;
+        usize           _words           = 0;
+        usize           _frame_count     = 0;
+        usize           _free_count      = 0;
+        bool            _ready           = false;
     };
 
     /// The kernel's single physical frame allocator.
