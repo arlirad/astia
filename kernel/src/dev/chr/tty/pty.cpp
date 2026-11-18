@@ -10,44 +10,44 @@ namespace astia::sys {
 }
 
 namespace astia::dev {
-    pty::pty(u32 index) : tty("pts", dv_char | dv_sync), index_(index) {}
+    pty::pty(u32 index) : tty("pts", dv_char | dv_sync), _index(index) {}
 
     bool pty::open_slave() {
-        arch::interrupt_spinlock_guard guard(pty_lock_);
-        if (!master_open_ || locked_)
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+        if (!_master_open || _locked)
             return false;
-        ++slave_refs_;
+        ++_slave_refs;
         return true;
     }
 
     void pty::bind_master(fs::file* master) {
-        arch::interrupt_spinlock_guard guard(pty_lock_);
-        master_file_ = master;
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+        _master_file = master;
     }
 
     void pty::bind_slave(fs::file* slave) {
-        arch::interrupt_spinlock_guard guard(pty_lock_);
-        slave_file_ = slave;
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+        _slave_file = slave;
     }
 
     bool pty::master_open() const {
-        arch::interrupt_spinlock_guard guard(pty_lock_);
-        return master_open_;
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+        return _master_open;
     }
 
     bool pty::slave_open() const {
-        arch::interrupt_spinlock_guard guard(pty_lock_);
-        return slave_refs_ != 0;
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+        return _slave_refs != 0;
     }
 
     void pty::master_closed() {
         fs::file* slave = nullptr;
         {
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            if (master_open_) {
-                master_open_ = false;
-                slave = slave_file_;
-                master_file_ = nullptr;
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            if (_master_open) {
+                _master_open = false;
+                slave = _slave_file;
+                _master_file = nullptr;
             }
         }
         if (slave != nullptr)
@@ -56,15 +56,15 @@ namespace astia::dev {
     }
 
     void pty::master_duplicate() {
-        arch::interrupt_spinlock_guard guard(pty_lock_);
-        ++master_refs_;
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+        ++_master_refs;
     }
 
     void pty::master_close() {
         bool close = false;
         {
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            if (master_refs_ != 0 && --master_refs_ == 0)
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            if (_master_refs != 0 && --_master_refs == 0)
                 close = true;
         }
         if (close)
@@ -72,18 +72,18 @@ namespace astia::dev {
     }
 
     void pty::duplicate(u32) {
-        arch::interrupt_spinlock_guard guard(pty_lock_);
-        ++slave_refs_;
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+        ++_slave_refs;
     }
 
     void pty::close(u32) {
         bool notify = false;
         fs::file* master = nullptr;
         {
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            if (slave_refs_ != 0 && --slave_refs_ == 0) {
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            if (_slave_refs != 0 && --_slave_refs == 0) {
                 notify = true;
-                master = master_open_ ? master_file_ : nullptr;
+                master = _master_open ? _master_file : nullptr;
             }
         }
         if (notify) {
@@ -96,16 +96,16 @@ namespace astia::dev {
     void pty::release_if_unused() {
         bool release;
         {
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            release = !master_open_ && slave_refs_ == 0;
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            release = !_master_open && _slave_refs == 0;
         }
         if (release)
-            pty_release_slot(index_, this);
+            pty_release_slot(_index, this);
     }
 
     bool pty::master_queue_empty() const {
-        arch::interrupt_spinlock_guard guard(pty_lock_);
-        return master_head_ == master_tail_;
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+        return _master_head == _master_tail;
     }
 
     long pty::master_read(void* buffer, u32 length) {
@@ -114,14 +114,14 @@ namespace astia::dev {
         u32 count = 0;
         fs::file* slave = nullptr;
         {
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            const u32 available = master_head_ - master_tail_;
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            const u32 available = _master_head - _master_tail;
             count = available < length ? available : length;
             auto* out = static_cast<u8*>(buffer);
             for (u32 i = 0; i < count; ++i)
-                out[i] = master_queue_[(master_tail_ + i) & (queue_capacity - 1)];
-            master_tail_ += count;
-            slave = slave_file_;
+                out[i] = _master_queue[(_master_tail + i) & (queue_capacity - 1)];
+            _master_tail += count;
+            slave = _slave_file;
         }
         if (count != 0)
             if (slave != nullptr)
@@ -161,10 +161,10 @@ namespace astia::dev {
     u32 pty::master_poll(u32 events) const {
         u32 result = 0;
         {
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            if (master_head_ != master_tail_)
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            if (_master_head != _master_tail)
                 result |= POLLIN;
-            if (!master_open_ || slave_refs_ == 0)
+            if (!_master_open || _slave_refs == 0)
                 result |= POLLHUP;
             else
                 result |= POLLOUT;
@@ -177,18 +177,18 @@ namespace astia::dev {
             if (argp == nullptr || size != sizeof(i32))
                 return -EINVAL;
             if (request == TIOCGPTN) {
-                *static_cast<i32*>(argp) = static_cast<i32>(index_);
+                *static_cast<i32*>(argp) = static_cast<i32>(_index);
                 return 0;
             }
-            arch::interrupt_spinlock_guard guard(pty_lock_);
+            arch::interrupt_spinlock_guard guard(_pty_lock);
             if (request == TIOCSPTLCK) {
                 const i32 value = *static_cast<const i32*>(argp);
                 if (value != 0 && value != 1)
                     return -EINVAL;
-                locked_ = value != 0;
+                _locked = value != 0;
                 return 0;
             }
-            *static_cast<i32*>(argp) = locked_ ? 1 : 0;
+            *static_cast<i32*>(argp) = _locked ? 1 : 0;
             return 0;
         }
         return -ENOTTY;
@@ -227,15 +227,15 @@ namespace astia::dev {
         if (request == TIOCGWINSZ) {
             if (argp == nullptr || size != sizeof(struct winsize))
                 return -EINVAL;
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            *static_cast<struct winsize*>(argp) = winsize_;
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            *static_cast<struct winsize*>(argp) = _winsize;
             return 0;
         }
         if (request == TIOCSWINSZ) {
             if (argp == nullptr || size != sizeof(struct winsize))
                 return -EINVAL;
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            winsize_ = *static_cast<const struct winsize*>(argp);
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            _winsize = *static_cast<const struct winsize*>(argp);
             return 0;
         }
         return tty::ioctl(request, argp, size);
@@ -249,15 +249,15 @@ namespace astia::dev {
         bool inserted = false;
         fs::file* master = nullptr;
         {
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            if (!master_open_)
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            if (!_master_open)
                 return false;
-            if (master_head_ - master_tail_ == queue_capacity)
+            if (_master_head - _master_tail == queue_capacity)
                 return false;
-            master_queue_[master_head_ & (queue_capacity - 1)] = byte;
-            ++master_head_;
+            _master_queue[_master_head & (queue_capacity - 1)] = byte;
+            ++_master_head;
             inserted = true;
-            master = master_file_;
+            master = _master_file;
         }
         if (inserted && master != nullptr)
             sys::io_device_ready_context(master);
@@ -267,8 +267,8 @@ namespace astia::dev {
     void pty::tty_ready() {
         fs::file* slave;
         {
-            arch::interrupt_spinlock_guard guard(pty_lock_);
-            slave = slave_file_;
+            arch::interrupt_spinlock_guard guard(_pty_lock);
+            slave = _slave_file;
         }
         if (slave != nullptr)
             sys::io_device_ready_context(slave);
