@@ -5,7 +5,7 @@
 #include <astia/mm/heap.hpp>
 namespace astia::proc::syscall::detail {
     argument_staging::~argument_staging() {
-        mm::heap::free(storage_);
+        mm::heap::free(_storage);
     }
 
     bool argument_staging::allocate() {
@@ -15,18 +15,18 @@ namespace astia::proc::syscall::detail {
         if (!storage)
             return false;
 
-        storage_ = storage.value;
-        argv_    = reinterpret_cast<char**>(storage_);
-        envp_    = argv_ + vec_max + 1;
-        pool_    = reinterpret_cast<char*>(envp_ + vec_max + 1);
+        _storage = storage.value;
+        _argv    = reinterpret_cast<char**>(_storage);
+        _envp    = _argv + vec_max + 1;
+        _pool    = reinterpret_cast<char*>(_envp + vec_max + 1);
         return true;
     }
 
     i64 argument_staging::copy(u64 argv, u64 envp) {
-        i64 result = copy_in_vector(argv_, span<char>(pool_, vec_max * arg_cap), argv);
+        i64 result = copy_in_vector(_argv, span<char>(_pool, vec_max * arg_cap), argv);
         if (result == 0)
             result = copy_in_vector(
-                envp_, span<char>(pool_ + vec_max * arg_cap, vec_max * arg_cap), envp);
+                _envp, span<char>(_pool + vec_max * arg_cap, vec_max * arg_cap), envp);
         return result;
     }
 

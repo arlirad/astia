@@ -57,43 +57,43 @@ namespace astia::proc {
         ~process();
 
         pid_t pid() const {
-            return pid_;
+            return _pid;
         }
         pid_t parent_pid() const {
-            return parent_pid_;
+            return _parent_pid;
         }
         pgrp_t process_group() const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            return process_group_;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            return _process_group;
         }
         pid_t session() const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            return session_;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            return _session;
         }
         u32 uid() const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            return uid_;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            return _uid;
         }
         u32 euid() const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            return euid_;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            return _euid;
         }
         u32 gid() const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            return gid_;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            return _gid;
         }
         u32 egid() const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            return egid_;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            return _egid;
         }
         u32 umask() const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            return umask_;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            return _umask;
         }
         u32 set_umask(u32 value) {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            const u32 old = umask_;
-            umask_ = value & 0777u;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            const u32 old = _umask;
+            _umask = value & 0777u;
             return old;
         }
         i64  setuid(u32);
@@ -107,17 +107,17 @@ namespace astia::proc {
         bool in_group(gid_t group) const;
         bool can_access(fs::file_mode mode, uid_t owner, gid_t group,
                         fs::permission_bits want) const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            if (euid_ == 0)
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            if (_euid == 0)
                 return want != fs::permission_bits::execute ||
                        mode.owner_allows(fs::permission_bits::execute) ||
                        mode.group_allows(fs::permission_bits::execute) ||
                        mode.other_allows(fs::permission_bits::execute);
-            return euid_ == static_cast<u32>(owner) ? mode.owner_allows(want) : ([&] {
-                if (egid_ == static_cast<u32>(group))
+            return _euid == static_cast<u32>(owner) ? mode.owner_allows(want) : ([&] {
+                if (_egid == static_cast<u32>(group))
                     return mode.group_allows(want);
-                for (u32 i = 0; i < group_count_; ++i)
-                    if (groups_[i] == group)
+                for (u32 i = 0; i < _group_count; ++i)
+                    if (_groups[i] == group)
                         return mode.group_allows(want);
                 return mode.other_allows(want);
             }());
@@ -139,82 +139,82 @@ namespace astia::proc {
             return compose_path_at(dirfd, path, span<char>(buffer, length));
         }
         void inherit_groups(const process& parent) {
-            cwd_.inherit_from(parent.cwd_);
-            arch::interrupt_spinlock_guard parent_guard(parent.metadata_lock_);
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            if (parent.pid_ == pid_t{}) {
-                process_group_ = pgrp_from_raw(raw_id(pid_));
-                session_       = pid_;
+            _cwd.inherit_from(parent._cwd);
+            arch::interrupt_spinlock_guard parent_guard(parent._metadata_lock);
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            if (parent._pid == pid_t{}) {
+                _process_group = pgrp_from_raw(raw_id(_pid));
+                _session       = _pid;
             }
             else {
-                process_group_ = parent.process_group_;
-                session_       = parent.session_;
+                _process_group = parent._process_group;
+                _session       = parent._session;
             }
-            controlling_terminal_ = parent.controlling_terminal_;
-            uid_         = parent.uid_;
-            euid_        = parent.euid_;
-            gid_         = parent.gid_;
-            egid_        = parent.egid_;
-            group_count_ = parent.group_count_;
-            for (u32 i = 0; i < group_count_; ++i)
-                groups_[i] = parent.groups_[i];
-            rlimit_nofile_ = parent.rlimit_nofile_;
-            rlimit_as_     = parent.rlimit_as_;
-            umask_         = parent.umask_;
+            _controlling_terminal = parent._controlling_terminal;
+            _uid         = parent._uid;
+            _euid        = parent._euid;
+            _gid         = parent._gid;
+            _egid        = parent._egid;
+            _group_count = parent._group_count;
+            for (u32 i = 0; i < _group_count; ++i)
+                _groups[i] = parent._groups[i];
+            _rlimit_nofile = parent._rlimit_nofile;
+            _rlimit_as     = parent._rlimit_as;
+            _umask         = parent._umask;
         }
         void process_group(pgrp_t value) {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            process_group_ = value;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            _process_group = value;
         }
         void session(pid_t value) {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            session_ = value;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            _session = value;
         }
         mm::shptr<fs::open_file> controlling_terminal() const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            return controlling_terminal_;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            return _controlling_terminal;
         }
         void controlling_terminal(const mm::shptr<fs::open_file>& value) {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            controlling_terminal_ = value;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            _controlling_terminal = value;
         }
         bool claim_controlling_terminal(const mm::shptr<fs::open_file>& value) {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            if (!value || pid_ != session_ || controlling_terminal_)
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            if (!value || _pid != _session || _controlling_terminal)
                 return false;
-            controlling_terminal_ = value;
+            _controlling_terminal = value;
             return true;
         }
         const char* name() const {
-            return name_;
+            return _name;
         }
         process_state state() const {
-            return static_cast<process_state>(__atomic_load_n(&state_, __ATOMIC_ACQUIRE));
+            return static_cast<process_state>(__atomic_load_n(&_state, __ATOMIC_ACQUIRE));
         }
         void state(process_state value) {
-            __atomic_store_n(&state_, static_cast<u8>(value), __ATOMIC_RELEASE);
+            __atomic_store_n(&_state, static_cast<u8>(value), __ATOMIC_RELEASE);
         }
         i32 exit_status() const {
-            return exit_status_;
+            return _exit_status;
         }
         i32 wait_status() const {
-            return termination_signal_ != 0 ? wait_status_from_signal(termination_signal_)
-                                            : wait_status_from_exit(exit_status_);
+            return _termination_signal != 0 ? wait_status_from_signal(_termination_signal)
+                                            : wait_status_from_exit(_exit_status);
         }
         i32 stop_status() const {
-            return wait_status_from_stop(stop_signal_);
+            return wait_status_from_stop(_stop_signal);
         }
         bool stop_event_pending() const {
-            return __atomic_load_n(&stop_event_, __ATOMIC_ACQUIRE) != 0;
+            return __atomic_load_n(&_stop_event, __ATOMIC_ACQUIRE) != 0;
         }
         bool continued_event_pending() const {
-            return __atomic_load_n(&continued_event_, __ATOMIC_ACQUIRE) != 0;
+            return __atomic_load_n(&_continued_event, __ATOMIC_ACQUIRE) != 0;
         }
         void clear_stop_event() {
-            __atomic_store_n(&stop_event_, 0, __ATOMIC_RELEASE);
+            __atomic_store_n(&_stop_event, 0, __ATOMIC_RELEASE);
         }
         void clear_continued_event() {
-            __atomic_store_n(&continued_event_, 0, __ATOMIC_RELEASE);
+            __atomic_store_n(&_continued_event, 0, __ATOMIC_RELEASE);
         }
         void signal_state_change(signal_number signal);
         void interrupt_signal_io(signal_number signal);
@@ -222,17 +222,17 @@ namespace astia::proc {
         i64 alarm(u32 seconds, u64 now, u32 hz);
         void expire_alarm(u64 now);
         void signal_termination(signal_number signal) {
-            termination_signal_ = static_cast<i32>(signal);
+            _termination_signal = static_cast<i32>(signal);
         }
         signal_number termination_signal() const {
-            return static_cast<signal_number>(termination_signal_);
+            return static_cast<signal_number>(_termination_signal);
         }
 
         signal_state& signals() {
-            return signals_;
+            return _signals;
         }
         const signal_state& signals() const {
-            return signals_;
+            return _signals;
         }
 
         /// Called by a thread that is exiting.  When the last live
@@ -241,10 +241,10 @@ namespace astia::proc {
         bool thread_exited(thread* value, i32 status);
         void request_exit(thread* caller, i32 status);
         bool process_exit_requested() const {
-            return __atomic_load_n(&exit_requested_, __ATOMIC_ACQUIRE) != 0;
+            return __atomic_load_n(&_exit_requested, __ATOMIC_ACQUIRE) != 0;
         }
         i32 requested_exit_status() const {
-            return __atomic_load_n(&requested_exit_status_, __ATOMIC_ACQUIRE);
+            return __atomic_load_n(&_requested_exit_status, __ATOMIC_ACQUIRE);
         }
 
         /// Move the process's owning reference to a dead thread out of
@@ -273,7 +273,7 @@ namespace astia::proc {
         bool              add_thread(const mm::shptr<thread>& value);
         mm::shptr<thread> thread_at(u32 index) const;
         u32               thread_count() const {
-            return thread_count_;
+            return _thread_count;
         }
 
         bool                     install_standard_streams();
@@ -299,7 +299,7 @@ namespace astia::proc {
         /// x86_64 thread pointer (%fs base) for this process's static
         /// TLS block; 0 when the image declares no PT_TLS.
         u64 tls_tp() const {
-            return tls_tp_;
+            return _tls_tp;
         }
         /// Create the process's first user thread.  Builds the
         /// userspace startup frame (argc/argv/envp, arch-neutral
@@ -326,20 +326,20 @@ namespace astia::proc {
         /// blocking join syscall operates on it.
         mm::shptr<thread>     thread_by_tid(tid_t id);
         const mm::address_space* address_space() const {
-            return address_space_.attached() ? &address_space_ : nullptr;
+            return _address_space.attached() ? &_address_space : nullptr;
         }
 
         const mm::address_space& memory_space() const {
-            return address_space_;
+            return _address_space;
         }
 
         mm::address_space* address_space() {
-            return address_space_.attached() ? &address_space_ : nullptr;
+            return _address_space.attached() ? &_address_space : nullptr;
         }
 
         /// Mutable process address space for mappings owned by this process.
         mm::address_space& memory_space() {
-            return address_space_;
+            return _address_space;
         }
 
         /// mmap: anonymous private memory; `addr` is a placement hint
@@ -388,7 +388,7 @@ namespace astia::proc {
         /// gains one reference, private writable pages lose their
         /// write bits on BOTH sides, and the child's PTEs start
         /// read-only — the first write anywhere faults into a private
-        /// copy.  tls_tp_ is copied as well.
+        /// copy.  _tls_tp is copied as well.
         bool clone_address_space_cow(process* child);
 
         /// Share this process's open file descriptions with a fork
@@ -409,12 +409,12 @@ namespace astia::proc {
             mm::shptr<fs::open_file> controlling_terminal;
         };
         void snapshot_metadata(metadata_snapshot& out) const {
-            arch::interrupt_spinlock_guard guard(metadata_lock_);
-            out.process_group        = process_group_;
-            out.session              = session_;
-            out.uid                  = uid_;
-            out.gid                  = gid_;
-            out.controlling_terminal = controlling_terminal_;
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+            out.process_group        = _process_group;
+            out.session              = _session;
+            out.uid                  = _uid;
+            out.gid                  = _gid;
+            out.controlling_terminal = _controlling_terminal;
         }
 
         bool exec_user_image(span<const u8> bytes, char* const argv[], char* const envp[],
@@ -459,7 +459,7 @@ namespace astia::proc {
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
                                   usize& mapping_pages);
         void replace_image(process& staging);
-        /// Reserve an address, install PTEs without mmap_lock_, then publish
+        /// Reserve an address, install PTEs without _mmap_lock, then publish
         /// the VMA.  On failure the reservation and PTEs are rolled back and
         /// `region` stays the caller's.
         bool   install_mapping(u64 hint, usize pages, map_protection prot,
@@ -468,49 +468,49 @@ namespace astia::proc {
                                u64& base_out, usize region_page = 0, bool shared = false,
                                bool stack = false);
         bool grow_stack(mmap_region* vma, u64 addr, bool write);
-        pid_t  pid_;
-        pid_t  parent_pid_;
-        pgrp_t process_group_;
-        pid_t  session_;
-        mm::shptr<fs::open_file> controlling_terminal_;
-        u32                      uid_ = 0, euid_ = 0, gid_ = 0, egid_ = 0;
-        u32                      umask_ = 0;
-        gid_t                    groups_[max_supplementary_groups]{};
-        u32                      group_count_ = 0;
-        char                     name_[32]{};
+        pid_t  _pid;
+        pid_t  _parent_pid;
+        pgrp_t _process_group;
+        pid_t  _session;
+        mm::shptr<fs::open_file> _controlling_terminal;
+        u32                      _uid = 0, _euid = 0, _gid = 0, _egid = 0;
+        u32                      _umask = 0;
+        gid_t                    _groups[max_supplementary_groups]{};
+        u32                      _group_count = 0;
+        char                     _name[32]{};
         // These are observed by registry, scheduler, and wait paths that do
-        // not hold lifecycle_lock_. Keep the byte-sized representation
+        // not hold _lifecycle_lock. Keep the byte-sized representation
         // and publish transitions explicitly rather than widening the record.
-        u8           state_              = static_cast<u8>(process_state::fresh);
-        i32          exit_status_        = 0;
-        i32          termination_signal_ = 0;
-        i32          stop_signal_        = 0;
-        u8           stop_event_         = 0;
-        u8           continued_event_    = 0;
-        u8           exit_requested_     = 0;
-        i32          requested_exit_status_ = 0;
-        signal_state signals_{};
-        u64          alarm_deadline_     = 0;
+        u8           _state              = static_cast<u8>(process_state::fresh);
+        i32          _exit_status        = 0;
+        i32          _termination_signal = 0;
+        i32          _stop_signal        = 0;
+        u8           _stop_event         = 0;
+        u8           _continued_event    = 0;
+        u8           _exit_requested     = 0;
+        i32          _requested_exit_status = 0;
+        signal_state _signals{};
+        u64          _alarm_deadline     = 0;
 
-        mm::shptr<thread>        threads_[max_threads_per_process];
-        u32                      thread_count_ = 0;
-        thread*                  waiters_[max_waiters_per_process]{};
-        signal_waiter_registry   signal_waiters_{};
-        fd_table                 descriptors_;
-        mm::address_space       address_space_;
-        u64                      tls_tp_ = 0;
-        astia_rlimit             rlimit_nofile_{max_process_fds, max_process_fds};
-        astia_rlimit             rlimit_as_{~u64{0}, ~u64{0}};
-        u64                      mapped_bytes_      = 0;
-        cwd_context              cwd_{};
-        mmap_region*             mmap_regions_      = nullptr; // base-sorted
+        mm::shptr<thread>        _threads[max_threads_per_process];
+        u32                      _thread_count = 0;
+        thread*                  _waiters[max_waiters_per_process]{};
+        signal_waiter_registry   _signal_waiters{};
+        fd_table                 _descriptors;
+        mm::address_space       _address_space;
+        u64                      _tls_tp = 0;
+        astia_rlimit             _rlimit_nofile{max_process_fds, max_process_fds};
+        astia_rlimit             _rlimit_as{~u64{0}, ~u64{0}};
+        u64                      _mapped_bytes      = 0;
+        cwd_context              _cwd{};
+        mmap_region*             _mmap_regions      = nullptr; // base-sorted
         // Lifecycle/thread state is process-local; keeping this lock on the
         // object avoids serializing unrelated processes.
-        core::spinlock lifecycle_lock_{};
+        core::spinlock _lifecycle_lock{};
         // Credentials, groups, session/job-control metadata, and rlimits are
         // read frequently but are independent of thread lifetime and waits.
-        mutable core::spinlock metadata_lock_{};
-        core::spinlock         mmap_lock_{};
+        mutable core::spinlock _metadata_lock{};
+        core::spinlock         _mmap_lock{};
     };
 
     /// Queue a just-died thread for destruction once its kernel stack
