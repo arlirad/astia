@@ -55,9 +55,12 @@ jobs:
       - name: Check include category fixtures
         run: .github/scripts/test-format-fixtures.sh
 
+      - name: Check changed-file range handling
+        run: .github/scripts/test-check-format.sh
+
       - name: Check formatting
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.after || github.sha }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'push' && github.event.after || github.sha }}
           CLANG_FORMAT_FULL_TREE: ${{ inputs.full_tree || '0' }}
         run: .github/scripts/check-format.sh
