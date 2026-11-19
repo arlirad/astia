@@ -255,11 +255,6 @@ namespace astia::elf::detail {
     bool symbol_name(const view& v, const elf64_sym& sym, const char*& out);
     bool section_name(const view& v, u16 index, const char*& out, usize& out_size);
     bool parse_relocatable(span<const u8> bytes, view& v);
-    };
-
-    bool symbol_name(const view& v, const elf64_sym& sym, const char*& out);
-    bool section_name(const view& v, u16 index, const char*& out);
-    bool parse_relocatable(span<const u8> bytes, view& v);
     bool sym_addr(const view& v, const env& e, const void* const* sec_base, u32 index,
                   u64& out);
 
