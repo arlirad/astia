@@ -1,5 +1,6 @@
-#include "../virtio_blk_protocol.hpp"
 #include <astia/common.hpp>
+
+#include "../virtio_blk_protocol.hpp"
 
 #include <cassert>
 #include <cstdint>

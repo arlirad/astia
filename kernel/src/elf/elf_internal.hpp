@@ -21,15 +21,15 @@ namespace astia::elf::detail {
     inline constexpr u16 et_dyn    = 3;
     inline constexpr u16 em_x86_64 = 62;
 
-    inline constexpr u32 sht_symtab = 2;
-    inline constexpr u32 sht_strtab = 3;
-    inline constexpr u32 sht_rela   = 4;
-    inline constexpr u32 sht_nobits = 8;
+    inline constexpr u32 sht_symtab     = 2;
+    inline constexpr u32 sht_strtab     = 3;
+    inline constexpr u32 sht_rela       = 4;
+    inline constexpr u32 sht_nobits     = 8;
     inline constexpr u32 sht_init_array = 14;
     inline constexpr u32 sht_fini_array = 15;
 
-    inline constexpr u64 shf_write = 1ull << 0;
-    inline constexpr u64 shf_alloc = 1ull << 1;
+    inline constexpr u64 shf_write     = 1ull << 0;
+    inline constexpr u64 shf_alloc     = 1ull << 1;
     inline constexpr u64 shf_execinstr = 1ull << 2;
 
     inline constexpr u16 shn_undef  = 0;
@@ -141,10 +141,10 @@ namespace astia::elf::detail {
         return static_cast<u32>(info & 0xffffffffu);
     }
 
-    inline constexpr u8 stb_local = 0;
+    inline constexpr u8 stb_local  = 0;
     inline constexpr u8 stb_global = 1;
-    inline constexpr u8 stb_weak = 2;
-    inline constexpr u8 stt_func = 2;
+    inline constexpr u8 stb_weak   = 2;
+    inline constexpr u8 stt_func   = 2;
 
     inline bool is_power_of_two(u64 value) {
         return value != 0 && (value & (value - 1)) == 0;

@@ -7,13 +7,13 @@
 namespace astia_virtio_blk {
 
     constexpr uint32_t feature_read_only = 1u << 5;
-    constexpr uint32_t feature_flush = 1u << 9;
-    constexpr uint16_t descriptor_next = 1;
-    constexpr uint16_t descriptor_write = 2;
-    constexpr uint32_t request_in = 0;
-    constexpr uint32_t request_out = 1;
-    constexpr uint32_t request_flush = 4;
-    constexpr uint32_t max_transfer = astia::mm::page_size * 2u;
+    constexpr uint32_t feature_flush     = 1u << 9;
+    constexpr uint16_t descriptor_next   = 1;
+    constexpr uint16_t descriptor_write  = 2;
+    constexpr uint32_t request_in        = 0;
+    constexpr uint32_t request_out       = 1;
+    constexpr uint32_t request_flush     = 4;
+    constexpr uint32_t max_transfer      = astia::mm::page_size * 2u;
 
     constexpr uint32_t page_count(uint32_t length) {
         return length / astia::mm::page_size +

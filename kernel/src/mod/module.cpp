@@ -6,15 +6,16 @@
 
 #include "module.hpp"
 
-#include "exports.hpp"
 #include <astia/elf.hpp>
 #include <astia/mm/frame_allocator.hpp>
+
+#include "exports.hpp"
 
 namespace astia::mod {
 
 #ifdef ASTIA_MODULE_HOST_TEST
     namespace host_test {
-        int invoke_entry(int (*entry)());
+        int  invoke_entry(int (*entry)());
         void invoke_initializer(elf::init_fn initializer);
         void invoke_finalizer(elf::init_fn finalizer);
     }
@@ -80,16 +81,16 @@ namespace astia::mod {
         }
 
         loaded_module& slot = modules[used];
-        slot.name        = "module";
-        slot.base        = img.base;
-        slot.size        = img.size;
-        slot.entry       = reinterpret_cast<int (*)()>(img.entry);
-        slot.running     = false;
-        slot.initialized = false;
-        slot.init_count      = img.init_count;
-        slot.fini_count      = img.fini_count;
-        slot.loader_context  = e.ctx;
-        slot.loader_unmap    = e.unmap;
+        slot.name           = "module";
+        slot.base           = img.base;
+        slot.size           = img.size;
+        slot.entry          = reinterpret_cast<int (*)()>(img.entry);
+        slot.running        = false;
+        slot.initialized    = false;
+        slot.init_count     = img.init_count;
+        slot.fini_count     = img.fini_count;
+        slot.loader_context = e.ctx;
+        slot.loader_unmap   = e.unmap;
         for (usize i = 0; i < img.init_count; ++i)
             slot.init_array[i] = img.init_array[i];
         for (usize i = 0; i < img.fini_count; ++i)
@@ -130,7 +131,7 @@ namespace astia::mod {
             return -1;
         }
         const_cast<loaded_module*>(mod)->running = true;
-        loaded_module* mutable_mod = const_cast<loaded_module*>(mod);
+        loaded_module* mutable_mod               = const_cast<loaded_module*>(mod);
         for (usize i = 0; i < mutable_mod->init_count; ++i)
             if (mutable_mod->init_array[i] != nullptr) {
 #ifdef ASTIA_MODULE_HOST_TEST
@@ -160,7 +161,7 @@ namespace astia::mod {
 #endif
             }
         mutable_mod->initialized = false;
-        mutable_mod->running = false;
+        mutable_mod->running     = false;
         return true;
     }
 

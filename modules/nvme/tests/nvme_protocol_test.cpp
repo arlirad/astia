@@ -1,5 +1,6 @@
-#include "../nvme_protocol.hpp"
 #include <astia/common.hpp>
+
+#include "../nvme_protocol.hpp"
 
 #include <cassert>
 #include <cstdint>

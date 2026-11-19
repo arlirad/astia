@@ -1,42 +1,42 @@
-#include "support/test.hpp"
-
 #include <astia/module.hpp>
+
+#include "support/test.hpp"
 
 #include <cstdint>
 
 namespace {
 
     struct injection {
-        bool register_failure = false;
-        bool unregister_failure = false;
-        bool mask_failure = false;
-        bool unmask_failure = false;
-        bool message_failure = false;
-        bool map_failure = false;
-        bool config_read_failure = false;
-        bool config_write_failure = false;
-        unsigned unregister_count = 0;
-        unsigned disable_write_count = 0;
-        unsigned enable_write_count = 0;
-        uint16_t control = 0;
+        bool     register_failure     = false;
+        bool     unregister_failure   = false;
+        bool     mask_failure         = false;
+        bool     unmask_failure       = false;
+        bool     message_failure      = false;
+        bool     map_failure          = false;
+        bool     config_read_failure  = false;
+        bool     config_write_failure = false;
+        unsigned unregister_count     = 0;
+        unsigned disable_write_count  = 0;
+        unsigned enable_write_count   = 0;
+        uint16_t control              = 0;
     } state;
 
     alignas(16) uint32_t table[4]{};
 
     astia::hw::pci_device device() {
         astia::hw::pci_device result{};
-        result.bdf = {0, 1, 0};
-        result.bar_count = 1;
-        result.bars[0].present = true;
-        result.bars[0].size = sizeof table;
-        result.bars[0].mapped = reinterpret_cast<astia::u64>(table);
-        result.bars[0].mapped_valid = true;
-        result.interrupt.msix = true;
+        result.bdf                    = {0, 1, 0};
+        result.bar_count              = 1;
+        result.bars[0].present        = true;
+        result.bars[0].size           = sizeof table;
+        result.bars[0].mapped         = reinterpret_cast<astia::u64>(table);
+        result.bars[0].mapped_valid   = true;
+        result.interrupt.msix         = true;
         result.interrupt.vector_count = 1;
-        result.interrupt.capability = 0x50;
-        result.interrupt.table_bar = 0;
+        result.interrupt.capability   = 0x50;
+        result.interrupt.table_bar    = 0;
         result.interrupt.table_offset = 0;
-        result.interrupt_blocker = astia::hw::pci_interrupt_blocker::none;
+        result.interrupt_blocker      = astia::hw::pci_interrupt_blocker::none;
         return result;
     }
 
@@ -60,7 +60,8 @@ namespace {
 
 namespace astia::arch {
 
-    bool register_interrupt_vector(interrupt_vector_handler, void*, interrupt_vector& route) {
+    bool register_interrupt_vector(interrupt_vector_handler, void*,
+                                   interrupt_vector& route) {
         if (state.register_failure)
             return false;
         route = {48, 7};
@@ -121,8 +122,8 @@ namespace astia::hw {
 
 ASTIA_TEST(msix_register_failure_leaves_no_route) {
     reset();
-    state.register_failure = true;
-    auto pci = device();
+    state.register_failure        = true;
+    auto                      pci = device();
     astia::module::msix_route route;
     ASTIA_CHECK(!route.request(pci, noop_interrupt, nullptr));
     ASTIA_CHECK(!route.active());
@@ -132,8 +133,8 @@ ASTIA_TEST(msix_register_failure_leaves_no_route) {
 
 ASTIA_TEST(msix_registration_stage_failure_unwinds_route) {
     reset();
-    state.message_failure = true;
-    auto pci = device();
+    state.message_failure         = true;
+    auto                      pci = device();
     astia::module::msix_route route;
     ASTIA_CHECK(!route.request(pci, noop_interrupt, nullptr));
     ASTIA_CHECK(!route.active());
@@ -144,8 +145,8 @@ ASTIA_TEST(msix_registration_stage_failure_unwinds_route) {
 
 ASTIA_TEST(msix_program_failure_releases_registered_route) {
     reset();
-    state.mask_failure = true;
-    auto pci = device();
+    state.mask_failure            = true;
+    auto                      pci = device();
     astia::module::msix_route route;
     ASTIA_CHECK(route.request(pci, noop_interrupt, nullptr));
     ASTIA_CHECK(!route.program());
@@ -155,8 +156,8 @@ ASTIA_TEST(msix_program_failure_releases_registered_route) {
 
 ASTIA_TEST(msix_enable_failure_releases_registered_route) {
     reset();
-    state.config_write_failure = true;
-    auto pci = device();
+    state.config_write_failure    = true;
+    auto                      pci = device();
     astia::module::msix_route route;
     ASTIA_CHECK(route.request(pci, noop_interrupt, nullptr));
     ASTIA_CHECK(route.program());
@@ -169,8 +170,8 @@ ASTIA_TEST(msix_enable_failure_releases_registered_route) {
 
 ASTIA_TEST(msix_unmask_failure_disables_global_msix_before_release) {
     reset();
-    state.unmask_failure = true;
-    auto pci = device();
+    state.unmask_failure          = true;
+    auto                      pci = device();
     astia::module::msix_route route;
     ASTIA_CHECK(route.request(pci, noop_interrupt, nullptr));
     ASTIA_CHECK(route.program());

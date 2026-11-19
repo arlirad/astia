@@ -1,5 +1,6 @@
-#include "test.hpp"
 #include <astia/elf.hpp>
+
+#include "test.hpp"
 #include <sys/mman.h>
 
 #include <cstdint>
@@ -69,13 +70,11 @@ namespace {
         return reinterpret_cast<int (*)()>(entry)();
     }
 
-    ASTIA_NO_SANITIZE_FUNCTION void
-    invoke_module_initializer(astia::elf::init_fn fn) {
+    ASTIA_NO_SANITIZE_FUNCTION void invoke_module_initializer(astia::elf::init_fn fn) {
         fn();
     }
 
-    ASTIA_NO_SANITIZE_FUNCTION void
-    invoke_module_finalizer(astia::elf::init_fn fn) {
+    ASTIA_NO_SANITIZE_FUNCTION void invoke_module_finalizer(astia::elf::init_fn fn) {
         fn();
     }
 
@@ -264,7 +263,7 @@ namespace {
     }
 
     void blob_put_u16(blob_copy& blob, size_t offset, unsigned short value) {
-        blob.data[offset] = static_cast<unsigned char>(value);
+        blob.data[offset]     = static_cast<unsigned char>(value);
         blob.data[offset + 1] = static_cast<unsigned char>(value >> 8);
     }
 
@@ -296,25 +295,30 @@ namespace {
 
     size_t module_symbol_offset(const blob_copy& blob, size_t* string_name = nullptr) {
         for (size_t i = 0; i < section_count(blob); ++i) {
-            const size_t section = section_header_offset(blob, i);
-            const unsigned int type = static_cast<unsigned int>(blob_u32(blob, section + 4));
+            const size_t       section = section_header_offset(blob, i);
+            const unsigned int type =
+                static_cast<unsigned int>(blob_u32(blob, section + 4));
             if (type != 2)
                 continue;
             const size_t symbols = static_cast<size_t>(blob_u64(blob, section + 32)) / 24;
-            const size_t symbol_offset = static_cast<size_t>(blob_u64(blob, section + 24));
-            const size_t string_index = blob_u32(blob, section + 40);
+            const size_t symbol_offset =
+                static_cast<size_t>(blob_u64(blob, section + 24));
+            const size_t string_index   = blob_u32(blob, section + 40);
             const size_t string_section = section_header_offset(blob, string_index);
-            const size_t string_offset = static_cast<size_t>(blob_u64(blob, string_section + 24));
-            const size_t string_size = static_cast<size_t>(blob_u64(blob, string_section + 32));
+            const size_t string_offset =
+                static_cast<size_t>(blob_u64(blob, string_section + 24));
+            const size_t string_size =
+                static_cast<size_t>(blob_u64(blob, string_section + 32));
             for (size_t j = 0; j < symbols; ++j) {
                 const size_t symbol = symbol_offset + j * 24;
-                const size_t name = static_cast<size_t>(blob.data[symbol]) |
+                const size_t name   = static_cast<size_t>(blob.data[symbol]) |
                                     (static_cast<size_t>(blob.data[symbol + 1]) << 8) |
                                     (static_cast<size_t>(blob.data[symbol + 2]) << 16) |
                                     (static_cast<size_t>(blob.data[symbol + 3]) << 24);
                 if (name >= string_size ||
-                    std::strcmp(reinterpret_cast<const char*>(blob.data + string_offset + name),
-                                "_Z11module_mainv") != 0)
+                    std::strcmp(
+                        reinterpret_cast<const char*>(blob.data + string_offset + name),
+                        "_Z11module_mainv") != 0)
                     continue;
                 if (string_name != nullptr)
                     *string_name = string_offset + name;
@@ -326,14 +330,14 @@ namespace {
 
     bool load_relocatable_fixture(blob_copy& blob) {
         unsigned char storage[1 << 16]{};
-        reloc_arena arena{};
-        arena.base = storage;
+        reloc_arena   arena{};
+        arena.base     = storage;
         arena.capacity = sizeof(storage);
-        arena.back = sizeof(storage);
+        arena.back     = sizeof(storage);
         astia::elf::env environment{};
-        environment.ctx = &arena;
-        environment.map = reloc_map;
-        environment.unmap = reloc_unmap;
+        environment.ctx     = &arena;
+        environment.map     = reloc_map;
+        environment.unmap   = reloc_unmap;
         environment.resolve = reloc_resolve;
         astia::elf::image image;
         return astia::elf::load(blob.data, blob.len, environment, image);
@@ -566,8 +570,8 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
 
 ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
     const size_t cap = 1 << 20;
-    void* mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
-                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    void*        mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     ASTIA_CHECK(mem != MAP_FAILED);
     if (mem == MAP_FAILED)
         return;
@@ -741,7 +745,7 @@ ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
         ASTIA_CHECK(name_offset < string_size);
         if (name_offset < string_size)
             buf.data[string_offset + name_offset + sizeof("_Z11module_mainv") - 1] = 'x';
-        reloc_arena a{};
+        reloc_arena     a{};
         astia::elf::env e{};
         e.ctx     = &a;
         e.map     = reloc_map;
@@ -753,7 +757,7 @@ ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_non_function_entry) {
-    blob_copy buf(hello_mod_blob, hello_mod_blob_len);
+    blob_copy    buf(hello_mod_blob, hello_mod_blob_len);
     const size_t symbol = module_symbol_offset(buf);
     ASTIA_CHECK(symbol != 0);
     if (symbol != 0)
@@ -762,7 +766,7 @@ ASTIA_TEST(elf_relocatable_rejects_non_function_entry) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_hidden_entry) {
-    blob_copy buf(hello_mod_blob, hello_mod_blob_len);
+    blob_copy    buf(hello_mod_blob, hello_mod_blob_len);
     const size_t symbol = module_symbol_offset(buf);
     ASTIA_CHECK(symbol != 0);
     if (symbol != 0)
@@ -771,13 +775,13 @@ ASTIA_TEST(elf_relocatable_rejects_hidden_entry) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_entry_outside_executable_section) {
-    blob_copy buf(hello_mod_blob, hello_mod_blob_len);
+    blob_copy    buf(hello_mod_blob, hello_mod_blob_len);
     const size_t symbol = module_symbol_offset(buf);
     ASTIA_CHECK(symbol != 0);
     if (symbol != 0) {
         const size_t section_offset = static_cast<size_t>(blob_u64(buf, 40));
-        const size_t section_size = static_cast<size_t>(buf.data[58]) |
-                                    (static_cast<size_t>(buf.data[59]) << 8);
+        const size_t section_size =
+            static_cast<size_t>(buf.data[58]) | (static_cast<size_t>(buf.data[59]) << 8);
         const size_t section_index = static_cast<size_t>(buf.data[symbol + 6]) |
                                      (static_cast<size_t>(buf.data[symbol + 7]) << 8);
         const size_t section = section_offset + section_index * section_size;
@@ -787,33 +791,37 @@ ASTIA_TEST(elf_relocatable_rejects_entry_outside_executable_section) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_duplicate_entry_definitions) {
-    blob_copy buf(hello_mod_blob, hello_mod_blob_len);
-    size_t entry_name = 0;
+    blob_copy    buf(hello_mod_blob, hello_mod_blob_len);
+    size_t       entry_name   = 0;
     const size_t entry_symbol = module_symbol_offset(buf, &entry_name);
     ASTIA_CHECK(entry_symbol != 0);
     if (entry_symbol != 0) {
         const size_t section_offset = static_cast<size_t>(blob_u64(buf, 40));
-        const size_t section_count = static_cast<size_t>(buf.data[60]) |
-                                     (static_cast<size_t>(buf.data[61]) << 8);
-        const size_t section_size = static_cast<size_t>(buf.data[58]) |
-                                    (static_cast<size_t>(buf.data[59]) << 8);
-        const size_t entry_section = static_cast<size_t>(buf.data[entry_symbol + 6]) |
-                                     (static_cast<size_t>(buf.data[entry_symbol + 7]) << 8);
+        const size_t section_count =
+            static_cast<size_t>(buf.data[60]) | (static_cast<size_t>(buf.data[61]) << 8);
+        const size_t section_size =
+            static_cast<size_t>(buf.data[58]) | (static_cast<size_t>(buf.data[59]) << 8);
+        const size_t entry_section =
+            static_cast<size_t>(buf.data[entry_symbol + 6]) |
+            (static_cast<size_t>(buf.data[entry_symbol + 7]) << 8);
         bool copied = false;
         for (size_t i = 0; i < section_count && !copied; ++i) {
-            const size_t section = section_offset + i * section_size;
-            const unsigned int type = static_cast<unsigned int>(buf.data[section + 4]) |
-                                      (static_cast<unsigned int>(buf.data[section + 5]) << 8);
+            const size_t       section = section_offset + i * section_size;
+            const unsigned int type =
+                static_cast<unsigned int>(buf.data[section + 4]) |
+                (static_cast<unsigned int>(buf.data[section + 5]) << 8);
             if (type != 2)
                 continue;
             const size_t symbols = static_cast<size_t>(blob_u64(buf, section + 32)) / 24;
             const size_t symbol_offset = static_cast<size_t>(blob_u64(buf, section + 24));
-            const size_t string_index = static_cast<size_t>(buf.data[section + 40]) |
-                                        (static_cast<size_t>(buf.data[section + 41]) << 8) |
-                                        (static_cast<size_t>(buf.data[section + 42]) << 16) |
-                                        (static_cast<size_t>(buf.data[section + 43]) << 24);
+            const size_t string_index =
+                static_cast<size_t>(buf.data[section + 40]) |
+                (static_cast<size_t>(buf.data[section + 41]) << 8) |
+                (static_cast<size_t>(buf.data[section + 42]) << 16) |
+                (static_cast<size_t>(buf.data[section + 43]) << 24);
             const size_t string_section = section_offset + string_index * section_size;
-            const size_t string_offset = static_cast<size_t>(blob_u64(buf, string_section + 24));
+            const size_t string_offset =
+                static_cast<size_t>(blob_u64(buf, string_section + 24));
             for (size_t j = 0; j < symbols; ++j) {
                 const size_t symbol = symbol_offset + j * 24;
                 if (symbol == entry_symbol || j == 0 || (buf.data[symbol + 4] >> 4) != 1)
@@ -833,16 +841,16 @@ ASTIA_TEST(elf_relocatable_rejects_duplicate_entry_definitions) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_malformed_constructor_array) {
-    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
+    blob_copy    buf(module_symbols_blob, module_symbols_blob_len);
     const size_t section_offset = static_cast<size_t>(blob_u64(buf, 40));
-    const size_t section_count = static_cast<size_t>(buf.data[60]) |
-                                 (static_cast<size_t>(buf.data[61]) << 8);
-    const size_t section_size = static_cast<size_t>(buf.data[58]) |
-                                (static_cast<size_t>(buf.data[59]) << 8);
+    const size_t section_count =
+        static_cast<size_t>(buf.data[60]) | (static_cast<size_t>(buf.data[61]) << 8);
+    const size_t section_size =
+        static_cast<size_t>(buf.data[58]) | (static_cast<size_t>(buf.data[59]) << 8);
     bool found = false;
     for (size_t i = 0; i < section_count; ++i) {
-        const size_t section = section_offset + i * section_size;
-        const unsigned int type = static_cast<unsigned int>(buf.data[section + 4]) |
+        const size_t       section = section_offset + i * section_size;
+        const unsigned int type    = static_cast<unsigned int>(buf.data[section + 4]) |
                                   (static_cast<unsigned int>(buf.data[section + 5]) << 8);
         if (type == 14) {
             blob_put_u64(buf, section + 56, 4);
@@ -877,19 +885,19 @@ ASTIA_TEST(elf_relocatable_rejects_trailing_dot_fini_priority_suffix) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_out_of_bounds_section_string_table) {
-    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
-    const size_t shstr_index = blob_u16(buf, 62);
+    blob_copy    buf(module_symbols_blob, module_symbols_blob_len);
+    const size_t shstr_index   = blob_u16(buf, 62);
     const size_t shstr_section = section_header_offset(buf, shstr_index);
     blob_put_u64(buf, shstr_section + 24, buf.len);
     ASTIA_CHECK(!load_relocatable_fixture(buf));
 }
 
 ASTIA_TEST(elf_relocatable_rejects_out_of_bounds_section_name_offset) {
-    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
-    const size_t shstr_index = blob_u16(buf, 62);
+    blob_copy    buf(module_symbols_blob, module_symbols_blob_len);
+    const size_t shstr_index   = blob_u16(buf, 62);
     const size_t shstr_section = section_header_offset(buf, shstr_index);
-    const size_t shstr_size = static_cast<size_t>(blob_u64(buf, shstr_section + 32));
-    bool found = false;
+    const size_t shstr_size    = static_cast<size_t>(blob_u64(buf, shstr_section + 32));
+    bool         found         = false;
     for (size_t i = 0; i < section_count(buf); ++i) {
         const size_t section = section_header_offset(buf, i);
         if (blob_u32(buf, section) == 0)
@@ -903,11 +911,11 @@ ASTIA_TEST(elf_relocatable_rejects_out_of_bounds_section_name_offset) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_section_name_without_nul) {
-    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
-    const size_t shstr_index = blob_u16(buf, 62);
+    blob_copy    buf(module_symbols_blob, module_symbols_blob_len);
+    const size_t shstr_index   = blob_u16(buf, 62);
     const size_t shstr_section = section_header_offset(buf, shstr_index);
-    const size_t shstr_offset = static_cast<size_t>(blob_u64(buf, shstr_section + 24));
-    const size_t shstr_size = static_cast<size_t>(blob_u64(buf, shstr_section + 32));
+    const size_t shstr_offset  = static_cast<size_t>(blob_u64(buf, shstr_section + 24));
+    const size_t shstr_size    = static_cast<size_t>(blob_u64(buf, shstr_section + 32));
     ASTIA_CHECK(shstr_size != 0);
     if (shstr_size == 0)
         return;
@@ -924,7 +932,7 @@ ASTIA_TEST(elf_relocatable_rejects_section_name_without_nul) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_out_of_bounds_symbol_name_offset) {
-    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
+    blob_copy    buf(module_symbols_blob, module_symbols_blob_len);
     const size_t symbol = module_symbol_offset(buf);
     ASTIA_CHECK(symbol != 0);
     if (symbol == 0)
@@ -938,7 +946,7 @@ ASTIA_TEST(elf_relocatable_rejects_out_of_bounds_symbol_name_offset) {
         const size_t symbol_offset = static_cast<size_t>(blob_u64(buf, section + 24));
         for (size_t j = 0; j < symbols; ++j) {
             if (symbol_offset + j * 24 == symbol) {
-                const size_t string_index = blob_u32(buf, section + 40);
+                const size_t string_index   = blob_u32(buf, section + 40);
                 const size_t string_section = section_header_offset(buf, string_index);
                 const size_t string_size =
                     static_cast<size_t>(blob_u64(buf, string_section + 32));
@@ -955,7 +963,7 @@ ASTIA_TEST(elf_relocatable_rejects_out_of_bounds_symbol_name_offset) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_symbol_name_without_nul) {
-    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
+    blob_copy    buf(module_symbols_blob, module_symbols_blob_len);
     const size_t symbol = module_symbol_offset(buf);
     ASTIA_CHECK(symbol != 0);
     if (symbol == 0)
@@ -968,10 +976,12 @@ ASTIA_TEST(elf_relocatable_rejects_symbol_name_without_nul) {
         const size_t symbol_offset = static_cast<size_t>(blob_u64(buf, section + 24));
         if (symbol < symbol_offset || symbol >= symbol_offset + symbols * 24)
             continue;
-        const size_t string_index = blob_u32(buf, section + 40);
+        const size_t string_index   = blob_u32(buf, section + 40);
         const size_t string_section = section_header_offset(buf, string_index);
-        const size_t string_offset = static_cast<size_t>(blob_u64(buf, string_section + 24));
-        const size_t string_size = static_cast<size_t>(blob_u64(buf, string_section + 32));
+        const size_t string_offset =
+            static_cast<size_t>(blob_u64(buf, string_section + 24));
+        const size_t string_size =
+            static_cast<size_t>(blob_u64(buf, string_section + 32));
         ASTIA_CHECK(string_size != 0);
         if (string_size == 0)
             return;

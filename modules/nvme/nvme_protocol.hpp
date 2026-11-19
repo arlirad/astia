@@ -16,8 +16,8 @@ namespace nvme_protocol {
     };
 
     struct geometry {
-        bool     started = false;
-        uint64_t blocks = 0;
+        bool     started    = false;
+        uint64_t blocks     = 0;
         uint32_t block_size = 0;
     };
 
@@ -41,18 +41,20 @@ namespace nvme_protocol {
         value.dword[7] = static_cast<uint32_t>(physical >> 32);
         value.dword[8] = 0;
         value.dword[9] = 0;
-        const uint32_t first = astia::mm::page_size -
-                               static_cast<uint32_t>(physical & (astia::mm::page_size - 1u));
+        const uint32_t first =
+            astia::mm::page_size -
+            static_cast<uint32_t>(physical & (astia::mm::page_size - 1u));
         if (length <= first)
             return true;
         if (length - first > astia::mm::page_size)
             return false;
-        const uint64_t page = physical & ~(static_cast<uint64_t>(astia::mm::page_size) - 1u);
+        const uint64_t page =
+            physical & ~(static_cast<uint64_t>(astia::mm::page_size) - 1u);
         if (page > UINT64_MAX - astia::mm::page_size)
             return false;
         const uint64_t second = page + astia::mm::page_size;
-        value.dword[8] = static_cast<uint32_t>(second);
-        value.dword[9] = static_cast<uint32_t>(second >> 32);
+        value.dword[8]        = static_cast<uint32_t>(second);
+        value.dword[9]        = static_cast<uint32_t>(second >> 32);
         return true;
     }
 
@@ -63,23 +65,24 @@ namespace nvme_protocol {
 
     constexpr bool fits_one_page(uint64_t physical, uint32_t length) {
         return physical != UINT64_MAX && length != 0 &&
-               length <= astia::mm::page_size -
-                             static_cast<uint32_t>(physical & (astia::mm::page_size - 1u));
+               length <=
+                   astia::mm::page_size -
+                       static_cast<uint32_t>(physical & (astia::mm::page_size - 1u));
     }
 
     constexpr bool valid_queue_depth(uint32_t requested, uint32_t maximum) {
         return requested >= 2 && requested <= maximum;
     }
 
-    inline bool encode_io(command& value, uint8_t opcode, uint16_t cid, uint32_t namespace_id,
-                          uint64_t physical, uint32_t length, uint64_t offset,
-                          uint32_t block_size, bool fua) {
+    inline bool encode_io(command& value, uint8_t opcode, uint16_t cid,
+                          uint32_t namespace_id, uint64_t physical, uint32_t length,
+                          uint64_t offset, uint32_t block_size, bool fua) {
         if (block_size == 0 || length == 0 || length > max_transfer ||
             (length % block_size) != 0 || (offset % block_size) != 0 ||
             !set_prp(value, physical, length))
             return false;
-        value.dword[0] = opcode | (static_cast<uint32_t>(cid) << 16);
-        value.dword[1] = namespace_id;
+        value.dword[0]  = opcode | (static_cast<uint32_t>(cid) << 16);
+        value.dword[1]  = namespace_id;
         value.dword[10] = static_cast<uint32_t>(offset / block_size);
         value.dword[11] = static_cast<uint32_t>((offset / block_size) >> 32);
         value.dword[12] = (fua ? (1u << 30) : 0) | (length / block_size - 1);
