@@ -231,6 +231,8 @@ namespace astia::arch::x86_64::smp {
         if (found != 0) {
             bool have_bsp = false;
             bool have_ap  = false;
+            logs::info("MADT APIC topology count=%u bsp=%u first=%u second=%u", found,
+                       bsp, apic_ids[0], found > 1 ? apic_ids[1] : ~u32{0});
             for (u32 i = 0; i < found; ++i) {
                 if (apic_ids[i] == bsp)
                     have_bsp = true;
