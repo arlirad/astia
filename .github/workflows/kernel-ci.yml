@@ -43,6 +43,7 @@ jobs:
             gzip \
             lld-${LLVM_VERSION} \
             llvm-${LLVM_VERSION} \
+            mtools \
             ninja-build \
             python3 \
             qemu-system-x86 \
