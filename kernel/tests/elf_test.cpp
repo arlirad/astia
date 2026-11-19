@@ -251,6 +251,13 @@ namespace {
         return value;
     }
 
+    size_t blob_u32(const blob_copy& blob, size_t offset) {
+        return static_cast<size_t>(blob.data[offset]) |
+               (static_cast<size_t>(blob.data[offset + 1]) << 8) |
+               (static_cast<size_t>(blob.data[offset + 2]) << 16) |
+               (static_cast<size_t>(blob.data[offset + 3]) << 24);
+    }
+
     void blob_put_u32(blob_copy& blob, size_t offset, unsigned int value) {
         for (size_t i = 0; i < 4; ++i)
             blob.data[offset + i] = static_cast<unsigned char>(value >> (i * 8));
@@ -266,25 +273,37 @@ namespace {
             blob.data[offset + i] = static_cast<unsigned char>(value >> (i * 8));
     }
 
+    size_t blob_u16(const blob_copy& blob, size_t offset) {
+        return static_cast<size_t>(blob.data[offset]) |
+               (static_cast<size_t>(blob.data[offset + 1]) << 8);
+    }
+
+    size_t section_table_offset(const blob_copy& blob) {
+        return static_cast<size_t>(blob_u64(blob, 40));
+    }
+
+    size_t section_table_size(const blob_copy& blob) {
+        return blob_u16(blob, 58);
+    }
+
+    size_t section_count(const blob_copy& blob) {
+        return blob_u16(blob, 60);
+    }
+
+    size_t section_header_offset(const blob_copy& blob, size_t index) {
+        return section_table_offset(blob) + index * section_table_size(blob);
+    }
+
     size_t module_symbol_offset(const blob_copy& blob, size_t* string_name = nullptr) {
-        const size_t section_offset = static_cast<size_t>(blob_u64(blob, 40));
-        const size_t section_count = static_cast<size_t>(blob.data[60]) |
-                                     (static_cast<size_t>(blob.data[61]) << 8);
-        const size_t section_size = static_cast<size_t>(blob.data[58]) |
-                                    (static_cast<size_t>(blob.data[59]) << 8);
-        for (size_t i = 0; i < section_count; ++i) {
-            const size_t section = section_offset + i * section_size;
-            const unsigned int type = static_cast<unsigned int>(blob.data[section + 4]) |
-                                      (static_cast<unsigned int>(blob.data[section + 5]) << 8);
+        for (size_t i = 0; i < section_count(blob); ++i) {
+            const size_t section = section_header_offset(blob, i);
+            const unsigned int type = static_cast<unsigned int>(blob_u32(blob, section + 4));
             if (type != 2)
                 continue;
             const size_t symbols = static_cast<size_t>(blob_u64(blob, section + 32)) / 24;
             const size_t symbol_offset = static_cast<size_t>(blob_u64(blob, section + 24));
-            const size_t string_index = static_cast<size_t>(blob.data[section + 40]) |
-                                        (static_cast<size_t>(blob.data[section + 41]) << 8) |
-                                        (static_cast<size_t>(blob.data[section + 42]) << 16) |
-                                        (static_cast<size_t>(blob.data[section + 43]) << 24);
-            const size_t string_section = section_offset + string_index * section_size;
+            const size_t string_index = blob_u32(blob, section + 40);
+            const size_t string_section = section_header_offset(blob, string_index);
             const size_t string_offset = static_cast<size_t>(blob_u64(blob, string_section + 24));
             const size_t string_size = static_cast<size_t>(blob_u64(blob, string_section + 32));
             for (size_t j = 0; j < symbols; ++j) {
@@ -855,6 +874,113 @@ ASTIA_TEST(elf_relocatable_rejects_trailing_dot_fini_priority_suffix) {
     blob_copy buf(module_priority_fini_trailing_dot_blob,
                   module_priority_fini_trailing_dot_blob_len);
     ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_out_of_bounds_section_string_table) {
+    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
+    const size_t shstr_index = blob_u16(buf, 62);
+    const size_t shstr_section = section_header_offset(buf, shstr_index);
+    blob_put_u64(buf, shstr_section + 24, buf.len);
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_out_of_bounds_section_name_offset) {
+    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
+    const size_t shstr_index = blob_u16(buf, 62);
+    const size_t shstr_section = section_header_offset(buf, shstr_index);
+    const size_t shstr_size = static_cast<size_t>(blob_u64(buf, shstr_section + 32));
+    bool found = false;
+    for (size_t i = 0; i < section_count(buf); ++i) {
+        const size_t section = section_header_offset(buf, i);
+        if (blob_u32(buf, section) == 0)
+            continue;
+        blob_put_u32(buf, section, static_cast<unsigned int>(shstr_size));
+        found = true;
+        break;
+    }
+    ASTIA_CHECK(found);
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_section_name_without_nul) {
+    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
+    const size_t shstr_index = blob_u16(buf, 62);
+    const size_t shstr_section = section_header_offset(buf, shstr_index);
+    const size_t shstr_offset = static_cast<size_t>(blob_u64(buf, shstr_section + 24));
+    const size_t shstr_size = static_cast<size_t>(blob_u64(buf, shstr_section + 32));
+    ASTIA_CHECK(shstr_size != 0);
+    if (shstr_size == 0)
+        return;
+    for (size_t i = 0; i < section_count(buf); ++i) {
+        const size_t section = section_header_offset(buf, i);
+        if (blob_u32(buf, section) == 0)
+            continue;
+        blob_put_u32(buf, section, static_cast<unsigned int>(shstr_size - 1));
+        buf.data[shstr_offset + shstr_size - 1] = 'x';
+        ASTIA_CHECK(!load_relocatable_fixture(buf));
+        return;
+    }
+    ASTIA_CHECK(false);
+}
+
+ASTIA_TEST(elf_relocatable_rejects_out_of_bounds_symbol_name_offset) {
+    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
+    const size_t symbol = module_symbol_offset(buf);
+    ASTIA_CHECK(symbol != 0);
+    if (symbol == 0)
+        return;
+    bool found = false;
+    for (size_t i = 0; i < section_count(buf); ++i) {
+        const size_t section = section_header_offset(buf, i);
+        if (static_cast<unsigned int>(blob_u32(buf, section + 4)) != 2)
+            continue;
+        const size_t symbols = static_cast<size_t>(blob_u64(buf, section + 32)) / 24;
+        const size_t symbol_offset = static_cast<size_t>(blob_u64(buf, section + 24));
+        for (size_t j = 0; j < symbols; ++j) {
+            if (symbol_offset + j * 24 == symbol) {
+                const size_t string_index = blob_u32(buf, section + 40);
+                const size_t string_section = section_header_offset(buf, string_index);
+                const size_t string_size =
+                    static_cast<size_t>(blob_u64(buf, string_section + 32));
+                blob_put_u32(buf, symbol, static_cast<unsigned int>(string_size));
+                found = true;
+                break;
+            }
+        }
+        if (found)
+            break;
+    }
+    ASTIA_CHECK(found);
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_symbol_name_without_nul) {
+    blob_copy buf(module_symbols_blob, module_symbols_blob_len);
+    const size_t symbol = module_symbol_offset(buf);
+    ASTIA_CHECK(symbol != 0);
+    if (symbol == 0)
+        return;
+    for (size_t i = 0; i < section_count(buf); ++i) {
+        const size_t section = section_header_offset(buf, i);
+        if (static_cast<unsigned int>(blob_u32(buf, section + 4)) != 2)
+            continue;
+        const size_t symbols = static_cast<size_t>(blob_u64(buf, section + 32)) / 24;
+        const size_t symbol_offset = static_cast<size_t>(blob_u64(buf, section + 24));
+        if (symbol < symbol_offset || symbol >= symbol_offset + symbols * 24)
+            continue;
+        const size_t string_index = blob_u32(buf, section + 40);
+        const size_t string_section = section_header_offset(buf, string_index);
+        const size_t string_offset = static_cast<size_t>(blob_u64(buf, string_section + 24));
+        const size_t string_size = static_cast<size_t>(blob_u64(buf, string_section + 32));
+        ASTIA_CHECK(string_size != 0);
+        if (string_size == 0)
+            return;
+        blob_put_u32(buf, symbol, static_cast<unsigned int>(string_size - 1));
+        buf.data[string_offset + string_size - 1] = 'x';
+        ASTIA_CHECK(!load_relocatable_fixture(buf));
+        return;
+    }
+    ASTIA_CHECK(false);
 }
 
 ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
