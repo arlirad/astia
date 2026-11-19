@@ -134,7 +134,7 @@ namespace astia::usb::xhci {
             bool                                               quarantined_ = false;
             bool                                               bar_mapped_  = false;
             bool     bus_master_changed_                                    = false;
-            bool     msix_disabled_                                         = false;
+            bool     msix_modified_                                         = false;
             uint16_t original_command_                                      = 0;
             uint16_t original_msix_                                         = 0;
 
@@ -153,11 +153,9 @@ namespace astia::usb::xhci {
                     (void) astia::module::pci_unmap_bar(pci_, 0);
                     bar_mapped_ = false;
                 }
-                if (msix_disabled_) {
-                    (void) astia::module::pci_write16(
-                        pci_, static_cast<uint16_t>(pci_->interrupt.capability + 2),
-                        original_msix_);
-                    msix_disabled_ = false;
+                if (msix_modified_) {
+                    (void) astia::module::pci_restore_msix(pci_, original_msix_);
+                    msix_modified_ = false;
                 }
                 if (bus_master_changed_) {
                     (void) astia::module::pci_disable_bus_master(pci_);
@@ -515,11 +513,11 @@ namespace astia::usb::xhci {
                 if (pci_->interrupt.msix) {
                     original_msix_ = astia::module::pci_read16(
                         pci_, static_cast<uint16_t>(pci_->interrupt.capability + 2));
-                    msix_disabled_ = (original_msix_ & (1u << 15)) != 0;
                 }
                 if (!astia::module::pci_disable_msix(pci_) ||
                     !astia::module::pci_map_bar(pci_, 0))
                     return rollback_pci(), -19;
+                msix_modified_        = pci_->interrupt.msix;
                 bar_mapped_           = true;
                 const uint64_t mapped = astia::module::pci_bar_mapped(pci_, 0);
                 const uint64_t size   = astia::module::pci_bar_size(pci_, 0);

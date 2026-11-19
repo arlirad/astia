@@ -568,9 +568,10 @@ astia_add_host_test(astia_module_lifecycle_test
          ${_lifecycle_limit_fixture_cpp}
          ${_lifecycle_dso_fixture_cpp}
         ${_lifecycle_no_fini_fixture_cpp}
-        ${_lifecycle_priority_fixture_cpp}
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
+         ${_lifecycle_priority_fixture_cpp}
+         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
+         module_cxxabi_host_test.cpp
+         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/exec_loader.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/reloc_loader.cpp
 )
