@@ -428,9 +428,11 @@ class PackageManagerTest(unittest.TestCase):
                 module.directory_metadata = original
 
         check(effective_uid, 0o755)
+        check(effective_uid, 0o1777)
         check(0, 0o755)
-        check(2000, 0o1777)
-        check(2000, 0o755, "owner-writable by a foreign user")
+        check(0, 0o1777)
+        check(2000, 0o1777, "not owned by a trusted UID")
+        check(2000, 0o555, "not owned by a trusted UID")
 
     def test_archive_expansion_limit(self):
         archive_path = self.repo / "huge-members.tar.gz"

@@ -143,11 +143,11 @@ live under `.pkg`; package paths cannot use that reserved namespace.
 
 The supported root trust boundary requires the package root and mutable
 package descendants to be owned by the effective process UID and not writable
-by group/other. An ancestor is accepted when it is process-owned, an explicitly
-trusted system directory owned by UID 0 without group/other write access, or a
-sticky directory whose sticky semantics prevent an untrusted owner from
-renaming this process-owned child. Any other foreign-UID owner-writable
-ancestor is rejected before the root is opened. This prevents other-user
+by group/other. An ancestor is accepted only when it is process-owned or an
+explicitly trusted system directory owned by UID 0. Sticky mode does not grant
+trust to a foreign owner; root-owned sticky system directories are accepted,
+but all other foreign-owned ancestors, including read-only ones, are rejected
+before the root is opened to prevent ownership/mode TOCTOU changes. This prevents other-user
 directory-rename races; a same-UID process that can mutate the trusted root
 concurrently is outside the threat model. The prototype does not claim hostile
 shared-root safety.
