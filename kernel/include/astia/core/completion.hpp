@@ -9,10 +9,12 @@
 
 namespace astia::core {
 
-    /// One-shot awaitable completion. The producer may complete it from an
-    /// IRQ-safe path; the consumer awaits it without a callback or lock.
+    /// One-shot awaitable completion owning its optional result and awaiting
+    /// continuation handle, but not the coroutine frame that owns the handle.
+    /// The producer may complete it from an IRQ-safe path; the consumer awaits
+    /// it without a callback or lock.
     template <typename T>
-    class async_operation {
+    class completion {
         enum class state : u8 {
             pending,
             completing,
@@ -55,44 +57,44 @@ namespace astia::core {
 
         public:
         class awaiter {
-            async_operation*        operation_;
+            completion*             completion_;
             std::coroutine_handle<> continuation_{};
             u64                     generation_ = 0;
 
             public:
-            explicit awaiter(async_operation* operation) : operation_(operation) {}
+            explicit awaiter(completion* completion) : completion_(completion) {}
             awaiter(const awaiter&)            = delete;
             awaiter& operator=(const awaiter&) = delete;
             awaiter(awaiter&& other) noexcept
-                : operation_(other.operation_), continuation_(other.continuation_),
+                : completion_(other.completion_), continuation_(other.continuation_),
                   generation_(other.generation_) {
-                other.operation_    = nullptr;
+                other.completion_   = nullptr;
                 other.continuation_ = {};
                 other.generation_   = 0;
             }
             ~awaiter() {
-                if (operation_ != nullptr)
-                    operation_->detach(continuation_, generation_);
+                if (completion_ != nullptr)
+                    completion_->detach(continuation_, generation_);
             }
 
             bool await_ready() const noexcept {
-                return operation_->finished();
+                return completion_->finished();
             }
 
             bool await_suspend(std::coroutine_handle<> continuation) noexcept {
                 continuation_ = continuation;
-                generation_   = operation_->attach(continuation);
+                generation_   = completion_->attach(continuation);
                 return generation_ != 0;
             }
 
             optional<T> await_resume() {
-                return static_cast<optional<T>&&>(operation_->result_);
+                return static_cast<optional<T>&&>(completion_->result_);
             }
         };
 
-        async_operation()                                  = default;
-        async_operation(const async_operation&)            = delete;
-        async_operation& operator=(const async_operation&) = delete;
+        completion()                             = default;
+        completion(const completion&)            = delete;
+        completion& operator=(const completion&) = delete;
 
         bool complete(const T& value) {
             if (!begin_completion())

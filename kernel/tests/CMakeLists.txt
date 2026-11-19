@@ -81,6 +81,7 @@ astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
+astia_add_host_test(astia_completion_test completion_test.cpp)
 astia_add_host_test(astia_path_service_test
         path_service_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/path_service.cpp)
@@ -744,7 +745,6 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: clock ok"
                 "selftest: statx ok"
                 "smp: discovered=2 online=1"
-                "AP startup deferred: no APIC-ID topology"
                 "smp: reschedule IPI armed"
         )
         set_tests_properties(astia_kernel_lifecycle_smp2 PROPERTIES
@@ -756,7 +756,6 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ""
                 "smp: discovered=2 online=1"
-                "AP startup deferred: no APIC-ID topology"
                 "smp: reschedule IPI armed"
         )
         set_tests_properties(astia_kernel_smp_boot PROPERTIES
@@ -1097,7 +1096,8 @@ if (ARCH STREQUAL "x86_64")
                     WORKING_DIRECTORY ${ASTIA_KERNEL_SOURCE_DIR}
                     COMMENT "Building GRUB Multiboot2 ISO")
             add_test(NAME astia_grub_smp_boot
-                    COMMAND env ASTIA_GRUB_EXPECT_AP_WORK=1 sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
+                    COMMAND env ASTIA_GRUB_EXPECT_AP_WORK=1 ASTIA_GRUB_EXPECT_APIC_TOPOLOGY=1
+                            sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                     ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp_boot PROPERTIES TIMEOUT 30)
             add_test(NAME astia_grub_framebuffer_boot
@@ -1106,6 +1106,7 @@ if (ARCH STREQUAL "x86_64")
             set_tests_properties(astia_grub_framebuffer_boot PROPERTIES TIMEOUT 30)
             add_test(NAME astia_grub_smp4_boot
                     COMMAND env ASTIA_SMP=4 ASTIA_GRUB_EXPECT_AP_WORK=1
+                            ASTIA_GRUB_EXPECT_APIC_TOPOLOGY=1
                             sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                             ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp4_boot PROPERTIES TIMEOUT 30)

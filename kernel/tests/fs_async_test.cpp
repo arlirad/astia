@@ -14,10 +14,10 @@ namespace {
     };
 
     submit_mode submit_mode_state = submit_mode::synchronous_zero;
-    astia::core::async_operation<astia::i64>* parked_completion   = nullptr;
-    astia::io::request*                       parked_request      = nullptr;
-    astia::usize                              synchronous_submits = 0;
-    astia::io::direction last_direction = astia::io::direction::input;
+    astia::core::completion<astia::i64>* parked_completion   = nullptr;
+    astia::io::request*                  parked_request      = nullptr;
+    astia::usize                         synchronous_submits = 0;
+    astia::io::direction                 last_direction = astia::io::direction::input;
 
     astia::core::task<astia::i64>
     read_many(const astia::mm::shptr<astia::fs::open_file>& file,

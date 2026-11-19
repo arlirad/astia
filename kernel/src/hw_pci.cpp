@@ -271,7 +271,7 @@ namespace astia::hw {
         }
 
         bool describe(pci_bdf address, pci_device& result) {
-            result          = {};
+            result          = pci_device{};
             result.bdf      = address;
             result.bus      = address.bus;
             result.device   = address.device;
@@ -348,7 +348,7 @@ namespace astia::hw {
                 if (device.bars[bar].mapped_valid)
                     release_resource(device.bdf, bar);
             }
-            device = {};
+            device = pci_device{};
         }
         count_ = 0;
     }

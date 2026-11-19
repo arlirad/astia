@@ -8,13 +8,13 @@ findings below are fixed by the async slices.
 
 ### Fixed — deferred wake drops a live continuation
 
-`kernel/include/astia/core/async_operation.hpp:40-45` exchanges the waiting
+`kernel/include/astia/core/completion.hpp:40-45` exchanges the waiting
 coroutine handle before calling `schedule_resume()`, then discards the boolean
 return value. `kernel/src/core/resume_queue.cpp:11-16` uses a fixed 256-entry
 queue and returns `false` when the per-CPU queue is full (or the CPU index is
 invalid). There is no retry, fallback, or cancellation of the extracted
 handle. The operation is nevertheless published completed at
-`async_operation.hpp:118-134`.
+`completion.hpp:118-134`.
 
 Focused probe `/tmp/opencode/deferred_drop_probe.cpp` supplied a
 `schedule_resume()` implementation that always returned false. It observed:
@@ -26,15 +26,15 @@ failure path.
 
 ### Fixed — queued continuation can outlive a destroyed task frame
 
-`async_operation::wake_deferred()` removes the handle from the operation and
-publishes it to the resume queue (`async_operation.hpp:40-45`). `task::reset()`
+`completion::wake_deferred()` removes the handle from the operation and
+publishes it to the resume queue (`completion.hpp:40-45`). `task::reset()`
 then destroys the coroutine frame without removing handles already queued
 (`task.hpp:246-251` and `370-375`). `drain_resumes()` unconditionally resumes
 each queued handle (`resume_queue.cpp:18-27`). Therefore completion followed by
 task destruction before queue drain leaves a stale handle in the queue; a later
 drain resumes a destroyed frame. The same race exists between
-`async_operation::wake()`'s atomic exchange (`async_operation.hpp:33-38`) and
-awaiter destruction (`async_operation.hpp:61-64, 181-187`): if wake exchanges
+`completion::wake()`'s atomic exchange (`completion.hpp:33-38`) and
+awaiter destruction (`completion.hpp:61-64, 181-187`): if wake exchanges
 the handle and is preempted before `resume()`, destruction can destroy the
 frame and wake then resumes it.
 
@@ -65,16 +65,16 @@ acknowledge before request/completion storage is reclaimed.
 
 ## Call-site results
 
-- `async_operation::complete()/fail()/cancel()` use inline `wake()` by design
-  (`async_operation.hpp:82-116`) and are appropriate only for task context.
+- `completion::complete()/fail()/cancel()` use inline `wake()` by design
+  (`completion.hpp:82-116`) and are appropriate only for task context.
 - No production callsite invokes those methods from an IRQ/device-ready path.
   The IRQ-ready path is `io_device_ready_context()` → `resume_parked()` and
-  its async-operation branches use `complete_deferred()/fail_deferred()` at
+  its completion branches use `complete_deferred()/fail_deferred()` at
   `aio.cpp:819-840`.
 - No direct coroutine `.resume()` appears in the IRQ-ready path. The only
   resume in `resume_queue.cpp` is scheduler drain context.
-- `grep` found async-operation allocation only in `fs_io.cpp`; current AIO
-  `parked_op` requests are constructed without an async-operation completion,
+- `grep` found completion allocation only in `fs_io.cpp`; current AIO
+  `parked_op` requests are constructed without a completion,
   so the deferred-completion branches in AIO are defensive/future-facing.
 
 ## Verification
