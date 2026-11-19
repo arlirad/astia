@@ -26,6 +26,10 @@ extern unsigned char hello_mod_blob[];
 extern unsigned int  hello_mod_blob_len;
 extern unsigned char module_symbols_blob[];
 extern unsigned int  module_symbols_blob_len;
+extern unsigned char module_priority_malformed_blob[];
+extern unsigned int  module_priority_malformed_blob_len;
+extern unsigned char module_priority_overflow_blob[];
+extern unsigned int  module_priority_overflow_blob_len;
 
 // --- Executable fixtures (see tests/fixture_exec.c) ---
 extern unsigned char fixture_dyn_blob[];
@@ -824,6 +828,16 @@ ASTIA_TEST(elf_relocatable_rejects_malformed_constructor_array) {
         }
     }
     ASTIA_CHECK(found);
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_malformed_priority_suffix) {
+    blob_copy buf(module_priority_malformed_blob, module_priority_malformed_blob_len);
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_overflowing_priority_suffix) {
+    blob_copy buf(module_priority_overflow_blob, module_priority_overflow_blob_len);
     ASTIA_CHECK(!load_relocatable_fixture(buf));
 }
 
