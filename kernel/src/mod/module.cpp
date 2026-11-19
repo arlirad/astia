@@ -23,8 +23,8 @@ namespace astia::mod {
 
     namespace {
 
-        loaded_module modules[max_modules] = {};
-        usize         used                 = 0;
+        loaded_module  modules[max_modules] = {};
+        usize          used                 = 0;
         loaded_module* active               = nullptr;
 
         /// Frame-allocator-backed memory for the ELF loader.
