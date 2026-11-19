@@ -31,7 +31,7 @@ namespace astia::elf {
             return false;
         }
 
-        bool section_name(const view& v, u16 index, const char*& out) {
+        bool section_name(const view& v, u16 index, const char*& out, usize& out_size) {
             if (index >= v.shnum || v.shstr == nullptr)
                 return false;
             const u32 offset = v.sh[index].sh_name;
@@ -40,7 +40,8 @@ namespace astia::elf {
             const char* name = v.shstr + offset;
             for (usize i = 0; i < v.shstrsize - offset; ++i) {
                 if (name[i] == '\0') {
-                    out = name;
+                    out      = name;
+                    out_size = i;
                     return true;
                 }
             }
