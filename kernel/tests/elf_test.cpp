@@ -3,6 +3,7 @@
 #include "test.hpp"
 #include <sys/mman.h>
 
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
 
@@ -420,6 +421,8 @@ namespace {
         size_t               fail_read_after = ~size_t{0};
         size_t               copy_calls      = 0;
         size_t               fail_copy_after = ~size_t{0};
+        bool                 pause_next_read = false;
+        bool                 paused          = false;
     };
 
     void* congruent_stream_map(void* ctx, astia::u64 hint, astia::usize size,
@@ -468,6 +471,15 @@ namespace {
         return exec_map(&context->arena, hint, size, align, fixed);
     }
 
+    void* pausing_stream_map(void* ctx, astia::u64 hint, astia::usize size,
+                             astia::usize align, bool fixed) {
+        auto* context = static_cast<stream_exec_context*>(ctx);
+        void* result  = stream_map(ctx, hint, size, align, fixed);
+        if (result != nullptr)
+            context->pause_next_read = true;
+        return result;
+    }
+
     void stream_unmap(void* ctx, void* address, astia::usize size) {
         auto* context = static_cast<stream_exec_context*>(ctx);
         exec_unmap(&context->arena, address, size);
@@ -481,6 +493,12 @@ namespace {
             co_return astia::error_t::erange;
         if (context->read_calls >= context->fail_read_after)
             co_return astia::error_t::eio;
+        if (context->pause_next_read) {
+            context->pause_next_read = false;
+            context->paused          = true;
+            co_await std::suspend_always{};
+            context->paused = false;
+        }
         ++context->read_calls;
         context->read_bytes += destination.size();
         if (destination.size() > context->max_read)
@@ -1372,6 +1390,38 @@ ASTIA_TEST(elf_stream_read_failure_releases_mapping) {
         task.resume();
     ASTIA_CHECK(task.failed());
     ASTIA_CHECK(context.arena.mapped == 1);
+    ASTIA_CHECK(context.arena.unmapped == 1);
+}
+
+ASTIA_TEST(elf_stream_rejects_scratch_allocation_failure) {
+    stream_exec_context   context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
+    astia::elf::async_env environment{};
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
+    environment.unmap = stream_unmap;
+
+    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    astia_test::fail_next_allocation();
+    task.resume();
+    ASTIA_CHECK(task.failed());
+    ASTIA_CHECK(context.arena.mapped == 0);
+}
+
+ASTIA_TEST(elf_stream_destroy_releases_mapping) {
+    stream_exec_context   context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
+    astia::elf::async_env environment{};
+    environment.ctx   = &context;
+    environment.map   = pausing_stream_map;
+    environment.read  = stream_read;
+    environment.unmap = stream_unmap;
+
+    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    while (!task.done() && !context.paused)
+        task.resume();
+    ASTIA_CHECK(context.arena.mapped == 1);
+    ASTIA_CHECK(context.paused);
+    task.reset();
     ASTIA_CHECK(context.arena.unmapped == 1);
 }
 
