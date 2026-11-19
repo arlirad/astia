@@ -193,6 +193,7 @@ namespace {
         bool                   started              = false;
         bool                   failed               = false;
         bool                   quiescing            = false;
+        bool                   quiesce_safe         = true;
         bool                   release_pending      = false;
         queue                  _requestqueue{};
 
@@ -376,22 +377,31 @@ namespace {
             return true;
         }
 
-        void disable_queue() {
+        bool disable_queue() {
             if (!_requestqueue.enabled)
-                return;
+                return true;
+            bool reset = true;
             if (ring_reset) {
                 common.write<uint16_t>(0x38, 1);
+                reset = false;
                 for (unsigned spin = 0; spin < timeout_spins; ++spin) {
-                    if (common.read<uint16_t>(0x38) == 0)
+                    if (common.read<uint16_t>(0x38) == 0) {
+                        reset = true;
                         break;
+                    }
                     asm volatile("pause");
                 }
             }
             _requestqueue.enabled = false;
+            return reset;
         }
 
         void release() {
             quiesce();
+            if (!quiesce_safe) {
+                release_pending = true;
+                return;
+            }
             if (pending.active) {
                 release_pending = true;
                 return;
@@ -407,20 +417,20 @@ namespace {
         void quiesce() {
             if (quiescing)
                 return;
-            quiescing = true;
-            disable_queue();
+            quiescing    = true;
+            quiesce_safe = disable_queue();
             if (common.mapped())
-                (void) reset_device();
+                quiesce_safe = reset_device() && quiesce_safe;
             if (!pending.active)
                 return;
             pending.completed     = true;
             pending.result        = -19;
-            pending.hardware_done = true;
-            if (pending.io != nullptr) {
+            pending.hardware_done = quiesce_safe;
+            if (pending.io != nullptr && quiesce_safe) {
                 if (pending.io->device_state() != nullptr)
                     pending.io->wake();
             }
-            else {
+            else if (pending.io == nullptr && quiesce_safe) {
                 pending.request.release();
                 pending = {};
             }
@@ -459,7 +469,8 @@ namespace {
         bool reset_queue_after_timeout() {
             if (!ring_reset)
                 return false;
-            disable_queue();
+            if (!disable_queue())
+                return false;
             _requestqueue.clear();
             common.write<uint16_t>(0x18, static_cast<uint16_t>(_requestqueue.size));
             common.write<uint64_t>(0x20, _requestqueue.memory.physical() +
