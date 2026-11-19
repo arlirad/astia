@@ -215,6 +215,10 @@ namespace astia::arch::x86_64::smp {
             }
         }
         const u32 found = have_acpi ? find_madt(r) : 0;
+        if (have_acpi && found == 0) {
+            have_acpi = false;
+            cpu_total = platform::clamp_cpu_count(cpuid_threads());
+        }
         if (found != 0)
             cpu_total = platform::clamp_cpu_count(found);
         logs::info("discovered=%u online=1", cpu_total);
@@ -222,7 +226,9 @@ namespace astia::arch::x86_64::smp {
             return true;
         if (!have_acpi) {
             logs::info(
-                "AP startup deferred: no APIC-ID topology (PVH provides no ACPI RSDP)");
+                found == 0 && r != nullptr
+                    ? "AP startup deferred: no APIC-ID topology (invalid/missing MADT)"
+                    : "AP startup deferred: no APIC-ID topology (PVH provides no ACPI RSDP)");
             logs::info("reschedule IPI armed");
             return true;
         }

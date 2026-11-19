@@ -32,4 +32,10 @@ if [ "${ASTIA_GRUB_EXPECT_AP_WORK:-0}" = 1 ]; then
     grep -qF "smp scheduler: AP work ok" "$log"
     grep -qF "smp scheduler: migration ok" "$log"
 fi
+if [ "${ASTIA_GRUB_EXPECT_APIC_TOPOLOGY:-0}" = 1 ]; then
+    if grep -qF "AP startup deferred" "$log"; then
+        echo "test-grub-smp: AP startup was deferred" >&2
+        exit 1
+    fi
+fi
 exit 0

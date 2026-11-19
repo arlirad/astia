@@ -1098,7 +1098,8 @@ if (ARCH STREQUAL "x86_64")
                     WORKING_DIRECTORY ${ASTIA_KERNEL_SOURCE_DIR}
                     COMMENT "Building GRUB Multiboot2 ISO")
             add_test(NAME astia_grub_smp_boot
-                    COMMAND env ASTIA_GRUB_EXPECT_AP_WORK=1 sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
+                    COMMAND env ASTIA_GRUB_EXPECT_AP_WORK=1 ASTIA_GRUB_EXPECT_APIC_TOPOLOGY=1
+                            sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                     ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp_boot PROPERTIES TIMEOUT 30)
             add_test(NAME astia_grub_framebuffer_boot
@@ -1107,6 +1108,7 @@ if (ARCH STREQUAL "x86_64")
             set_tests_properties(astia_grub_framebuffer_boot PROPERTIES TIMEOUT 30)
             add_test(NAME astia_grub_smp4_boot
                     COMMAND env ASTIA_SMP=4 ASTIA_GRUB_EXPECT_AP_WORK=1
+                            ASTIA_GRUB_EXPECT_APIC_TOPOLOGY=1
                             sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                             ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp4_boot PROPERTIES TIMEOUT 30)
