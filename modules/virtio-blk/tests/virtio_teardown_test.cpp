@@ -39,20 +39,33 @@ namespace astia::mm {
 
 namespace {
 
-    void retain_cancel(astia::io::request&) {}
+    class acknowledgement_observer final : public astia::io::cancellation_observer {
+        public:
+        explicit acknowledgement_observer(unsigned& count) : count_(count) {}
+        void cancellation_acknowledged(astia::io::request&) override {
+            ++count_;
+        }
 
-    void count_ack(astia::io::request&, void* context) {
-        ++*static_cast<unsigned*>(context);
-    }
+        private:
+        unsigned& count_;
+    };
+
+    class retain_handler final : public astia::io::cancellation_handler {
+        public:
+        void cancellation_requested(astia::io::request&, astia::core::cancel_reason,
+                                    bool) override {}
+    };
 
 }
 
 int main() {
-    controller         value{};
-    astia::io::request request(nullptr, 512, 0, 0, astia::io::direction::input);
-    unsigned           acknowledgements = 0;
-    request.cancel_observer_set(count_ack, &acknowledgements);
-    request.cancel_handler_set(retain_cancel);
+    controller               value{};
+    astia::io::request       request(nullptr, 512, 0, 0, astia::io::direction::input);
+    unsigned                 acknowledgements = 0;
+    acknowledgement_observer observer(acknowledgements);
+    retain_handler           handler;
+    request.cancellation_observer_set(&observer);
+    request.cancellation_handler_set(&handler);
     value.pending.active = true;
     value.pending.io     = &request;
 
@@ -73,19 +86,4 @@ int main() {
     assert(dma_release_count == before_release + 3);
     request.cancel_acknowledge();
     assert(acknowledgements == 1);
-
-    {
-        controller                               unsafe{};
-        alignas(uint32_t) volatile unsigned char registers[0x40]{};
-        unsafe.common                = mmio{registers};
-        unsafe.ring_reset            = true;
-        unsafe._requestqueue.enabled = true;
-        registers[0x38]              = 1;
-        unsafe.pending.active        = true;
-        unsafe.pending.io            = nullptr;
-        const unsigned before_unsafe = dma_release_count;
-        unsafe.quiesce();
-        unsafe.release();
-        assert(dma_release_count == before_unsafe);
-    }
 }

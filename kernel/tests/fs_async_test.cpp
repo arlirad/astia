@@ -152,7 +152,7 @@ ASTIA_TEST(fs_async_handles_long_synchronous_nested_reads) {
     ASTIA_CHECK(synchronous_submits == sizeof buffer);
 }
 
-ASTIA_TEST(fs_async_cancels_parked_device_flight) {
+ASTIA_TEST(fs_async_cancels_parked_device_operation) {
     astia::fs::open_file file({}, astia::fs::open_file_status_flags::none);
     auto                 handle = astia::mm::shptr<astia::fs::open_file>::borrowed(&file);
     astia::u8            buffer[1]{};
