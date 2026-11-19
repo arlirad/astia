@@ -1,7 +1,7 @@
 #pragma once
 
-#include <astia/optional.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/optional.hpp>
 
 namespace astia::core {
 

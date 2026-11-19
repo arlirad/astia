@@ -8,10 +8,10 @@
 
 namespace {
 
-    using astia::u8;
     using astia::u16;
     using astia::u32;
     using astia::u64;
+    using astia::u8;
 
     struct image {
         std::vector<u8> bytes;
