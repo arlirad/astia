@@ -1,8 +1,8 @@
 #pragma once
 
 #include <astia/common.hpp>
-#include <astia/core/task.hpp>
 #include <astia/span.hpp>
+#include <astia/core/task.hpp>
 
 // A freestanding x86-64 ELF loader, generic over the two shapes the kernel
 // actually consumes:

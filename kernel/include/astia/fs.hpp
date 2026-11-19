@@ -3,8 +3,8 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/common.hpp>
-#include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
+#include <astia/core/spinlock.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/share.hpp>

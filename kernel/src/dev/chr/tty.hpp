@@ -1,8 +1,8 @@
 #pragma once
 
+#include <astia/dev/chr/chrdev.hpp>
 #include <astia/api/termios.h>
 #include <astia/core/spinlock.hpp>
-#include <astia/dev/chr/chrdev.hpp>
 #include <astia/io.hpp>
 
 // An asynchronous terminal: a character device that carries line

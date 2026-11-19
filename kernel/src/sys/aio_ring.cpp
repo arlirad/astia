@@ -1,9 +1,9 @@
 #include "aio_ring.hpp"
 
 #include "user_mem.hpp"
+#include <astia/proc/user_layout.hpp>
 #include <astia/api/errno.h>
 #include <astia/memory.hpp>
-#include <astia/proc/user_layout.hpp>
 
 namespace astia::sys::aio_ring {
 

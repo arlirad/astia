@@ -1,9 +1,9 @@
 #pragma once
 
-#include <astia/core/resume_queue.hpp>
-#include <astia/core/spinlock.hpp>
 #include <astia/error.hpp>
 #include <astia/optional.hpp>
+#include <astia/core/resume_queue.hpp>
+#include <astia/core/spinlock.hpp>
 
 #include <coroutine>
 

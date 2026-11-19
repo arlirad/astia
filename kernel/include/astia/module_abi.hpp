@@ -1,7 +1,7 @@
 #pragma once
 
-#include <astia/mm/shptr.hpp>
 #include <astia/module_abi.h>
+#include <astia/mm/shptr.hpp>
 #include <astia/net.hpp>
 
 namespace astia::module {

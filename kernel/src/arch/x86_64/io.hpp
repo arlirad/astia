@@ -1,7 +1,7 @@
 #pragma once
 
-#include <astia/arch/io.hpp>
 #include <astia/common.hpp>
+#include <astia/arch/io.hpp>
 #include <astia/dev/capabilities.hpp>
 
 // Port I/O and MSR primitives shared by the x86_64 device drivers
