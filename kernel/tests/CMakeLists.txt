@@ -307,7 +307,8 @@ add_custom_command(
         OUTPUT ${_fix_dir}/hello_mod.o
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
-        -mcmodel=large -fno-stack-protector -fno-asynchronous-unwind-tables
+        -mcmodel=large -fno-exceptions -fno-stack-protector
+        -fno-asynchronous-unwind-tables -fno-unwind-tables
         -o ${_fix_dir}/hello_mod.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.cpp
         DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.cpp
         COMMENT "Compiling ET_REL fixture hello_mod.o"
@@ -319,7 +320,7 @@ add_custom_command(
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
         -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-stack-protector
-        -fno-asynchronous-unwind-tables
+        -fno-asynchronous-unwind-tables -fno-unwind-tables
         -mcmodel=large -o ${_fix_dir}/module_symbols.o
         ${CMAKE_CURRENT_SOURCE_DIR}/module_symbols.cpp
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_symbols.cpp

@@ -33,6 +33,12 @@ extern unsigned int  fixture_dyn_blob_len;
 extern unsigned char fixture_exec_blob[];
 extern unsigned int  fixture_exec_blob_len;
 
+#if defined(__clang__)
+#define ASTIA_NO_SANITIZE_FUNCTION __attribute__((no_sanitize("function")))
+#else
+#define ASTIA_NO_SANITIZE_FUNCTION
+#endif
+
 int kernel_add(int a, int b) {
     return a + b;
 }
@@ -50,6 +56,20 @@ namespace kernel_fixture {
 }
 
 namespace {
+
+    ASTIA_NO_SANITIZE_FUNCTION int invoke_module_entry(void* entry) {
+        return reinterpret_cast<int (*)()>(entry)();
+    }
+
+    ASTIA_NO_SANITIZE_FUNCTION void
+    invoke_module_initializer(astia::elf::init_fn fn) {
+        fn();
+    }
+
+    ASTIA_NO_SANITIZE_FUNCTION void
+    invoke_module_finalizer(astia::elf::init_fn fn) {
+        fn();
+    }
 
     // ====================================================================
     //  ET_REL environment: a bump arena for sections, with import stubs
@@ -507,11 +527,11 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
     ASTIA_CHECK(a.unmapped == 0);
 
     if (img.entry != nullptr) {
-        auto entry = reinterpret_cast<int (*)()>(img.entry);
         // counter starts at 40 (.data), module_main does counter += 2 then
         // returns kernel_add(counter, 0) == 42.
-        ASTIA_CHECK(entry() == 42);
-        ASTIA_CHECK(entry() == 44); // module-local state persists across calls
+        ASTIA_CHECK(invoke_module_entry(img.entry) == 42);
+        ASTIA_CHECK(invoke_module_entry(img.entry) ==
+                    44); // module-local state persists across calls
     }
 
     munmap(mem, cap);
@@ -540,13 +560,15 @@ ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
     ASTIA_CHECK(img.init_count != 0);
     for (size_t i = 0; i < img.init_count; ++i)
         if (img.init_array[i] != nullptr)
-            img.init_array[i]();
+            invoke_module_initializer(img.init_array[i]);
     if (img.entry != nullptr)
-        ASTIA_CHECK(reinterpret_cast<int (*)()>(img.entry)() == 49);
+        ASTIA_CHECK(invoke_module_entry(img.entry) == 49);
     for (size_t i = img.fini_count; i != 0; --i)
         if (img.fini_array[i - 1] != nullptr)
-            img.fini_array[i - 1]();
+            invoke_module_finalizer(img.fini_array[i - 1]);
     ASTIA_CHECK(img.fini_count != 0);
+    if (img.entry != nullptr)
+        ASTIA_CHECK(invoke_module_entry(img.entry) == 141);
     munmap(mem, cap);
 }
 

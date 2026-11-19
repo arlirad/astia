@@ -259,7 +259,7 @@ namespace astia::elf {
                 continue;
             if ((section.sh_flags & (shf_alloc | shf_write)) !=
                     (shf_alloc | shf_write) ||
-                section.sh_entsize != sizeof(u64) ||
+                (section.sh_entsize != 0 && section.sh_entsize != sizeof(u64)) ||
                 section.sh_size % sizeof(u64) != 0)
                 return false;
             const usize count = section.sh_size / sizeof(u64);
