@@ -9,10 +9,15 @@ namespace {
 
     int constructor_value = 0;
 
-    struct fixture_guard {
-        fixture_guard() { constructor_value = 7; }
-        ~fixture_guard() { constructor_value = 99; }
-    } guard;
+    void fixture_init() __attribute__((constructor));
+    void fixture_fini() __attribute__((destructor));
+
+    void fixture_init() {
+        constructor_value = 7;
+    }
+    void fixture_fini() {
+        constructor_value = 99;
+    }
 
 }
 

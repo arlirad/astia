@@ -84,6 +84,15 @@ and interactive tests have `manual` labels and also require
 `ASTIA_ENABLE_MANUAL_TESTS=ON`; they never run accidentally in CI. Keep both
 options OFF in the normal CLion profile.
 
+The ELF fixture test invokes compiler-produced ET_REL code through function
+pointers. Clang's `-fsanitize=undefined` includes its function-type check,
+which expects sanitizer metadata immediately before every indirect-call
+target; a loaded module intentionally has no such metadata. The test keeps
+the check enabled everywhere else and uses a narrow `no_sanitize("function")`
+boundary only for calls into the unsanitized fixture. This preserves the
+loader, relocation, constructor, destructor, and state assertions under
+Clang UBSAN without treating the foreign module as instrumented code.
+
 Enabling the external suites requires QEMU, `cpio`, and clean external source
 trees. Provide a clean zsh checkout with `ASTIA_ZSH_SOURCE` and a clean LTP
 checkout with `ASTIA_POSIX_TEST_SOURCE`; the nano smoke test additionally
