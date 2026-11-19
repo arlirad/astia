@@ -1,10 +1,11 @@
 #pragma once
 
-#include "exports.hpp"
-#include "types.hpp"
 #include <astia/common.hpp>
 #include <astia/elf.hpp>
 #include <astia/span.hpp>
+
+#include "exports.hpp"
+#include "types.hpp"
 
 // Kernel module registry.
 //
@@ -20,17 +21,17 @@ namespace astia::mod {
 
     /// A loaded kernel module.
     struct loaded_module {
-        const char* name; ///< Module name (for diagnostics).
-        void*       base; ///< Load address of the image allocation.
-        usize       size; ///< Bytes allocated for the image.
-        int (*entry)();   ///< Resolved module_main().
-        bool running;     ///< True once entry() has been called.
-        bool initialized;
-        elf::init_fn init_array[elf::max_init_array_entries];
-        usize init_count;
-        elf::init_fn fini_array[elf::max_init_array_entries];
-        usize fini_count;
-        void* loader_context;
+        const char* name;      ///< Module name (for diagnostics).
+        void*       base;      ///< Load address of the image allocation.
+        usize       size;      ///< Bytes allocated for the image.
+        int (*entry)();        ///< Resolved module_main().
+        bool          running; ///< True once entry() has been called.
+        bool          initialized;
+        elf::init_fn  init_array[elf::max_init_array_entries];
+        usize         init_count;
+        elf::init_fn  fini_array[elf::max_init_array_entries];
+        usize         fini_count;
+        void*         loader_context;
         elf::unmap_fn loader_unmap;
     };
 

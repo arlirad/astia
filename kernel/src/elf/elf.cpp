@@ -81,7 +81,7 @@ namespace astia::elf {
             if (shstr.sh_type != sht_strtab ||
                 !in_bounds(shstr.sh_offset, shstr.sh_size, len))
                 return false;
-            v.shstr = reinterpret_cast<const char*>(v.base + shstr.sh_offset);
+            v.shstr     = reinterpret_cast<const char*>(v.base + shstr.sh_offset);
             v.shstrsize = static_cast<usize>(shstr.sh_size);
 
             // Locate SHT_SYMTAB and follow sh_link to its SHT_STRTAB.

@@ -259,10 +259,10 @@ namespace astia::elf {
         }
 
         constexpr const char* module_entry_symbol = "_Z11module_mainv";
-        u32 entry_index = ~u32{0};
+        u32                   entry_index         = ~u32{0};
         for (usize i = 0; i < v.symcount; ++i) {
-            const elf64_sym& sym = v.sym[i];
-            const char* name = nullptr;
+            const elf64_sym& sym  = v.sym[i];
+            const char*      name = nullptr;
             if (!symbol_name(v, sym, name))
                 return false;
             if (!str_eq(name, module_entry_symbol))
@@ -297,13 +297,13 @@ namespace astia::elf {
 
         array_section init_sections[max_init_array_entries] = {};
         array_section fini_sections[max_init_array_entries] = {};
-        usize         init_section_count          = 0;
-        usize         fini_section_count          = 0;
-        usize         init_entry_count            = 0;
-        usize         fini_entry_count            = 0;
+        usize         init_section_count                    = 0;
+        usize         fini_section_count                    = 0;
+        usize         init_entry_count                      = 0;
+        usize         fini_entry_count                      = 0;
         for (u16 i = 0; i < v.shnum; ++i) {
-            const elf64_shdr& section = v.sh[i];
-            const char*       name    = nullptr;
+            const elf64_shdr& section   = v.sh[i];
+            const char*       name      = nullptr;
             usize             name_size = 0;
             if (!section_name(v, i, name, name_size))
                 return false;

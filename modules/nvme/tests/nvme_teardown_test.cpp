@@ -1,20 +1,26 @@
-#include <astia/mm/dma_buffer.hpp>
 #include <astia/io.hpp>
+#include <astia/mm/dma_buffer.hpp>
 
 #include <cassert>
 
 namespace {
-    unsigned dma_release_count = 0;
+    unsigned    dma_release_count = 0;
     const void* released_dma[64]{};
-    unsigned released_dma_count = 0;
+    unsigned    released_dma_count = 0;
 }
 
 namespace astia::mm {
 
     dma_buffer::dma_buffer(dma_buffer&&) noexcept {}
-    dma_buffer& dma_buffer::operator=(dma_buffer&&) noexcept { return *this; }
-    dma_buffer::~dma_buffer() { release(); }
-    bool dma_buffer::allocate(usize, bool) { return false; }
+    dma_buffer& dma_buffer::operator=(dma_buffer&&) noexcept {
+        return *this;
+    }
+    dma_buffer::~dma_buffer() {
+        release();
+    }
+    bool dma_buffer::allocate(usize, bool) {
+        return false;
+    }
     void dma_buffer::release() {
         for (unsigned i = 0; i < released_dma_count; ++i)
             if (released_dma[i] == this)
@@ -52,13 +58,13 @@ namespace {
 }
 
 int main() {
-    controller value{};
+    controller         value{};
     astia::io::request request(nullptr, 512, 0, 0, astia::io::direction::input);
-    unsigned acknowledgements = 0;
+    unsigned           acknowledgements = 0;
     request.cancel_observer_set(count_ack, &acknowledgements);
     request.cancel_handler_set(retain_cancel);
-    auto& pending = value.async_requests[0];
-    pending.used = true;
+    auto& pending   = value.async_requests[0];
+    pending.used    = true;
     pending.request = &request;
 
     assert(request.cancel_device(true));

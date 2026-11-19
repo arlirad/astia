@@ -1,5 +1,5 @@
-#include <astia/hw/driver.hpp>
 #include <astia/dev/blk/blkdev.hpp>
+#include <astia/hw/driver.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/dma_buffer.hpp>
 
@@ -21,13 +21,19 @@ namespace {
 
     class fixture_driver final : public astia::hw::driver {
         public:
-        const char* name() const override { return "typed"; }
-        bool match(const astia::hw::device_info&) const override { return false; }
-        bool probe(const astia::hw::device_info&) override { return false; }
+        const char* name() const override {
+            return "typed";
+        }
+        bool match(const astia::hw::device_info&) const override {
+            return false;
+        }
+        bool probe(const astia::hw::device_info&) override {
+            return false;
+        }
     };
 
-    fixture_driver driver;
-    fixture_block block;
+    fixture_driver        driver;
+    fixture_block         block;
     astia::mm::dma_buffer buffer;
 
 }
