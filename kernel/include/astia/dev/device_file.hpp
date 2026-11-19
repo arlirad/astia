@@ -1,7 +1,7 @@
 #pragma once
 
-#include <astia/core/spinlock.hpp>
 #include <astia/dev/device.hpp>
+#include <astia/core/spinlock.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/shptr.hpp>
 

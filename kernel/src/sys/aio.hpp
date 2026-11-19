@@ -1,9 +1,9 @@
 #pragma once
 
 #include <astia/api/aio.h>
+#include <astia/resource_limits.hpp>
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
-#include <astia/resource_limits.hpp>
 
 // The kernel side of the async I/O ring ABI (<astia/api/aio.h>): the
 // engine that consumes SQEs and posts CQEs.  Userspace will reach it
