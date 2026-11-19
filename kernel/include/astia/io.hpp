@@ -1,7 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
-#include <astia/core/async_operation.hpp>
+#include <astia/core/completion.hpp>
 #include <astia/mm/uptr.hpp>
 
 // The async operation seam: one in-flight I/O request and the state a
@@ -154,11 +154,11 @@ namespace astia::io {
             return _complete;
         }
 
-        core::async_operation<i64>* completion() const {
+        core::completion<i64>* completion() const {
             return _completion.get();
         }
-        void completion(mm::uptr<core::async_operation<i64>> value) {
-            _completion = static_cast<mm::uptr<core::async_operation<i64>>&&>(value);
+        void completion(mm::uptr<core::completion<i64>> value) {
+            _completion = static_cast<mm::uptr<core::completion<i64>>&&>(value);
         }
         void complete(bool value) {
             _complete = value;
@@ -299,35 +299,35 @@ namespace astia::io {
         }
 
         private:
-        void*                _buffer                       = nullptr;
-        u32                  _length                       = 0;
-        u64                  _offset                       = 0;
-        u64                  _user_data                    = 0;
-        u64                  _generation                   = 0;
-        void*                _device_state                 = nullptr;
-        astia::io::direction _direction                    = astia::io::direction::input;
-        bool                 _updates_position             = true;
-        bool                 _append_reserved              = false;
-        u32                  _append_length                = 0;
-        bool                 _append_length_set            = false;
-        u8                   _stage                        = 0;
-        bool                 _complete                     = false;
-        bool                 _timeout_set                  = false;
-        bool                 _timeout_expired              = false;
-        u64                  _timeout_ns                   = 0;
-        bool                 _poll_interval_set            = false;
-        u64                  _poll_interval_ns             = 0;
-        bool                 _poll_wakeup                  = false;
-        void (*_wake_handler)(void*)                       = nullptr;
-        void*                                _wake_context = nullptr;
-        flight*                              _flight       = nullptr;
-        mm::uptr<core::async_operation<i64>> _completion;
-        cancel_handler                       _cancel_handler      = nullptr;
-        cancel_observer                      _cancel_observer     = nullptr;
-        void*                                _cancel_context      = nullptr;
-        bool                                 _cancel_requested    = false;
-        bool                                 _cancel_acknowledged = false;
-        bool                                 _cancel_retain       = false;
+        void*                _buffer                  = nullptr;
+        u32                  _length                  = 0;
+        u64                  _offset                  = 0;
+        u64                  _user_data               = 0;
+        u64                  _generation              = 0;
+        void*                _device_state            = nullptr;
+        astia::io::direction _direction               = astia::io::direction::input;
+        bool                 _updates_position        = true;
+        bool                 _append_reserved         = false;
+        u32                  _append_length           = 0;
+        bool                 _append_length_set       = false;
+        u8                   _stage                   = 0;
+        bool                 _complete                = false;
+        bool                 _timeout_set             = false;
+        bool                 _timeout_expired         = false;
+        u64                  _timeout_ns              = 0;
+        bool                 _poll_interval_set       = false;
+        u64                  _poll_interval_ns        = 0;
+        bool                 _poll_wakeup             = false;
+        void (*_wake_handler)(void*)                  = nullptr;
+        void*                           _wake_context = nullptr;
+        flight*                         _flight       = nullptr;
+        mm::uptr<core::completion<i64>> _completion;
+        cancel_handler                  _cancel_handler      = nullptr;
+        cancel_observer                 _cancel_observer     = nullptr;
+        void*                           _cancel_context      = nullptr;
+        bool                            _cancel_requested    = false;
+        bool                            _cancel_acknowledged = false;
+        bool                            _cancel_retain       = false;
 
         friend class flight;
     };
@@ -386,10 +386,10 @@ namespace astia::io {
 
         public:
         flight(void* buffer, u32 length, u64 offset, direction direction,
-               mm::uptr<core::async_operation<i64>> completion = {})
+               mm::uptr<core::completion<i64>> completion = {})
             : _request(buffer, length, offset, 0, direction, this) {
             _request.completion(
-                static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+                static_cast<mm::uptr<core::completion<i64>>&&>(completion));
         }
         explicit flight(astia::io::request& request) : _external_request(&request) {
             request._flight = this;

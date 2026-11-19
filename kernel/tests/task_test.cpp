@@ -1,9 +1,10 @@
-#include "support/test.hpp"
-#include "support/resume_queue_host.hpp"
+#include <astia/core/completion.hpp>
 #include <astia/core/task.hpp>
-#include <astia/core/async_operation.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/resource_limits.hpp>
+
+#include "support/resume_queue_host.hpp"
+#include "support/test.hpp"
 
 namespace astia::proc {
     struct process {};
@@ -40,7 +41,7 @@ namespace {
         co_return 42;
     }
 
-    astia::core::task<int> waits_for_operation(astia::core::async_operation<int>& operation) {
+    astia::core::task<int> waits_for_operation(astia::core::completion<int>& operation) {
         auto result = co_await operation;
         if (!result)
             co_return result.error;
@@ -67,25 +68,25 @@ namespace {
 
     using process_ptr = astia::mm::shptr<astia::proc::process>;
 
-    astia::core::task<astia::i64> read_for_spawn(
-        astia::core::async_operation<astia::i64>& operation) {
+    astia::core::task<astia::i64>
+    read_for_spawn(astia::core::completion<astia::i64>& operation) {
         auto result = co_await operation;
         if (!result)
             co_return result.error;
         co_return result.value;
     }
 
-    astia::core::task<bool> map_for_spawn(
-        astia::core::async_operation<astia::i64>& operation) {
+    astia::core::task<bool>
+    map_for_spawn(astia::core::completion<astia::i64>& operation) {
         auto result = co_await read_for_spawn(operation);
         if (!result)
             co_return result.error;
         co_return result.value == 4096;
     }
 
-    astia::core::task<process_ptr> spawn_for_test(
-        astia::core::async_operation<astia::i64>& operation,
-        astia::proc::process* process) {
+    astia::core::task<process_ptr>
+    spawn_for_test(astia::core::completion<astia::i64>& operation,
+                   astia::proc::process*                process) {
         auto result = co_await map_for_spawn(operation);
         if (!result)
             co_return result.error;
@@ -94,18 +95,18 @@ namespace {
         co_return process_ptr::borrowed(process);
     }
 
-    astia::core::task<astia::i64> drive_spawn_for_test(
-        astia::core::async_operation<astia::i64>& operation,
-        astia::proc::process* process) {
+    astia::core::task<astia::i64>
+    drive_spawn_for_test(astia::core::completion<astia::i64>& operation,
+                         astia::proc::process*                process) {
         auto result = co_await spawn_for_test(operation, process);
         if (!result)
             co_return result.error;
         co_return result.value ? 1 : 0;
     }
 
-    astia::core::task<int> waits_for_deferred_operation(
-        astia::core::async_operation<int>& operation, int& resumed,
-        int* order = nullptr, astia::usize index = 0) {
+    astia::core::task<int>
+    waits_for_deferred_operation(astia::core::completion<int>& operation, int& resumed,
+                                 int* order = nullptr, astia::usize index = 0) {
         (void) co_await operation;
         ++resumed;
         if (order != nullptr)
@@ -115,7 +116,7 @@ namespace {
 }
 
 ASTIA_TEST(task_runs_and_suspends_at_yield) {
-    int steps = 0;
+    int  steps     = 0;
     auto coroutine = three_steps(steps);
 
     ASTIA_CHECK(coroutine.valid());
@@ -132,8 +133,8 @@ ASTIA_TEST(task_runs_and_suspends_at_yield) {
 }
 
 ASTIA_TEST(task_is_move_only_owner) {
-    int steps = 0;
-    auto source = three_steps(steps);
+    int                 steps  = 0;
+    auto                source = three_steps(steps);
     astia::core::task<> moved(static_cast<astia::core::task<>&&>(source));
     ASTIA_CHECK(!source.valid());
     ASTIA_CHECK(moved.resume());
@@ -143,8 +144,8 @@ ASTIA_TEST(task_is_move_only_owner) {
 
 ASTIA_TEST(task_uses_its_frame_pool) {
     const astia::u32 before = astia::core::task<>::pooled_frame_allocations();
-    int steps = 0;
-    auto task = three_steps(steps);
+    int              steps  = 0;
+    auto             task   = three_steps(steps);
     ASTIA_CHECK(astia::core::task<>::pooled_frame_allocations() == before + 1);
     task.resume();
     task.reset();
@@ -152,15 +153,17 @@ ASTIA_TEST(task_uses_its_frame_pool) {
 
 ASTIA_TEST(task_reports_frame_allocation_failure) {
     astia::core::task<> tasks[astia::core::task<>::frame_slot_count + 1];
-    int steps = 0;
+    int                 steps = 0;
     for (astia::usize i = 0; i < astia::core::task<>::frame_slot_count + 1; ++i)
         tasks[i] = three_steps(steps);
     ASTIA_CHECK(tasks[astia::core::task<>::frame_slot_count].failed());
-    ASTIA_CHECK(tasks[astia::core::task<>::frame_slot_count].error() == astia::error_t::enomem);
+    ASTIA_CHECK(tasks[astia::core::task<>::frame_slot_count].error() ==
+                astia::error_t::enomem);
 }
 
 ASTIA_TEST(typed_task_reports_allocation_failure) {
-    auto task = astia::core::task<int>::promise_type::get_return_object_on_allocation_failure();
+    auto task =
+        astia::core::task<int>::promise_type::get_return_object_on_allocation_failure();
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(task.failed());
     ASTIA_CHECK(task.error() == astia::error_t::enomem);
@@ -175,8 +178,8 @@ ASTIA_TEST(task_reports_explicit_async_error) {
 }
 
 ASTIA_TEST(task_supports_nested_await) {
-    int steps = 0;
-    auto task = nested_task(steps);
+    int  steps = 0;
+    auto task  = nested_task(steps);
     while (!task.done())
         ASTIA_CHECK(task.resume());
     ASTIA_CHECK(task.done());
@@ -206,9 +209,9 @@ ASTIA_TEST(task_links_are_type_erased) {
     ASTIA_CHECK(custom_task.value() != nullptr && custom_task.value()->value == 43);
 }
 
-ASTIA_TEST(async_operation_resumes_task_without_callback) {
-    astia::core::async_operation<int> operation;
-    auto task = waits_for_operation(operation);
+ASTIA_TEST(completion_resumes_task_without_callback) {
+    astia::core::completion<int> operation;
+    auto                         task = waits_for_operation(operation);
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
     ASTIA_CHECK(operation.complete(77));
@@ -218,9 +221,9 @@ ASTIA_TEST(async_operation_resumes_task_without_callback) {
 }
 
 ASTIA_TEST(task_cross_type_chain_transfers_once) {
-    astia::core::async_operation<astia::i64> operation;
-    astia::proc::process process;
-    auto task = drive_spawn_for_test(operation, &process);
+    astia::core::completion<astia::i64> operation;
+    astia::proc::process                process;
+    auto                                task = drive_spawn_for_test(operation, &process);
 
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
@@ -230,12 +233,12 @@ ASTIA_TEST(task_cross_type_chain_transfers_once) {
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 1);
 }
 
-ASTIA_TEST(async_operation_deferred_queue_overflow_is_lossless) {
-    constexpr astia::usize count = 300;
-    astia::core::async_operation<int> operations[count];
-    astia::core::task<int> tasks[count];
-    int order[count];
-    int resumed = 0;
+ASTIA_TEST(completion_deferred_queue_overflow_is_lossless) {
+    constexpr astia::usize       count = 300;
+    astia::core::completion<int> operations[count];
+    astia::core::task<int>       tasks[count];
+    int                          order[count];
+    int                          resumed = 0;
 
     for (astia::usize i = 0; i < count; ++i) {
         order[i] = -1;
@@ -253,10 +256,10 @@ ASTIA_TEST(async_operation_deferred_queue_overflow_is_lossless) {
     }
 }
 
-ASTIA_TEST(async_operation_deferred_completion_is_canceled_before_destroy) {
-    astia::core::async_operation<int> operation;
-    int resumed = 0;
-    auto task = waits_for_deferred_operation(operation, resumed);
+ASTIA_TEST(completion_deferred_completion_is_canceled_before_destroy) {
+    astia::core::completion<int> operation;
+    int                          resumed = 0;
+    auto                         task = waits_for_deferred_operation(operation, resumed);
 
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(operation.complete_deferred(7));
@@ -265,10 +268,10 @@ ASTIA_TEST(async_operation_deferred_completion_is_canceled_before_destroy) {
     ASTIA_CHECK(resumed == 0);
 }
 
-ASTIA_TEST(async_operation_deferred_completion_requests_scheduler_resume) {
-    astia::core::async_operation<int> operation;
-    int resumed = 0;
-    auto task = waits_for_deferred_operation(operation, resumed);
+ASTIA_TEST(completion_deferred_completion_requests_scheduler_resume) {
+    astia::core::completion<int> operation;
+    int                          resumed = 0;
+    auto                         task = waits_for_deferred_operation(operation, resumed);
 
     ASTIA_CHECK(task.resume());
     astia::arch::test::clear_reschedule_request();
@@ -294,7 +297,7 @@ ASTIA_TEST(resume_queue_rejects_stale_generation) {
 ASTIA_TEST(resume_queue_saturation_is_bounded) {
     astia::core::initialize_resume_queues();
     const auto continuation = std::noop_coroutine();
-    astia::u32 accepted = 0;
+    astia::u32 accepted     = 0;
     for (;;) {
         if (!astia::core::schedule_resume(continuation, accepted + 1))
             break;
@@ -302,8 +305,8 @@ ASTIA_TEST(resume_queue_saturation_is_bounded) {
     }
     ASTIA_CHECK(accepted != 0);
     astia::u32 drained = 0;
-    while (const astia::u32 count = astia::core::drain_resumes(
-               astia::resource_limits::queue::resume * 2 + 1))
+    while (const astia::u32 count =
+               astia::core::drain_resumes(astia::resource_limits::queue::resume * 2 + 1))
         drained += count;
     ASTIA_CHECK(drained == accepted);
     ASTIA_CHECK(astia::core::schedule_resume(continuation, accepted + 1));

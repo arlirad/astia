@@ -389,12 +389,11 @@ namespace astia::fs {
     class io_packet {
         public:
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
-                  io::direction                        direction,
-                  mm::uptr<core::async_operation<i64>> completion)
+                  io::direction direction, mm::uptr<core::completion<i64>> completion)
             : file_(file),
               flight_(new io::flight(
                   buffer, length, offset, direction,
-                  static_cast<mm::uptr<core::async_operation<i64>>&&>(completion))) {}
+                  static_cast<mm::uptr<core::completion<i64>>&&>(completion))) {}
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
                   io::direction direction)
             : file_(file), flight_(new io::flight(buffer, length, offset, direction)) {}
@@ -419,7 +418,7 @@ namespace astia::fs {
         const io::request& request() const {
             return flight_->request();
         }
-        core::async_operation<i64>* completion() const {
+        core::completion<i64>* completion() const {
             return request().completion();
         }
         const mm::shptr<open_file>& file() const {

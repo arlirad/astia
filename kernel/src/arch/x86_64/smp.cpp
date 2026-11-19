@@ -1,8 +1,5 @@
 #include "smp.hpp"
 
-#include "../../proc/scheduler.hpp"
-#include "gdt.hpp"
-#include "lapic.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
@@ -10,6 +7,10 @@
 #include <astia/arch/platform.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
+
+#include "../../proc/scheduler.hpp"
+#include "gdt.hpp"
+#include "lapic.hpp"
 
 extern "C" {
 extern volatile astia::u32 astia_ap_cr3;
@@ -130,15 +131,22 @@ namespace astia::arch::x86_64::smp {
                 const u8 length = p[1];
                 if (length < 2 || p + length > end)
                     break;
-                if ((type == 0 && length >= 8 &&
-                     (reinterpret_cast<const u32*>(p + 4)[0] & 1u)) ||
-                    (type == 9 && length >= 16 &&
-                     (reinterpret_cast<const u32*>(p + 8)[0] & 1u))) {
+                u32 flags = 0;
+                if (type == 0 && length >= 8)
+                    flags = reinterpret_cast<const u32*>(p + 4)[0];
+                else if (type == 9 && length >= 16)
+                    flags = reinterpret_cast<const u32*>(p + 8)[0];
+                if (((type == 0 && length >= 8) || (type == 9 && length >= 16)) &&
+                    (flags & 1u)) {
                     if (count < max_cpus) {
-                        apic_ids[count++] =
-                            type == 0 ? p[3]
-                                      : static_cast<u32>(
-                                            reinterpret_cast<const u32*>(p + 8)[0]);
+                        const u32 id = type == 0
+                                           ? p[3]
+                                           : static_cast<u32>(
+                                                 reinterpret_cast<const u32*>(p + 4)[0]);
+                        for (u32 i = 0; i < count; ++i)
+                            if (apic_ids[i] == id)
+                                return 0;
+                        apic_ids[count++] = id;
                     }
                 }
                 p += length;
@@ -215,6 +223,23 @@ namespace astia::arch::x86_64::smp {
             }
         }
         const u32 found = have_acpi ? find_madt(r) : 0;
+        if (have_acpi && found == 0) {
+            have_acpi = false;
+            cpu_total = platform::clamp_cpu_count(cpuid_threads());
+        }
+        const u32 bsp = lapic::id();
+        if (found != 0) {
+            bool have_bsp = false;
+            bool have_ap  = false;
+            for (u32 i = 0; i < found; ++i) {
+                if (apic_ids[i] == bsp)
+                    have_bsp = true;
+                else
+                    have_ap = true;
+            }
+            if (!have_bsp || !have_ap)
+                have_acpi = false;
+        }
         if (found != 0)
             cpu_total = platform::clamp_cpu_count(found);
         logs::info("discovered=%u online=1", cpu_total);
@@ -222,12 +247,14 @@ namespace astia::arch::x86_64::smp {
             return true;
         if (!have_acpi) {
             logs::info(
-                "AP startup deferred: no APIC-ID topology (PVH provides no ACPI RSDP)");
+                found == 0 && r != nullptr
+                    ? "AP startup deferred: no APIC-ID topology (invalid/missing MADT)"
+                    : "AP startup deferred: no APIC-ID topology (PVH provides no ACPI "
+                      "RSDP)");
             logs::info("reschedule IPI armed");
             return true;
         }
 
-        const u32  bsp       = lapic::id();
         const bool broadcast = !have_acpi;
         u32        index     = 1;
         for (u32 n = 0; n < cpu_total; ++n) {
