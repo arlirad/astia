@@ -1,0 +1,11 @@
+#include <plastic.hpp>
+#include <foo/astia.hpp>
+#include <astia.hpp>
+#include "foo/astia.hpp"
+#include <astia/foo.hpp>
+#include "astia/foo.hpp"
+#include "astia.hpp"
+#include "plastic.hpp"
+#include <string>
+#include "local.hpp"
+int main() { return 0; }

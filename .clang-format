@@ -31,11 +31,11 @@ ReflowComments: true
 
 IncludeBlocks: Regroup
 IncludeCategories:
-  - Regex: '^"(art)'
+  - Regex: '^"astia/'
     Priority: 1
+  - Regex: '^<astia/'
+    Priority: 2
   - Regex: '<[[:alnum:].]+>'
     Priority: 4
   - Regex: '.*'
     Priority: 3
-  - Regex: 'art*'
-    Priority: 2
