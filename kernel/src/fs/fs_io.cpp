@@ -9,15 +9,15 @@ namespace astia::fs {
             if (!file)
                 co_return error_t::ebadf;
             auto completion =
-                mm::uptr<core::async_operation<i64>>(new core::async_operation<i64>());
+                mm::uptr<core::completion<i64>>(new core::completion<i64>());
             if (!completion)
                 co_return error_t::enomem;
             io_packet packet(
                 file, buffer, length, offset, direction,
-                static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+                static_cast<mm::uptr<core::completion<i64>>&&>(completion));
             if (!packet)
                 co_return error_t::enomem;
-            core::async_operation<i64>* operation = packet.completion();
+            core::completion<i64>* operation = packet.completion();
             if (!packet.request().park_device())
                 co_return error_t::eagain;
             const long submitted = packet.submit();

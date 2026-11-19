@@ -1,7 +1,7 @@
 #include "support/test.hpp"
 #include "support/resume_queue_host.hpp"
 #include <astia/core/task.hpp>
-#include <astia/core/async_operation.hpp>
+#include <astia/core/completion.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/resource_limits.hpp>
 
@@ -40,7 +40,7 @@ namespace {
         co_return 42;
     }
 
-    astia::core::task<int> waits_for_operation(astia::core::async_operation<int>& operation) {
+    astia::core::task<int> waits_for_operation(astia::core::completion<int>& operation) {
         auto result = co_await operation;
         if (!result)
             co_return result.error;
@@ -68,7 +68,7 @@ namespace {
     using process_ptr = astia::mm::shptr<astia::proc::process>;
 
     astia::core::task<astia::i64> read_for_spawn(
-        astia::core::async_operation<astia::i64>& operation) {
+        astia::core::completion<astia::i64>& operation) {
         auto result = co_await operation;
         if (!result)
             co_return result.error;
@@ -76,7 +76,7 @@ namespace {
     }
 
     astia::core::task<bool> map_for_spawn(
-        astia::core::async_operation<astia::i64>& operation) {
+        astia::core::completion<astia::i64>& operation) {
         auto result = co_await read_for_spawn(operation);
         if (!result)
             co_return result.error;
@@ -84,7 +84,7 @@ namespace {
     }
 
     astia::core::task<process_ptr> spawn_for_test(
-        astia::core::async_operation<astia::i64>& operation,
+        astia::core::completion<astia::i64>& operation,
         astia::proc::process* process) {
         auto result = co_await map_for_spawn(operation);
         if (!result)
@@ -95,7 +95,7 @@ namespace {
     }
 
     astia::core::task<astia::i64> drive_spawn_for_test(
-        astia::core::async_operation<astia::i64>& operation,
+        astia::core::completion<astia::i64>& operation,
         astia::proc::process* process) {
         auto result = co_await spawn_for_test(operation, process);
         if (!result)
@@ -104,7 +104,7 @@ namespace {
     }
 
     astia::core::task<int> waits_for_deferred_operation(
-        astia::core::async_operation<int>& operation, int& resumed,
+        astia::core::completion<int>& operation, int& resumed,
         int* order = nullptr, astia::usize index = 0) {
         (void) co_await operation;
         ++resumed;
@@ -206,8 +206,8 @@ ASTIA_TEST(task_links_are_type_erased) {
     ASTIA_CHECK(custom_task.value() != nullptr && custom_task.value()->value == 43);
 }
 
-ASTIA_TEST(async_operation_resumes_task_without_callback) {
-    astia::core::async_operation<int> operation;
+ASTIA_TEST(completion_resumes_task_without_callback) {
+    astia::core::completion<int> operation;
     auto task = waits_for_operation(operation);
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
@@ -218,7 +218,7 @@ ASTIA_TEST(async_operation_resumes_task_without_callback) {
 }
 
 ASTIA_TEST(task_cross_type_chain_transfers_once) {
-    astia::core::async_operation<astia::i64> operation;
+    astia::core::completion<astia::i64> operation;
     astia::proc::process process;
     auto task = drive_spawn_for_test(operation, &process);
 
@@ -230,9 +230,9 @@ ASTIA_TEST(task_cross_type_chain_transfers_once) {
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 1);
 }
 
-ASTIA_TEST(async_operation_deferred_queue_overflow_is_lossless) {
+ASTIA_TEST(completion_deferred_queue_overflow_is_lossless) {
     constexpr astia::usize count = 300;
-    astia::core::async_operation<int> operations[count];
+    astia::core::completion<int> operations[count];
     astia::core::task<int> tasks[count];
     int order[count];
     int resumed = 0;
@@ -253,8 +253,8 @@ ASTIA_TEST(async_operation_deferred_queue_overflow_is_lossless) {
     }
 }
 
-ASTIA_TEST(async_operation_deferred_completion_is_canceled_before_destroy) {
-    astia::core::async_operation<int> operation;
+ASTIA_TEST(completion_deferred_completion_is_canceled_before_destroy) {
+    astia::core::completion<int> operation;
     int resumed = 0;
     auto task = waits_for_deferred_operation(operation, resumed);
 
@@ -265,8 +265,8 @@ ASTIA_TEST(async_operation_deferred_completion_is_canceled_before_destroy) {
     ASTIA_CHECK(resumed == 0);
 }
 
-ASTIA_TEST(async_operation_deferred_completion_requests_scheduler_resume) {
-    astia::core::async_operation<int> operation;
+ASTIA_TEST(completion_deferred_completion_requests_scheduler_resume) {
+    astia::core::completion<int> operation;
     int resumed = 0;
     auto task = waits_for_deferred_operation(operation, resumed);
 

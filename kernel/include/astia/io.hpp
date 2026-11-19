@@ -1,7 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
-#include <astia/core/async_operation.hpp>
+#include <astia/core/completion.hpp>
 #include <astia/mm/uptr.hpp>
 
 // The async operation seam: one in-flight I/O request and the state a
@@ -154,11 +154,11 @@ namespace astia::io {
             return _complete;
         }
 
-        core::async_operation<i64>* completion() const {
+        core::completion<i64>* completion() const {
             return _completion.get();
         }
-        void completion(mm::uptr<core::async_operation<i64>> value) {
-            _completion = static_cast<mm::uptr<core::async_operation<i64>>&&>(value);
+        void completion(mm::uptr<core::completion<i64>> value) {
+            _completion = static_cast<mm::uptr<core::completion<i64>>&&>(value);
         }
         void complete(bool value) {
             _complete = value;
@@ -321,7 +321,7 @@ namespace astia::io {
         void (*_wake_handler)(void*)                       = nullptr;
         void*                                _wake_context = nullptr;
         flight*                              _flight       = nullptr;
-        mm::uptr<core::async_operation<i64>> _completion;
+        mm::uptr<core::completion<i64>> _completion;
         cancel_handler                       _cancel_handler      = nullptr;
         cancel_observer                      _cancel_observer     = nullptr;
         void*                                _cancel_context      = nullptr;
@@ -386,10 +386,10 @@ namespace astia::io {
 
         public:
         flight(void* buffer, u32 length, u64 offset, direction direction,
-               mm::uptr<core::async_operation<i64>> completion = {})
+               mm::uptr<core::completion<i64>> completion = {})
             : _request(buffer, length, offset, 0, direction, this) {
             _request.completion(
-                static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+                static_cast<mm::uptr<core::completion<i64>>&&>(completion));
         }
         explicit flight(astia::io::request& request) : _external_request(&request) {
             request._flight = this;

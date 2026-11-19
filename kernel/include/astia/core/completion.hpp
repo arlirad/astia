@@ -12,7 +12,7 @@ namespace astia::core {
     /// One-shot awaitable completion. The producer may complete it from an
     /// IRQ-safe path; the consumer awaits it without a callback or lock.
     template <typename T>
-    class async_operation {
+    class completion {
         enum class state : u8 {
             pending,
             completing,
@@ -55,12 +55,12 @@ namespace astia::core {
 
         public:
         class awaiter {
-            async_operation*        operation_;
+            completion*        operation_;
             std::coroutine_handle<> continuation_{};
             u64                     generation_ = 0;
 
             public:
-            explicit awaiter(async_operation* operation) : operation_(operation) {}
+            explicit awaiter(completion* operation) : operation_(operation) {}
             awaiter(const awaiter&)            = delete;
             awaiter& operator=(const awaiter&) = delete;
             awaiter(awaiter&& other) noexcept
@@ -90,9 +90,9 @@ namespace astia::core {
             }
         };
 
-        async_operation()                                  = default;
-        async_operation(const async_operation&)            = delete;
-        async_operation& operator=(const async_operation&) = delete;
+        completion()                                  = default;
+        completion(const completion&)            = delete;
+        completion& operator=(const completion&) = delete;
 
         bool complete(const T& value) {
             if (!begin_completion())
