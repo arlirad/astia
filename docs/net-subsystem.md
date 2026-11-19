@@ -57,12 +57,12 @@ completion or request from an earlier generation is rejected.
 
 ## Discovery
 
-Modules register a PCI net driver with `astia::module::register_net_driver`.
-PCI discovery invokes its match and probe callbacks; a successful probe
-returns the module-owned `astia::net::netdev`, which the loader adds to the
-single network registry. Removal unregisters that object before the driver
-context is destroyed. This path uses the net registry only and has no
-device-file adapter.
+Modules implement a typed `astia::hw::driver` and register it with
+`astia::hw::drivers().register_driver(driver)`. PCI discovery invokes its
+match and probe callbacks; a successful probe registers the module-owned
+`astia::net::netdev` with the typed `astia::net::devices()` registry. Removal
+unregisters that object before the driver context is destroyed. This path
+uses the net registry only and has no device-file adapter.
 
 RTL8139 currently provides the typed C++ ring/parser, bounded paths, reset and
 cancel behavior, and QEMU device-creation smoke. It does not claim a TCP/IP

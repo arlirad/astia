@@ -12,6 +12,14 @@
 
 namespace astia::mod {
 
+#ifdef ASTIA_MODULE_HOST_TEST
+    namespace host_test {
+        int invoke_entry(int (*entry)());
+        void invoke_initializer(elf::init_fn initializer);
+        void invoke_finalizer(elf::init_fn finalizer);
+    }
+#endif
+
     namespace {
 
         loaded_module modules[max_modules] = {};
@@ -53,15 +61,18 @@ namespace astia::mod {
     } // namespace
 
     const loaded_module* load_module(span<const u8> image) {
-        if (image.data() == nullptr || image.size() == 0 || used >= max_modules) {
-            return nullptr;
-        }
-
         elf::env e{};
         e.ctx     = nullptr;
         e.map     = image_map;
         e.unmap   = image_unmap;
         e.resolve = image_resolve;
+        return load_module(image, e);
+    }
+
+    const loaded_module* load_module(span<const u8> image, const elf::env& e) {
+        if (image.data() == nullptr || image.size() == 0 || used >= max_modules) {
+            return nullptr;
+        }
 
         elf::image img;
         if (!elf::load(image, e, img)) {
@@ -75,8 +86,10 @@ namespace astia::mod {
         slot.entry       = reinterpret_cast<int (*)()>(img.entry);
         slot.running     = false;
         slot.initialized = false;
-        slot.init_count  = img.init_count;
-        slot.fini_count  = img.fini_count;
+        slot.init_count      = img.init_count;
+        slot.fini_count      = img.fini_count;
+        slot.loader_context  = e.ctx;
+        slot.loader_unmap    = e.unmap;
         for (usize i = 0; i < img.init_count; ++i)
             slot.init_array[i] = img.init_array[i];
         for (usize i = 0; i < img.fini_count; ++i)
@@ -98,9 +111,10 @@ namespace astia::mod {
             }
             // The loader makes one contiguous allocation, so it is one
             // contiguous release.
-            using fa     = mm::frame_allocator;
-            usize frames = (mod->size + fa::frame_size - 1) / fa::frame_size;
-            mm::kernel_frames().release(reinterpret_cast<u64>(mod->base), frames);
+            if (mod->loader_unmap == nullptr) {
+                return false;
+            }
+            mod->loader_unmap(mod->loader_context, mod->base, mod->size);
             // Compact the registry.
             for (usize j = i; j + 1 < used; ++j) {
                 modules[j] = modules[j + 1];
@@ -118,10 +132,19 @@ namespace astia::mod {
         const_cast<loaded_module*>(mod)->running = true;
         loaded_module* mutable_mod = const_cast<loaded_module*>(mod);
         for (usize i = 0; i < mutable_mod->init_count; ++i)
-            if (mutable_mod->init_array[i] != nullptr)
+            if (mutable_mod->init_array[i] != nullptr) {
+#ifdef ASTIA_MODULE_HOST_TEST
+                host_test::invoke_initializer(mutable_mod->init_array[i]);
+#else
                 mutable_mod->init_array[i]();
+#endif
+            }
         mutable_mod->initialized = true;
+#ifdef ASTIA_MODULE_HOST_TEST
+        return host_test::invoke_entry(mutable_mod->entry);
+#else
         return mutable_mod->entry();
+#endif
     }
 
     bool exit_module(const loaded_module* mod) {
@@ -129,8 +152,13 @@ namespace astia::mod {
             return false;
         loaded_module* mutable_mod = const_cast<loaded_module*>(mod);
         for (usize i = mutable_mod->fini_count; i != 0; --i)
-            if (mutable_mod->fini_array[i - 1] != nullptr)
+            if (mutable_mod->fini_array[i - 1] != nullptr) {
+#ifdef ASTIA_MODULE_HOST_TEST
+                host_test::invoke_finalizer(mutable_mod->fini_array[i - 1]);
+#else
                 mutable_mod->fini_array[i - 1]();
+#endif
+            }
         mutable_mod->initialized = false;
         mutable_mod->running = false;
         return true;

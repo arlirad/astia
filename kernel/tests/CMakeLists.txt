@@ -328,6 +328,34 @@ add_custom_command(
 )
 astia_embed_blob(_module_symbols_cpp ${_fix_dir}/module_symbols.o module_symbols_blob)
 
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_fixture.cpp
+        COMMENT "Compiling ET_REL lifecycle fixture"
+)
+astia_embed_blob(_lifecycle_fixture_cpp
+        ${_fix_dir}/module_lifecycle.o module_lifecycle_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle_no_fini.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle_no_fini.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_no_fini_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_no_fini_fixture.cpp
+        COMMENT "Compiling ET_REL no-fini lifecycle fixture"
+)
+astia_embed_blob(_lifecycle_no_fini_fixture_cpp
+        ${_fix_dir}/module_lifecycle_no_fini.o module_lifecycle_no_fini_blob)
+
 # ET_DYN (PIE) executable: self-contained, entry at fixture_entry, with a data
 # pointer that forces an R_X86_64_RELATIVE dynamic relocation.
 add_custom_command(
@@ -438,10 +466,17 @@ target_link_options(astia_module_msix_test PRIVATE
 
 astia_add_host_test(astia_module_lifecycle_test
         module_lifecycle_test.cpp
+        ${_lifecycle_fixture_cpp}
+        ${_lifecycle_no_fini_fixture_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/exec_loader.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/reloc_loader.cpp
 )
 target_compile_options(astia_module_lifecycle_test PRIVATE
         -ffunction-sections -fdata-sections)
+target_compile_definitions(astia_module_lifecycle_test PRIVATE
+        ASTIA_MODULE_HOST_TEST=1)
 target_link_options(astia_module_lifecycle_test PRIVATE
         "-Wl,-no-pie" "-Wl,--gc-sections")
 add_test(NAME astia_kernel_symbol_visibility
