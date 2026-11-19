@@ -6,11 +6,22 @@
 
 #include "hid_keyboard.hpp"
 
+#include <new>
+
 namespace astia::usb::xhci {
 
     bool pci_match(const astia::hw::pci_device* device);
 
     namespace {
+#ifdef ASTIA_USB_TEST_BAR_MAP_FAILURE
+        bool map_bar(astia::hw::pci_device&) {
+            return false;
+        }
+#else
+        bool map_bar(astia::hw::pci_device& device) {
+            return astia::module::pci_map_bar(device, 0);
+        }
+#endif
 
         constexpr unsigned timeout_spins               = 4000000;
         constexpr unsigned command_ring_capacity       = 16;
@@ -129,6 +140,37 @@ namespace astia::usb::xhci {
             uint8_t                                            next_address_     = 1;
             usb_speed                                          speed_   = usb_speed::full;
             bool                                               started_ = false;
+            bool                                               quarantined_ = false;
+            bool                                               bar_mapped_  = false;
+            bool     bus_master_changed_                                    = false;
+            bool     msix_modified_                                         = false;
+            uint16_t original_command_                                      = 0;
+            uint16_t original_msix_                                         = 0;
+
+            void abandon_dma() {
+                transfer_memory_.abandon();
+                device_context_.abandon();
+                input_memory_.abandon();
+                erst_memory_.abandon();
+                event_memory_.abandon();
+                command_memory_.abandon();
+                dcbaa_.abandon();
+            }
+
+            void rollback_pci() {
+                if (bar_mapped_) {
+                    (void) astia::module::pci_unmap_bar(pci_, 0);
+                    bar_mapped_ = false;
+                }
+                if (msix_modified_) {
+                    (void) astia::module::pci_restore_msix(pci_, original_msix_);
+                    msix_modified_ = false;
+                }
+                if (bus_master_changed_) {
+                    (void) astia::module::pci_disable_bus_master(pci_);
+                    bus_master_changed_ = false;
+                }
+            }
 
             uint32_t operational(unsigned offset) const {
                 return static_cast<uint32_t>(capabilities_.capability_length) + offset;
@@ -470,22 +512,45 @@ namespace astia::usb::xhci {
 
             public:
             int start(astia::hw::pci_device* device) {
-                if (started_ || device == nullptr || !pci_match(device))
+                if (started_ || quarantined_ || device == nullptr || !pci_match(device))
                     return -19;
-                pci_ = device;
-                if (!astia::module::pci_enable_bus_master(pci_) ||
-                    !astia::module::pci_disable_msix(pci_) ||
-                    !astia::module::pci_map_bar(pci_, 0))
+                pci_                = device;
+                original_command_   = astia::module::pci_read16(pci_, 0x04);
+                bus_master_changed_ = (original_command_ & (1u << 2)) == 0;
+                if (!astia::module::pci_enable_bus_master(pci_))
+                    return rollback_pci(), -19;
+                if (pci_->interrupt.msix) {
+                    original_msix_ = astia::module::pci_read16(
+                        pci_, static_cast<uint16_t>(pci_->interrupt.capability + 2));
+                }
+                if (!astia::module::pci_disable_msix(pci_))
+                    return rollback_pci(), -19;
+                msix_modified_ = pci_->interrupt.msix;
+                if (!map_bar(*pci_)) {
+                    rollback_pci();
+#ifdef ASTIA_USB_TEST_BAR_MAP_FAILURE
+                    const uint16_t control = astia::module::pci_read16(
+                        pci_, static_cast<uint16_t>(pci_->interrupt.capability + 2));
+                    const uint16_t command = astia::module::pci_read16(pci_, 0x04);
+                    const bool     restored =
+                        (control & 0xc000u) == (original_msix_ & 0xc000u) &&
+                        (command & 4u) == (original_command_ & 4u) &&
+                        !pci_->bars[0].mapped_valid;
+                    astia::module::log("usb-test",
+                                       restored ? "rollback-ok" : "rollback-failed");
+#endif
                     return -19;
+                }
+                bar_mapped_           = true;
                 const uint64_t mapped = astia::module::pci_bar_mapped(pci_, 0);
                 const uint64_t size   = astia::module::pci_bar_size(pci_, 0);
                 if (mapped == 0 || size < 0x800)
-                    return -95;
+                    return rollback_pci(), -95;
                 probe_result checked{};
                 if (!probe(reinterpret_cast<volatile const uint8_t*>(mapped), size,
                            checked) ||
                     checked.capabilities.max_scratchpad_buffers != 0 || !checked.valid)
-                    return -95;
+                    return rollback_pci(), -95;
                 capabilities_ = checked.capabilities;
                 common_       = mmio{reinterpret_cast<volatile void*>(mapped)};
                 doorbells_    = mmio{reinterpret_cast<volatile void*>(
@@ -493,18 +558,26 @@ namespace astia::usb::xhci {
                 runtime_      = mmio{reinterpret_cast<volatile void*>(
                     mapped + capabilities_.runtime_offset + 0x20)};
                 if (!reset() || !allocate_memory() || !configure_controller()) {
-                    stop();
+                    (void) stop();
                     return -5;
                 }
                 started_ = true;
                 return 0;
             }
 
-            void stop() {
+            bool stop() {
+                if (quarantined_)
+                    return false;
                 if (common_.mapped()) {
                     const uint32_t command = common_.read<uint32_t>(operational(0));
-                    common_.write<uint32_t>(operational(0),
-                                            command & ~operational_run_stop);
+                    common_.write<uint32_t>(
+                        operational(0),
+                        command & ~(operational_run_stop | (1u << 2) | (1u << 3)));
+                    if (!wait_status(status_halted, status_halted)) {
+                        quarantined_ = true;
+                        abandon_dma();
+                        return false;
+                    }
                 }
                 started_ = false;
                 transfer_memory_.release();
@@ -517,7 +590,9 @@ namespace astia::usb::xhci {
                 common_    = {};
                 doorbells_ = {};
                 runtime_   = {};
-                pci_       = nullptr;
+                rollback_pci();
+                pci_ = nullptr;
+                return true;
             }
 
             int enumerate_port(uint8_t port, device_model& result) {
@@ -544,11 +619,17 @@ namespace astia::usb::xhci {
             return -19;
         if (!astia::module::pci_map_bar(device, 0))
             return -19;
+        const auto     unmap  = [&] { (void) astia::module::pci_unmap_bar(device, 0); };
         const uint64_t mapped = astia::module::pci_bar_mapped(device, 0);
         const uint64_t size   = astia::module::pci_bar_size(device, 0);
-        if (mapped == 0 || size < 0x20)
+        if (mapped == 0 || size < 0x20) {
+            unmap();
             return -19;
-        if (!probe(reinterpret_cast<volatile const uint8_t*>(mapped), size, result))
+        }
+        const bool valid =
+            probe(reinterpret_cast<volatile const uint8_t*>(mapped), size, result);
+        unmap();
+        if (!valid)
             return -95;
         return -95;
     }
@@ -585,10 +666,17 @@ namespace astia::usb::xhci {
                 auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
                 if (stable == nullptr || controller_instance.start(stable) != 0)
                     return false;
-                device_model model{};
+                auto* model = new (std::nothrow) device_model{};
+                if (model == nullptr) {
+                    controller_instance.stop();
+                    return false;
+                }
                 for (uint8_t port = 1; port <= controller_instance.max_ports(); ++port)
-                    if (controller_instance.enumerate_port(port, model) == 0)
+                    if (controller_instance.enumerate_port(port, *model) == 0) {
+                        delete model;
                         return true;
+                    }
+                delete model;
                 controller_instance.stop();
                 return false;
             }

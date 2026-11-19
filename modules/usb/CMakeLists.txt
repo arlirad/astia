@@ -25,6 +25,28 @@ add_custom_command(
 
 add_custom_target(usb_module ALL DEPENDS ${ASTIA_USB_OBJECT})
 
+set(ASTIA_USB_FAILURE_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb-failure.o)
+add_custom_command(
+        OUTPUT ${ASTIA_USB_FAILURE_OBJECT}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                -DASTIA_USB_TEST_BAR_MAP_FAILURE=1
+                -std=c++20 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie
+                -fno-exceptions -fno-rtti -fno-threadsafe-statics
+                -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
+                -mcmodel=large -fno-asynchronous-unwind-tables
+                -Wall -Wextra -Werror -pedantic
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                -c ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
+                -o ${ASTIA_USB_FAILURE_OBJECT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/usb_protocol.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/xhci.hpp
+                ${ASTIA_USB_ABI_HEADERS}
+        COMMENT "Compiling USB xHCI rollback test module"
+        VERBATIM)
+add_custom_target(usb_failure_module DEPENDS ${ASTIA_USB_FAILURE_OBJECT})
+
 add_custom_command(
         OUTPUT ${ASTIA_USB_UNIT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
@@ -43,11 +65,39 @@ add_custom_target(usb_unit_target ALL DEPENDS ${ASTIA_USB_UNIT})
 if(ASTIA_BUILD_TESTS)
     add_test(NAME usb_protocol_unit COMMAND ${ASTIA_USB_UNIT})
     astia_append_test_label("module;usb;xhci;host;deterministic")
+    add_test(NAME usb_xhci_probe_stack_usage
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/probe_stack_usage.py
+                    ${ASTIA_USB_OBJECT})
+    set_tests_properties(usb_xhci_probe_stack_usage PROPERTIES
+            LABELS "module;usb;xhci;host;deterministic"
+            FIXTURES_REQUIRED usb-module-artifacts)
+    add_test(NAME usb_module_prepare
+            COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
+                    --target usb_module)
+    set_tests_properties(usb_module_prepare PROPERTIES
+            LABELS "build;module;usb;xhci;deterministic"
+            FIXTURES_SETUP usb-module-artifacts
+            TIMEOUT 300)
+    add_test(NAME usb_xhci_stop_quarantine_policy
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/stop_quarantine_policy.py
+                    ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp)
+    set_tests_properties(usb_xhci_stop_quarantine_policy PROPERTIES
+            LABELS "module;usb;xhci;host;deterministic")
     add_test(NAME usb_xhci_qemu_enumeration
             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
     set_tests_properties(usb_xhci_qemu_enumeration PROPERTIES
             LABELS "module;usb;xhci;qemu;deterministic"
             ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}"
+            FIXTURES_REQUIRED astia-qemu-artifacts
+            RESOURCE_LOCK astia-qemu)
+    add_test(NAME usb_xhci_qemu_rollback
+            COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
+    set_tests_properties(usb_xhci_qemu_rollback PROPERTIES
+            LABELS "module;usb;xhci;qemu;deterministic"
+            ENVIRONMENT
+            "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR};ASTIA_USB_ROLLBACK_TEST=1;ASTIA_USB_MODULE=${CMAKE_CURRENT_BINARY_DIR}/usb-failure.o;ASTIA_USB_MODULE_TARGET=usb_failure_module"
             FIXTURES_REQUIRED astia-qemu-artifacts
             RESOURCE_LOCK astia-qemu)
 endif()

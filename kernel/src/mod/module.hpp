@@ -21,6 +21,16 @@ namespace astia::mod {
 
     /// A loaded kernel module.
     struct loaded_module {
+        struct exit_handler {
+            void (*plain)(void) = nullptr;
+            void (*cxa)(void*)  = nullptr;
+            void* argument      = nullptr;
+            void* dso           = nullptr;
+            bool  removed       = false;
+        };
+
+        static constexpr usize max_exit_handlers = 64;
+
         const char* name;      ///< Module name (for diagnostics).
         void*       base;      ///< Load address of the image allocation.
         usize       size;      ///< Bytes allocated for the image.
@@ -33,6 +43,9 @@ namespace astia::mod {
         usize         fini_count;
         void*         loader_context;
         elf::unmap_fn loader_unmap;
+        exit_handler  exit_handlers[max_exit_handlers];
+        usize         exit_count   = 0;
+        void*         dso_identity = nullptr;
     };
 
     /// Upper bound on simultaneously loaded modules. Fixed capacity keeps the
@@ -59,6 +72,10 @@ namespace astia::mod {
     bool unload_module(const loaded_module* mod);
 
     bool exit_module(const loaded_module* mod);
+
+    int  register_exit_handler(void (*handler)(void));
+    int  register_exit_handler(void (*handler)(void*), void* argument, void* dso);
+    void finalize_exit_handlers(void* dso);
 
     /// Call a loaded module's entry point. Returns the module's return code, or
     /// -1 if `mod` is null or already running.
