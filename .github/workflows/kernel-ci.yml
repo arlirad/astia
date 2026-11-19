@@ -33,6 +33,7 @@ jobs:
             clang \
             cmake \
             cpio \
+            g++-aarch64-linux-gnu \
             grub-common \
             grub-pc-bin \
             gzip \
