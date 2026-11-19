@@ -107,6 +107,10 @@ astia_add_host_test(astia_capabilities_test capabilities_test.cpp)
 astia_add_host_test(astia_capabilities_header_test capabilities_header_test.cpp)
 astia_add_host_test(astia_io_header_test io_header_test.cpp)
 astia_add_host_test(astia_io_request_test io_request_test.cpp)
+astia_add_host_test(astia_module_bridge_test module_bridge_test.cpp)
+astia_add_host_test(astia_cxxabi_test
+        cxxabi_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/cxxabi.cpp)
 astia_add_host_test(astia_irq_header_test irq_header_test.cpp)
 astia_add_host_test(astia_endian_test endian_test.cpp)
 astia_add_host_test(astia_time_test

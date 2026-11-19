@@ -8,22 +8,31 @@ namespace astia::dev {
 
     void device_file::detach() {
         io::request* requests[max_pending_requests]{};
+        bool         retained[max_pending_requests]{};
         u32          count = 0;
         {
             core::spinlock_guard guard(pending_lock_);
             __atomic_store_n(&detached_, true, __ATOMIC_RELEASE);
-            count = pending_count_;
-            for (u32 i = 0; i < count; ++i)
-                requests[i] = pending_[i];
+            const u32 pending_count = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE);
+            for (u32 i = 0; i < pending_count; ++i) {
+                if (!pending_owned_[i] || !pending_[i]->retain_for_device())
+                    continue;
+                requests[count] = pending_[i];
+                retained[count] = true;
+                ++count;
+            }
         }
-        for (u32 i = 0; i < count; ++i)
+        for (u32 i = 0; i < count; ++i) {
             if (requests[i] != nullptr)
                 requests[i]->cancel_device(true, core::cancel_reason::detach);
+            if (retained[i])
+                requests[i]->release_for_device();
+        }
         for (;;) {
             bool pending = false;
             {
                 core::spinlock_guard guard(pending_lock_);
-                pending = pending_count_ != 0;
+                pending = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE) != 0;
             }
             if (!pending && __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0)
                 break;
@@ -33,7 +42,8 @@ namespace astia::dev {
 
     bool device_file::tracked_request(const io::request& request) const {
         core::spinlock_guard guard(pending_lock_);
-        for (u32 i = 0; i < pending_count_; ++i)
+        const u32            count = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE);
+        for (u32 i = 0; i < count; ++i)
             if (pending_[i] == &request)
                 return true;
         return false;
@@ -43,25 +53,39 @@ namespace astia::dev {
         core::spinlock_guard guard(pending_lock_);
         if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE))
             return false;
-        for (u32 i = 0; i < pending_count_; ++i)
+        const u32 count = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE);
+        for (u32 i = 0; i < count; ++i)
             if (pending_[i] == &request)
                 return true;
-        if (pending_count_ == max_pending_requests)
+        if (count == max_pending_requests)
             return false;
-        pending_[pending_count_++] = &request;
+        const u32 index       = count;
+        pending_[index]       = &request;
+        pending_owned_[index] = request.retain_for_device();
+        __atomic_store_n(&pending_count_, count + 1, __ATOMIC_RELEASE);
         request.cancellation_observer_set(const_cast<device_file*>(this));
         return true;
     }
 
     void device_file::untrack_request(io::request& request) const {
-        core::spinlock_guard guard(pending_lock_);
-        for (u32 i = 0; i < pending_count_; ++i) {
-            if (pending_[i] != &request)
-                continue;
-            pending_[i]              = pending_[--pending_count_];
-            pending_[pending_count_] = nullptr;
-            request.cancellation_observer_set(nullptr);
-            return;
+        {
+            core::spinlock_guard guard(pending_lock_);
+            const u32 count = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE);
+            for (u32 i = 0; i < count; ++i) {
+                if (pending_[i] != &request)
+                    continue;
+                const u32  last      = count - 1;
+                const bool owned     = pending_owned_[i];
+                pending_[i]          = pending_[last];
+                pending_owned_[i]    = pending_owned_[last];
+                pending_[last]       = nullptr;
+                pending_owned_[last] = false;
+                __atomic_store_n(&pending_count_, last, __ATOMIC_RELEASE);
+                request.cancellation_observer_set(nullptr);
+                if (owned)
+                    request.release_for_device();
+                break;
+            }
         }
     }
 

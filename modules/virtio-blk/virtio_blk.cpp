@@ -8,7 +8,7 @@
 #include <astia/io.hpp>
 #include <astia/mm/dma_buffer.hpp>
 #include <astia/mm/share.hpp>
-#include <astia/module_abi.h>
+#include <astia/module.hpp>
 
 #include "virtio_blk_protocol.hpp"
 
@@ -153,7 +153,7 @@ namespace {
 
         void clear() {
             auto* bytes = static_cast<unsigned char*>(memory.data());
-            for (unsigned i = 0; i < ASTIA_PAGE_SIZE; ++i)
+            for (unsigned i = 0; i < astia::mm::page_size; ++i)
                 bytes[i] = 0;
             available_index = 0;
             used_index      = 0;
@@ -164,42 +164,43 @@ namespace {
         asm volatile("mfence" ::: "memory");
     }
 
-    uint8_t pci_byte(void* pci, uint16_t offset) {
+    uint8_t pci_byte(const astia::hw::pci_device* pci, uint16_t offset) {
         const uint32_t value =
-            astia_module_pci_read32(pci, static_cast<uint16_t>(offset & ~3u));
+            astia::module::pci_read32(pci, static_cast<uint16_t>(offset & ~3u));
         return static_cast<uint8_t>(value >> ((offset & 3u) * 8u));
     }
 
-    uint32_t pci_dword(void* pci, uint16_t offset) {
-        return astia_module_pci_read32(pci, static_cast<uint16_t>(offset & ~3u));
+    uint32_t pci_dword(const astia::hw::pci_device* pci, uint16_t offset) {
+        return astia::module::pci_read32(pci, static_cast<uint16_t>(offset & ~3u));
     }
 
     struct controller {
-        void*             pci = nullptr;
-        mmio              common{};
-        mmio              notify{};
-        mmio              device_config{};
-        capability_region common_cap{};
-        capability_region notify_cap{};
-        capability_region device_cap{};
-        uint32_t          device_features_low  = 0;
-        uint32_t          device_features_high = 0;
-        uint64_t          capacity             = 0;
-        uint32_t          block_size           = 512;
-        uint32_t          notify_multiplier    = 0;
-        bool              ring_reset           = false;
-        bool              flush_supported      = false;
-        bool              write_supported      = false;
-        bool              started              = false;
-        bool              failed               = false;
-        bool              quiescing            = false;
-        bool              release_pending      = false;
-        queue             _requestqueue{};
+        astia::hw::pci_device* pci = nullptr;
+        mmio                   common{};
+        mmio                   notify{};
+        mmio                   device_config{};
+        capability_region      common_cap{};
+        capability_region      notify_cap{};
+        capability_region      device_cap{};
+        uint32_t               device_features_low  = 0;
+        uint32_t               device_features_high = 0;
+        uint64_t               capacity             = 0;
+        uint32_t               block_size           = 512;
+        uint32_t               notify_multiplier    = 0;
+        bool                   ring_reset           = false;
+        bool                   flush_supported      = false;
+        bool                   write_supported      = false;
+        bool                   started              = false;
+        bool                   failed               = false;
+        bool                   quiescing            = false;
+        bool                   quiesce_safe         = true;
+        bool                   release_pending      = false;
+        queue                  _requestqueue{};
 
         bool region_valid(const capability_region& region, unsigned required) const {
             if (!region.present || region.bar >= 6 ||
                 region.offset > ~uint64_t{0} - required ||
-                region.offset + required > astia_module_pci_bar_size(pci, region.bar))
+                region.offset + required > astia::module::pci_bar_size(pci, region.bar))
                 return false;
             return true;
         }
@@ -208,13 +209,13 @@ namespace {
             if (!region.present || region.bar >= 6 ||
                 region.offset > ~uint64_t{0} - region.length ||
                 region.offset + region.length >
-                    astia_module_pci_bar_size(pci, region.bar))
+                    astia::module::pci_bar_size(pci, region.bar))
                 return false;
-            uint64_t mapped = astia_module_pci_bar_mapped(pci, region.bar);
+            uint64_t mapped = astia::module::pci_bar_mapped(pci, region.bar);
             if (mapped == 0) {
-                if (astia_module_pci_map_bar(pci, region.bar) != 0)
+                if (!astia::module::pci_map_bar(pci, region.bar))
                     return false;
-                mapped = astia_module_pci_bar_mapped(pci, region.bar);
+                mapped = astia::module::pci_bar_mapped(pci, region.bar);
             }
             if (mapped == 0)
                 return false;
@@ -346,7 +347,7 @@ namespace {
             _requestqueue.available_offset  = size * 16;
             _requestqueue.used_offset =
                 (_requestqueue.available_offset + 6 + size * 2 + 3) & ~3u;
-            if (_requestqueue.used_offset + 6 + size * 8 > ASTIA_PAGE_SIZE)
+            if (_requestqueue.used_offset + 6 + size * 8 > astia::mm::page_size)
                 return false;
             if (!_requestqueue.memory.allocate(1))
                 return false;
@@ -376,22 +377,31 @@ namespace {
             return true;
         }
 
-        void disable_queue() {
+        bool disable_queue() {
             if (!_requestqueue.enabled)
-                return;
+                return true;
+            bool reset = true;
             if (ring_reset) {
                 common.write<uint16_t>(0x38, 1);
+                reset = false;
                 for (unsigned spin = 0; spin < timeout_spins; ++spin) {
-                    if (common.read<uint16_t>(0x38) == 0)
+                    if (common.read<uint16_t>(0x38) == 0) {
+                        reset = true;
                         break;
+                    }
                     asm volatile("pause");
                 }
             }
             _requestqueue.enabled = false;
+            return reset;
         }
 
         void release() {
             quiesce();
+            if (!quiesce_safe) {
+                release_pending = true;
+                return;
+            }
             if (pending.active) {
                 release_pending = true;
                 return;
@@ -407,20 +417,20 @@ namespace {
         void quiesce() {
             if (quiescing)
                 return;
-            quiescing = true;
-            disable_queue();
+            quiescing    = true;
+            quiesce_safe = disable_queue();
             if (common.mapped())
-                (void) reset_device();
+                quiesce_safe = reset_device() && quiesce_safe;
             if (!pending.active)
                 return;
             pending.completed     = true;
             pending.result        = -19;
-            pending.hardware_done = true;
-            if (pending.io != nullptr) {
+            pending.hardware_done = quiesce_safe;
+            if (pending.io != nullptr && quiesce_safe) {
                 if (pending.io->device_state() != nullptr)
                     pending.io->wake();
             }
-            else {
+            else if (pending.io == nullptr && quiesce_safe) {
                 pending.request.release();
                 pending = {};
             }
@@ -433,8 +443,8 @@ namespace {
 
         bool start() {
             quiescing = false;
-            if (astia_module_pci_enable_bus_master(pci) != 0 ||
-                astia_module_pci_disable_msix(pci) != 0 || !find_capabilities())
+            if (!astia::module::pci_enable_bus_master(pci) ||
+                !astia::module::pci_disable_msix(pci) || !find_capabilities())
                 return false;
             if (!map_region(common_cap, common) || !map_region(notify_cap, notify) ||
                 !map_region(device_cap, device_config) || common_cap.length < 0x38 ||
@@ -452,14 +462,15 @@ namespace {
             if ((common.read<uint8_t>(0x14) & status_driver_ok) == 0)
                 return false;
             started = true;
-            astia_module_log_u64("vblk", "sectors", capacity);
+            astia::module::log_u64("vblk", "sectors", capacity);
             return true;
         }
 
         bool reset_queue_after_timeout() {
             if (!ring_reset)
                 return false;
-            disable_queue();
+            if (!disable_queue())
+                return false;
             _requestqueue.clear();
             common.write<uint16_t>(0x18, static_cast<uint16_t>(_requestqueue.size));
             common.write<uint64_t>(0x20, _requestqueue.memory.physical() +
@@ -758,8 +769,7 @@ namespace {
 #ifndef ASTIA_TEARDOWN_TEST
     controller device;
 
-    class virtio_block final : public astia::dev::blk::blkdev,
-                               private astia::io::cancellation_handler {
+    class virtio_block final : public astia::dev::blk::blkdev {
         public:
         explicit virtio_block(controller& owner)
             : blkdev("vblk", owner.capacity * 512, owner.block_size), _owner(owner) {}
@@ -774,17 +784,17 @@ namespace {
                 if (!_owner.complete_async(request, result))
                     return 0;
                 request.device_state(nullptr);
-                request.cancellation_handler_set(nullptr);
+                request.cancel_handler_set(nullptr);
                 return result;
             }
             if (request.device_state() != nullptr)
                 return -16;
             request.device_state(this);
-            request.cancellation_handler_set(this);
+            request.cancel_handler_set(cancel_request);
             const int result = _owner.submit_async(request);
             if (result < 0) {
                 request.device_state(nullptr);
-                request.cancellation_handler_set(nullptr);
+                request.cancel_handler_set(nullptr);
                 return result;
             }
             return 0;
@@ -800,14 +810,14 @@ namespace {
         }
 
         private:
-        void cancellation_requested(astia::io::request& request,
-                                    astia::core::cancel_reason, bool retain) override {
+        static void cancel_request(astia::io::request& request) {
             auto* self = static_cast<virtio_block*>(request.device_state());
             if (self != nullptr) {
+                const bool retain = request.cancellation_retain();
                 (void) self->_owner.cancel_async(request, retain);
                 if (!retain) {
                     request.device_state(nullptr);
-                    request.cancellation_handler_set(nullptr);
+                    request.cancel_handler_set(nullptr);
                 }
             }
         }
@@ -889,18 +899,18 @@ namespace {
                                sector[6] == 'V' && sector[7] == 'I';
             if (!known)
                 return false;
-            astia_module_log("vblk", "known sector ok");
-            astia_module_log("vblk", "invalid geometry rejected");
+            astia::module::log("vblk", "known sector ok");
+            astia::module::log("vblk", "invalid geometry rejected");
             char async_read[512]{};
-            if (astia_module_read_registered_async("/dev/vblk0", async_read,
-                                                   sizeof async_read, 0) != 0 ||
+            if (astia::module::read_registered_async("/dev/vblk0", async_read,
+                                                     sizeof async_read, 0) != 0 ||
                 async_read[0] != 'A' || async_read[1] != 'S' || async_read[2] != 'T' ||
                 async_read[3] != 'I' || async_read[4] != 'A' || async_read[5] != '_' ||
                 async_read[6] != 'V' || async_read[7] != 'I')
                 return false;
             if (!device.write_supported) {
-                astia_module_log("vblk", "attached kernel-buffer async read ok");
-                astia_module_log("vblk", "write rejected: read-only or no flush");
+                astia::module::log("vblk", "attached kernel-buffer async read ok");
+                astia::module::log("vblk", "write rejected: read-only or no flush");
                 return true;
             }
             char written[512]{};
@@ -918,7 +928,7 @@ namespace {
             if (device.read(persisted, sizeof persisted, 512) != sizeof persisted ||
                 persisted[0] != 'A' || persisted[6] != 'W' || persisted[7] != 'R')
                 return false;
-            astia_module_log("vblk", "write flush persistence ok");
+            astia::module::log("vblk", "write flush persistence ok");
             return true;
         }
 
@@ -931,7 +941,7 @@ namespace {
     virtio_driver driver;
 }
 
-extern "C" int module_main() {
+int module_main() {
     return astia::hw::drivers().register_driver(driver) ? 0 : -22;
 }
 #endif

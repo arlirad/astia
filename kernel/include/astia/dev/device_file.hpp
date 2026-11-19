@@ -39,8 +39,9 @@ namespace astia::dev {
         static constexpr u32   max_pending_requests = 64;
         mutable core::spinlock pending_lock_;
         mutable u32            active_        = 0;
-        mutable u32            pending_count_ = 0;
+        mutable volatile u32   pending_count_ = 0;
         mutable io::request*   pending_[max_pending_requests]{};
+        mutable bool           pending_owned_[max_pending_requests]{};
         bool                   detached_ = false;
 
         device* device_instance() const {

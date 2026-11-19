@@ -219,6 +219,70 @@ ASTIA_TEST(device_file_detach_waits_for_active_cancellation_handler) {
     operation.release_owner();
 }
 
+ASTIA_TEST(device_file_detach_waits_for_retained_cancellation_ack) {
+    parked_device           device;
+    astia::dev::device_file file(&device);
+    char                    buffer[1]{};
+    astia::io::operation operation(buffer, sizeof buffer, 0, astia::io::direction::input);
+    auto&                request = operation.request();
+    std::atomic<bool>    cancel_entered{false};
+    device.acknowledge_cancel = false;
+    device.cancel_entered     = &cancel_entered;
+
+    ASTIA_CHECK(request.park_device());
+    ASTIA_CHECK(file.submit(request) == 0);
+
+    std::atomic<bool> detach_done{false};
+    std::thread       worker([&] {
+        file.detach();
+        detach_done.store(true, std::memory_order_release);
+    });
+    while (!cancel_entered.load(std::memory_order_acquire))
+        std::this_thread::yield();
+    ASTIA_CHECK(!detach_done.load(std::memory_order_acquire));
+    request.cancel_acknowledge();
+    worker.join();
+
+    ASTIA_CHECK(detach_done.load(std::memory_order_acquire));
+    ASTIA_CHECK(device.pending == nullptr);
+    operation.release_owner();
+}
+
+ASTIA_TEST(device_file_detach_preserves_operation_for_owner_release) {
+    parked_device           device;
+    astia::dev::device_file file(&device);
+    char                    buffer[1]{};
+    astia::io::operation operation(buffer, sizeof buffer, 0, astia::io::direction::input);
+    auto&                request = operation.request();
+    std::atomic<bool>    cancel_entered{false};
+    std::atomic<bool>    allow_cancel{false};
+    device.cancel_entered = &cancel_entered;
+    device.cancel_gate    = &allow_cancel;
+
+    ASTIA_CHECK(request.park_device());
+    ASTIA_CHECK(file.submit(request) == 0);
+
+    std::atomic<bool> owner_done{false};
+    std::atomic<bool> detach_done{false};
+    std::thread       detach([&] {
+        file.detach();
+        detach_done.store(true, std::memory_order_release);
+    });
+    while (!cancel_entered.load(std::memory_order_acquire))
+        std::this_thread::yield();
+    std::thread owner([&] {
+        operation.release_owner();
+        owner_done.store(true, std::memory_order_release);
+    });
+
+    ASTIA_CHECK(!owner_done.load(std::memory_order_acquire));
+    allow_cancel.store(true, std::memory_order_release);
+    detach.join();
+    owner.join();
+    ASTIA_CHECK(detach_done.load(std::memory_order_acquire));
+    ASTIA_CHECK(owner_done.load(std::memory_order_acquire));
+}
+
 ASTIA_TEST(aio_parked_request_stays_stable_across_stretch) {
     char                 first[4]{};
     char                 second[8]{};

@@ -37,39 +37,32 @@ namespace astia::mm {
 #include "../nvme.cpp"
 }
 
-extern "C" int astia_module_pci_msix_release(astia_module_msix_route*) {
-    return 0;
+namespace astia::module {
+
+    msix_route::~msix_route() {}
+
+    bool pci_msix_release(msix_route*) {
+        return true;
+    }
+
 }
 
 namespace {
 
-    class acknowledgement_observer final : public astia::io::cancellation_observer {
-        public:
-        explicit acknowledgement_observer(unsigned& count) : count_(count) {}
-        void cancellation_acknowledged(astia::io::request&) override {
-            ++count_;
-        }
+    void retain_cancel(astia::io::request&) {}
 
-        private:
-        unsigned& count_;
-    };
-
-    class retain_handler final : public astia::io::cancellation_handler {
-        public:
-        void cancellation_requested(astia::io::request&, astia::core::cancel_reason,
-                                    bool) override {}
-    };
+    void count_ack(astia::io::request&, void* context) {
+        ++*static_cast<unsigned*>(context);
+    }
 
 }
 
 int main() {
-    controller               value{};
-    astia::io::request       request(nullptr, 512, 0, 0, astia::io::direction::input);
-    unsigned                 acknowledgements = 0;
-    acknowledgement_observer observer(acknowledgements);
-    retain_handler           handler;
-    request.cancellation_observer_set(&observer);
-    request.cancellation_handler_set(&handler);
+    controller         value{};
+    astia::io::request request(nullptr, 512, 0, 0, astia::io::direction::input);
+    unsigned           acknowledgements = 0;
+    request.cancel_observer_set(count_ack, &acknowledgements);
+    request.cancel_handler_set(retain_cancel);
     auto& pending   = value.async_requests[0];
     pending.used    = true;
     pending.request = &request;
