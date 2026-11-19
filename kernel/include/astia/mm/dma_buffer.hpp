@@ -11,8 +11,8 @@ namespace astia::mm {
     /// either value after that point.
     class dma_buffer final {
         public:
-        dma_buffer() = default;
-        dma_buffer(const dma_buffer&) = delete;
+        dma_buffer()                             = default;
+        dma_buffer(const dma_buffer&)            = delete;
         dma_buffer& operator=(const dma_buffer&) = delete;
         dma_buffer(dma_buffer&& other) noexcept;
         dma_buffer& operator=(dma_buffer&& other) noexcept;
@@ -21,10 +21,18 @@ namespace astia::mm {
         bool allocate(usize pages = 1, bool zero = true);
         void release();
 
-        explicit operator bool() const { return _address != nullptr; }
-        u64 physical() const { return _physical; }
-        void* data() const { return _address; }
-        usize pages() const { return _pages; }
+        explicit operator bool() const {
+            return _address != nullptr;
+        }
+        u64 physical() const {
+            return _physical;
+        }
+        void* data() const {
+            return _address;
+        }
+        usize pages() const {
+            return _pages;
+        }
 
         template <typename T>
         T* as() const {
@@ -34,9 +42,9 @@ namespace astia::mm {
         void swap(dma_buffer& other) noexcept;
 
         private:
-        u64 _physical = 0;
-        void* _address = nullptr;
-        usize _pages = 0;
+        u64   _physical = 0;
+        void* _address  = nullptr;
+        usize _pages    = 0;
     };
 
 } // namespace astia::mm

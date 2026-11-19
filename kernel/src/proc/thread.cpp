@@ -9,8 +9,8 @@
 namespace astia::proc {
 
     namespace {
-        constexpr usize kernel_stack_bytes = 16 * 1024;
-        constexpr u8    kernel_stack_fill  = 0xA5;
+        constexpr usize kernel_stack_bytes         = 16 * 1024;
+        constexpr u8    kernel_stack_fill          = 0xA5;
         constexpr u32   kernel_stack_sample_period = 16;
         constexpr usize kernel_stack_sample_bytes  = 256;
 
@@ -50,13 +50,12 @@ namespace astia::proc {
             return;
         }
         _kernel_stack_sample_count = kernel_stack_sample_period - 1;
-        const auto* bytes = static_cast<const volatile u8*>(_kernel_stack);
-        const auto* words = static_cast<const volatile u64*>(_kernel_stack);
-        constexpr u64 fill_word = u64{0xA5A5A5A5A5A5A5A5};
-        const usize end = _kernel_stack_scan_offset;
-        const usize begin = end > kernel_stack_sample_bytes
-                                 ? end - kernel_stack_sample_bytes
-                                 : 0;
+        const auto*   bytes        = static_cast<const volatile u8*>(_kernel_stack);
+        const auto*   words        = static_cast<const volatile u64*>(_kernel_stack);
+        constexpr u64 fill_word    = u64{0xA5A5A5A5A5A5A5A5};
+        const usize   end          = _kernel_stack_scan_offset;
+        const usize   begin =
+            end > kernel_stack_sample_bytes ? end - kernel_stack_sample_bytes : 0;
         usize offset = begin;
         while (offset + sizeof(u64) <= end) {
             if (words[offset / sizeof(u64)] != fill_word) {
@@ -91,11 +90,11 @@ namespace astia::proc {
             return false;
         }
         __builtin_memset(stack.value, kernel_stack_fill, kernel_stack_bytes);
-        _kernel_stack      = stack.value;
-        _kernel_stack_size = kernel_stack_bytes;
-        _kernel_stack_high_water = 0;
+        _kernel_stack              = stack.value;
+        _kernel_stack_size         = kernel_stack_bytes;
+        _kernel_stack_high_water   = 0;
         _kernel_stack_sample_count = 0;
-        _kernel_stack_scan_offset = _kernel_stack_size;
+        _kernel_stack_scan_offset  = _kernel_stack_size;
         _kernel_stack_top =
             static_cast<u64>(reinterpret_cast<usize>(_kernel_stack)) + _kernel_stack_size;
         return true;
@@ -103,12 +102,12 @@ namespace astia::proc {
 
     void thread::release_kernel_stack() {
         mm::heap::free(_kernel_stack);
-        _kernel_stack      = nullptr;
-        _kernel_stack_size = 0;
-        _kernel_stack_high_water = 0;
+        _kernel_stack              = nullptr;
+        _kernel_stack_size         = 0;
+        _kernel_stack_high_water   = 0;
         _kernel_stack_sample_count = 0;
-        _kernel_stack_scan_offset = 0;
-        _kernel_stack_top  = 0;
+        _kernel_stack_scan_offset  = 0;
+        _kernel_stack_top          = 0;
     }
 
     bool thread::prepare_kernel(kernel_entry entry, void* argument) {
@@ -182,15 +181,14 @@ namespace astia::proc {
         arch::cpu::nointerrupts();
         state(thread_state::dead);
         if (_owner != nullptr) {
-            const bool owner_reaped =
-                _owner->thread_exited(this,
-                                      static_cast<i32>(reinterpret_cast<usize>(_result)));
+            const bool owner_reaped = _owner->thread_exited(
+                this, static_cast<i32>(reinterpret_cast<usize>(_result)));
             // A detached thread with nobody to join it has no owner for
             // its destruction: the process's owning reference would
             // otherwise leak.  Hand it to the deferred reaper — we are
             // still running on this thread's own kernel stack, so it
             // must not be destroyed right here.
-            thread* joiner = nullptr;
+            thread* joiner  = nullptr;
             bool    reclaim = false;
             {
                 arch::interrupt_spinlock_guard guard(_lifecycle_lock);
@@ -237,9 +235,9 @@ namespace astia::proc {
                                         __ATOMIC_ACQ_REL)) {
                     __atomic_store_n(&current->_joining, static_cast<thread*>(nullptr),
                                      __ATOMIC_RELEASE);
-                    _joiner            = nullptr;
+                    _joiner = nullptr;
                     current->state(thread_state::running);
-                    wait                = false;
+                    wait = false;
                 }
             }
         }
@@ -268,7 +266,7 @@ namespace astia::proc {
 
     bool thread::wake_join_for_cancellation() {
         arch::interrupt_guard gate;
-        thread* target = __atomic_load_n(&_joining, __ATOMIC_ACQUIRE);
+        thread*               target = __atomic_load_n(&_joining, __ATOMIC_ACQUIRE);
         if (target == nullptr)
             return false;
         arch::interrupt_spinlock_guard target_guard(target->_lifecycle_lock);

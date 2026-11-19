@@ -3,9 +3,9 @@
 #include "proc.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/layout.hpp>
-#include <astia/mm/address_space.hpp>
 #include <astia/common.hpp>
 #include <astia/io.hpp>
+#include <astia/mm/address_space.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/optional.hpp>
 #include <astia/span.hpp>
@@ -159,7 +159,7 @@ namespace astia::sys {
         }
         optional<validated_user_ptr<T>> validate(usize count = 1) const;
         optional<validated_user_ptr<T>> validate_for(proc::process* owner,
-                                                     usize count = 1) const;
+                                                     usize          count = 1) const;
 
         private:
         u64 address_ = 0;
@@ -195,8 +195,7 @@ namespace astia::sys {
         const u64 last  = (base + range.length() - 1) & ~mm::page_mask;
         for (u64 page = first;; page += mm::page_size) {
             if (!space->user_accessible(page)) {
-                if (!owner->cow_fault(page, false) ||
-                    !space->user_accessible(page)) {
+                if (!owner->cow_fault(page, false) || !space->user_accessible(page)) {
                     return false;
                 }
             }
@@ -215,8 +214,7 @@ namespace astia::sys {
             return true;
         }
         const u64 base = range.address();
-        return base >= arch::kernel_base &&
-               range.length() - 1 <= ~u64{0} - base;
+        return base >= arch::kernel_base && range.length() - 1 <= ~u64{0} - base;
     }
 
     inline bool user_span_writable_ok_for(proc::process* owner, span<u8> range) {
@@ -272,7 +270,7 @@ namespace astia::sys {
 
     template <typename T>
     optional<validated_user_ptr<T>> user_ptr<T>::validate_for(proc::process* owner,
-                                                               usize count) const {
+                                                              usize count) const {
         if (count > (~usize{0} / sizeof(T)))
             return error_t::erange;
         if (!user_span_ok_for(owner, bytes(count)))
@@ -336,7 +334,8 @@ namespace astia::sys {
     /// from the range; `source` must be at least that long (a kernel local,
     /// so that much is the caller's own promise).  Returns false, writing
     /// nothing, if the range fails validation.
-    inline bool copy_out_for(proc::process* owner, span<u8> destination, const void* source) {
+    inline bool copy_out_for(proc::process* owner, span<u8> destination,
+                             const void* source) {
         // Besides avoiding a meaningless source dereference, this keeps the
         // page walk below from turning an empty range into address-1.  Empty
         // optional output slots are valid and must be a no-op.
@@ -363,13 +362,13 @@ namespace astia::sys {
                 if (page == last)
                     break;
             }
-            const auto* from = static_cast<const u8*>(source);
+            const auto* from   = static_cast<const u8*>(source);
             usize       copied = 0;
             while (copied < destination.length()) {
                 const u64 address = destination.address() + copied;
                 const u64 page    = address & ~mm::page_mask;
-                auto* target = static_cast<u8*>(mm::kernel_frames().to_virt(
-                    space->translate(page)));
+                auto*     target =
+                    static_cast<u8*>(mm::kernel_frames().to_virt(space->translate(page)));
                 if (target == nullptr)
                     return false;
                 const usize within = static_cast<usize>(address - page);
@@ -421,11 +420,12 @@ namespace astia::sys {
         if (capacity == 0 || source.null()) {
             return false;
         }
-        proc::process*        owner = proc::current_process();
-        auto* space = owner == nullptr ? nullptr : &owner->memory_space();
-        const auto*           from  = reinterpret_cast<const u8*>(source.address());
-        u64                   byte  = source.address();
-        if (space == nullptr || !space->attached()) { // kernel client: bounded straight copy
+        proc::process* owner = proc::current_process();
+        auto*          space = owner == nullptr ? nullptr : &owner->memory_space();
+        const auto*    from  = reinterpret_cast<const u8*>(source.address());
+        u64            byte  = source.address();
+        if (space == nullptr ||
+            !space->attached()) { // kernel client: bounded straight copy
             for (usize i = 0; i < capacity; ++i) {
                 destination.data()[i] = static_cast<char>(from[i]);
                 if (destination.data()[i] == '\0') {

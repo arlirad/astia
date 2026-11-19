@@ -3,7 +3,7 @@
 
 ASTIA_TEST(aio_socket_family_owns_socket_and_pipe_operations) {
     const unsigned operations[] = {
-        OP_PIPE, OP_SOCKET, OP_BIND, OP_CONNECT, OP_LISTEN, OP_ACCEPT,
+        OP_PIPE,   OP_SOCKET,   OP_BIND,       OP_CONNECT,  OP_LISTEN,     OP_ACCEPT,
         OP_SENDTO, OP_RECVFROM, OP_SOCKETPAIR, OP_SHUTDOWN, OP_GETSOCKOPT,
     };
     for (unsigned operation : operations)

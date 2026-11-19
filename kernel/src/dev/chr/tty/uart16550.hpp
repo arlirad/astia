@@ -1,10 +1,10 @@
 #pragma once
 
-#include <astia/dev/regs.hpp>
-#include "../tty.hpp"
 #include "../../console.hpp"
+#include "../tty.hpp"
 #include <astia/api/termios.h>
 #include <astia/common.hpp>
+#include <astia/dev/regs.hpp>
 #include <astia/dev/uart_platform.hpp>
 
 // COM1 as a 16550 UART, shaped by the dev layer's blk/char/net split:
@@ -79,7 +79,7 @@ namespace astia::dev {
         bool tx_byte(u8 c);
         void rx_drain();
 
-        io_port  _ports;
+        io_port   _ports;
         irq_line& _irq;
     };
 

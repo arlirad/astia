@@ -69,8 +69,8 @@ namespace astia::fs {
     mm::phys_region* file::memory_region() {
         return nullptr;
     }
-    void file::duplicate(u32) {}
-    void file::close(u32) {}
+    void        file::duplicate(u32) {}
+    void        file::close(u32) {}
     const void* file::capability(file_capability) const {
         return nullptr;
     }

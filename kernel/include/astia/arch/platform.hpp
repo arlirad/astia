@@ -12,9 +12,9 @@ namespace astia::arch {
         inline constexpr u32 max_cpu_count = 256;
 
         constexpr u32 clamp_cpu_count(u64 count) {
-            return count == 0 ? 1
-                              : count > max_cpu_count ? max_cpu_count
-                                                      : static_cast<u32>(count);
+            return count == 0              ? 1
+                   : count > max_cpu_count ? max_cpu_count
+                                           : static_cast<u32>(count);
         }
 
         u32 online_cpu_count();

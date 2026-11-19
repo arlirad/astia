@@ -1,15 +1,14 @@
 #pragma once
 
-#include "../tty.hpp"
 #include "../../console.hpp"
+#include "../tty.hpp"
 #include <astia/fs.hpp>
 
 namespace astia::dev {
 
     class virtual_tty final : public tty {
         public:
-        constexpr explicit virtual_tty(const char* name)
-            : tty(name, dv_char | dv_sync) {}
+        constexpr explicit virtual_tty(const char* name) : tty(name, dv_char | dv_sync) {}
 
         long write(const void* buf, u32 len, u64 off) override;
         u32  poll(u32 events, u32 flags) override;
@@ -24,8 +23,8 @@ namespace astia::dev {
         long tty_speed(speed_t speed) override;
 
         private:
-        fs::file* _ready_file = nullptr;
-        console_backend* _backend = nullptr;
+        fs::file*        _ready_file = nullptr;
+        console_backend* _backend    = nullptr;
     };
 
     inline constexpr char virtual_tty_path[] = "/dev/ttv0";

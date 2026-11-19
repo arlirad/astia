@@ -1,9 +1,9 @@
 #pragma once
 
 #include <astia/api/aio.h>
-#include <astia/resource_limits.hpp>
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
+#include <astia/resource_limits.hpp>
 
 // The kernel side of the async I/O ring ABI (<astia/api/aio.h>): the
 // engine that consumes SQEs and posts CQEs.  Userspace will reach it
@@ -48,7 +48,8 @@ namespace astia::sys {
     static_assert(ASTIA_AIO_MAX_RING_ENTRIES == resource_limits::abi::aio_ring_entries);
     static_assert(ASTIA_AIO_MAX_PARKED_OPERATIONS ==
                   resource_limits::abi::aio_parked_operations);
-    static_assert(ASTIA_AIO_MAX_OPERATION_BYTES == resource_limits::abi::aio_operation_bytes);
+    static_assert(ASTIA_AIO_MAX_OPERATION_BYTES ==
+                  resource_limits::abi::aio_operation_bytes);
     static_assert(kernel_ring_max_entries <= IO_MAX_ENTRIES,
                   "kernel ring cap must fit the AIO ABI cap");
 

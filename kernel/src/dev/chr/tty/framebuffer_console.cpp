@@ -14,8 +14,8 @@ namespace astia::dev {
     bool framebuffer_console::initialize(const boot::framebuffer_info& info) {
         if (!info.valid() || static_cast<u64>(info.pitch) * info.height > ~usize{0})
             return false;
-        const usize font_length = static_cast<usize>(_binary_aex2_font_psf_end -
-                                                     _binary_aex2_font_psf_start);
+        const usize font_length =
+            static_cast<usize>(_binary_aex2_font_psf_end - _binary_aex2_font_psf_start);
         if (!_font.load(span<const u8>(_binary_aex2_font_psf_start, font_length)))
             return false;
         auto mapping = mmio_mapping::map(info.physical_address,

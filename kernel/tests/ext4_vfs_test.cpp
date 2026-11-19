@@ -11,13 +11,14 @@
 #include <astia/fs.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
+
 #include <cstring>
 
 alignas(16) unsigned char ext4_test_heap_storage[256 * 1024];
 
 #include "../src/dev/device_file.hpp"
-#include <astia/dev/blk/blkdev.hpp>
 #include "../src/fs/filesystem.hpp"
+#include <astia/dev/blk/blkdev.hpp>
 
 namespace astia::proc {
     mm::shptr<fs::open_file> controlling_terminal() {
@@ -27,10 +28,10 @@ namespace astia::proc {
 
 namespace {
 
-    using astia::u8;
     using astia::u16;
     using astia::u32;
     using astia::u64;
+    using astia::u8;
 
     class fake_blkdev final : public astia::dev::blk::blkdev {
         public:
@@ -41,11 +42,11 @@ namespace {
         }
 
         void put16(u64 offset, u16 value) {
-            _image[offset] = static_cast<u8>(value);
+            _image[offset]     = static_cast<u8>(value);
             _image[offset + 1] = static_cast<u8>(value >> 8);
         }
         void put32(u64 offset, u32 value) {
-            _image[offset] = static_cast<u8>(value);
+            _image[offset]     = static_cast<u8>(value);
             _image[offset + 1] = static_cast<u8>(value >> 8);
             _image[offset + 2] = static_cast<u8>(value >> 16);
             _image[offset + 3] = static_cast<u8>(value >> 24);
@@ -155,10 +156,10 @@ namespace {
             _image[root + 8] = '.';
             put32(root + 12, 2);
             put16(root + 16, 1024 - 12);
-            _image[root + 18] = 2;
-            _image[root + 19] = 2;
-            _image[root + 20] = '.';
-            _image[root + 21] = '.';
+            _image[root + 18]   = 2;
+            _image[root + 19]   = 2;
+            _image[root + 20]   = '.';
+            _image[root + 21]   = '.';
             _image[root + 0x1C] = 1;
             _image[root + 0x1D] = 8;
             _image[root + 0x1E] = 1;
@@ -199,14 +200,14 @@ namespace {
         }
 
         private:
-        u8 _image[image_size]{};
+        u8  _image[image_size]{};
         u32 _reads = 0;
     };
 
-    fake_blkdev fake_device;
+    fake_blkdev             fake_device;
     astia::dev::device_file fake_file(&fake_device);
-    bool fake_registered = false;
-    bool fake_mountpoint = false;
+    bool                    fake_registered = false;
+    bool                    fake_mountpoint = false;
 
     bool no_mapping(u64, u64) {
         return true;
@@ -222,7 +223,7 @@ namespace {
                 astia::mm::memory_type::usable);
         astia::mm::kernel_frames().init(map);
         astia::mm::heap::configure(ext4_test_heap_storage, sizeof ext4_test_heap_storage,
-                                    no_mapping);
+                                   no_mapping);
         ASTIA_CHECK(astia::mm::heap::init());
         ASTIA_CHECK(astia::fs::init());
         initialized = true;
@@ -237,8 +238,9 @@ namespace {
         }
         if (!fake_mountpoint) {
             ASTIA_CHECK(astia::fs::make_directory(
-                            "/tmp/ext4", astia::fs::file_mode(astia::fs::directory_dir,
-                                                               astia::fs::file_permissions(0755))) == 0);
+                            "/tmp/ext4", astia::fs::file_mode(
+                                             astia::fs::directory_dir,
+                                             astia::fs::file_permissions(0755))) == 0);
             fake_mountpoint = true;
         }
         ASTIA_CHECK(astia::fs::mount_type("ext4", "/tmp/ext4", "/dev/fake-ext4") == 0);
@@ -269,7 +271,7 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
     ASTIA_CHECK(astia::fs::node_mode("/tmp/ext4").permissions().raw() == 0755);
     ASTIA_CHECK(astia::raw_id(astia::fs::node_uid("/tmp/ext4/known.txt")) == 0);
 
-    char name[32]{};
+    char                 name[32]{};
     astia::fs::file_type type{};
     ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 0, name, sizeof name, &type) == 1);
     ASTIA_CHECK(std::strcmp(name, ".") == 0 && type == astia::fs::directory_dir);
@@ -280,18 +282,20 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
     ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 4, name, sizeof name, &type) == 1);
     ASTIA_CHECK(std::strcmp(name, "long") == 0 && type == astia::fs::directory_lnk);
     char long_target[65]{};
-    ASTIA_CHECK(astia::fs::read_symlink("/tmp/ext4/long", long_target,
-                                        sizeof long_target) == 64);
+    ASTIA_CHECK(
+        astia::fs::read_symlink("/tmp/ext4/long", long_target, sizeof long_target) == 64);
     for (u32 i = 0; i < 64; ++i)
         ASTIA_CHECK(long_target[i] == static_cast<char>('a' + i % 26));
-    ASTIA_CHECK(astia::fs::read_symlink("/tmp/ext4/long", long_target, 64) == -ENAMETOOLONG);
+    ASTIA_CHECK(astia::fs::read_symlink("/tmp/ext4/long", long_target, 64) ==
+                -ENAMETOOLONG);
     char resolved[astia::fs::path_max]{};
-    ASTIA_CHECK(astia::fs::resolve_path("/tmp/ext4/loop1", resolved, sizeof resolved) == -ELOOP);
+    ASTIA_CHECK(astia::fs::resolve_path("/tmp/ext4/loop1", resolved, sizeof resolved) ==
+                -ELOOP);
     ASTIA_CHECK(!astia::fs::open("/tmp/ext4/missing"));
 
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == -EBUSY);
     known = {};
-    link = {};
+    link  = {};
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
 }
 
@@ -299,7 +303,7 @@ ASTIA_TEST(devfs_unregister_and_reprobe_replaces_node) {
     initialize_runtime();
     mount_fixture(fake_device, fake_file);
     auto registered = astia::mm::shptr<astia::fs::file>::borrowed(&fake_file);
-    auto old = astia::fs::open("/dev/fake-ext4");
+    auto old        = astia::fs::open("/dev/fake-ext4");
     ASTIA_CHECK(old);
     ASTIA_CHECK(astia::fs::unregister_device("/dev/fake-ext4", registered) == 0);
     fake_registered = false;
@@ -307,7 +311,7 @@ ASTIA_TEST(devfs_unregister_and_reprobe_replaces_node) {
     ASTIA_CHECK(!astia::fs::node_mode("/dev/fake-ext4").exists());
     ASTIA_CHECK(astia::fs::register_device("/dev/fake-ext4", registered) == 0);
     fake_registered = true;
-    auto current = astia::fs::open("/dev/fake-ext4");
+    auto current    = astia::fs::open("/dev/fake-ext4");
     ASTIA_CHECK(current);
     char data[512]{};
     ASTIA_CHECK(old && old->read(data, sizeof data) == 512);
@@ -341,7 +345,7 @@ ASTIA_TEST(ext4_vfs_reads_indexed_directory) {
     char data[32]{};
     ASTIA_CHECK(known && known->read(data, sizeof data) == 16);
     ASTIA_CHECK(std::strcmp(data, "hello from ext4\n") == 0);
-    char name[32]{};
+    char                 name[32]{};
     astia::fs::file_type type{};
     ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 2, name, sizeof name, &type) == 1);
     ASTIA_CHECK(std::strcmp(name, "known.txt") == 0 && type == astia::fs::directory_reg);

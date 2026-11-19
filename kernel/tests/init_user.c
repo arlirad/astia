@@ -73,10 +73,10 @@ static astia_sqe* fill(astia_rings* ring, uint32_t op, int32_t fd, uint64_t addr
 
 /* Publish the filled slot, kick it, and return the completion's result. */
 static long kick(astia_rings* ring, uint64_t tag, long* rc_out) {
-    astia_cqe*     c;
+    astia_cqe* c;
 
     astia_sq_publish(ring, 1);
-    *rc_out        = astia_io_submit(ring, 1);
+    *rc_out = astia_io_submit(ring, 1);
     if (*rc_out < 0)
         return *rc_out;
     c = astia_cq_peek(ring);
@@ -197,7 +197,7 @@ void c_main(const long* frame) {
     {
         const uint64_t deadline = (uint64_t) slept.tv_sec * 1000000000ull +
                                   (uint64_t) slept.tv_nsec + 20000000ull;
-        astia_sqe*     absolute = fill(ring, OP_SLEEP, -1, 0, deadline, 0, tag);
+        astia_sqe* absolute = fill(ring, OP_SLEEP, -1, 0, deadline, 0, tag);
         if (absolute == NULL)
             astia_exit(8);
         absolute->op_flags = SLEEP_ABSOLUTE;

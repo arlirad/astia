@@ -6,7 +6,7 @@ namespace astia::initrd {
 
     namespace {
 
-        constexpr usize cpio_header_size = 110;
+        constexpr usize cpio_header_size  = 110;
         constexpr char  cpio_newc_magic[] = "070701";
         constexpr char  cpio_crc_magic[]  = "070702";
         constexpr u8    gzip_magic_0      = 0x1f;
@@ -20,12 +20,12 @@ namespace astia::initrd {
         constexpr char  cpio_trailer[]    = "TRAILER!!!";
 
         struct cpio_entry {
-            const u8* name = nullptr;
-            const u8* data = nullptr;
-            usize     size = 0;
-            u32       mode = 0;
+            const u8* name  = nullptr;
+            const u8* data  = nullptr;
+            usize     size  = 0;
+            u32       mode  = 0;
             u32       check = 0;
-            usize     next = 0;
+            usize     next  = 0;
         };
 
         bool str_eq(const char* a, const char* b) {
@@ -47,7 +47,7 @@ namespace astia::initrd {
             u32 value = 0;
             for (usize i = 0; i < 8; ++i) {
                 const u8 c = p[i];
-                u32       digit;
+                u32      digit;
                 if (c >= '0' && c <= '9')
                     digit = c - '0';
                 else if (c >= 'a' && c <= 'f')
@@ -74,22 +74,22 @@ namespace astia::initrd {
         bool read_cpio_entry(const archive& a, usize off, cpio_entry& out) {
             if (off > a.image.size() || cpio_header_size > a.image.size() - off)
                 return false;
-            const u8* hdr = a.image.data() + off;
+            const u8*  hdr = a.image.data() + off;
             const bool crc = a.format == archive_format::cpio_crc;
             if (!has_magic(hdr, crc ? cpio_crc_magic : cpio_newc_magic, 6))
                 return false;
 
-            u32 ino = 0;
-            u32 uid = 0;
-            u32 gid = 0;
-            u32 nlink = 0;
-            u32 mtime = 0;
-            u32 filesize = 0;
-            u32 devmajor = 0;
-            u32 devminor = 0;
+            u32 ino       = 0;
+            u32 uid       = 0;
+            u32 gid       = 0;
+            u32 nlink     = 0;
+            u32 mtime     = 0;
+            u32 filesize  = 0;
+            u32 devmajor  = 0;
+            u32 devminor  = 0;
             u32 rdevmajor = 0;
             u32 rdevminor = 0;
-            u32 namesize = 0;
+            u32 namesize  = 0;
             if (!parse_hex(hdr + 6, ino) || !parse_hex(hdr + 14, out.mode) ||
                 !parse_hex(hdr + 22, uid) || !parse_hex(hdr + 30, gid) ||
                 !parse_hex(hdr + 38, nlink) || !parse_hex(hdr + 46, mtime) ||
@@ -125,7 +125,7 @@ namespace astia::initrd {
                 static_cast<usize>(filesize) > a.image.size() - data_off)
                 return false;
             const usize data_size = static_cast<usize>(filesize);
-            const usize data_end = data_off + data_size;
+            const usize data_end  = data_off + data_size;
             if (data_end > ~usize{0} - 3)
                 return false;
             const usize next = (data_end + 3) & ~usize(3);
@@ -141,8 +141,8 @@ namespace astia::initrd {
         }
 
         bool is_cpio_trailer(const cpio_entry& entry) {
-            return entry.size == 0 && str_eq(reinterpret_cast<const char*>(entry.name),
-                                             cpio_trailer);
+            return entry.size == 0 &&
+                   str_eq(reinterpret_cast<const char*>(entry.name), cpio_trailer);
         }
 
     } // namespace
@@ -173,9 +173,8 @@ namespace astia::initrd {
         if (!has_magic(image.data(), cpio_newc_magic, 6) &&
             !has_magic(image.data(), cpio_crc_magic, 6))
             return false;
-        a.format = has_magic(image.data(), cpio_crc_magic, 6)
-                       ? archive_format::cpio_crc
-                       : archive_format::cpio_newc;
+        a.format = has_magic(image.data(), cpio_crc_magic, 6) ? archive_format::cpio_crc
+                                                              : archive_format::cpio_newc;
         cpio_entry first;
         if (!read_cpio_entry(a, 0, first))
             return false;

@@ -98,10 +98,10 @@ namespace astia::fs {
     class tmpfs_mount final : public mount {
         public:
         mm::shptr<open_file> open(const char* path, u32 flags) override;
-        long open_shared(const char* path, u32 flags, file_mode mode, uid_t uid, gid_t gid,
-                         uid_t euid, gid_t egid, bool privileged,
-                         mm::shptr<open_file>& result);
-        long unlink_shared(const char* path);
+        long      open_shared(const char* path, u32 flags, file_mode mode, uid_t uid,
+                              gid_t gid, uid_t euid, gid_t egid, bool privileged,
+                              mm::shptr<open_file>& result);
+        long      unlink_shared(const char* path);
         long      read_directory(const char* path, u64 index, char* name, u32 capacity,
                                  file_type* type) override;
         long      mkdir(const char* path, file_mode mode) override;
@@ -140,7 +140,7 @@ namespace astia::fs {
             return "tmpfs";
         }
         fs::mount* mount(const char* source) const override;
-        bool owns_mount() const override {
+        bool       owns_mount() const override {
             return true;
         }
         void destroy_mount(fs::mount* value) const override {
@@ -148,8 +148,8 @@ namespace astia::fs {
         }
     };
 
-    long open_shared_memory(const char* path, u32 flags, file_mode mode, uid_t uid, gid_t gid,
-                            uid_t euid, gid_t egid, bool privileged,
+    long open_shared_memory(const char* path, u32 flags, file_mode mode, uid_t uid,
+                            gid_t gid, uid_t euid, gid_t egid, bool privileged,
                             mm::shptr<open_file>& result);
     long unlink_shared_memory(const char* path);
 

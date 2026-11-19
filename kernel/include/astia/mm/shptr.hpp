@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+
 #include <new>
 
 // Small shared pointer for kernel objects.  Copies share a reference
@@ -120,7 +121,8 @@ namespace astia::mm {
         template <typename U>
         void acquire(U* value, void (*destroy)(void*)) {
             if (value != nullptr) {
-                _control = new (std::nothrow) shcontrol{1, static_cast<T*>(value), value, destroy};
+                _control = new (std::nothrow)
+                    shcontrol{1, static_cast<T*>(value), value, destroy};
                 if (_control == nullptr && destroy != nullptr)
                     destroy(value);
             }

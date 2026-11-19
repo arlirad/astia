@@ -29,12 +29,12 @@ namespace astia::proc::syscall {
             if (access != ASTIA_SHM_O_RDONLY && access != ASTIA_SHM_O_WRONLY &&
                 access != ASTIA_SHM_O_RDWR)
                 return -EINVAL;
-            if ((flags & ~(ASTIA_SHM_O_CREAT | ASTIA_SHM_O_EXCL | ASTIA_SHM_O_TRUNC | 3)) != 0)
+            if ((flags &
+                 ~(ASTIA_SHM_O_CREAT | ASTIA_SHM_O_EXCL | ASTIA_SHM_O_TRUNC | 3)) != 0)
                 return -EINVAL;
-            wire = access == ASTIA_SHM_O_RDWR
-                       ? ASTIA_AIO_O_RDWR
-                       : access == ASTIA_SHM_O_WRONLY ? ASTIA_AIO_O_WRONLY
-                                                       : ASTIA_AIO_O_RDONLY;
+            wire = access == ASTIA_SHM_O_RDWR     ? ASTIA_AIO_O_RDWR
+                   : access == ASTIA_SHM_O_WRONLY ? ASTIA_AIO_O_WRONLY
+                                                  : ASTIA_AIO_O_RDONLY;
             if ((flags & ASTIA_SHM_O_CREAT) != 0)
                 wire |= ASTIA_AIO_O_CREAT;
             if ((flags & ASTIA_SHM_O_EXCL) != 0)
@@ -61,7 +61,7 @@ namespace astia::proc::syscall {
         if (rc < 0)
             return rc;
         u32 wire = 0;
-        rc = native_flags(flags, wire);
+        rc       = native_flags(flags, wire);
         if (rc < 0)
             return rc;
         const auto permissions = fs::file_permissions(
@@ -85,7 +85,7 @@ namespace astia::proc::syscall {
         auto* owner = current_process();
         if (owner == nullptr)
             return -ESRCH;
-        char name[fs::path_max]{};
+        char       name[fs::path_max]{};
         const long rc = copy_name(address, name);
         return rc < 0 ? rc : fs::unlink_shared_memory(name);
     }

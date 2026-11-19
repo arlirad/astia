@@ -567,9 +567,9 @@ namespace astia::fs {
             if (!current)
                 return -ESRCH;
             mm::shptr<file> node = o.node();
-            long rc = register_unix_path(n, node, uid_t{current->euid()},
-                                         gid_t{current->egid()},
-                                         astia::span<char>(canonical, sizeof canonical));
+            long            rc   = register_unix_path(n, node, uid_t{current->euid()},
+                                                      gid_t{current->egid()},
+                                                      astia::span<char>(canonical, sizeof canonical));
             if (rc < 0)
                 return rc;
             f->set_bound_address(a);

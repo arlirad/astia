@@ -59,7 +59,8 @@ namespace astia::arch {
     /// re-executes; false = genuine violation, stays fatal.
     using user_fault_handler = bool (*)(u64 addr, bool write);
     bool register_user_fault_handler(user_fault_handler handler);
-    using user_fault_signal_handler = bool (*)(interrupt_frame* frame, u64 addr, u64 error);
+    using user_fault_signal_handler = bool (*)(interrupt_frame* frame, u64 addr,
+                                               u64 error);
     bool register_user_fault_signal_handler(user_fault_signal_handler handler);
     void load_interrupts();
 
@@ -84,7 +85,9 @@ namespace astia::arch {
         u32 vector = 0;
         u32 owner  = 0;
 
-        bool valid() const { return vector != 0 && owner != 0; }
+        bool valid() const {
+            return vector != 0 && owner != 0;
+        }
     };
 
     using interrupt_vector_handler = void (*)(void* context);

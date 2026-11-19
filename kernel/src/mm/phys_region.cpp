@@ -39,11 +39,11 @@ namespace astia::mm {
             }
             page_bases = bases.value;
         }
-        _base      = base;
-        _pages     = pages;
-        _identity  = static_cast<shptr<phys_region_identity>&&>(identity);
-        _page_refs = static_cast<u16*>(static_cast<void*>(storage.value));
-        _dest_refs = static_cast<u16*>(static_cast<void*>(destinations.value));
+        _base       = base;
+        _pages      = pages;
+        _identity   = static_cast<shptr<phys_region_identity>&&>(identity);
+        _page_refs  = static_cast<u16*>(static_cast<void*>(storage.value));
+        _dest_refs  = static_cast<u16*>(static_cast<void*>(destinations.value));
         _page_bases = static_cast<u64*>(page_bases);
         // A freshly-created/adopted region carries its initial
         // mapping reference.  This preserves the existing ownership
@@ -199,7 +199,8 @@ namespace astia::mm {
 
     void* phys_region::page_direct(usize index) {
         const u64 frame = page_base(index);
-        return frame == frame_allocator::invalid_frame ? nullptr : kernel_frames().to_virt(frame);
+        return frame == frame_allocator::invalid_frame ? nullptr
+                                                       : kernel_frames().to_virt(frame);
     }
 
     u64 phys_region::page_base(usize index) const {
@@ -225,8 +226,8 @@ namespace astia::mm {
         if (_page_bases[index] != frame_allocator::invalid_frame) {
             return true;
         }
-        const u64 frame = kernel_frames().alloc(1, zero ? frame_flags::zeroed
-                                                        : frame_flags::none);
+        const u64 frame =
+            kernel_frames().alloc(1, zero ? frame_flags::zeroed : frame_flags::none);
         if (frame == frame_allocator::invalid_frame) {
             return false;
         }

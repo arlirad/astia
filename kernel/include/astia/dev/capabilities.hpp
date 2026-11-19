@@ -10,8 +10,8 @@ namespace astia::dev {
         using read16_callback = u16 (*)(void*, u16);
         using read32_callback = u32 (*)(void*, u16);
 
-        void*           context = nullptr;
-        read8_callback  read8_fn = nullptr;
+        void*           context   = nullptr;
+        read8_callback  read8_fn  = nullptr;
         read16_callback read16_fn = nullptr;
         read32_callback read32_fn = nullptr;
 
@@ -40,8 +40,8 @@ namespace astia::dev {
         using write16_callback = void (*)(void*, u16, u16);
         using write32_callback = void (*)(void*, u16, u32);
 
-        void*            context = nullptr;
-        write8_callback  write8_fn = nullptr;
+        void*            context    = nullptr;
+        write8_callback  write8_fn  = nullptr;
         write16_callback write16_fn = nullptr;
         write32_callback write32_fn = nullptr;
 
@@ -93,15 +93,31 @@ namespace astia::dev {
             return reader.valid() && writer.valid();
         }
 
-        constexpr bool readable() const { return reader.valid(); }
-        constexpr bool writable() const { return writer.valid(); }
+        constexpr bool readable() const {
+            return reader.valid();
+        }
+        constexpr bool writable() const {
+            return writer.valid();
+        }
 
-        optional<u8> read8(u16 port) const { return reader.read8(port); }
-        optional<u16> read16(u16 port) const { return reader.read16(port); }
-        optional<u32> read32(u16 port) const { return reader.read32(port); }
-        bool write8(u16 port, u8 value) const { return writer.write8(port, value); }
-        bool write16(u16 port, u16 value) const { return writer.write16(port, value); }
-        bool write32(u16 port, u32 value) const { return writer.write32(port, value); }
+        optional<u8> read8(u16 port) const {
+            return reader.read8(port);
+        }
+        optional<u16> read16(u16 port) const {
+            return reader.read16(port);
+        }
+        optional<u32> read32(u16 port) const {
+            return reader.read32(port);
+        }
+        bool write8(u16 port, u8 value) const {
+            return writer.write8(port, value);
+        }
+        bool write16(u16 port, u16 value) const {
+            return writer.write16(port, value);
+        }
+        bool write32(u16 port, u32 value) const {
+            return writer.write32(port, value);
+        }
     };
 
     class io_port {
@@ -111,24 +127,25 @@ namespace astia::dev {
 
         optional<u8> read8(u32 offset) const {
             return port(offset) == none ? optional<u8>(error_t::erange)
-                                        : _bus == nullptr ? optional<u8>(error_t::enosys)
-                                                           : _bus->read8(port(offset));
+                   : _bus == nullptr    ? optional<u8>(error_t::enosys)
+                                        : _bus->read8(port(offset));
         }
 
         optional<u16> read16(u32 offset) const {
             return port(offset) == none ? optional<u16>(error_t::erange)
-                                        : _bus == nullptr ? optional<u16>(error_t::enosys)
-                                                           : _bus->read16(port(offset));
+                   : _bus == nullptr    ? optional<u16>(error_t::enosys)
+                                        : _bus->read16(port(offset));
         }
 
         optional<u32> read32(u32 offset) const {
             return port(offset) == none ? optional<u32>(error_t::erange)
-                                        : _bus == nullptr ? optional<u32>(error_t::enosys)
-                                                           : _bus->read32(port(offset));
+                   : _bus == nullptr    ? optional<u32>(error_t::enosys)
+                                        : _bus->read32(port(offset));
         }
 
         bool write8(u32 offset, u8 value) const {
-            return port(offset) != none && _bus != nullptr && _bus->write8(port(offset), value);
+            return port(offset) != none && _bus != nullptr &&
+                   _bus->write8(port(offset), value);
         }
 
         bool write16(u32 offset, u16 value) const {
@@ -141,7 +158,9 @@ namespace astia::dev {
                    _bus->write32(port(offset), value);
         }
 
-        constexpr u16 base() const { return _base; }
+        constexpr u16 base() const {
+            return _base;
+        }
 
         constexpr bool valid() const {
             return _bus != nullptr && _bus->valid();
@@ -164,7 +183,7 @@ namespace astia::dev {
         }
 
         const pio_bus* _bus  = nullptr;
-        u16      _base = 0;
+        u16            _base = 0;
     };
 
     using irq_handler = void (*)();
@@ -172,46 +191,62 @@ namespace astia::dev {
     struct irq_claimable {
         using callback = bool (*)(void*, irq_handler);
 
-        void*    context = nullptr;
+        void*    context  = nullptr;
         callback claim_fn = nullptr;
 
-        constexpr bool valid() const { return claim_fn != nullptr; }
+        constexpr bool valid() const {
+            return claim_fn != nullptr;
+        }
 
         bool claim(irq_handler handler) const {
-            return handler != nullptr && claim_fn != nullptr && claim_fn(context, handler);
+            return handler != nullptr && claim_fn != nullptr &&
+                   claim_fn(context, handler);
         }
     };
 
     struct irq_unmaskable {
         using callback = bool (*)(void*);
 
-        void*    context = nullptr;
+        void*    context   = nullptr;
         callback unmask_fn = nullptr;
 
-        constexpr bool valid() const { return unmask_fn != nullptr; }
+        constexpr bool valid() const {
+            return unmask_fn != nullptr;
+        }
 
-        bool unmask() const { return unmask_fn != nullptr && unmask_fn(context); }
+        bool unmask() const {
+            return unmask_fn != nullptr && unmask_fn(context);
+        }
     };
 
     struct irq_line {
-        using claim_callback = irq_claimable::callback;
+        using claim_callback  = irq_claimable::callback;
         using unmask_callback = irq_unmaskable::callback;
 
-        irq_claimable claimable;
+        irq_claimable  claimable;
         irq_unmaskable unmaskable;
 
         constexpr irq_line() = default;
-        constexpr irq_line(void* context, claim_callback claim_fn, unmask_callback unmask_fn)
+        constexpr irq_line(void* context, claim_callback claim_fn,
+                           unmask_callback unmask_fn)
             : claimable{context, claim_fn}, unmaskable{context, unmask_fn} {}
 
         constexpr bool valid() const {
             return claimable.valid() && unmaskable.valid();
         }
 
-        constexpr bool claimable_valid() const { return claimable.valid(); }
-        constexpr bool unmaskable_valid() const { return unmaskable.valid(); }
-        bool claim(irq_handler handler) const { return claimable.claim(handler); }
-        bool unmask() const { return unmaskable.unmask(); }
+        constexpr bool claimable_valid() const {
+            return claimable.valid();
+        }
+        constexpr bool unmaskable_valid() const {
+            return unmaskable.valid();
+        }
+        bool claim(irq_handler handler) const {
+            return claimable.claim(handler);
+        }
+        bool unmask() const {
+            return unmaskable.unmask();
+        }
     };
 
 } // namespace astia::dev

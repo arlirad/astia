@@ -14,7 +14,8 @@ namespace astia::arch {
         }
 
         constexpr bool operator==(pci_bdf other) const {
-            return bus == other.bus && device == other.device && function == other.function;
+            return bus == other.bus && device == other.device &&
+                   function == other.function;
         }
 
         constexpr bool operator!=(pci_bdf other) const {

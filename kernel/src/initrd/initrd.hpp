@@ -43,8 +43,8 @@ namespace astia::initrd {
     struct archive {
         span<const u8> image;
         // Compatibility views for existing in-kernel consumers.
-        const u8* base = nullptr;
-        usize     len  = 0;
+        const u8*      base   = nullptr;
+        usize          len    = 0;
         archive_format format = archive_format::cpio_newc;
     };
 
@@ -52,7 +52,7 @@ namespace astia::initrd {
     using visit_fn = bool (*)(void* ctx, const file& f);
 
     /// Identify an outer container without attempting decompression.
-    archive_container detect_container(span<const u8> image);
+    archive_container        detect_container(span<const u8> image);
     inline archive_container detect_container(const void* image, usize length) {
         return detect_container(span<const u8>(static_cast<const u8*>(image), length));
     }
