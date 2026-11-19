@@ -1,8 +1,5 @@
 #include "smp.hpp"
 
-#include "../../proc/scheduler.hpp"
-#include "gdt.hpp"
-#include "lapic.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
@@ -10,6 +7,10 @@
 #include <astia/arch/platform.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
+
+#include "../../proc/scheduler.hpp"
+#include "gdt.hpp"
+#include "lapic.hpp"
 
 extern "C" {
 extern volatile astia::u32 astia_ap_cr3;
@@ -228,7 +229,8 @@ namespace astia::arch::x86_64::smp {
             logs::info(
                 found == 0 && r != nullptr
                     ? "AP startup deferred: no APIC-ID topology (invalid/missing MADT)"
-                    : "AP startup deferred: no APIC-ID topology (PVH provides no ACPI RSDP)");
+                    : "AP startup deferred: no APIC-ID topology (PVH provides no ACPI "
+                      "RSDP)");
             logs::info("reschedule IPI armed");
             return true;
         }
