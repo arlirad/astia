@@ -12,12 +12,11 @@ namespace astia::fs {
                 mm::uptr<core::completion<i64>>(new core::completion<i64>());
             if (!completion)
                 co_return error_t::enomem;
-            io_packet packet(
-                file, buffer, length, offset, direction,
-                static_cast<mm::uptr<core::completion<i64>>&&>(completion));
+            io_packet packet(file, buffer, length, offset, direction,
+                             static_cast<mm::uptr<core::completion<i64>>&&>(completion));
             if (!packet)
                 co_return error_t::enomem;
-            core::completion<i64>* operation = packet.completion();
+            core::completion<i64>* pending_completion = packet.completion();
             if (!packet.request().park_device())
                 co_return error_t::eagain;
             const long submitted = packet.submit();
@@ -33,7 +32,7 @@ namespace astia::fs {
                 packet.request().acknowledge();
                 co_return 0;
             }
-            auto result = co_await *operation;
+            auto result = co_await *pending_completion;
             if (!result)
                 co_return result.error;
             co_return result.value;

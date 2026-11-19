@@ -389,8 +389,7 @@ namespace astia::fs {
     class io_packet {
         public:
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
-                  io::direction                        direction,
-                  mm::uptr<core::completion<i64>> completion)
+                  io::direction direction, mm::uptr<core::completion<i64>> completion)
             : file_(file),
               flight_(new io::flight(
                   buffer, length, offset, direction,
