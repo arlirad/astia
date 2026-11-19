@@ -84,5 +84,20 @@ int main() {
     assert(dma_release_count == before_release + 7);
     request.cancel_acknowledge();
     assert(acknowledgements == 1);
+
+    {
+        controller                               unsafe{};
+        alignas(unsigned) volatile unsigned char registers[0x20]{};
+        registers[0x14]                  = 1;
+        registers[0x1c]                  = 2;
+        unsafe.registers                 = registers;
+        unsafe.started                   = true;
+        unsafe.async_requests[0].used    = true;
+        unsafe.async_requests[0].request = nullptr;
+        const unsigned before_unsafe     = dma_release_count;
+        unsafe.quiesce();
+        unsafe.release();
+        assert(dma_release_count == before_unsafe);
+    }
     return 0;
 }

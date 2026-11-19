@@ -1,20 +1,26 @@
-#include <astia/mm/dma_buffer.hpp>
 #include <astia/io.hpp>
+#include <astia/mm/dma_buffer.hpp>
 
 #include <cassert>
 
 namespace {
-    unsigned dma_release_count = 0;
+    unsigned    dma_release_count = 0;
     const void* released_dma[16]{};
-    unsigned released_dma_count = 0;
+    unsigned    released_dma_count = 0;
 }
 
 namespace astia::mm {
 
     dma_buffer::dma_buffer(dma_buffer&&) noexcept {}
-    dma_buffer& dma_buffer::operator=(dma_buffer&&) noexcept { return *this; }
-    dma_buffer::~dma_buffer() { release(); }
-    bool dma_buffer::allocate(usize, bool) { return false; }
+    dma_buffer& dma_buffer::operator=(dma_buffer&&) noexcept {
+        return *this;
+    }
+    dma_buffer::~dma_buffer() {
+        release();
+    }
+    bool dma_buffer::allocate(usize, bool) {
+        return false;
+    }
     void dma_buffer::release() {
         for (unsigned i = 0; i < released_dma_count; ++i)
             if (released_dma[i] == this)
@@ -42,13 +48,13 @@ namespace {
 }
 
 int main() {
-    controller value{};
+    controller         value{};
     astia::io::request request(nullptr, 512, 0, 0, astia::io::direction::input);
-    unsigned acknowledgements = 0;
+    unsigned           acknowledgements = 0;
     request.cancel_observer_set(count_ack, &acknowledgements);
     request.cancel_handler_set(retain_cancel);
     value.pending.active = true;
-    value.pending.io = &request;
+    value.pending.io     = &request;
 
     assert(request.cancel_device(true));
     value.quiesce();
@@ -67,4 +73,19 @@ int main() {
     assert(dma_release_count == before_release + 3);
     request.cancel_acknowledge();
     assert(acknowledgements == 1);
+
+    {
+        controller                               unsafe{};
+        alignas(uint32_t) volatile unsigned char registers[0x40]{};
+        unsafe.common                = mmio{registers};
+        unsafe.ring_reset            = true;
+        unsafe._requestqueue.enabled = true;
+        registers[0x38]              = 1;
+        unsafe.pending.active        = true;
+        unsafe.pending.io            = nullptr;
+        const unsigned before_unsafe = dma_release_count;
+        unsafe.quiesce();
+        unsafe.release();
+        assert(dma_release_count == before_unsafe);
+    }
 }
