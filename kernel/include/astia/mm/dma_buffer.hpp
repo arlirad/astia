@@ -20,6 +20,7 @@ namespace astia::mm {
 
         bool allocate(usize pages = 1, bool zero = true);
         void release();
+        void abandon();
 
         explicit operator bool() const {
             return _address != nullptr;
