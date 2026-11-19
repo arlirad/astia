@@ -110,8 +110,8 @@ namespace astia::arch {
     bool context_prepare_user_start(context* value, u64 kernel_stack_top,
                                     u64 user_stack_top, u64 entry, u64 fs_base,
                                     u64 argument0, u64 argument1) {
-        if (!context_prepare_user(value, kernel_stack_top, user_stack_top - sizeof(u64), entry,
-                                  fs_base)) {
+        if (!context_prepare_user(value, kernel_stack_top, user_stack_top - sizeof(u64),
+                                  entry, fs_base)) {
             return false;
         }
         // context_switch_raw restores r12 before entering the iretq

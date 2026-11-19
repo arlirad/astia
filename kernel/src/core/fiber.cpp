@@ -36,8 +36,8 @@ namespace astia::core {
             _context = _caller = nullptr;
             return false;
         }
-        _stack     = stack.value;
-        _owner_cpu = cpu;
+        _stack        = stack.value;
+        _owner_cpu    = cpu;
         const u64 top = reinterpret_cast<u64>(_stack) + stack_bytes - 16;
         if (!arch::context_prepare_kernel(_context, top,
                                           reinterpret_cast<u64>(&trampoline)))
@@ -61,14 +61,14 @@ namespace astia::core {
         if (cpu >= 256 || active[cpu] == nullptr)
             return false;
         fiber* current = active[cpu];
-        active[cpu]     = nullptr;
+        active[cpu]    = nullptr;
         arch::context_switch(current->_context, current->_caller);
         return true;
     }
 
     void fiber::trampoline() {
-        const u32 cpu = arch::cpu::current_index();
-        fiber* current = cpu < 256 ? active[cpu] : nullptr;
+        const u32 cpu     = arch::cpu::current_index();
+        fiber*    current = cpu < 256 ? active[cpu] : nullptr;
         if (current != nullptr && current->_entry != nullptr)
             current->_entry(current->_argument);
         if (current != nullptr) {

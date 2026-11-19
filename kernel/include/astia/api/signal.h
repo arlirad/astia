@@ -13,12 +13,12 @@ typedef struct astia_sigaction {
 } astia_sigaction_t;
 
 typedef struct astia_siginfo {
-    int32_t  signo;
-    int32_t  errno_value;
-    int32_t  code;
-    int32_t  pid;
-    uint32_t uid;
-    int32_t  status;
+    int32_t   signo;
+    int32_t   errno_value;
+    int32_t   code;
+    int32_t   pid;
+    uint32_t  uid;
+    int32_t   status;
     uintptr_t addr;
 } astia_siginfo_t;
 
@@ -41,14 +41,14 @@ typedef struct astia_x86_64_signal_context {
 #define ASTIA_SA_NODEFER 0x40000000
 #define ASTIA_SA_RESETHAND 0x80000000u
 
-#define ASTIA_CLD_EXITED    1
-#define ASTIA_CLD_KILLED    2
-#define ASTIA_CLD_DUMPED    3
-#define ASTIA_CLD_STOPPED   5
+#define ASTIA_CLD_EXITED 1
+#define ASTIA_CLD_KILLED 2
+#define ASTIA_CLD_DUMPED 3
+#define ASTIA_CLD_STOPPED 5
 #define ASTIA_CLD_CONTINUED 6
-#define ASTIA_SI_USER       0
-#define ASTIA_SEGV_MAPERR   1
-#define ASTIA_SEGV_ACCERR   2
+#define ASTIA_SI_USER 0
+#define ASTIA_SEGV_MAPERR 1
+#define ASTIA_SEGV_ACCERR 2
 
 #define ASTIA_SIGAIO 29
 enum {

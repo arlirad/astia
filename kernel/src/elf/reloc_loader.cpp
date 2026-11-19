@@ -79,7 +79,9 @@ namespace astia::elf {
                     environment.unmap(environment.ctx, address, size);
             }
 
-            void keep() { address = nullptr; }
+            void keep() {
+                address = nullptr;
+            }
         } mapped{e, block, static_cast<usize>(offset)};
         // Zero the whole block up front so .bss (SHT_NOBITS) and any padding
         // are already cleared without a separate pass.
@@ -98,11 +100,11 @@ namespace astia::elf {
                 sec_base_storage[i] = nullptr;
                 continue;
             }
-            const u64 align = sh.sh_addralign == 0 ? 1 : sh.sh_addralign;
+            const u64 align   = sh.sh_addralign == 0 ? 1 : sh.sh_addralign;
             u64       aligned = 0;
             if (!checked_align_up(offset, align, aligned))
                 return false;
-            offset = aligned;
+            offset              = aligned;
             u8* dst             = static_cast<u8*>(block) + offset;
             sec_base_storage[i] = dst;
 
@@ -236,6 +238,5 @@ namespace astia::elf {
         // No module_main symbol.
         return false;
     }
-
 
 } // namespace astia::elf

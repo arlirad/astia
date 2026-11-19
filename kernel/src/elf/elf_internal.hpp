@@ -175,7 +175,7 @@ namespace astia::elf::detail {
         if (magnitude > ~u64{0} - addend_magnitude)
             return false;
         const u64 total = magnitude + addend_magnitude;
-        result = 0;
+        result          = 0;
         return total == 0;
     }
 
@@ -215,24 +215,24 @@ namespace astia::elf::detail {
         if (eh->e_ident[0] != elf_magic[0] || eh->e_ident[1] != elf_magic[1] ||
             eh->e_ident[2] != elf_magic[2] || eh->e_ident[3] != elf_magic[3])
             return false;
-        if (eh->e_ident[ei_class] != elfclass64 ||
-            eh->e_ident[ei_data] != elfdatal2lsb || eh->e_machine != em_x86_64)
+        if (eh->e_ident[ei_class] != elfclass64 || eh->e_ident[ei_data] != elfdatal2lsb ||
+            eh->e_machine != em_x86_64)
             return false;
         type_out = eh->e_type;
         return true;
     }
 
     struct view {
-        const u8*         base     = nullptr;
-        usize             len      = 0;
-        const elf64_ehdr* eh       = nullptr;
-        const elf64_shdr* sh       = nullptr;
-        u16               shnum    = 0;
+        const u8*         base      = nullptr;
+        usize             len       = 0;
+        const elf64_ehdr* eh        = nullptr;
+        const elf64_shdr* sh        = nullptr;
+        u16               shnum     = 0;
         u16               sym_index = 0;
-        const elf64_sym*  sym      = nullptr;
-        usize             symcount = 0;
-        const char*       str      = nullptr;
-        usize             strsize  = 0;
+        const elf64_sym*  sym       = nullptr;
+        usize             symcount  = 0;
+        const char*       str       = nullptr;
+        usize             strsize   = 0;
     };
 
     bool symbol_name(const view& v, const elf64_sym& sym, const char*& out);

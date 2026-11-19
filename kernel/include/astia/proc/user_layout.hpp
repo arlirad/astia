@@ -16,12 +16,12 @@ namespace astia::proc {
     inline constexpr u64 user_tls_base      = user_layout_policy::tls_base;
     inline constexpr u64 process_tls_first  = user_layout_policy::process_tls_first;
     inline constexpr u64 process_tls_stride = user_layout_policy::process_tls_stride;
-    inline constexpr u64 user_stack_bytes             = 256 * 1024;
+    inline constexpr u64 user_stack_bytes   = 256 * 1024;
     inline constexpr u64 thread_stack_alignment_bytes = 16;
     inline constexpr u64 thread_stack_alignment_mask  = thread_stack_alignment_bytes - 1;
 
-    inline constexpr u64 user_ring_base      = user_layout_policy::ring_base;
-    inline constexpr u64 user_ring_slot_span = user_layout_policy::ring_slot_span;
+    inline constexpr u64 user_ring_base        = user_layout_policy::ring_base;
+    inline constexpr u64 user_ring_slot_span   = user_layout_policy::ring_slot_span;
     inline constexpr u64 user_tls_tcb_headroom = user_layout_policy::tls_tcb_headroom;
 
     constexpr bool is_user_address_canonical(u64 address) {

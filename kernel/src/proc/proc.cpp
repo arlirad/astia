@@ -148,13 +148,13 @@ namespace astia::proc {
         auto* self = current_thread();
         if (self == nullptr || !self->kill_pending() || self->owner() == nullptr)
             return;
-        auto* owner = self->owner();
+        auto*               owner  = self->owner();
         const signal_number signal = owner->termination_signal() == signal_number{}
                                          ? signal_number::kill
                                          : owner->termination_signal();
         owner->signal_termination(signal);
-        self->exit(reinterpret_cast<void*>(static_cast<usize>(
-            wait_signal_exit_status(static_cast<u8>(signal)))));
+        self->exit(reinterpret_cast<void*>(
+            static_cast<usize>(wait_signal_exit_status(static_cast<u8>(signal)))));
     }
 
     tid_t allocate_tid() {
@@ -168,9 +168,9 @@ namespace astia::proc {
     }
 
     void expire_alarms() {
-        const u64 now = arch::timer_ticks();
+        const u64          now = arch::timer_ticks();
         mm::shptr<process> values[max_processes];
-        const u32 count = snapshot_registry(values);
+        const u32          count = snapshot_registry(values);
         for (u32 i = 0; i < count; ++i) {
             if (is_live(values[i].get())) {
                 values[i]->expire_alarm(now);
@@ -182,20 +182,19 @@ namespace astia::proc {
         const u64 hz = arch::timer_hz();
         if (hz == 0)
             return;
-        const u64 now = arch::timer_ticks();
-        const u64 monotonic_ns =
-            (now / hz) * nanoseconds_per_second +
-            (now % hz) * nanoseconds_per_second / hz;
+        const u64 now          = arch::timer_ticks();
+        const u64 monotonic_ns = (now / hz) * nanoseconds_per_second +
+                                 (now % hz) * nanoseconds_per_second / hz;
         mm::shptr<process> values[max_processes];
-        const u32 count = snapshot_registry(values);
+        const u32          count = snapshot_registry(values);
         for (u32 i = 0; i < count; ++i)
             if (is_live(values[i].get()))
                 values[i]->expire_signal_waiters(monotonic_ns);
     }
 
-    core::task<mm::shptr<process>> spawnve(
-        process* parent, mm::shptr<fs::open_file> file, usize length,
-        char* const argv[], char* const envp[]) {
+    core::task<mm::shptr<process>> spawnve(process* parent, mm::shptr<fs::open_file> file,
+                                           usize length, char* const argv[],
+                                           char* const envp[]) {
         if (parent == nullptr || !file || length == 0)
             co_return error_t::einval;
 
@@ -208,7 +207,7 @@ namespace astia::proc {
             co_return error_t::enomem;
         child->close_on_exec_descriptors();
 
-        u64 entry = 0;
+        u64  entry  = 0;
         auto loaded = co_await child->load_user_file_async(file, length, &entry);
         if (!loaded || !loaded.value)
             co_return loaded.error == error_t::enone ? error_t::einval : loaded.error;
@@ -352,15 +351,15 @@ namespace astia::proc {
     }
 
     namespace {
-        terminal_access_result terminal_background_access(process* owner,
-                                                          pgrp_t foreground,
+        terminal_access_result terminal_background_access(process*      owner,
+                                                          pgrp_t        foreground,
                                                           signal_number signal) {
             if (owner == nullptr || foreground == pgrp_t{} ||
                 owner->process_group() == foreground)
                 return terminal_access_result::allowed;
 
-            const signal_mask bit = signal_bit(signal);
-            auto* self = current_thread();
+            const signal_mask bit  = signal_bit(signal);
+            auto*             self = current_thread();
             if (self == nullptr || (self->signals().blocked() & bit) != 0 ||
                 owner->signals().disposition(signal).action == signal_action::ignore)
                 return terminal_access_result::io_error;
@@ -396,7 +395,8 @@ namespace astia::proc {
             return terminal_access_result::allowed;
         const signal_mask bit = signal_bit(signal_number::ttou);
         if ((owner->signals().blocked() & bit) != 0 ||
-            owner->signals().disposition(signal_number::ttou).action == signal_action::ignore)
+            owner->signals().disposition(signal_number::ttou).action ==
+                signal_action::ignore)
             return terminal_access_result::allowed;
         return terminal_background_access(owner, foreground, signal_number::ttou);
     }
@@ -492,8 +492,8 @@ namespace astia::proc {
                     targets[i]->request_kill();
                 }
                 else if (is_uncatchable(value) ||
-                    targets[i]->signals().disposition(value).action ==
-                        signal_action::default_action)
+                         targets[i]->signals().disposition(value).action ==
+                             signal_action::default_action)
                     targets[i]->signal_state_change(value);
                 if (targets[i]->signals().has_unblocked_interrupting())
                     sys::io_interrupt_process(targets[i].get(), -EINTR);
@@ -606,7 +606,8 @@ namespace astia::proc {
                 break;
             }
 
-            if (parent->signals().has_unblocked_interrupting_for(self->signals().blocked())) {
+            if (parent->signals().has_unblocked_interrupting_for(
+                    self->signals().blocked())) {
                 parent->remove_waiter(self);
                 self->state(thread_state::running);
                 result = -EINTR;

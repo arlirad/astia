@@ -14,8 +14,8 @@ namespace astia::proc::syscall {
             return -ESRCH;
 
         optional<sys::validated_user_ptr<astia_stack_t>> old_range;
-        astia_stack_t next{};
-        astia_stack_t old{};
+        astia_stack_t                                    next{};
+        astia_stack_t                                    old{};
         if (stack_ptr != 0) {
             auto validated = sys::user_ptr<astia_stack_t>(stack_ptr).validate();
             if (!validated || !sys::copy_in(&next, validated.value.bytes()))
@@ -35,11 +35,10 @@ namespace astia::proc::syscall {
                 return -EFAULT;
             old_range = validated.value;
         }
-        old.sp       = self->signal_stack_sp();
-        old.size     = self->signal_stack_size();
-        old.flags    = self->signal_stack_on_alt()
-                           ? ASTIA_SS_ONSTACK
-                           : self->signal_stack_flags();
+        old.sp   = self->signal_stack_sp();
+        old.size = self->signal_stack_size();
+        old.flags =
+            self->signal_stack_on_alt() ? ASTIA_SS_ONSTACK : self->signal_stack_flags();
         old.reserved = 0;
         if (stack_ptr != 0) {
             if (self->signal_stack_on_alt())

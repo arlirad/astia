@@ -21,10 +21,10 @@ namespace astia::dev {
         const u8* glyph(u16 codepoint) const;
 
         private:
-        const u8* _bytes = nullptr;
-        usize      _length = 0;
-        u8         _height = 0;
-        u16        _count = 0;
+        const u8* _bytes  = nullptr;
+        usize     _length = 0;
+        u8        _height = 0;
+        u16       _count  = 0;
     };
 
 } // namespace astia::dev

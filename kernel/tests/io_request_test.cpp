@@ -3,13 +3,15 @@
 #include <cassert>
 
 namespace {
-    int wake_count = 0;
-    void count_wake(void*) { ++wake_count; }
+    int  wake_count = 0;
+    void count_wake(void*) {
+        ++wake_count;
+    }
 }
 
 int main() {
     astia::io::generation generations;
-    const astia::u64 first = generations.issue();
+    const astia::u64      first = generations.issue();
     assert(first == 1);
     assert(generations.current(first));
     const astia::u64 second = generations.issue();

@@ -4,9 +4,8 @@ namespace astia::dev {
 
     namespace {
         constexpr u32 palette[16] = {
-            0x050E0E, 0x0000AA, 0x00AA00, 0x00AAAA,
-            0xAA0000, 0x7F00AA, 0x7F4000, 0xAAAAAA,
-            0x555555, 0x2020E0, 0x20E020, 0x20E0E0,
+            0x050E0E, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0x7F00AA,
+            0x7F4000, 0xAAAAAA, 0x555555, 0x2020E0, 0x20E020, 0x20E0E0,
             0xE02020, 0x7F00E0, 0xE0E020, 0xFFFFFF,
         };
 
@@ -27,8 +26,7 @@ namespace astia::dev {
                     info.pixel_format == boot::framebuffer_pixel_format::bgr888
                 ? 3
                 : 4;
-        if (!info.valid() || info.width < 8 ||
-            info.width > ~u32{0} / bytes_per_pixel ||
+        if (!info.valid() || info.width < 8 || info.width > ~u32{0} / bytes_per_pixel ||
             info.pitch < info.width * bytes_per_pixel || info.width / 8 == 0)
             return false;
         if (info.width / 8 > max_columns)
@@ -39,21 +37,22 @@ namespace astia::dev {
 
     bool framebuffer_renderer::attach(const boot::framebuffer_info& info,
                                       volatile void* pixels, const psf_font& font) {
-        if (!valid_info(info) || pixels == nullptr || !font.valid() || font.glyph_height() == 0)
+        if (!valid_info(info) || pixels == nullptr || !font.valid() ||
+            font.glyph_height() == 0)
             return false;
         const u32 columns = info.width / 8;
-        const u32 rows = info.height / font.glyph_height();
+        const u32 rows    = info.height / font.glyph_height();
         if (columns == 0 || rows == 0 || columns > max_columns || rows > max_rows)
             return false;
-        _pixels = static_cast<volatile u8*>(pixels);
-        _info = info;
-        _font = &font;
-        _columns = columns;
-        _rows = rows;
+        _pixels        = static_cast<volatile u8*>(pixels);
+        _info          = info;
+        _font          = &font;
+        _columns       = columns;
+        _rows          = rows;
         _cursor_column = 0;
-        _cursor_row = 0;
-        _cursor_drawn = false;
-        _escape_state = escape_state::normal;
+        _cursor_row    = 0;
+        _cursor_drawn  = false;
+        _escape_state  = escape_state::normal;
         reset_attributes();
         clear_screen();
         show_cursor();
@@ -61,22 +60,23 @@ namespace astia::dev {
     }
 
     void framebuffer_renderer::detach() {
-        _pixels = nullptr;
-        _font = nullptr;
-        _columns = 0;
-        _rows = 0;
+        _pixels        = nullptr;
+        _font          = nullptr;
+        _columns       = 0;
+        _rows          = 0;
         _cursor_column = 0;
-        _cursor_row = 0;
-        _cursor_drawn = false;
+        _cursor_row    = 0;
+        _cursor_drawn  = false;
     }
 
     void framebuffer_renderer::pixel(u32 x, u32 y, u32 value) const {
         if (x >= _info.width || y >= _info.height)
             return;
-        const bool packed = _info.pixel_format == boot::framebuffer_pixel_format::rgb888 ||
-                             _info.pixel_format == boot::framebuffer_pixel_format::bgr888;
-        const u32 bytes_per_pixel = packed ? 3 : 4;
-        volatile u8* destination = _pixels + static_cast<usize>(y) * _info.pitch +
+        const bool packed =
+            _info.pixel_format == boot::framebuffer_pixel_format::rgb888 ||
+            _info.pixel_format == boot::framebuffer_pixel_format::bgr888;
+        const u32    bytes_per_pixel = packed ? 3 : 4;
+        volatile u8* destination     = _pixels + static_cast<usize>(y) * _info.pitch +
                                    static_cast<usize>(x) * bytes_per_pixel;
         const u8 r = static_cast<u8>(value >> 16);
         const u8 g = static_cast<u8>(value >> 8);
@@ -103,9 +103,9 @@ namespace astia::dev {
     void framebuffer_renderer::draw_cell(u32 column, u32 row) {
         if (column >= _columns || row >= _rows || _font == nullptr)
             return;
-        const cell& value = _cells[row * max_columns + column];
-        const u8* glyph = _font->glyph(value.character);
-        const u32 glyph_height = _font->glyph_height();
+        const cell& value        = _cells[row * max_columns + column];
+        const u8*   glyph        = _font->glyph(value.character);
+        const u32   glyph_height = _font->glyph_height();
         for (u32 y = 0; y < glyph_height; ++y) {
             const u8 bits = glyph == nullptr ? 0 : glyph[y];
             for (u32 x = 0; x < 8; ++x) {
@@ -161,10 +161,12 @@ namespace astia::dev {
             return;
         for (u32 row = 1; row < _rows; ++row) {
             for (u32 column = 0; column < _columns; ++column)
-                _cells[(row - 1) * max_columns + column] = _cells[row * max_columns + column];
+                _cells[(row - 1) * max_columns + column] =
+                    _cells[row * max_columns + column];
         }
         for (u32 column = 0; column < _columns; ++column)
-            _cells[(_rows - 1) * max_columns + column] = cell{' ', _foreground, _background};
+            _cells[(_rows - 1) * max_columns + column] =
+                cell{' ', _foreground, _background};
         for (u32 row = 0; row < _rows; ++row)
             for (u32 column = 0; column < _columns; ++column)
                 draw_cell(column, row);
@@ -183,7 +185,8 @@ namespace astia::dev {
             byte = '?';
         if (_font->glyph(byte) == nullptr)
             byte = '?';
-        _cells[_cursor_row * max_columns + _cursor_column] = cell{byte, _foreground, _background};
+        _cells[_cursor_row * max_columns + _cursor_column] =
+            cell{byte, _foreground, _background};
         draw_cell(_cursor_column, _cursor_row);
         ++_cursor_column;
         if (_cursor_column >= _columns)
@@ -206,15 +209,24 @@ namespace astia::dev {
             }
             for (u32 i = 0; i < _csi_count; ++i) {
                 const u32 value = _csi_values[i];
-                if (value == 0) reset_attributes();
-                else if (value == 1) _foreground = static_cast<u8>(_foreground | 8);
-                else if (value == 22) _foreground = static_cast<u8>(_foreground & 7);
-                else if (value >= 30 && value <= 37) _foreground = ansi_colour(value);
-                else if (value >= 40 && value <= 47) _background = ansi_colour(value - 10);
-                else if (value >= 90 && value <= 97) _foreground = ansi_colour(value);
-                else if (value >= 100 && value <= 107) _background = ansi_colour(value - 10);
-                else if (value == 39) _foreground = 7;
-                else if (value == 49) _background = 0;
+                if (value == 0)
+                    reset_attributes();
+                else if (value == 1)
+                    _foreground = static_cast<u8>(_foreground | 8);
+                else if (value == 22)
+                    _foreground = static_cast<u8>(_foreground & 7);
+                else if (value >= 30 && value <= 37)
+                    _foreground = ansi_colour(value);
+                else if (value >= 40 && value <= 47)
+                    _background = ansi_colour(value - 10);
+                else if (value >= 90 && value <= 97)
+                    _foreground = ansi_colour(value);
+                else if (value >= 100 && value <= 107)
+                    _background = ansi_colour(value - 10);
+                else if (value == 39)
+                    _foreground = 7;
+                else if (value == 49)
+                    _background = 0;
             }
         }
         else if (byte == 'J') {
@@ -223,20 +235,29 @@ namespace astia::dev {
         }
         else if (byte == 'K') {
             const u32 mode = csi_parameter(0, 0);
-            if (mode == 0) clear_line(_cursor_row, _cursor_column, _columns);
-            else if (mode == 1) clear_line(_cursor_row, 0, _cursor_column + 1);
-            else if (mode == 2) clear_line(_cursor_row, 0, _columns);
+            if (mode == 0)
+                clear_line(_cursor_row, _cursor_column, _columns);
+            else if (mode == 1)
+                clear_line(_cursor_row, 0, _cursor_column + 1);
+            else if (mode == 2)
+                clear_line(_cursor_row, 0, _columns);
         }
         else if (byte == 'H' || byte == 'f') {
-            _cursor_row = min(csi_parameter(0, 1) - 1, _rows - 1);
+            _cursor_row    = min(csi_parameter(0, 1) - 1, _rows - 1);
             _cursor_column = min(csi_parameter(1, 1) - 1, _columns - 1);
         }
-        else if (byte == 'A') _cursor_row -= min(csi_parameter(0, 1), _cursor_row);
-        else if (byte == 'B') _cursor_row = min(_cursor_row + csi_parameter(0, 1), _rows - 1);
-        else if (byte == 'C') _cursor_column = min(_cursor_column + csi_parameter(0, 1), _columns - 1);
-        else if (byte == 'D') _cursor_column -= min(csi_parameter(0, 1), _cursor_column);
-        else if (byte == 'G') _cursor_column = min(csi_parameter(0, 1) - 1, _columns - 1);
-        else if (byte == 'd') _cursor_row = min(csi_parameter(0, 1) - 1, _rows - 1);
+        else if (byte == 'A')
+            _cursor_row -= min(csi_parameter(0, 1), _cursor_row);
+        else if (byte == 'B')
+            _cursor_row = min(_cursor_row + csi_parameter(0, 1), _rows - 1);
+        else if (byte == 'C')
+            _cursor_column = min(_cursor_column + csi_parameter(0, 1), _columns - 1);
+        else if (byte == 'D')
+            _cursor_column -= min(csi_parameter(0, 1), _cursor_column);
+        else if (byte == 'G')
+            _cursor_column = min(csi_parameter(0, 1) - 1, _columns - 1);
+        else if (byte == 'd')
+            _cursor_row = min(csi_parameter(0, 1) - 1, _rows - 1);
     }
 
     bool framebuffer_renderer::write_byte(u8 byte) {
@@ -245,11 +266,11 @@ namespace astia::dev {
         hide_cursor();
         if (_escape_state == escape_state::escape) {
             if (byte == '[') {
-                _escape_state = escape_state::csi;
-                _csi_count = 0;
-                _csi_value = 0;
+                _escape_state   = escape_state::csi;
+                _csi_count      = 0;
+                _csi_value      = 0;
                 _csi_have_value = false;
-                _csi_private = false;
+                _csi_private    = false;
             }
             else {
                 _escape_state = escape_state::normal;
@@ -260,12 +281,13 @@ namespace astia::dev {
                 _csi_private = true;
             }
             else if (byte >= '0' && byte <= '9') {
-                _csi_value = min(_csi_value * 10 + byte - '0', 9999u);
+                _csi_value      = min(_csi_value * 10 + byte - '0', 9999u);
                 _csi_have_value = true;
             }
             else if (byte == ';') {
-                if (_csi_count < 8) _csi_values[_csi_count++] = _csi_have_value ? _csi_value : 0;
-                _csi_value = 0;
+                if (_csi_count < 8)
+                    _csi_values[_csi_count++] = _csi_have_value ? _csi_value : 0;
+                _csi_value      = 0;
                 _csi_have_value = false;
             }
             else if (byte >= 0x40 && byte <= 0x7e) {
@@ -288,7 +310,8 @@ namespace astia::dev {
             _cursor_column = 0;
         }
         else if (byte == '\b') {
-            if (_cursor_column != 0) --_cursor_column;
+            if (_cursor_column != 0)
+                --_cursor_column;
         }
         else if (byte == '\t') {
             _cursor_column = min((_cursor_column + 8) & ~7u, _columns - 1);

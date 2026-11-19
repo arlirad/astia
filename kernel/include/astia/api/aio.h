@@ -337,17 +337,17 @@ enum {
 
 /* OP_SOCKETPAIR op_flags / OP_SHUTDOWN op_flags. */
 enum {
-    SOCK_STREAM   = 1,
-    SOCK_DGRAM    = 2,
-    SOCK_RAW      = 3,
+    SOCK_STREAM    = 1,
+    SOCK_DGRAM     = 2,
+    SOCK_RAW       = 3,
     SOCK_SEQPACKET = 5,
-    SOL_SOCKET    = 1,
-    SO_TYPE       = 3,
-    SO_SNDBUF     = 7,
-    SO_RCVBUF     = 8,
-    SHUT_RD     = 0,
-    SHUT_WR     = 1,
-    SHUT_RDWR   = 2,
+    SOL_SOCKET     = 1,
+    SO_TYPE        = 3,
+    SO_SNDBUF      = 7,
+    SO_RCVBUF      = 8,
+    SHUT_RD        = 0,
+    SHUT_WR        = 1,
+    SHUT_RDWR      = 2,
 };
 
 /* OP_STATX: preserve the final directory entry instead of following it. */

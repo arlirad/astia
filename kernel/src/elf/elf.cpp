@@ -21,7 +21,7 @@ namespace astia::elf {
             if (sym.st_name >= v.strsize)
                 return false;
             const char* name = v.str + sym.st_name;
-            const usize max = v.strsize - sym.st_name;
+            const usize max  = v.strsize - sym.st_name;
             for (usize i = 0; i < max; ++i) {
                 if (name[i] == '\0') {
                     out = name;
@@ -62,8 +62,7 @@ namespace astia::elf {
             // Locate SHT_SYMTAB and follow sh_link to its SHT_STRTAB.
             for (u16 i = 0; i < v.shnum; ++i) {
                 const elf64_shdr& sh = v.sh[i];
-                if (i != 0 && sh.sh_addralign != 0 &&
-                    !is_power_of_two(sh.sh_addralign))
+                if (i != 0 && sh.sh_addralign != 0 && !is_power_of_two(sh.sh_addralign))
                     return false;
                 if (sh.sh_type != sht_symtab) {
                     continue;
@@ -85,10 +84,10 @@ namespace astia::elf {
                     !in_bounds(str.sh_offset, str.sh_size, len)) {
                     return false;
                 }
-                v.sym      = reinterpret_cast<const elf64_sym*>(v.base + sh.sh_offset);
-                v.symcount = sh.sh_size / sizeof(elf64_sym);
-                v.str      = reinterpret_cast<const char*>(v.base + str.sh_offset);
-                v.strsize  = static_cast<usize>(str.sh_size);
+                v.sym       = reinterpret_cast<const elf64_sym*>(v.base + sh.sh_offset);
+                v.symcount  = sh.sh_size / sizeof(elf64_sym);
+                v.str       = reinterpret_cast<const char*>(v.base + str.sh_offset);
+                v.strsize   = static_cast<usize>(str.sh_size);
                 v.sym_index = i;
                 for (usize j = 0; j < v.symcount; ++j) {
                     const char* name = nullptr;
@@ -116,7 +115,7 @@ namespace astia::elf {
                 const char* name = nullptr;
                 if (!symbol_name(v, sym, name))
                     return false;
-                u64         resolved = e.resolve != nullptr ? e.resolve(e.ctx, name) : 0;
+                u64 resolved = e.resolve != nullptr ? e.resolve(e.ctx, name) : 0;
                 if (resolved == 0) {
                     // A weak undefined symbol is allowed to be null; anything
                     // else must resolve or the image is unusable.

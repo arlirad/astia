@@ -128,7 +128,7 @@ namespace astia::proc {
             return _kernel_stack_high_water;
         }
         void sample_kernel_stack();
-        u64 user_stack_top() const {
+        u64  user_stack_top() const {
             return _user_stack_top;
         }
         u64 user_stack_base() const {
@@ -141,8 +141,8 @@ namespace astia::proc {
             return _user_stack_metadata_supported;
         }
         void user_stack_metadata(u64 base, usize size) {
-            _user_stack_base              = base;
-            _user_stack_size              = size;
+            _user_stack_base               = base;
+            _user_stack_size               = size;
             _user_stack_metadata_supported = base != 0 && size != 0;
         }
         void user_stack_metadata_unsupported() {
@@ -280,49 +280,49 @@ namespace astia::proc {
 
         process*         _owner;
         tid_t            _tid;
-        thread_state     _state                = thread_state::fresh;
-        scheduling_class _sched_class          = scheduling_class::normal;
-        i32              _nice                 = 0;
-        u8               _rt_priority          = 0;
-        u64              _vruntime             = 0;
-        u64              _entry                = 0;
-        u64              _kernel_stack_top     = 0;
-        u64              _user_stack_top       = 0;
-        u64              _user_stack_base      = 0;
-        usize            _user_stack_size      = 0;
+        thread_state     _state                         = thread_state::fresh;
+        scheduling_class _sched_class                   = scheduling_class::normal;
+        i32              _nice                          = 0;
+        u8               _rt_priority                   = 0;
+        u64              _vruntime                      = 0;
+        u64              _entry                         = 0;
+        u64              _kernel_stack_top              = 0;
+        u64              _user_stack_top                = 0;
+        u64              _user_stack_base               = 0;
+        usize            _user_stack_size               = 0;
         bool             _user_stack_metadata_supported = false;
-        u64              _tls_mapping_base     = 0;
-        usize            _tls_mapping_pages    = 0;
-        arch::context*   _context              = nullptr;
-        kernel_entry     _entry_function       = nullptr;
-        void*            _entry_argument       = nullptr;
-        void*            _kernel_stack         = nullptr;
-        usize            _kernel_stack_size    = 0;
-        usize            _kernel_stack_high_water = 0;
-        usize            _kernel_stack_scan_offset = 0;
-        u32              _kernel_stack_sample_count = 0;
-        thread*          _joiner               = nullptr;
-        void*            _result               = nullptr;
-        u8               _detached             = 0;
-        u8               _owns_user_stack      = 0;
-        u8               _cancellation_pending = 0;
-        u8               _exit_requested       = 0;
-        u8               _kill_pending         = 0;
-        thread*           _joining              = nullptr;
-        bool              _join_cancel_wakeup   = false;
-        bool             _idle                 = false;
-        bool             _gate_open            = true;
-        bool             _queued               = false;
-        bool             _migratable           = false;
-        core::spinlock   _lifecycle_lock       = {};
-        u32              _cpu_owner            = 0;
-        u32              _signal_restore_mask  = 0;
-        bool             _signal_restore_armed = false;
+        u64              _tls_mapping_base              = 0;
+        usize            _tls_mapping_pages             = 0;
+        arch::context*   _context                       = nullptr;
+        kernel_entry     _entry_function                = nullptr;
+        void*            _entry_argument                = nullptr;
+        void*            _kernel_stack                  = nullptr;
+        usize            _kernel_stack_size             = 0;
+        usize            _kernel_stack_high_water       = 0;
+        usize            _kernel_stack_scan_offset      = 0;
+        u32              _kernel_stack_sample_count     = 0;
+        thread*          _joiner                        = nullptr;
+        void*            _result                        = nullptr;
+        u8               _detached                      = 0;
+        u8               _owns_user_stack               = 0;
+        u8               _cancellation_pending          = 0;
+        u8               _exit_requested                = 0;
+        u8               _kill_pending                  = 0;
+        thread*          _joining                       = nullptr;
+        bool             _join_cancel_wakeup            = false;
+        bool             _idle                          = false;
+        bool             _gate_open                     = true;
+        bool             _queued                        = false;
+        bool             _migratable                    = false;
+        core::spinlock   _lifecycle_lock                = {};
+        u32              _cpu_owner                     = 0;
+        u32              _signal_restore_mask           = 0;
+        bool             _signal_restore_armed          = false;
         signal_state     _signals{};
-        uintptr_t        _signal_stack_sp      = 0;
-        u64              _signal_stack_size    = 0;
-        i32              _signal_stack_flags   = ASTIA_SS_DISABLE;
-        bool             _signal_stack_on_alt  = false;
+        uintptr_t        _signal_stack_sp     = 0;
+        u64              _signal_stack_size   = 0;
+        i32              _signal_stack_flags  = ASTIA_SS_DISABLE;
+        bool             _signal_stack_on_alt = false;
     };
 
 } // namespace astia::proc

@@ -15,13 +15,13 @@ namespace astia::core {
             T     values[Capacity]{};
         };
         struct retired_snapshot {
-            snapshot*       value;
+            snapshot*         value;
             retired_snapshot* next;
         };
 
-        mutable u32 _readers = 0;
-        snapshot*   _published = nullptr;
-        mutable retired_snapshot* _retired = nullptr;
+        mutable u32               _readers   = 0;
+        snapshot*                 _published = nullptr;
+        mutable retired_snapshot* _retired   = nullptr;
 
         void reclaim() const {
             if (__atomic_load_n(&_readers, __ATOMIC_SEQ_CST) != 0)
@@ -36,7 +36,7 @@ namespace astia::core {
         }
 
         void retire(snapshot* value, retired_snapshot* record) {
-            record->value = value;
+            record->value          = value;
             retired_snapshot* head = __atomic_load_n(&_retired, __ATOMIC_RELAXED);
             do {
                 record->next = head;
@@ -57,13 +57,19 @@ namespace astia::core {
             read_guard(const read_guard&)            = delete;
             read_guard& operator=(const read_guard&) = delete;
 
-            const T* data() const { return _snapshot == nullptr ? nullptr : _snapshot->values; }
-            usize size() const { return _snapshot == nullptr ? 0 : _snapshot->size; }
-            const T& operator[](usize index) const { return data()[index]; }
+            const T* data() const {
+                return _snapshot == nullptr ? nullptr : _snapshot->values;
+            }
+            usize size() const {
+                return _snapshot == nullptr ? 0 : _snapshot->size;
+            }
+            const T& operator[](usize index) const {
+                return data()[index];
+            }
 
             private:
             const rcu_vector& _owner;
-            const snapshot*  _snapshot = nullptr;
+            const snapshot*   _snapshot = nullptr;
         };
 
         ~rcu_vector() {
@@ -73,14 +79,14 @@ namespace astia::core {
             delete __atomic_exchange_n(&_published, nullptr, __ATOMIC_SEQ_CST);
         }
 
-        rcu_vector() = default;
+        rcu_vector()                             = default;
         rcu_vector(const rcu_vector&)            = delete;
         rcu_vector& operator=(const rcu_vector&) = delete;
 
         bool replace(span<const T> values) {
             if (values.size() > Capacity)
                 return false;
-            auto* next = new snapshot{};
+            auto* next   = new snapshot{};
             auto* record = new retired_snapshot{};
             if (next == nullptr || record == nullptr) {
                 delete next;

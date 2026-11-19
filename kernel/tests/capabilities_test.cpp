@@ -6,49 +6,49 @@
 namespace {
 
     struct fake_pio {
-        std::uint16_t port = 0;
-        std::uint32_t value = 0;
-        unsigned reads = 0;
-        unsigned writes = 0;
+        std::uint16_t port   = 0;
+        std::uint32_t value  = 0;
+        unsigned      reads  = 0;
+        unsigned      writes = 0;
 
         static std::uint8_t read8(void* raw, std::uint16_t next) {
             auto& self = *static_cast<fake_pio*>(raw);
-            self.port = next;
+            self.port  = next;
             ++self.reads;
             return static_cast<std::uint8_t>(self.value);
         }
 
         static std::uint16_t read16(void* raw, std::uint16_t next) {
             auto& self = *static_cast<fake_pio*>(raw);
-            self.port = next;
+            self.port  = next;
             ++self.reads;
             return static_cast<std::uint16_t>(self.value);
         }
 
         static std::uint32_t read32(void* raw, std::uint16_t next) {
             auto& self = *static_cast<fake_pio*>(raw);
-            self.port = next;
+            self.port  = next;
             ++self.reads;
             return self.value;
         }
 
         static void write8(void* raw, std::uint16_t next, std::uint8_t value_next) {
             auto& self = *static_cast<fake_pio*>(raw);
-            self.port = next;
+            self.port  = next;
             self.value = value_next;
             ++self.writes;
         }
 
         static void write16(void* raw, std::uint16_t next, std::uint16_t value_next) {
             auto& self = *static_cast<fake_pio*>(raw);
-            self.port = next;
+            self.port  = next;
             self.value = value_next;
             ++self.writes;
         }
 
         static void write32(void* raw, std::uint16_t next, std::uint32_t value_next) {
             auto& self = *static_cast<fake_pio*>(raw);
-            self.port = next;
+            self.port  = next;
             self.value = value_next;
             ++self.writes;
         }
@@ -60,16 +60,16 @@ namespace {
 
     struct fake_irq {
         astia::dev::irq_handler handler = nullptr;
-        bool enabled = false;
+        bool                    enabled = false;
 
         static bool claim(void* raw, astia::dev::irq_handler next) {
-            auto& self = *static_cast<fake_irq*>(raw);
+            auto& self   = *static_cast<fake_irq*>(raw);
             self.handler = next;
             return true;
         }
 
         static bool unmask(void* raw) {
-            auto& self = *static_cast<fake_irq*>(raw);
+            auto& self   = *static_cast<fake_irq*>(raw);
             self.enabled = true;
             return true;
         }
@@ -84,7 +84,7 @@ namespace {
 }
 
 int main() {
-    fake_pio bus;
+    fake_pio            bus;
     astia::dev::pio_bus pio = bus.capability();
     astia::dev::io_port port{pio, 0x3f8};
 
@@ -107,7 +107,7 @@ int main() {
     assert(read32.has_value);
     assert(read32.value == 0x12345678);
 
-    fake_irq irq;
+    fake_irq             irq;
     astia::dev::irq_line line = irq.capability();
     assert(line.claim(handled));
     assert(irq.handler == handled);
@@ -123,8 +123,9 @@ int main() {
     assert(!empty_port.read8(0));
     assert(!empty_port.write8(0, 0));
 
-    astia::dev::pio_bus read_only{&bus, fake_pio::read8, fake_pio::read16,
-                                  fake_pio::read32, nullptr, nullptr, nullptr};
+    astia::dev::pio_bus read_only{
+        &bus,    fake_pio::read8, fake_pio::read16, fake_pio::read32,
+        nullptr, nullptr,         nullptr};
     astia::dev::io_port read_only_port{read_only, 0x3f8};
     assert(read_only.readable());
     assert(!read_only.writable());
@@ -140,7 +141,7 @@ int main() {
     assert(!empty_irq.claim(handled));
     assert(!empty_irq.unmask());
 
-    fake_irq partial_irq;
+    fake_irq             partial_irq;
     astia::dev::irq_line claim_only{&partial_irq, fake_irq::claim, nullptr};
     assert(claim_only.claimable_valid());
     assert(!claim_only.unmaskable_valid());

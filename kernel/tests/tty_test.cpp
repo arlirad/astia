@@ -261,9 +261,8 @@ ASTIA_TEST(tty_host_injection_canonical_fd0_shtty_alias) {
 
     const char carriage_return[] = "echo\r";
     for (unsigned i = 0; i < sizeof(carriage_return) - 1; ++i)
-        ASTIA_CHECK(tty.inject_input_for_test(
-                        static_cast<astia::u8>(carriage_return[i])) ==
-                    (i == sizeof(carriage_return) - 2));
+        ASTIA_CHECK(tty.inject_input_for_test(static_cast<astia::u8>(
+                        carriage_return[i])) == (i == sizeof(carriage_return) - 2));
     ASTIA_CHECK(tty.ready_notifications == 2);
     ASTIA_CHECK(shtty.read(result, sizeof(result), 0) == 5);
     ASTIA_CHECK(std::string(result, 5) == "echo\n");
@@ -279,9 +278,9 @@ ASTIA_TEST(tty_host_injection_raw_vmin_one_preserves_cr_lf) {
     value.c_cc[VMIN]  = 1;
     value.c_cc[VTIME] = 0;
     ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
-    test_tty& fd0    = tty;
-    test_tty& shtty  = tty;
-    char      result = 0;
+    test_tty&  fd0     = tty;
+    test_tty&  shtty   = tty;
+    char       result  = 0;
     const char input[] = "echo\n";
 
     for (unsigned i = 0; i < sizeof(input) - 1; ++i) {
@@ -320,8 +319,7 @@ ASTIA_TEST(tty_host_injection_vmin_vtime_wakes_once) {
     value.c_cc[VMIN]  = 2;
     value.c_cc[VTIME] = 1;
     ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
-    astia::io::request request(result, sizeof(result), 0, 1,
-                              astia::io::direction::input);
+    astia::io::request request(result, sizeof(result), 0, 1, astia::io::direction::input);
     tty.inject_input_for_test('h');
     ASTIA_CHECK(tty.submit(request) == 0 && !request.complete());
     ASTIA_CHECK(!request.timeout_set());
@@ -358,7 +356,8 @@ ASTIA_TEST(tty_noncanonical_vmin_vtime_modes) {
     value.c_cc[VMIN]  = 0;
     value.c_cc[VTIME] = 0;
     ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
-    astia::io::request immediate(result, sizeof(result), 0, 1, astia::io::direction::input);
+    astia::io::request immediate(result, sizeof(result), 0, 1,
+                                 astia::io::direction::input);
     ASTIA_CHECK(tty.submit(immediate) == 0 && immediate.complete());
 
     value.c_cc[VTIME] = 1;
@@ -382,7 +381,8 @@ ASTIA_TEST(tty_noncanonical_vmin_vtime_modes) {
     value.c_cc[VMIN]  = 2;
     value.c_cc[VTIME] = 1;
     ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
-    astia::io::request interbyte(result, sizeof(result), 0, 4, astia::io::direction::input);
+    astia::io::request interbyte(result, sizeof(result), 0, 4,
+                                 astia::io::direction::input);
     ASTIA_CHECK(tty.submit(interbyte) == 0 && !interbyte.timeout_set());
     tty.tty_receive('d');
     ASTIA_CHECK(tty.submit(interbyte) == 0 && interbyte.timeout_set());

@@ -130,7 +130,7 @@ namespace {
 }
 
 ASTIA_TEST(shptr_share_releases_value_when_control_block_allocation_fails) {
-    int destroyed = 0;
+    int                destroyed   = 0;
     const astia::usize used_before = astia::mm::heap::used();
     astia_test::fail_next_allocation();
     auto shared = astia::mm::share<shared_probe>(&destroyed);

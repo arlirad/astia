@@ -3,8 +3,8 @@
 namespace astia::dev {
 
     namespace {
-        char selected_path[fs::path_max]{};
-        bool selected = false;
+        char             selected_path[fs::path_max]{};
+        bool             selected         = false;
         console_backend* selected_backend = nullptr;
     }
 
@@ -21,8 +21,8 @@ namespace astia::dev {
         if (canonical_path[index] != '\0')
             return false;
         selected_path[index] = '\0';
-        selected         = true;
-        selected_backend = backend;
+        selected             = true;
+        selected_backend     = backend;
         return true;
     }
 
@@ -39,8 +39,7 @@ namespace astia::dev {
     }
 
     mm::shptr<fs::open_file> open_console(u32 flags) {
-        return !selected ? mm::shptr<fs::open_file>{}
-                                        : fs::open(selected_path, flags);
+        return !selected ? mm::shptr<fs::open_file>{} : fs::open(selected_path, flags);
     }
 
 } // namespace astia::dev

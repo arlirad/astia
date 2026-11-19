@@ -3,13 +3,13 @@
 namespace astia::boot::virt {
     namespace {
 
-        constexpr u32 tag_end      = 0;
-        constexpr u32 tag_cmdline  = 1;
-        constexpr u32 tag_module   = 3;
+        constexpr u32 tag_end         = 0;
+        constexpr u32 tag_cmdline     = 1;
+        constexpr u32 tag_module      = 3;
         constexpr u32 tag_framebuffer = 8;
-        constexpr u32 tag_mmap     = 6;
-        constexpr u32 tag_acpi_old = 14;
-        constexpr u32 tag_acpi_new = 15;
+        constexpr u32 tag_mmap        = 6;
+        constexpr u32 tag_acpi_old    = 14;
+        constexpr u32 tag_acpi_new    = 15;
 
         constexpr usize align8(usize n) {
             return n > static_cast<usize>(-1) - 7u ? 0 : (n + 7u) & ~usize(7u);
@@ -40,9 +40,9 @@ namespace astia::boot::virt {
         if (mbi.data() == nullptr || mbi.size() < sizeof(u32))
             return false;
 
-        const auto* bytes = mbi.data();
-        const u32 total32 = load<u32>(bytes);
-        const usize total = total32;
+        const auto* bytes   = mbi.data();
+        const u32   total32 = load<u32>(bytes);
+        const usize total   = total32;
         if (total < 16 || (total & 7u) != 0 || total > mbi.size())
             return false;
 
@@ -81,10 +81,9 @@ namespace astia::boot::virt {
                 if (size < 16)
                     return false;
                 const u32 start = load<u32>(bytes + offset + 8);
-                const u32 end = load<u32>(bytes + offset + 12);
+                const u32 end   = load<u32>(bytes + offset + 12);
                 if (end < start ||
-                    terminated_string(bytes + offset + 16,
-                                      size - 16) == nullptr) {
+                    terminated_string(bytes + offset + 16, size - 16) == nullptr) {
                     return false;
                 }
                 const module_info value{start, static_cast<u64>(end) - start};
@@ -106,9 +105,9 @@ namespace astia::boot::virt {
                 }
                 const usize count = (size - 16) / entry_size;
                 for (usize i = 0; i < count; ++i) {
-                    const u8* entry = bytes + offset + 16 + i * entry_size;
-                    const u64 base = load<u64>(entry);
-                    const u64 length = load<u64>(entry + 8);
+                    const u8* entry      = bytes + offset + 16 + i * entry_size;
+                    const u64 base       = load<u64>(entry);
+                    const u64 length     = load<u64>(entry + 8);
                     const u32 entry_type = load<u32>(entry + 16);
                     if (base > static_cast<u64>(-1) - length)
                         return false;
@@ -121,23 +120,25 @@ namespace astia::boot::virt {
             case tag_framebuffer: {
                 if (size < 32)
                     return false;
-                const u8* data = bytes + offset + 8;
+                const u8* data    = bytes + offset + 8;
                 const u64 address = load<u64>(data);
-                const u32 pitch = load<u32>(data + 8);
-                const u32 width = load<u32>(data + 12);
-                const u32 height = load<u32>(data + 16);
-                const u8 bpp = data[20];
-                const u8 type = data[21];
+                const u32 pitch   = load<u32>(data + 8);
+                const u32 width   = load<u32>(data + 12);
+                const u32 height  = load<u32>(data + 16);
+                const u8  bpp     = data[20];
+                const u8  type    = data[21];
                 if (type == 1 && (bpp == 24 || bpp == 32) && size >= 38) {
-                    const u8 red_position = data[24];
-                    const u8 red_size = data[25];
+                    const u8 red_position   = data[24];
+                    const u8 red_size       = data[25];
                     const u8 green_position = data[26];
-                    const u8 green_size = data[27];
-                    const u8 blue_position = data[28];
-                    const u8 blue_size = data[29];
+                    const u8 green_size     = data[27];
+                    const u8 blue_position  = data[28];
+                    const u8 blue_size      = data[29];
                     if (red_size == 8 && green_size == 8 && blue_size == 8 &&
-                        ((red_position == 0 && green_position == 8 && blue_position == 16) ||
-                         (red_position == 16 && green_position == 8 && blue_position == 0))) {
+                        ((red_position == 0 && green_position == 8 &&
+                          blue_position == 16) ||
+                         (red_position == 16 && green_position == 8 &&
+                          blue_position == 0))) {
                         parsed.framebuffer = {
                             address,
                             width,
@@ -146,8 +147,9 @@ namespace astia::boot::virt {
                             bpp == 24
                                 ? (red_position == 0 ? framebuffer_pixel_format::rgb888
                                                      : framebuffer_pixel_format::bgr888)
-                                : (red_position == 0 ? framebuffer_pixel_format::rgbx8888
-                                                     : framebuffer_pixel_format::bgrx8888),
+                                : (red_position == 0
+                                       ? framebuffer_pixel_format::rgbx8888
+                                       : framebuffer_pixel_format::bgrx8888),
                         };
                     }
                 }

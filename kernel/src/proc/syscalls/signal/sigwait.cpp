@@ -15,7 +15,7 @@ namespace astia::proc::syscall {
         auto* self  = current_thread();
         if (owner == nullptr || self == nullptr)
             return -ESRCH;
-        const auto set_range = sys::user_ptr<u32>(set_ptr).validate();
+        const auto set_range    = sys::user_ptr<u32>(set_ptr).validate();
         const auto signal_range = sys::user_ptr<i32>(signal_ptr).validate();
         if (!set_range || !signal_range)
             return -EFAULT;

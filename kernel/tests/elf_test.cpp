@@ -139,9 +139,9 @@ namespace {
     // ====================================================================
 
     struct exec_arena {
-        void*  base = nullptr;
-        size_t span = 0;
-        size_t mapped = 0;
+        void*  base     = nullptr;
+        size_t span     = 0;
+        size_t mapped   = 0;
         size_t unmapped = 0;
     };
 
@@ -184,12 +184,12 @@ namespace {
         }
         const astia::u64 residues[] = {0x500000000000ull, 0x600000000000ull,
                                        0x700000000000ull};
-        void* p = MAP_FAILED;
+        void*            p          = MAP_FAILED;
         for (const auto envelope : residues) {
             const astia::u64 candidate = envelope + (hint & (align - 1));
-            p = mmap(reinterpret_cast<void*>(candidate), size,
-                     PROT_READ | PROT_WRITE | PROT_EXEC,
-                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+            p                          = mmap(reinterpret_cast<void*>(candidate), size,
+                                              PROT_READ | PROT_WRITE | PROT_EXEC,
+                                              MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
             if (p != MAP_FAILED)
                 break;
         }
@@ -232,25 +232,26 @@ namespace {
     }
 
     size_t first_dynamic_relocation(blob_copy& blob) {
-        const auto phoff = static_cast<size_t>(blob_u64(blob, 32));
+        const auto phoff     = static_cast<size_t>(blob_u64(blob, 32));
         const auto phentsize = static_cast<size_t>(blob.data[54]) |
                                (static_cast<size_t>(blob.data[55]) << 8);
         const auto phnum = static_cast<size_t>(blob.data[56]) |
                            (static_cast<size_t>(blob.data[57]) << 8);
         unsigned long long rela_vaddr = 0;
         for (size_t i = 0; i < phnum; ++i) {
-            const size_t ph = phoff + i * phentsize;
-            const unsigned int type = static_cast<unsigned int>(blob.data[ph]) |
-                                      (static_cast<unsigned int>(blob.data[ph + 1]) << 8) |
-                                      (static_cast<unsigned int>(blob.data[ph + 2]) << 16) |
-                                      (static_cast<unsigned int>(blob.data[ph + 3]) << 24);
+            const size_t       ph = phoff + i * phentsize;
+            const unsigned int type =
+                static_cast<unsigned int>(blob.data[ph]) |
+                (static_cast<unsigned int>(blob.data[ph + 1]) << 8) |
+                (static_cast<unsigned int>(blob.data[ph + 2]) << 16) |
+                (static_cast<unsigned int>(blob.data[ph + 3]) << 24);
             if (type != 2)
                 continue;
             const size_t dynamic_offset = static_cast<size_t>(blob_u64(blob, ph + 8));
-            const size_t dynamic_size = static_cast<size_t>(blob_u64(blob, ph + 32));
+            const size_t dynamic_size   = static_cast<size_t>(blob_u64(blob, ph + 32));
             for (size_t offset = 0; offset < dynamic_size; offset += 16) {
                 const size_t entry = dynamic_offset + offset;
-                const auto tag = static_cast<long long>(blob_u64(blob, entry));
+                const auto   tag   = static_cast<long long>(blob_u64(blob, entry));
                 if (tag == 0)
                     break;
                 if (tag == 7)
@@ -258,14 +259,15 @@ namespace {
             }
         }
         for (size_t i = 0; i < phnum; ++i) {
-            const size_t ph = phoff + i * phentsize;
-            const unsigned int type = static_cast<unsigned int>(blob.data[ph]) |
-                                      (static_cast<unsigned int>(blob.data[ph + 1]) << 8) |
-                                      (static_cast<unsigned int>(blob.data[ph + 2]) << 16) |
-                                      (static_cast<unsigned int>(blob.data[ph + 3]) << 24);
+            const size_t       ph = phoff + i * phentsize;
+            const unsigned int type =
+                static_cast<unsigned int>(blob.data[ph]) |
+                (static_cast<unsigned int>(blob.data[ph + 1]) << 8) |
+                (static_cast<unsigned int>(blob.data[ph + 2]) << 16) |
+                (static_cast<unsigned int>(blob.data[ph + 3]) << 24);
             if (type != 1)
                 continue;
-            const auto vaddr = blob_u64(blob, ph + 16);
+            const auto vaddr  = blob_u64(blob, ph + 16);
             const auto offset = blob_u64(blob, ph + 8);
             const auto filesz = blob_u64(blob, ph + 32);
             if (rela_vaddr >= vaddr && rela_vaddr - vaddr < filesz)
@@ -276,9 +278,10 @@ namespace {
 
     void shift_first_relocation_target(blob_copy& blob, long long delta) {
         const size_t offset = first_dynamic_relocation(blob);
-        const auto target = blob_u64(blob, offset);
-        blob_put_u64(blob, offset, static_cast<unsigned long long>(
-                                      static_cast<long long>(target) + delta));
+        const auto   target = blob_u64(blob, offset);
+        blob_put_u64(
+            blob, offset,
+            static_cast<unsigned long long>(static_cast<long long>(target) + delta));
     }
 
     void reject_first_dynamic_relocation(blob_copy& blob) {
@@ -297,14 +300,14 @@ namespace {
 
     struct stream_exec_context {
         const unsigned char* source;
-        size_t                source_size;
-        exec_arena            arena;
-        size_t                read_calls = 0;
-        size_t                read_bytes = 0;
-        size_t                max_read = 0;
-        size_t                fail_read_after = ~size_t{0};
-        size_t                copy_calls = 0;
-        size_t                fail_copy_after = ~size_t{0};
+        size_t               source_size;
+        exec_arena           arena;
+        size_t               read_calls      = 0;
+        size_t               read_bytes      = 0;
+        size_t               max_read        = 0;
+        size_t               fail_read_after = ~size_t{0};
+        size_t               copy_calls      = 0;
+        size_t               fail_copy_after = ~size_t{0};
     };
 
     void* congruent_stream_map(void* ctx, astia::u64 hint, astia::usize size,
@@ -317,13 +320,13 @@ namespace {
         blob_copy blob(fixture_exec_blob, fixture_exec_blob_len);
         for (size_t i = 0; i < 0x3020; ++i)
             blob.data[i] = 0;
-        blob.len = 0x3020;
-        blob.data[0] = 0x7f;
-        blob.data[1] = 'E';
-        blob.data[2] = 'L';
-        blob.data[3] = 'F';
-        blob.data[4] = 2;
-        blob.data[5] = 1;
+        blob.len      = 0x3020;
+        blob.data[0]  = 0x7f;
+        blob.data[1]  = 'E';
+        blob.data[2]  = 'L';
+        blob.data[3]  = 'F';
+        blob.data[4]  = 2;
+        blob.data[5]  = 1;
         blob.data[16] = fixed ? 2 : 3;
         blob.data[18] = 62;
         blob_put_u32(blob, 20, 1);
@@ -358,9 +361,8 @@ namespace {
         exec_unmap(&context->arena, address, size);
     }
 
-    astia::core::task<astia::i64> stream_read(void* ctx,
-                                               astia::span<astia::u8> destination,
-                                               astia::u64 offset) {
+    astia::core::task<astia::i64>
+    stream_read(void* ctx, astia::span<astia::u8> destination, astia::u64 offset) {
         auto* context = static_cast<stream_exec_context*>(ctx);
         if (offset > context->source_size ||
             destination.size() > context->source_size - offset)
@@ -456,22 +458,22 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
 
 ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
     extern unsigned char module_symbols_blob[];
-    extern unsigned int module_symbols_blob_len;
-    const size_t cap = 1 << 20;
-    void* mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
-                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    extern unsigned int  module_symbols_blob_len;
+    const size_t         cap = 1 << 20;
+    void*                mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
+                                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     ASTIA_CHECK(mem != MAP_FAILED);
     if (mem == MAP_FAILED)
         return;
 
     reloc_arena a{};
-    a.base = static_cast<unsigned char*>(mem);
+    a.base     = static_cast<unsigned char*>(mem);
     a.capacity = cap;
-    a.back = cap;
+    a.back     = cap;
     astia::elf::env e{};
-    e.ctx = &a;
-    e.map = reloc_map;
-    e.unmap = reloc_unmap;
+    e.ctx     = &a;
+    e.map     = reloc_map;
+    e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
     astia::elf::image img;
@@ -499,23 +501,23 @@ ASTIA_TEST(elf_relocatable_rejects_bad_magic) {
 
 ASTIA_TEST(elf_failed_relocatable_loads_release_every_mapping) {
     const size_t cap = 1 << 16;
-    void* mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
-                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    void*        mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     ASTIA_CHECK(mem != MAP_FAILED);
     if (mem == MAP_FAILED)
         return;
 
     reloc_arena a{};
-    a.base = static_cast<unsigned char*>(mem);
+    a.base     = static_cast<unsigned char*>(mem);
     a.capacity = cap;
     astia::elf::env e{};
-    e.ctx = &a;
-    e.map = reloc_map;
-    e.unmap = reloc_unmap;
+    e.ctx     = &a;
+    e.map     = reloc_map;
+    e.unmap   = reloc_unmap;
     e.resolve = nullptr;
     for (size_t i = 0; i < 32; ++i) {
-        a.front = 0;
-        a.back = cap;
+        a.front   = 0;
+        a.back    = cap;
         a.cache_n = 0;
         astia::elf::image img;
         ASTIA_CHECK(!astia::elf::load(hello_mod_blob, hello_mod_blob_len, e, img));
@@ -575,7 +577,7 @@ ASTIA_TEST(elf_relocatable_rejects_unresolved_symbol) {
 }
 
 ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
-    blob_copy buf(hello_mod_blob, hello_mod_blob_len);
+    blob_copy  buf(hello_mod_blob, hello_mod_blob_len);
     const auto read_u16 = [&buf](size_t offset) {
         return static_cast<unsigned short>(buf.data[offset]) |
                (static_cast<unsigned short>(buf.data[offset + 1]) << 8);
@@ -593,20 +595,20 @@ ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
         return value;
     };
     const unsigned long long section_offset = read_u64(40);
-    const unsigned short section_count = read_u16(60);
-    const unsigned short section_size = read_u16(58);
-    size_t string_offset = 0;
-    size_t string_size = 0;
+    const unsigned short     section_count  = read_u16(60);
+    const unsigned short     section_size   = read_u16(58);
+    size_t                   string_offset  = 0;
+    size_t                   string_size    = 0;
     for (unsigned short i = 0; i < section_count; ++i) {
-        const size_t section = static_cast<size_t>(section_offset) +
-                               static_cast<size_t>(i) * section_size;
+        const size_t section =
+            static_cast<size_t>(section_offset) + static_cast<size_t>(i) * section_size;
         if (read_u32(section + 4) != 2)
             continue;
-        const unsigned int string_index = read_u32(section + 40);
-        const size_t string_section = static_cast<size_t>(section_offset) +
+        const unsigned int string_index   = read_u32(section + 40);
+        const size_t       string_section = static_cast<size_t>(section_offset) +
                                       static_cast<size_t>(string_index) * section_size;
         string_offset = static_cast<size_t>(read_u64(string_section + 24));
-        string_size = static_cast<size_t>(read_u64(string_section + 32));
+        string_size   = static_cast<size_t>(read_u64(string_section + 32));
         break;
     }
     ASTIA_CHECK(string_size != 0);
@@ -623,11 +625,11 @@ ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
         ASTIA_CHECK(name_offset < string_size);
         if (name_offset < string_size)
             buf.data[string_offset + name_offset + sizeof("module_main") - 1] = 'x';
-        reloc_arena a{};
+        reloc_arena     a{};
         astia::elf::env e{};
-        e.ctx = &a;
-        e.map = reloc_map;
-        e.unmap = reloc_unmap;
+        e.ctx     = &a;
+        e.map     = reloc_map;
+        e.unmap   = reloc_unmap;
         e.resolve = reloc_resolve;
         astia::elf::image img;
         ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
@@ -637,14 +639,14 @@ ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
 ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
     auto load_bad = [](blob_copy& buf) {
         unsigned char storage[1 << 16]{};
-        reloc_arena arena{};
-        arena.base = storage;
+        reloc_arena   arena{};
+        arena.base     = storage;
         arena.capacity = sizeof(storage);
-        arena.back = sizeof(storage);
+        arena.back     = sizeof(storage);
         astia::elf::env environment{};
-        environment.ctx = &arena;
-        environment.map = reloc_map;
-        environment.unmap = reloc_unmap;
+        environment.ctx     = &arena;
+        environment.map     = reloc_map;
+        environment.unmap   = reloc_unmap;
         environment.resolve = reloc_resolve;
         astia::elf::image image;
         const bool loaded = astia::elf::load(buf.data, buf.len, environment, image);
@@ -653,9 +655,9 @@ ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
         return loaded;
     };
 
-    blob_copy zero_alignment(hello_mod_blob, hello_mod_blob_len);
+    blob_copy    zero_alignment(hello_mod_blob, hello_mod_blob_len);
     const size_t section_offset = static_cast<size_t>(blob_u64(zero_alignment, 40));
-    const size_t section_size = static_cast<size_t>(zero_alignment.data[58]) |
+    const size_t section_size   = static_cast<size_t>(zero_alignment.data[58]) |
                                 (static_cast<size_t>(zero_alignment.data[59]) << 8);
     blob_put_u64(zero_alignment, section_offset + section_size * 4 + 48, 0);
     ASTIA_CHECK(load_bad(zero_alignment));
@@ -664,19 +666,16 @@ ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
     blob_put_u64(bad_alignment, section_offset + section_size + 48, 3);
     ASTIA_CHECK(!load_bad(bad_alignment));
 
-    blob_copy bad_symbol_size(hello_mod_blob, hello_mod_blob_len);
+    blob_copy    bad_symbol_size(hello_mod_blob, hello_mod_blob_len);
     const size_t section_count = static_cast<size_t>(bad_symbol_size.data[60]) |
                                  (static_cast<size_t>(bad_symbol_size.data[61]) << 8);
-    for (size_t i = 0; i < section_count;
-         ++i) {
-        const size_t section = section_offset + i * section_size;
-        const unsigned int type = static_cast<unsigned int>(bad_symbol_size.data[section + 4]) |
-                                  (static_cast<unsigned int>(bad_symbol_size.data[section + 5])
-                                   << 8) |
-                                  (static_cast<unsigned int>(bad_symbol_size.data[section + 6])
-                                   << 16) |
-                                  (static_cast<unsigned int>(bad_symbol_size.data[section + 7])
-                                   << 24);
+    for (size_t i = 0; i < section_count; ++i) {
+        const size_t       section = section_offset + i * section_size;
+        const unsigned int type =
+            static_cast<unsigned int>(bad_symbol_size.data[section + 4]) |
+            (static_cast<unsigned int>(bad_symbol_size.data[section + 5]) << 8) |
+            (static_cast<unsigned int>(bad_symbol_size.data[section + 6]) << 16) |
+            (static_cast<unsigned int>(bad_symbol_size.data[section + 7]) << 24);
         if (type != 2)
             continue;
         const auto size = blob_u64(bad_symbol_size, section + 32);
@@ -686,16 +685,13 @@ ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
     ASTIA_CHECK(!load_bad(bad_symbol_size));
 
     blob_copy bad_rela_size(hello_mod_blob, hello_mod_blob_len);
-    for (size_t i = 0; i < section_count;
-         ++i) {
-        const size_t section = section_offset + i * section_size;
-        const unsigned int type = static_cast<unsigned int>(bad_rela_size.data[section + 4]) |
-                                  (static_cast<unsigned int>(bad_rela_size.data[section + 5])
-                                   << 8) |
-                                  (static_cast<unsigned int>(bad_rela_size.data[section + 6])
-                                   << 16) |
-                                  (static_cast<unsigned int>(bad_rela_size.data[section + 7])
-                                   << 24);
+    for (size_t i = 0; i < section_count; ++i) {
+        const size_t       section = section_offset + i * section_size;
+        const unsigned int type =
+            static_cast<unsigned int>(bad_rela_size.data[section + 4]) |
+            (static_cast<unsigned int>(bad_rela_size.data[section + 5]) << 8) |
+            (static_cast<unsigned int>(bad_rela_size.data[section + 6]) << 16) |
+            (static_cast<unsigned int>(bad_rela_size.data[section + 7]) << 24);
         if (type != 4)
             continue;
         const auto size = blob_u64(bad_rela_size, section + 32);
@@ -703,7 +699,6 @@ ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
         break;
     }
     ASTIA_CHECK(!load_bad(bad_rela_size));
-
 }
 
 // ========================================================================
@@ -713,8 +708,8 @@ ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
 ASTIA_TEST(elf_loads_and_runs_pie_executable) {
     exec_arena      a{};
     astia::elf::env e{};
-    e.ctx = &a;
-    e.map = exec_map;
+    e.ctx   = &a;
+    e.map   = exec_map;
     e.unmap = exec_unmap;
 
     astia::elf::image img;
@@ -743,8 +738,8 @@ ASTIA_TEST(elf_loads_and_runs_pie_executable) {
 ASTIA_TEST(elf_loads_and_runs_fixed_executable) {
     exec_arena      a{};
     astia::elf::env e{};
-    e.ctx = &a;
-    e.map = exec_map;
+    e.ctx   = &a;
+    e.map   = exec_map;
     e.unmap = exec_unmap;
 
     astia::elf::image img;
@@ -769,11 +764,11 @@ ASTIA_TEST(elf_loads_and_runs_fixed_executable) {
 }
 
 ASTIA_TEST(elf_accepts_nonpage_load_alignment) {
-    blob_copy dyn_blob = make_nonpage_aligned_executable(false, true);
-    exec_arena dyn_arena{};
+    blob_copy       dyn_blob = make_nonpage_aligned_executable(false, true);
+    exec_arena      dyn_arena{};
     astia::elf::env dyn_env{};
-    dyn_env.ctx = &dyn_arena;
-    dyn_env.map = congruent_exec_map;
+    dyn_env.ctx   = &dyn_arena;
+    dyn_env.map   = congruent_exec_map;
     dyn_env.unmap = exec_unmap;
     astia::elf::image dyn_image{};
     ASTIA_CHECK(astia::elf::load(dyn_blob.data, dyn_blob.len, dyn_env, dyn_image));
@@ -781,25 +776,26 @@ ASTIA_TEST(elf_accepts_nonpage_load_alignment) {
     if (dyn_arena.base != nullptr)
         munmap(dyn_arena.base, dyn_arena.span);
 
-    blob_copy fixed_blob = make_nonpage_aligned_executable(true, true);
-    exec_arena fixed_arena{};
+    blob_copy       fixed_blob = make_nonpage_aligned_executable(true, true);
+    exec_arena      fixed_arena{};
     astia::elf::env fixed_env{};
-    fixed_env.ctx = &fixed_arena;
-    fixed_env.map = congruent_exec_map;
+    fixed_env.ctx   = &fixed_arena;
+    fixed_env.map   = congruent_exec_map;
     fixed_env.unmap = exec_unmap;
     astia::elf::image fixed_image{};
-    ASTIA_CHECK(astia::elf::load(fixed_blob.data, fixed_blob.len, fixed_env, fixed_image));
+    ASTIA_CHECK(
+        astia::elf::load(fixed_blob.data, fixed_blob.len, fixed_env, fixed_image));
     ASTIA_CHECK(fixed_arena.mapped == 1);
     if (fixed_arena.base != nullptr)
         munmap(fixed_arena.base, fixed_arena.span);
 
-    stream_exec_context stream_context{dyn_blob.data, dyn_blob.len, {}};
+    stream_exec_context   stream_context{dyn_blob.data, dyn_blob.len, {}};
     astia::elf::async_env stream_env{};
-    stream_env.ctx = &stream_context;
-    stream_env.map = congruent_stream_map;
-    stream_env.read = stream_read;
+    stream_env.ctx   = &stream_context;
+    stream_env.map   = congruent_stream_map;
+    stream_env.read  = stream_read;
     stream_env.unmap = stream_unmap;
-    auto task = astia::elf::load_executable_stream(stream_env, dyn_blob.len);
+    auto task        = astia::elf::load_executable_stream(stream_env, dyn_blob.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(!task.failed());
@@ -809,11 +805,11 @@ ASTIA_TEST(elf_accepts_nonpage_load_alignment) {
 }
 
 ASTIA_TEST(elf_rejects_noncongruent_load_alignment) {
-    blob_copy blob = make_nonpage_aligned_executable(false, false);
-    exec_arena arena{};
+    blob_copy       blob = make_nonpage_aligned_executable(false, false);
+    exec_arena      arena{};
     astia::elf::env environment{};
-    environment.ctx = &arena;
-    environment.map = congruent_exec_map;
+    environment.ctx   = &arena;
+    environment.map   = congruent_exec_map;
     environment.unmap = exec_unmap;
     astia::elf::image image{};
     ASTIA_CHECK(!astia::elf::load(blob.data, blob.len, environment, image));
@@ -823,10 +819,10 @@ ASTIA_TEST(elf_rejects_noncongruent_load_alignment) {
 ASTIA_TEST(elf_nonstream_unaligned_relative_relocation_is_safe) {
     blob_copy buf(fixture_dyn_blob, fixture_dyn_blob_len);
     shift_first_relocation_target(buf, -1);
-    exec_arena a{};
+    exec_arena      a{};
     astia::elf::env e{};
-    e.ctx = &a;
-    e.map = exec_map;
+    e.ctx   = &a;
+    e.map   = exec_map;
     e.unmap = exec_unmap;
     astia::elf::image img;
     ASTIA_CHECK(astia::elf::load(buf.data, buf.len, e, img));
@@ -839,10 +835,10 @@ ASTIA_TEST(elf_nonstream_unaligned_relative_relocation_is_safe) {
 ASTIA_TEST(elf_executable_failures_release_mapped_span) {
     blob_copy relocation_failure(fixture_dyn_blob, fixture_dyn_blob_len);
     reject_first_dynamic_relocation(relocation_failure);
-    exec_arena relocation_arena{};
+    exec_arena      relocation_arena{};
     astia::elf::env relocation_env{};
-    relocation_env.ctx = &relocation_arena;
-    relocation_env.map = exec_map;
+    relocation_env.ctx   = &relocation_arena;
+    relocation_env.map   = exec_map;
     relocation_env.unmap = exec_unmap;
     astia::elf::image relocation_image;
     ASTIA_CHECK(!astia::elf::load(relocation_failure.data, relocation_failure.len,
@@ -850,22 +846,22 @@ ASTIA_TEST(elf_executable_failures_release_mapped_span) {
     ASTIA_CHECK(relocation_arena.mapped == 1);
     ASTIA_CHECK(relocation_arena.unmapped == 1);
 
-    exec_arena copy_arena{};
+    exec_arena      copy_arena{};
     astia::elf::env copy_env{};
-    copy_env.ctx = &copy_arena;
-    copy_env.map = exec_map;
+    copy_env.ctx   = &copy_arena;
+    copy_env.map   = exec_map;
     copy_env.unmap = exec_unmap;
-    copy_env.copy = copy_failure;
+    copy_env.copy  = copy_failure;
     astia::elf::image copy_image;
-    ASTIA_CHECK(!astia::elf::load(fixture_dyn_blob, fixture_dyn_blob_len, copy_env,
-                                  copy_image));
+    ASTIA_CHECK(
+        !astia::elf::load(fixture_dyn_blob, fixture_dyn_blob_len, copy_env, copy_image));
     ASTIA_CHECK(copy_arena.mapped == 1);
     ASTIA_CHECK(copy_arena.unmapped == 1);
 
-    exec_arena fixed_arena{};
+    exec_arena      fixed_arena{};
     astia::elf::env fixed_env{};
-    fixed_env.ctx = &fixed_arena;
-    fixed_env.map = misfixed_map;
+    fixed_env.ctx   = &fixed_arena;
+    fixed_env.map   = misfixed_map;
     fixed_env.unmap = exec_unmap;
     astia::elf::image fixed_image;
     ASTIA_CHECK(!astia::elf::load(fixture_exec_blob, fixture_exec_blob_len, fixed_env,
@@ -877,13 +873,13 @@ ASTIA_TEST(elf_executable_failures_release_mapped_span) {
 ASTIA_TEST(elf_stream_unaligned_relative_relocation_is_safe) {
     blob_copy buf(fixture_dyn_blob, fixture_dyn_blob_len);
     shift_first_relocation_target(buf, -1);
-    stream_exec_context context{buf.data, buf.len, {}};
+    stream_exec_context   context{buf.data, buf.len, {}};
     astia::elf::async_env environment{};
-    environment.ctx = &context;
-    environment.map = stream_map;
-    environment.read = stream_read;
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
     environment.unmap = stream_unmap;
-    auto task = astia::elf::load_executable_stream(environment, buf.len);
+    auto task         = astia::elf::load_executable_stream(environment, buf.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(!task.failed());
@@ -895,11 +891,11 @@ ASTIA_TEST(elf_stream_unaligned_relative_relocation_is_safe) {
 }
 
 ASTIA_TEST(elf_stream_uses_bounded_reads) {
-    stream_exec_context context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
+    stream_exec_context   context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
     astia::elf::async_env environment{};
-    environment.ctx = &context;
-    environment.map = stream_map;
-    environment.read = stream_read;
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
     auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
@@ -910,27 +906,28 @@ ASTIA_TEST(elf_stream_uses_bounded_reads) {
     ASTIA_CHECK(context.max_read <= 4096);
     ASTIA_CHECK(context.read_bytes < fixture_dyn_blob_len);
     if (!task.failed() && task.value() != nullptr) {
-        const auto& image = *task.value();
-        const size_t phoff = static_cast<size_t>(blob_u64(
-            blob_copy(fixture_dyn_blob, fixture_dyn_blob_len), 32));
+        const auto&  image = *task.value();
+        const size_t phoff = static_cast<size_t>(
+            blob_u64(blob_copy(fixture_dyn_blob, fixture_dyn_blob_len), 32));
         const size_t phnum = static_cast<size_t>(fixture_dyn_blob[56]) |
                              (static_cast<size_t>(fixture_dyn_blob[57]) << 8);
         const size_t phentsize = static_cast<size_t>(fixture_dyn_blob[54]) |
                                  (static_cast<size_t>(fixture_dyn_blob[55]) << 8);
         for (size_t i = 0; i < phnum; ++i) {
-            const size_t ph = phoff + i * phentsize;
-            const unsigned int type = static_cast<unsigned int>(fixture_dyn_blob[ph]) |
-                                      (static_cast<unsigned int>(fixture_dyn_blob[ph + 1]) << 8) |
-                                      (static_cast<unsigned int>(fixture_dyn_blob[ph + 2]) << 16) |
-                                      (static_cast<unsigned int>(fixture_dyn_blob[ph + 3]) << 24);
+            const size_t       ph = phoff + i * phentsize;
+            const unsigned int type =
+                static_cast<unsigned int>(fixture_dyn_blob[ph]) |
+                (static_cast<unsigned int>(fixture_dyn_blob[ph + 1]) << 8) |
+                (static_cast<unsigned int>(fixture_dyn_blob[ph + 2]) << 16) |
+                (static_cast<unsigned int>(fixture_dyn_blob[ph + 3]) << 24);
             if (type != 1)
                 continue;
-            const auto vaddr = blob_u64(
-                blob_copy(fixture_dyn_blob, fixture_dyn_blob_len), ph + 16);
-            const auto offset = blob_u64(
-                blob_copy(fixture_dyn_blob, fixture_dyn_blob_len), ph + 8);
-            const auto filesz = blob_u64(
-                blob_copy(fixture_dyn_blob, fixture_dyn_blob_len), ph + 32);
+            const auto vaddr =
+                blob_u64(blob_copy(fixture_dyn_blob, fixture_dyn_blob_len), ph + 16);
+            const auto offset =
+                blob_u64(blob_copy(fixture_dyn_blob, fixture_dyn_blob_len), ph + 8);
+            const auto filesz =
+                blob_u64(blob_copy(fixture_dyn_blob, fixture_dyn_blob_len), ph + 32);
             bool found = false;
             for (size_t seg = 0; seg < image.nsegs; ++seg) {
                 if (image.segs[seg].vaddr != vaddr)
@@ -938,8 +935,7 @@ ASTIA_TEST(elf_stream_uses_bounded_reads) {
                 found = true;
                 ASTIA_CHECK(image.segs[seg].filesz == filesz);
                 const size_t sample = filesz < 16 ? static_cast<size_t>(filesz) : 16;
-                ASTIA_CHECK(std::memcmp(image.segs[seg].loc,
-                                        fixture_dyn_blob + offset,
+                ASTIA_CHECK(std::memcmp(image.segs[seg].loc, fixture_dyn_blob + offset,
                                         sample) == 0);
             }
             ASTIA_CHECK(found);
@@ -950,16 +946,16 @@ ASTIA_TEST(elf_stream_uses_bounded_reads) {
 }
 
 ASTIA_TEST(elf_stream_rejects_truncated_program_headers) {
-    const size_t phoff = static_cast<size_t>(blob_u64(
-        blob_copy(fixture_exec_blob, fixture_exec_blob_len), 32));
+    const size_t phoff = static_cast<size_t>(
+        blob_u64(blob_copy(fixture_exec_blob, fixture_exec_blob_len), 32));
     const size_t phnum = static_cast<size_t>(fixture_exec_blob[56]) |
                          (static_cast<size_t>(fixture_exec_blob[57]) << 8);
-    const size_t truncated_size = phoff + phnum * 56 - 1;
-    stream_exec_context context{fixture_exec_blob, truncated_size, {}};
+    const size_t          truncated_size = phoff + phnum * 56 - 1;
+    stream_exec_context   context{fixture_exec_blob, truncated_size, {}};
     astia::elf::async_env environment{};
-    environment.ctx = &context;
-    environment.map = stream_map;
-    environment.read = stream_read;
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
     auto task = astia::elf::load_executable_stream(environment, context.source_size);
@@ -970,15 +966,15 @@ ASTIA_TEST(elf_stream_rejects_truncated_program_headers) {
 }
 
 ASTIA_TEST(elf_stream_rejects_malformed_segment_sizes) {
-    blob_copy buf(fixture_exec_blob, fixture_exec_blob_len);
+    blob_copy    buf(fixture_exec_blob, fixture_exec_blob_len);
     const size_t phoff = static_cast<size_t>(blob_u64(buf, 32));
-    const size_t phentsize = static_cast<size_t>(buf.data[54]) |
-                             (static_cast<size_t>(buf.data[55]) << 8);
-    const size_t phnum = static_cast<size_t>(buf.data[56]) |
-                         (static_cast<size_t>(buf.data[57]) << 8);
+    const size_t phentsize =
+        static_cast<size_t>(buf.data[54]) | (static_cast<size_t>(buf.data[55]) << 8);
+    const size_t phnum =
+        static_cast<size_t>(buf.data[56]) | (static_cast<size_t>(buf.data[57]) << 8);
     bool changed = false;
     for (size_t i = 0; i < phnum; ++i) {
-        const size_t ph = phoff + i * phentsize;
+        const size_t       ph   = phoff + i * phentsize;
         const unsigned int type = static_cast<unsigned int>(buf.data[ph]) |
                                   (static_cast<unsigned int>(buf.data[ph + 1]) << 8) |
                                   (static_cast<unsigned int>(buf.data[ph + 2]) << 16) |
@@ -992,13 +988,13 @@ ASTIA_TEST(elf_stream_rejects_malformed_segment_sizes) {
     }
     ASTIA_CHECK(changed);
 
-    stream_exec_context context{buf.data, buf.len, {}};
+    stream_exec_context   context{buf.data, buf.len, {}};
     astia::elf::async_env environment{};
-    environment.ctx = &context;
-    environment.map = stream_map;
-    environment.read = stream_read;
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
     environment.unmap = stream_unmap;
-    auto task = astia::elf::load_executable_stream(environment, buf.len);
+    auto task         = astia::elf::load_executable_stream(environment, buf.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(task.failed());
@@ -1009,9 +1005,9 @@ ASTIA_TEST(elf_stream_read_failure_releases_mapping) {
     stream_exec_context context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
     context.fail_read_after = 3;
     astia::elf::async_env environment{};
-    environment.ctx = &context;
-    environment.map = stream_map;
-    environment.read = stream_read;
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
     auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
@@ -1026,10 +1022,10 @@ ASTIA_TEST(elf_stream_copy_failure_releases_mapping) {
     stream_exec_context context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
     context.fail_copy_after = 1;
     astia::elf::async_env environment{};
-    environment.ctx = &context;
-    environment.map = stream_map;
-    environment.read = stream_read;
-    environment.copy = stream_copy;
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
+    environment.copy  = stream_copy;
     environment.unmap = stream_unmap;
 
     auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
@@ -1043,11 +1039,11 @@ ASTIA_TEST(elf_stream_copy_failure_releases_mapping) {
 ASTIA_TEST(elf_stream_relocation_failure_releases_mapping) {
     blob_copy buf(fixture_dyn_blob, fixture_dyn_blob_len);
     reject_first_dynamic_relocation(buf);
-    stream_exec_context context{buf.data, buf.len, {}};
+    stream_exec_context   context{buf.data, buf.len, {}};
     astia::elf::async_env environment{};
-    environment.ctx = &context;
-    environment.map = stream_map;
-    environment.read = stream_read;
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
     auto task = astia::elf::load_executable_stream(environment, buf.len);
@@ -1059,15 +1055,15 @@ ASTIA_TEST(elf_stream_relocation_failure_releases_mapping) {
 }
 
 ASTIA_TEST(elf_stream_tls_failure_releases_mapping) {
-    blob_copy buf(fixture_dyn_blob, fixture_dyn_blob_len);
+    blob_copy    buf(fixture_dyn_blob, fixture_dyn_blob_len);
     const size_t phoff = static_cast<size_t>(blob_u64(buf, 32));
-    const size_t phentsize = static_cast<size_t>(buf.data[54]) |
-                             (static_cast<size_t>(buf.data[55]) << 8);
-    const size_t phnum = static_cast<size_t>(buf.data[56]) |
-                         (static_cast<size_t>(buf.data[57]) << 8);
+    const size_t phentsize =
+        static_cast<size_t>(buf.data[54]) | (static_cast<size_t>(buf.data[55]) << 8);
+    const size_t phnum =
+        static_cast<size_t>(buf.data[56]) | (static_cast<size_t>(buf.data[57]) << 8);
     bool changed = false;
     for (size_t i = 0; i < phnum; ++i) {
-        const size_t ph = phoff + i * phentsize;
+        const size_t       ph   = phoff + i * phentsize;
         const unsigned int type = static_cast<unsigned int>(buf.data[ph]) |
                                   (static_cast<unsigned int>(buf.data[ph + 1]) << 8) |
                                   (static_cast<unsigned int>(buf.data[ph + 2]) << 16) |
@@ -1083,13 +1079,13 @@ ASTIA_TEST(elf_stream_tls_failure_releases_mapping) {
     }
     ASTIA_CHECK(changed);
 
-    stream_exec_context context{buf.data, buf.len, {}};
+    stream_exec_context   context{buf.data, buf.len, {}};
     astia::elf::async_env environment{};
-    environment.ctx = &context;
-    environment.map = stream_map;
-    environment.read = stream_read;
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
     environment.unmap = stream_unmap;
-    auto task = astia::elf::load_executable_stream(environment, buf.len);
+    auto task         = astia::elf::load_executable_stream(environment, buf.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(task.failed());
@@ -1103,8 +1099,8 @@ ASTIA_TEST(elf_executable_rejects_bad_magic) {
 
     exec_arena      a{};
     astia::elf::env e{};
-    e.ctx = &a;
-    e.map = exec_map;
+    e.ctx   = &a;
+    e.map   = exec_map;
     e.unmap = exec_unmap;
 
     astia::elf::image img;
@@ -1118,8 +1114,8 @@ ASTIA_TEST(elf_executable_rejects_wrong_machine) {
 
     exec_arena      a{};
     astia::elf::env e{};
-    e.ctx = &a;
-    e.map = exec_map;
+    e.ctx   = &a;
+    e.map   = exec_map;
     e.unmap = exec_unmap;
 
     astia::elf::image img;
@@ -1131,8 +1127,8 @@ ASTIA_TEST(elf_executable_rejects_truncated_phdrs) {
 
     exec_arena      a{};
     astia::elf::env e{};
-    e.ctx = &a;
-    e.map = exec_map;
+    e.ctx   = &a;
+    e.map   = exec_map;
     e.unmap = exec_unmap;
 
     astia::elf::image img;

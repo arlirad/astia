@@ -25,13 +25,14 @@ namespace astia::proc::syscall {
 
     i64 futex(u64 address, u32 op, u32 expected, u64 timeout) {
         const bool cancellation_point = (op & ipc::futex_cancelable_bit) != 0;
-        auto operation = mapper<ipc::futex_operation>::from(
+        auto       operation          = mapper<ipc::futex_operation>::from(
             op & ~(ipc::futex_private_bit | ipc::futex_cancelable_bit));
         if (!operation)
             return -EINVAL;
         const bool shared = (op & ipc::futex_private_bit) == 0;
         if (operation.value == ipc::futex_operation::wait) {
-            return proc::futex_wait(address, expected, timeout, cancellation_point, shared);
+            return proc::futex_wait(address, expected, timeout, cancellation_point,
+                                    shared);
         }
         if (operation.value == ipc::futex_operation::wake) {
             if (timeout != 0)

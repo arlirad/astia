@@ -36,7 +36,7 @@ namespace astia::proc {
                                 span<char> buffer) const;
 
         mutable core::spinlock _lock{};
-        char                     _cwd[fs::path_max] = "/";
+        char                   _cwd[fs::path_max] = "/";
     };
 
 } // namespace astia::proc

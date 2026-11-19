@@ -15,11 +15,13 @@
 #endif
 
 #if defined(__cplusplus)
-#define ASTIA_MODULE_ABI_STATIC_ASSERT(condition, message) static_assert(condition, message)
+#define ASTIA_MODULE_ABI_STATIC_ASSERT(condition, message) \
+    static_assert(condition, message)
 #define ASTIA_MODULE_ABI_EXTERN_C_BEGIN extern "C" {
 #define ASTIA_MODULE_ABI_EXTERN_C_END }
 #else
-#define ASTIA_MODULE_ABI_STATIC_ASSERT(condition, message) _Static_assert(condition, message)
+#define ASTIA_MODULE_ABI_STATIC_ASSERT(condition, message) \
+    _Static_assert(condition, message)
 #define ASTIA_MODULE_ABI_EXTERN_C_BEGIN
 #define ASTIA_MODULE_ABI_EXTERN_C_END
 #endif
@@ -30,7 +32,7 @@ ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(uint16_t) == 2, "uint16_t width");
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(uint32_t) == 4, "uint32_t width");
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(uint64_t) == 8, "uint64_t width");
 ASTIA_MODULE_ABI_STATIC_ASSERT((ASTIA_PAGE_SIZE & (ASTIA_PAGE_SIZE - 1u)) == 0,
-                              "page size must be a power of two");
+                               "page size must be a power of two");
 
 ASTIA_MODULE_ABI_EXTERN_C_BEGIN
 int module_main(void);

@@ -191,15 +191,13 @@ namespace astia::arch {
             if (parent == nullptr || !parent->valid()) {
                 return true;
             }
-            const vaddr_t first =
-                reinterpret_cast<vaddr_t>(boot_stack) & ~mm::page_mask;
+            const vaddr_t first = reinterpret_cast<vaddr_t>(boot_stack) & ~mm::page_mask;
             const vaddr_t last =
                 (reinterpret_cast<vaddr_t>(boot_stack_top) - 1) & ~mm::page_mask;
             for (vaddr_t virt = first;; virt += mm::page_size) {
                 const paddr_t phys = parent->translate(virt);
                 if (phys == page_map::invalid ||
-                    !map.map_4k(virt, phys,
-                                page_flags::present | page_flags::writable)) {
+                    !map.map_4k(virt, phys, page_flags::present | page_flags::writable)) {
                     return false;
                 }
                 if (virt == last) {
@@ -533,19 +531,16 @@ namespace astia::arch {
         if (!valid() || !is_canonical(virt))
             return false;
         const u64 pml4e = root_table(*this)[pml4_index(virt)];
-        if ((pml4e & (entry_present | entry_user)) !=
-            (entry_present | entry_user))
+        if ((pml4e & (entry_present | entry_user)) != (entry_present | entry_user))
             return false;
         const u64 pdpe =
             next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
-        if ((pdpe & (entry_present | entry_user)) !=
-            (entry_present | entry_user))
+        if ((pdpe & (entry_present | entry_user)) != (entry_present | entry_user))
             return false;
         if ((pdpe & entry_huge) != 0)
             return true;
         const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
-        if ((pde & (entry_present | entry_user)) !=
-            (entry_present | entry_user))
+        if ((pde & (entry_present | entry_user)) != (entry_present | entry_user))
             return false;
         if ((pde & entry_huge) != 0)
             return true;

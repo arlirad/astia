@@ -12,8 +12,8 @@ namespace astia::boot::virt {
 
         constexpr u32 hvm_start_magic = 0x336EC578u;
 
-        constexpr usize start_info_size = 56;
-        constexpr usize memmap_entry_size = 24;
+        constexpr usize start_info_size    = 56;
+        constexpr usize memmap_entry_size  = 24;
         constexpr usize modlist_entry_size = 32;
 
         template <typename T>
@@ -39,8 +39,9 @@ namespace astia::boot::virt {
         const char* terminated_string(span<const u8> memory, u64 address) {
             if (!range_ok(memory, address, 1))
                 return nullptr;
-            const u8* bytes = reinterpret_cast<const u8*>(address);
-            const usize length = memory.size() - static_cast<usize>(address - memory.address());
+            const u8*   bytes = reinterpret_cast<const u8*>(address);
+            const usize length =
+                memory.size() - static_cast<usize>(address - memory.address());
             for (usize i = 0; i < length; ++i) {
                 if (bytes[i] == 0)
                     return reinterpret_cast<const char*>(bytes);
@@ -72,14 +73,14 @@ namespace astia::boot::virt {
             return false;
         }
 
-        const u8* bytes = start_info.data();
-        const u32 magic = load<u32>(bytes);
-        const u32 version = load<u32>(bytes + 4);
-        const u32 module_count = load<u32>(bytes + 12);
-        const u64 module_list = load<u64>(bytes + 16);
-        const u64 cmdline = load<u64>(bytes + 24);
-        const u64 rsdp = load<u64>(bytes + 32);
-        const u64 memory_map = load<u64>(bytes + 40);
+        const u8* bytes            = start_info.data();
+        const u32 magic            = load<u32>(bytes);
+        const u32 version          = load<u32>(bytes + 4);
+        const u32 module_count     = load<u32>(bytes + 12);
+        const u64 module_list      = load<u64>(bytes + 16);
+        const u64 cmdline          = load<u64>(bytes + 24);
+        const u64 rsdp             = load<u64>(bytes + 32);
+        const u64 memory_map       = load<u64>(bytes + 40);
         const u32 memory_map_count = load<u32>(bytes + 48);
         if (magic != hvm_start_magic) {
             return false;
@@ -117,14 +118,14 @@ namespace astia::boot::virt {
             // everything after it is a module.  Linux reads the handoff the
             // same way (arch/x86/platform/pvh/enlighten.c).
             const u64 initrd_address = load<u64>(modules);
-            const u64 initrd_size = load<u64>(modules + 8);
+            const u64 initrd_size    = load<u64>(modules + 8);
             if (!module_range(physical_memory, initrd_address, initrd_size))
                 return false;
             parsed.initrd = {initrd_address, initrd_size};
             for (u32 i = 1; i < module_count && parsed.module_count < max_modules; ++i) {
-                const u8* module = modules + static_cast<usize>(i) * modlist_entry_size;
+                const u8* module  = modules + static_cast<usize>(i) * modlist_entry_size;
                 const u64 address = load<u64>(module);
-                const u64 size = load<u64>(module + 8);
+                const u64 size    = load<u64>(module + 8);
                 if (!module_range(physical_memory, address, size))
                     return false;
                 parsed.modules[parsed.module_count++] = {address, size};

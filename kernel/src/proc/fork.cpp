@@ -5,12 +5,11 @@
 namespace astia::proc {
 
     namespace {
-        bool valid_inherited_stack_metadata(const thread* value, u64& base,
-                                            usize& size) {
+        bool valid_inherited_stack_metadata(const thread* value, u64& base, usize& size) {
             if (value == nullptr || !value->user_stack_metadata_supported())
                 return false;
-            base = value->user_stack_base();
-            size = value->user_stack_size();
+            base            = value->user_stack_base();
+            size            = value->user_stack_size();
             const u64 bytes = static_cast<u64>(size);
             return base != 0 && bytes != 0 && bytes <= ~u64{0} - base &&
                    base + bytes <= user_address_limit &&

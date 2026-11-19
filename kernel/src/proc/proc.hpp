@@ -52,7 +52,7 @@ namespace astia::proc {
     process* kernel_process();
     process* current_process();
     thread*  current_thread();
-    void terminate_current_if_killed();
+    void     terminate_current_if_killed();
     tid_t    allocate_tid();
     /// Next process id (slot 0 / the kernel process is pid 0; userspace
     /// starts at 1).  spawnve and fork both draw from here.
@@ -70,9 +70,9 @@ namespace astia::proc {
     /// Spawn an executable from an already-open VFS file. ELF loading is
     /// streamed through the asynchronous filesystem and argv/envp are
     /// materialized on the child's user stack after loading completes.
-    core::task<mm::shptr<process>> spawnve(
-        process* parent, mm::shptr<fs::open_file> file, usize length,
-        char* const argv[], char* const envp[]);
+    core::task<mm::shptr<process>> spawnve(process* parent, mm::shptr<fs::open_file> file,
+                                           usize length, char* const argv[],
+                                           char* const envp[]);
 
     /// Look up a live process by pid in the registry.
     mm::shptr<process> find_process(pid_t id);
@@ -98,19 +98,18 @@ namespace astia::proc {
         io_error,
     };
 
-    i64  terminal_signal_foreground(pgrp_t foreground, signal_number signal);
-    terminal_access_result terminal_read_allowed(pgrp_t foreground);
-    terminal_access_result terminal_write_allowed(pgrp_t foreground, bool tostop);
-    terminal_access_result terminal_set_foreground_allowed(pgrp_t foreground,
-                                                           pgrp_t requested);
+    i64 terminal_signal_foreground(pgrp_t foreground, signal_number signal);
+    terminal_access_result   terminal_read_allowed(pgrp_t foreground);
+    terminal_access_result   terminal_write_allowed(pgrp_t foreground, bool tostop);
+    terminal_access_result   terminal_set_foreground_allowed(pgrp_t foreground,
+                                                             pgrp_t requested);
     mm::shptr<fs::open_file> controlling_terminal();
     bool                     has_controlling_terminal();
     i64                      setpgid(pid_t pid, pgrp_t pgid);
     i64                      setsid();
     /// Send a signal to every live member of a process group.  Signal zero
     /// only checks that the group has a live member.
-    i64 signal_process_group(pgrp_t group, signal_number signal,
-                             signal_info info = {});
+    i64 signal_process_group(pgrp_t group, signal_number signal, signal_info info = {});
 
     /// Wait for a child of the current process to exit and reap it.
     /// pid > 0 waits for that child, pid == -1 for any child.  Returns

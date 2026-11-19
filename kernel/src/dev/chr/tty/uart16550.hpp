@@ -79,7 +79,7 @@ namespace astia::dev {
         bool tx_byte(u8 c);
         void rx_drain();
 
-        io_port  _ports;
+        io_port   _ports;
         irq_line& _irq;
     };
 

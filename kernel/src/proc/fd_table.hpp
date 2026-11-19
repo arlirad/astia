@@ -8,7 +8,8 @@
 
 namespace astia::proc {
 
-    inline constexpr u32 max_process_fds = resource_limits::policy::process_file_descriptors;
+    inline constexpr u32 max_process_fds =
+        resource_limits::policy::process_file_descriptors;
 
     /// Process-owned descriptor table.  A descriptor references an
     /// open file description; duplicate operations copy that shptr,

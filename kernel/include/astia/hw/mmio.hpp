@@ -16,12 +16,18 @@ namespace astia::hw {
 
         static optional<mmio_mapping> map(u64 physical, usize length);
 
-        bool valid() const { return mapped_base_ != 0; }
+        bool valid() const {
+            return mapped_base_ != 0;
+        }
         volatile void* base() const {
             return reinterpret_cast<volatile void*>(virtual_base_ + offset_);
         }
-        u64 physical() const { return physical_; }
-        usize length() const { return length_; }
+        u64 physical() const {
+            return physical_;
+        }
+        usize length() const {
+            return length_;
+        }
         void release();
 
         private:

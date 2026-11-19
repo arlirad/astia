@@ -48,7 +48,8 @@ namespace astia::sys {
     static_assert(ASTIA_AIO_MAX_RING_ENTRIES == resource_limits::abi::aio_ring_entries);
     static_assert(ASTIA_AIO_MAX_PARKED_OPERATIONS ==
                   resource_limits::abi::aio_parked_operations);
-    static_assert(ASTIA_AIO_MAX_OPERATION_BYTES == resource_limits::abi::aio_operation_bytes);
+    static_assert(ASTIA_AIO_MAX_OPERATION_BYTES ==
+                  resource_limits::abi::aio_operation_bytes);
     static_assert(kernel_ring_max_entries <= IO_MAX_ENTRIES,
                   "kernel ring cap must fit the AIO ABI cap");
 

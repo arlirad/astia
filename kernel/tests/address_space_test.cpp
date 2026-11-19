@@ -28,9 +28,9 @@ namespace {
 } // namespace
 
 ASTIA_TEST(address_space_validates_user_ranges_and_permissions) {
-    auto native = make_map();
-    auto space  = astia::mm::address_space::view(&native);
-    const auto phys = astia_test::arena_base + 0x200000;
+    auto       native = make_map();
+    auto       space  = astia::mm::address_space::view(&native);
+    const auto phys   = astia_test::arena_base + 0x200000;
 
     ASTIA_CHECK(space.valid());
     ASTIA_CHECK(space.valid_user_range(0x400001, 0x1fff));
@@ -45,15 +45,15 @@ ASTIA_TEST(address_space_validates_user_ranges_and_permissions) {
     ASTIA_CHECK(space.validate(0x400001, 0x100, astia::mm::access::read));
     ASTIA_CHECK(space.validate(0x400001, 0x100, astia::mm::access::write));
     ASTIA_CHECK(!space.validate(0x400001, 0x100, astia::mm::access::execute));
-    ASTIA_CHECK(space.protect_4k(
-        0x400000, astia::mm::mapping_flags::present | astia::mm::mapping_flags::user));
+    ASTIA_CHECK(space.protect_4k(0x400000, astia::mm::mapping_flags::present |
+                                               astia::mm::mapping_flags::user));
     ASTIA_CHECK(!space.validate(0x400000, 1, astia::mm::access::write));
 }
 
 ASTIA_TEST(address_space_transaction_rolls_back_partial_mapping) {
-    auto native = make_map();
-    auto space  = astia::mm::address_space::view(&native);
-    const auto phys = astia_test::arena_base + 0x300000;
+    auto       native = make_map();
+    auto       space  = astia::mm::address_space::view(&native);
+    const auto phys   = astia_test::arena_base + 0x300000;
 
     {
         astia::mm::mapping_transaction transaction(space, 0x500000, 2);
@@ -65,9 +65,9 @@ ASTIA_TEST(address_space_transaction_rolls_back_partial_mapping) {
 }
 
 ASTIA_TEST(address_space_transaction_commit_keeps_mappings) {
-    auto native = make_map();
-    auto space  = astia::mm::address_space::view(&native);
-    const auto phys = astia_test::arena_base + 0x400000;
+    auto       native = make_map();
+    auto       space  = astia::mm::address_space::view(&native);
+    const auto phys   = astia_test::arena_base + 0x400000;
 
     {
         astia::mm::mapping_transaction transaction(space, 0x600000, 2);
@@ -82,9 +82,9 @@ ASTIA_TEST(address_space_transaction_commit_keeps_mappings) {
 }
 
 ASTIA_TEST(address_space_transaction_preserves_existing_mapping_on_failure) {
-    auto native = make_map();
-    auto space  = astia::mm::address_space::view(&native);
-    const auto phys = astia_test::arena_base + 0x600000;
+    auto       native = make_map();
+    auto       space  = astia::mm::address_space::view(&native);
+    const auto phys   = astia_test::arena_base + 0x600000;
 
     ASTIA_CHECK(space.map_4k(0x800000, phys, user_rw));
     {
@@ -97,10 +97,10 @@ ASTIA_TEST(address_space_transaction_preserves_existing_mapping_on_failure) {
 }
 
 ASTIA_TEST(address_space_create_uses_parent_and_owns_backend) {
-    auto native = make_map();
-    auto parent = astia::mm::address_space::view(&native);
-    auto child  = astia::mm::address_space::create(&parent);
-    const auto phys = astia_test::arena_base + 0x500000;
+    auto       native = make_map();
+    auto       parent = astia::mm::address_space::view(&native);
+    auto       child  = astia::mm::address_space::create(&parent);
+    const auto phys   = astia_test::arena_base + 0x500000;
 
     ASTIA_CHECK(child.valid());
     ASTIA_CHECK(child.map_4k(0x700000, phys, user_rw));
@@ -109,9 +109,9 @@ ASTIA_TEST(address_space_create_uses_parent_and_owns_backend) {
 }
 
 ASTIA_TEST(address_space_fork_child_mapping_isolated_from_parent) {
-    auto native = make_map();
-    auto parent = astia::mm::address_space::view(&native);
-    auto child  = astia::mm::address_space::create(&parent);
+    auto       native      = make_map();
+    auto       parent      = astia::mm::address_space::view(&native);
+    auto       child       = astia::mm::address_space::create(&parent);
     const auto parent_phys = astia_test::arena_base + 0x700000;
     const auto child_phys  = astia_test::arena_base + 0x701000;
 
@@ -126,10 +126,10 @@ ASTIA_TEST(address_space_fork_child_mapping_isolated_from_parent) {
 }
 
 ASTIA_TEST(address_space_exec_replaces_image_without_aliasing) {
-    auto native = make_map();
-    auto parent = astia::mm::address_space::view(&native);
-    auto old    = astia::mm::address_space::create(&parent);
-    auto image  = astia::mm::address_space::create(&parent);
+    auto       native   = make_map();
+    auto       parent   = astia::mm::address_space::view(&native);
+    auto       old      = astia::mm::address_space::create(&parent);
+    auto       image    = astia::mm::address_space::create(&parent);
     const auto old_phys = astia_test::arena_base + 0x800000;
     const auto new_phys = astia_test::arena_base + 0x801000;
 

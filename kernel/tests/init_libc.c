@@ -14,9 +14,9 @@
 #include <sys/time.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
-
 #include <dirent.h>
 #include <errno.h>
+
 #include <fcntl.h>
 #include <pthread.h>
 #include <poll.h>
@@ -33,7 +33,7 @@
 #include <astia/api/signal_stack.h>
 
 extern long __astia_process_futex(unsigned int* address, unsigned int operation,
-                                   unsigned int value, const int64_t* timeout);
+                                  unsigned int value, const int64_t* timeout);
 
 #ifndef O_NOCTTY
 #define O_NOCTTY 0
@@ -41,10 +41,10 @@ extern long __astia_process_futex(unsigned int* address, unsigned int operation,
 
 static long direct_chdir(const char* path) {
 #if defined(__x86_64__)
-    long result;
+    long          result;
     register long r10 asm("r10") = 0;
-    register long r8 asm("r8") = 0;
-    register long r9 asm("r9") = 0;
+    register long r8 asm("r8")   = 0;
+    register long r9 asm("r9")   = 0;
     asm volatile("syscall"
                  : "=a"(result)
                  : "a"(30L), "D"(path), "S"(0L), "d"(0L), "r"(r10), "r"(r8), "r"(r9)
@@ -58,10 +58,10 @@ static long direct_chdir(const char* path) {
 
 static long direct_sigaltstack(const astia_stack_t* stack, astia_stack_t* old_stack) {
 #if defined(__x86_64__)
-    long result;
+    long          result;
     register long r10 asm("r10") = 0;
-    register long r8 asm("r8") = 0;
-    register long r9 asm("r9") = 0;
+    register long r8 asm("r8")   = 0;
+    register long r9 asm("r9")   = 0;
     asm volatile("syscall"
                  : "=a"(result)
                  : "a"(51L), "D"(stack), "S"(old_stack), "d"(0L), "r"(r10), "r"(r8),
@@ -88,7 +88,7 @@ struct libc_key_probe {
     volatile int          set_result;
 };
 
-static pthread_key_t libc_key_probe_key;
+static pthread_key_t         libc_key_probe_key;
 static volatile unsigned int libc_key_probe_ready;
 static volatile unsigned int libc_key_probe_release;
 
@@ -96,14 +96,14 @@ static void libc_key_probe_destructor(void* opaque) {
     struct libc_key_probe* probe = (struct libc_key_probe*) opaque;
     ++probe->calls;
     if (probe->calls == 1) {
-        probe->rearmed = 1;
+        probe->rearmed    = 1;
         probe->set_result = pthread_setspecific(libc_key_probe_key, probe);
     }
 }
 
 static void* libc_key_probe_worker(void* opaque) {
     struct libc_key_probe* probe = (struct libc_key_probe*) opaque;
-    probe->set_result = pthread_setspecific(libc_key_probe_key, probe);
+    probe->set_result            = pthread_setspecific(libc_key_probe_key, probe);
     if (probe->set_result == 0 && pthread_getspecific(libc_key_probe_key) != probe)
         probe->set_result = EFAULT;
     ++libc_key_probe_ready;
@@ -126,7 +126,8 @@ static void libc_once_initializer(void) {
 
 static void* libc_once_worker(void* opaque) {
     (void) opaque;
-    return (void*) (unsigned long) (pthread_once(&libc_once_control, libc_once_initializer) == 0
+    return (void*) (unsigned long) (pthread_once(&libc_once_control,
+                                                 libc_once_initializer) == 0
                                         ? 0x678a
                                         : 0x678b);
 }
@@ -134,7 +135,7 @@ static void* libc_once_worker(void* opaque) {
 static void* libc_stack_worker(void* opaque) {
     (void) opaque;
     volatile unsigned char stack_pages[8 * 4096];
-    unsigned int            checksum = 0;
+    unsigned int           checksum = 0;
     for (unsigned int page = 0; page < 8; ++page) {
         stack_pages[page * 4096]        = (unsigned char) (page + 1);
         stack_pages[page * 4096 + 4095] = (unsigned char) (page + 17);
@@ -153,16 +154,16 @@ static void* libc_attr_worker(void* opaque) {
 }
 
 struct libc_getattr_self_probe {
-    void*          expected_addr;
-    size_t         expected_size;
-    volatile int   result;
+    void*        expected_addr;
+    size_t       expected_size;
+    volatile int result;
 };
 
 static void* libc_getattr_self_worker(void* opaque) {
     struct libc_getattr_self_probe* probe = (struct libc_getattr_self_probe*) opaque;
-    pthread_attr_t attr;
-    void*          stack_addr = NULL;
-    size_t         stack_size = 0;
+    pthread_attr_t                  attr;
+    void*                           stack_addr = NULL;
+    size_t                          stack_size = 0;
     probe->result = pthread_getattr_np(pthread_self(), &attr);
     if (probe->result == 0)
         probe->result = pthread_attr_getstack(&attr, &stack_addr, &stack_size);
@@ -173,28 +174,27 @@ static void* libc_getattr_self_worker(void* opaque) {
 }
 
 struct libc_fork_getattr_probe {
-    const char*    program;
-    void*          expected_addr;
-    size_t         expected_size;
-    volatile int   result;
+    const char*  program;
+    void*        expected_addr;
+    size_t       expected_size;
+    volatile int result;
 };
 
 static int libc_check_getattr(void* expected_addr, size_t expected_size) {
     pthread_attr_t attr;
     void*          stack_addr = NULL;
     size_t         stack_size = 0;
-    int            result = pthread_getattr_np(pthread_self(), &attr);
+    int            result     = pthread_getattr_np(pthread_self(), &attr);
     if (result == 0)
         result = pthread_attr_getstack(&attr, &stack_addr, &stack_size);
-    if (result == 0 &&
-        (stack_addr != expected_addr || stack_size != expected_size))
+    if (result == 0 && (stack_addr != expected_addr || stack_size != expected_size))
         result = EFAULT;
     return result;
 }
 
 static void* libc_fork_getattr_worker(void* opaque) {
     struct libc_fork_getattr_probe* probe = (struct libc_fork_getattr_probe*) opaque;
-    const pid_t child = fork();
+    const pid_t                     child = fork();
     if (child < 0) {
         probe->result = errno;
         return NULL;
@@ -215,12 +215,12 @@ static void* libc_fork_getattr_worker(void* opaque) {
 }
 
 struct libc_getattr_race {
-    pthread_t       target;
-    volatile int    release;
-    volatile int    started;
-    volatile int    saw_success;
-    volatile int    saw_esrch;
-    volatile int    failures;
+    pthread_t    target;
+    volatile int release;
+    volatile int started;
+    volatile int saw_success;
+    volatile int saw_esrch;
+    volatile int failures;
 };
 
 static void* libc_getattr_race_target(void* opaque) {
@@ -237,7 +237,7 @@ static void* libc_getattr_race_query(void* opaque) {
     __atomic_store_n(&race->started, 1, __ATOMIC_RELEASE);
     for (unsigned int i = 0; i < 4096; ++i) {
         pthread_attr_t attr;
-        const int result = pthread_getattr_np(race->target, &attr);
+        const int      result = pthread_getattr_np(race->target, &attr);
         if (result == 0) {
             size_t stack_size = 0;
             if (pthread_attr_getstacksize(&attr, &stack_size) != 0 ||
@@ -266,16 +266,16 @@ static volatile unsigned int libc_lifecycle_done;
 
 static void* libc_lifecycle_worker(void* opaque) {
     volatile unsigned char stack_probe[4096];
-    const unsigned char value = opaque == NULL ? 0x5a : 0xa5;
+    const unsigned char    value = opaque == NULL ? 0x5a : 0xa5;
     for (unsigned int i = 0; i < sizeof(stack_probe); i += 4096)
         stack_probe[i] = value;
     ++libc_lifecycle_done;
     return (void*) (unsigned long) (stack_probe[0] == value ? 0xace1 : 0xace2);
 }
 
-static pthread_barrier_t libc_barrier;
+static pthread_barrier_t     libc_barrier;
 static volatile unsigned int libc_barrier_serials;
-static volatile int libc_barrier_failures;
+static volatile int          libc_barrier_failures;
 
 static void* libc_barrier_worker(void* opaque) {
     (void) opaque;
@@ -312,7 +312,7 @@ static void* libc_futex_worker(void* opaque) {
 static void* libc_cross_futex_worker(void* opaque) {
     (void) opaque;
     libc_cross_futex_ready = 1;
-    const int rc            = futex_wait((unsigned int*) &libc_cross_futex_word, 0);
+    const int rc           = futex_wait((unsigned int*) &libc_cross_futex_word, 0);
     return (void*) (unsigned long) (rc == 0 ? 0x3456 : 0x3457);
 }
 
@@ -336,21 +336,21 @@ static int shared_futex_wake(unsigned int* address, unsigned int count) {
 
 struct shared_alias_probe {
     unsigned int* address;
-    volatile int ready;
-    volatile int result;
+    volatile int  ready;
+    volatile int  result;
 };
 
 static void* shared_alias_worker(void* opaque) {
     struct shared_alias_probe* probe = (struct shared_alias_probe*) opaque;
-    probe->ready = 1;
-    probe->result = shared_futex_wait(probe->address, 0);
+    probe->ready                     = 1;
+    probe->result                    = shared_futex_wait(probe->address, 0);
     return NULL;
 }
 
-static pthread_mutex_t libc_mutex = PTHREAD_MUTEX_INITIALIZER;
-static volatile int    libc_mutex_ready;
-static pthread_mutex_t libc_mutex_probe;
-static pthread_mutex_t libc_cond_mutex;
+static pthread_mutex_t    libc_mutex = PTHREAD_MUTEX_INITIALIZER;
+static volatile int       libc_mutex_ready;
+static pthread_mutex_t    libc_mutex_probe;
+static pthread_mutex_t    libc_cond_mutex;
 static pthread_spinlock_t libc_spinlock;
 
 struct libc_spin_probe {
@@ -360,7 +360,7 @@ struct libc_spin_probe {
 
 static void* libc_spin_worker(void* opaque) {
     struct libc_spin_probe* probe = (struct libc_spin_probe*) opaque;
-    const struct timespec delay = {0, 1000000};
+    const struct timespec   delay = {0, 1000000};
 
     for (unsigned int round = 0; round < 16; ++round) {
         if (pthread_spin_lock(&libc_spinlock) != 0) {
@@ -384,13 +384,13 @@ static volatile int    libc_cond_go;
 static volatile int    libc_cond_result;
 static pthread_mutex_t libc_cancel_cond_mutex;
 static pthread_cond_t  libc_cancel_cond;
-static sem_t            libc_cancel_cond_cleanup_sem;
+static sem_t           libc_cancel_cond_cleanup_sem;
 static volatile int    libc_cancel_cond_ready;
 static volatile int    libc_cancel_cond_cleanup_called;
 static volatile int    libc_cancel_cond_cleanup_owned;
 
 static void libc_cancel_cond_cleanup(void* opaque) {
-    pthread_mutex_t* mutex = (pthread_mutex_t*) opaque;
+    pthread_mutex_t* mutex  = (pthread_mutex_t*) opaque;
     const int        result = pthread_mutex_trylock(mutex);
 
     libc_cancel_cond_cleanup_called = 1;
@@ -470,22 +470,25 @@ static void* libc_cond_clock_worker(void* opaque) {
         clock_gettime(CLOCK_MONOTONIC, &deadline) != 0)
         return (void*) (unsigned long) 0x8a00;
     deadline.tv_sec++;
-    const int wait_result = pthread_cond_timedwait(&probe->cond, &probe->mutex, &deadline);
+    const int wait_result =
+        pthread_cond_timedwait(&probe->cond, &probe->mutex, &deadline);
     const int owns_mutex = pthread_mutex_trylock(&probe->mutex) == EBUSY;
     if (!owns_mutex)
         pthread_mutex_unlock(&probe->mutex);
-    if (wait_result != ETIMEDOUT || !owns_mutex || pthread_mutex_unlock(&probe->mutex) != 0)
+    if (wait_result != ETIMEDOUT || !owns_mutex ||
+        pthread_mutex_unlock(&probe->mutex) != 0)
         return (void*) (unsigned long) 0x8a01;
     return (void*) (unsigned long) 0x8a02;
 }
 
 static void* libc_mutex_owner_probe(void* opaque) {
     pthread_mutex_t* mutex = (pthread_mutex_t*) opaque;
-    return (void*) (unsigned long) (pthread_mutex_unlock(mutex) == EPERM ? 0x9abc : 0x9abd);
+    return (void*) (unsigned long) (pthread_mutex_unlock(mutex) == EPERM ? 0x9abc
+                                                                         : 0x9abd);
 }
 
 static void* libc_mutex_timed_probe(void* opaque) {
-    struct timespec deadline;
+    struct timespec  deadline;
     pthread_mutex_t* mutex = (pthread_mutex_t*) opaque;
     if (clock_gettime(CLOCK_REALTIME, &deadline) != 0)
         return (void*) (unsigned long) 0x9abe;
@@ -495,8 +498,8 @@ static void* libc_mutex_timed_probe(void* opaque) {
                                         : 0x9ac0);
 }
 
-static volatile int libc_cancel_join_started;
-static volatile int libc_cancel_join_release;
+static volatile int  libc_cancel_join_started;
+static volatile int  libc_cancel_join_release;
 static sem_t         libc_cancel_sem;
 static pthread_key_t libc_cancel_key;
 static volatile int  libc_cancel_sem_ready;
@@ -598,9 +601,9 @@ static void* libc_cancel_join_target(void* opaque) {
 }
 
 static void* libc_cancel_joiner(void* opaque) {
-    pthread_t target = *(pthread_t*) opaque;
+    pthread_t target         = *(pthread_t*) opaque;
     libc_cancel_join_started = 1;
-    void* result = NULL;
+    void* result             = NULL;
     if (pthread_join(target, &result) != 0)
         return (void*) (unsigned long) 0x5679;
     return result;
@@ -614,23 +617,23 @@ static void* libc_cancel_sem_worker(void* opaque) {
     pthread_cleanup_push(libc_cancel_cleanup_outer, NULL);
     pthread_cleanup_push(libc_cancel_cleanup_inner, NULL);
     libc_cancel_sem_ready = 1;
-    result = sem_wait(&libc_cancel_sem) == 0 ? (void*) (uintptr_t) 0x567c
-                                              : (void*) (uintptr_t) 0x567b;
+    result                = sem_wait(&libc_cancel_sem) == 0 ? (void*) (uintptr_t) 0x567c
+                                                            : (void*) (uintptr_t) 0x567b;
     pthread_cleanup_pop(0);
     pthread_cleanup_pop(0);
     return result;
 }
 
-static volatile int altstack_calls;
-static volatile int altstack_failed;
-static stack_t       altstack_expected;
-static volatile int  child_info_seen;
+static volatile int          altstack_calls;
+static volatile int          altstack_failed;
+static stack_t               altstack_expected;
+static volatile int          child_info_seen;
 static volatile unsigned int child_status_calls;
-static siginfo_t     child_info;
-static volatile int  user_signal_info_seen;
-static siginfo_t     user_signal_info;
-static volatile uintptr_t fault_expected_addr;
-static volatile int        fault_expected_code;
+static siginfo_t             child_info;
+static volatile int          user_signal_info_seen;
+static siginfo_t             user_signal_info;
+static volatile uintptr_t    fault_expected_addr;
+static volatile int          fault_expected_code;
 
 static void page_fault_handler(int signal_number, siginfo_t* info, void* context) {
     (void) context;
@@ -649,7 +652,7 @@ static void child_status_handler(int signal_number, siginfo_t* info, void* conte
     (void) context;
     if (signal_number == SIGCHLD && info != NULL) {
         ++child_status_calls;
-        child_info = *info;
+        child_info      = *info;
         child_info_seen = 1;
     }
 }
@@ -657,7 +660,7 @@ static void child_status_handler(int signal_number, siginfo_t* info, void* conte
 static void user_signal_info_handler(int signal_number, siginfo_t* info, void* context) {
     (void) context;
     if ((signal_number == SIGUSR2) && info != NULL) {
-        user_signal_info = *info;
+        user_signal_info      = *info;
         user_signal_info_seen = 1;
     }
 }
@@ -684,7 +687,7 @@ static void* libc_mutex_worker(void* opaque) {
 }
 
 struct libc_rwlock_readers_probe {
-    pthread_rwlock_t lock;
+    pthread_rwlock_t      lock;
     volatile unsigned int ready;
     volatile unsigned int active;
     volatile unsigned int maximum;
@@ -693,7 +696,7 @@ struct libc_rwlock_readers_probe {
 
 static void* libc_rwlock_reader_worker(void* opaque) {
     struct libc_rwlock_readers_probe* probe = opaque;
-    unsigned int active;
+    unsigned int                      active;
 
     if (pthread_rwlock_rdlock(&probe->lock) != 0)
         return (void*) (unsigned long) 0x1;
@@ -721,13 +724,13 @@ struct libc_rwlock_try_probe {
 
 static void* libc_rwlock_try_reader_worker(void* opaque) {
     struct libc_rwlock_try_probe* probe = opaque;
-    probe->result = pthread_rwlock_tryrdlock(probe->lock);
+    probe->result                       = pthread_rwlock_tryrdlock(probe->lock);
     return NULL;
 }
 
 static void* libc_rwlock_try_writer_worker(void* opaque) {
     struct libc_rwlock_try_probe* probe = opaque;
-    probe->result = pthread_rwlock_trywrlock(probe->lock);
+    probe->result                       = pthread_rwlock_trywrlock(probe->lock);
     return NULL;
 }
 
@@ -774,20 +777,20 @@ static void* libc_rwlock_foreign_unlock_worker(void* opaque) {
 }
 
 static int libc_zsh_io_contract(void) {
-    char            tty_path[32];
-    struct termios  saved;
-    struct termios  raw;
-    struct termios  active;
-    struct pollfd   fd;
-    int             tty_fd;
-    int             shtty_fd;
-    int             saved_stdout_fd;
-    int             flags;
-    int             pipe_fds[2];
-    int             saved_stdout;
-    char            result[16];
-    FILE*           stream;
-    ssize_t         count;
+    char           tty_path[32];
+    struct termios saved;
+    struct termios raw;
+    struct termios active;
+    struct pollfd  fd;
+    int            tty_fd;
+    int            shtty_fd;
+    int            saved_stdout_fd;
+    int            flags;
+    int            pipe_fds[2];
+    int            saved_stdout;
+    char           result[16];
+    FILE*          stream;
+    ssize_t        count;
 
     if (pipe(pipe_fds) != 0)
         return 1;
@@ -925,15 +928,15 @@ int main(int argc, char** argv) {
     }
     {
         struct timeval zero = {0, 0};
-        struct pollfd fd;
-        int pipe_fds[2];
+        struct pollfd  fd;
+        int            pipe_fds[2];
         if (pipe(pipe_fds) != 0)
             return 26;
         if ((fcntl(pipe_fds[0], F_GETFL) & O_ACCMODE) != O_RDONLY ||
             (fcntl(pipe_fds[1], F_GETFL) & O_ACCMODE) != O_WRONLY)
             return 26;
-        fd.fd = pipe_fds[0];
-        fd.events = POLLIN;
+        fd.fd      = pipe_fds[0];
+        fd.events  = POLLIN;
         fd.revents = 0;
         if (poll(NULL, 0, 0) != 0 || select(0, NULL, NULL, NULL, &zero) != 0 ||
             poll(&fd, 1, 0) != 0 || close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
@@ -967,7 +970,7 @@ int main(int argc, char** argv) {
             return 5;
         if (child == 0) {
             stack_t alternate = {(void*) 0, SIGSTKSZ, 0};
-            alternate.ss_sp = malloc(SIGSTKSZ);
+            alternate.ss_sp   = malloc(SIGSTKSZ);
             if (alternate.ss_sp == NULL || sigaltstack(&alternate, NULL) != 0)
                 _Exit(123);
             execl(argv[0], argv[0], "--exec-altstack-check", NULL);
@@ -978,8 +981,8 @@ int main(int argc, char** argv) {
             return 6;
     }
     {
-        stack_t stack = {(void*) 0, 0, SS_DISABLE};
-        stack_t old;
+        stack_t          stack = {(void*) 0, 0, SS_DISABLE};
+        stack_t          old;
         struct sigaction action;
         stack.ss_sp    = malloc(SIGSTKSZ);
         stack.ss_size  = SIGSTKSZ;
@@ -992,9 +995,9 @@ int main(int argc, char** argv) {
             sigaltstack(NULL, &old) != 0 || old.ss_sp != stack.ss_sp ||
             old.ss_size != stack.ss_size || old.ss_flags != 0)
             return 62;
-        action.sa_handler = altstack_handler;
-        action.sa_mask    = 0;
-        action.sa_flags   = SA_ONSTACK;
+        action.sa_handler  = altstack_handler;
+        action.sa_mask     = 0;
+        action.sa_flags    = SA_ONSTACK;
         action.sa_restorer = 0;
         if (sigaction(SIGUSR1, &action, NULL) != 0 || raise(SIGUSR1) != 0 ||
             altstack_calls != 2 || altstack_failed)
@@ -1017,16 +1020,14 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
-        sigset_t          mask;
-        sigset_t          pending;
-        sigset_t          child_mask;
+        sigset_t         mask;
+        sigset_t         pending;
+        sigset_t         child_mask;
         action.sa_handler = libc_one_shot_handler;
-        if (sigemptyset(&action.sa_mask) != 0 ||
-            sigaction(SIGUSR1, &action, NULL) != 0 ||
+        if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGUSR1, &action, NULL) != 0 ||
             sigemptyset(&mask) != 0 || sigaddset(&mask, SIGUSR1) != 0 ||
-            sigprocmask(SIG_BLOCK, &mask, NULL) != 0 ||
-            kill(getpid(), SIGUSR1) != 0 || sigpending(&pending) != 0 ||
-            !sigismember(&pending, SIGUSR1))
+            sigprocmask(SIG_BLOCK, &mask, NULL) != 0 || kill(getpid(), SIGUSR1) != 0 ||
+            sigpending(&pending) != 0 || !sigismember(&pending, SIGUSR1))
             return 102;
         const pid_t child = fork();
         if (child < 0)
@@ -1051,25 +1052,23 @@ int main(int argc, char** argv) {
     }
 
     {
-        struct sigaction caught = {0};
+        struct sigaction caught  = {0};
         struct sigaction ignored = {0};
-        sigset_t          mask;
+        sigset_t         mask;
         caught.sa_handler  = libc_one_shot_handler;
         ignored.sa_handler = SIG_IGN;
-        if (sigemptyset(&caught.sa_mask) != 0 ||
-            sigemptyset(&ignored.sa_mask) != 0 ||
+        if (sigemptyset(&caught.sa_mask) != 0 || sigemptyset(&ignored.sa_mask) != 0 ||
             sigaction(SIGUSR1, &caught, NULL) != 0 ||
-            sigaction(SIGUSR2, &ignored, NULL) != 0 ||
-            sigemptyset(&mask) != 0 || sigaddset(&mask, SIGUSR1) != 0 ||
-            sigaddset(&mask, SIGUSR2) != 0 ||
+            sigaction(SIGUSR2, &ignored, NULL) != 0 || sigemptyset(&mask) != 0 ||
+            sigaddset(&mask, SIGUSR1) != 0 || sigaddset(&mask, SIGUSR2) != 0 ||
             sigprocmask(SIG_BLOCK, &mask, NULL) != 0)
             return 122;
         const pid_t child = fork();
         if (child < 0)
             return 123;
         if (child == 0) {
-            char* child_argv[] = {(char*) "/bin/init_libc",
-                                  (char*) "--exec-signal-check", NULL};
+            char* child_argv[] = {(char*) "/bin/init_libc", (char*) "--exec-signal-check",
+                                  NULL};
             execv(child_argv[0], child_argv);
             _Exit(124);
         }
@@ -1095,11 +1094,11 @@ int main(int argc, char** argv) {
                 asm volatile("" ::: "memory");
         }
         int status = 0;
-        if (kill(child, SIGSTOP) != 0 ||
-            waitpid(child, &status, WUNTRACED) != child || !WIFSTOPPED(status))
+        if (kill(child, SIGSTOP) != 0 || waitpid(child, &status, WUNTRACED) != child ||
+            !WIFSTOPPED(status))
             return 129;
-        if (kill(child, SIGCONT) != 0 ||
-            waitpid(child, &status, WCONTINUED) != child || !WIFCONTINUED(status))
+        if (kill(child, SIGCONT) != 0 || waitpid(child, &status, WCONTINUED) != child ||
+            !WIFCONTINUED(status))
             return 130;
         if (kill(child, SIGKILL) != 0 || waitpid(child, &status, 0) != child ||
             !WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL)
@@ -1108,8 +1107,8 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
-        action.sa_sigaction = child_status_handler;
-        action.sa_flags     = SA_SIGINFO;
+        action.sa_sigaction     = child_status_handler;
+        action.sa_flags         = SA_SIGINFO;
         sigemptyset(&action.sa_mask);
         if (sigaction(SIGCHLD, &action, NULL) != 0)
             return 62;
@@ -1132,13 +1131,13 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
-        action.sa_sigaction = child_status_handler;
-        action.sa_flags     = SA_SIGINFO | SA_NOCLDSTOP;
+        action.sa_sigaction     = child_status_handler;
+        action.sa_flags         = SA_SIGINFO | SA_NOCLDSTOP;
         if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGCHLD, &action, NULL) != 0)
             return 132;
         child_status_calls = 0;
         child_info_seen    = 0;
-        const pid_t child = fork();
+        const pid_t child  = fork();
         if (child < 0)
             return 133;
         if (child == 0) {
@@ -1146,13 +1145,11 @@ int main(int argc, char** argv) {
                 asm volatile("" ::: "memory");
         }
         int status = 0;
-        if (kill(child, SIGSTOP) != 0 ||
-            waitpid(child, &status, WUNTRACED) != child || !WIFSTOPPED(status) ||
-            child_status_calls != 0)
+        if (kill(child, SIGSTOP) != 0 || waitpid(child, &status, WUNTRACED) != child ||
+            !WIFSTOPPED(status) || child_status_calls != 0)
             return 134;
-        if (kill(child, SIGCONT) != 0 ||
-            waitpid(child, &status, WCONTINUED) != child || !WIFCONTINUED(status) ||
-            child_status_calls != 0)
+        if (kill(child, SIGCONT) != 0 || waitpid(child, &status, WCONTINUED) != child ||
+            !WIFCONTINUED(status) || child_status_calls != 0)
             return 135;
         if (kill(child, SIGKILL) != 0 || waitpid(child, &status, 0) != child ||
             !WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL ||
@@ -1167,10 +1164,9 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
-        action.sa_handler = returning_page_fault_handler;
-        action.sa_flags   = SA_NOCLDWAIT;
-        if (sigemptyset(&action.sa_mask) != 0 ||
-            sigaction(SIGCHLD, &action, NULL) != 0)
+        action.sa_handler       = returning_page_fault_handler;
+        action.sa_flags         = SA_NOCLDWAIT;
+        if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGCHLD, &action, NULL) != 0)
             return 75;
         const pid_t child = fork();
         if (child < 0)
@@ -1189,32 +1185,28 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
-        action.sa_sigaction = user_signal_info_handler;
-        action.sa_flags     = SA_SIGINFO;
-        if (sigemptyset(&action.sa_mask) != 0 ||
-            sigaction(SIGUSR2, &action, NULL) != 0)
+        action.sa_sigaction     = user_signal_info_handler;
+        action.sa_flags         = SA_SIGINFO;
+        if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGUSR2, &action, NULL) != 0)
             return 72;
 
-        const pid_t self = getpid();
-        const unsigned int uid = getuid();
-        user_signal_info_seen = 0;
+        const pid_t        self = getpid();
+        const unsigned int uid  = getuid();
+        user_signal_info_seen   = 0;
         if (kill(self, SIGUSR2) != 0 || !user_signal_info_seen ||
-            user_signal_info.si_signo != SIGUSR2 ||
-            user_signal_info.si_code != SI_USER ||
+            user_signal_info.si_signo != SIGUSR2 || user_signal_info.si_code != SI_USER ||
             user_signal_info.si_pid != self || user_signal_info.si_uid != uid)
             return 73;
 
         user_signal_info_seen = 0;
         if (raise(SIGUSR2) != 0 || !user_signal_info_seen ||
-            user_signal_info.si_signo != SIGUSR2 ||
-            user_signal_info.si_code != SI_USER ||
+            user_signal_info.si_signo != SIGUSR2 || user_signal_info.si_code != SI_USER ||
             user_signal_info.si_pid != self || user_signal_info.si_uid != uid)
             return 74;
 
         user_signal_info_seen = 0;
         if (kill(-getpgrp(), SIGUSR2) != 0 || !user_signal_info_seen ||
-            user_signal_info.si_signo != SIGUSR2 ||
-            user_signal_info.si_code != SI_USER ||
+            user_signal_info.si_signo != SIGUSR2 || user_signal_info.si_code != SI_USER ||
             user_signal_info.si_pid != self || user_signal_info.si_uid != uid)
             return 75;
     }
@@ -1243,7 +1235,8 @@ int main(int argc, char** argv) {
                 _Exit(50);
             if (ioctl(0, TIOCSCTTY, NULL) != 0 || tcgetpgrp(0) != getpgrp())
                 _Exit(51);
-            if (!isatty(STDIN_FILENO) || ttyname_r(STDIN_FILENO, tty_path, sizeof tty_path) != 0 ||
+            if (!isatty(STDIN_FILENO) ||
+                ttyname_r(STDIN_FILENO, tty_path, sizeof tty_path) != 0 ||
                 strcmp(tty_path, "/dev/tts0") != 0 ||
                 ttyname_r(STDIN_FILENO, short_path, sizeof short_path) != ERANGE ||
                 ttyname_r(STDIN_FILENO, tty_path, 0) != ERANGE ||
@@ -1256,7 +1249,8 @@ int main(int argc, char** argv) {
             if (ttyname(-1) != NULL || errno != EBADF)
                 _Exit(58);
             regular_fd = open("/sbin/init", O_RDONLY);
-            if (regular_fd < 0 || ttyname_r(regular_fd, tty_path, sizeof tty_path) != ENOTTY ||
+            if (regular_fd < 0 ||
+                ttyname_r(regular_fd, tty_path, sizeof tty_path) != ENOTTY ||
                 close(regular_fd) != 0)
                 _Exit(58);
             tty_fd = open(tty_path, O_RDWR);
@@ -1327,9 +1321,9 @@ int main(int argc, char** argv) {
         if (waitpid(exec_cwd_child, &exec_cwd_status, 0) != exec_cwd_child ||
             exec_cwd_status != 0)
             return 152;
-        if (symlink("/bin", "/tmp/cwd-link") != 0 ||
-            direct_chdir("/tmp/cwd-link") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
-            strcmp(cwd, "/bin") != 0 || unlink("/tmp/cwd-link") != 0)
+        if (symlink("/bin", "/tmp/cwd-link") != 0 || direct_chdir("/tmp/cwd-link") != 0 ||
+            getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/bin") != 0 ||
+            unlink("/tmp/cwd-link") != 0)
             return 153;
         DIR* bin = opendir(".");
         if (bin == NULL || readdir(bin) == NULL)
@@ -1346,7 +1340,8 @@ int main(int argc, char** argv) {
         if (direct_chdir("/bin/../sbin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
             strcmp(cwd, "/sbin") != 0)
             return 48;
-        if (direct_chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
+        if (direct_chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/") != 0)
             return 43;
         if (direct_chdir("bin") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
             strcmp(cwd, "/bin") != 0)
@@ -1409,26 +1404,26 @@ int main(int argc, char** argv) {
     }
 
     {
-        unsigned char* pages =
-            mmap(NULL, 2 * 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        unsigned char* pages = mmap(NULL, 2 * 4096, PROT_READ | PROT_WRITE,
+                                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (pages == MAP_FAILED)
             return 61;
-        pages[0] = 0x31;
+        pages[0]    = 0x31;
         pages[4096] = 0x32;
         if (mprotect(pages, 4096, PROT_READ) != 0 || pages[0] != 0x31 ||
             mprotect(pages + 4096, 4096, PROT_NONE) != 0 ||
             mprotect(pages + 4096, 4096, PROT_READ | PROT_WRITE) != 0 ||
             mprotect(pages, 4096, PROT_READ | PROT_WRITE) != 0)
             return 62;
-        pages[0] = 0x41;
+        pages[0]    = 0x41;
         pages[4096] = 0x42;
-        errno = 0;
+        errno       = 0;
         if (mprotect(pages + 1, 4096, PROT_READ) != -1 || errno != EINVAL)
             return 63;
         if (mprotect(pages, 2 * 4096, PROT_READ) != 0 ||
             mprotect(pages, 2 * 4096, PROT_READ | PROT_WRITE) != 0)
             return 64;
-        pages[0] = 0x51;
+        pages[0]    = 0x51;
         pages[4096] = 0x52;
         if (munmap(pages, 2 * 4096) != 0)
             return 65;
@@ -1462,18 +1457,17 @@ int main(int argc, char** argv) {
             return 73;
         if (child == 0) {
             struct sigaction action = {0};
-            action.sa_sigaction = page_fault_handler;
-            action.sa_flags     = SA_SIGINFO;
+            action.sa_sigaction     = page_fault_handler;
+            action.sa_flags         = SA_SIGINFO;
             if (sigemptyset(&action.sa_mask) != 0 ||
                 sigaction(SIGSEGV, &action, NULL) != 0)
                 _Exit(73);
-            unsigned char* page =
-                mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (page == MAP_FAILED || mprotect(page, 4096, PROT_READ) != 0)
                 _Exit(74);
-            fault_expected_addr = (uintptr_t) page;
-            fault_expected_code = SEGV_ACCERR;
+            fault_expected_addr             = (uintptr_t) page;
+            fault_expected_code             = SEGV_ACCERR;
             *(volatile unsigned char*) page = 1;
             _Exit(75);
         }
@@ -1488,14 +1482,13 @@ int main(int argc, char** argv) {
             return 75;
         if (child == 0) {
             struct sigaction action = {0};
-            action.sa_sigaction = page_fault_handler;
-            action.sa_flags     = SA_SIGINFO;
+            action.sa_sigaction     = page_fault_handler;
+            action.sa_flags         = SA_SIGINFO;
             if (sigemptyset(&action.sa_mask) != 0 ||
                 sigaction(SIGSEGV, &action, NULL) != 0)
                 _Exit(76);
-            unsigned char* page =
-                mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (page == MAP_FAILED || mprotect(page, 4096, PROT_NONE) != 0)
                 _Exit(77);
             fault_expected_addr = (uintptr_t) page;
@@ -1532,8 +1525,8 @@ int main(int argc, char** argv) {
         image = fopen("/sbin/init", "r");
         if (image == NULL)
             return 14;
-        void* denied = mmap(NULL, 4096, PROT_WRITE, MAP_SHARED, fileno(image), 0);
-        int denied_errno = errno;
+        void* denied       = mmap(NULL, 4096, PROT_WRITE, MAP_SHARED, fileno(image), 0);
+        int   denied_errno = errno;
         fclose(image);
         if (denied != MAP_FAILED) {
             munmap(denied, 4096);
@@ -1614,8 +1607,7 @@ int main(int argc, char** argv) {
         for (unsigned int i = 0; i < 32; ++i) {
             pthread_t worker;
             void*     result = NULL;
-            if (pthread_create(&worker, NULL, libc_lifecycle_worker,
-                               NULL) != 0)
+            if (pthread_create(&worker, NULL, libc_lifecycle_worker, NULL) != 0)
                 return 240 + errno;
             if (pthread_join(worker, &result) != 0)
                 return 185 + (int) i;
@@ -1625,8 +1617,7 @@ int main(int argc, char** argv) {
         libc_lifecycle_done = 0;
         for (unsigned int i = 0; i < 32; ++i) {
             pthread_t worker;
-            if (pthread_create(&worker, NULL, libc_lifecycle_worker,
-                               NULL) != 0 ||
+            if (pthread_create(&worker, NULL, libc_lifecycle_worker, NULL) != 0 ||
                 pthread_detach(worker) != 0)
                 return 154;
         }
@@ -1634,8 +1625,7 @@ int main(int argc, char** argv) {
             sched_yield();
         for (unsigned int i = 0; i < 32; ++i) {
             pthread_t worker;
-            if (pthread_create(&worker, NULL, libc_lifecycle_worker,
-                               NULL) != 0)
+            if (pthread_create(&worker, NULL, libc_lifecycle_worker, NULL) != 0)
                 return 155;
             if (pthread_detach(worker) != 0 || pthread_join(worker, NULL) == 0)
                 return 156;
@@ -1643,13 +1633,13 @@ int main(int argc, char** argv) {
     }
 
     {
-        pthread_key_t old_key;
-        pthread_key_t new_key;
-        pthread_t workers[3];
+        pthread_key_t         old_key;
+        pthread_key_t         new_key;
+        pthread_t             workers[3];
         struct libc_key_probe probes[3] = {0};
         if (pthread_key_create(&libc_key_probe_key, libc_key_probe_destructor) != 0)
             return 140;
-        libc_key_probe_ready = 0;
+        libc_key_probe_ready   = 0;
         libc_key_probe_release = 0;
         for (unsigned int i = 0; i < 3; ++i) {
             if (pthread_create(&workers[i], NULL, libc_key_probe_worker, &probes[i]) != 0)
@@ -1680,11 +1670,11 @@ int main(int argc, char** argv) {
 
     {
         pthread_t workers[4];
-        void*     result = NULL;
+        void*     result  = NULL;
         libc_once_control = PTHREAD_ONCE_INIT;
         libc_once_started = 0;
         libc_once_release = 0;
-        libc_once_calls = 0;
+        libc_once_calls   = 0;
         if (pthread_create(&workers[0], NULL, libc_once_worker, NULL) != 0)
             return 118;
         while (!libc_once_started)
@@ -1730,10 +1720,10 @@ int main(int argc, char** argv) {
        threads when requested.  Scheduling and contention-scope values
        report the only scheduler semantics this system implements. */
     {
-        pthread_attr_t attr;
-        size_t         stack_size = 0;
-        void*          stack_addr = (void*) (unsigned long) 1;
-        int            value      = -1;
+        pthread_attr_t     attr;
+        size_t             stack_size = 0;
+        void*              stack_addr = (void*) (unsigned long) 1;
+        int                value      = -1;
         struct sched_param schedparam = {-1};
         if (pthread_attr_init(&attr) != 0 ||
             pthread_attr_getstacksize(&attr, &stack_size) != 0 ||
@@ -1742,8 +1732,8 @@ int main(int argc, char** argv) {
             pthread_attr_getdetachstate(&attr, &value) != 0 ||
             value != PTHREAD_CREATE_JOINABLE ||
             pthread_attr_getinheritsched(&attr, &value) != 0 ||
-            value != PTHREAD_INHERIT_SCHED ||
-            pthread_attr_getscope(&attr, &value) != 0 || value != PTHREAD_SCOPE_PROCESS ||
+            value != PTHREAD_INHERIT_SCHED || pthread_attr_getscope(&attr, &value) != 0 ||
+            value != PTHREAD_SCOPE_PROCESS ||
             pthread_attr_getschedpolicy(&attr, &value) != 0 || value != SCHED_OTHER ||
             pthread_attr_getschedparam(&attr, &schedparam) != 0 ||
             schedparam.sched_priority != 0)
@@ -1771,9 +1761,7 @@ int main(int argc, char** argv) {
             result != (void*) (unsigned long) 0x89ab)
             return 66;
 
-        struct libc_getattr_self_probe self_probe = {
-            custom_stack, 32 * 1024, 0
-        };
+        struct libc_getattr_self_probe self_probe = {custom_stack, 32 * 1024, 0};
         if (pthread_create(&worker, &attr, libc_getattr_self_worker, &self_probe) != 0 ||
             pthread_join(worker, NULL) != 0 || self_probe.result != 0)
             return 81;
@@ -1798,9 +1786,7 @@ int main(int argc, char** argv) {
                             MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
         if (custom_stack == MAP_FAILED)
             return 84;
-        struct libc_fork_getattr_probe fork_probe = {
-            argv[0], custom_stack, 32 * 1024, 0
-        };
+        struct libc_fork_getattr_probe fork_probe = {argv[0], custom_stack, 32 * 1024, 0};
         if (pthread_attr_setstack(&attr, custom_stack, 32 * 1024) != 0 ||
             pthread_create(&worker, &attr, libc_fork_getattr_worker, &fork_probe) != 0 ||
             pthread_join(worker, NULL) != 0 || fork_probe.result != 0 ||
@@ -1861,7 +1847,7 @@ int main(int argc, char** argv) {
 
     {
         pthread_t workers[3];
-        libc_barrier_serials = 0;
+        libc_barrier_serials  = 0;
         libc_barrier_failures = 0;
         if (pthread_barrier_init(&libc_barrier, NULL, 4) != 0)
             return 153;
@@ -1884,7 +1870,6 @@ int main(int argc, char** argv) {
             pthread_barrier_destroy(&libc_barrier) != 0)
             return 156;
     }
-
 
     /* 26-27: futex value comparison and wake ABI. */
     {
@@ -1946,21 +1931,21 @@ int main(int argc, char** argv) {
     }
 
     {
-        const int fd = open("/tmp/futex_shared", O_CREAT | O_RDWR, 0600);
+        const int     fd = open("/tmp/futex_shared", O_CREAT | O_RDWR, 0600);
         unsigned int* parent_page;
         if (fd < 0 || ftruncate(fd, 4096) != 0)
             return 145;
         parent_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if (parent_page == MAP_FAILED)
             return 146;
-        parent_page[0] = 0;
-        parent_page[1] = 0;
+        parent_page[0]    = 0;
+        parent_page[1]    = 0;
         const pid_t child = fork();
         if (child < 0)
             return 147;
         if (child == 0) {
-            unsigned int* child_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                                             MAP_SHARED, fd, 0);
+            unsigned int* child_page =
+                mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
             if (child_page == MAP_FAILED || child_page == parent_page)
                 _Exit(148);
             child_page[1] = 1;
@@ -1974,11 +1959,11 @@ int main(int argc, char** argv) {
             sched_yield();
         if (munmap(parent_page, 4096) != 0)
             return 150;
-        unsigned int* wake_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                                       MAP_SHARED, fd, 0);
+        unsigned int* wake_page =
+            mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if (wake_page == MAP_FAILED)
             return 151;
-        wake_page[0] = 1;
+        wake_page[0]    = 1;
         int wake_result = 0;
         for (int i = 0; i < 64 && wake_result == 0; ++i) {
             wake_result = shared_futex_wake(&wake_page[0], 1);
@@ -1992,9 +1977,9 @@ int main(int argc, char** argv) {
         unsigned int* alias = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if (alias == MAP_FAILED || alias == wake_page)
             return 153;
-        wake_page[0] = 0;
+        wake_page[0]                    = 0;
         struct shared_alias_probe probe = {alias, 0, -1};
-        pthread_t alias_thread;
+        pthread_t                 alias_thread;
         if (pthread_create(&alias_thread, NULL, shared_alias_worker, &probe) != 0)
             return 154;
         while (!probe.ready)
@@ -2013,10 +1998,10 @@ int main(int argc, char** argv) {
 
     /* 31-38: the minimal futex-backed pthread mutex and cancellation state. */
     {
-        int oldstate = -1;
-        int oldtype  = -1;
+        int             oldstate = -1;
+        int             oldtype  = -1;
         pthread_mutex_t mutex;
-        pthread_t worker;
+        pthread_t       worker;
 
         if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldstate) != 0 ||
             oldstate != PTHREAD_CANCEL_ENABLE ||
@@ -2025,12 +2010,9 @@ int main(int argc, char** argv) {
             oldtype != PTHREAD_CANCEL_DEFERRED ||
             pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL) != ENOTSUP)
             return 31;
-        if (pthread_mutex_init(&mutex, NULL) != 0 ||
-            pthread_mutex_lock(&mutex) != 0 ||
-            pthread_mutex_trylock(&mutex) != EBUSY ||
-            pthread_mutex_unlock(&mutex) != 0 ||
-            pthread_mutex_trylock(&mutex) != 0 ||
-            pthread_mutex_unlock(&mutex) != 0 ||
+        if (pthread_mutex_init(&mutex, NULL) != 0 || pthread_mutex_lock(&mutex) != 0 ||
+            pthread_mutex_trylock(&mutex) != EBUSY || pthread_mutex_unlock(&mutex) != 0 ||
+            pthread_mutex_trylock(&mutex) != 0 || pthread_mutex_unlock(&mutex) != 0 ||
             pthread_mutex_destroy(&mutex) != 0)
             return 32;
 
@@ -2052,17 +2034,16 @@ int main(int argc, char** argv) {
         if (pthread_mutex_unlock(&libc_mutex) != 0 ||
             pthread_mutex_destroy(&libc_mutex) != 0)
             return 37;
-        if (pthread_mutex_lock(NULL) != EINVAL ||
-            pthread_mutex_unlock(NULL) != EINVAL ||
+        if (pthread_mutex_lock(NULL) != EINVAL || pthread_mutex_unlock(NULL) != EINVAL ||
             pthread_mutex_destroy(NULL) != EINVAL)
             return 38;
     }
 
     {
         pthread_mutexattr_t attr;
-        pthread_t            worker;
-        void*                result = NULL;
-        struct timespec      invalid = {0, -1};
+        pthread_t           worker;
+        void*               result  = NULL;
+        struct timespec     invalid = {0, -1};
 
         if (pthread_mutexattr_init(&attr) != 0 ||
             pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED) != ENOTSUP ||
@@ -2100,7 +2081,8 @@ int main(int argc, char** argv) {
         if (pthread_mutex_init(&libc_mutex_probe, NULL) != 0 ||
             pthread_mutex_lock(&libc_mutex_probe) != 0 ||
             pthread_mutex_timedlock(&libc_mutex_probe, &invalid) != EINVAL ||
-            pthread_create(&worker, NULL, libc_mutex_timed_probe, &libc_mutex_probe) != 0 ||
+            pthread_create(&worker, NULL, libc_mutex_timed_probe, &libc_mutex_probe) !=
+                0 ||
             pthread_join(worker, &result) != 0 ||
             result != (void*) (unsigned long) 0x9abf ||
             pthread_mutex_unlock(&libc_mutex_probe) != 0 ||
@@ -2110,15 +2092,15 @@ int main(int argc, char** argv) {
 
     {
         struct libc_rwlock_readers_probe probe = {0};
-        pthread_t                         workers[4];
-        unsigned int                      created = 0;
-        int                               failed = 0;
+        pthread_t                        workers[4];
+        unsigned int                     created = 0;
+        int                              failed  = 0;
 
         if (pthread_rwlock_init(&probe.lock, NULL) != 0)
             return 167;
         for (unsigned int i = 0; i < 4; ++i) {
-            if (pthread_create(&workers[created], NULL, libc_rwlock_reader_worker, &probe) !=
-                0) {
+            if (pthread_create(&workers[created], NULL, libc_rwlock_reader_worker,
+                               &probe) != 0) {
                 failed = 1;
                 break;
             }
@@ -2147,12 +2129,16 @@ int main(int argc, char** argv) {
         void*                        result = NULL;
 
         if (pthread_rwlock_init(&lock, NULL) != 0 || pthread_rwlock_wrlock(&lock) != 0 ||
-            pthread_create(&reader, NULL, libc_rwlock_try_reader_worker, &reader_probe) != 0 ||
-            pthread_create(&writer, NULL, libc_rwlock_try_writer_worker, &writer_probe) != 0)
+            pthread_create(&reader, NULL, libc_rwlock_try_reader_worker, &reader_probe) !=
+                0 ||
+            pthread_create(&writer, NULL, libc_rwlock_try_writer_worker, &writer_probe) !=
+                0)
             return 169;
-        if (pthread_join(reader, &result) != 0 || result != NULL || reader_probe.result != EBUSY)
+        if (pthread_join(reader, &result) != 0 || result != NULL ||
+            reader_probe.result != EBUSY)
             return 170;
-        if (pthread_join(writer, &result) != 0 || result != NULL || writer_probe.result != EBUSY)
+        if (pthread_join(writer, &result) != 0 || result != NULL ||
+            writer_probe.result != EBUSY)
             return 171;
         if (pthread_rwlock_unlock(&lock) != 0 || pthread_rwlock_destroy(&lock) != 0)
             return 172;
@@ -2161,8 +2147,8 @@ int main(int argc, char** argv) {
     {
         pthread_rwlock_t                 lock;
         struct libc_rwlock_handoff_probe probe = {&lock, 0, 0};
-        pthread_t                         worker;
-        void*                             result = NULL;
+        pthread_t                        worker;
+        void*                            result = NULL;
 
         if (pthread_rwlock_init(&lock, NULL) != 0 || pthread_rwlock_wrlock(&lock) != 0 ||
             pthread_create(&worker, NULL, libc_rwlock_handoff_worker, &probe) != 0)
@@ -2213,7 +2199,8 @@ int main(int argc, char** argv) {
         if (pthread_rwlock_init(&lock, NULL) != 0 || pthread_rwlock_wrlock(&lock) != 0 ||
             pthread_create(&worker, NULL, libc_rwlock_timed_reader_worker, &probe) != 0)
             return 179;
-        if (pthread_join(worker, &result) != 0 || result != NULL || probe.result != ETIMEDOUT)
+        if (pthread_join(worker, &result) != 0 || result != NULL ||
+            probe.result != ETIMEDOUT)
             return 180;
         if (pthread_rwlock_unlock(&lock) != 0 || pthread_rwlock_destroy(&lock) != 0)
             return 181;
@@ -2228,10 +2215,8 @@ int main(int argc, char** argv) {
             pthread_spin_init(&libc_spinlock, PTHREAD_PROCESS_SHARED) != ENOTSUP ||
             pthread_spin_init(&libc_spinlock, -1) != EINVAL ||
             pthread_spin_init(&libc_spinlock, PTHREAD_PROCESS_PRIVATE) != 0 ||
-            pthread_spin_lock(NULL) != EINVAL ||
-            pthread_spin_trylock(NULL) != EINVAL ||
-            pthread_spin_unlock(NULL) != EINVAL ||
-            pthread_spin_destroy(NULL) != EINVAL)
+            pthread_spin_lock(NULL) != EINVAL || pthread_spin_trylock(NULL) != EINVAL ||
+            pthread_spin_unlock(NULL) != EINVAL || pthread_spin_destroy(NULL) != EINVAL)
             return 161;
         if (pthread_spin_lock(&libc_spinlock) != 0 ||
             pthread_spin_trylock(&libc_spinlock) != EBUSY ||
@@ -2280,17 +2265,17 @@ int main(int argc, char** argv) {
 
     {
         pthread_t worker;
-        void*     result = NULL;
+        void*     result      = NULL;
         libc_cancel_sem_ready = 0;
-        libc_cancel_order = 0;
+        libc_cancel_order     = 0;
         if (sem_init(&libc_cancel_sem, 0, 0) != 0 ||
             pthread_key_create(&libc_cancel_key, libc_cancel_destructor) != 0 ||
             pthread_create(&worker, NULL, libc_cancel_sem_worker, NULL) != 0)
             return 150;
         while (!libc_cancel_sem_ready)
             sched_yield();
-        if (pthread_cancel(worker) != 0 ||
-            pthread_join(worker, &result) != 0 || result != PTHREAD_CANCELED)
+        if (pthread_cancel(worker) != 0 || pthread_join(worker, &result) != 0 ||
+            result != PTHREAD_CANCELED)
             return 151;
         if (libc_cancel_order != 3 || pthread_key_delete(libc_cancel_key) != 0 ||
             sem_destroy(&libc_cancel_sem) != 0)
@@ -2300,8 +2285,8 @@ int main(int argc, char** argv) {
     {
         pthread_t worker;
         void*     result = NULL;
-        libc_cond_ready = 0;
-        libc_cond_go = 0;
+        libc_cond_ready  = 0;
+        libc_cond_go     = 0;
         libc_cond_result = 0;
         if (pthread_mutex_init(&libc_cond_mutex, NULL) != 0 ||
             pthread_cond_init(&libc_cond, NULL) != 0 ||
@@ -2317,7 +2302,7 @@ int main(int argc, char** argv) {
             pthread_join(worker, &result) != 0 ||
             result != (void*) (unsigned long) 0x89ab || libc_cond_result != 0)
             return 114;
-        libc_cond_ready = 0;
+        libc_cond_ready  = 0;
         libc_cond_result = 0;
         if (pthread_create(&worker, NULL, libc_cond_timeout_worker, NULL) != 0)
             return 115;
@@ -2331,11 +2316,11 @@ int main(int argc, char** argv) {
     }
 
     {
-        pthread_condattr_t attr;
+        pthread_condattr_t           attr;
         struct libc_cond_clock_probe probe;
-        pthread_t worker;
-        void* result = NULL;
-        clockid_t clock_id;
+        pthread_t                    worker;
+        void*                        result = NULL;
+        clockid_t                    clock_id;
 
         if (pthread_condattr_init(&attr) != 0 ||
             pthread_condattr_getclock(&attr, &clock_id) != 0 ||
@@ -2357,7 +2342,7 @@ int main(int argc, char** argv) {
 
     {
         pthread_t worker;
-        void*     result = NULL;
+        void*     result                = NULL;
         libc_cancel_cond_ready          = 0;
         libc_cancel_cond_cleanup_called = 0;
         libc_cancel_cond_cleanup_owned  = 0;
@@ -2371,9 +2356,9 @@ int main(int argc, char** argv) {
         if (pthread_mutex_lock(&libc_cancel_cond_mutex) != 0 ||
             pthread_cancel(worker) != 0 ||
             pthread_mutex_unlock(&libc_cancel_cond_mutex) != 0 ||
-            pthread_join(worker, &result) != 0 ||
-            result != PTHREAD_CANCELED || !libc_cancel_cond_cleanup_called ||
-            !libc_cancel_cond_cleanup_owned || pthread_cond_destroy(&libc_cancel_cond) != 0 ||
+            pthread_join(worker, &result) != 0 || result != PTHREAD_CANCELED ||
+            !libc_cancel_cond_cleanup_called || !libc_cancel_cond_cleanup_owned ||
+            pthread_cond_destroy(&libc_cancel_cond) != 0 ||
             pthread_mutex_destroy(&libc_cancel_cond_mutex) != 0 ||
             sem_destroy(&libc_cancel_cond_cleanup_sem) != 0)
             return 154;
@@ -2381,15 +2366,14 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
-        sigset_t          blocked;
-        pthread_t         other;
-        void*             result = NULL;
-        libc_signal_calls = 0;
-        libc_signal_target_seen = 0;
+        sigset_t         blocked;
+        pthread_t        other;
+        void*            result    = NULL;
+        libc_signal_calls          = 0;
+        libc_signal_target_seen    = 0;
         libc_signal_thread_release = 0;
-        action.sa_handler = libc_signal_handler;
-        if (sigemptyset(&action.sa_mask) != 0 ||
-            sigaction(SIGUSR2, &action, NULL) != 0)
+        action.sa_handler          = libc_signal_handler;
+        if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGUSR2, &action, NULL) != 0)
             return 77;
         if (pthread_kill(pthread_self(), 0) != 0 ||
             pthread_kill(pthread_self(), SIGUSR2) != 0 || libc_signal_calls != 1)
@@ -2407,15 +2391,14 @@ int main(int argc, char** argv) {
         if (pthread_create(&other, NULL, libc_signal_thread_worker, NULL) != 0)
             return 82;
         libc_signal_target = other;
-        int other_signal = pthread_kill(other, SIGUSR2);
-        int other_zero   = pthread_kill(other, 0);
+        int other_signal   = pthread_kill(other, SIGUSR2);
+        int other_zero     = pthread_kill(other, 0);
         for (int i = 0; other_signal == 0 && !libc_signal_target_seen && i < 1000; ++i)
             sched_yield();
         if (other_signal != 0 || other_zero != 0 || !libc_signal_target_seen)
             return 83;
         libc_signal_thread_release = 1;
-        if (pthread_join(other, &result) != 0 ||
-            result != (void*) (unsigned long) 0x6789)
+        if (pthread_join(other, &result) != 0 || result != (void*) (unsigned long) 0x6789)
             return 84;
         if (pthread_kill(other, 0) != ESRCH || pthread_kill(other, SIGUSR2) != ESRCH)
             return 85;
@@ -2423,12 +2406,12 @@ int main(int argc, char** argv) {
 
     {
         pthread_t worker;
-        void*     result = NULL;
-        libc_signal_calls       = 0;
-        libc_signal_target_seen = 0;
-        libc_signal_mask_ready = 0;
+        void*     result         = NULL;
+        libc_signal_calls        = 0;
+        libc_signal_target_seen  = 0;
+        libc_signal_mask_ready   = 0;
         libc_signal_mask_release = 0;
-        libc_signal_mask_result = 0;
+        libc_signal_mask_result  = 0;
         if (pthread_create(&worker, NULL, libc_signal_mask_worker, NULL) != 0)
             return 90;
         while (!libc_signal_mask_ready)
@@ -2445,20 +2428,19 @@ int main(int argc, char** argv) {
 
     {
         struct sigaction action = {0};
-        action.sa_handler = libc_nodefer_handler;
-        action.sa_flags = SA_NODEFER;
-        if (sigemptyset(&action.sa_mask) != 0 ||
-            sigaction(SIGUSR1, &action, NULL) != 0)
+        action.sa_handler       = libc_nodefer_handler;
+        action.sa_flags         = SA_NODEFER;
+        if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGUSR1, &action, NULL) != 0)
             return 95;
-        libc_nodefer_depth = 0;
+        libc_nodefer_depth     = 0;
         libc_nodefer_max_depth = 0;
-        libc_nodefer_calls = 0;
-        libc_nodefer_failed = 0;
+        libc_nodefer_calls     = 0;
+        libc_nodefer_failed    = 0;
         if (raise(SIGUSR1) != 0 || libc_nodefer_calls != 2 ||
             libc_nodefer_max_depth < 2 || libc_nodefer_failed != 0)
             return 96;
         action.sa_handler = SIG_DFL;
-        action.sa_flags = 0;
+        action.sa_flags   = 0;
         if (sigaction(SIGUSR1, &action, NULL) != 0)
             return 97;
     }
@@ -2467,8 +2449,7 @@ int main(int argc, char** argv) {
         struct sigaction action = {0};
         int              value  = -1;
         action.sa_handler       = libc_signal_sem_handler;
-        if (sigemptyset(&action.sa_mask) != 0 ||
-            sigaction(SIGALRM, &action, NULL) != 0 ||
+        if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGALRM, &action, NULL) != 0 ||
             sem_init(&libc_signal_sem, 0, 0) != 0)
             return 108;
         libc_signal_sem_calls = 0;
@@ -2492,8 +2473,8 @@ int main(int argc, char** argv) {
             return 98;
         if (child == 0) {
             struct sigaction action = {0};
-            action.sa_handler = libc_one_shot_handler;
-            action.sa_flags = SA_RESETHAND;
+            action.sa_handler       = libc_one_shot_handler;
+            action.sa_flags         = SA_RESETHAND;
             if (sigemptyset(&action.sa_mask) != 0 ||
                 sigaction(SIGUSR2, &action, NULL) != 0 || raise(SIGUSR2) != 0)
                 _Exit(99);
@@ -2501,8 +2482,7 @@ int main(int argc, char** argv) {
             _Exit(100);
         }
         int status = 0;
-        if (waitpid(child, &status, 0) != child ||
-            (status & 0x7f) != SIGUSR2)
+        if (waitpid(child, &status, 0) != child || (status & 0x7f) != SIGUSR2)
             return 101;
     }
 
@@ -2553,12 +2533,12 @@ int main(int argc, char** argv) {
 
     {
         static const char name[] = "/astia_shm_lifecycle";
-        struct stat      metadata;
-        unsigned char*   page;
-        unsigned int     old_mask;
-        int              fd;
-        int              child;
-        int              status = 0;
+        struct stat       metadata;
+        unsigned char*    page;
+        unsigned int      old_mask;
+        int               fd;
+        int               child;
+        int               status = 0;
 
         (void) shm_unlink(name);
         if (shm_open("astia_no_leading_slash", O_CREAT | O_RDWR, 0600) != -1 ||
@@ -2567,7 +2547,7 @@ int main(int argc, char** argv) {
             errno != EINVAL || shm_unlink("/astia/extra_slash") != -1 || errno != EINVAL)
             return 112;
         old_mask = umask(0027);
-        fd = shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0666);
+        fd       = shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0666);
         if (fd < 0)
             return 113;
         if (shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0666) != -1 || errno != EEXIST)
@@ -2580,15 +2560,16 @@ int main(int argc, char** argv) {
         if (page == MAP_FAILED)
             return 117;
         page[0] = 0x21;
-        child = fork();
+        child   = fork();
         if (child < 0)
             return 118;
         if (child == 0) {
-            int              child_fd = shm_open(name, O_RDWR, 0);
-            unsigned char*   child_page;
+            int            child_fd = shm_open(name, O_RDWR, 0);
+            unsigned char* child_page;
             if (child_fd < 0)
                 _Exit(119);
-            child_page = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, child_fd, 0);
+            child_page =
+                mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, child_fd, 0);
             if (child_page == MAP_FAILED || child_page[0] != 0x21)
                 _Exit(120);
             child_page[0] = 0x42;
@@ -2689,13 +2670,13 @@ int main(int argc, char** argv) {
             return 51;
         if (child == 0) {
             struct sigaction action = {0};
-            action.sa_sigaction = page_fault_handler;
-            action.sa_flags     = SA_SIGINFO;
+            action.sa_sigaction     = page_fault_handler;
+            action.sa_flags         = SA_SIGINFO;
             if (sigemptyset(&action.sa_mask) != 0 ||
                 sigaction(SIGSEGV, &action, NULL) != 0)
                 _Exit(40);
             unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (page == MAP_FAILED)
                 _Exit(41);
             fault_expected_addr = (uintptr_t) page;
@@ -2716,17 +2697,17 @@ int main(int argc, char** argv) {
             return 52;
         if (child == 0) {
             struct sigaction action = {0};
-            action.sa_sigaction = page_fault_handler;
-            action.sa_flags     = SA_SIGINFO;
+            action.sa_sigaction     = page_fault_handler;
+            action.sa_flags         = SA_SIGINFO;
             if (sigemptyset(&action.sa_mask) != 0 ||
                 sigaction(SIGSEGV, &action, NULL) != 0)
                 _Exit(45);
-            unsigned char* page = mmap(NULL, 4096, PROT_READ,
-                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            unsigned char* page =
+                mmap(NULL, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (page == MAP_FAILED)
                 _Exit(46);
-            fault_expected_addr = (uintptr_t) page;
-            fault_expected_code = SEGV_ACCERR;
+            fault_expected_addr             = (uintptr_t) page;
+            fault_expected_code             = SEGV_ACCERR;
             *(volatile unsigned char*) page = 1;
             _Exit(47);
         }
@@ -2741,12 +2722,12 @@ int main(int argc, char** argv) {
             return 53;
         if (child == 0) {
             struct sigaction action = {0};
-            action.sa_handler = returning_page_fault_handler;
+            action.sa_handler       = returning_page_fault_handler;
             if (sigemptyset(&action.sa_mask) != 0 ||
                 sigaction(SIGSEGV, &action, NULL) != 0)
                 _Exit(48);
             unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (page == MAP_FAILED)
                 _Exit(49);
             if (munmap(page, 4096) != 0)
@@ -2765,7 +2746,7 @@ int main(int argc, char** argv) {
             return 54;
         if (child == 0) {
             unsigned char* page = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
-                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (page == MAP_FAILED)
                 _Exit(52);
             if (munmap(page, 4096) != 0)
@@ -2783,16 +2764,15 @@ int main(int argc, char** argv) {
         if (fault_child < 0)
             return 155;
         if (fault_child == 0) {
-            unsigned char* page = mmap(NULL, 4096, PROT_NONE,
-                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            unsigned char* page =
+                mmap(NULL, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (page == MAP_FAILED)
                 _Exit(156);
             *(volatile unsigned char*) page = 1;
             _Exit(157);
         }
         int status = 0;
-        if (waitpid(fault_child, &status, 0) != fault_child ||
-            (status & 0x7f) != SIGSEGV)
+        if (waitpid(fault_child, &status, 0) != fault_child || (status & 0x7f) != SIGSEGV)
             return 158;
 
         const pid_t worker = fork();
@@ -2802,10 +2782,10 @@ int main(int argc, char** argv) {
             for (;;)
                 asm volatile("" ::: "memory");
         }
-        if (kill(worker, SIGSTOP) != 0 ||
-            waitpid(worker, &status, WUNTRACED) != worker || !WIFSTOPPED(status) ||
-            kill(worker, SIGKILL) != 0 || waitpid(worker, &status, 0) != worker ||
-            !WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL)
+        if (kill(worker, SIGSTOP) != 0 || waitpid(worker, &status, WUNTRACED) != worker ||
+            !WIFSTOPPED(status) || kill(worker, SIGKILL) != 0 ||
+            waitpid(worker, &status, 0) != worker || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGKILL)
             return 160;
     }
 
@@ -2866,14 +2846,14 @@ int main(int argc, char** argv) {
     }
 
     {
-        const off_t large = (off_t) 0x100000009LL;
-        FILE* stream = fopen("/tmp/fseeko", "w+");
+        const off_t large  = (off_t) 0x100000009LL;
+        FILE*       stream = fopen("/tmp/fseeko", "w+");
         if (stream == NULL)
             return 61;
         if (fseeko(stream, large, SEEK_SET) != 0 || ftello(stream) != large)
             return 62;
-        if (fseeko(stream, 0, SEEK_SET) != 0 ||
-            fwrite("x", 1, 1, stream) != 1 || ftello(stream) != 1)
+        if (fseeko(stream, 0, SEEK_SET) != 0 || fwrite("x", 1, 1, stream) != 1 ||
+            ftello(stream) != 1)
             return 63;
         if (fseeko(stream, -1, SEEK_CUR) != 0 || ftello(stream) != 0)
             return 64;
@@ -2899,11 +2879,11 @@ int main(int argc, char** argv) {
     }
 
     {
-        const char* file = "/tmp/fchmod-file";
+        const char* file  = "/tmp/fchmod-file";
         const char* moved = "/tmp/fchmod-moved";
-        const char* dir  = "/tmp/fchmod-dir";
+        const char* dir   = "/tmp/fchmod-dir";
         struct stat value;
-        int fd;
+        int         fd;
 
         (void) unlink(file);
         (void) unlink(moved);
@@ -2911,15 +2891,14 @@ int main(int argc, char** argv) {
         fd = open(file, O_CREAT | O_RDWR | O_TRUNC, 0644);
         if (fd < 0)
             return 71;
-        if (fchmod(fd, S_IFREG | 0620) != 0 ||
-            fstat(fd, &value) != 0 || (value.st_mode & S_IFMT) != S_IFREG ||
-            (value.st_mode & 0777) != 0620)
+        if (fchmod(fd, S_IFREG | 0620) != 0 || fstat(fd, &value) != 0 ||
+            (value.st_mode & S_IFMT) != S_IFREG || (value.st_mode & 0777) != 0620)
             return 72;
-        if (rename(file, moved) != 0 || fchmod(fd, 0610) != 0 ||
-            fstat(fd, &value) != 0 || (value.st_mode & 0777) != 0610)
+        if (rename(file, moved) != 0 || fchmod(fd, 0610) != 0 || fstat(fd, &value) != 0 ||
+            (value.st_mode & 0777) != 0610)
             return 73;
-        if (unlink(moved) != 0 || fchmod(fd, 0601) != 0 ||
-            fstat(fd, &value) != 0 || (value.st_mode & 0777) != 0601)
+        if (unlink(moved) != 0 || fchmod(fd, 0601) != 0 || fstat(fd, &value) != 0 ||
+            (value.st_mode & 0777) != 0601)
             return 74;
         if (close(fd) != 0 || mkdir(dir, 0755) != 0)
             return 75;

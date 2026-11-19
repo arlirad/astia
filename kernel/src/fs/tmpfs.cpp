@@ -58,12 +58,13 @@ namespace astia::fs {
         }
 
         const file_mapping_capability tmpfs_mapping_capability{tmpfs_mapping};
-        tmpfs_mount shared_memory_mount;
+        tmpfs_mount                   shared_memory_mount;
 
-        bool access_allowed(file_mode mode, uid_t owner, gid_t group, uid_t euid, gid_t egid,
-                            permission_bits want, bool privileged) {
+        bool access_allowed(file_mode mode, uid_t owner, gid_t group, uid_t euid,
+                            gid_t egid, permission_bits want, bool privileged) {
             if (privileged)
-                return want != permission_bits::execute || mode.owner_allows(permission_bits::execute) ||
+                return want != permission_bits::execute ||
+                       mode.owner_allows(permission_bits::execute) ||
                        mode.group_allows(permission_bits::execute) ||
                        mode.other_allows(permission_bits::execute);
             if (euid == owner)
@@ -85,8 +86,7 @@ namespace astia::fs {
 
     tmpfs_file::tmpfs_file(usize pages, file_mode mode)
         : _storage(mode.is_directory() ? nullptr : mm::phys_region::create(pages, true)),
-          _mode(mode),
-          _inode(__atomic_fetch_add(&next_inode, 1u, __ATOMIC_RELAXED)) {}
+          _mode(mode), _inode(__atomic_fetch_add(&next_inode, 1u, __ATOMIC_RELAXED)) {}
 
     tmpfs_file::~tmpfs_file() {
         if (_storage != nullptr) {
@@ -145,25 +145,25 @@ namespace astia::fs {
 
     long tmpfs_file::sync_mapping(mm::phys_region* mapping, u64 offset, u64 length, u32) {
         const u64 page_bytes = mm::phys_region::frame_size;
-        if (length == 0 || (offset % page_bytes) != 0 ||
-            (length % page_bytes) != 0 || offset > ~u64{0} - length ||
-            mapping != _storage || _storage == nullptr || offset >= tmpfs_max_pages * page_bytes) {
+        if (length == 0 || (offset % page_bytes) != 0 || (length % page_bytes) != 0 ||
+            offset > ~u64{0} - length || mapping != _storage || _storage == nullptr ||
+            offset >= tmpfs_max_pages * page_bytes) {
             return -EINVAL;
         }
         if (length > tmpfs_max_pages * page_bytes - offset) {
             return -EINVAL;
         }
         core::spinlock_guard guard(_lock);
-        const u64 range_end = offset + length;
+        const u64            range_end = offset + length;
         for (u64 page_offset = 0; page_offset < length; page_offset += page_bytes) {
-            const u64 current = offset + page_offset;
-            const u64 page_end = current + page_bytes;
-            const u64 visible_start = current < _size ? current : _size;
-            const u64 visible_end = page_end < _size ? page_end : _size;
-            const auto* source = static_cast<const u8*>(mapping->page_direct(
-                static_cast<usize>(current / page_bytes)));
-            auto* target = static_cast<u8*>(_storage->page_direct(
-                static_cast<usize>(current / page_bytes)));
+            const u64   current       = offset + page_offset;
+            const u64   page_end      = current + page_bytes;
+            const u64   visible_start = current < _size ? current : _size;
+            const u64   visible_end   = page_end < _size ? page_end : _size;
+            const auto* source        = static_cast<const u8*>(
+                mapping->page_direct(static_cast<usize>(current / page_bytes)));
+            auto* target = static_cast<u8*>(
+                _storage->page_direct(static_cast<usize>(current / page_bytes)));
             if (source == nullptr || target == nullptr)
                 return -EIO;
             if (visible_start < visible_end) {
@@ -173,7 +173,7 @@ namespace astia::fs {
                     target[first + i] = source[first + i];
             }
             const u64 zero_start = visible_end > current ? visible_end : current;
-            const u64 zero_end = page_end < range_end ? page_end : range_end;
+            const u64 zero_end   = page_end < range_end ? page_end : range_end;
             for (u64 i = zero_start; i < zero_end; ++i)
                 target[i - current] = 0;
         }
@@ -183,7 +183,7 @@ namespace astia::fs {
 
     long tmpfs_file::truncate(u64 length) {
         core::spinlock_guard guard(_lock);
-        const u64 capacity = tmpfs_max_pages * mm::phys_region::frame_size;
+        const u64            capacity = tmpfs_max_pages * mm::phys_region::frame_size;
         if (length > capacity)
             return -ENOSPC;
         auto* bytes = static_cast<u8*>(_storage->page_direct(0));
@@ -299,13 +299,13 @@ namespace astia::fs {
                 return -EISDIR;
             if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0)
                 return -EEXIST;
-            const u32 access = flags & ASTIA_AIO_O_ACCMODE;
-            const permission_bits want = access == ASTIA_AIO_O_RDWR
-                                             ? static_cast<permission_bits>(
-                                                   static_cast<u8>(permission_bits::read) |
-                                                   static_cast<u8>(permission_bits::write))
-                                         : access == ASTIA_AIO_O_WRONLY ? permission_bits::write
-                                                                         : permission_bits::read;
+            const u32             access = flags & ASTIA_AIO_O_ACCMODE;
+            const permission_bits want =
+                access == ASTIA_AIO_O_RDWR ? static_cast<permission_bits>(
+                                                 static_cast<u8>(permission_bits::read) |
+                                                 static_cast<u8>(permission_bits::write))
+                : access == ASTIA_AIO_O_WRONLY ? permission_bits::write
+                                               : permission_bits::read;
             if (!access_allowed(_entries[i].mode, _entries[i].uid, _entries[i].gid, euid,
                                 egid, want, privileged))
                 return -EACCES;
@@ -328,13 +328,13 @@ namespace astia::fs {
             object->chown(uid, gid);
             if (!copy_path(_entries[i].path, path))
                 return -ENAMETOOLONG;
-            _entries[i].used = true;
+            _entries[i].used      = true;
             _entries[i].directory = false;
-            _entries[i].mode = mode;
-            _entries[i].uid = uid;
-            _entries[i].gid = gid;
-            _entries[i].object = object;
-            result = mm::share<open_file>(object, flags);
+            _entries[i].mode      = mode;
+            _entries[i].uid       = uid;
+            _entries[i].gid       = gid;
+            _entries[i].object    = object;
+            result                = mm::share<open_file>(object, flags);
             if (!result) {
                 _entries[i] = entry{};
                 return -ENOMEM;
@@ -356,7 +356,7 @@ namespace astia::fs {
                     continue;
                 if (_entries[i].directory)
                     return -EISDIR;
-                object = _entries[i].object;
+                object      = _entries[i].object;
                 _entries[i] = entry{};
                 break;
             }
@@ -375,8 +375,8 @@ namespace astia::fs {
         // semantics rather than looking like an invalid tmpfs pathname.
         if (equal(path, "/"))
             return -EEXIST;
-        auto object = mm::shptr<tmpfs_file>(
-            new tmpfs_file{0, file_mode(file_type::directory, mode.permissions().chmod_mask())});
+        auto object = mm::shptr<tmpfs_file>(new tmpfs_file{
+            0, file_mode(file_type::directory, mode.permissions().chmod_mask())});
         if (!object)
             return -ENOMEM;
         core::spinlock_guard guard(_namespace_lock);
@@ -819,8 +819,8 @@ namespace astia::fs {
         return new tmpfs_mount{};
     }
 
-    long open_shared_memory(const char* path, u32 flags, file_mode mode, uid_t uid, gid_t gid,
-                            uid_t euid, gid_t egid, bool privileged,
+    long open_shared_memory(const char* path, u32 flags, file_mode mode, uid_t uid,
+                            gid_t gid, uid_t euid, gid_t egid, bool privileged,
                             mm::shptr<open_file>& result) {
         return shared_memory_mount.open_shared(path, flags, mode, uid, gid, euid, egid,
                                                privileged, result);

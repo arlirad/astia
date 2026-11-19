@@ -43,9 +43,9 @@ namespace astia::mm {
     }
 
     address_space address_space::create(const address_space* parent) {
-        const auto* parent_map = parent == nullptr
-                                     ? arch::kernel_page_map()
-                                     : static_cast<const arch::page_map*>(parent->_native);
+        const auto* parent_map =
+            parent == nullptr ? arch::kernel_page_map()
+                              : static_cast<const arch::page_map*>(parent->_native);
         auto* map = new arch::page_map(arch::page_map::create(parent_map));
         if (map == nullptr || !map->valid()) {
             delete map;
@@ -68,7 +68,7 @@ namespace astia::mm {
 
     bool address_space::map_4k(vaddr_t virt, paddr_t phys, mapping_flags flags) {
         return valid() && static_cast<arch::page_map*>(_native)->map_4k(
-                               virt, phys, arch_flags(flags));
+                              virt, phys, arch_flags(flags));
     }
 
     bool address_space::unmap(vaddr_t virt) {
@@ -76,8 +76,8 @@ namespace astia::mm {
     }
 
     bool address_space::protect_4k(vaddr_t virt, mapping_flags flags) {
-        return valid() && static_cast<arch::page_map*>(_native)->protect_4k(
-                               virt, arch_flags(flags));
+        return valid() &&
+               static_cast<arch::page_map*>(_native)->protect_4k(virt, arch_flags(flags));
     }
 
     paddr_t address_space::translate(vaddr_t virt) const {
@@ -101,8 +101,7 @@ namespace astia::mm {
     bool address_space::valid_user_range(u64 address, usize length) const {
         if (length == 0)
             return true;
-        if (address == 0 ||
-            !arch::user_layout_policy::is_canonical(address) ||
+        if (address == 0 || !arch::user_layout_policy::is_canonical(address) ||
             address >= arch::user_layout_policy::address_limit)
             return false;
         const u64 last = address + static_cast<u64>(length) - 1;
@@ -149,8 +148,7 @@ namespace astia::mm {
 
     bool mapping_transaction::map_4k(vaddr_t virt, paddr_t phys, mapping_flags flags) {
         if (_finished || _space == nullptr || _mapped >= _pages ||
-            virt != _first + _mapped * page_size ||
-            _first + _mapped * page_size < _first)
+            virt != _first + _mapped * page_size || _first + _mapped * page_size < _first)
             return false;
         if (_space->translate(virt) != address_space::invalid)
             return false;

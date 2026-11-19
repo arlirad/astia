@@ -29,9 +29,9 @@ namespace {
     // not mapped by the normal kernel page map.
     volatile astia::u32 lifecycle_status = 0;
 
-    astia::core::task<astia::mm::shptr<astia::proc::process>> spawn_image(
-        astia::proc::process* parent, const char* path, char* const argv[],
-        char* const envp[]) {
+    astia::core::task<astia::mm::shptr<astia::proc::process>>
+    spawn_image(astia::proc::process* parent, const char* path, char* const argv[],
+                char* const envp[]) {
         if (parent == nullptr || path == nullptr)
             co_return astia::error_t::einval;
         auto file = astia::fs::open_path(path);
@@ -51,7 +51,7 @@ namespace {
     /// spawn failure apart from a bad exit status.
     bool run_image(const char* path, char* const argv[], char* const envp[],
                    bool& spawned) {
-        spawned = false;
+        spawned           = false;
         auto spawned_task = spawn_image(astia::proc::current_process(), path, argv, envp);
         spawned_task.resume();
         while (!spawned_task.done())

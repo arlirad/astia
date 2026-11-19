@@ -16,8 +16,8 @@ int __cxa_guard_acquire(long long* guard) {
     if (__atomic_load_n(state, __ATOMIC_ACQUIRE) == 2)
         return 0;
     unsigned char expected = 0;
-    if (__atomic_compare_exchange_n(state, &expected, 1, false,
-                                    __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
+    if (__atomic_compare_exchange_n(state, &expected, 1, false, __ATOMIC_ACQUIRE,
+                                    __ATOMIC_ACQUIRE))
         return 1;
     while (__atomic_load_n(state, __ATOMIC_ACQUIRE) == 1)
         asm volatile("pause" ::: "memory");
