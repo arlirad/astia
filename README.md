@@ -3,27 +3,49 @@
 
 # Astia
 
-## Overview
+> A small, freestanding operating-system project for learning, experimentation,
+> and systems programming on QEMU.
 
-**Astia** is a freestanding operating-system project for x86-64. It combines a
+Astia is an x86_64 hobby OS with a C++20 kernel, asynchronous I/O, and a
+QEMU-first development workflow.
+
+- [Build the kernel](#build-and-run)
+- [Run the interactive userspace](#userspace-and-qemu-workflows)
+- [Read the documentation](#documentation)
+- [Contribute](https://github.com/arlirad/astia/issues)
+- [MIT license](LICENSE)
+
+## What Astia is
+
+Astia is a freestanding operating-system project for x86_64. It combines a
 C++20 kernel, a native libc and ABI, loadable device modules, and small native
-userspace programs. The primary runtime is a QEMU `virt` machine booted through
-the x86/HVM (PVH) direct-boot ABI.
+userspace programs. The supported boot target is a QEMU `virt` machine loaded
+through the x86/HVM (PVH) direct-boot ABI.
 
-The project is under active development. The production target is
-`ARCH=x86_64`, `PLATFORM=virt`, `BOOT=virt`; other architecture configurations
-are not production targets.
+The project is under active development and is not a production-ready general
+purpose operating system. The only supported boot configuration is
+`ARCH=x86_64`, `PLATFORM=virt`, `BOOT=virt`.
+
+## What Astia is not
+
+Astia is not a complete POSIX implementation, a full TCP/IP stack, or a
+portable hardware platform. Several subsystems are intentionally bounded,
+experimental, or still being integrated; see
+[Current limitations and roadmap](#current-limitations-and-roadmap).
 
 ## Key features
 
-- **Modular kernel**: C++20, freestanding, no exceptions or RTTI, with memory
-  management, processes, signals, TTYs, sockets, asynchronous I/O, and a VFS.
+- **Typed kernel core**: C++20, freestanding, no exceptions or RTTI, with
+  memory management, processes, signals, TTYs, UNIX sockets, and asynchronous
+  I/O.
+- **VFS and filesystems**: initrd, devfs, tmpfs, and bounded read-only ext4
+  support, with regular-file and directory reads.
 - **Native userspace**: Astia libc, `init`, `daemond`, and a growing set of
   coreutils are cross-built without the host C library.
-- **Loadable drivers**: ET_REL modules use the public module ABI and generic
-  block-device adapter.
-- **Storage**: read-only ext4 integration, initrd/newc support, NVMe, and
-  VirtIO block devices.
+- **Typed loadable modules**: ET_REL modules use the public C++ registration
+  contracts and generic device adapters.
+- **Device and network foundations**: NVMe and VirtIO block modules, plus
+  bounded RTL8139 and USB/xHCI work for QEMU fixtures.
 - **QEMU workflows**: interactive native zsh, optional GNU nano, boot tests,
   and hardware-driver fixtures.
 
@@ -38,13 +60,14 @@ The repository follows a layered kernel/userspace layout:
   userspace utilities.
 - `toolchain/`: Clang sysroot, zsh/nano builds, initrd packaging, and QEMU
   launchers.
-- `docs/`: ABI, filesystem, synchronization, and conformance notes.
+- `docs/`: ABI, filesystem, synchronization, networking, and conformance notes.
 
 ## Build and run
 
-Prerequisites include CMake 3.20+, a C/C++ toolchain, Clang for userspace,
-QEMU, and the archive tools required by the test suite (`cpio`, `xxd`, `gzip`,
-and `zstd`).
+Prerequisites include Git, CMake 3.20+, a C/C++ toolchain, Clang for
+userspace, QEMU, Python 3 for helper scripts, and the archive tools used by
+the test suite (`cpio`, `xxd`, `gzip`, and `zstd`). The repository currently
+has no Git submodules, so no submodule initialization step is required.
 
 Build the supported kernel directly:
 
@@ -61,6 +84,10 @@ the repository-level kernel project:
 cmake -S . -B build -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt
 cmake --build build
 ```
+
+For CLion, open the repository root and use a CMake profile with the same
+`ARCH`, `PLATFORM`, and `BOOT` cache values. The root project owns the kernel
+subproject and exposes the compile database in the selected build directory.
 
 Boot the kernel in QEMU with the supported launcher:
 
@@ -90,8 +117,8 @@ gdb build/direct-kernel/src/astiakrn
 (gdb) continue
 ```
 
-Set `-DASTIA_DIRECT_GDB_PORT=4321` or `ASTIA_DIRECT_GDB_PORT=4321` to change
-the port. Set `-DASTIA_DIRECT_GDB_MODE=attach` to let QEMU run immediately;
+Pass `-DASTIA_DIRECT_GDB_PORT=4321` to the CMake configure command to change
+the port. Pass `-DASTIA_DIRECT_GDB_MODE=attach` to let QEMU run immediately;
 the launcher also accepts `--attach` and `--non-stop`. In GDB, use
 `set non-stop on` when independently debugging vCPUs in non-stop mode.
 
@@ -170,6 +197,18 @@ Module implementation and ABI details are documented in
 [`modules/nvme/README.md`](modules/nvme/README.md), and
 [`modules/virtio-blk/README.md`](modules/virtio-blk/README.md).
 
+## Network and USB foundations
+
+The network subsystem exposes typed `netdev` objects and bounded ownership
+paths for driver callbacks. The RTL8139 module exercises discovery and
+transmit/reclaim fixtures, but Astia does not yet provide a TCP/IP stack or
+end-to-end packet delivery. See [`docs/net-subsystem.md`](docs/net-subsystem.md).
+
+The USB work is an experimental, bounded xHCI/HID foundation with host tests
+and opt-in QEMU smoke coverage. It is not a general USB stack; class-driver
+coverage and hardware support remain incomplete. See
+[`modules/usb/README.md`](modules/usb/README.md).
+
 ## Filesystems and initrds
 
 The VFS currently includes initrd, devfs, tmpfs, and a bounded **read-only
@@ -241,6 +280,14 @@ are documented in [`docs/ctest.md`](docs/ctest.md).
   larger POSIX stress cases exceed current process/thread resource limits.
 - The stackful `core::fiber` implementation is experimental and excluded from
   production builds.
+- The network layer is a driver-facing foundation only; TCP/IP and network
+  sockets are not implemented.
+- The USB xHCI/HID path is experimental and its hardware smoke coverage is
+  opt-in and incomplete.
+- The module ABI is being consolidated around typed C++ contracts. The
+  C-linkage `module_main` loader entry remains, but module headers and
+  registration details are not a general source-compatibility promise; rebuild
+  ET_REL modules with the matching kernel.
 
 Near-term work is tracked in [`docs/initrd-format.md`](docs/initrd-format.md),
 [`docs/ext4-kmod-design.md`](docs/ext4-kmod-design.md), and
@@ -248,6 +295,18 @@ Near-term work is tracked in [`docs/initrd-format.md`](docs/initrd-format.md),
 module-facing filesystem ownership and mount APIs, broader architecture and
 platform policy providers, and tighter process/AIO/mapping ownership
 boundaries.
+
+## Documentation
+
+- [Kernel guide](kernel/README.md)
+- [Module ABI](docs/module-abi.md)
+- [CTest suites](docs/ctest.md)
+- [Toolchain and userspace](toolchain/README.md)
+- [Man-page documentation guide](tools/man/DOCUMENTING.md)
+
+For changes, open an issue or pull request on
+[GitHub](https://github.com/arlirad/astia). Please keep claims about
+architectures, hardware, and conformance aligned with the limitations above.
 
 ## License and attributions
 

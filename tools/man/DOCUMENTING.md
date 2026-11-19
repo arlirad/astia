@@ -180,8 +180,7 @@ After changing documentation, verify:
 python3 tools/man/generate.py kernel/src /tmp/astia-man7 --docs docs
 grep -R "<h2>" /tmp/astia-man7/index.html
 find /tmp/astia-man7 -name '*.7.html' -print
-test "$(find docs -maxdepth 1 -name '*.md' | wc -l)" -eq \
-  "$(find /tmp/astia-man7 -maxdepth 1 -name '*.7.html' | wc -l)"
+test "$(find /tmp/astia-man7 -maxdepth 1 -name '*.7.html' | wc -l)" -eq 7
 curl -fsS https://arlia.nodivia.pl/kill.html
 ```
 
@@ -204,6 +203,14 @@ intentional restrictions, rather than importing a generic POSIX contract.
 Use a non‑breaking hyphen in prose where a compound term needs punctuation.
 The ASCII hyphen remains reserved for ABI errno spellings such as `-EINVAL`.
 
-Overview sources are discovered from `docs/*.md`; translated sources are
-discovered from `docs/pl/*.md`. Files using the `.7.md` naming convention
-remain the section 7 source overviews.
+The current overview pages are:
+
+```text
+docs/task.7.md
+docs/aio.7.md
+docs/alarm.7.md
+docs/exec.7.md
+docs/rcu.7.md
+docs/sigtimedwait.7.md
+docs/spawnve.7.md
+```
