@@ -53,20 +53,16 @@ tests are omitted when their host tools are unavailable. Set
 `-DASTIA_BUILD_TESTS=OFF` only for a build that should expose the three
 repository smoke tests without compiling the host test tree.
 
-For the PR20 test tree, with `ASTIA_BUILD_TESTS=ON`,
-`ASTIA_CROSS_USERSPACE=ON`, and both external and manual suites disabled,
-CTest discovers 137 tests: 130 enabled and 7 intentionally disabled. The
-seven disabled entries are `astia_zsh_pty_regression`,
+With `ASTIA_BUILD_TESTS=ON`, `ASTIA_CROSS_USERSPACE=ON`, and both external and
+manual suites disabled, the current tree discovers 142 tests: 135 enabled and
+7 intentionally disabled. The seven disabled entries are
+`astia_zsh_pty_regression`,
 `astia_zsh_signal_regression`, `astia_zsh_interactive_manual`,
 `astia_nano_pty_smoke`, `astia_vga_graphical`, `astia_vga_pvh_fallback`, and
 `astia_posix_batch`; they are registered for discovery but require external
-or manual opt-in. The current `main` tree discovers 139 tests with the same
-options, including 132 enabled tests. PR20 intentionally unregisters the
-obsolete `astia_module_abi_layout`, `astia_module_c_abi_warning_flags`,
-`astia_module_host_prepare`, `astia_qemu_prepare`, `astia_pipe_api_test`, and
-`rtl8139_qemu_module_load` entries while adding the typed-contract,
-I/O-request, NVMe-teardown, and virtio-blk-teardown tests. Therefore 130/130
-is the correct enabled count for PR20, not a discovery or cache omission.
+or manual opt-in. The count can change when optional host tools or test
+artifacts are unavailable, so use `ctest --test-dir build-tests -N` as the
+authoritative count for a particular configuration.
 
 Use labels to select suites:
 
