@@ -85,7 +85,7 @@ jobs:
             --output-on-failure \
             --output-log build-tests/ctest.log \
             --test-timeout 120 \
-            --parallel 2 \
+            --parallel 1 \
             2>&1 | tee build-tests/ctest-run.log
 
       - name: Upload configure, build, and test logs
