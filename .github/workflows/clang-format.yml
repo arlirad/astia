@@ -52,6 +52,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check include category fixtures
+        run: .github/scripts/test-format-fixtures.sh
+
       - name: Check formatting
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
