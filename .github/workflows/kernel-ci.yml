@@ -38,6 +38,7 @@ jobs:
             clang-${LLVM_VERSION} \
             cmake \
             cpio \
+            g++-aarch64-linux-gnu \
             grub-common \
             grub-pc-bin \
             gzip \
@@ -71,6 +72,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang-${LLVM_VERSION} \
             -DCMAKE_CXX_COMPILER=clang++-${LLVM_VERSION} \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
             2>&1 | tee build-tests/configure.log
 
       - name: Build kernel and test artifacts
