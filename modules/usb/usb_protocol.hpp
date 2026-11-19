@@ -497,7 +497,7 @@ namespace astia::usb {
         bool attach(unsigned slot, usb_speed speed, const device_descriptor& descriptor) {
             if (slot >= max_devices || devices[slot].present)
                 return false;
-            devices[slot]            = {};
+            devices[slot]            = device_model{};
             devices[slot].present    = true;
             devices[slot].speed      = speed;
             devices[slot].descriptor = descriptor;
@@ -507,7 +507,7 @@ namespace astia::usb {
         bool detach(unsigned slot) {
             if (slot >= max_devices || !devices[slot].present)
                 return false;
-            devices[slot] = {};
+            devices[slot] = device_model{};
             return true;
         }
     };

@@ -549,7 +549,7 @@ namespace astia::usb::xhci {
         bool begin(unsigned slot, uint8_t port, uint8_t address, usb_speed speed) {
             if (slot >= max_devices || port == 0 || address == 0)
                 return false;
-            device_               = {};
+            device_               = device_model{};
             device_.present       = true;
             device_.address       = address;
             device_.speed         = speed;
@@ -557,7 +557,7 @@ namespace astia::usb::xhci {
             port_                 = port;
             address_              = address;
             configuration_length_ = 0;
-            device_.descriptor    = {};
+            device_.descriptor    = device_descriptor{};
             return true;
         }
 
