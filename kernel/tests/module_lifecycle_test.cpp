@@ -16,6 +16,7 @@ extern unsigned int  module_lifecycle_dso_blob_len;
 
 extern "C" int       astia_test_cxa_atexit(void (*)(void*), void*, void*);
 extern "C" void      astia_test_cxa_finalize(void*);
+extern "C" int       astia_test_atexit(void (*)(void));
 extern unsigned char module_lifecycle_no_fini_blob[];
 extern unsigned int  module_lifecycle_no_fini_blob_len;
 extern unsigned char module_lifecycle_priority_blob[];
@@ -45,7 +46,6 @@ namespace {
     observation* active_observation = nullptr;
 
     void lifecycle_record(int event);
-    int  module_atexit(void (*handler)(void));
 
     void* map_image(void* context, astia::u64, astia::usize size, astia::usize,
                     bool fixed) {
@@ -76,7 +76,7 @@ namespace {
         if (std::strcmp(name, "lifecycle_record") == 0)
             return reinterpret_cast<std::uintptr_t>(&lifecycle_record);
         if (std::strcmp(name, "atexit") == 0)
-            return reinterpret_cast<std::uintptr_t>(&module_atexit);
+            return reinterpret_cast<std::uintptr_t>(&astia_test_atexit);
         if (std::strcmp(name, "__cxa_atexit") == 0)
             return reinterpret_cast<std::uintptr_t>(&astia_test_cxa_atexit);
         if (std::strcmp(name, "__cxa_finalize") == 0)
@@ -96,10 +96,6 @@ namespace {
                 astia::mod::at(0) == active_observation->current &&
                 active_observation->current->running;
         }
-    }
-
-    int module_atexit(void (*handler)(void)) {
-        return astia::mod::register_exit_handler(handler);
     }
 
     ASTIA_NO_SANITIZE_FUNCTION int invoke_entry(int (*entry)()) {

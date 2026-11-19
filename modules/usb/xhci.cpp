@@ -514,10 +514,11 @@ namespace astia::usb::xhci {
                     original_msix_ = astia::module::pci_read16(
                         pci_, static_cast<uint16_t>(pci_->interrupt.capability + 2));
                 }
-                if (!astia::module::pci_disable_msix(pci_) ||
-                    !astia::module::pci_map_bar(pci_, 0))
+                if (!astia::module::pci_disable_msix(pci_))
                     return rollback_pci(), -19;
-                msix_modified_        = pci_->interrupt.msix;
+                msix_modified_ = pci_->interrupt.msix;
+                if (!astia::module::pci_map_bar(pci_, 0))
+                    return rollback_pci(), -19;
                 bar_mapped_           = true;
                 const uint64_t mapped = astia::module::pci_bar_mapped(pci_, 0);
                 const uint64_t size   = astia::module::pci_bar_size(pci_, 0);
