@@ -9,6 +9,7 @@
 #undef RENAME_WHITEOUT
 #endif
 #include <astia/dev/driver.hpp>
+#include <astia/mm/uptr.hpp>
 
 namespace {
 
@@ -189,4 +190,21 @@ ASTIA_TEST(driver_manager_owns_published_product_until_unbind) {
     ASTIA_CHECK(destroyed == 0);
     manager.unbind_all();
     ASTIA_CHECK(destroyed == 1);
+}
+
+ASTIA_TEST(driver_manager_recycles_registration_slots) {
+    astia::hw::driver_registry   manager;
+    astia::mm::uptr<test_driver> drivers[astia::hw::driver_registry::max_drivers]{};
+
+    for (auto& driver : drivers)
+        driver = astia::mm::uptr<test_driver>(new test_driver(true, true));
+    for (auto& driver : drivers)
+        ASTIA_CHECK(manager.register_driver(*driver));
+    ASTIA_CHECK(manager.driver_count() == astia::hw::driver_registry::max_drivers);
+    for (auto& driver : drivers)
+        ASTIA_CHECK(manager.unregister_driver(*driver));
+    ASTIA_CHECK(manager.driver_count() == 0);
+    for (auto& driver : drivers)
+        ASTIA_CHECK(manager.register_driver(*driver));
+    ASTIA_CHECK(manager.driver_count() == astia::hw::driver_registry::max_drivers);
 }

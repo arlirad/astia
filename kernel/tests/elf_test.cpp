@@ -25,6 +25,8 @@
 // --- ET_REL fixture: imports kernel_add (see tests/hello_mod.cpp) ---
 extern unsigned char hello_mod_blob[];
 extern unsigned int  hello_mod_blob_len;
+extern unsigned char legacy_c_module_blob[];
+extern unsigned int  legacy_c_module_blob_len;
 extern unsigned char module_symbols_blob[];
 extern unsigned int  module_symbols_blob_len;
 extern unsigned char module_priority_malformed_blob[];
@@ -565,6 +567,35 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
                     44); // module-local state persists across calls
     }
 
+    munmap(mem, cap);
+}
+
+ASTIA_TEST(elf_loads_legacy_c_entrypoint_through_adapter) {
+    const size_t cap = 1 << 20;
+    void*        mem = mmap(nullptr, cap, PROT_READ | PROT_WRITE | PROT_EXEC,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    ASTIA_CHECK(mem != MAP_FAILED);
+    if (mem == MAP_FAILED)
+        return;
+
+    reloc_arena arena{};
+    arena.base     = static_cast<unsigned char*>(mem);
+    arena.capacity = cap;
+    arena.back     = cap;
+
+    astia::elf::env environment{};
+    environment.ctx     = &arena;
+    environment.map     = reloc_map;
+    environment.unmap   = reloc_unmap;
+    environment.resolve = reloc_resolve;
+
+    astia::elf::image image;
+    ASTIA_CHECK(astia::elf::load(legacy_c_module_blob, legacy_c_module_blob_len,
+                                 environment, image));
+    ASTIA_CHECK(image.legacy_entry);
+    ASTIA_CHECK(image.entry != nullptr);
+    if (image.entry != nullptr)
+        ASTIA_CHECK(invoke_module_entry(image.entry) == 73);
     munmap(mem, cap);
 }
 

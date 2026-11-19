@@ -320,6 +320,19 @@ add_custom_command(
 astia_embed_blob(_hello_mod_cpp ${_fix_dir}/hello_mod.o hello_mod_blob)
 
 add_custom_command(
+        OUTPUT ${_fix_dir}/legacy_c_module.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_C_COMPILER} -std=c11 -c -ffreestanding -fno-pic -fno-pie
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/legacy_c_module.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/legacy_c_module_fixture.c
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/legacy_c_module_fixture.c
+        COMMENT "Compiling legacy C ET_REL fixture"
+)
+astia_embed_blob(_legacy_c_module_cpp
+        ${_fix_dir}/legacy_c_module.o legacy_c_module_blob)
+
+add_custom_command(
         OUTPUT ${_fix_dir}/module_symbols.o
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
@@ -450,6 +463,7 @@ astia_embed_blob(_fixture_exec_cpp ${_fix_dir}/fixture_exec.elf fixture_exec_blo
 astia_add_host_test(astia_elf_test
         elf_test.cpp
         ${_hello_mod_cpp}
+        ${_legacy_c_module_cpp}
         ${_module_symbols_cpp}
         ${_module_priority_malformed_cpp}
         ${_module_priority_overflow_cpp}
