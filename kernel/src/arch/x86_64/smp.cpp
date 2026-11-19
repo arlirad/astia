@@ -139,10 +139,14 @@ namespace astia::arch::x86_64::smp {
                 if (((type == 0 && length >= 8) || (type == 9 && length >= 16)) &&
                     (flags & 1u)) {
                     if (count < max_cpus) {
-                        apic_ids[count++] =
-                            type == 0 ? p[3]
-                                      : static_cast<u32>(
-                                            reinterpret_cast<const u32*>(p + 4)[0]);
+                        const u32 id = type == 0
+                                           ? p[3]
+                                           : static_cast<u32>(
+                                                 reinterpret_cast<const u32*>(p + 4)[0]);
+                        for (u32 i = 0; i < count; ++i)
+                            if (apic_ids[i] == id)
+                                return 0;
+                        apic_ids[count++] = id;
                     }
                 }
                 p += length;
@@ -222,6 +226,15 @@ namespace astia::arch::x86_64::smp {
         if (have_acpi && found == 0) {
             have_acpi = false;
             cpu_total = platform::clamp_cpu_count(cpuid_threads());
+        }
+        if (found != 0) {
+            const u32 bsp      = lapic::id();
+            bool      have_bsp = false;
+            for (u32 i = 0; i < found; ++i)
+                if (apic_ids[i] == bsp)
+                    have_bsp = true;
+            if (!have_bsp)
+                have_acpi = false;
         }
         if (found != 0)
             cpu_total = platform::clamp_cpu_count(found);
