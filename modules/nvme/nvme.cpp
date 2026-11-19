@@ -72,6 +72,7 @@ namespace {
         bool                      recovering        = false;
         bool                      msix_active       = false;
         bool                      quiescing         = false;
+        bool                      quiesce_safe      = true;
         bool                      release_pending   = false;
         volatile bool             interrupt_pending = false;
         volatile bool             servicing_async   = false;
@@ -752,13 +753,15 @@ namespace {
         void quiesce() {
             if (quiescing)
                 return;
-            quiescing = true;
+            quiescing    = true;
+            quiesce_safe = true;
             if (registers != nullptr && (read32(0x14) & 1) != 0) {
                 write32(0x14, 0);
-                (void) wait_ready(false);
+                quiesce_safe = wait_ready(false);
             }
             if (msix_active) {
-                (void) astia::module::pci_msix_release(&msix_route);
+                quiesce_safe =
+                    astia::module::pci_msix_release(&msix_route) == 0 && quiesce_safe;
                 msix_active = false;
             }
             while (__atomic_load_n(&servicing_async, __ATOMIC_ACQUIRE))
@@ -766,7 +769,7 @@ namespace {
             fail_async_requests(-19);
             acknowledge_async_hardware();
             for (async_request& pending : async_requests) {
-                if (!pending.used || pending.request != nullptr)
+                if (!pending.used || pending.request != nullptr || !quiesce_safe)
                     continue;
                 pending.bounce.release();
                 pending = {};
@@ -774,6 +777,10 @@ namespace {
         }
 
         void release() {
+            if (!quiesce_safe) {
+                release_pending = true;
+                return;
+            }
             for (const async_request& pending : async_requests)
                 if (pending.used) {
                     release_pending = true;
