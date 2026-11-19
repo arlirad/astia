@@ -4,6 +4,7 @@
 #include "../dev/device_file.hpp"
 #include "../sys/aio.hpp"
 #include "../sys/user_mem.hpp"
+#include "module_registration.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
@@ -47,9 +48,12 @@ namespace astia::mod {
             bool                    completed           = false;
             bool                    completion_deferred = false;
             bool                    canceled            = false;
+            bool                    closing             = false;
+            u32                     callbacks           = 0;
         };
 
-        class blkdev_adapter final : public dev::blk::blkdev {
+        class blkdev_adapter final : public dev::blk::blkdev,
+                                     private io::cancellation_handler {
             public:
             blkdev_adapter(registration& registration, void* context, u64 size,
                            u32 block_size, const mm::shptr<controller_lifetime>& lifetime)
@@ -61,10 +65,11 @@ namespace astia::mod {
             void set_file(fs::file* file) {
                 file_ = file;
             }
-            bool        complete(async_bridge& bridge, long result);
-            void        wake(async_bridge& bridge);
-            void        cancel(async_bridge& bridge);
-            static void cancel_request(io::request& request);
+            bool complete(async_bridge& bridge, long result);
+            void wake(async_bridge& bridge);
+            void cancel(async_bridge& bridge, io::request& request, bool retain,
+                        bool shutting_down = false);
+            void cancellation_requested(io::request&, core::cancel_reason, bool) override;
 
             protected:
             long read_blocks(void* buffer, u32 length, u64 offset) override;
@@ -179,9 +184,12 @@ namespace astia::mod {
         struct registration {
             const astia_module_pci_block_driver* ops = nullptr;
             alignas(driver) u8 storage[sizeof(driver)]{};
-            driver*      instance      = nullptr;
-            bool         selftest_done = false;
-            async_bridge bridges[max_async_requests]{};
+            driver*              instance       = nullptr;
+            bool                 selftest_done  = false;
+            const loaded_module* owner          = nullptr;
+            u32                  live_lifetimes = 0;
+            core::spinlock       bridge_lock;
+            async_bridge         bridges[max_async_requests]{};
         };
 
         class pci_device final : public dev::device {
@@ -429,30 +437,36 @@ namespace astia::mod {
         struct pci_registration {
             const astia_module_pci_driver* ops = nullptr;
             alignas(pci_driver) u8 storage[sizeof(pci_driver)]{};
-            pci_driver* instance = nullptr;
+            pci_driver*          instance = nullptr;
+            const loaded_module* owner    = nullptr;
         };
 
         struct net_registration {
             const astia::module::net_driver* ops = nullptr;
             alignas(net_driver) u8 storage[sizeof(net_driver)]{};
-            net_driver* instance      = nullptr;
-            bool        selftest_done = false;
+            net_driver*          instance      = nullptr;
+            bool                 selftest_done = false;
+            const loaded_module* owner         = nullptr;
         };
 
         struct usb_registration {
             const astia_module_usb_driver* ops = nullptr;
             alignas(usb_driver) u8 storage[sizeof(usb_driver)]{};
-            usb_driver* instance = nullptr;
+            usb_driver*          instance = nullptr;
+            const loaded_module* owner    = nullptr;
         };
 
         class controller_lifetime final {
             public:
             controller_lifetime(registration& registration, void* context)
-                : registration_(registration), context_(context) {}
+                : registration_(registration), context_(context) {
+                ++registration_.live_lifetimes;
+            }
 
             ~controller_lifetime() {
                 if (registration_.ops->remove != nullptr)
                     registration_.ops->remove(context_);
+                --registration_.live_lifetimes;
             }
 
             private:
@@ -614,7 +628,7 @@ namespace astia::mod {
             u32 actual_registration = 0;
             u32 actual_bridge       = 0;
             u32 generation          = 0;
-            return bridge.used &&
+            return bridge.used && !bridge.closing &&
                    decode_async_handle(opaque, actual_registration, actual_bridge,
                                        generation) &&
                    actual_registration == registration_index &&
@@ -623,8 +637,17 @@ namespace astia::mod {
         }
 
         bool claim_bridge_completion(async_bridge& bridge) {
-            if (!bridge.used || bridge.canceled || bridge.owner == nullptr ||
-                bridge.request == nullptr || bridge.completed)
+            registration* owner = bridge.registration_owner;
+            if (owner == nullptr) {
+                if (!bridge.used || bridge.owner == nullptr ||
+                    bridge.request == nullptr || bridge.completed)
+                    return false;
+                bridge.completed = true;
+                return true;
+            }
+            core::spinlock_guard guard(owner->bridge_lock);
+            if (!bridge.used || bridge.owner == nullptr || bridge.request == nullptr ||
+                bridge.completed)
                 return false;
             bridge.completed = true;
             return true;
@@ -636,24 +659,6 @@ namespace astia::mod {
             if (next_async_generation == 0)
                 next_async_generation = 1;
             return result;
-        }
-
-        async_bridge* find_bridge(void* opaque) {
-            u32 registration_index = 0;
-            u32 bridge_index       = 0;
-            u32 generation         = 0;
-            if (!decode_async_handle(opaque, registration_index, bridge_index,
-                                     generation))
-                return nullptr;
-            if (registration_index >= registration_count)
-                return nullptr;
-            async_bridge& bridge =
-                registrations[registration_index].bridges[bridge_index];
-            if (!bridge_handle_matches(bridge, registration_index, bridge_index,
-                                       opaque) ||
-                bridge.registration_owner != &registrations[registration_index])
-                return nullptr;
-            return &bridge;
         }
 
         astia_module_pci_device view(hw::pci_device& device) {
@@ -705,7 +710,7 @@ namespace astia::mod {
                 return false;
             const astia_module_pci_device device_view = view(*stable);
             void*                         context     = nullptr;
-            if (registration_.ops->probe(&device_view, &context) == 0 ||
+            if (registration_.ops->probe(&device_view, &context) != 0 ||
                 context == nullptr)
                 return false;
             for (binding& item : bindings_) {
@@ -782,8 +787,13 @@ namespace astia::mod {
             }
 
             auto lifetime = mm::share<controller_lifetime>(registration_, context);
-            auto group    = mm::share<device_group>();
-            if (!lifetime || !group)
+            if (!lifetime) {
+                if (ops->remove != nullptr)
+                    ops->remove(context);
+                return false;
+            }
+            auto group = mm::share<device_group>();
+            if (!group)
                 return false;
 
             astia_module_pci_namespace namespaces[max_namespaces]{};
@@ -880,119 +890,276 @@ namespace astia::mod {
             const auto submit_async = registration_.ops->async_submit;
             if (submit_async == nullptr)
                 return device::submit(request);
-            auto* bridge = static_cast<async_bridge*>(request.device_state());
-            if (bridge != nullptr && bridge->used && bridge->request == &request) {
-                if (bridge->completion_deferred) {
-                    const long deferred_result  = bridge->deferred_result;
+            auto* bridge         = static_cast<async_bridge*>(request.device_state());
+            bool  bridge_current = false;
+            if (bridge != nullptr) {
+                core::spinlock_guard guard(registration_.bridge_lock);
+                bridge_current =
+                    bridge->used && bridge->owner == this && bridge->request == &request;
+                if (bridge_current && bridge->completion_deferred) {
+                    bridge->result              = bridge->deferred_result;
                     bridge->completion_deferred = false;
-                    (void) complete(*bridge, deferred_result);
+                    bridge->completed           = true;
                 }
-                if (bridge->completed) {
-                    const long result = bridge->result;
-                    if (registration_.ops->async_cancel != nullptr)
-                        registration_.ops->async_cancel(context_, &bridge->abi);
-                    bridge->used    = false;
-                    bridge->owner   = nullptr;
-                    bridge->request = nullptr;
+            }
+            if (bridge_current) {
+                long completed_result = 0;
+                bool completed        = false;
+                bool canceled         = false;
+                {
+                    core::spinlock_guard guard(registration_.bridge_lock);
+                    if (bridge->used && bridge->owner == this &&
+                        bridge->request == &request && bridge->completed) {
+                        completed_result = bridge->result;
+                        canceled         = bridge->canceled;
+                        bridge->used     = false;
+                        bridge->owner    = nullptr;
+                        bridge->request  = nullptr;
+                        completed        = true;
+                    }
+                }
+                if (completed) {
                     request.device_state(nullptr);
-                    request.cancel_handler_set(nullptr);
-                    return result;
+                    request.cancellation_handler_set(nullptr);
+                    if (canceled)
+                        request.cancel_acknowledge();
+                    return completed_result;
                 }
                 if (registration_.ops->async_poll != nullptr) {
-                    bridge->abi.timeout_expired = request.timeout_expired() ? 1 : 0;
+                    {
+                        core::spinlock_guard guard(registration_.bridge_lock);
+                        if (!bridge->used || bridge->owner != this ||
+                            bridge->request != &request)
+                            return -ECANCELED;
+                        bridge->abi.timeout_expired = request.timeout_expired() ? 1 : 0;
+                    }
                     const int poll =
                         registration_.ops->async_poll(context_, &bridge->abi);
                     if (poll < 0) {
-                        bridge->result    = poll;
-                        bridge->completed = true;
+                        core::spinlock_guard guard(registration_.bridge_lock);
+                        if (bridge->used && bridge->owner == this &&
+                            bridge->request == &request && !bridge->completed) {
+                            bridge->result    = poll;
+                            bridge->completed = true;
+                        }
                     }
-                    if (bridge->completed) {
-                        const long result = bridge->result;
-                        bridge->used      = false;
-                        bridge->owner     = nullptr;
-                        bridge->request   = nullptr;
+                    {
+                        core::spinlock_guard guard(registration_.bridge_lock);
+                        if (bridge->used && bridge->owner == this &&
+                            bridge->request == &request && bridge->completed) {
+                            completed_result = bridge->result;
+                            canceled         = bridge->canceled;
+                            bridge->used     = false;
+                            bridge->owner    = nullptr;
+                            bridge->request  = nullptr;
+                            completed        = true;
+                        }
+                    }
+                    if (completed) {
                         request.device_state(nullptr);
-                        request.cancel_handler_set(nullptr);
-                        return result;
+                        request.cancellation_handler_set(nullptr);
+                        if (canceled)
+                            request.cancel_acknowledge();
+                        return completed_result;
                     }
                 }
                 return 0;
             }
             for (async_bridge& candidate : registration_.bridges) {
-                if (candidate.used)
-                    continue;
-                candidate                    = {};
-                candidate.registration_owner = &registration_;
-                candidate.owner              = this;
-                candidate.request            = &request;
-                candidate.generation         = allocate_async_generation();
-                candidate.used               = true;
-                candidate.abi                = {};
-                candidate.abi.opaque         = encode_async_handle(
-                    static_cast<u32>(&registration_ - registrations),
-                    static_cast<u32>(&candidate - registration_.bridges),
-                    candidate.generation);
-                candidate.abi.buffer    = request.buffer();
-                candidate.abi.length    = request.length();
-                candidate.abi.offset    = request.offset();
-                candidate.abi.direction = static_cast<u8>(request.direction());
+                {
+                    core::spinlock_guard guard(registration_.bridge_lock);
+                    if (candidate.used || candidate.callbacks != 0)
+                        continue;
+                    candidate                    = {};
+                    candidate.registration_owner = &registration_;
+                    candidate.owner              = this;
+                    candidate.request            = &request;
+                    candidate.generation         = allocate_async_generation();
+                    candidate.used               = true;
+                    candidate.abi                = {};
+                    candidate.abi.opaque         = encode_async_handle(
+                        static_cast<u32>(&registration_ - registrations),
+                        static_cast<u32>(&candidate - registration_.bridges),
+                        candidate.generation);
+                    candidate.abi.buffer    = request.buffer();
+                    candidate.abi.length    = request.length();
+                    candidate.abi.offset    = request.offset();
+                    candidate.abi.direction = static_cast<u8>(request.direction());
+                }
                 request.device_state(&candidate);
-                request.cancel_handler_set(cancel_request);
+                request.cancellation_handler_set(this);
                 const int result = submit_async(context_, &candidate.abi);
                 if (result < 0) {
+                    core::spinlock_guard guard(registration_.bridge_lock);
                     candidate = {};
                     request.device_state(nullptr);
-                    request.cancel_handler_set(nullptr);
+                    request.cancellation_handler_set(nullptr);
                     return result;
                 }
                 if (result > 0) {
-                    candidate.used = false;
+                    {
+                        core::spinlock_guard guard(registration_.bridge_lock);
+                        candidate.used = false;
+                    }
                     request.device_state(nullptr);
-                    request.cancel_handler_set(nullptr);
+                    request.cancellation_handler_set(nullptr);
                     return result;
                 }
-                if (candidate.abi.poll_timeout_ns != 0)
-                    request.timeout_ns(candidate.abi.poll_timeout_ns);
+                u64 poll_timeout = 0;
+                {
+                    core::spinlock_guard guard(registration_.bridge_lock);
+                    if (candidate.used && candidate.owner == this &&
+                        candidate.request == &request)
+                        poll_timeout = candidate.abi.poll_timeout_ns;
+                }
+                if (poll_timeout != 0)
+                    request.timeout_ns(poll_timeout);
                 return 0;
             }
             return -EBUSY;
         }
 
         bool blkdev_adapter::complete(async_bridge& bridge, long result) {
-            if (bridge.owner != this || !claim_bridge_completion(bridge))
+            registration* registration_owner = bridge.registration_owner;
+            if (registration_owner == nullptr)
                 return false;
-            bridge.result = result;
-            if (file_ != nullptr)
-                sys::io_device_ready_context(file_);
+            io::request* request  = nullptr;
+            fs::file*    file     = nullptr;
+            bool         canceled = false;
+            {
+                core::spinlock_guard guard(registration_owner->bridge_lock);
+                if (bridge.owner != this || !bridge.used || bridge.request == nullptr ||
+                    bridge.completed)
+                    return false;
+                bridge.result    = result;
+                bridge.completed = true;
+                request          = bridge.request;
+                canceled         = bridge.canceled;
+                file             = file_;
+                if (canceled) {
+                    bridge.used    = false;
+                    bridge.owner   = nullptr;
+                    bridge.request = nullptr;
+                }
+            }
+            if (canceled) {
+                request->device_state(nullptr);
+                request->cancellation_handler_set(nullptr);
+                request->cancel_acknowledge();
+            }
+            else if (file != nullptr)
+                sys::io_device_ready_context(file);
             return true;
         }
 
+        void release_bridge_callback(registration& owner, async_bridge& bridge) {
+            core::spinlock_guard guard(owner.bridge_lock);
+            if (bridge.callbacks != 0)
+                --bridge.callbacks;
+        }
+
         void blkdev_adapter::wake(async_bridge& bridge) {
-            if (bridge.owner == this && bridge.used && file_ != nullptr)
-                sys::io_device_ready_context(file_);
+            registration* registration_owner = bridge.registration_owner;
+            fs::file*     file               = nullptr;
+            {
+                if (registration_owner == nullptr)
+                    return;
+                core::spinlock_guard guard(registration_owner->bridge_lock);
+                if (bridge.owner == this && bridge.used)
+                    file = file_;
+            }
+            if (file != nullptr)
+                sys::io_device_ready_context(file);
         }
 
-        void blkdev_adapter::cancel(async_bridge& bridge) {
-            if (!bridge.used || bridge.canceled || bridge.owner != this)
+        void blkdev_adapter::cancel(async_bridge& bridge, io::request& request,
+                                    bool retain, bool shutting_down) {
+            registration* registration_owner = bridge.registration_owner;
+            if (registration_owner == nullptr)
                 return;
-            bridge.canceled = true;
-            if (registration_.ops->async_cancel != nullptr)
-                registration_.ops->async_cancel(context_, &bridge.abi);
-            bridge.used    = false;
-            bridge.owner   = nullptr;
-            bridge.request = nullptr;
+            astia_module_io_request abi{};
+            bool                    already_completed = false;
+            {
+                core::spinlock_guard guard(registration_owner->bridge_lock);
+                if (!bridge.used || bridge.owner != this || bridge.request != &request)
+                    return;
+                if (bridge.canceled) {
+                    if (!shutting_down)
+                        return;
+                    bridge.closing    = true;
+                    bridge.used       = false;
+                    bridge.owner      = nullptr;
+                    bridge.request    = nullptr;
+                    already_completed = true;
+                }
+                else if (bridge.completed || bridge.completion_deferred) {
+                    if (!shutting_down)
+                        return;
+                    bridge.closing    = true;
+                    bridge.used       = false;
+                    bridge.owner      = nullptr;
+                    bridge.request    = nullptr;
+                    already_completed = true;
+                }
+                else {
+                    bridge.canceled = true;
+                    bridge.closing  = shutting_down;
+                    abi             = bridge.abi;
+                }
+            }
+            if (!already_completed) {
+                const int canceled =
+                    registration_.ops->async_cancel == nullptr
+                        ? -ENOTSUP
+                        : registration_.ops->async_cancel(context_, &abi);
+                if (retain && canceled == 0 && !shutting_down)
+                    return;
+                {
+                    core::spinlock_guard guard(registration_owner->bridge_lock);
+                    if (bridge.used && bridge.owner == this &&
+                        bridge.request == &request) {
+                        bridge.closing = shutting_down;
+                        bridge.used    = false;
+                        bridge.owner   = nullptr;
+                        bridge.request = nullptr;
+                    }
+                }
+            }
+            request.device_state(nullptr);
+            request.cancellation_handler_set(nullptr);
+            request.cancel_acknowledge();
         }
 
-        void blkdev_adapter::cancel_request(io::request& request) {
+        void blkdev_adapter::cancellation_requested(io::request& request,
+                                                    core::cancel_reason, bool retain) {
             auto* bridge = static_cast<async_bridge*>(request.device_state());
-            if (bridge != nullptr && bridge->owner != nullptr)
-                bridge->owner->cancel(*bridge);
+            if (bridge != nullptr)
+                cancel(*bridge, request, retain);
         }
 
         blkdev_adapter::~blkdev_adapter() {
-            for (async_bridge& bridge : registration_.bridges)
-                if (bridge.owner == this)
-                    cancel(bridge);
+            for (async_bridge& bridge : registration_.bridges) {
+                io::request* request = nullptr;
+                {
+                    core::spinlock_guard guard(registration_.bridge_lock);
+                    if (bridge.owner == this && bridge.request != nullptr) {
+                        bridge.closing = true;
+                        request        = bridge.request;
+                    }
+                }
+                if (request != nullptr)
+                    cancel(bridge, *request, false, true);
+                for (;;) {
+                    bool callbacks = false;
+                    {
+                        core::spinlock_guard guard(registration_.bridge_lock);
+                        callbacks = bridge.callbacks != 0;
+                    }
+                    if (!callbacks)
+                        break;
+                    ASTIA_CPU_RELAX();
+                }
+            }
         }
 
         arch::interrupt_vector route_vector(const astia_module_msix_route& route) {
@@ -1033,16 +1200,24 @@ namespace astia::mod {
     bool register_pci_block_driver(const astia_module_pci_block_driver& ops) {
         if (ops.name == nullptr || ops.name[0] == '\0' || ops.device_path == nullptr ||
             ops.device_path[0] == '\0' || ops.match == nullptr || ops.probe == nullptr ||
-            ops.size == nullptr || ops.block_size == nullptr || ops.read == nullptr ||
-            registration_count == max_registrations)
+            ops.size == nullptr || ops.block_size == nullptr || ops.read == nullptr)
             return false;
-        registration& slot = registrations[registration_count++];
-        slot.ops           = &ops;
-        slot.instance      = ::new (slot.storage) driver(slot);
+        const auto acquisition = detail::acquire_registration_slot(
+            registrations, registration_count, max_registrations);
+        if (acquisition.index == max_registrations)
+            return false;
+        registration& slot  = registrations[acquisition.index];
+        slot.ops            = &ops;
+        slot.instance       = ::new (slot.storage) driver(slot);
+        slot.selftest_done  = false;
+        slot.live_lifetimes = 0;
+        slot.owner          = current_module();
         if (!hw::drivers().register_driver(*slot.instance)) {
             slot.instance->~driver();
             slot.instance = nullptr;
-            --registration_count;
+            slot.owner    = nullptr;
+            slot.ops      = nullptr;
+            detail::rollback_registration_slot(registration_count, acquisition);
             return false;
         }
         return true;
@@ -1050,15 +1225,22 @@ namespace astia::mod {
 
     bool register_pci_driver(const astia_module_pci_driver& ops) {
         if (ops.name == nullptr || ops.name[0] == '\0' || ops.match == nullptr ||
-            ops.probe == nullptr || pci_registration_count == max_registrations)
+            ops.probe == nullptr)
             return false;
-        pci_registration& slot = pci_registrations[pci_registration_count++];
+        const auto acquisition = detail::acquire_registration_slot(
+            pci_registrations, pci_registration_count, max_registrations);
+        if (acquisition.index == max_registrations)
+            return false;
+        pci_registration& slot = pci_registrations[acquisition.index];
         slot.ops               = &ops;
         slot.instance          = ::new (slot.storage) pci_driver(ops);
+        slot.owner             = current_module();
         if (!hw::drivers().register_driver(*slot.instance)) {
             slot.instance->~pci_driver();
             slot.instance = nullptr;
-            --pci_registration_count;
+            slot.owner    = nullptr;
+            slot.ops      = nullptr;
+            detail::rollback_registration_slot(pci_registration_count, acquisition);
             return false;
         }
         return true;
@@ -1066,16 +1248,23 @@ namespace astia::mod {
 
     bool register_pci_net_driver(const astia::module::net_driver& ops) {
         if (ops.name == nullptr || ops.name[0] == '\0' || ops.match == nullptr ||
-            ops.probe == nullptr || net_registration_count == max_registrations)
+            ops.probe == nullptr)
             return false;
-        net_registration& slot = net_registrations[net_registration_count++];
+        const auto acquisition = detail::acquire_registration_slot(
+            net_registrations, net_registration_count, max_registrations);
+        if (acquisition.index == max_registrations)
+            return false;
+        net_registration& slot = net_registrations[acquisition.index];
         slot.ops               = &ops;
         slot.instance          = ::new (slot.storage) net_driver(ops);
+        slot.selftest_done     = false;
+        slot.owner             = current_module();
         if (!hw::drivers().register_driver(*slot.instance)) {
             slot.instance->~net_driver();
             slot.instance = nullptr;
             slot.ops      = nullptr;
-            --net_registration_count;
+            slot.owner    = nullptr;
+            detail::rollback_registration_slot(net_registration_count, acquisition);
             return false;
         }
         return true;
@@ -1083,19 +1272,83 @@ namespace astia::mod {
 
     bool register_usb_driver(const astia_module_usb_driver& ops) {
         if (ops.name == nullptr || ops.name[0] == '\0' || ops.match == nullptr ||
-            ops.probe == nullptr || usb_registration_count == max_registrations)
+            ops.probe == nullptr)
             return false;
-        usb_registration& slot = usb_registrations[usb_registration_count++];
+        const auto acquisition = detail::acquire_registration_slot(
+            usb_registrations, usb_registration_count, max_registrations);
+        if (acquisition.index == max_registrations)
+            return false;
+        usb_registration& slot = usb_registrations[acquisition.index];
         slot.ops               = &ops;
         slot.instance          = ::new (slot.storage) usb_driver(slot);
+        slot.owner             = current_module();
         if (!hw::drivers().register_driver(*slot.instance)) {
             slot.instance->~usb_driver();
             slot.instance = nullptr;
             slot.ops      = nullptr;
-            --usb_registration_count;
+            slot.owner    = nullptr;
+            detail::rollback_registration_slot(usb_registration_count, acquisition);
             return false;
         }
         return true;
+    }
+
+    bool teardown_module(const loaded_module& module) {
+        bool result = true;
+        for (u32 i = 0; i < registration_count; ++i) {
+            registration& slot = registrations[i];
+            if (slot.owner != &module)
+                continue;
+            if (slot.instance != nullptr) {
+                result = hw::drivers().unregister_driver(*slot.instance) && result;
+                slot.instance->~driver();
+                slot.instance = nullptr;
+            }
+            if (slot.live_lifetimes == 0) {
+                slot.owner = nullptr;
+                slot.ops   = nullptr;
+            }
+            else {
+                result = false;
+            }
+        }
+        for (u32 i = 0; i < pci_registration_count; ++i) {
+            pci_registration& slot = pci_registrations[i];
+            if (slot.owner != &module)
+                continue;
+            if (slot.instance != nullptr) {
+                result = hw::drivers().unregister_driver(*slot.instance) && result;
+                slot.instance->~pci_driver();
+                slot.instance = nullptr;
+            }
+            slot.owner = nullptr;
+            slot.ops   = nullptr;
+        }
+        for (u32 i = 0; i < net_registration_count; ++i) {
+            net_registration& slot = net_registrations[i];
+            if (slot.owner != &module)
+                continue;
+            if (slot.instance != nullptr) {
+                result = hw::drivers().unregister_driver(*slot.instance) && result;
+                slot.instance->~net_driver();
+                slot.instance = nullptr;
+            }
+            slot.owner = nullptr;
+            slot.ops   = nullptr;
+        }
+        for (u32 i = 0; i < usb_registration_count; ++i) {
+            usb_registration& slot = usb_registrations[i];
+            if (slot.owner != &module)
+                continue;
+            if (slot.instance != nullptr) {
+                result = hw::drivers().unregister_driver(*slot.instance) && result;
+                slot.instance->~usb_driver();
+                slot.instance = nullptr;
+            }
+            slot.owner = nullptr;
+            slot.ops   = nullptr;
+        }
+        return result;
     }
 
     bool async_handle_checks() {
@@ -1154,11 +1407,10 @@ namespace astia::mod {
         return astia_module_io_complete(reinterpret_cast<void*>(1), 0) == -ECANCELED;
     }
 
-    bool run_selftests() {
-        if (!invalid_handle_checks())
-            return false;
+    bool run_registration_selftests() {
         for (u32 i = 0; i < registration_count; ++i) {
-            if (registrations[i].ops->selftest == nullptr ||
+            if (registrations[i].instance == nullptr || registrations[i].ops == nullptr ||
+                registrations[i].ops->selftest == nullptr ||
                 registrations[i].selftest_done)
                 continue;
             const bool interrupts = arch::cpu::check_interrupts();
@@ -1172,7 +1424,9 @@ namespace astia::mod {
             registrations[i].selftest_done = true;
         }
         for (u32 i = 0; i < net_registration_count; ++i) {
-            if (net_registrations[i].ops->selftest == nullptr ||
+            if (net_registrations[i].instance == nullptr ||
+                net_registrations[i].ops == nullptr ||
+                net_registrations[i].ops->selftest == nullptr ||
                 net_registrations[i].selftest_done)
                 continue;
             const bool interrupts = arch::cpu::check_interrupts();
@@ -1185,6 +1439,12 @@ namespace astia::mod {
                 return false;
             net_registrations[i].selftest_done = true;
         }
+        return true;
+    }
+
+    bool run_selftests() {
+        if (!invalid_handle_checks() || !run_registration_selftests())
+            return false;
         for (u32 i = 0; i < hw::drivers().driver_count(); ++i) {
             hw::driver* value = hw::drivers().driver_at(i);
             if (value == nullptr)
@@ -1200,6 +1460,12 @@ namespace astia::mod {
         }
         return true;
     }
+
+#ifdef ASTIA_MODULE_HOST_TEST
+    bool run_registration_selftests_for_test() {
+        return run_registration_selftests();
+    }
+#endif
 
 } // namespace astia::mod
 
@@ -1622,19 +1888,39 @@ extern "C" int astia_module_write_registered_async(const char* path, const void*
 }
 
 extern "C" int astia_module_io_complete(void* opaque, int64_t result) {
-    auto* bridge = find_bridge(opaque);
-    if (bridge == nullptr || !bridge->used || bridge->owner == nullptr ||
-        bridge->canceled || bridge->request == nullptr)
+    u32 registration_index = 0;
+    u32 bridge_index       = 0;
+    u32 generation         = 0;
+    if (!decode_async_handle(opaque, registration_index, bridge_index, generation) ||
+        registration_index >= registration_count)
         return -ECANCELED;
-    if (bridge->completed || bridge->completion_deferred)
-        return -EALREADY;
-    if (arch::cpu::in_interrupt()) {
-        bridge->deferred_result     = result;
-        bridge->completion_deferred = true;
-        bridge->owner->wake(*bridge);
+    registration&   registration = registrations[registration_index];
+    async_bridge*   bridge       = &registration.bridges[bridge_index];
+    blkdev_adapter* owner        = nullptr;
+    const bool      interrupt    = arch::cpu::in_interrupt();
+    {
+        core::spinlock_guard guard(registration.bridge_lock);
+        if (!bridge_handle_matches(*bridge, registration_index, bridge_index, opaque) ||
+            bridge->registration_owner != &registration || bridge->owner == nullptr ||
+            bridge->request == nullptr)
+            return -ECANCELED;
+        if (bridge->completed || bridge->completion_deferred)
+            return -EALREADY;
+        owner = bridge->owner;
+        ++bridge->callbacks;
+        if (interrupt) {
+            bridge->deferred_result     = result;
+            bridge->completion_deferred = true;
+        }
+    }
+    if (interrupt) {
+        owner->wake(*bridge);
+        release_bridge_callback(registration, *bridge);
         return -EWOULDBLOCK;
     }
-    return bridge->owner->complete(*bridge, result) ? 0 : -EALREADY;
+    const bool completed = owner->complete(*bridge, result);
+    release_bridge_callback(registration, *bridge);
+    return completed ? 0 : -EALREADY;
 }
 
 extern "C" int astia_module_get_callback_context(void) {

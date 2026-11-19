@@ -29,25 +29,27 @@ namespace astia::sys::aio_readiness {
                 }
             if (p == nullptr)
                 return cq_post_guarded(ring, s.user_data, -EBUSY);
-            p->used                   = true;
-            p->done                   = false;
-            p->resuming               = false;
-            p->control                = true;
-            p->signal_interruptible  = true;
-            p->readiness              = true;
-            p->poll_events            = s.aux;
-            p->fd                     = s.fd;
-            p->object                 = object;
-            p->request                = io::request(nullptr, 0, 0, s.user_data, io::direction::input);
-            publish_waiter_hint(slot, park_index, object->node().get());
+            p->used                 = true;
+            p->done                 = false;
+            p->resuming             = false;
+            p->control              = true;
+            p->signal_interruptible = true;
+            p->readiness            = true;
+            p->poll_events          = s.aux;
+            p->fd                   = s.fd;
+            p->object               = object;
+            p->operation.reset(nullptr, 0, 0, s.user_data, io::direction::input);
+            p->generation = aio_dispatch::issue_request_generation();
+            p->operation.request().generation(p->generation);
+            publish_waiter_hint(slot, park_index, object->node().get(), p->generation);
             if (ready_generation() != generation)
                 aio_dispatch::resume_parked(proc::current_process(), ring, *p);
             return true;
         }
 
         bool handle_sleep(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            if (s.fd != -1 || (s.address == 0 ? s.length != 0
-                                              : s.length != sizeof(u64)) ||
+            if (s.fd != -1 ||
+                (s.address == 0 ? s.length != 0 : s.length != sizeof(u64)) ||
                 (s.op_flags & ~SLEEP_ABSOLUTE) != 0 || s.aux != 0)
                 return cq_post_guarded(ring, s.user_data, -EINVAL);
             if (s.address != 0 &&
@@ -70,20 +72,19 @@ namespace astia::sys::aio_readiness {
             if (p == nullptr)
                 return cq_post_guarded(ring, s.user_data, -EBUSY);
 
-            p->used                  = true;
-            p->done                  = false;
-            p->resuming              = false;
-            p->control               = true;
+            p->used                 = true;
+            p->done                 = false;
+            p->resuming             = false;
+            p->control              = true;
             p->signal_interruptible = true;
-            p->sleeping              = true;
-            p->sleep_absolute        = absolute;
-            p->sleep_deadline        = absolute
-                                           ? s.offset
-                                           : (UINT64_MAX - now < s.offset ? UINT64_MAX
-                                                                           : now + s.offset);
+            p->sleeping             = true;
+            p->sleep_absolute       = absolute;
+            p->sleep_deadline =
+                absolute ? s.offset
+                         : (UINT64_MAX - now < s.offset ? UINT64_MAX : now + s.offset);
             p->sleep_remaining_user = absolute ? 0 : s.address;
             p->fd                   = -1;
-            p->request              = io::request(nullptr, 0, 0, s.user_data, io::direction::input);
+            p->operation.reset(nullptr, 0, 0, s.user_data, io::direction::input);
             return true;
         }
 

@@ -17,7 +17,7 @@ add_custom_command(
                 -std=c++20 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie
                 -fno-exceptions -fno-rtti -fno-threadsafe-statics
                 -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
-                -mcmodel=large -fno-asynchronous-unwind-tables -fno-use-cxa-atexit
+                -mcmodel=large -fno-asynchronous-unwind-tables
                 -Wall -Wextra -Werror -pedantic
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${CMAKE_CURRENT_SOURCE_DIR}

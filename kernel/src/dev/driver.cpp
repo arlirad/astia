@@ -15,6 +15,39 @@ namespace astia::hw {
         return true;
     }
 
+    bool driver_registry::unregister_driver(driver& value) {
+        u32 driver_index = _driver_count;
+        for (u32 i = 0; i < _driver_count; ++i) {
+            if (_drivers[i] == &value) {
+                driver_index = i;
+                break;
+            }
+        }
+        if (driver_index == _driver_count)
+            return false;
+
+        const u32 old_count = _device_count;
+        u32       write     = 0;
+        for (u32 read = 0; read < old_count; ++read) {
+            if (_bindings[read]._driver_instance == &value) {
+                value.remove(*_bindings[read]._device_info_instance);
+                _bindings[read] = {};
+                continue;
+            }
+            if (write != read)
+                _bindings[write] = static_cast<binding&&>(_bindings[read]);
+            ++write;
+        }
+        for (u32 i = write; i < old_count; ++i)
+            _bindings[i] = {};
+        _device_count = write;
+
+        for (u32 i = driver_index; i + 1 < _driver_count; ++i)
+            _drivers[i] = _drivers[i + 1];
+        _drivers[--_driver_count] = nullptr;
+        return true;
+    }
+
     bool driver_registry::bind(mm::shptr<device_info> info) {
         if (!info)
             return false;
@@ -31,7 +64,7 @@ namespace astia::hw {
             if (!candidate_driver.probe(*info)) {
                 continue;
             }
-            product_handle product = candidate_driver.publish(*info);
+            product_handle product     = candidate_driver.publish(*info);
             _bindings[_device_count++] = {&candidate_driver,
                                           static_cast<mm::shptr<device_info>&&>(info),
                                           static_cast<product_handle&&>(product)};

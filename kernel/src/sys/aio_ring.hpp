@@ -2,7 +2,6 @@
 
 #include "aio.hpp"
 #include "proc.hpp"
-
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
@@ -15,15 +14,16 @@
 namespace astia::sys::aio_ring {
 
     inline constexpr u32 slot_count = resource_limits::queue::aio_ring_slots;
-    inline constexpr u32 parked_slot_count = resource_limits::queue::aio_parked_operations;
-    inline constexpr u32 kernel_ring_slot_count = slot_count;
-    inline constexpr u32 parked_operation_slots = parked_slot_count;
+    inline constexpr u32 parked_slot_count =
+        resource_limits::queue::aio_parked_operations;
+    inline constexpr u32   kernel_ring_slot_count = slot_count;
+    inline constexpr u32   parked_operation_slots = parked_slot_count;
     inline constexpr usize mapping_bytes =
         sizeof(astia_rings) + sizeof(astia_sq_ring) + sizeof(astia_cq_ring) +
         sizeof(astia_sqe) * kernel_ring_max_entries +
         sizeof(astia_cqe) * (2 * kernel_ring_max_entries);
-    inline constexpr usize mapping_pages = align_up(mapping_bytes, mm::page_size) /
-                                           mm::page_size;
+    inline constexpr usize mapping_pages =
+        align_up(mapping_bytes, mm::page_size) / mm::page_size;
     inline constexpr u32 user_mapping_pages = static_cast<u32>(mapping_pages);
 
     struct ring_lock {
@@ -33,6 +33,11 @@ namespace astia::sys::aio_ring {
 
         void acquire();
         void release();
+    };
+
+    struct waiter_snapshot {
+        bool indexed    = false;
+        u64  generation = 0;
     };
 
     class ring_guard {
@@ -54,35 +59,67 @@ namespace astia::sys::aio_ring {
 
     struct parked_op {
         bool                     used;
-        bool                     done                  = false;
-        bool                     resuming              = false;
-        bool                     control               = false;
-        bool                     signal_interruptible  = false;
-        bool                     socket_accept         = false;
-        bool                     readiness             = false;
-        bool                     sleeping              = false;
-        bool                     timed                 = false;
-        bool                     poll_timed            = false;
-        bool                     sleep_absolute        = false;
-        bool                     sleep_ready           = false;
-        bool                     device_ready          = false;
-        u32                      poll_events           = 0;
-        u64                      sleep_deadline        = 0;
-        u64                      timeout_deadline      = 0;
-        u64                      poll_deadline         = 0;
-        u64                      sleep_remaining_user  = 0;
-        bool                     recvfrom_address      = false;
-        u64                      recvfrom_address_user = 0;
-        bool                     pending_cqe           = false;
-        u64                      pending_user_data     = 0;
+        bool                     done                   = false;
+        bool                     resuming               = false;
+        bool                     control                = false;
+        bool                     signal_interruptible   = false;
+        bool                     socket_accept          = false;
+        bool                     readiness              = false;
+        bool                     sleeping               = false;
+        bool                     timed                  = false;
+        bool                     poll_timed             = false;
+        bool                     sleep_absolute         = false;
+        bool                     sleep_ready            = false;
+        bool                     device_ready           = false;
+        u32                      poll_events            = 0;
+        u64                      sleep_deadline         = 0;
+        u64                      timeout_deadline       = 0;
+        u64                      poll_deadline          = 0;
+        u64                      sleep_remaining_user   = 0;
+        bool                     recvfrom_address       = false;
+        u64                      recvfrom_address_user  = 0;
+        bool                     pending_cqe            = false;
+        bool                     cancellation_requested = false;
+        u64                      pending_user_data      = 0;
         i32                      pending_result         = 0;
         i32                      fd;
         mm::shptr<fs::open_file> object;
         mm::iovec                entries;
-        io::request               request;
-        io::flight*               flight = nullptr;
+        io::operation            operation;
         u64                      generation = 0;
-        usize                    moved = 0;
+        usize                    moved      = 0;
+
+        void clear() {
+            operation.reset(nullptr, 0, 0, 0, io::direction::input);
+            used                   = false;
+            done                   = false;
+            resuming               = false;
+            control                = false;
+            signal_interruptible   = false;
+            socket_accept          = false;
+            readiness              = false;
+            sleeping               = false;
+            timed                  = false;
+            poll_timed             = false;
+            sleep_absolute         = false;
+            sleep_ready            = false;
+            device_ready           = false;
+            poll_events            = 0;
+            sleep_deadline         = 0;
+            timeout_deadline       = 0;
+            poll_deadline          = 0;
+            sleep_remaining_user   = 0;
+            recvfrom_address       = false;
+            recvfrom_address_user  = 0;
+            pending_cqe            = false;
+            cancellation_requested = false;
+            pending_user_data      = 0;
+            pending_result         = 0;
+            fd                     = 0;
+            object                 = {};
+            generation             = 0;
+            moved                  = 0;
+        }
     };
 
     struct parked_cleanup {
@@ -111,7 +148,7 @@ namespace astia::sys::aio_ring {
 
     extern ring_slot* g_slots[slot_count];
     extern ring_lock  g_ring_pool_lock;
-    extern u8 slot_storage[slot_count][sizeof(ring_slot)];
+    extern u8         slot_storage[slot_count][sizeof(ring_slot)];
 
     astia_rings* rings_of(const ring_slot& slot);
     ring_slot*   slot_of(const astia_rings* ring);
@@ -131,9 +168,10 @@ namespace astia::sys::aio_ring {
     u64  ready_generation();
     void note_device_ready(const fs::file* device);
     void clear_waiter_hint(const ring_slot& slot, u32 park_index);
-    void publish_waiter_hint(const ring_slot& slot, u32 park_index, const fs::file* key);
+    void publish_waiter_hint(const ring_slot& slot, u32 park_index, const fs::file* key,
+                             u64 generation);
     void snapshot_waiters(const fs::file* key,
-                          bool (&indexed)[slot_count][parked_slot_count]);
+                          waiter_snapshot (&indexed)[slot_count][parked_slot_count]);
 
     long setup(u32 entries, u32 flags, astia_rings** out);
     long destroy(astia_rings* ring);

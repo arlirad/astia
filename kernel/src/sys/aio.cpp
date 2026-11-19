@@ -1,8 +1,9 @@
 #include "aio.hpp"
+
+#include "aio_dispatch.hpp"
 #include "aio_ring.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
-#include "aio_dispatch.hpp"
 
 namespace astia::sys {
 
@@ -90,11 +91,11 @@ namespace astia::sys {
             return;
         }
         note_device_ready(dev);
-        bool indexed[kernel_ring_slot_count][parked_operation_slots]{};
+        waiter_snapshot indexed[kernel_ring_slot_count][parked_operation_slots]{};
         snapshot_waiters(dev, indexed);
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
-                if (!indexed[i][p])
+                if (!indexed[i][p].indexed)
                     continue;
                 ring_guard pool_guard(g_ring_pool_lock);
                 ring_slot* slot_ptr = g_slots[i];
@@ -104,8 +105,10 @@ namespace astia::sys {
                 ring_guard ring_lock_guard(slot.lock);
                 pool_guard.release_lock();
                 parked_op& op = slot.park[p];
-                if (op.used && !op.done && op.object && op.object->node().get() == dev &&
-                    op.request.user_data() != excluded_user_data)
+                if (op.used && !op.done && op.generation == indexed[i][p].generation &&
+                    op.operation.request().generation() == indexed[i][p].generation &&
+                    op.object && op.object->node().get() == dev &&
+                    op.operation.request().user_data() != excluded_user_data)
                     op.device_ready = true;
             }
         }
@@ -123,11 +126,12 @@ namespace astia::sys {
                 ring_slot& slot = *slot_ptr;
                 ring_guard ring_lock_guard(slot.lock);
                 pool_guard.release_lock();
-                parked_op& op = slot.park[p];
+                parked_op&     op    = slot.park[p];
                 proc::process* owner = slot.owner.get();
                 if (op.used && !op.done &&
-                    (op.device_ready || op.sleep_ready || op.request.timeout_expired() ||
-                     op.request.poll_wakeup())) {
+                    (op.device_ready || op.sleep_ready ||
+                     op.operation.request().timeout_expired() ||
+                     op.operation.request().poll_wakeup())) {
                     op.device_ready = false;
                     if (op.sleep_ready) {
                         op.sleep_ready = false;
@@ -182,11 +186,11 @@ namespace astia::sys {
                 }
                 if (op.used && !op.done && op.timed && now >= op.timeout_deadline) {
                     op.timed = false;
-                    op.request.timeout_expired(true);
+                    op.operation.request().timeout_expired(true);
                 }
                 if (op.used && !op.done && op.poll_timed && now >= op.poll_deadline) {
                     op.poll_timed = false;
-                    op.request.poll_wakeup(true);
+                    op.operation.request().poll_wakeup(true);
                 }
             }
         }

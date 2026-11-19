@@ -31,7 +31,7 @@ registry compaction.
 | `module_abi.h` | Aggregate include; it does not add another ABI surface. |
 
 The typed C++ block contract is separate from the C headers. It consists of
-`io::request`, `io::flight`, `mm::dma_buffer`, `dev::blk::blkdev`, and
+`io::request`, `io::operation`, `mm::dma_buffer`, `dev::blk::blkdev`, and
 `hw::driver`. A module must not retain a request, DMA buffer, endpoint product,
 or callback context after its owning remove path has completed.
 

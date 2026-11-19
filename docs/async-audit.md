@@ -58,7 +58,7 @@ the CQ head, preserving one CQE and one device submission.
 
 ### Fixed — parked `fs_async` request has no destruction cancellation
 
-`io_packet` now owns a heap-backed `io_flight` with explicit device retain,
+`io_packet` now owns an embedded `io::operation` with explicit device retain,
 cancel, active-use, and acknowledgement states. Task destruction cancels the
 flight and releases only the owner reference; a parked device must
 acknowledge before request/completion storage is reclaimed.

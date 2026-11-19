@@ -3,8 +3,8 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/common.hpp>
-#include <astia/core/task.hpp>
 #include <astia/core/spinlock.hpp>
+#include <astia/core/task.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/share.hpp>
@@ -233,28 +233,28 @@ namespace astia::fs {
     class file {
         public:
         virtual ~file() = default;
-        virtual long             read(void* buf, u32 len, u64 offset);
-        virtual long             write(const void* buf, u32 len, u64 offset);
-        virtual long             submit(io::request& request);
-        virtual u32              poll(u32 events, u32 flags);
-        virtual long             ioctl(u64 request, void* argp, usize size);
-        virtual long             acquire_controlling_terminal(i32 group);
-        virtual long             size() const;
-        virtual u32              block_size() const;
-        virtual long             truncate(u64 length);
-        virtual long             sync();
-        virtual long             sync_mapping(mm::phys_region* mapping, u64 offset,
-                                               u64 length, u32 flags);
-        virtual u64              inode() const;
-        virtual u32              nlink() const;
-        virtual file_mode        mode() const;
-        virtual uid_t            uid() const;
-        virtual gid_t            gid() const;
-        virtual long             chmod(file_permissions permissions);
-        virtual long             chown(uid_t owner, gid_t group);
-        virtual u64              mtime_sec() const;
-        virtual u64              mtime_nsec() const;
-        virtual long             touch(u64 sec, u64 nsec);
+        virtual long      read(void* buf, u32 len, u64 offset);
+        virtual long      write(const void* buf, u32 len, u64 offset);
+        virtual long      submit(io::request& request);
+        virtual u32       poll(u32 events, u32 flags);
+        virtual long      ioctl(u64 request, void* argp, usize size);
+        virtual long      acquire_controlling_terminal(i32 group);
+        virtual long      size() const;
+        virtual u32       block_size() const;
+        virtual long      truncate(u64 length);
+        virtual long      sync();
+        virtual long      sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
+                                       u32 flags);
+        virtual u64       inode() const;
+        virtual u32       nlink() const;
+        virtual file_mode mode() const;
+        virtual uid_t     uid() const;
+        virtual gid_t     gid() const;
+        virtual long      chmod(file_permissions permissions);
+        virtual long      chown(uid_t owner, gid_t group);
+        virtual u64       mtime_sec() const;
+        virtual u64       mtime_nsec() const;
+        virtual long      touch(u64 sec, u64 nsec);
         virtual mm::phys_region* memory_region();
         virtual void             duplicate(u32 flags);
         virtual void             close(u32 flags);
@@ -317,19 +317,18 @@ namespace astia::fs {
         void set_status_flags(u32 flags) {
             _flags = (_flags & ~open_file_status_mask) | (flags & open_file_status_mask);
         }
-        long             ioctl(u64 request, void* argp, usize size);
-        long             acquire_controlling_terminal(i32 group);
-        long             size() const;
-        u32              block_size() const {
+        long ioctl(u64 request, void* argp, usize size);
+        long acquire_controlling_terminal(i32 group);
+        long size() const;
+        u32  block_size() const {
             return _object ? _object->block_size() : 0;
         }
-        long             truncate(u64 length);
-        long             sync() {
+        long truncate(u64 length);
+        long sync() {
             return !_object ? -EBADF : _object->sync();
         }
-        long             chmod(file_permissions permissions);
-        long             sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
-                                      u32 flags);
+        long chmod(file_permissions permissions);
+        long sync_mapping(mm::phys_region* mapping, u64 offset, u64 length, u32 flags);
         mm::phys_region* mapping() const;
         file_mode        mode() const;
         const char*      path() const {
@@ -350,10 +349,10 @@ namespace astia::fs {
         struct shared_position {
             explicit shared_position(u64 initial) : value(initial) {}
 
-            u64              value;
-            u64              append_position = 0;
-            bool             append_initialized = false;
-            core::spinlock   append_lock;
+            u64            value;
+            u64            append_position    = 0;
+            bool           append_initialized = false;
+            core::spinlock append_lock;
         };
 
         mm::shptr<shared_position> position_state() const {
@@ -375,46 +374,64 @@ namespace astia::fs {
         }
         long reserve_append(u32 length, u64* offset);
 
-        mm::shptr<file> _object;
-        u64             _position = 0;
+        mm::shptr<file>                    _object;
+        u64                                _position = 0;
         mutable mm::shptr<shared_position> _position_state;
-        u32             _flags;
-        file_mode       _mode{};
-        bool            _has_path = false;
-        char            _path[path_max]{};
-        mount*          _mount = nullptr;
+        u32                                _flags;
+        file_mode                          _mode{};
+        bool                               _has_path = false;
+        char                               _path[path_max]{};
+        mount*                             _mount = nullptr;
     };
 
-    /// Owns one in-flight kernel I/O operation. The request is stable for the
-    /// whole device flight; its completion is owned by the request itself.
+    /// Owns one in-flight kernel I/O operation. The operation and its request
+    /// stay at one address until terminal completion or cancellation ack.
     class io_packet {
         public:
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
-                  io::direction direction, mm::uptr<core::async_operation<i64>> completion)
-            : file_(file), flight_(new io::flight(buffer, length, offset, direction,
-                                                 static_cast<mm::uptr<core::async_operation<i64>>&&>(completion))) {}
+                  io::direction                        direction,
+                  mm::uptr<core::async_operation<i64>> completion)
+            : file_(file),
+              operation_(new io::operation(
+                  buffer, length, offset, direction,
+                  static_cast<mm::uptr<core::async_operation<i64>>&&>(completion),
+                  true)) {}
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
                   io::direction direction)
-            : file_(file), flight_(new io::flight(buffer, length, offset, direction)) {}
+            : file_(file),
+              operation_(new io::operation(buffer, length, offset, direction, {}, true)) {
+        }
 
         ~io_packet() {
-            if (flight_ != nullptr)
-                flight_->cancel_owner();
+            if (operation_ != nullptr)
+                operation_->release_owner();
         }
 
         io_packet(const io_packet&)            = delete;
         io_packet& operator=(const io_packet&) = delete;
 
-        explicit operator bool() const { return flight_ != nullptr; }
-        long submit() { return file_ && flight_ ? file_->submit(flight_->request()) : -EBADF; }
-        io::request& request() { return flight_->request(); }
-        const io::request& request() const { return flight_->request(); }
-        core::async_operation<i64>* completion() const { return request().completion(); }
-        const mm::shptr<open_file>& file() const { return file_; }
+        explicit operator bool() const {
+            return static_cast<bool>(file_) && operation_ != nullptr;
+        }
+        long submit() {
+            return file_ ? file_->submit(operation_->request()) : -EBADF;
+        }
+        io::request& request() {
+            return operation_->request();
+        }
+        const io::request& request() const {
+            return operation_->request();
+        }
+        core::async_operation<i64>* completion() const {
+            return request().completion();
+        }
+        const mm::shptr<open_file>& file() const {
+            return file_;
+        }
 
         private:
         mm::shptr<open_file> file_;
-        io::flight*           flight_;
+        io::operation*       operation_ = nullptr;
     };
 
     core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,
@@ -476,8 +493,8 @@ namespace astia::fs {
     long      unix_chown_path(const char* canonical, mount* owner, uid_t uid, gid_t gid);
     long read_unix_directory(const char* directory, mount* owner, u64 index, char* name,
                              u32 capacity, file_type* type);
-    long open_shared_memory(const char* path, u32 flags, file_mode mode, uid_t uid, gid_t gid,
-                            uid_t euid, gid_t egid, bool privileged,
+    long open_shared_memory(const char* path, u32 flags, file_mode mode, uid_t uid,
+                            gid_t gid, uid_t euid, gid_t egid, bool privileged,
                             mm::shptr<open_file>& result);
     long unlink_shared_memory(const char* path);
 

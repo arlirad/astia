@@ -1,20 +1,26 @@
-#include <astia/mm/dma_buffer.hpp>
 #include <astia/io.hpp>
+#include <astia/mm/dma_buffer.hpp>
 
 #include <cassert>
 
 namespace {
-    unsigned dma_release_count = 0;
+    unsigned    dma_release_count = 0;
     const void* released_dma[64]{};
-    unsigned released_dma_count = 0;
+    unsigned    released_dma_count = 0;
 }
 
 namespace astia::mm {
 
     dma_buffer::dma_buffer(dma_buffer&&) noexcept {}
-    dma_buffer& dma_buffer::operator=(dma_buffer&&) noexcept { return *this; }
-    dma_buffer::~dma_buffer() { release(); }
-    bool dma_buffer::allocate(usize, bool) { return false; }
+    dma_buffer& dma_buffer::operator=(dma_buffer&&) noexcept {
+        return *this;
+    }
+    dma_buffer::~dma_buffer() {
+        release();
+    }
+    bool dma_buffer::allocate(usize, bool) {
+        return false;
+    }
     void dma_buffer::release() {
         for (unsigned i = 0; i < released_dma_count; ++i)
             if (released_dma[i] == this)
@@ -37,22 +43,35 @@ extern "C" int astia_module_pci_msix_release(astia_module_msix_route*) {
 
 namespace {
 
-    void retain_cancel(astia::io::request&) {}
+    class acknowledgement_observer final : public astia::io::cancellation_observer {
+        public:
+        explicit acknowledgement_observer(unsigned& count) : count_(count) {}
+        void cancellation_acknowledged(astia::io::request&) override {
+            ++count_;
+        }
 
-    void count_ack(astia::io::request&, void* context) {
-        ++*static_cast<unsigned*>(context);
-    }
+        private:
+        unsigned& count_;
+    };
+
+    class retain_handler final : public astia::io::cancellation_handler {
+        public:
+        void cancellation_requested(astia::io::request&, astia::core::cancel_reason,
+                                    bool) override {}
+    };
 
 }
 
 int main() {
-    controller value{};
-    astia::io::request request(nullptr, 512, 0, 0, astia::io::direction::input);
-    unsigned acknowledgements = 0;
-    request.cancel_observer_set(count_ack, &acknowledgements);
-    request.cancel_handler_set(retain_cancel);
-    auto& pending = value.async_requests[0];
-    pending.used = true;
+    controller               value{};
+    astia::io::request       request(nullptr, 512, 0, 0, astia::io::direction::input);
+    unsigned                 acknowledgements = 0;
+    acknowledgement_observer observer(acknowledgements);
+    retain_handler           handler;
+    request.cancellation_observer_set(&observer);
+    request.cancellation_handler_set(&handler);
+    auto& pending   = value.async_requests[0];
+    pending.used    = true;
     pending.request = &request;
 
     assert(request.cancel_device(true));

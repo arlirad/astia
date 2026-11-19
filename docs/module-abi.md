@@ -15,8 +15,10 @@ table; a null pair keeps the single-namespace behavior. Modules must be
 rebuilt for every ABI version change because registration receives a pointer
 to the complete table and does not carry a runtime table length.
 
-ET_REL modules are built with static-destructor registration disabled because
-the loader owns module lifetime and does not run C++ termination arrays.
+ET_REL modules use the freestanding C++ ABI lifecycle. The loader runs
+validated `.init_array` entries, registers static destructors with
+`__cxa_atexit`, and calls `__cxa_finalize` with the module's private DSO
+handle before running `.fini_array` entries and releasing the image.
 Drivers still release DMA, interrupt, and asynchronous resources explicitly
 before their remove callback returns; local C++ RAII wrappers remain valid for
 scoped ownership.

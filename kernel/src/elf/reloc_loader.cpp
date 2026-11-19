@@ -14,6 +14,55 @@ namespace astia::elf {
             return *a == *b;
         }
 
+        bool array_priority(const char* name, usize name_size, const char* base,
+                            u16& priority) {
+            usize i = 0;
+            while (base[i] != '\0') {
+                if (i == name_size || name[i] != base[i])
+                    return false;
+                ++i;
+            }
+            if (i == name_size) {
+                priority = 65535;
+                return true;
+            }
+            if (name[i] != '.' || i + 1 == name_size)
+                return false;
+            ++i;
+            u32 value = 0;
+            for (; i != name_size; ++i) {
+                if (name[i] < '0' || name[i] > '9')
+                    return false;
+                const u32 digit = static_cast<u32>(name[i] - '0');
+                if (value > (65535u - digit) / 10u)
+                    return false;
+                value = value * 10u + digit;
+            }
+            priority = static_cast<u16>(value);
+            return true;
+        }
+
+        struct array_section {
+            const u8* data;
+            usize     count;
+            u16       index;
+            u16       priority;
+        };
+
+        void sort_array_sections(array_section* sections, usize count) {
+            for (usize i = 1; i < count; ++i) {
+                const array_section current = sections[i];
+                usize               j       = i;
+                while (j != 0 && (current.priority < sections[j - 1].priority ||
+                                  (current.priority == sections[j - 1].priority &&
+                                   current.index < sections[j - 1].index))) {
+                    sections[j] = sections[j - 1];
+                    --j;
+                }
+                sections[j] = current;
+            }
+        }
+
     } // namespace
 
     // ========================================================================
@@ -25,6 +74,7 @@ namespace astia::elf {
         if (e.map == nullptr || e.unmap == nullptr) {
             return false;
         }
+        out = {};
 
         view v;
         if (!parse_relocatable(bytes, v)) {
@@ -79,7 +129,9 @@ namespace astia::elf {
                     environment.unmap(environment.ctx, address, size);
             }
 
-            void keep() { address = nullptr; }
+            void keep() {
+                address = nullptr;
+            }
         } mapped{e, block, static_cast<usize>(offset)};
         // Zero the whole block up front so .bss (SHT_NOBITS) and any padding
         // are already cleared without a separate pass.
@@ -98,11 +150,11 @@ namespace astia::elf {
                 sec_base_storage[i] = nullptr;
                 continue;
             }
-            const u64 align = sh.sh_addralign == 0 ? 1 : sh.sh_addralign;
+            const u64 align   = sh.sh_addralign == 0 ? 1 : sh.sh_addralign;
             u64       aligned = 0;
             if (!checked_align_up(offset, align, aligned))
                 return false;
-            offset = aligned;
+            offset              = aligned;
             u8* dst             = static_cast<u8*>(block) + offset;
             sec_base_storage[i] = dst;
 
@@ -206,36 +258,118 @@ namespace astia::elf {
             }
         }
 
-        // --- Find the entry point: the defined symbol named "module_main".
+        constexpr const char* module_entry_symbol = "module_main";
+        u32                   entry_index         = ~u32{0};
         for (usize i = 0; i < v.symcount; ++i) {
-            const elf64_sym& sym = v.sym[i];
-            if (sym.st_shndx == shn_undef || sym.st_shndx >= v.shnum) {
-                continue;
-            }
-            const char* name = nullptr;
-            if (!symbol_name(v, sym, name)) {
+            const elf64_sym& sym  = v.sym[i];
+            const char*      name = nullptr;
+            if (!symbol_name(v, sym, name))
                 return false;
-            }
-            if (!str_eq(name, "module_main")) {
+            if (!str_eq(name, module_entry_symbol))
                 continue;
-            }
-            u64 addr = 0;
-            if (!sym_addr(v, e, sec_base, static_cast<u32>(i), addr)) {
+            if (entry_index != ~u32{0} || sym.st_shndx == shn_undef ||
+                sym.st_shndx >= v.shnum || st_type(sym.st_info) != stt_func ||
+                st_bind(sym.st_info) != stb_global || st_visibility(sym.st_other) != 0 ||
+                (v.sh[sym.st_shndx].sh_flags & (shf_alloc | shf_execinstr)) !=
+                    (shf_alloc | shf_execinstr) ||
+                sym.st_value >= v.sh[sym.st_shndx].sh_size ||
+                (sym.st_size != 0 &&
+                 sym.st_size > v.sh[sym.st_shndx].sh_size - sym.st_value))
                 return false;
+            entry_index = static_cast<u32>(i);
+        }
+        if (entry_index == ~u32{0})
+            return false;
+
+        auto executable_address = [&](u64 address) {
+            for (u16 i = 0; i < v.shnum; ++i) {
+                const elf64_shdr& section = v.sh[i];
+                if ((section.sh_flags & (shf_alloc | shf_execinstr)) !=
+                        (shf_alloc | shf_execinstr) ||
+                    sec_base[i] == nullptr)
+                    continue;
+                const u64 base = reinterpret_cast<u64>(sec_base[i]);
+                if (address >= base && address - base < section.sh_size)
+                    return true;
             }
-            out.entry     = reinterpret_cast<void*>(addr);
-            out.base      = block;
-            out.size      = static_cast<usize>(offset);
-            out.loaded    = kind::relocatable;
-            out.load_bias = 0;
-            out.nsegs     = 0;
-            mapped.keep();
-            return true;
+            return false;
+        };
+
+        array_section init_sections[max_sections] = {};
+        array_section fini_sections[max_sections] = {};
+        usize         init_section_count          = 0;
+        usize         fini_section_count          = 0;
+        usize         init_entry_count            = 0;
+        usize         fini_entry_count            = 0;
+        for (u16 i = 0; i < v.shnum; ++i) {
+            const elf64_shdr& section   = v.sh[i];
+            const char*       name      = nullptr;
+            usize             name_size = 0;
+            if (!section_name(v, i, name, name_size))
+                return false;
+            if (str_eq(name, ".preinit_array") || str_eq(name, ".init") ||
+                str_eq(name, ".fini") || str_eq(name, ".ctors") || str_eq(name, ".dtors"))
+                return false;
+            if (section.sh_type != sht_init_array && section.sh_type != sht_fini_array)
+                continue;
+            if ((section.sh_flags & (shf_alloc | shf_write)) != (shf_alloc | shf_write) ||
+                (section.sh_entsize != 0 && section.sh_entsize != sizeof(u64)) ||
+                section.sh_size % sizeof(u64) != 0)
+                return false;
+            const usize count    = section.sh_size / sizeof(u64);
+            u16         priority = 0;
+            const char* base =
+                section.sh_type == sht_init_array ? ".init_array" : ".fini_array";
+            if (!array_priority(name, name_size, base, priority))
+                return false;
+            array_section* sections =
+                section.sh_type == sht_init_array ? init_sections : fini_sections;
+            usize* section_count = section.sh_type == sht_init_array
+                                       ? &init_section_count
+                                       : &fini_section_count;
+            usize* entry_count =
+                section.sh_type == sht_init_array ? &init_entry_count : &fini_entry_count;
+            if (*section_count == max_sections ||
+                count > max_init_array_entries - *entry_count)
+                return false;
+            sections[*section_count] = {static_cast<const u8*>(sec_base[i]), count, i,
+                                        priority};
+            ++*section_count;
+            *entry_count += count;
         }
 
-        // No module_main symbol.
-        return false;
-    }
+        sort_array_sections(init_sections, init_section_count);
+        sort_array_sections(fini_sections, fini_section_count);
+        const auto append_array = [&](const array_section* sections, usize section_count,
+                                      init_fn* destination, usize& destination_count) {
+            for (usize i = 0; i < section_count; ++i) {
+                const array_section& section = sections[i];
+                for (usize j = 0; j < section.count; ++j) {
+                    const u64 address = read_u64_bytes(section.data + j * sizeof(u64));
+                    if (address != 0 && !executable_address(address))
+                        return false;
+                    destination[destination_count++] = reinterpret_cast<init_fn>(address);
+                }
+            }
+            return true;
+        };
+        if (!append_array(init_sections, init_section_count, out.init_array,
+                          out.init_count) ||
+            !append_array(fini_sections, fini_section_count, out.fini_array,
+                          out.fini_count))
+            return false;
 
+        u64 addr = 0;
+        if (!sym_addr(v, e, sec_base, entry_index, addr) || !executable_address(addr))
+            return false;
+        out.entry     = reinterpret_cast<void*>(addr);
+        out.base      = block;
+        out.size      = static_cast<usize>(offset);
+        out.loaded    = kind::relocatable;
+        out.load_bias = 0;
+        out.nsegs     = 0;
+        mapped.keep();
+        return true;
+    }
 
 } // namespace astia::elf

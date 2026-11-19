@@ -1,24 +1,38 @@
 #include "device_file.hpp"
-#include <astia/dev/blk/blkdev.hpp>
 
-#include <astia/arch/cpu.hpp>
 #include <astia/api/errno.h>
+#include <astia/arch/cpu.hpp>
+#include <astia/dev/blk/blkdev.hpp>
 
 namespace astia::dev {
 
     void device_file::detach() {
+        begin_detach();
+        complete_detach();
+    }
+
+    void device_file::begin_detach() {
         io::request* requests[max_pending_requests]{};
-        u32 count = 0;
+        u32          count = 0;
         {
             core::spinlock_guard guard(pending_lock_);
+            if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE))
+                return;
             __atomic_store_n(&detached_, true, __ATOMIC_RELEASE);
-            count = pending_count_;
-            for (u32 i = 0; i < count; ++i)
-                requests[i] = pending_[i];
+            for (u32 i = 0; i < pending_count_; ++i) {
+                if (pending_[i] == nullptr || !pending_[i]->retain())
+                    continue;
+                requests[count++] = pending_[i];
+            }
         }
         for (u32 i = 0; i < count; ++i)
-            if (requests[i] != nullptr)
-                requests[i]->cancel_device(true);
+            if (requests[i] != nullptr) {
+                requests[i]->cancel_device(true, core::cancel_reason::detach);
+                requests[i]->release();
+            }
+    }
+
+    void device_file::complete_detach() {
         for (;;) {
             bool pending = false;
             {
@@ -26,7 +40,7 @@ namespace astia::dev {
                 pending = pending_count_ != 0;
             }
             if (!pending && __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0)
-                break;
+                return;
             ASTIA_CPU_RELAX();
         }
     }
@@ -43,31 +57,39 @@ namespace astia::dev {
         core::spinlock_guard guard(pending_lock_);
         if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE))
             return false;
+        if (!request.stable())
+            return true;
         for (u32 i = 0; i < pending_count_; ++i)
             if (pending_[i] == &request)
                 return true;
         if (pending_count_ == max_pending_requests)
             return false;
+        request.retain();
         pending_[pending_count_++] = &request;
-        request.cancel_observer_set(observe_cancellation, const_cast<device_file*>(this));
+        request.cancellation_observer_set(const_cast<device_file*>(this));
         return true;
     }
 
     void device_file::untrack_request(io::request& request) const {
-        core::spinlock_guard guard(pending_lock_);
-        for (u32 i = 0; i < pending_count_; ++i) {
-            if (pending_[i] != &request)
-                continue;
-            pending_[i] = pending_[--pending_count_];
-            pending_[pending_count_] = nullptr;
-            request.cancel_observer_set(nullptr, nullptr);
-            return;
+        bool found = false;
+        {
+            core::spinlock_guard guard(pending_lock_);
+            for (u32 i = 0; i < pending_count_; ++i) {
+                if (pending_[i] != &request)
+                    continue;
+                pending_[i]              = pending_[--pending_count_];
+                pending_[pending_count_] = nullptr;
+                request.cancellation_observer_set(nullptr);
+                found = true;
+                break;
+            }
         }
+        if (found)
+            request.release();
     }
 
-    void device_file::observe_cancellation(io::request& request, void* context) {
-        if (context != nullptr)
-            static_cast<device_file*>(context)->untrack_request(request);
+    void device_file::cancellation_acknowledged(io::request& request) {
+        untrack_request(request);
     }
 
     device* device_file::begin_operation(const io::request* request) const {
@@ -91,7 +113,8 @@ namespace astia::dev {
         device* value = begin_operation();
         if (value == nullptr)
             return -ENODEV;
-        const long result = value->read(astia::span<u8>(static_cast<u8*>(buf), len), offset);
+        const long result =
+            value->read(astia::span<u8>(static_cast<u8*>(buf), len), offset);
         end_operation();
         return result;
     }
@@ -114,7 +137,7 @@ namespace astia::dev {
             end_operation();
             return __atomic_load_n(&detached_, __ATOMIC_ACQUIRE) ? -ENODEV : -EBUSY;
         }
-        if (request.cancellation_requested() && !request.has_cancel_handler()) {
+        if (request.cancellation_requested() && !request.has_cancellation_handler()) {
             untrack_request(request);
             end_operation();
             return -ECANCELED;
@@ -144,7 +167,8 @@ namespace astia::dev {
         device* value = begin_operation();
         if (value == nullptr)
             return -ENODEV;
-        const long result = value->ioctl(request, astia::span<u8>(static_cast<u8*>(argp), size));
+        const long result =
+            value->ioctl(request, astia::span<u8>(static_cast<u8*>(argp), size));
         end_operation();
         return result;
     }
@@ -162,10 +186,10 @@ namespace astia::dev {
         device* value = begin_operation();
         if (value == nullptr)
             return -ENODEV;
-        const long result = (value->flags() & dv_block) != 0
-                                ? static_cast<long>(static_cast<const blk::blkdev*>(value)
-                                                        ->size_bytes())
-                                : -ESPIPE;
+        const long result =
+            (value->flags() & dv_block) != 0
+                ? static_cast<long>(static_cast<const blk::blkdev*>(value)->size_bytes())
+                : -ESPIPE;
         end_operation();
         return result;
     }

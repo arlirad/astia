@@ -2,6 +2,7 @@
 
 #include <astia/common.hpp>
 #include <astia/core/async_operation.hpp>
+#include <astia/core/cancellation.hpp>
 #include <astia/mm/uptr.hpp>
 
 // The async operation seam: one in-flight I/O request and the state a
@@ -47,20 +48,41 @@ namespace astia::io {
         public:
         u64 issue() {
             const u64 result = _next;
-            _current = result;
-            _next = _next == ~u64{0} ? 1 : _next + 1;
+            _current         = result;
+            _next            = _next == ~u64{0} ? 1 : _next + 1;
             return result;
         }
 
-        bool current(u64 value) const { return value != 0 && value == _current; }
-        u64 value() const { return _current; }
+        bool current(u64 value) const {
+            return value != 0 && value == _current;
+        }
+        u64 value() const {
+            return _current;
+        }
 
         private:
-        u64 _next = 1;
+        u64 _next    = 1;
         u64 _current = 0;
     };
 
-    class flight;
+    class operation;
+    class request;
+
+    class cancellation_handler {
+        public:
+        virtual void cancellation_requested(request&, core::cancel_reason, bool) = 0;
+
+        protected:
+        ~cancellation_handler() = default;
+    };
+
+    class cancellation_observer {
+        public:
+        virtual void cancellation_acknowledged(request&) = 0;
+
+        protected:
+        ~cancellation_observer() = default;
+    };
 
     enum class direction : u8 {
         input,  // fill request.buffer() from the object
@@ -69,12 +91,16 @@ namespace astia::io {
 
     class request {
         public:
-        request() = default;
+        request() : _cancel_token(_cancel_source.token()) {}
 
-        request(void* buffer, u32 length, u64 offset, u64 user_data,
-                   direction direction, flight* flight = nullptr)
+        request(const request&)            = delete;
+        request& operator=(const request&) = delete;
+        request(request&&)                 = delete;
+        request& operator=(request&&)      = delete;
+
+        request(void* buffer, u32 length, u64 offset, u64 user_data, direction direction)
             : _buffer(buffer), _length(length), _offset(offset), _user_data(user_data),
-              _direction(direction), _flight(flight) {}
+              _direction(direction), _cancel_token(_cancel_source.token()) {}
 
         void* buffer() const {
             return _buffer;
@@ -88,8 +114,12 @@ namespace astia::io {
         u64 user_data() const {
             return _user_data;
         }
-        u64 generation() const { return _generation; }
-        void generation(u64 value) { _generation = value; }
+        u64 generation() const {
+            return _generation;
+        }
+        void generation(u64 value) {
+            _generation = value;
+        }
         astia::io::direction direction() const {
             return _direction;
         }
@@ -146,7 +176,9 @@ namespace astia::io {
             return _complete;
         }
 
-        core::async_operation<i64>* completion() const { return _completion.get(); }
+        core::async_operation<i64>* completion() const {
+            return _completion.get();
+        }
         void completion(mm::uptr<core::async_operation<i64>> value) {
             _completion = static_cast<mm::uptr<core::async_operation<i64>>&&>(value);
         }
@@ -157,24 +189,29 @@ namespace astia::io {
         /// Device-private, and safe to hold across a park — unlike anything
         /// on the submitting stack, which is long gone by resume time.
         void* device_state() const {
-            return _device_state;
+            return __atomic_load_n(&_device_state, __ATOMIC_ACQUIRE);
         }
         void device_state(void* value) {
-            _device_state = value;
+            __atomic_store_n(&_device_state, value, __ATOMIC_RELEASE);
         }
         bool stable() const {
-            return _flight != nullptr;
+            return _operation != nullptr;
         }
 
         void stretch(void* buffer, u32 length, u64 offset) {
-            _buffer         = buffer;
-            _length         = length;
-            _offset         = offset;
-            _device_state   = nullptr;
-            _cancel_handler = nullptr;
-            _complete       = false;
+            _buffer       = buffer;
+            _length       = length;
+            _offset       = offset;
+            _device_state = nullptr;
+            _cancel_source.reset();
+            _cancel_token = _cancel_source.token();
+            __atomic_store_n(&_cancellation_handler, nullptr, __ATOMIC_RELEASE);
+            __atomic_store_n(&_cancellation_observer, nullptr, __ATOMIC_RELEASE);
+            __atomic_store_n(&_cancellation_inflight, 0u, __ATOMIC_RELEASE);
+            __atomic_store_n(&_cancel_acknowledged, false, __ATOMIC_RELEASE);
+            _complete        = false;
             _timeout_expired = false;
-            _poll_wakeup    = false;
+            _poll_wakeup     = false;
         }
 
         bool timeout_set() const {
@@ -187,7 +224,7 @@ namespace astia::io {
 
         void timeout_ns(u64 value) {
             _timeout_set = true;
-            _timeout_ns = value;
+            _timeout_ns  = value;
         }
 
         bool timeout_expired() const {
@@ -198,14 +235,22 @@ namespace astia::io {
             _timeout_expired = value;
         }
 
-        bool poll_wakeup() const { return _poll_wakeup; }
-        void poll_wakeup(bool value) { _poll_wakeup = value; }
+        bool poll_wakeup() const {
+            return _poll_wakeup;
+        }
+        void poll_wakeup(bool value) {
+            _poll_wakeup = value;
+        }
 
-        bool poll_interval_set() const { return _poll_interval_set; }
-        u64 poll_interval_ns() const { return _poll_interval_ns; }
+        bool poll_interval_set() const {
+            return _poll_interval_set;
+        }
+        u64 poll_interval_ns() const {
+            return _poll_interval_ns;
+        }
         void poll_interval_ns(u64 value) {
             _poll_interval_set = value != 0;
-            _poll_interval_ns = value;
+            _poll_interval_ns  = value;
         }
 
         void wake_handler_set(void (*handler)(void*), void* context) {
@@ -230,91 +275,115 @@ namespace astia::io {
         bool begin_device();
         void end_device();
         void acknowledge();
+        bool retain();
+        void release();
 
-        using cancel_handler = void (*)(request&);
-        void cancel_handler_set(cancel_handler handler) {
-            _cancel_handler = handler;
+        void cancellation_handler_set(cancellation_handler* handler) {
+            __atomic_store_n(&_cancellation_handler, handler, __ATOMIC_RELEASE);
         }
-        bool has_cancel_handler() const {
-            return _cancel_handler != nullptr;
+        bool has_cancellation_handler() const {
+            return __atomic_load_n(&_cancellation_handler, __ATOMIC_ACQUIRE) != nullptr;
         }
-        using cancel_observer = void (*)(request&, void*);
-        void cancel_observer_set(cancel_observer observer, void* context) {
-            _cancel_observer = observer;
-            _cancel_context = context;
+        void cancellation_observer_set(cancellation_observer* observer) {
+            __atomic_store_n(&_cancellation_observer, observer, __ATOMIC_RELEASE);
         }
-        bool cancellation_retain() const {
-            return _cancel_retain;
+        core::cltoken cancellation_token() const {
+            return _cancel_token;
         }
         bool cancellation_requested() const {
-            return _cancel_requested;
+            return _cancel_token.cancellation_requested();
         }
-        bool cancel_device(bool retain = false) {
-            bool expected = false;
-            if (!__atomic_compare_exchange_n(&_cancel_requested, &expected, true, false,
-                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        core::cancel_reason cancellation_reason() const {
+            return _cancel_token.reason();
+        }
+        bool cancel_device(bool                retain = false,
+                           core::cancel_reason reason = core::cancel_reason::request) {
+            const bool held = this->retain();
+            if (!_cancel_source.cancel(reason)) {
+                if (held)
+                    release();
                 return false;
-            _cancel_retain = retain;
-            if (_cancel_handler != nullptr)
-                _cancel_handler(*this);
+            }
+            __atomic_add_fetch(&_cancellation_inflight, 1u, __ATOMIC_ACQ_REL);
+            auto* handler = __atomic_load_n(&_cancellation_handler, __ATOMIC_ACQUIRE);
+            if (handler != nullptr)
+                handler->cancellation_requested(*this, reason, retain);
             else {
                 wake();
                 cancel_acknowledge();
             }
             if (!retain)
                 cancel_acknowledge();
+            cancellation_dispatch_end();
+            if (held)
+                release();
             return true;
         }
         void cancel_acknowledge() {
-            if (!__atomic_load_n(&_cancel_requested, __ATOMIC_ACQUIRE))
+            if (!cancellation_requested())
                 return;
-            bool expected = false;
-            if (!__atomic_compare_exchange_n(&_cancel_acknowledged, &expected, true, false,
-                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            const bool held     = this->retain();
+            bool       expected = false;
+            if (!__atomic_compare_exchange_n(&_cancel_acknowledged, &expected, true,
+                                             false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                if (held)
+                    release();
                 return;
-            auto observer = _cancel_observer;
-            void* context = _cancel_context;
-            _cancel_observer = nullptr;
-            _cancel_context = nullptr;
-            if (observer != nullptr)
-                observer(*this, context);
+            }
+            if (__atomic_load_n(&_cancellation_inflight, __ATOMIC_ACQUIRE) == 0)
+                notify_cancellation_acknowledged();
+            if (held)
+                release();
         }
 
         private:
-        void*        _buffer       = nullptr;
-        u32          _length       = 0;
-        u64          _offset       = 0;
-        u64          _user_data    = 0;
-        u64          _generation   = 0;
-        void*        _device_state = nullptr;
-        astia::io::direction _direction = astia::io::direction::input;
-        bool         _updates_position = true;
-        bool         _append_reserved = false;
-        u32          _append_length = 0;
-        bool         _append_length_set = false;
-        u8           _stage        = 0;
-        bool         _complete     = false;
-        bool         _timeout_set = false;
-        bool         _timeout_expired = false;
-        u64          _timeout_ns = 0;
-        bool         _poll_interval_set = false;
-        u64          _poll_interval_ns = 0;
-        bool         _poll_wakeup = false;
-        void (*_wake_handler)(void*) = nullptr;
-        void*        _wake_context = nullptr;
-        flight*   _flight       = nullptr;
-        mm::uptr<core::async_operation<i64>> _completion;
-        cancel_handler _cancel_handler = nullptr;
-        cancel_observer _cancel_observer = nullptr;
-        void* _cancel_context = nullptr;
-        bool _cancel_requested = false;
-        bool _cancel_acknowledged = false;
-        bool _cancel_retain = false;
+        void cancellation_dispatch_end() {
+            if (__atomic_sub_fetch(&_cancellation_inflight, 1u, __ATOMIC_ACQ_REL) == 0 &&
+                __atomic_load_n(&_cancel_acknowledged, __ATOMIC_ACQUIRE))
+                notify_cancellation_acknowledged();
+        }
 
-        friend class flight;
+        void notify_cancellation_acknowledged() {
+            auto* observer =
+                __atomic_exchange_n(&_cancellation_observer, nullptr, __ATOMIC_ACQ_REL);
+            if (observer != nullptr)
+                observer->cancellation_acknowledged(*this);
+        }
+
+        void*                _buffer                       = nullptr;
+        u32                  _length                       = 0;
+        u64                  _offset                       = 0;
+        u64                  _user_data                    = 0;
+        u64                  _generation                   = 0;
+        void*                _device_state                 = nullptr;
+        astia::io::direction _direction                    = astia::io::direction::input;
+        bool                 _updates_position             = true;
+        bool                 _append_reserved              = false;
+        u32                  _append_length                = 0;
+        bool                 _append_length_set            = false;
+        u8                   _stage                        = 0;
+        bool                 _complete                     = false;
+        bool                 _timeout_set                  = false;
+        bool                 _timeout_expired              = false;
+        u64                  _timeout_ns                   = 0;
+        bool                 _poll_interval_set            = false;
+        u64                  _poll_interval_ns             = 0;
+        bool                 _poll_wakeup                  = false;
+        void (*_wake_handler)(void*)                       = nullptr;
+        void*                                _wake_context = nullptr;
+        operation*                           _operation    = nullptr;
+        mm::uptr<core::async_operation<i64>> _completion;
+        core::clsource                       _cancel_source;
+        core::cltoken                        _cancel_token;
+        cancellation_handler*                _cancellation_handler  = nullptr;
+        cancellation_observer*               _cancellation_observer = nullptr;
+        volatile u32                         _cancellation_inflight = 0;
+        volatile bool                        _cancel_acknowledged   = false;
+
+        friend class operation;
     };
 
-    class flight {
+    class operation {
         enum class state : u8 {
             owner,
             parked,
@@ -325,66 +394,126 @@ namespace astia::io {
         };
 
         astia::io::request _request;
-        astia::io::request* _external_request = nullptr;
-        u32         _refs  = 1;
-        u8          _state = static_cast<u8>(state::owner);
+        volatile u8        _state          = static_cast<u8>(state::owner);
+        volatile u32       _refs           = 1;
+        bool               _heap_owned     = false;
+        bool               _owner_released = false;
 
-        astia::io::request& request_ref() {
-            return _external_request == nullptr ? _request : *_external_request;
+        public:
+        operation(void* buffer, u32 length, u64 offset, direction direction,
+                  mm::uptr<core::async_operation<i64>> completion, bool heap_owned)
+            : _request(buffer, length, offset, 0, direction), _heap_owned(heap_owned) {
+            _request._operation = this;
+            _request.completion(
+                static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
         }
 
-        void release_ref() {
-            if (__atomic_sub_fetch(&_refs, 1, __ATOMIC_ACQ_REL) == 0)
+        void retain() {
+            __atomic_add_fetch(&_refs, 1, __ATOMIC_ACQ_REL);
+        }
+
+        void release() {
+            if (__atomic_sub_fetch(&_refs, 1, __ATOMIC_ACQ_REL) == 0 && _heap_owned)
                 delete this;
         }
 
-        void cancel_owner() {
+        void release_owner() {
+            bool expected_owner = false;
+            if (!__atomic_compare_exchange_n(&_owner_released, &expected_owner, true,
+                                             false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return;
             for (;;) {
-                const auto observed = static_cast<state>(
-                    __atomic_load_n(&_state, __ATOMIC_ACQUIRE));
-                if (observed == state::active || observed == state::active_completed) {
-                    ASTIA_CPU_RELAX();
-                    continue;
-                }
-                if (observed == state::owner || observed == state::parked) {
-                    const bool parked = observed == state::parked;
-                    u8 expected = static_cast<u8>(observed);
+                const auto observed =
+                    static_cast<state>(__atomic_load_n(&_state, __ATOMIC_ACQUIRE));
+                if (observed == state::owner || observed == state::parked ||
+                    observed == state::canceled) {
+                    if (observed == state::canceled) {
+                        u8 expected = static_cast<u8>(state::canceled);
+                        __atomic_compare_exchange_n(
+                            &_state, &expected, static_cast<u8>(state::completed), false,
+                            __ATOMIC_RELEASE, __ATOMIC_ACQUIRE);
+                        return;
+                    }
+                    const bool parked   = observed == state::parked;
+                    u8         expected = static_cast<u8>(observed);
                     if (__atomic_compare_exchange_n(
-                            &_state, &expected, static_cast<u8>(state::canceled), false,
-                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                            &_state, &expected,
+                            static_cast<u8>(parked ? state::canceled : state::completed),
+                            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
                         if (parked)
-                            request_ref().cancel_device(false);
+                            request().cancel_device(false, core::cancel_reason::owner);
                         break;
                     }
                     continue;
                 }
+                if (observed == state::active || observed == state::active_completed) {
+                    request().cancel_device(false, core::cancel_reason::owner);
+                    break;
+                }
                 break;
             }
-            release_ref();
+            release();
         }
 
-        friend class request;
-        friend class fs::io_packet;
-
-        public:
-        flight(void* buffer, u32 length, u64 offset, direction direction,
+        operation() : _request() {
+            _request._operation = this;
+        }
+        operation(void* buffer, u32 length, u64 offset, direction direction,
                   mm::uptr<core::async_operation<i64>> completion = {})
-            : _request(buffer, length, offset, 0, direction, this) {
-            _request.completion(static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+            : _request(buffer, length, offset, 0, direction) {
+            _request._operation = this;
+            _request.completion(
+                static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
         }
-        explicit flight(astia::io::request& request) : _external_request(&request) {
-            request._flight = this;
+        operation(void* buffer, u32 length, u64 offset, u64 user_data,
+                  direction                            direction,
+                  mm::uptr<core::async_operation<i64>> completion = {})
+            : _request(buffer, length, offset, user_data, direction) {
+            _request._operation = this;
+            _request.completion(
+                static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+        }
+        operation(const operation&)            = delete;
+        operation& operator=(const operation&) = delete;
+        ~operation()                           = default;
+
+        astia::io::request& request() {
+            return _request;
+        }
+        const astia::io::request& request() const {
+            return _request;
         }
 
-        astia::io::request& request() { return request_ref(); }
-
+        void reset(void* buffer, u32 length, u64 offset, u64 user_data,
+                   direction direction) {
+            release_owner();
+            _request.stretch(buffer, length, offset);
+            _request._user_data         = user_data;
+            _request._direction         = direction;
+            _request._generation        = 0;
+            _request._stage             = 0;
+            _request._timeout_set       = false;
+            _request._timeout_ns        = 0;
+            _request._poll_interval_set = false;
+            _request._poll_interval_ns  = 0;
+            _request._updates_position  = true;
+            _request._append_reserved   = false;
+            _request._append_length     = 0;
+            _request._append_length_set = false;
+            mm::uptr<core::async_operation<i64>> completion;
+            _request.completion(
+                static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+            _request._operation = this;
+            __atomic_store_n(&_refs, 1, __ATOMIC_RELEASE);
+            __atomic_store_n(&_owner_released, false, __ATOMIC_RELEASE);
+            __atomic_store_n(&_state, static_cast<u8>(state::owner), __ATOMIC_RELEASE);
+        }
         bool park_device() {
             u8 expected = static_cast<u8>(state::owner);
             if (!__atomic_compare_exchange_n(&_state, &expected,
-                                              static_cast<u8>(state::parked), false,
-                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                                             static_cast<u8>(state::parked), false,
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
                 return false;
-            __atomic_add_fetch(&_refs, 1, __ATOMIC_RELAXED);
             return true;
         }
 
@@ -403,15 +532,15 @@ namespace astia::io {
         void end_device() {
             u8 expected = static_cast<u8>(state::active);
             if (__atomic_compare_exchange_n(&_state, &expected,
-                                             static_cast<u8>(state::parked), false,
-                                             __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+                                            static_cast<u8>(state::parked), false,
+                                            __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
                 return;
             if (expected == static_cast<u8>(state::active_completed)) {
                 u8 completed = static_cast<u8>(state::active_completed);
                 if (__atomic_compare_exchange_n(&_state, &completed,
-                                                 static_cast<u8>(state::completed), false,
-                                                 __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
-                    release_ref();
+                                                static_cast<u8>(state::completed), false,
+                                                __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+                    return;
             }
         }
 
@@ -433,41 +562,51 @@ namespace astia::io {
                     continue;
                 }
                 if (__atomic_compare_exchange_n(&_state, &observed,
-                                                 static_cast<u8>(state::completed), false,
-                                                 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                    release_ref();
+                                                static_cast<u8>(state::completed), false,
+                                                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
                     return;
                 }
             }
         }
 
-        void release_owner() {
-            cancel_owner();
+        bool cancellation_acknowledged() const {
+            return __atomic_load_n(&_request._cancel_acknowledged, __ATOMIC_ACQUIRE);
         }
-
-        ~flight() = default;
     };
 
     inline bool request::park_device() {
-        return _flight != nullptr && _flight->park_device();
+        return _operation != nullptr && _operation->park_device();
     }
 
     inline bool request::canceled() const {
-        return _flight != nullptr && _flight->canceled();
+        return _operation != nullptr &&
+               (_operation->canceled() || cancellation_requested());
     }
 
     inline bool request::begin_device() {
-        return _flight != nullptr && _flight->begin_device();
+        return _operation != nullptr && _operation->begin_device();
     }
 
     inline void request::end_device() {
-        if (_flight != nullptr)
-            _flight->end_device();
+        if (_operation != nullptr)
+            _operation->end_device();
     }
 
     inline void request::acknowledge() {
-        if (_flight != nullptr)
-            _flight->acknowledge();
+        if (_operation != nullptr)
+            _operation->acknowledge();
+    }
+
+    inline bool request::retain() {
+        if (_operation == nullptr)
+            return false;
+        _operation->retain();
+        return true;
+    }
+
+    inline void request::release() {
+        if (_operation != nullptr)
+            _operation->release();
     }
 
 } // namespace astia::io

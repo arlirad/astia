@@ -317,6 +317,47 @@ add_custom_command(
 )
 astia_embed_blob(_module_symbols_cpp ${_fix_dir}/module_symbols.o module_symbols_blob)
 
+
+foreach(_astia_lifecycle_fixture
+        module_lifecycle
+        module_lifecycle_exit_init
+        module_lifecycle_no_fini
+        module_lifecycle_priority
+        module_priority_malformed
+        module_priority_overflow
+        module_priority_init_trailing_dot
+        module_priority_fini_trailing_dot)
+    add_custom_command(
+            OUTPUT ${_fix_dir}/${_astia_lifecycle_fixture}.o
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+            COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+            -mcmodel=large -fno-exceptions -fno-rtti
+            -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+            -o ${_fix_dir}/${_astia_lifecycle_fixture}.o
+            ${CMAKE_CURRENT_SOURCE_DIR}/${_astia_lifecycle_fixture}_fixture.cpp
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${_astia_lifecycle_fixture}_fixture.cpp
+            COMMENT "Compiling ET_REL ${_astia_lifecycle_fixture} fixture"
+    )
+endforeach()
+astia_embed_blob(_lifecycle_fixture_cpp
+        ${_fix_dir}/module_lifecycle.o module_lifecycle_blob)
+astia_embed_blob(_lifecycle_exit_init_fixture_cpp
+        ${_fix_dir}/module_lifecycle_exit_init.o module_lifecycle_exit_init_blob)
+astia_embed_blob(_lifecycle_no_fini_fixture_cpp
+        ${_fix_dir}/module_lifecycle_no_fini.o module_lifecycle_no_fini_blob)
+astia_embed_blob(_lifecycle_priority_fixture_cpp
+        ${_fix_dir}/module_lifecycle_priority.o module_lifecycle_priority_blob)
+astia_embed_blob(_priority_malformed_fixture_cpp
+        ${_fix_dir}/module_priority_malformed.o module_priority_malformed_blob)
+astia_embed_blob(_priority_overflow_fixture_cpp
+        ${_fix_dir}/module_priority_overflow.o module_priority_overflow_blob)
+astia_embed_blob(_priority_init_trailing_dot_fixture_cpp
+        ${_fix_dir}/module_priority_init_trailing_dot.o
+        module_priority_init_trailing_dot_blob)
+astia_embed_blob(_priority_fini_trailing_dot_fixture_cpp
+        ${_fix_dir}/module_priority_fini_trailing_dot.o
+        module_priority_fini_trailing_dot_blob)
+
 # ET_DYN (PIE) executable: self-contained, entry at fixture_entry, with a data
 # pointer that forces an R_X86_64_RELATIVE dynamic relocation.
 add_custom_command(
@@ -415,6 +456,49 @@ astia_add_host_test(astia_mod_test
         kernel_symbol_table_fixture.S
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/exports.cpp
 )
+
+astia_add_host_test(astia_module_registration_test module_registration_test.cpp)
+
+astia_add_host_test(astia_module_driver_lifecycle_test
+        module_driver_lifecycle_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module_driver.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw_pci.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/driver.cpp)
+target_sources(astia_module_driver_lifecycle_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/net.cpp)
+target_compile_definitions(astia_module_driver_lifecycle_test PRIVATE
+        ASTIA_MODULE_HOST_TEST=1)
+target_compile_options(astia_module_driver_lifecycle_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_link_options(astia_module_driver_lifecycle_test PRIVATE
+        "-Wl,--gc-sections")
+
+astia_add_host_test(astia_module_lifecycle_test
+        module_lifecycle_test.cpp
+        ${_lifecycle_fixture_cpp}
+        ${_lifecycle_exit_init_fixture_cpp}
+        ${_lifecycle_no_fini_fixture_cpp}
+        ${_lifecycle_priority_fixture_cpp}
+        ${_priority_malformed_fixture_cpp}
+        ${_priority_overflow_fixture_cpp}
+        ${_priority_init_trailing_dot_fixture_cpp}
+        ${_priority_fini_trailing_dot_fixture_cpp}
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/cxxabi.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/exec_loader.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/reloc_loader.cpp
+)
+target_compile_options(astia_module_lifecycle_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_compile_definitions(astia_module_lifecycle_test PRIVATE
+        ASTIA_MODULE_HOST_TEST=1)
+target_link_options(astia_module_lifecycle_test PRIVATE
+        "-Wl,-no-pie" "-Wl,--gc-sections")
 add_test(NAME astia_kernel_symbol_visibility
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/symbol_table_visibility_test.py
