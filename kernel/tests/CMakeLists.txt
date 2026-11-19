@@ -8,6 +8,7 @@ option(ASTIA_CROSS_USERSPACE "Use the Clang Astia sysroot for init_libc" OFF)
 include(${ASTIA_KERNEL_SOURCE_DIR}/../cmake/AstiaCTest.cmake)
 
 find_package(Threads REQUIRED)
+find_program(ASTIA_OBJDUMP NAMES llvm-objdump objdump REQUIRED)
 
 function(astia_apply_host_sanitizers target)
     if(ASTIA_HOST_SANITIZER_COMPILE_OPTIONS)
@@ -101,6 +102,17 @@ target_link_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_user_layout_test user_layout_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
+add_test(NAME astia_kernel_stack_usage_budget
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/stack_usage_budget.py
+                ${ASTIA_OBJDUMP} $<TARGET_FILE:astiakrn_runtime> 0x3000)
+set_tests_properties(astia_kernel_stack_usage_budget PROPERTIES
+        LABELS "build;kernel;deterministic")
+add_test(NAME astia_kernel_stack_usage_budget_fixtures
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/stack_usage_budget.py --fixture)
+set_tests_properties(astia_kernel_stack_usage_budget_fixtures PROPERTIES
+        LABELS "build;kernel;deterministic")
 astia_add_host_test(astia_platform_test platform_test.cpp)
 astia_add_host_test(astia_resource_limits_test resource_limits_test.cpp)
 astia_add_host_test(astia_regs_test regs_test.cpp)
