@@ -1,15 +1,25 @@
 /* Minimal freestanding C++ ABI support for the kernel image.
- * Kernel lifetime is explicit; static-destructor registration is accepted but
- * intentionally not replayed during shutdown because the kernel never exits.
+ * Kernel lifetime is explicit; module static-destructor registration is
+ * replayed by the module lifecycle rather than process shutdown.
  */
-extern "C" {
-void* __dso_handle = nullptr;
+extern "C" int  astia_module_register_atexit(void (*)(void));
+extern "C" int  astia_module_register_cxa_atexit(void (*)(void*), void*, void*);
+extern "C" void astia_module_finalize_cxa(void*);
 
-int __cxa_atexit(void (*)(void*), void*, void*) {
-    return 0;
+extern "C" {
+void* __dso_handle = &__dso_handle;
+
+int __cxa_atexit(void (*function)(void*), void* argument, void* dso_handle) {
+    return astia_module_register_cxa_atexit(function, argument, dso_handle);
 }
 
-void __cxa_finalize(void*) {}
+int atexit(void (*function)(void)) {
+    return astia_module_register_atexit(function);
+}
+
+void __cxa_finalize(void* dso_handle) {
+    astia_module_finalize_cxa(dso_handle);
+}
 
 int __cxa_guard_acquire(long long* guard) {
     auto* state = reinterpret_cast<unsigned char*>(guard);

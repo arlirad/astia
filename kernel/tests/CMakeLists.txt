@@ -387,7 +387,39 @@ add_custom_command(
         COMMENT "Compiling ET_REL lifecycle fixture"
 )
 astia_embed_blob(_lifecycle_fixture_cpp
-        ${_fix_dir}/module_lifecycle.o module_lifecycle_blob)
+         ${_fix_dir}/module_lifecycle.o module_lifecycle_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle_atexit.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle_atexit.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_atexit_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_atexit_fixture.cpp
+        COMMENT "Compiling ET_REL atexit lifecycle fixture"
+)
+astia_embed_blob(_lifecycle_atexit_fixture_cpp
+        ${_fix_dir}/module_lifecycle_atexit.o module_lifecycle_atexit_blob)
+
+foreach(_lifecycle_extra_fixture limit dso)
+    add_custom_command(
+            OUTPUT ${_fix_dir}/module_lifecycle_${_lifecycle_extra_fixture}.o
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+            COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+            -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+            -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+            -o ${_fix_dir}/module_lifecycle_${_lifecycle_extra_fixture}.o
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_${_lifecycle_extra_fixture}_fixture.cpp
+            DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_${_lifecycle_extra_fixture}_fixture.cpp
+            COMMENT "Compiling ET_REL ${_lifecycle_extra_fixture} lifecycle fixture"
+    )
+    astia_embed_blob(_lifecycle_${_lifecycle_extra_fixture}_fixture_cpp
+            ${_fix_dir}/module_lifecycle_${_lifecycle_extra_fixture}.o
+            module_lifecycle_${_lifecycle_extra_fixture}_blob)
+endforeach()
 
 add_custom_command(
         OUTPUT ${_fix_dir}/module_lifecycle_no_fini.o
@@ -530,12 +562,16 @@ target_link_options(astia_module_msix_test PRIVATE
         "-Wl,-no-pie" "-Wl,--gc-sections")
 
 astia_add_host_test(astia_module_lifecycle_test
-        module_lifecycle_test.cpp
-        ${_lifecycle_fixture_cpp}
+         module_lifecycle_test.cpp
+         ${_lifecycle_fixture_cpp}
+         ${_lifecycle_atexit_fixture_cpp}
+         ${_lifecycle_limit_fixture_cpp}
+         ${_lifecycle_dso_fixture_cpp}
         ${_lifecycle_no_fini_fixture_cpp}
-        ${_lifecycle_priority_fixture_cpp}
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
+         ${_lifecycle_priority_fixture_cpp}
+         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
+         module_cxxabi_host_test.cpp
+         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/exec_loader.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/reloc_loader.cpp
 )

@@ -163,6 +163,7 @@ namespace astia::dev {
     u32                      pci_enumerate(pci_filter_fn filter = nullptr);
     bool                     pci_probe_bar(pci_device& device, u8 index);
     bool                     pci_enable_bus_master(pci_device& device);
+    bool                     pci_disable_bus_master(pci_device& device);
     bool                     pci_refresh_capabilities(pci_device& device);
     pci_interrupt_capability pci_interrupt_capability_of(const pci_device& device);
     pci_interrupt_blocker    pci_interrupt_status(const pci_device& device);

@@ -258,6 +258,10 @@ namespace astia::module {
         return hw::pci_enable_bus_master(device);
     }
 
+    bool pci_disable_bus_master(hw::pci_device& device) {
+        return hw::pci_disable_bus_master(device);
+    }
+
     bool pci_disable_msix(hw::pci_device& device) {
         if (!device.interrupt.msix)
             return true;
@@ -270,8 +274,24 @@ namespace astia::module {
                    static_cast<u16>((control | (1u << 14)) & ~(1u << 15)));
     }
 
+    bool pci_restore_msix(hw::pci_device& device, u16 original_control) {
+        if (!device.interrupt.msix)
+            return true;
+        u16 control = 0;
+        if (!hw::pci_config_read16(
+                device.bdf, static_cast<u16>(device.interrupt.capability + 2), control))
+            return false;
+        control = static_cast<u16>((control & ~0xc000u) | (original_control & 0xc000u));
+        return hw::pci_config_write16(
+            device.bdf, static_cast<u16>(device.interrupt.capability + 2), control);
+    }
+
     bool pci_map_bar(hw::pci_device& device, u8 index) {
         return hw::pci_map_bar(device, index);
+    }
+
+    bool pci_unmap_bar(hw::pci_device& device, u8 index) {
+        return hw::pci_unmap_bar(device, index);
     }
 
     u64 pci_bar_mapped(const hw::pci_device& device, u8 index) {
