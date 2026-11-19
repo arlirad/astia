@@ -41,8 +41,11 @@ else
     cmake --build "$artifact_build" --target astiakrn_module_runtime usb_module
     kernel=$artifact_build/kernel/src/astiakrn_module_runtime
 fi
+if test "${ASTIA_USB_ROLLBACK_TEST:-0}" = 1; then
+    cmake --build "$artifact_build" --target astiakrn_module_runtime "${ASTIA_USB_MODULE_TARGET:-usb_failure_module}"
+fi
 mkdir -p "$staging"
-cp "$artifact_build/modules/usb/usb.o" "$staging/usb.o"
+cp "${ASTIA_USB_MODULE:-$artifact_build/modules/usb/usb.o}" "$staging/usb.o"
 (cd "$staging" && find usb.o -print | cpio -o -H newc > "$initrd")
 
 set +e
@@ -56,6 +59,11 @@ set -e
 
 cat "$log"
 test "$status" -eq 1
+if test "${ASTIA_USB_ROLLBACK_TEST:-0}" = 1; then
+    grep -qF 'usb-test: rollback-ok' "$log"
+    printf '%s\n' 'QEMU xHCI PCI rollback smoke passed'
+    exit 0
+fi
 grep -qF 'mod: usb.o rc=0' "$log"
 grep -qF 'usb_xhci_slot_enable slotid 1' "$trace"
 grep -qF 'usb_xhci_slot_address slotid 1, port 1' "$trace"

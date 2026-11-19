@@ -25,6 +25,28 @@ add_custom_command(
 
 add_custom_target(usb_module ALL DEPENDS ${ASTIA_USB_OBJECT})
 
+set(ASTIA_USB_FAILURE_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb-failure.o)
+add_custom_command(
+        OUTPUT ${ASTIA_USB_FAILURE_OBJECT}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                -DASTIA_USB_TEST_BAR_MAP_FAILURE=1
+                -std=c++20 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie
+                -fno-exceptions -fno-rtti -fno-threadsafe-statics
+                -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
+                -mcmodel=large -fno-asynchronous-unwind-tables
+                -Wall -Wextra -Werror -pedantic
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                -c ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
+                -o ${ASTIA_USB_FAILURE_OBJECT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/usb_protocol.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/xhci.hpp
+                ${ASTIA_USB_ABI_HEADERS}
+        COMMENT "Compiling USB xHCI rollback test module"
+        VERBATIM)
+add_custom_target(usb_failure_module DEPENDS ${ASTIA_USB_FAILURE_OBJECT})
+
 add_custom_command(
         OUTPUT ${ASTIA_USB_UNIT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
@@ -68,6 +90,14 @@ if(ASTIA_BUILD_TESTS)
     set_tests_properties(usb_xhci_qemu_enumeration PROPERTIES
             LABELS "module;usb;xhci;qemu;deterministic"
             ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}"
+            FIXTURES_REQUIRED astia-qemu-artifacts
+            RESOURCE_LOCK astia-qemu)
+    add_test(NAME usb_xhci_qemu_rollback
+            COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
+    set_tests_properties(usb_xhci_qemu_rollback PROPERTIES
+            LABELS "module;usb;xhci;qemu;deterministic"
+            ENVIRONMENT
+            "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR};ASTIA_USB_ROLLBACK_TEST=1;ASTIA_USB_MODULE=${CMAKE_CURRENT_BINARY_DIR}/usb-failure.o;ASTIA_USB_MODULE_TARGET=usb_failure_module"
             FIXTURES_REQUIRED astia-qemu-artifacts
             RESOURCE_LOCK astia-qemu)
 endif()

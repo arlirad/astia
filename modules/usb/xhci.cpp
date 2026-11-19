@@ -13,6 +13,15 @@ namespace astia::usb::xhci {
     bool pci_match(const astia::hw::pci_device* device);
 
     namespace {
+#ifdef ASTIA_USB_TEST_BAR_MAP_FAILURE
+        bool map_bar(astia::hw::pci_device&) {
+            return false;
+        }
+#else
+        bool map_bar(astia::hw::pci_device& device) {
+            return astia::module::pci_map_bar(device, 0);
+        }
+#endif
 
         constexpr unsigned timeout_spins               = 4000000;
         constexpr unsigned command_ring_capacity       = 16;
@@ -517,8 +526,21 @@ namespace astia::usb::xhci {
                 if (!astia::module::pci_disable_msix(pci_))
                     return rollback_pci(), -19;
                 msix_modified_ = pci_->interrupt.msix;
-                if (!astia::module::pci_map_bar(pci_, 0))
-                    return rollback_pci(), -19;
+                if (!map_bar(*pci_)) {
+                    rollback_pci();
+#ifdef ASTIA_USB_TEST_BAR_MAP_FAILURE
+                    const uint16_t control = astia::module::pci_read16(
+                        pci_, static_cast<uint16_t>(pci_->interrupt.capability + 2));
+                    const uint16_t command = astia::module::pci_read16(pci_, 0x04);
+                    const bool     restored =
+                        (control & 0xc000u) == (original_msix_ & 0xc000u) &&
+                        (command & 4u) == (original_command_ & 4u) &&
+                        !pci_->bars[0].mapped_valid;
+                    astia::module::log("usb-test",
+                                       restored ? "rollback-ok" : "rollback-failed");
+#endif
+                    return -19;
+                }
                 bar_mapped_           = true;
                 const uint64_t mapped = astia::module::pci_bar_mapped(pci_, 0);
                 const uint64_t size   = astia::module::pci_bar_size(pci_, 0);
