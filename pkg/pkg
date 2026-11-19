@@ -1,0 +1,773 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Arlirad
+
+import copy
+import fcntl
+import hashlib
+import io
+import json
+import os
+import platform
+import re
+import shutil
+import stat
+import sys
+import tarfile
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from pathlib import Path
+
+
+MAX_BLOB_SIZE = 256 * 1024 * 1024
+VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?$")
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+_.-]*$")
+HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+ARCH_ALIASES = {
+    "amd64": "x86_64",
+    "x86_64": "x86_64",
+    "arm64": "aarch64",
+    "aarch64": "aarch64",
+    "riscv64": "riscv64",
+}
+
+
+class PkgError(Exception):
+    pass
+
+
+def fail(message):
+    raise PkgError(message)
+
+
+def parse_json(data, label):
+    duplicates = []
+
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                duplicates.append(key)
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        fail(f"malformed {label}: {exc}")
+    if duplicates:
+        fail(f"malformed {label}: duplicate key {duplicates[0]}")
+    return value
+
+
+def atomic_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(value, stream, sort_keys=True, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def safe_rel(value, label="path"):
+    if not isinstance(value, str) or not value or "\x00" in value:
+        fail(f"invalid {label}")
+    if "\\" in value or value.startswith("/") or value.endswith("/"):
+        fail(f"unsafe {label}: {value!r}")
+    parts = value.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        fail(f"unsafe {label}: {value!r}")
+    if parts[0] == ".pkg":
+        fail(f"reserved {label}: {value!r}")
+    return "/".join(parts)
+
+
+def check_name(value):
+    if not isinstance(value, str) or not NAME_RE.fullmatch(value):
+        fail(f"invalid package name: {value!r}")
+    return value
+
+
+def detect_arch():
+    value = os.environ.get("ASTIA_MACHINE_ARCH", platform.machine())
+    return ARCH_ALIASES.get(value, value)
+
+
+def check_arch(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        fail(f"invalid CPU architecture: {value!r}")
+    return ARCH_ALIASES.get(value, value)
+
+
+def version_key(version):
+    match = VERSION_RE.fullmatch(version)
+    if not match:
+        fail(f"invalid version: {version!r}")
+    numbers = tuple(int(match.group(i)) for i in range(1, 4))
+    prerelease = match.group(4)
+    if prerelease is None:
+        return numbers, (1,)
+    parts = []
+    for part in prerelease.split("."):
+        parts.append((0, int(part)) if part.isdigit() else (1, part))
+    return numbers, (0, tuple(parts))
+
+
+def validate_archive_reference(value, source_kind):
+    if not isinstance(value, str) or not value or "\x00" in value:
+        fail("invalid archive reference")
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme:
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            fail(f"unsupported archive URL: {value}")
+        if parsed.username or parsed.password or parsed.fragment:
+            fail(f"unsafe archive URL: {value}")
+        if any(part == ".." for part in parsed.path.split("/")):
+            fail(f"unsafe archive URL: {value}")
+        return
+    if source_kind == "remote":
+        if value.startswith("/"):
+            fail("remote archive path must be relative or an HTTP(S) URL")
+    safe_rel(value, "archive path")
+
+
+def validate_index(index, source_kind):
+    if not isinstance(index, dict):
+        fail("index must be an object")
+    if index.get("schema") != 1:
+        fail("unsupported index schema")
+    if not isinstance(index.get("generated_at"), str) or not index["generated_at"]:
+        fail("index generated_at is required")
+    repository = index.get("repository")
+    if not isinstance(repository, dict):
+        fail("index repository metadata is required")
+    for field in ("name", "channel"):
+        if not isinstance(repository.get(field), str) or not repository[field]:
+            fail(f"index repository.{field} is required")
+    architectures = repository.get("architectures")
+    if not isinstance(architectures, list) or not architectures or any(not isinstance(item, str) for item in architectures):
+        fail("index repository.architectures is required")
+    normalized_repository_architectures = set()
+    for architecture in architectures:
+        normalized = check_arch(architecture)
+        if normalized in normalized_repository_architectures:
+            fail(f"duplicate repository CPU architecture: {normalized}")
+        normalized_repository_architectures.add(normalized)
+    packages = index.get("packages")
+    if not isinstance(packages, dict) or not packages:
+        fail("index packages must be a non-empty object")
+    for name, package in packages.items():
+        check_name(name)
+        if not isinstance(package, dict) or set(package) != {"versions"}:
+            fail(f"invalid package entry for {name}")
+        versions = package["versions"]
+        if not isinstance(versions, dict) or not versions:
+            fail(f"package {name} has no versions")
+        for version, metadata in versions.items():
+            version_key(version)
+            if not isinstance(metadata, dict):
+                fail(f"invalid metadata for {name} {version}")
+            required = {"artifacts", "dependencies"}
+            if not required.issubset(metadata):
+                fail(f"incomplete metadata for {name} {version}")
+            artifacts = metadata["artifacts"]
+            if not isinstance(artifacts, dict) or not artifacts:
+                fail(f"package {name} {version} has no CPU architecture artifacts")
+            normalized_artifacts = set()
+            for architecture, artifact in artifacts.items():
+                normalized = check_arch(architecture)
+                if normalized in normalized_artifacts:
+                    fail(f"duplicate artifact CPU architecture for {name} {version}: {normalized}")
+                normalized_artifacts.add(normalized)
+                if not isinstance(artifact, dict) or not {"archive", "sha256", "size"}.issubset(artifact):
+                    fail(f"incomplete artifact metadata for {name} {version} {architecture}")
+                validate_archive_reference(artifact["archive"], source_kind)
+                if not isinstance(artifact["sha256"], str) or not HEX_RE.fullmatch(artifact["sha256"]):
+                    fail(f"invalid SHA-256 for {name} {version} {architecture}")
+                if not isinstance(artifact["size"], int) or isinstance(artifact["size"], bool) or artifact["size"] < 1:
+                    fail(f"invalid archive size for {name} {version} {architecture}")
+            dependencies = metadata["dependencies"]
+            if not isinstance(dependencies, list) or any(not isinstance(item, str) for item in dependencies):
+                fail(f"invalid dependencies for {name} {version}")
+    return index
+
+
+def source_info(repo):
+    parsed = urllib.parse.urlparse(repo)
+    if parsed.scheme:
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            fail("repository must be a local directory or HTTP(S) URL")
+        if parsed.username or parsed.password or parsed.fragment:
+            fail("unsafe repository URL")
+        index_url = repo if parsed.path.endswith(".json") else repo.rstrip("/") + "/index.json"
+        return {"kind": "remote", "index_source": index_url, "base": index_url}
+    path = Path(repo).expanduser().resolve()
+    if path.is_dir():
+        path = path / "index.json"
+    if not path.is_file() or path.is_symlink():
+        fail(f"repository index does not exist: {path}")
+    return {"kind": "local", "index_source": str(path), "base": str(path.parent)}
+
+
+def read_source(source):
+    if source["kind"] == "local":
+        path = Path(source["index_source"])
+        if path.is_symlink() or not path.is_file():
+            fail(f"repository file is not a regular file: {path}")
+        try:
+            return path.read_bytes()
+        except OSError as exc:
+            fail(f"cannot read repository file: {exc}")
+    request = urllib.request.Request(source["index_source"], headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = response.read(MAX_BLOB_SIZE + 1)
+    except (urllib.error.URLError, OSError) as exc:
+        fail(f"cannot fetch {source['index_source']}: {exc}")
+    if len(data) > MAX_BLOB_SIZE:
+        fail("repository response is too large")
+    return data
+
+
+def archive_source(repository, archive):
+    parsed = urllib.parse.urlparse(archive)
+    if parsed.scheme:
+        return {"kind": "remote", "url": archive}
+    if repository["kind"] == "local":
+        base = Path(repository["base"]).resolve()
+        path = (base / archive).resolve()
+        try:
+            path.relative_to(base)
+        except ValueError:
+            fail("archive escapes local repository")
+        if path.is_symlink() or not path.is_file():
+            fail(f"archive does not exist: {path}")
+        return {"kind": "local", "path": str(path)}
+    return {"kind": "remote", "url": urllib.parse.urljoin(repository["base"], archive)}
+
+
+def read_archive(source):
+    if source["kind"] == "local":
+        path = Path(source["path"])
+        if path.is_symlink() or not path.is_file():
+            fail("archive is not a regular file")
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            fail(f"cannot read archive: {exc}")
+    else:
+        parsed = urllib.parse.urlparse(source["url"])
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            fail("archive transport only supports HTTP(S)")
+        request = urllib.request.Request(source["url"], headers={"Accept": "application/gzip, application/octet-stream"})
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                data = response.read(MAX_BLOB_SIZE + 1)
+        except (urllib.error.URLError, OSError) as exc:
+            fail(f"cannot fetch archive: {exc}")
+    if len(data) > MAX_BLOB_SIZE:
+        fail("archive is too large")
+    return data
+
+
+def verify_digest(data, metadata):
+    if len(data) != metadata["size"]:
+        fail("archive size does not match index")
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != metadata["sha256"]:
+        fail("archive SHA-256 does not match index")
+
+
+def verify_manifest(data, name, version, metadata, stage):
+    payload = {}
+    directories = set()
+    manifest = None
+    try:
+        archive = tarfile.open(fileobj=io.BytesIO(data), mode="r:gz")
+    except (tarfile.TarError, OSError) as exc:
+        fail(f"invalid package archive: {exc}")
+    try:
+        for member in archive.getmembers():
+            rel = safe_rel(member.name, "archive member")
+            if member.isdir():
+                if rel in payload or rel in directories:
+                    fail(f"duplicate archive member: {rel}")
+                directories.add(rel)
+                continue
+            if member.issym() or member.islnk() or not member.isfile():
+                fail(f"unsupported archive member: {rel}")
+            if rel == "package.json":
+                if manifest is not None:
+                    fail("duplicate package.json")
+                fileobj = archive.extractfile(member)
+                manifest = parse_json(fileobj.read(), "package manifest")
+                continue
+            if rel in payload or rel in directories:
+                fail(f"duplicate archive member: {rel}")
+            fileobj = archive.extractfile(member)
+            payload[rel] = fileobj.read()
+    except (tarfile.TarError, OSError) as exc:
+        fail(f"cannot read package archive: {exc}")
+    finally:
+        archive.close()
+    if not isinstance(manifest, dict) or manifest.get("format_schema") != 1:
+        fail("package manifest schema is unsupported")
+    if manifest.get("name") != name or manifest.get("version") != version:
+        fail("package manifest identity does not match index")
+    entries = manifest.get("files")
+    if not isinstance(entries, list) or not entries:
+        fail("package manifest files must be a non-empty list")
+    expected = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            fail("invalid package manifest file entry")
+        path = safe_rel(entry["path"], "manifest path")
+        if path == "package.json" or path in expected:
+            fail(f"duplicate or reserved manifest path: {path}")
+        if not isinstance(entry.get("sha256"), str) or not HEX_RE.fullmatch(entry["sha256"]):
+            fail(f"invalid manifest SHA-256 for {path}")
+        mode = entry.get("mode", 0o644)
+        if not isinstance(mode, int) or isinstance(mode, bool) or mode < 0 or mode > 0o777:
+            fail(f"invalid manifest mode for {path}")
+        expected[path] = (entry["sha256"], mode)
+    if set(expected) != set(payload):
+        fail("archive files do not match package manifest")
+    stage.mkdir(parents=True, exist_ok=False)
+    for path, (digest, mode) in expected.items():
+        content = payload[path]
+        if hashlib.sha256(content).hexdigest() != digest:
+            fail(f"package file SHA-256 does not match manifest: {path}")
+        destination = stage.joinpath(*path.split("/"))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("xb") as output:
+            output.write(content)
+        os.chmod(destination, mode)
+    return [{"path": path, "mode": mode} for path, (_, mode) in sorted(expected.items())]
+
+
+class State:
+    def __init__(self, root):
+        self.root = root
+        self.internal = root / ".pkg"
+        self.cache = self.internal / "cache.json"
+        self.internal.mkdir(parents=True, exist_ok=True)
+        if self.internal.is_symlink():
+            fail("package state directory cannot be a symlink")
+
+    def load(self):
+        path = self.internal / "state.json"
+        if not path.exists():
+            return {"schema": 1, "installed": {}, "owners": {}}
+        if path.is_symlink():
+            fail("package state cannot be a symlink")
+        try:
+            value = parse_json(path.read_bytes(), "package state")
+        except OSError as exc:
+            fail(f"cannot read package state: {exc}")
+        if not isinstance(value, dict) or value.get("schema") != 1 or not isinstance(value.get("installed"), dict) or not isinstance(value.get("owners"), dict):
+            fail("malformed package state")
+        for path_value, package in value["owners"].items():
+            safe_rel(path_value, "owned path")
+            check_name(package)
+        return value
+
+    def configure_arch(self, requested):
+        config_path = self.internal / "config.json"
+        requested = check_arch(requested) if requested else None
+        if config_path.exists():
+            try:
+                config = parse_json(config_path.read_bytes(), "package configuration")
+            except OSError as exc:
+                fail(f"cannot read package configuration: {exc}")
+            if not isinstance(config, dict) or not isinstance(config.get("architecture"), str):
+                fail("malformed package configuration")
+            configured = check_arch(config["architecture"])
+            if requested and requested != configured:
+                fail(f"package root targets {configured}; refusing architecture switch to {requested}")
+            return configured
+        architecture = requested or detect_arch()
+        check_arch(architecture)
+        atomic_json(config_path, {"schema": 1, "architecture": architecture})
+        return architecture
+
+    def cache_data(self):
+        if not self.cache.is_file() or self.cache.is_symlink():
+            fail("no synced repository; run pkg sync first")
+        try:
+            cached = parse_json(self.cache.read_bytes(), "package cache")
+        except OSError as exc:
+            fail(f"cannot read package cache: {exc}")
+        if not isinstance(cached, dict) or not isinstance(cached.get("index"), dict) or not isinstance(cached.get("repository"), dict):
+            fail("malformed package cache")
+        index = cached["index"]
+        repository = cached["repository"]
+        immutable = cached.get("immutability", {})
+        if not isinstance(immutable, dict):
+            fail("malformed package immutability data")
+        if repository.get("kind") not in ("local", "remote"):
+            fail("malformed cached repository")
+        validate_index(index, repository["kind"])
+        return index, repository, immutable
+
+    def lock(self):
+        lock_path = self.internal / "lock"
+        stream = lock_path.open("a+")
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        return stream
+
+
+def ensure_root(value):
+    root = Path(value).expanduser()
+    if root.exists() and root.is_symlink():
+        fail("package root cannot be a symlink")
+    root = root.resolve()
+    if root in (Path("/"), Path("/usr")):
+        fail("refusing unsafe package root")
+    root.mkdir(parents=True, exist_ok=True)
+    if not root.is_dir():
+        fail("package root is not a directory")
+    return root
+
+
+def sync(root, repo):
+    source = source_info(repo)
+    data = read_source(source)
+    index = parse_json(data, "repository index")
+    validate_index(index, source["kind"])
+    state = State(root)
+    with state.lock():
+        old_immutable = {}
+        if state.cache.is_file() and not state.cache.is_symlink():
+            old_cache = parse_json(state.cache.read_bytes(), "package cache")
+            old_immutable = old_cache.get("immutability", {})
+            if not isinstance(old_immutable, dict):
+                fail("malformed cached immutability")
+        immutable = copy.deepcopy(old_immutable)
+        for name, package in index["packages"].items():
+            for version, metadata in package["versions"].items():
+                key = f"{name}@{version}"
+                for architecture, artifact in metadata["artifacts"].items():
+                    artifact_key = f"{key}@{check_arch(architecture)}"
+                    identity = {field: artifact[field] for field in ("archive", "sha256", "size")}
+                    if artifact_key in immutable and immutable[artifact_key] != identity:
+                        fail(f"immutable package artifact changed: {artifact_key}")
+                    immutable[artifact_key] = identity
+        temporary = state.internal / f".cache-{uuid.uuid4().hex}.tmp"
+        try:
+            atomic_json(temporary, {"schema": 1, "index": index, "repository": source, "immutability": immutable})
+            os.replace(temporary, state.cache)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+    print(f"synced {len(index['packages'])} package(s)")
+
+
+def selected_version(index, name, requested, architecture):
+    check_name(name)
+    package = index["packages"].get(name)
+    if package is None:
+        fail(f"package not found: {name}")
+    versions = package["versions"]
+    def artifact_for(metadata):
+        for artifact_arch, artifact in metadata["artifacts"].items():
+            if check_arch(artifact_arch) == architecture:
+                return artifact
+        return None
+
+    compatible_versions = [version for version, metadata in versions.items() if artifact_for(metadata) is not None]
+    if not compatible_versions:
+        fail(f"package {name} has no artifact for CPU architecture {architecture}")
+    if requested is not None:
+        version_key(requested)
+        if requested not in versions:
+            fail(f"version not found: {name} {requested}")
+        artifact = artifact_for(versions[requested])
+        if artifact is None:
+            fail(f"package {name} {requested} has no artifact for CPU architecture {architecture}")
+        return requested, versions[requested], artifact
+    version = max(compatible_versions, key=version_key)
+    return version, versions[version], artifact_for(versions[version])
+
+
+def compatible(metadata, architecture):
+    if architecture not in {check_arch(value) for value in metadata["artifacts"]}:
+        fail(f"package has no artifact for CPU architecture {architecture}")
+    if metadata["dependencies"]:
+        fail("dependencies are declared but dependency resolution is not implemented")
+
+
+def check_target(root, rel, owners, package):
+    target = root.joinpath(*rel.split("/"))
+    current = root
+    for part in rel.split("/")[:-1]:
+        current = current / part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            fail(f"unsafe path component: {rel}")
+    owner = owners.get(rel)
+    if owner is not None and owner != package:
+        fail(f"refusing to clobber file owned by {owner}: {rel}")
+    try:
+        info = target.lstat()
+    except FileNotFoundError:
+        return target
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        fail(f"package target is not a regular file: {rel}")
+    if owner != package:
+        fail(f"refusing to clobber unmanaged or foreign file: {rel}")
+    return target
+
+
+def write_state(state, value):
+    atomic_json(state.internal / "state.json", value)
+
+
+def install_locked(state, name, requested, architecture):
+        root = state.root
+        index, repository, _ = state.cache_data()
+        version, metadata, artifact = selected_version(index, name, requested, architecture)
+        compatible(metadata, architecture)
+        state_value = state.load()
+        archive = read_archive(archive_source(repository, artifact["archive"]))
+        verify_digest(archive, artifact)
+        transaction = state.internal / f".txn-{uuid.uuid4().hex}"
+        stage = transaction / "stage"
+        transaction.mkdir()
+        try:
+            files = verify_manifest(archive, name, version, metadata, stage)
+            owners = state_value["owners"]
+            old_package = state_value["installed"].get(name)
+            old_files = {entry["path"] for entry in old_package.get("files", [])} if old_package else set()
+            new_files = {entry["path"] for entry in files}
+            for rel in sorted(old_files | new_files):
+                check_target(root, rel, owners, name)
+                if rel in old_files and owners.get(rel) != name:
+                    fail(f"ownership database disagrees for {rel}")
+            if old_package and old_package.get("version") == version and old_package.get("architecture") == architecture and old_package.get("sha256") == artifact["sha256"] and old_files == new_files:
+                print(f"{name} {version} is already installed")
+                return
+            backups = []
+            placed = []
+            try:
+                for index_number, rel in enumerate(sorted(old_files | new_files)):
+                    target = root.joinpath(*rel.split("/"))
+                    if target.exists() or target.is_symlink():
+                        backup = transaction / "backup" / str(index_number)
+                        backup.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(target, backup)
+                        backups.append((backup, target))
+                for file in files:
+                    rel = file["path"]
+                    source = stage.joinpath(*rel.split("/"))
+                    target = root.joinpath(*rel.split("/"))
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(source, target)
+                    placed.append(target)
+                new_state = copy.deepcopy(state_value)
+                new_state["installed"][name] = {"version": version, "architecture": architecture, "sha256": artifact["sha256"], "files": files}
+                new_state["owners"] = {rel: owner for rel, owner in owners.items() if owner != name and rel not in old_files}
+                new_state["owners"].update({file["path"]: name for file in files})
+                write_state(state, new_state)
+            except Exception:
+                for target in reversed(placed):
+                    try:
+                        target.unlink()
+                    except FileNotFoundError:
+                        pass
+                for backup, target in reversed(backups):
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.exists() or target.is_symlink():
+                        target.unlink()
+                    os.replace(backup, target)
+                raise
+        finally:
+            if transaction.exists():
+                shutil.rmtree(transaction)
+        print(f"installed {name} {version} ({architecture})")
+
+
+def install(root, name, requested, architecture):
+    state = State(root)
+    with state.lock():
+        install_locked(state, name, requested, architecture)
+
+
+def upgrade(root, architecture):
+    state = State(root)
+    with state.lock():
+        names = sorted(state.load()["installed"])
+        for name in names:
+            install_locked(state, name, None, architecture)
+    if not names:
+        print("no packages to upgrade")
+
+
+def remove(root, name):
+    check_name(name)
+    state = State(root)
+    with state.lock():
+        state_value = state.load()
+        package = state_value["installed"].get(name)
+        if package is None:
+            fail(f"package is not installed: {name}")
+        files = [entry["path"] for entry in package.get("files", [])]
+        for rel in files:
+            if state_value["owners"].get(rel) != name:
+                fail(f"ownership database disagrees for {rel}")
+            check_target(root, rel, state_value["owners"], name)
+        transaction = state.internal / f".txn-{uuid.uuid4().hex}"
+        transaction.mkdir()
+        backups = []
+        try:
+            try:
+                for index_number, rel in enumerate(files):
+                    target = root.joinpath(*rel.split("/"))
+                    if target.exists() or target.is_symlink():
+                        backup = transaction / "backup" / str(index_number)
+                        backup.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(target, backup)
+                        backups.append((backup, target))
+                new_state = copy.deepcopy(state_value)
+                del new_state["installed"][name]
+                new_state["owners"] = {rel: owner for rel, owner in state_value["owners"].items() if owner != name}
+                write_state(state, new_state)
+            except Exception:
+                for backup, target in reversed(backups):
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.exists() or target.is_symlink():
+                        target.unlink()
+                    os.replace(backup, target)
+                raise
+        finally:
+            if transaction.exists():
+                shutil.rmtree(transaction)
+    print(f"removed {name}")
+
+
+def list_packages(root):
+    state = State(root)
+    with state.lock():
+        value = state.load()
+    for name in sorted(value["installed"]):
+        print(f"{name} {value['installed'][name]['version']}")
+
+
+def status(root):
+    state = State(root)
+    with state.lock():
+        value = state.load()
+        package_count = len(value["installed"])
+        cached = state.cache.is_file() and not state.cache.is_symlink()
+    print(f"root: {root}")
+    print(f"repository: {'synced' if cached else 'not synced'}")
+    print(f"installed: {package_count}")
+
+
+def parse_cli(argv):
+    values = {
+        "root": str(Path.cwd() / "build" / "tmp" / "pkg-root"),
+        "repo": None,
+        "arch": None,
+    }
+    operation = None
+    operands = []
+    index = 0
+    while index < len(argv):
+        value = argv[index]
+        if value in ("--root", "--repo", "--arch"):
+            if index + 1 >= len(argv):
+                fail(f"{value} requires a value")
+            values[value[2:]] = argv[index + 1]
+            index += 2
+            continue
+        if value.startswith("--root=") or value.startswith("--repo=") or value.startswith("--arch="):
+            key, item = value[2:].split("=", 1)
+            values[key] = item
+            index += 1
+            continue
+        if operation is None:
+            operation = value
+        else:
+            operands.append(value)
+        index += 1
+    if operation is None:
+        fail("an operation is required (use -s, -i, -r, -is, or -su)")
+    aliases = {
+        "-s": "sync",
+        "-i": "install",
+        "-r": "remove",
+        "-is": "sync-install",
+        "-su": "sync-upgrade",
+    }
+    operation = aliases.get(operation, operation)
+    if operation == "sync-install":
+        if not 1 <= len(operands) <= 2:
+            fail("-is requires NAME and optionally VERSION")
+    elif operation == "sync-upgrade":
+        if operands:
+            fail("-su does not take package names")
+    elif operation in ("sync",):
+        if operands:
+            fail("-s/sync does not take package names")
+    elif operation in ("install",):
+        if not 1 <= len(operands) <= 2:
+            fail("-i/install requires NAME and optionally VERSION")
+    elif operation in ("remove",):
+        if len(operands) != 1:
+            fail("-r/remove requires NAME")
+    elif operation in ("list", "status"):
+        if operands:
+            fail(f"{operation} does not take arguments")
+    else:
+        fail(f"invalid operation or flag combination: {operation}")
+    if operation in ("sync", "sync-install", "sync-upgrade") and not values["repo"]:
+        fail(f"{operation} requires --repo")
+    return values, operation, operands
+
+
+def main(argv):
+    try:
+        values, operation, operands = parse_cli(argv)
+        root = ensure_root(values["root"])
+        state = State(root)
+        architecture = state.configure_arch(values["arch"])
+        if operation == "sync":
+            sync(root, values["repo"])
+        elif operation == "sync-install":
+            sync(root, values["repo"])
+            install(root, operands[0], operands[1] if len(operands) == 2 else None, architecture)
+        elif operation == "sync-upgrade":
+            sync(root, values["repo"])
+            upgrade(root, architecture)
+        elif operation == "install":
+            install(root, operands[0], operands[1] if len(operands) == 2 else None, architecture)
+        elif operation == "remove":
+            remove(root, operands[0])
+        elif operation == "list":
+            list_packages(root)
+        elif operation == "status":
+            status(root)
+    except PkgError as exc:
+        print(f"pkg: error: {exc}", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, tarfile.TarError) as exc:
+        print(f"pkg: error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

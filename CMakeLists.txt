@@ -190,6 +190,7 @@ if(ASTIA_BUILD_TESTS)
     add_subdirectory(libc)
 endif()
 add_subdirectory(modules EXCLUDE_FROM_ALL)
+add_subdirectory(pkg)
 
 if(ASTIA_BUILD_TESTS)
     add_custom_target(astia_qemu_test_artifacts)
