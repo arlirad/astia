@@ -17,8 +17,8 @@
 alignas(16) unsigned char ext4_test_heap_storage[256 * 1024];
 
 #include "../src/dev/device_file.hpp"
-#include <astia/dev/blk/blkdev.hpp>
 #include "../src/fs/filesystem.hpp"
+#include <astia/dev/blk/blkdev.hpp>
 
 namespace astia::proc {
     mm::shptr<fs::open_file> controlling_terminal() {
@@ -28,10 +28,10 @@ namespace astia::proc {
 
 namespace {
 
-    using astia::u8;
     using astia::u16;
     using astia::u32;
     using astia::u64;
+    using astia::u8;
 
     class fake_blkdev final : public astia::dev::blk::blkdev {
         public:

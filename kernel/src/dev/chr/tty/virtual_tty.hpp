@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../tty.hpp"
 #include "../../console.hpp"
+#include "../tty.hpp"
 #include <astia/fs.hpp>
 
 namespace astia::dev {
