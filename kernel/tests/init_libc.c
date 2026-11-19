@@ -6,6 +6,8 @@
  * greps for; any failed step leaves the boot test with a nonzero exit
  * status and this program's step number in the serial log.
  */
+#include <astia/api/errno.h>
+#include <astia/api/signal_stack.h>
 #include <sys/futex.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -14,23 +16,21 @@
 #include <sys/time.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+
 #include <dirent.h>
 #include <errno.h>
-
 #include <fcntl.h>
-#include <pthread.h>
 #include <poll.h>
+#include <pthread.h>
 #include <sched.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
-#include <astia/api/errno.h>
-#include <astia/api/signal_stack.h>
 
 extern long __astia_process_futex(unsigned int* address, unsigned int operation,
                                   unsigned int value, const int64_t* timeout);
