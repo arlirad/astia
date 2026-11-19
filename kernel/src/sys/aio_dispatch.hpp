@@ -12,12 +12,12 @@ namespace astia::sys::aio_dispatch {
     bool submit_socket_request(
         aio_ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe,
         const mm::shptr<fs::open_file>& object, const span<u8>* entries, u32 count,
-        io_direction direction, bool control = false, bool socket_accept = false);
+        io::direction direction, bool control = false, bool socket_accept = false);
 
     bool dispatch_one(aio_ring::ring_slot& slot, astia_rings* ring,
                       const astia_sqe& sqe);
     void retry_pending(aio_ring::ring_slot& slot, astia_rings* ring);
-    void resume_parked(astia_rings* ring, aio_ring::parked_op& op);
+    void resume_parked(proc::process* owner, astia_rings* ring, aio_ring::parked_op& op);
     void complete_control(proc::process* owner, astia_rings* ring,
                           aio_ring::parked_op& op, i32 result);
     u64 poll_now_ns();

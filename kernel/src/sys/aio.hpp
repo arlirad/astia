@@ -73,6 +73,7 @@ namespace astia::sys {
     /// immediately. Completion results are published in the CQ and
     /// asynchronous completion notification is delivered as SIGAIO.
     long io_submit(astia_rings* ring, u32 to_submit);
+    bool io_allow_kernel_buffers(astia_rings* ring);
 
     /// Device-side nudge: "this fd may have data now."  The engine
     /// retries every op parked on the fd and posts the completions that
@@ -84,6 +85,7 @@ namespace astia::sys {
     /// dynamically opened `/dev/*` descriptors wake just like stdio.
     void io_device_ready_context(const io_device* dev);
     void io_device_ready_context_except(const io_device* dev, u64 user_data);
+    void io_process_deferred_ready();
     void io_interrupt_process(proc::process* owner, i32 result);
     void io_poll_tick();
     void io_exec_process(proc::process* owner);

@@ -313,6 +313,12 @@ namespace astia::fs {
         return -ENOSYS;
     }
 
+    long mount::unregister_file(const char* path, const mm::shptr<file>& object) {
+        (void) path;
+        (void) object;
+        return -ENOSYS;
+    }
+
     long mount::read_directory(const char*, u64, char*, u32, file_type*) {
         return -ENOSYS;
     }
@@ -664,6 +670,14 @@ namespace astia::fs {
             relative_path(*operation.entry(), path), object);
     }
 
+    long unregister_device(const char* path, const mm::shptr<file>& object) {
+        mount_operation operation(path);
+        if (!operation)
+            return -ENOENT;
+        return operation.instance()->unregister_file(
+            relative_path(*operation.entry(), path), object);
+    }
+
     mm::shptr<open_file> open_path(const char* path, u32 flags) {
         char resolved[path_max]{};
         if (resolve_path(path, resolved, sizeof resolved, true) < 0)
@@ -951,7 +965,7 @@ namespace astia::fs {
         (void) offset;
         return -ENOSYS;
     }
-    long file::submit(io_request& request) {
+    long file::submit(io::request& request) {
         // Synchronous default: a node that finishes inline answers with
         // whatever its read()/write() returns.  A 0 from it here is not the
         // device contract's "park me" — a file has no device to resume it,
@@ -960,7 +974,7 @@ namespace astia::fs {
         // for a resume that never comes.  A node that genuinely can be "not
         // ready" overrides submit(), parks, and resumes by stage instead.
         const long result =
-            request.direction() == io_direction::input
+            request.direction() == io::direction::input
                 ? read(request.buffer(), request.length(), request.offset())
                 : write(request.buffer(), request.length(), request.offset());
         if (result == 0) {
@@ -1024,7 +1038,7 @@ namespace astia::fs {
         long legacy_write(file* object, const void* buffer, u32 length, u64 offset) {
             return object->write(buffer, length, offset);
         }
-        long legacy_submit(file* object, io_request& request) {
+        long legacy_submit(file* object, io::request& request) {
             return object->submit(request);
         }
         u32 legacy_poll(const file* object, u32 events, u32 flags) {
@@ -1048,7 +1062,7 @@ namespace astia::fs {
         const file_size_capability    legacy_size_capability{legacy_size};
         const file_mapping_capability legacy_mapping_capability{legacy_mapping};
 
-        long dispatch_submit(file* object, io_request& request) {
+        long dispatch_submit(file* object, io::request& request) {
             const auto* capability = static_cast<const file_submit_capability*>(
                 object->capability(file_capability::submit));
             return capability != nullptr ? capability->submit(object, request)
@@ -1140,9 +1154,26 @@ namespace astia::fs {
     }
 
     long open_file::read(void* buf, u32 len, u64 offset) {
-        io_request request(buf, len, offset, 0, io_direction::input);
-        const long result = submit(request);
-        return result == 0 && !request.complete() ? -EAGAIN : result;
+        if (!_object)
+            return -EBADF;
+        const bool current = offset == offset_current;
+        const u64  actual  = current ? current_position() : offset;
+        long result = dispatch_read(_object.get(), buf, len, actual);
+        if (result == -ENOSYS) {
+            io_packet packet(mm::shptr<open_file>::borrowed(this), buf, len, actual,
+                             io::direction::input);
+            if (!packet)
+                return -ENOMEM;
+            if (!packet.request().park_device())
+                return -EAGAIN;
+            result = packet.submit();
+            if (result == 0 && !packet.request().complete())
+                return -EAGAIN;
+            packet.request().acknowledge();
+        }
+        if (result > 0 && current)
+            set_position(actual + static_cast<u64>(result));
+        return result;
     }
 
     long open_file::seek(i64 offset, i32 whence) {
@@ -1206,11 +1237,34 @@ namespace astia::fs {
     }
 
     long open_file::write(const void* buf, u32 len, u64 offset) {
-        io_request request(const_cast<void*>(buf), len, offset, 0, io_direction::output);
-        const long result = submit(request);
-        return result == 0 && !request.complete() ? -EAGAIN : result;
+        if (!_object)
+            return -EBADF;
+        const bool current = offset == offset_current;
+        u64        actual  = current ? current_position() : offset;
+        if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0) {
+            const long reserved = reserve_append(len, &actual);
+            if (reserved < 0)
+                return reserved;
+        }
+        long result = dispatch_write(_object.get(), buf, len, actual);
+        if (result == -ENOSYS) {
+            io_packet packet(mm::shptr<open_file>::borrowed(this),
+                             const_cast<void*>(buf), len, actual,
+                             io::direction::output);
+            if (!packet)
+                return -ENOMEM;
+            if (!packet.request().park_device())
+                return -EAGAIN;
+            result = packet.submit();
+            if (result == 0 && !packet.request().complete())
+                return -EAGAIN;
+            packet.request().acknowledge();
+        }
+        if (result > 0 && (current || (_flags & static_cast<u32>(open_file_status_flags::append)) != 0))
+            set_position(actual + static_cast<u64>(result));
+        return result;
     }
-    long open_file::submit(io_request& request) {
+    long open_file::submit(io::request& request) {
         if (!_object)
             return -EBADF;
         // Resolve the offset once, at submission, and write it back into
@@ -1219,7 +1273,7 @@ namespace astia::fs {
         const bool current = request.offset() == offset_current;
         u64        actual  = current ? current_position() : request.offset();
         if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0 &&
-            request.direction() == io_direction::output && !request.append_reserved()) {
+            request.direction() == io::direction::output && !request.append_reserved()) {
             const u32 length = request.has_append_length() ? request.append_length()
                                                             : request.length();
             const long reserved = reserve_append(length, &actual);

@@ -146,13 +146,13 @@ namespace astia::dev {
         return static_cast<long>(count);
     }
 
-    long pty::master_submit(io_request& request) {
-        const long result = request.direction() == io_direction::input
+    long pty::master_submit(io::request& request) {
+        const long result = request.direction() == io::direction::input
                                 ? master_read(request.buffer(), request.length())
                                 : master_write(request.buffer(), request.length());
         if (result != 0 || request.length() == 0)
             return result;
-        if (request.direction() == io_direction::input && !slave_open())
+        if (request.direction() == io::direction::input && !slave_open())
             return -EIO;
         request.stage(1);
         return 0;
@@ -206,10 +206,10 @@ namespace astia::dev {
         return master_open() ? tty::write(buffer, length, offset) : -EIO;
     }
 
-    long pty::submit(io_request& request) {
-        if (request.direction() == io_direction::output && !master_open())
+    long pty::submit(io::request& request) {
+        if (request.direction() == io::direction::output && !master_open())
             return -EIO;
-        if (request.direction() == io_direction::input && !master_open()) {
+        if (request.direction() == io::direction::input && !master_open()) {
             const long result = tty::read(request.buffer(), request.length(), request.offset());
             return result == 0 ? -EIO : result;
         }

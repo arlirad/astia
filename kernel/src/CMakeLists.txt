@@ -9,6 +9,7 @@ add_subdirectory(fs)
 add_subdirectory(proc)
 add_subdirectory(sys)
 add_subdirectory(util)
+add_subdirectory(hw)
 add_subdirectory(dev)
 add_subdirectory(log)
 add_subdirectory(elf)
@@ -29,6 +30,7 @@ set(_astia_kernel_libs
         sys
         arch_${ARCH}
         mm
+        hw
         dev
         log
         elf
@@ -38,6 +40,7 @@ set(_astia_kernel_libs
         plat_${PLATFORM}
         util
         libcore
+        libcore_freestanding
         dbg
         -Wl,--no-whole-archive
 )

@@ -202,7 +202,7 @@ namespace astia::sys::aio_socket {
             span<u8> range = span<u8>::bytes(s.address, s.length);
             return aio_dispatch::submit_socket_request(
                 slot, ring, s, object, &range, 1,
-                s.op == OP_RECVFROM ? io_direction::input : io_direction::output);
+                s.op == OP_RECVFROM ? io::direction::input : io::direction::output);
         }
 
         bool handle_bind_connect(astia_rings* ring, const astia_sqe& s) {
@@ -260,7 +260,7 @@ namespace astia::sys::aio_socket {
             if (object->node()->unix_socket_capability() == nullptr)
                 return cq_post_guarded(ring, s.user_data, -EOPNOTSUPP);
             return aio_dispatch::submit_socket_request(
-                slot, ring, s, object, nullptr, 0, io_direction::input, true, true);
+                slot, ring, s, object, nullptr, 0, io::direction::input, true, true);
         }
 
         bool handle_getsockopt(astia_rings* ring, const astia_sqe& s) {

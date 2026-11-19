@@ -2,9 +2,11 @@ add_library(mm STATIC
         frame_allocator.cpp
         heap.cpp
         new.cpp
+        placement_new.cpp
         phys_region.cpp
         pinned_buffer.cpp
         iovec.cpp
+        dma_buffer.cpp
         init_mm.cpp
 )
 

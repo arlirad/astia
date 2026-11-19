@@ -56,30 +56,30 @@ wchar_t* wcscat(wchar_t* dst, const wchar_t* src) {
     return dst;
 }
 
-const wchar_t* wcschr(const wchar_t* s, wchar_t c) {
+wchar_t* wcschr(const wchar_t* s, wchar_t c) {
     do {
         if (*s == c)
-            return s;
+            return (wchar_t*) s;
     } while (*s++ != L'\0');
     return NULL;
 }
 
-const wchar_t* wcsrchr(const wchar_t* s, wchar_t c) {
+wchar_t* wcsrchr(const wchar_t* s, wchar_t c) {
     const wchar_t* result = NULL;
     do {
         if (*s == c)
             result = s;
     } while (*s++ != L'\0');
-    return result;
+    return (wchar_t*) result;
 }
 
-const wchar_t* wcsstr(const wchar_t* haystack, const wchar_t* needle) {
+wchar_t* wcsstr(const wchar_t* haystack, const wchar_t* needle) {
     size_t n = wcslen(needle);
     if (n == 0)
-        return haystack;
+        return (wchar_t*) haystack;
     while (*haystack != L'\0') {
         if (wcsncmp(haystack, needle, n) == 0)
-            return haystack;
+            return (wchar_t*) haystack;
         haystack++;
     }
     return NULL;
@@ -99,10 +99,10 @@ size_t wcscspn(const wchar_t* s, const wchar_t* reject) {
     return n;
 }
 
-const wchar_t* wcspbrk(const wchar_t* s, const wchar_t* accept) {
+wchar_t* wcspbrk(const wchar_t* s, const wchar_t* accept) {
     while (*s != L'\0') {
         if (wcschr(accept, *s) != NULL)
-            return s;
+            return (wchar_t*) s;
         s++;
     }
     return NULL;

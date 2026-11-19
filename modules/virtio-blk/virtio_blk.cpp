@@ -1,9 +1,24 @@
-#include <astia/module_abi.hpp>
+#include <astia/module_abi.h>
+#include <astia/mm/dma_buffer.hpp>
+#include <astia/dev/blk/blkdev.hpp>
+#include <astia/dev/driver.hpp>
+#include <astia/hw/pci.hpp>
+#include <astia/dev/device_file.hpp>
+#include <astia/fs.hpp>
+#include <astia/io.hpp>
+#include <astia/mm/share.hpp>
 #include <astia/core/endian.hpp>
 #include <astia/dev/regs.hpp>
 #include "virtio_blk_protocol.hpp"
 
 namespace {
+
+    void copy_bytes(void* destination, const void* source, unsigned length) {
+        auto*       to   = static_cast<unsigned char*>(destination);
+        const auto* from = static_cast<const unsigned char*>(source);
+        for (unsigned i = 0; i < length; ++i)
+            to[i] = from[i];
+    }
 
     constexpr unsigned queue_limit = 8;
     constexpr unsigned timeout_spins = 4000000;
@@ -17,9 +32,9 @@ namespace {
     constexpr unsigned feature_ring_reset = 40;
     constexpr unsigned feature_blk_ro = 5;
     constexpr unsigned feature_blk_flush = 9;
-    constexpr unsigned request_in = 0;
-    constexpr unsigned request_out = 1;
-    constexpr unsigned request_flush = 4;
+    constexpr unsigned _requestin = 0;
+    constexpr unsigned _requestout = 1;
+    constexpr unsigned _requestflush = 4;
     constexpr unsigned status_ok = 0;
     constexpr unsigned status_unsupp = 2;
     constexpr unsigned status_acknowledge = 1;
@@ -29,7 +44,7 @@ namespace {
     constexpr unsigned descriptor_next = 1;
     constexpr unsigned descriptor_write = 2;
 
-    using dma = astia::module::dma_buffer;
+    using dma = astia::mm::dma_buffer;
 
     struct capability_region {
         bool present = false;
@@ -44,9 +59,9 @@ namespace {
         astia::core::le<uint16_t> flags;
         astia::core::le<uint16_t> next;
 
-        descriptor(uint64_t address_value, uint32_t length_value, uint16_t flags_value,
-                   uint16_t next_value)
-            : address(address_value), length(length_value), flags(flags_value), next(next_value) {}
+        descriptor(uint64_t _addressvalue, uint32_t length_value, uint16_t flags_value,
+                   uint16_t _nextvalue)
+            : address(_addressvalue), length(length_value), flags(flags_value), next(_nextvalue) {}
     };
 
     struct available_ring {
@@ -121,21 +136,21 @@ namespace {
 
         descriptor* descriptors() const {
             return reinterpret_cast<descriptor*>(
-                static_cast<unsigned char*>(memory.value.virtual_address) + descriptor_offset);
+                static_cast<unsigned char*>(memory.data()) + descriptor_offset);
         }
 
         available_ring* available() const {
             return reinterpret_cast<available_ring*>(
-                static_cast<unsigned char*>(memory.value.virtual_address) + available_offset);
+                static_cast<unsigned char*>(memory.data()) + available_offset);
         }
 
         volatile used_ring* used() const {
             return static_cast<volatile used_ring*>(static_cast<void*>(
-                static_cast<unsigned char*>(memory.value.virtual_address) + used_offset));
+                static_cast<unsigned char*>(memory.data()) + used_offset));
         }
 
         void clear() {
-            auto* bytes = static_cast<unsigned char*>(memory.value.virtual_address);
+            auto* bytes = static_cast<unsigned char*>(memory.data());
             for (unsigned i = 0; i < ASTIA_PAGE_SIZE; ++i)
                 bytes[i] = 0;
             available_index = 0;
@@ -174,7 +189,9 @@ namespace {
         bool write_supported = false;
         bool started = false;
         bool failed = false;
-        queue request_queue{};
+        bool quiescing = false;
+        bool release_pending = false;
+        queue _requestqueue{};
 
         bool region_valid(const capability_region& region, unsigned required) const {
             if (!region.present || region.bar >= 6 || region.offset > ~uint64_t{0} - required ||
@@ -316,38 +333,38 @@ namespace {
                 size &= size - 1u;
             if (size < 4)
                 return false;
-            request_queue.size = size;
-            request_queue.descriptor_offset = 0;
-            request_queue.available_offset = size * 16;
-            request_queue.used_offset = (request_queue.available_offset + 6 + size * 2 + 3) & ~3u;
-            if (request_queue.used_offset + 6 + size * 8 > ASTIA_PAGE_SIZE)
+            _requestqueue.size = size;
+            _requestqueue.descriptor_offset = 0;
+            _requestqueue.available_offset = size * 16;
+            _requestqueue.used_offset = (_requestqueue.available_offset + 6 + size * 2 + 3) & ~3u;
+            if (_requestqueue.used_offset + 6 + size * 8 > ASTIA_PAGE_SIZE)
                 return false;
-            if (!request_queue.memory.allocate(1))
+            if (!_requestqueue.memory.allocate(1))
                 return false;
-            request_queue.clear();
+            _requestqueue.clear();
             common.write<uint16_t>(0x18, static_cast<uint16_t>(size));
             common.write<uint16_t>(0x1a, 0xffff);
-            common.write<uint64_t>(0x20, request_queue.memory.value.physical + request_queue.descriptor_offset);
-            common.write<uint64_t>(0x28, request_queue.memory.value.physical + request_queue.available_offset);
-            common.write<uint64_t>(0x30, request_queue.memory.value.physical + request_queue.used_offset);
-            request_queue.notify_offset = common.read<uint16_t>(0x1e);
+            common.write<uint64_t>(0x20, _requestqueue.memory.physical() + _requestqueue.descriptor_offset);
+            common.write<uint64_t>(0x28, _requestqueue.memory.physical() + _requestqueue.available_offset);
+            common.write<uint64_t>(0x30, _requestqueue.memory.physical() + _requestqueue.used_offset);
+            _requestqueue.notify_offset = common.read<uint16_t>(0x1e);
             const uint64_t notify_offset =
-                static_cast<uint64_t>(request_queue.notify_offset) * notify_multiplier;
+                static_cast<uint64_t>(_requestqueue.notify_offset) * notify_multiplier;
             if (notify_offset > notify_cap.length || notify_offset + 2 > notify_cap.length) {
-                request_queue.memory.release();
+                _requestqueue.memory.release();
                 return false;
             }
             common.write<uint16_t>(0x1c, 1);
             if (common.read<uint16_t>(0x1c) != 1) {
-                request_queue.memory.release();
+                _requestqueue.memory.release();
                 return false;
             }
-            request_queue.enabled = true;
+            _requestqueue.enabled = true;
             return true;
         }
 
         void disable_queue() {
-            if (!request_queue.enabled)
+            if (!_requestqueue.enabled)
                 return;
             if (ring_reset) {
                 common.write<uint16_t>(0x38, 1);
@@ -357,21 +374,51 @@ namespace {
                     asm volatile("pause");
                 }
             }
-            request_queue.enabled = false;
+            _requestqueue.enabled = false;
         }
 
         void release() {
-            disable_queue();
-            if (common.mapped())
-                (void) reset_device();
-            request_queue.memory.release();
+            quiesce();
+            if (pending.active) {
+                release_pending = true;
+                return;
+            }
+            release_pending = false;
+            _requestqueue.memory.release();
             common = {};
             notify = {};
             device_config = {};
             started = false;
         }
 
+        void quiesce() {
+            if (quiescing)
+                return;
+            quiescing = true;
+            disable_queue();
+            if (common.mapped())
+                (void) reset_device();
+            if (!pending.active)
+                return;
+            pending.completed = true;
+            pending.result = -19;
+            pending.hardware_done = true;
+            if (pending.io != nullptr) {
+                if (pending.io->device_state() != nullptr)
+                    pending.io->wake();
+            } else {
+                pending.request.release();
+                pending = {};
+            }
+        }
+
+        void stop() {
+            quiesce();
+            release();
+        }
+
         bool start() {
+            quiescing = false;
             if (astia_module_pci_enable_bus_master(pci) != 0 ||
                 astia_module_pci_disable_msix(pci) != 0 || !find_capabilities())
                 return false;
@@ -398,21 +445,23 @@ namespace {
             if (!ring_reset)
                 return false;
             disable_queue();
-            request_queue.clear();
-            common.write<uint16_t>(0x18, static_cast<uint16_t>(request_queue.size));
-            common.write<uint64_t>(0x20, request_queue.memory.value.physical + request_queue.descriptor_offset);
-            common.write<uint64_t>(0x28, request_queue.memory.value.physical + request_queue.available_offset);
-            common.write<uint64_t>(0x30, request_queue.memory.value.physical + request_queue.used_offset);
+            _requestqueue.clear();
+            common.write<uint16_t>(0x18, static_cast<uint16_t>(_requestqueue.size));
+            common.write<uint64_t>(0x20, _requestqueue.memory.physical() + _requestqueue.descriptor_offset);
+            common.write<uint64_t>(0x28, _requestqueue.memory.physical() + _requestqueue.available_offset);
+            common.write<uint64_t>(0x30, _requestqueue.memory.physical() + _requestqueue.used_offset);
             common.write<uint16_t>(0x1c, 1);
             if (common.read<uint16_t>(0x1c) != 1)
                 return false;
-            request_queue.enabled = true;
+            _requestqueue.enabled = true;
             return true;
         }
 
         struct pending_request {
             dma request{};
-            astia_module_io_request* io = nullptr;
+            astia::io::request* io = nullptr;
+            long result = 0;
+            bool completed = false;
             unsigned length = 0;
             unsigned data_offset = 64;
             unsigned status_offset = 0;
@@ -420,6 +469,7 @@ namespace {
             bool flush = false;
             bool canceled = false;
             bool active = false;
+            bool hardware_done = false;
         } pending{};
 
         bool valid_transfer(unsigned length, uint64_t offset, bool write) const {
@@ -431,34 +481,34 @@ namespace {
 
         bool enqueue(dma& request, unsigned data_offset, unsigned data_length, bool write,
                      unsigned status_offset, unsigned type, uint64_t offset) {
-            auto* bytes = static_cast<unsigned char*>(request.value.virtual_address);
+            auto* bytes = static_cast<unsigned char*>(request.data());
             auto* header = reinterpret_cast<uint32_t*>(bytes);
             header[0] = type;
             header[1] = 0;
-            reinterpret_cast<uint64_t*>(bytes + 8)[0] = type == request_flush ? 0 : offset / 512;
+            reinterpret_cast<uint64_t*>(bytes + 8)[0] = type == _requestflush ? 0 : offset / 512;
             bytes[status_offset] = 0xff;
-            descriptor* descriptors = request_queue.descriptors();
-            descriptors[0] = descriptor{request.value.physical, 16, descriptor_next, 1};
+            descriptor* descriptors = _requestqueue.descriptors();
+            descriptors[0] = descriptor{request.physical(), 16, descriptor_next, 1};
             if (data_length != 0) {
                 descriptors[1] = descriptor{
-                    request.value.physical + data_offset, data_length,
+                    request.physical() + data_offset, data_length,
                     static_cast<uint16_t>(descriptor_next |
                                           (write ? 0 : descriptor_write)), 2};
-                descriptors[2] = descriptor{request.value.physical + status_offset, 1,
+                descriptors[2] = descriptor{request.physical() + status_offset, 1,
                                             descriptor_write, 0};
             }
             else {
-                descriptors[1] = descriptor{request.value.physical + status_offset, 1,
+                descriptors[1] = descriptor{request.physical() + status_offset, 1,
                                              descriptor_write, 0};
             }
-            available_ring* available = request_queue.available();
-            available->ring[request_queue.available_index % request_queue.size] = 0;
+            available_ring* available = _requestqueue.available();
+            available->ring[_requestqueue.available_index % _requestqueue.size] = 0;
             memory_barrier();
-            ++request_queue.available_index;
-            available->index = request_queue.available_index;
+            ++_requestqueue.available_index;
+            available->index = _requestqueue.available_index;
             memory_barrier();
             const uint64_t notify_offset =
-                static_cast<uint64_t>(request_queue.notify_offset) * notify_multiplier;
+                static_cast<uint64_t>(_requestqueue.notify_offset) * notify_multiplier;
             if (notify_offset + 2 > notify_cap.length)
                 return false;
             notify.write<uint16_t>(notify_offset, 0);
@@ -467,19 +517,19 @@ namespace {
 
         long wait(dma& request, unsigned data_length, unsigned status_offset,
                   void* buffer, bool write) {
-            volatile used_ring* used = request_queue.used();
+            volatile used_ring* used = _requestqueue.used();
             bool completed = false;
             bool observed = false;
             for (unsigned spin = 0; spin < timeout_spins; ++spin) {
                 memory_barrier();
-                if (used->index != request_queue.used_index) {
+                if (used->index != _requestqueue.used_index) {
                     const volatile used_element& element =
-                        used->ring[request_queue.used_index % request_queue.size];
-                    ++request_queue.used_index;
+                        used->ring[_requestqueue.used_index % _requestqueue.size];
+                    ++_requestqueue.used_index;
                     observed = true;
                     completed = element.id == 0 &&
                                astia_virtio_blk::completion_length_ok(
-                                   write ? request_out : request_in, data_length, element.length);
+                                   write ? _requestout : _requestin, data_length, element.length);
                     break;
                 }
                 asm volatile("pause");
@@ -489,13 +539,12 @@ namespace {
                     failed = true;
                 return observed ? -5 : -110;
             }
-            const uint8_t status = static_cast<unsigned char*>(request.value.virtual_address)[status_offset];
+            const uint8_t status = static_cast<unsigned char*>(request.data())[status_offset];
             if (status != status_ok)
                 return status == status_unsupp ? -95 : -5;
-            if (!write && buffer != nullptr &&
-                astia_module_copy_out(buffer, data_length,
-                                      static_cast<unsigned char*>(request.value.virtual_address) + 64) != 0)
-                return -14;
+            if (!write && buffer != nullptr)
+                copy_bytes(buffer, static_cast<unsigned char*>(request.data()) + 64,
+                           data_length);
             return static_cast<long>(data_length);
         }
 
@@ -508,14 +557,11 @@ namespace {
             dma request;
             if (!request.allocate(pages))
                 return -12;
-            if (write && astia_module_copy_in(static_cast<unsigned char*>(request.value.virtual_address) +
-                                                   data_offset,
-                                               length, buffer) != 0) {
-                request.release();
-                return -14;
-            }
+            if (write)
+                copy_bytes(static_cast<unsigned char*>(request.data()) + data_offset, buffer,
+                           length);
             if (!enqueue(request, data_offset, length, write, status_offset,
-                         write ? request_out : request_in, offset)) {
+                         write ? _requestout : _requestin, offset)) {
                 request.release();
                 return -5;
             }
@@ -534,70 +580,87 @@ namespace {
             dma request;
             if (!request.allocate(1))
                 return -12;
-            const bool queued = enqueue(request, 0, 0, false, 16, request_flush, 0);
+            const bool queued = enqueue(request, 0, 0, false, 16, _requestflush, 0);
             const long result = queued ? wait(request, 0, 16, nullptr, false) : -5;
             request.release();
             return result < 0 ? result : 0;
         }
 
-        int submit_async(astia_module_io_request* io) {
-            if (io == nullptr || pending.active || (io->direction != 0 && io->direction != 1))
+        int submit_async(astia::io::request& io) {
+            if (quiescing || pending.active ||
+                (io.direction() != astia::io::direction::input &&
+                                   io.direction() != astia::io::direction::output))
                 return -16;
-            const bool write = io->direction == 1;
+            const bool write = io.direction() == astia::io::direction::output;
             if (write && !write_supported)
                 return -30;
-            if (!valid_transfer(io->length, io->offset, write))
+            if (!valid_transfer(io.length(), io.offset(), write))
                 return -22;
-            const unsigned status_offset = 64 + io->length;
+            const unsigned status_offset = 64 + io.length();
             const unsigned pages = astia_virtio_blk::page_count(status_offset + 1);
             pending = {};
             if (!pending.request.allocate(pages))
                 return -12;
-            pending.io = io;
-            pending.length = io->length;
+            pending.io = &io;
+            pending.length = io.length();
             pending.status_offset = status_offset;
             pending.write = write;
             pending.active = true;
-            if (write && astia_module_copy_in(static_cast<unsigned char*>(pending.request.value.virtual_address) +
-                                                   64,
-                                               io->length, io->buffer) != 0) {
-                pending.request.release();
-                pending = {};
-                return -14;
-            }
-            if (!enqueue(pending.request, 64, io->length, write, status_offset,
-                         write ? request_out : request_in, io->offset)) {
+            pending.hardware_done = false;
+            if (write)
+                copy_bytes(static_cast<unsigned char*>(pending.request.data()) + 64,
+                           io.buffer(), io.length());
+            if (!enqueue(pending.request, 64, io.length(), write, status_offset,
+                         write ? _requestout : _requestin, io.offset())) {
                 pending.request.release();
                 pending = {};
                 return -5;
             }
-            io->poll_timeout_ns = 2000000000ull;
+            io.timeout_ns(2000000000ull);
+            io.poll_interval_ns(1000000);
             return 0;
         }
 
-        int poll_async(astia_module_io_request* io) {
-            if (!pending.active || pending.io != io)
+        int poll_async(astia::io::request& io) {
+            if (!pending.active || pending.io != &io)
                 return -2;
-            if (io->timeout_expired) {
-                if (ring_reset)
-                    (void) reset_queue_after_timeout();
-                pending.request.release();
-                pending = {};
-                return -110;
+            if (pending.completed) {
+                if (!pending.hardware_done) {
+                    volatile used_ring* used = _requestqueue.used();
+                    if (used->index != _requestqueue.used_index) {
+                        ++_requestqueue.used_index;
+                        pending.hardware_done = true;
+                        if (pending.io != nullptr && pending.io->device_state() != nullptr)
+                            pending.io->wake();
+                    }
+                }
+                if (pending.io == nullptr && pending.hardware_done) {
+                    pending.request.release();
+                    pending = {};
+                }
+                return 0;
             }
-            volatile used_ring* used = request_queue.used();
-            if (used->index == request_queue.used_index)
+            if (io.timeout_expired()) {
+                pending.hardware_done = ring_reset && reset_queue_after_timeout();
+                pending.result = -110;
+                pending.completed = true;
+                if (pending.hardware_done && pending.io->device_state() != nullptr)
+                    pending.io->wake();
+                return 0;
+            }
+            volatile used_ring* used = _requestqueue.used();
+            if (used->index == _requestqueue.used_index)
                 return 0;
             const volatile used_element& element =
-                used->ring[request_queue.used_index % request_queue.size];
-            ++request_queue.used_index;
+                used->ring[_requestqueue.used_index % _requestqueue.size];
+            ++_requestqueue.used_index;
             const unsigned expected_length = pending.flush ? 0 : pending.length;
             if (element.id != 0 || element.length < expected_length + 1) {
                 pending.request.release();
                 pending = {};
                 return -5;
             }
-            auto* bytes = static_cast<unsigned char*>(pending.request.value.virtual_address);
+            auto* bytes = static_cast<unsigned char*>(pending.request.data());
             const long status_result = bytes[pending.status_offset] == status_ok
                                             ? static_cast<long>(pending.length)
                                             : -5;
@@ -607,40 +670,57 @@ namespace {
                 return -5;
             }
             if (!pending.write) {
-                const long result = astia_module_copy_out(pending.io->buffer, pending.length,
-                                                           bytes + 64) == 0
-                                        ? static_cast<long>(pending.length)
-                                        : -14;
-                astia_module_io_complete(pending.io->opaque, result);
-                pending.request.release();
-                pending = {};
+                copy_bytes(pending.io->buffer(), bytes + 64, pending.length);
+                pending.result = static_cast<long>(pending.length);
+                pending.completed = true;
+                pending.hardware_done = true;
+                if (pending.io->device_state() != nullptr)
+                    pending.io->wake();
                 return 0;
             }
             if (!pending.flush) {
                 pending.flush = true;
                 pending.status_offset = 16;
-                if (!enqueue(pending.request, 0, 0, false, 16, request_flush, 0)) {
+                if (!enqueue(pending.request, 0, 0, false, 16, _requestflush, 0)) {
                     pending.request.release();
                     pending = {};
                     return -5;
                 }
                 return 0;
             }
-            astia_module_io_complete(pending.io->opaque, pending.length);
-            pending.request.release();
-            pending = {};
+            pending.result = pending.length;
+            pending.completed = true;
+            pending.hardware_done = true;
+            if (pending.io->device_state() != nullptr)
+                pending.io->wake();
             return 0;
         }
 
-        int cancel_async(astia_module_io_request* io) {
-            if (!pending.active || pending.io != io)
+        int cancel_async(astia::io::request& io, bool retain) {
+            if (!pending.active || pending.io != &io)
                 return -2;
             pending.canceled = true;
-            if (ring_reset)
-                (void) reset_queue_after_timeout();
+            pending.completed = true;
+            pending.result = -125;
+            if (!retain)
+                pending.io = nullptr;
+            pending.hardware_done = quiescing || (ring_reset && reset_queue_after_timeout());
+            if (retain && pending.hardware_done && pending.io->device_state() != nullptr)
+                pending.io->wake();
+            return 0;
+        }
+
+        bool complete_async(astia::io::request& io, long& result) {
+            if (!pending.active || pending.io != &io || !pending.completed ||
+                !pending.hardware_done)
+                return false;
+            result = pending.result;
             pending.request.release();
             pending = {};
-            return 0;
+            io.cancel_acknowledge();
+            if (release_pending)
+                release();
+            return true;
         }
 
         long read(void* buffer, unsigned length, uint64_t offset) {
@@ -652,106 +732,179 @@ namespace {
         }
     };
 
+#ifndef ASTIA_TEARDOWN_TEST
     controller device;
 
-    int match(const astia_module_pci_device* value) {
-        return value != nullptr && value->vendor_id == pci_vendor_virtio &&
-               value->device_id == pci_device_blk && value->class_code == 1 &&
-               value->subclass == 0 && value->programming_interface == 0 && value->bar_count != 0;
-    }
+    class virtio_block final : public astia::dev::blk::blkdev {
+        public:
+        explicit virtio_block(controller& owner)
+            : blkdev("vblk", owner.capacity * 512, owner.block_size), _owner(owner) {}
 
-    int probe(const astia_module_pci_device* value, void** context) {
-        if (value == nullptr || context == nullptr || device.started)
-            return 0;
-        device.pci = value->opaque;
-        if (!device.start()) {
-            device.release();
-            return 0;
-        }
-        *context = &device;
-        return 1;
-    }
-
-    void remove(void* context) {
-        if (context == &device)
-            device.release();
-    }
-
-    uint64_t size(void* context) {
-        return static_cast<controller*>(context)->capacity * 512;
-    }
-
-    uint32_t block_size(void* context) {
-        return static_cast<controller*>(context)->block_size;
-    }
-
-    long read(void* context, void* buffer, uint32_t length, uint64_t offset) {
-        return static_cast<controller*>(context)->read(buffer, length, offset);
-    }
-
-    long write(void* context, const void* buffer, uint32_t length, uint64_t offset) {
-        return static_cast<controller*>(context)->write(buffer, length, offset);
-    }
-
-    int async_submit(void* context, astia_module_io_request* request) {
-        return static_cast<controller*>(context)->submit_async(request);
-    }
-
-    int async_cancel(void* context, astia_module_io_request* request) {
-        return static_cast<controller*>(context)->cancel_async(request);
-    }
-
-    int async_poll(void* context, astia_module_io_request* request) {
-        return static_cast<controller*>(context)->poll_async(request);
-    }
-
-    int selftest() {
-        char sector[512]{};
-        const int first = device.read(sector, sizeof sector, 0) == sizeof sector ? 0 : -5;
-        if (!device.started || first != 0) {
+        long submit(astia::io::request& request) override {
+            const long valid = validate_request(request);
+            if (valid != 0)
+                return valid;
+            if (request.device_state() == this) {
+                _owner.poll_async(request);
+                long result = 0;
+                if (!_owner.complete_async(request, result))
+                    return 0;
+                request.device_state(nullptr);
+                request.cancel_handler_set(nullptr);
+                return result;
+            }
+            if (request.device_state() != nullptr)
+                return -16;
+            request.device_state(this);
+            request.cancel_handler_set(cancel_request);
+            const int result = _owner.submit_async(request);
+            if (result < 0) {
+                request.device_state(nullptr);
+                request.cancel_handler_set(nullptr);
+                return result;
+            }
             return 0;
         }
-        char invalid[512]{};
-        if (astia_module_read_registered("/dev/vblk0", invalid, sizeof invalid, 1) >= 0 ||
-            astia_module_read_registered("/dev/vblk0", invalid, sizeof invalid,
-                                         device.capacity * 512) >= 0)
-            return 0;
-        const bool known = sector[0] == 'A' && sector[1] == 'S' && sector[2] == 'T' &&
-                           sector[3] == 'I' && sector[4] == 'A' && sector[5] == '_' &&
-                           sector[6] == 'V' && sector[7] == 'I';
-        if (!known)
-            return 0;
-        astia_module_log("vblk", "known sector ok");
-        astia_module_log("vblk", "invalid geometry rejected");
-        if (!device.write_supported) {
-            astia_module_log("vblk", "write rejected: read-only or no flush");
-            return 1;
-        }
-        char written[512]{};
-        written[0] = 'A';
-        written[1] = 'S';
-        written[2] = 'T';
-        written[3] = 'I';
-        written[4] = 'A';
-        written[5] = '_';
-        written[6] = 'W';
-        written[7] = 'R';
-        if (device.write(written, sizeof written, 512) != sizeof written)
-            return 0;
-        char persisted[512]{};
-        if (device.read(persisted, sizeof persisted, 512) != sizeof persisted ||
-            persisted[0] != 'A' || persisted[6] != 'W' || persisted[7] != 'R')
-            return 0;
-        astia_module_log("vblk", "write flush persistence ok");
-        return 1;
-    }
 
-    const astia::module::block_driver ops = {
-        "virtio-blk", "/dev/vblk0", match, probe, remove, size, block_size, read, selftest,
-        async_submit, async_cancel, async_poll, write, nullptr, nullptr, nullptr};
+        protected:
+        long read_blocks(void* buffer, astia::u32 length, astia::u64 offset) override {
+            return _owner.read(buffer, length, offset);
+        }
+        long write_blocks(const void* buffer, astia::u32 length, astia::u64 offset) override {
+            return _owner.write(buffer, length, offset);
+        }
+
+        private:
+        static void cancel_request(astia::io::request& request) {
+            auto* self = static_cast<virtio_block*>(request.device_state());
+            if (self != nullptr) {
+                const bool retain = request.cancellation_retain();
+                (void) self->_owner.cancel_async(request, retain);
+                if (!retain) {
+                    request.device_state(nullptr);
+                    request.cancel_handler_set(nullptr);
+                }
+            }
+        }
+
+        controller& _owner;
+    };
+
+    class virtio_driver final : public astia::hw::driver {
+        public:
+        const char* name() const override { return "virtio-blk"; }
+        bool match_pci(const astia::hw::pci_device& value) const {
+            return value.vendor_id == pci_vendor_virtio && value.device_id == pci_device_blk &&
+                   value.class_code == 1 && value.subclass == 0 &&
+                   value.programming_interface == 0 && value.bar_count != 0;
+        }
+        bool probe_pci(astia::hw::pci_device& value) {
+            if (device.started)
+                return false;
+            device.pci = &value;
+            return device.start() || (device.release(), false);
+        }
+        bool match(const astia::hw::device_info& info) const override {
+            const auto* pci = astia::hw::pci_device_info::get(info);
+            return pci != nullptr && match_pci(pci->device());
+        }
+        bool probe(
+                const astia::hw::device_info& info) override {
+            const auto* pci = astia::hw::pci_device_info::get(info);
+            if (pci == nullptr)
+                return {};
+            auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
+            if (stable == nullptr || !probe_pci(*stable))
+                return {};
+            auto block = astia::mm::share<virtio_block>(device);
+            if (!block) {
+                device.release();
+                return {};
+            }
+            astia::mm::shptr<astia::dev::device> owner = block;
+            auto file = astia::mm::share<astia::dev::device_file>(owner);
+            if (!file) {
+                device.release();
+                return {};
+            }
+            if (astia::fs::register_device("/dev/vblk0", file) < 0) {
+                device.release();
+                return {};
+            }
+            _file = file;
+            _product = block;
+            return true;
+        }
+        astia::hw::product_handle publish(const astia::hw::device_info&) override {
+            return _product;
+        }
+        void remove(const astia::hw::device_info&) override {
+            if (_file) {
+                _file->detach();
+                (void) astia::fs::unregister_device("/dev/vblk0", _file);
+                _file = {};
+            }
+            _product = {};
+            device.stop();
+        }
+        bool selftest() override {
+            char sector[512]{};
+            const int first = device.read(sector, sizeof sector, 0) == sizeof sector ? 0 : -5;
+            if (!device.started || first != 0)
+                return false;
+            char invalid[512]{};
+            if (device.read(invalid, sizeof invalid, 1) >= 0 ||
+                device.read(invalid, sizeof invalid, device.capacity * 512) >= 0)
+                return false;
+            const bool known = sector[0] == 'A' && sector[1] == 'S' && sector[2] == 'T' &&
+                               sector[3] == 'I' && sector[4] == 'A' && sector[5] == '_' &&
+                               sector[6] == 'V' && sector[7] == 'I';
+            if (!known)
+                return false;
+            astia_module_log("vblk", "known sector ok");
+            astia_module_log("vblk", "invalid geometry rejected");
+            char async_read[512]{};
+            if (astia_module_read_registered_async("/dev/vblk0", async_read,
+                                                   sizeof async_read, 0) != 0 ||
+                async_read[0] != 'A' || async_read[1] != 'S' || async_read[2] != 'T' ||
+                async_read[3] != 'I' || async_read[4] != 'A' || async_read[5] != '_' ||
+                async_read[6] != 'V' || async_read[7] != 'I')
+                return false;
+            if (!device.write_supported) {
+                astia_module_log("vblk", "attached kernel-buffer async read ok");
+                astia_module_log("vblk", "write rejected: read-only or no flush");
+                return true;
+            }
+            char written[512]{};
+            written[0] = 'A';
+            written[1] = 'S';
+            written[2] = 'T';
+            written[3] = 'I';
+            written[4] = 'A';
+            written[5] = '_';
+            written[6] = 'W';
+            written[7] = 'R';
+            if (device.write(written, sizeof written, 512) != sizeof written)
+                return false;
+            char persisted[512]{};
+            if (device.read(persisted, sizeof persisted, 512) != sizeof persisted ||
+                persisted[0] != 'A' || persisted[6] != 'W' || persisted[7] != 'R')
+                return false;
+            astia_module_log("vblk", "write flush persistence ok");
+            return true;
+        }
+
+        private:
+        controller device;
+        astia::mm::shptr<astia::dev::device> _product;
+        astia::mm::shptr<astia::dev::device_file> _file;
+    };
+
+    virtio_driver driver;
 
 }
 
 extern "C" int module_main() {
-    return astia::module::register_block_driver(ops);
+    return astia::hw::drivers().register_driver(driver) ? 0 : -22;
 }
+#endif

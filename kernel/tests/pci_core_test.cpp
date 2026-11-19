@@ -10,7 +10,7 @@
 #endif
 #include <astia/dev/device.hpp>
 #include <astia/dev/driver.hpp>
-#include <astia/dev/pci.hpp>
+#include <astia/hw/pci.hpp>
 
 #include <cstring>
 
@@ -23,11 +23,11 @@ namespace {
     astia::u32 map_count = 0;
     astia::u32 unmap_count = 0;
 
-    bool present(astia::dev::pci_bdf address) {
+    bool present(astia::hw::pci_bdf address) {
         return address.bus == 0 && address.device == 3 && address.function < 2;
     }
 
-    astia::u32 config_read(astia::dev::pci_bdf address, astia::u16 offset) {
+    astia::u32 config_read(astia::hw::pci_bdf address, astia::u16 offset) {
         if (!present(address) || offset > 0xffc || (offset & 3u) != 0)
             return ~astia::u32{0};
         if (offset >= 0x10 && offset < 0x28) {
@@ -44,7 +44,7 @@ namespace {
         return value;
     }
 
-    void config_write(astia::dev::pci_bdf address, astia::u16 offset, astia::u32 value) {
+    void config_write(astia::hw::pci_bdf address, astia::u16 offset, astia::u32 value) {
         if (!present(address) || offset > 0xffc || (offset & 3u) != 0)
             return;
         if (offset >= 0x10 && offset < 0x28 && value == ~astia::u32{0}) {
@@ -53,14 +53,20 @@ namespace {
         }
         if (offset >= 0x10 && offset < 0x28)
             bar_probe[address.function][(offset - 0x10) / 4] = 0;
+        if (offset == 0x04) {
+            astia::u32 previous = 0;
+            std::memcpy(&previous, &config[address.device][address.function][offset],
+                        sizeof(previous));
+            value = (value & 0x0000ffffu) | ((previous >> 16) & ~(value >> 16)) << 16;
+        }
         std::memcpy(&config[address.device][address.function][offset], &value, sizeof(value));
     }
 
-    void put16(astia::dev::pci_bdf address, astia::u16 offset, astia::u16 value) {
+    void put16(astia::hw::pci_bdf address, astia::u16 offset, astia::u16 value) {
         std::memcpy(&config[address.device][address.function][offset], &value, sizeof(value));
     }
 
-    void put32(astia::dev::pci_bdf address, astia::u16 offset, astia::u32 value) {
+    void put32(astia::hw::pci_bdf address, astia::u16 offset, astia::u32 value) {
         std::memcpy(&config[address.device][address.function][offset], &value, sizeof(value));
     }
 
@@ -69,9 +75,9 @@ namespace {
         std::memset(bar_probe, 0, sizeof(bar_probe));
         map_count = 0;
         unmap_count = 0;
-        const astia::dev::pci_bdf first{0, 3, 0};
-        const astia::dev::pci_bdf second{0, 3, 1};
-        for (astia::dev::pci_bdf address : {first, second}) {
+        const astia::hw::pci_bdf first{0, 3, 0};
+        const astia::hw::pci_bdf second{0, 3, 1};
+        for (astia::hw::pci_bdf address : {first, second}) {
             put16(address, 0x00, 0x1234);
             put16(address, 0x02, address.function == 0 ? 0x5678 : 0x5679);
             put32(address, 0x04, 0x00100000u);
@@ -115,17 +121,23 @@ namespace {
         long write(const void*, astia::u32, astia::u64) override { return 0; }
     } bound_device;
 
-    class test_driver final : public astia::dev::driver {
+    class test_driver final : public astia::hw::driver {
         public:
         const char* name() const override { return "pci-test"; }
-        bool match(const astia::dev::device_info& value) const override {
-            const auto* pci = astia::dev::pci_device_info::get(value);
+        bool match(const astia::hw::device_info& value) const override {
+            const auto* pci = astia::hw::pci_device_info::get(value);
             return pci != nullptr && pci->device().vendor_id == 0x1234;
         }
-        astia::mm::shptr<astia::dev::device> probe(const astia::dev::device_info&) override {
-            return astia::mm::shptr<astia::dev::device>::borrowed(&bound_device);
+        bool probe(const astia::hw::device_info&) override {
+            return true;
         }
     } driver;
+
+    class forged_pci_info final : public astia::hw::device_info {
+        public:
+        astia::hw::bus_kind bus() const override { return astia::hw::bus_kind::pci; }
+        bool equals(const astia::hw::device_info&) const override { return false; }
+    } forged;
 
 }
 
@@ -143,75 +155,100 @@ namespace astia::arch {
 
 ASTIA_TEST(pci_enumerates_caps_bars_and_filters) {
     reset_fixture();
-    astia::dev::pci_set_config_backend({config_read, config_write});
-    ASTIA_CHECK(astia::dev::pci_enumerate() == 2);
-    ASTIA_CHECK(astia::dev::pci_devices().count() == 2);
-    auto* device = astia::dev::pci_devices().at(0);
+    astia::hw::pci_set_config_backend({config_read, config_write});
+    ASTIA_CHECK(astia::hw::pci_enumerate() == 2);
+    ASTIA_CHECK(astia::hw::pci_devices().count() == 2);
+    auto* device = astia::hw::pci_devices().at(0);
     ASTIA_CHECK(device != nullptr);
-    ASTIA_CHECK(device->bdf == astia::dev::pci_bdf(0, 3, 0));
+    ASTIA_CHECK(device->bdf == astia::hw::pci_bdf(0, 3, 0));
     ASTIA_CHECK(device->bars[0].size == 0x1000);
     ASTIA_CHECK(device->bars[0].address == 0x80001000);
     ASTIA_CHECK(device->bars[2].size == 0x400);
+    ASTIA_CHECK((config_read(device->bdf, 0x04) >> 16) == 0x0010);
     ASTIA_CHECK(device->capability_count == 2);
     ASTIA_CHECK(device->extended_count == 1);
     ASTIA_CHECK(device->interrupt.msix);
     ASTIA_CHECK(device->interrupt.vector_count == 4);
-    ASTIA_CHECK(astia::dev::pci_interrupt_status(*device) ==
-                astia::dev::pci_interrupt_blocker::msix_table_unmapped);
-    ASTIA_CHECK(astia::dev::pci_enumerate([](const astia::dev::pci_device& value) {
+    ASTIA_CHECK(astia::hw::pci_interrupt_status(*device) ==
+                astia::hw::pci_interrupt_blocker::msix_table_unmapped);
+    ASTIA_CHECK(astia::hw::pci_enumerate([](const astia::hw::pci_device& value) {
                     return value.function == 1;
                 }) == 1);
-    astia::dev::pci_reset_config_backend();
+    astia::hw::pci_reset_config_backend();
+}
+
+ASTIA_TEST(pci_type_check_rejects_forged_bus_tag) {
+    ASTIA_CHECK(astia::hw::pci_device_info::get(forged) == nullptr);
 }
 
 ASTIA_TEST(pci_bus_master_and_resource_ownership) {
     reset_fixture();
-    astia::dev::pci_set_config_backend({config_read, config_write});
-    astia::dev::pci_set_mmio_mapper(map_bar, unmap_bar);
-    ASTIA_CHECK(astia::dev::pci_enumerate() == 2);
-    auto* first = astia::dev::pci_devices().at(0);
-    auto* second = astia::dev::pci_devices().at(1);
+    astia::hw::pci_set_config_backend({config_read, config_write});
+    astia::hw::pci_set_mmio_mapper(map_bar, unmap_bar);
+    ASTIA_CHECK(astia::hw::pci_enumerate() == 2);
+    auto* first = astia::hw::pci_devices().at(0);
+    auto* second = astia::hw::pci_devices().at(1);
     ASTIA_CHECK(first != nullptr && second != nullptr);
-    ASTIA_CHECK(astia::dev::pci_enable_bus_master(*first));
+    ASTIA_CHECK(astia::hw::pci_enable_bus_master(*first));
     ASTIA_CHECK(first->bus_master_enabled);
-    ASTIA_CHECK(astia::dev::pci_map_bar(*first, 0));
+    ASTIA_CHECK(astia::hw::pci_map_bar(*first, 0));
     ASTIA_CHECK(map_count == 1 && mapped_physical == 0x80001000 && mapped_size == 0x1000);
-    ASTIA_CHECK(!astia::dev::pci_map_bar(*second, 0));
-    ASTIA_CHECK(astia::dev::pci_unmap_bar(*first, 0));
-    ASTIA_CHECK(astia::dev::pci_map_bar(*second, 0));
-    astia::dev::pci_devices().clear();
+    ASTIA_CHECK(!astia::hw::pci_map_bar(*second, 0));
+    ASTIA_CHECK(astia::hw::pci_unmap_bar(*first, 0));
+    ASTIA_CHECK(astia::hw::pci_map_bar(*second, 0));
+    astia::hw::pci_devices().clear();
     ASTIA_CHECK(unmap_count == 2);
-    astia::dev::pci_reset_config_backend();
+    astia::hw::pci_reset_config_backend();
+}
+
+ASTIA_TEST(pci_command_writes_do_not_replay_status_w1c_bits) {
+    reset_fixture();
+    astia::hw::pci_set_config_backend({config_read, config_write});
+    const astia::hw::pci_bdf address{0, 3, 0};
+    ASTIA_CHECK(astia::hw::pci_config_write16(address, 0x04, 0x0007));
+    ASTIA_CHECK(config_read(address, 0x04) == 0x00100007u);
+    astia::hw::pci_reset_config_backend();
+}
+
+ASTIA_TEST(pci_status_writes_w1c_bits_and_preserve_command) {
+    reset_fixture();
+    astia::hw::pci_set_config_backend({config_read, config_write});
+    const astia::hw::pci_bdf address{0, 3, 0};
+    ASTIA_CHECK(astia::hw::pci_config_write16(address, 0x04, 0x0007));
+    put32(address, 0x04, 0x00010007u);
+    ASTIA_CHECK(astia::hw::pci_config_write16(address, 0x06, 0x0001));
+    ASTIA_CHECK(config_read(address, 0x04) == 0x00000007u);
+    astia::hw::pci_reset_config_backend();
 }
 
 ASTIA_TEST(pci_interrupt_capability_is_explicit) {
-    astia::dev::pci_device none{};
-    ASTIA_CHECK(astia::dev::pci_interrupt_capability_of(none) ==
-                astia::dev::pci_interrupt_capability::none);
+    astia::hw::pci_device none{};
+    ASTIA_CHECK(astia::hw::pci_interrupt_capability_of(none) ==
+                astia::hw::pci_interrupt_capability::none);
 
-    astia::dev::pci_device msi{};
+    astia::hw::pci_device msi{};
     msi.interrupt.present = true;
-    ASTIA_CHECK(astia::dev::pci_interrupt_capability_of(msi) ==
-                astia::dev::pci_interrupt_capability::msi);
+    ASTIA_CHECK(astia::hw::pci_interrupt_capability_of(msi) ==
+                astia::hw::pci_interrupt_capability::msi);
 
-    astia::dev::pci_device msix{};
+    astia::hw::pci_device msix{};
     msix.interrupt.present = true;
     msix.interrupt.msix = true;
-    ASTIA_CHECK(astia::dev::pci_interrupt_capability_of(msix) ==
-                astia::dev::pci_interrupt_capability::msix);
+    ASTIA_CHECK(astia::hw::pci_interrupt_capability_of(msix) ==
+                astia::hw::pci_interrupt_capability::msix);
 }
 
 ASTIA_TEST(pci_registry_accepts_exact_capacity_only) {
-    astia::dev::pci_registry registry;
-    for (astia::u32 i = 0; i < astia::dev::pci_registry::max_devices; ++i) {
-        astia::dev::pci_device value{};
+    astia::hw::pci_registry registry;
+    for (astia::u32 i = 0; i < astia::hw::pci_registry::max_devices; ++i) {
+        astia::hw::pci_device value{};
         value.bdf.bus      = static_cast<astia::u8>(i / 32);
         value.bdf.device   = static_cast<astia::u8>(i % 32);
         value.bdf.function = 0;
         ASTIA_CHECK(registry.add(value) != nullptr);
     }
-    astia::dev::pci_device extra{};
+    astia::hw::pci_device extra{};
     extra.bdf.bus = 8;
     ASTIA_CHECK(registry.add(extra) == nullptr);
-    ASTIA_CHECK(registry.count() == astia::dev::pci_registry::max_devices);
+    ASTIA_CHECK(registry.count() == astia::hw::pci_registry::max_devices);
 }

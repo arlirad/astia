@@ -1,5 +1,5 @@
-#include <astia/dev/mmio.hpp>
-#include <astia/dev/pci.hpp>
+#include <astia/hw/mmio.hpp>
+#include <astia/hw/pci.hpp>
 
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/layout.hpp>
@@ -10,7 +10,7 @@
 #include <astia/memory.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
-namespace astia::dev {
+namespace astia::hw {
 
     namespace {
         u64           next_mmio = arch::mmio_window().base;
@@ -136,4 +136,4 @@ namespace astia::dev {
         return mmio_mapping::map(address, static_cast<usize>(size));
     }
 
-} // namespace astia::dev
+} // namespace astia::hw

@@ -1,7 +1,9 @@
 #include "support/test.hpp"
+#include "support/resume_queue_host.hpp"
 #include <astia/core/task.hpp>
 #include <astia/core/async_operation.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::proc {
     struct process {};
@@ -261,4 +263,50 @@ ASTIA_TEST(async_operation_deferred_completion_is_canceled_before_destroy) {
     task.reset();
     ASTIA_CHECK(astia::core::drain_resumes() == 0);
     ASTIA_CHECK(resumed == 0);
+}
+
+ASTIA_TEST(async_operation_deferred_completion_requests_scheduler_resume) {
+    astia::core::async_operation<int> operation;
+    int resumed = 0;
+    auto task = waits_for_deferred_operation(operation, resumed);
+
+    ASTIA_CHECK(task.resume());
+    astia::arch::test::clear_reschedule_request();
+    ASTIA_CHECK(operation.complete_deferred(7));
+    ASTIA_CHECK(astia::arch::test::reschedule_requested());
+    ASTIA_CHECK(!task.done());
+    ASTIA_CHECK(astia::core::drain_resumes() == 1);
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(resumed == 1);
+}
+
+ASTIA_TEST(resume_queue_rejects_stale_generation) {
+    astia::core::initialize_resume_queues();
+    const auto continuation = std::noop_coroutine();
+    ASTIA_CHECK(astia::core::schedule_resume(continuation, 11));
+    astia::core::cancel_resume(continuation, 10);
+    ASTIA_CHECK(astia::core::drain_resumes() == 1);
+    ASTIA_CHECK(astia::core::schedule_resume(continuation, 12));
+    astia::core::cancel_resume(continuation, 12);
+    ASTIA_CHECK(astia::core::drain_resumes() == 0);
+}
+
+ASTIA_TEST(resume_queue_saturation_is_bounded) {
+    astia::core::initialize_resume_queues();
+    const auto continuation = std::noop_coroutine();
+    astia::u32 accepted = 0;
+    for (;;) {
+        if (!astia::core::schedule_resume(continuation, accepted + 1))
+            break;
+        ++accepted;
+    }
+    ASTIA_CHECK(accepted != 0);
+    astia::u32 drained = 0;
+    while (const astia::u32 count = astia::core::drain_resumes(
+               astia::resource_limits::queue::resume * 2 + 1))
+        drained += count;
+    ASTIA_CHECK(drained == accepted);
+    ASTIA_CHECK(astia::core::schedule_resume(continuation, accepted + 1));
+    astia::core::cancel_resume(continuation, accepted + 1);
+    ASTIA_CHECK(astia::core::drain_resumes() == 0);
 }

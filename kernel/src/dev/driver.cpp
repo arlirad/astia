@@ -1,57 +1,57 @@
 #include <astia/dev/driver.hpp>
 
-namespace astia::dev {
+namespace astia::hw {
 
-    bool driver_manager::register_driver(driver& value) {
-        if (driver_count_ == max_drivers) {
+    bool driver_registry::register_driver(driver& value) {
+        if (_driver_count == max_drivers) {
             return false;
         }
-        for (u32 i = 0; i < driver_count_; ++i) {
-            if (drivers_[i] == &value) {
+        for (u32 i = 0; i < _driver_count; ++i) {
+            if (_drivers[i] == &value) {
                 return true;
             }
         }
-        drivers_[driver_count_++] = &value;
+        _drivers[_driver_count++] = &value;
         return true;
     }
 
-    bool driver_manager::bind(mm::shptr<device_info> info) {
+    bool driver_registry::bind(mm::shptr<device_info> info) {
         if (!info)
             return false;
-        for (u32 i = 0; i < device_count_; ++i)
-            if (bindings_[i].device_info_instance->equals(*info))
+        for (u32 i = 0; i < _device_count; ++i)
+            if (_bindings[i]._device_info_instance->equals(*info))
                 return false;
-        if (device_count_ == max_devices)
+        if (_device_count == max_devices)
             return false;
-        for (u32 i = 0; i < driver_count_; ++i) {
-            driver& candidate_driver = *drivers_[i];
+        for (u32 i = 0; i < _driver_count; ++i) {
+            driver& candidate_driver = *_drivers[i];
             if (!candidate_driver.match(*info)) {
                 continue;
             }
-            mm::shptr<device> value = candidate_driver.probe(*info);
-            if (!value) {
+            if (!candidate_driver.probe(*info)) {
                 continue;
             }
-            bindings_[device_count_++] = {&candidate_driver,
+            product_handle product = candidate_driver.publish(*info);
+            _bindings[_device_count++] = {&candidate_driver,
                                           static_cast<mm::shptr<device_info>&&>(info),
-                                          static_cast<mm::shptr<device>&&>(value)};
+                                          static_cast<product_handle&&>(product)};
             return true;
         }
         return false;
     }
 
-    void driver_manager::unbind_all() {
-        for (u32 i = device_count_; i != 0; --i) {
-            binding& item = bindings_[i - 1];
-            if (item.driver_instance != nullptr && item.device_info_instance)
-                item.driver_instance->remove(*item.device_info_instance, item.device_instance);
+    void driver_registry::unbind_all() {
+        for (u32 i = _device_count; i != 0; --i) {
+            binding& item = _bindings[i - 1];
+            if (item._driver_instance != nullptr && item._device_info_instance)
+                item._driver_instance->remove(*item._device_info_instance);
             item = {};
         }
-        device_count_ = 0;
+        _device_count = 0;
     }
 
-    driver_manager& drivers() {
-        static driver_manager value;
+    driver_registry& drivers() {
+        static driver_registry value;
         return value;
     }
 

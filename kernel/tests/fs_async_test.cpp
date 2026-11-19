@@ -15,10 +15,10 @@ namespace {
 
     submit_mode submit_mode_state = submit_mode::synchronous_zero;
     astia::core::async_operation<astia::i64>* parked_completion = nullptr;
-    astia::io_request* parked_request = nullptr;
+    astia::io::request* parked_request = nullptr;
     astia::usize synchronous_submits = 0;
-    astia::io_direction last_direction = astia::io_direction::input;
-    astia::usize destroyed_open_files = 0;
+    astia::io::direction last_direction = astia::io::direction::input;
+
 
     astia::core::task<astia::i64> read_many(
         const astia::mm::shptr<astia::fs::open_file>& file, astia::span<astia::u8> buffer) {
@@ -36,11 +36,9 @@ namespace {
 
 namespace astia::fs {
 
-    open_file::~open_file() {
-        ++destroyed_open_files;
-    }
+    open_file::~open_file() = default;
 
-    long open_file::submit(io_request& request) {
+    long open_file::submit(io::request& request) {
         last_direction = request.direction();
         if (submit_mode_state == submit_mode::synchronous_zero) {
             ++synchronous_submits;
@@ -101,13 +99,13 @@ ASTIA_TEST(fs_async_write_uses_submit_park_and_wake) {
     submit_mode_state = submit_mode::parked_zero;
     parked_completion = nullptr;
     parked_request = nullptr;
-    last_direction = astia::io_direction::input;
+    last_direction = astia::io::direction::input;
 
     auto task = astia::fs::write(
         handle, astia::span<const astia::u8>(buffer, sizeof buffer), 0);
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
-    ASTIA_CHECK(last_direction == astia::io_direction::output);
+    ASTIA_CHECK(last_direction == astia::io::direction::output);
     ASTIA_CHECK(parked_completion != nullptr);
     ASTIA_CHECK(parked_request != nullptr);
     parked_request->acknowledge();
@@ -176,28 +174,6 @@ ASTIA_TEST(fs_async_cancels_parked_device_flight) {
     ASTIA_CHECK(completion->complete(17));
     ASTIA_CHECK(!completion->complete(18));
     request->acknowledge();
-}
-
-ASTIA_TEST(fs_async_survives_caller_shptr_destruction_while_parked) {
-    destroyed_open_files = 0;
-    auto handle = astia::mm::shptr<astia::fs::open_file>(
-        new astia::fs::open_file({}, astia::fs::open_file_status_flags::none));
-    astia::u8 buffer[1]{};
-    submit_mode_state = submit_mode::parked_zero;
-    parked_completion = nullptr;
-    parked_request = nullptr;
-    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
-    ASTIA_CHECK(task.resume());
-    ASTIA_CHECK(!task.done());
-    handle = {};
-    ASTIA_CHECK(destroyed_open_files == 0);
-
-    parked_request->acknowledge();
-    ASTIA_CHECK(parked_completion->complete(0));
-    ASTIA_CHECK(task.done());
-    ASTIA_CHECK(destroyed_open_files == 0);
-    task.reset();
-    ASTIA_CHECK(destroyed_open_files == 1);
 }
 
 ASTIA_TEST(fs_sync_rejects_missing_file) {

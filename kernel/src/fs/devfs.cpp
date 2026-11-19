@@ -49,6 +49,23 @@ namespace astia::fs {
         return -ENFILE;
     }
 
+    long devfs_mount::unregister_file(const char* path, const mm::shptr<file>& object) {
+        core::spinlock_guard guard(_namespace_lock);
+        if (path == nullptr || path[0] != '/')
+            return -EINVAL;
+        for (u32 i = 0; i < devfs_max_entries; ++i) {
+            if (!_entries[i].used || !equal(_entries[i].path, path))
+                continue;
+            if (object && _entries[i].object.get() != object.get())
+                return -ENOENT;
+            _entries[i].object = {};
+            _entries[i].path[0] = '\0';
+            _entries[i].used = false;
+            return 0;
+        }
+        return -ENOENT;
+    }
+
     mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags) {
         if (equal(path, "/ptmx"))
             return dev::pty_open_master(flags);

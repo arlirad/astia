@@ -12,52 +12,8 @@
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
 #include <cstring>
-#include <cstdlib>
 
 alignas(16) unsigned char ext4_test_heap_storage[256 * 1024];
-
-namespace {
-    bool is_heap_pointer(void* value) {
-        const auto address = reinterpret_cast<astia::u64>(value);
-        const auto begin = reinterpret_cast<astia::u64>(ext4_test_heap_storage);
-        return address >= begin && address < begin + sizeof ext4_test_heap_storage;
-    }
-}
-
-void* operator new(std::size_t size) {
-    if (void* value = std::malloc(size == 0 ? 1 : size))
-        return value;
-    std::abort();
-}
-void* operator new[](std::size_t size) {
-    if (void* value = std::malloc(size == 0 ? 1 : size))
-        return value;
-    std::abort();
-}
-void operator delete(void* value) noexcept {
-    if (is_heap_pointer(value))
-        astia::mm::heap::free(value);
-    else
-        std::free(value);
-}
-void operator delete[](void* value) noexcept {
-    if (is_heap_pointer(value))
-        astia::mm::heap::free(value);
-    else
-        std::free(value);
-}
-void operator delete(void* value, std::size_t) noexcept {
-    if (is_heap_pointer(value))
-        astia::mm::heap::free(value);
-    else
-        std::free(value);
-}
-void operator delete[](void* value, std::size_t) noexcept {
-    if (is_heap_pointer(value))
-        astia::mm::heap::free(value);
-    else
-        std::free(value);
-}
 
 #include "../src/dev/device_file.hpp"
 #include <astia/dev/blk/blkdev.hpp>
@@ -336,6 +292,26 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == -EBUSY);
     known = {};
     link = {};
+    ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
+}
+
+ASTIA_TEST(devfs_unregister_and_reprobe_replaces_node) {
+    initialize_runtime();
+    mount_fixture(fake_device, fake_file);
+    auto registered = astia::mm::shptr<astia::fs::file>::borrowed(&fake_file);
+    auto old = astia::fs::open("/dev/fake-ext4");
+    ASTIA_CHECK(old);
+    ASTIA_CHECK(astia::fs::unregister_device("/dev/fake-ext4", registered) == 0);
+    fake_registered = false;
+    ASTIA_CHECK(astia::fs::unregister_device("/dev/fake-ext4", registered) == -ENOENT);
+    ASTIA_CHECK(!astia::fs::node_mode("/dev/fake-ext4").exists());
+    ASTIA_CHECK(astia::fs::register_device("/dev/fake-ext4", registered) == 0);
+    fake_registered = true;
+    auto current = astia::fs::open("/dev/fake-ext4");
+    ASTIA_CHECK(current);
+    char data[512]{};
+    ASTIA_CHECK(old && old->read(data, sizeof data) == 512);
+    ASTIA_CHECK(current && current->read(data, sizeof data) == 512);
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
 }
 
