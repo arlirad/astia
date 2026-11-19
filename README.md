@@ -187,6 +187,15 @@ compressed archives are not opened.
 
 ## Testing
 
+The C/C++ formatting workflow checks changed `.c`, `.cpp`, `.h`, and `.hpp`
+files with the repository `.clang-format` configuration. Run a full-tree check
+locally with a pinned formatter, for example:
+
+```sh
+python -m pip install clang-format==18.1.8
+.github/scripts/check-format.sh
+```
+
 Run the host-side kernel tests, module checks, fixture builds, and QEMU boot
 tests through the kernel test launcher:
 
