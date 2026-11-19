@@ -200,7 +200,11 @@ int main() {
         reset_producer_done.store(true, std::memory_order_release);
     });
     std::thread resetter([&] {
-        for (unsigned i = 0; i < 32; ++i) {
+        // Drain until the producer has stopped submitting.  A fixed number of
+        // resets would let the resetter exit while the producer still has
+        // requests to enqueue; the bounded pending queue would then stay full
+        // and the producer would spin on -EAGAIN forever.
+        while (!reset_producer_done.load(std::memory_order_acquire)) {
             reset_path.reset();
             std::this_thread::yield();
         }
@@ -211,4 +215,30 @@ int main() {
     assert(reset_producer_done.load(std::memory_order_acquire));
     assert(reset_tracker.reclaimed.load(std::memory_order_relaxed) ==
            reset_accepted.load(std::memory_order_relaxed));
+
+    {
+        concurrent_tracker full_tracker{};
+        astia::net::tx_path<4, 4> full_path(&full_tracker);
+        uint8_t byte = 0;
+        astia::net::tx_request item{};
+        item.data = &byte;
+        item.length = 1;
+        item.reclaim = reclaim_concurrent;
+        for (unsigned i = 0; i < 4; ++i)
+            assert(full_path.submit(item) == 0);
+        assert(full_path.submit(item) == -EAGAIN);
+        const astia::u64 full_generation = full_path.generation();
+        full_path.reset();
+        assert(full_path.generation() == full_generation + 1);
+        assert(full_tracker.reclaimed.load() == 4);
+        for (unsigned i = 0; i < 4; ++i)
+            assert(full_path.submit(item) == 0);
+        assert(full_path.submit(item) == -EAGAIN);
+        full_path.reset();
+        assert(full_tracker.reclaimed.load() == 8);
+        const astia::u64 empty_generation = full_path.generation();
+        full_path.reset();
+        assert(full_path.generation() == empty_generation + 1);
+        assert(full_tracker.reclaimed.load() == 8);
+    }
 }

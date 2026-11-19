@@ -1,4 +1,5 @@
-#include <astia/module_abi.hpp>
+#include <astia/module_abi.h>
+#include <astia/mm/dma_buffer.hpp>
 #include <astia/dev/regs.hpp>
 
 #include "xhci.hpp"
@@ -30,7 +31,7 @@ constexpr unsigned endpoint_type_control = 4u << 3;
 constexpr unsigned endpoint_error_count = 3u << 1;
 constexpr unsigned address_bsr = 1u << 9;
 
-using dma = astia::module::dma_buffer;
+using dma = astia::mm::dma_buffer;
 
 class mmio {
     public:
@@ -157,22 +158,22 @@ class controller {
             !erst_memory_.allocate(1) || !input_memory_.allocate(1) ||
             !device_context_.allocate(1) || !transfer_memory_.allocate(2))
             return false;
-        clear_bytes(dcbaa_.value.virtual_address, ASTIA_PAGE_SIZE);
-        clear_bytes(command_memory_.value.virtual_address, ASTIA_PAGE_SIZE);
-        clear_bytes(event_memory_.value.virtual_address, ASTIA_PAGE_SIZE);
-        clear_bytes(erst_memory_.value.virtual_address, ASTIA_PAGE_SIZE);
-        clear_bytes(input_memory_.value.virtual_address, ASTIA_PAGE_SIZE);
-        clear_bytes(device_context_.value.virtual_address, ASTIA_PAGE_SIZE);
-        clear_bytes(transfer_memory_.value.virtual_address, ASTIA_PAGE_SIZE * 2);
-        command_physical_ = command_memory_.value.physical;
-        event_physical_ = event_memory_.value.physical;
-        auto* command = static_cast<trb*>(command_memory_.value.virtual_address);
+        clear_bytes(dcbaa_.data(), ASTIA_PAGE_SIZE);
+        clear_bytes(command_memory_.data(), ASTIA_PAGE_SIZE);
+        clear_bytes(event_memory_.data(), ASTIA_PAGE_SIZE);
+        clear_bytes(erst_memory_.data(), ASTIA_PAGE_SIZE);
+        clear_bytes(input_memory_.data(), ASTIA_PAGE_SIZE);
+        clear_bytes(device_context_.data(), ASTIA_PAGE_SIZE);
+        clear_bytes(transfer_memory_.data(), ASTIA_PAGE_SIZE * 2);
+        command_physical_ = command_memory_.physical();
+        event_physical_ = event_memory_.physical();
+        auto* command = static_cast<trb*>(command_memory_.data());
         command[command_ring_capacity - 1] = make_link_trb(command_physical_, true);
-        auto* erst = static_cast<erst_entry*>(erst_memory_.value.virtual_address);
+        auto* erst = static_cast<erst_entry*>(erst_memory_.data());
         erst[0].address = event_physical_;
         erst[0].size = event_capacity;
-        control_.initialize_ring(transfer_memory_.value.virtual_address,
-                                 transfer_memory_.value.physical);
+        control_.initialize_ring(transfer_memory_.data(),
+                                 transfer_memory_.physical());
         return true;
     }
 
@@ -181,14 +182,14 @@ class controller {
         if (command_enqueue_ != command_ring_capacity - 1) {
             return;
         }
-        auto* command = static_cast<trb*>(command_memory_.value.virtual_address);
+        auto* command = static_cast<trb*>(command_memory_.data());
         command[command_enqueue_] = make_link_trb(command_physical_, command_cycle_);
         command_cycle_ = !command_cycle_;
         command_enqueue_ = 0;
     }
 
     bool enqueue_command(uint64_t parameter, uint32_t control, uint64_t& address) {
-        auto* command = static_cast<trb*>(command_memory_.value.virtual_address);
+        auto* command = static_cast<trb*>(command_memory_.data());
         address = command_physical_ + command_enqueue_ * sizeof(trb);
         command[command_enqueue_] = {};
         command[command_enqueue_].parameter = parameter;
@@ -200,7 +201,7 @@ class controller {
     }
 
     bool next_event(trb& result) {
-        auto* events = static_cast<volatile trb*>(event_memory_.value.virtual_address);
+        auto* events = static_cast<volatile trb*>(event_memory_.data());
         memory_barrier();
         const volatile trb& event = events[event_dequeue_];
         if ((event.control.get() & trb_cycle) != (event_cycle_ ? trb_cycle : 0u))
@@ -239,17 +240,17 @@ class controller {
     }
 
     bool configure_interrupter() {
-        auto* erst = static_cast<erst_entry*>(erst_memory_.value.virtual_address);
+        auto* erst = static_cast<erst_entry*>(erst_memory_.data());
         runtime_.write<uint32_t>(0x00, 0);
         runtime_.write<uint32_t>(0x08, 1);
-        runtime_.write<uint64_t>(0x10, erst_memory_.value.physical);
+        runtime_.write<uint64_t>(0x10, erst_memory_.physical());
         runtime_.write<uint64_t>(0x18, event_physical_);
-        return runtime_.read<uint64_t>(0x10) == erst_memory_.value.physical &&
+        return runtime_.read<uint64_t>(0x10) == erst_memory_.physical() &&
                erst[0].address.get() == event_physical_;
     }
 
     bool configure_controller() {
-        common_.write<uint64_t>(operational(0x30), dcbaa_.value.physical);
+        common_.write<uint64_t>(operational(0x30), dcbaa_.physical());
         common_.write<uint64_t>(operational(0x18), command_physical_ | 1u);
         common_.write<uint32_t>(operational(0x38), 1);
         if (!configure_interrupter())
@@ -272,22 +273,22 @@ class controller {
 
     void make_input_context(uint8_t port, uint8_t speed, uint16_t max_packet_size) {
         const unsigned context_size = capabilities_.context_size_64 ? 64 : 32;
-        clear_bytes(input_memory_.value.virtual_address, ASTIA_PAGE_SIZE);
-        store32(input_memory_.value.virtual_address, 4, (1u << 0) | (1u << endpoint_control));
-        store32(input_memory_.value.virtual_address, context_size + 0,
+        clear_bytes(input_memory_.data(), ASTIA_PAGE_SIZE);
+        store32(input_memory_.data(), 4, (1u << 0) | (1u << endpoint_control));
+        store32(input_memory_.data(), context_size + 0,
                 (static_cast<uint32_t>(speed) << slot_speed_shift) |
                     (1u << context_entries_shift));
-        store32(input_memory_.value.virtual_address, context_size + 4,
+        store32(input_memory_.data(), context_size + 4,
                 static_cast<uint32_t>(port) << slot_port_shift);
-        store32(input_memory_.value.virtual_address, context_size + context_size + 4,
+        store32(input_memory_.data(), context_size + context_size + 4,
                 endpoint_error_count | endpoint_type_control |
                     (static_cast<uint32_t>(max_packet_size) << 16));
-        store64(input_memory_.value.virtual_address, context_size + context_size + 8,
-                transfer_memory_.value.physical | 1u);
-        store32(input_memory_.value.virtual_address, context_size + context_size + 16, 8);
-        store64(device_context_.value.virtual_address, 0, 0);
-        store64(static_cast<uint8_t*>(dcbaa_.value.virtual_address) + slot_ * 8, 0,
-                device_context_.value.physical);
+        store64(input_memory_.data(), context_size + context_size + 8,
+                transfer_memory_.physical() | 1u);
+        store32(input_memory_.data(), context_size + context_size + 16, 8);
+        store64(device_context_.data(), 0, 0);
+        store64(static_cast<uint8_t*>(dcbaa_.data()) + slot_ * 8, 0,
+                device_context_.physical());
     }
 
     uint16_t initial_control_packet_size() const {
@@ -310,7 +311,7 @@ class controller {
         uint64_t command_address = 0;
         const uint32_t control = trb_type_bits(trb_type::address_device) |
                                  (block_address ? address_bsr : 0u);
-        if (!enqueue_command(input_memory_.value.physical, control, command_address))
+        if (!enqueue_command(input_memory_.physical(), control, command_address))
             return false;
         return wait_command(command_address);
     }
@@ -356,12 +357,12 @@ class controller {
 
     int transfer(const setup_packet& setup, uint16_t max_packet_size) {
         transfer_handle handle{};
-        auto* buffer = static_cast<uint8_t*>(transfer_memory_.value.virtual_address) +
+        auto* buffer = static_cast<uint8_t*>(transfer_memory_.data()) +
                        ASTIA_PAGE_SIZE;
         const uint32_t length = setup.length;
         if (length > ASTIA_PAGE_SIZE ||
             !control_.submit(setup, length == 0 ? nullptr : buffer,
-                              length == 0 ? 0 : transfer_memory_.value.physical + ASTIA_PAGE_SIZE,
+                              length == 0 ? 0 : transfer_memory_.physical() + ASTIA_PAGE_SIZE,
                               length, max_packet_size, handle))
             return -22;
         doorbells_.write<uint32_t>(slot_ * 4, endpoint_control);
@@ -433,7 +434,7 @@ class controller {
             if (transfer_result < 0 || static_cast<unsigned>(transfer_result) > length)
                 return false;
             for (unsigned i = 0; i < static_cast<unsigned>(transfer_result); ++i)
-                descriptor[i] = static_cast<uint8_t*>(transfer_memory_.value.virtual_address)[ASTIA_PAGE_SIZE + i];
+                descriptor[i] = static_cast<uint8_t*>(transfer_memory_.data())[ASTIA_PAGE_SIZE + i];
             if (!session.complete(length == 0 ? nullptr : descriptor,
                                   static_cast<uint16_t>(transfer_result)))
                 return false;

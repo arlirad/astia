@@ -336,7 +336,7 @@ namespace astia::test {
                 return 4096;
             }
 
-            long submit(io_request& request) override {
+            long submit(io::request& request) override {
                 ++submit_calls;
                 return static_cast<long>(request.length());
             }
@@ -347,11 +347,11 @@ namespace astia::test {
             bool ready = false;
             u32  submit_calls = 0;
 
-            long submit(io_request& request) override {
+            long submit(io::request& request) override {
                 ++submit_calls;
                 if (!ready)
                     return 0;
-                if (request.direction() == io_direction::input && request.length() != 0)
+                if (request.direction() == io::direction::input && request.length() != 0)
                     static_cast<u8*>(request.buffer())[0] = 0x5a;
                 return static_cast<long>(request.length());
             }
@@ -388,11 +388,11 @@ namespace astia::test {
                 bool ready = false;
                 u32  submit_calls = 0;
 
-                long submit(io_request& request) override {
+                long submit(io::request& request) override {
                     ++submit_calls;
                     if (!ready)
                         return 0;
-                    if (request.direction() == io_direction::input &&
+                    if (request.direction() == io::direction::input &&
                         request.length() != 0)
                         static_cast<u8*>(request.buffer())[0] = 0x6b;
                     return static_cast<long>(request.length());
@@ -491,6 +491,9 @@ namespace astia::test {
             astia_cq_consume(ring, 1);
             node.ready = true;
             sys::io_device_ready_context(&node);
+            if (node.submit_calls != ASTIA_AIO_MAX_PARKED_OPERATIONS)
+                return false;
+            sys::io_process_deferred_ready();
             if (astia_cq_ready(ring) != ASTIA_AIO_MAX_PARKED_OPERATIONS ||
                 node.submit_calls != 2 * ASTIA_AIO_MAX_PARKED_OPERATIONS) {
                 logs::error("aio capacity fail (park resume)");
@@ -529,13 +532,13 @@ namespace astia::test {
                 bool error = false;
                 u32  submit_calls = 0;
 
-                long submit(io_request& request) override {
+                long submit(io::request& request) override {
                     ++submit_calls;
                     if (error)
                         return -EIO;
                     if (!ready)
                         return 0;
-                    if (request.direction() == io_direction::input &&
+                    if (request.direction() == io::direction::input &&
                         request.length() != 0)
                         static_cast<u8*>(request.buffer())[0] = 0xa5;
                     return static_cast<long>(request.length());
@@ -619,6 +622,9 @@ namespace astia::test {
 
             node.ready = true;
             sys::io_device_ready_context(&node);
+            if (astia_cq_ready(ring) != 0 || node.submit_calls != 1)
+                return fail();
+            sys::io_process_deferred_ready();
             if (astia_cq_ready(ring) != 1 || node.submit_calls != 2)
                 return fail();
             astia_cqe* cqe = astia_cq_peek(ring);
@@ -838,6 +844,14 @@ namespace astia::test {
             parked_node.ready = true;
             sys::io_device_ready_context(&parked_node);
             if (astia_cq_ready(ring) != astia_rings_cq(ring)->entries ||
+                parked_node.submit_calls != 1) {
+                logs::error("aio CQ fail (parked IRQ inline)");
+                current->clear_descriptor(parked_fd);
+                (void) sys::io_destroy(ring);
+                return false;
+            }
+            sys::io_process_deferred_ready();
+            if (astia_cq_ready(ring) != astia_rings_cq(ring)->entries ||
                 parked_node.submit_calls != 2) {
                 logs::error("aio CQ fail (parked retained)");
                 current->clear_descriptor(parked_fd);
@@ -880,7 +894,7 @@ namespace astia::test {
 
         bool aio_cancel_checks() {
             struct cancel_probe : fs::file {
-                long submit(io_request& request) override {
+                long submit(io::request& request) override {
                     return ready ? static_cast<long>(request.length()) : 0;
                 }
 

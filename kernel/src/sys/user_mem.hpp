@@ -2,6 +2,7 @@
 
 #include "proc.hpp"
 #include <astia/api/errno.h>
+#include <astia/arch/layout.hpp>
 #include <astia/mm/address_space.hpp>
 #include <astia/common.hpp>
 #include <astia/io.hpp>
@@ -157,6 +158,8 @@ namespace astia::sys {
             return span<u8>::string(address_);
         }
         optional<validated_user_ptr<T>> validate(usize count = 1) const;
+        optional<validated_user_ptr<T>> validate_for(proc::process* owner,
+                                                     usize count = 1) const;
 
         private:
         u64 address_ = 0;
@@ -207,6 +210,15 @@ namespace astia::sys {
         return user_span_ok_for(proc::current_process(), range);
     }
 
+    inline bool kernel_span_ok(span<u8> range) {
+        if (range.empty()) {
+            return true;
+        }
+        const u64 base = range.address();
+        return base >= arch::kernel_base &&
+               range.length() - 1 <= ~u64{0} - base;
+    }
+
     inline bool user_span_writable_ok_for(proc::process* owner, span<u8> range) {
         if (range.length() == 0) {
             return true;
@@ -255,9 +267,15 @@ namespace astia::sys {
 
     template <typename T>
     optional<validated_user_ptr<T>> user_ptr<T>::validate(usize count) const {
+        return validate_for(proc::current_process(), count);
+    }
+
+    template <typename T>
+    optional<validated_user_ptr<T>> user_ptr<T>::validate_for(proc::process* owner,
+                                                               usize count) const {
         if (count > (~usize{0} / sizeof(T)))
             return error_t::erange;
-        if (!user_span_ok(bytes(count)))
+        if (!user_span_ok_for(owner, bytes(count)))
             return error_t::efault;
         return validated_user_ptr<T>(address_);
     }
@@ -282,11 +300,12 @@ namespace astia::sys {
     /// be refused.  A caller with no address space has nothing to snapshot, so
     /// its range is recorded as a plain kernel-memory entry: it cannot move,
     /// but the operation still has to walk it like every other entry.
-    inline long pin_user_span(span<u8> range, io_direction direction, mm::iovec& out) {
+    inline long pin_user_span_for(proc::process* owner, span<u8> range,
+                                  io::direction direction, mm::iovec& out,
+                                  bool allow_kernel_buffer = false) {
         if (range.empty()) {
             return 0;
         }
-        proc::process* owner = proc::current_process();
         if (owner == nullptr || !owner->memory_space().attached()) {
             // Kernel client: kernel memory, which cannot be unmapped.  This
             // is the one range the kernel owns rather than the caller, and
@@ -297,8 +316,20 @@ namespace astia::sys {
                        ? 0
                        : -ENOMEM;
         }
+        if (allow_kernel_buffer && kernel_span_ok(range)) {
+            return out.append_kernel(reinterpret_cast<void*>(range.address()),
+                                     range.length())
+                       ? 0
+                       : -ENOMEM;
+        }
         return owner->pin_user(range.address(), range.length(),
-                               direction == io_direction::input, out);
+                               direction == io::direction::input, out);
+    }
+
+    inline long pin_user_span(span<u8> range, io::direction direction, mm::iovec& out,
+                              bool allow_kernel_buffer = false) {
+        return pin_user_span_for(proc::current_process(), range, direction, out,
+                                 allow_kernel_buffer);
     }
 
     /// Copy out of the kernel into a validated user range.  The count comes

@@ -185,14 +185,20 @@ namespace astia::sys::aio_ring {
             clear_waiter_hint(slot, i);
             cleanup.entries[i] = static_cast<mm::iovec&&>(op.entries);
             cleanup.objects[i] = static_cast<mm::shptr<fs::open_file>&&>(op.object);
+            if (op.flight != nullptr) {
+                op.flight->release_owner();
+                op.flight = nullptr;
+            }
             op = parked_op{};
         }
     }
 
     void clear_slot(ring_slot& slot, parked_cleanup& cleanup) {
         for (u32 i = 0; i < parked_slot_count; ++i)
-            if (slot.park[i].used && !slot.park[i].done)
-                slot.park[i].request.cancel_device();
+            if (slot.park[i].used && !slot.park[i].done) {
+                slot.park[i].request.cancel_device(false);
+                slot.park[i].request.acknowledge();
+            }
         detach_parked(slot, cleanup);
         __builtin_memset(slot.map, 0, sizeof slot.map);
         slot.user_base       = 0;
@@ -201,6 +207,7 @@ namespace astia::sys::aio_ring {
         slot.waiters         = 0;
         slot.notify_pending  = false;
         slot.notify_signaled = 0;
+        slot.kernel_buffers  = false;
         slot.owner           = {};
         slot.used            = false;
     }

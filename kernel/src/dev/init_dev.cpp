@@ -2,7 +2,7 @@
 #include "chr/tty/uart16550.hpp"
 #include "chr/tty/virtual_tty.hpp"
 #include "chr/tty/framebuffer_console.hpp"
-#include <astia/dev/pci.hpp>
+#include <astia/hw/pci.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 
@@ -38,7 +38,7 @@ namespace astia::dev {
     }
 
     static bool step_pci(init::context&) {
-        const u32 found = pci_enumerate();
+        const u32 found = hw::pci_enumerate();
         astia::log::info("pci: enumerated %u function(s)", found);
         return true;
     }

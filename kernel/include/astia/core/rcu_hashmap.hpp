@@ -33,15 +33,15 @@ namespace astia::core {
             mutable retired_snapshot* retired = nullptr;
         };
 
-        Hash _hash;
-        bool (*_equal)(const Key&, const Key&);
-        mutable shard _shards[Shards];
+        Hash hash_;
+        bool (*equal_)(const Key&, const Key&);
+        mutable shard shards_[Shards];
 
         usize shard_index(const Key& key) const {
-            return static_cast<usize>(_hash(key) % Shards);
+            return static_cast<usize>(hash_(key) % Shards);
         }
         usize bucket_index(const Key& key) const {
-            return static_cast<usize>(_hash(key) % bucket_count);
+            return static_cast<usize>(hash_(key) % bucket_count);
         }
 
         void reclaim(shard& state) const {
@@ -63,7 +63,7 @@ namespace astia::core {
             for (usize bucket = 0; bucket < bucket_count; ++bucket) {
                 const node* item = old == nullptr ? nullptr : old->buckets[bucket].get();
                 for (; item != nullptr; item = item->next.get()) {
-                    if (_equal(item->key, key))
+                    if (equal_(item->key, key))
                         continue;
                     auto copy = mm::shptr<node>(new node(item->key, item->value,
                                                          next->buckets[bucket]));
@@ -88,36 +88,43 @@ namespace astia::core {
         class read_guard {
             public:
             read_guard(const rcu_hashmap& map, usize shard_index)
-                : _map(map), _shard_index(shard_index) {
-                auto& state = _map._shards[_shard_index];
+                : map_(map), shard_index_(shard_index) {
+                auto& state = map_.shards_[shard_index_];
                 __atomic_add_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
-                _snapshot = __atomic_load_n(&state.published, __ATOMIC_SEQ_CST);
+                snapshot_ = __atomic_load_n(&state.published, __ATOMIC_SEQ_CST);
             }
             ~read_guard() {
-                __atomic_sub_fetch(&_map._shards[_shard_index].readers, 1,
+                __atomic_sub_fetch(&map_.shards_[shard_index_].readers, 1,
                                    __ATOMIC_SEQ_CST);
             }
             read_guard(const read_guard&)            = delete;
             read_guard& operator=(const read_guard&) = delete;
 
             const Value* find(const Key& key) const {
-                if (_snapshot == nullptr)
+                if (snapshot_ == nullptr)
                     return nullptr;
-                for (const node* item = _snapshot->buckets[_map.bucket_index(key)].get();
+                for (const node* item = snapshot_->buckets[map_.bucket_index(key)].get();
                      item != nullptr; item = item->next.get())
-                    if (_map._equal(item->key, key))
+                    if (map_.equal_(item->key, key))
                         return &item->value;
                 return nullptr;
             }
 
             private:
-            const rcu_hashmap& _map;
-            usize              _shard_index;
-            snapshot*          _snapshot = nullptr;
+            const rcu_hashmap& map_;
+            usize              shard_index_;
+            snapshot*          snapshot_ = nullptr;
         };
 
         rcu_hashmap(Hash hash, bool (*equal)(const Key&, const Key&))
-            : _hash(hash), _equal(equal) {}
+            : hash_(hash), equal_(equal) {}
+        ~rcu_hashmap() {
+            for (shard& state : shards_) {
+                __atomic_store_n(&state.readers, 0, __ATOMIC_SEQ_CST);
+                reclaim(state);
+                delete __atomic_exchange_n(&state.published, nullptr, __ATOMIC_SEQ_CST);
+            }
+        }
         rcu_hashmap(const rcu_hashmap&)            = delete;
         rcu_hashmap& operator=(const rcu_hashmap&) = delete;
 
@@ -137,7 +144,7 @@ namespace astia::core {
 
         private:
         bool update(const Key& key, const Value& value, bool remove) {
-            shard& state = _shards[shard_index(key)];
+            shard& state = shards_[shard_index(key)];
             for (;;) {
                 reclaim(state);
                 __atomic_add_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);

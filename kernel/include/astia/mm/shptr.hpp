@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <new>
 
 // Small shared pointer for kernel objects.  Copies share a reference
 // counter; the last owner destroys the object.  `borrowed` is for
@@ -33,6 +34,13 @@ namespace astia::mm {
         static shptr borrowed(T* value) {
             shptr result;
             result.acquire(value, nullptr);
+            return result;
+        }
+
+        template <typename U>
+        static shptr adopt(U* value, void (*destroy)(void*)) {
+            shptr result;
+            result.acquire(value, destroy);
             return result;
         }
 
@@ -112,7 +120,9 @@ namespace astia::mm {
         template <typename U>
         void acquire(U* value, void (*destroy)(void*)) {
             if (value != nullptr) {
-                _control = new shcontrol{1, static_cast<T*>(value), value, destroy};
+                _control = new (std::nothrow) shcontrol{1, static_cast<T*>(value), value, destroy};
+                if (_control == nullptr && destroy != nullptr)
+                    destroy(value);
             }
         }
 

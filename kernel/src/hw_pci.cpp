@@ -1,18 +1,18 @@
-#include <astia/dev/pci.hpp>
+#include <astia/hw/pci.hpp>
 
-#include <astia/dev/driver.hpp>
+#include <astia/hw/driver.hpp>
 #include <astia/core/endian.hpp>
 #include <astia/arch/layout.hpp>
 
-namespace astia::dev {
+namespace astia::hw {
 
-    const pci_device_info* pci_device_info::get(const device_info& value) {
-        return value.bus() == device_bus::pci
+    const pci_device_info* pci_device_info::get(const hw::device_info& value) {
+        return value.bus() == hw::bus_kind::pci && value.type_tag() == tag()
                    ? static_cast<const pci_device_info*>(&value)
                    : nullptr;
     }
 
-    bool pci_device_info::equals(const device_info& other) const {
+    bool pci_device_info::equals(const hw::device_info& other) const {
         const pci_device_info* pci = get(other);
         return pci != nullptr && device().bdf == pci->device().bdf;
     }
@@ -111,6 +111,8 @@ namespace astia::dev {
                 return false;
             if (preserve_high && !read_dword(address, static_cast<u16>(offset & ~3u), raw))
                 return false;
+            if (preserve_high && offset == command_status_offset)
+                raw &= 0xffffu;
             const u16 shift = static_cast<u16>((offset & 2u) * 8u);
             raw = (raw & ~(0xffffu << shift)) | (static_cast<u32>(value) << shift);
             return write_dword(address, static_cast<u16>(offset & ~3u), raw);
@@ -397,8 +399,8 @@ namespace astia::dev {
                     if (added == nullptr)
                         return found;
                     ++found;
-                    mm::shptr<device_info> candidate(new pci_device_info(*added));
-                    drivers().bind(static_cast<mm::shptr<device_info>&&>(candidate));
+                    mm::shptr<hw::device_info> candidate(new pci_device_info(*added));
+                    drivers().bind(static_cast<mm::shptr<hw::device_info>&&>(candidate));
                 }
             }
         }
@@ -537,4 +539,4 @@ namespace astia::dev {
         return true;
     }
 
-} // namespace astia::dev
+} // namespace astia::hw

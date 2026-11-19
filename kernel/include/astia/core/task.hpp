@@ -431,8 +431,8 @@ namespace astia::core {
 
         private:
         struct alignas(16) frame_slot {
-            u32 next;
             u8  storage[frame_slot_bytes - sizeof(u32)];
+            u32 next;
         };
 
         inline static frame_slot _frame_pool[frame_slot_count]{};

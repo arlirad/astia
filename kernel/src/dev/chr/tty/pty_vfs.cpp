@@ -24,74 +24,74 @@ namespace astia::dev {
 
         class pty_slave_file final : public fs::file {
             public:
-            explicit pty_slave_file(const mm::shptr<pty>& owner) : _owner(owner) {}
+            explicit pty_slave_file(const mm::shptr<pty>& owner) : owner_(owner) {}
 
             long read(void* buffer, u32 length, u64 offset) override {
-                return _owner->read(buffer, length, offset);
+                return owner_->read(buffer, length, offset);
             }
             long write(const void* buffer, u32 length, u64 offset) override {
-                return _owner->write(buffer, length, offset);
+                return owner_->write(buffer, length, offset);
             }
-            long submit(io_request& request) override {
-                return _owner->submit(request);
+            long submit(io::request& request) override {
+                return owner_->submit(request);
             }
             u32 poll(u32 events, u32 flags) override {
-                return _owner->poll(events, flags);
+                return owner_->poll(events, flags);
             }
             long ioctl(u64 request, void* argp, usize size) override {
-                return _owner->ioctl(request, argp, size);
+                return owner_->ioctl(request, argp, size);
             }
             long acquire_controlling_terminal(i32 group) override {
-                return _owner->acquire_controlling_terminal(group);
+                return owner_->acquire_controlling_terminal(group);
             }
             fs::file_mode mode() const override {
                 return fs::file_mode(fs::file_type::character,
                                      fs::default_device_permissions);
             }
-            void duplicate(u32 flags) override { _owner->duplicate(flags); }
-            void close(u32 flags) override { _owner->close(flags); }
+            void duplicate(u32 flags) override { owner_->duplicate(flags); }
+            void close(u32 flags) override { owner_->close(flags); }
 
             private:
-            mm::shptr<pty> _owner;
+            mm::shptr<pty> owner_;
         };
 
         class pty_master_file final : public fs::file {
             public:
-            explicit pty_master_file(const mm::shptr<pty>& owner) : _owner(owner) {}
+            explicit pty_master_file(const mm::shptr<pty>& owner) : owner_(owner) {}
             ~pty_master_file() override {
-                if (_refs != 0)
-                    _owner->master_close();
+                if (refs_ != 0)
+                    owner_->master_close();
             }
 
             long read(void* buffer, u32 length, u64) override {
-                return _owner->master_read(buffer, length);
+                return owner_->master_read(buffer, length);
             }
             long write(const void* buffer, u32 length, u64) override {
-                return _owner->master_write(buffer, length);
+                return owner_->master_write(buffer, length);
             }
-            long submit(io_request& request) override {
-                return _owner->master_submit(request);
+            long submit(io::request& request) override {
+                return owner_->master_submit(request);
             }
-            u32 poll(u32 events, u32) override { return _owner->master_poll(events); }
+            u32 poll(u32 events, u32) override { return owner_->master_poll(events); }
             long ioctl(u64 request, void* argp, usize size) override {
-                return _owner->master_ioctl(request, argp, size);
+                return owner_->master_ioctl(request, argp, size);
             }
             fs::file_mode mode() const override {
                 return fs::file_mode(fs::file_type::character,
                                      fs::default_device_permissions);
             }
             void duplicate(u32) override {
-                ++_refs;
-                _owner->master_duplicate();
+                ++refs_;
+                owner_->master_duplicate();
             }
             void close(u32) override {
-                if (_refs != 0 && --_refs == 0)
-                    _owner->master_close();
+                if (refs_ != 0 && --refs_ == 0)
+                    owner_->master_close();
             }
 
             private:
-            mm::shptr<pty> _owner;
-            u32 _refs = 1;
+            mm::shptr<pty> owner_;
+            u32 refs_ = 1;
         };
 
         struct pty_slot {

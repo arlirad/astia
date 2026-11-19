@@ -21,12 +21,12 @@ int            wcsncmp(const wchar_t* a, const wchar_t* b, size_t n);
 wchar_t*       wcscpy(wchar_t* dst, const wchar_t* src);
 wchar_t*       wcsncpy(wchar_t* dst, const wchar_t* src, size_t n);
 wchar_t*       wcscat(wchar_t* dst, const wchar_t* src);
-const wchar_t* wcschr(const wchar_t* s, wchar_t c);
-const wchar_t* wcsrchr(const wchar_t* s, wchar_t c);
-const wchar_t* wcsstr(const wchar_t* haystack, const wchar_t* needle);
+wchar_t*       wcschr(const wchar_t* s, wchar_t c);
+wchar_t*       wcsrchr(const wchar_t* s, wchar_t c);
+wchar_t*       wcsstr(const wchar_t* haystack, const wchar_t* needle);
 size_t         wcsspn(const wchar_t* s, const wchar_t* accept);
 size_t         wcscspn(const wchar_t* s, const wchar_t* reject);
-const wchar_t* wcspbrk(const wchar_t* s, const wchar_t* accept);
+wchar_t*       wcspbrk(const wchar_t* s, const wchar_t* accept);
 wchar_t*       wcstok(wchar_t* s, const wchar_t* delimiters, wchar_t** state);
 
 wchar_t* wmemcpy(wchar_t* dst, const wchar_t* src, size_t n);

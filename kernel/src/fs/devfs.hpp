@@ -15,6 +15,7 @@ namespace astia::fs {
         uid_t                node_uid(const char* path) const override;
         gid_t                node_gid(const char* path) const override;
         long register_file(const char* path, const mm::shptr<file>& object) override;
+        long unregister_file(const char* path, const mm::shptr<file>& object) override;
 
         private:
         struct entry {

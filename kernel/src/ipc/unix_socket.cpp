@@ -190,7 +190,7 @@ namespace astia::fs {
                 }
                 return result & (events | POLLERR | POLLHUP);
             }
-            long submit(io_request& r) override {
+            long submit(io::request& r) override {
                 state              kind;
                 mm::shptr<channel> channel;
                 u32                side;
@@ -201,7 +201,7 @@ namespace astia::fs {
                     side    = _side;
                 }
                 if (kind == state::dgram) {
-                    long n = r.direction() == io_direction::input
+                    long n = r.direction() == io::direction::input
                                  ? recv_dgram(astia::span<u8>(
                                        static_cast<u8*>(r.buffer()), r.length()))
                                  : send_dgram(astia::span<const u8>(
@@ -228,7 +228,7 @@ namespace astia::fs {
                     }
                     return -EMFILE;
                 }
-                long n           = r.direction() == io_direction::input
+                long n           = r.direction() == io::direction::input
                                        ? read(r.buffer(), r.length(), 0)
                                        : write(r.buffer(), r.length(), 0);
                 bool peer_closed = false;
@@ -237,7 +237,7 @@ namespace astia::fs {
                     const u32            peer = socket_peer_side(side);
                     peer_closed = channel->closed[peer] || channel->shut_wr[peer];
                 }
-                if (n == 0 && r.direction() == io_direction::input && peer_closed)
+                if (n == 0 && r.direction() == io::direction::input && peer_closed)
                     r.complete(true);
                 else if (n == 0)
                     r.stage(1);
@@ -486,7 +486,7 @@ namespace astia::fs {
         long unix_write(file* object, const void* buffer, u32 length, u64 offset) {
             return static_cast<unix_file*>(object)->write(buffer, length, offset);
         }
-        long unix_submit(file* object, io_request& request) {
+        long unix_submit(file* object, io::request& request) {
             return static_cast<unix_file*>(object)->submit(request);
         }
         u32 unix_poll(const file* object, u32 events, u32 flags) {
@@ -501,7 +501,7 @@ namespace astia::fs {
 
         long socket_bind(open_file& o, const astia_sockaddr& a);
         long socket_listen(open_file& o, u32 b);
-        long socket_accept(open_file& o, io_request& r);
+        long socket_accept(open_file& o, io::request& r);
         long socket_connect(open_file& o, const astia_sockaddr& a);
         long socket_shutdown(open_file& o, u32 how);
         long socket_getsockopt(open_file& o, u32 level, u32 name, u32* value);
@@ -616,7 +616,7 @@ namespace astia::fs {
             }
             return 0;
         }
-        long socket_accept(open_file& o, io_request& r) {
+        long socket_accept(open_file& o, io::request& r) {
             auto* l = static_cast<unix_file*>(o.node().get());
             if (!l || l->kind() != unix_file::state::listener)
                 return -EINVAL;

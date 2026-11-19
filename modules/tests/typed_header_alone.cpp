@@ -1,0 +1,1 @@
+int astia_typed_header_alone;

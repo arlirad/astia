@@ -23,7 +23,7 @@ namespace astia::dev::blk {
         return valid != 0 ? valid : write_blocks(buffer, length, offset);
     }
 
-    long blkdev::submit(io_request& request) {
+    long blkdev::submit(io::request& request) {
         const long valid = validate(request.buffer(), request.length(), request.offset());
         return valid != 0 ? valid : device::submit(request);
     }

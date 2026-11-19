@@ -9,6 +9,8 @@
 
 namespace astia_test {
 
+    void fail_next_allocation();
+
     struct test_case {
         const char* name;
         void (*body)();

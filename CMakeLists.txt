@@ -95,6 +95,26 @@ set(ASTIA_VGA_STRICT OFF CACHE BOOL
 set(ASTIA_VGA_HARNESS OFF CACHE BOOL
     "Run the Astia VGA launcher smoke harness instead of interactive mode")
 
+set(_astia_host_sanitizer_flags)
+foreach(_astia_sanitizer_flag_source
+        CMAKE_C_FLAGS
+        CMAKE_CXX_FLAGS
+        CMAKE_EXE_LINKER_FLAGS
+        CMAKE_SHARED_LINKER_FLAGS
+        CMAKE_MODULE_LINKER_FLAGS)
+    string(REGEX MATCHALL "-fsanitize=[^ \t;]+" _astia_sanitizer_flags
+            "${${_astia_sanitizer_flag_source}}")
+    list(APPEND _astia_host_sanitizer_flags ${_astia_sanitizer_flags})
+    string(REGEX REPLACE "(^|[ \t])-fsanitize=[^ \t;]+" ""
+            _astia_sanitizer_cleaned "${${_astia_sanitizer_flag_source}}")
+    set(${_astia_sanitizer_flag_source} "${_astia_sanitizer_cleaned}")
+endforeach()
+list(REMOVE_DUPLICATES _astia_host_sanitizer_flags)
+set(ASTIA_HOST_SANITIZER_COMPILE_OPTIONS
+        ${_astia_host_sanitizer_flags})
+set(ASTIA_HOST_SANITIZER_LINK_OPTIONS
+        ${_astia_host_sanitizer_flags})
+
 if(ASTIA_VGA_NANO)
     set(_astia_vga_nano 1)
 else()
@@ -204,11 +224,16 @@ if(ASTIA_BUILD_TESTS)
             TIMEOUT 900)
 
     foreach(_astia_module_test_target
+            astia_typed_contract_layout_target
+            astia_typed_module
+            astia_typed_header_alone
             astia_module_abi_layout_target
+            astia_module_abi_header_alone
             astia_module_c_compatibility
             astia_module_cpp_compatibility
-            astia_module_abi_header_alone
             virtio_blk_unit_target
+            virtio_blk_teardown_target
+            nvme_teardown_target
             usb_unit_target
             rtl8139_unit_target)
         if(NOT TARGET ${_astia_module_test_target})
@@ -219,11 +244,16 @@ if(ASTIA_BUILD_TESTS)
 
     add_custom_target(astia_module_host_tests ALL)
     add_dependencies(astia_module_host_tests
+            astia_typed_contract_layout_target
+            astia_typed_module
+            astia_typed_header_alone
             astia_module_abi_layout_target
+            astia_module_abi_header_alone
             astia_module_c_compatibility
             astia_module_cpp_compatibility
-            astia_module_abi_header_alone
             virtio_blk_unit_target
+            virtio_blk_teardown_target
+            nvme_teardown_target
             usb_unit_target
             rtl8139_unit_target)
 
@@ -237,7 +267,7 @@ if(ASTIA_BUILD_TESTS)
 
     add_test(NAME astia_module_host_targets
             COMMAND ${CMAKE_COMMAND}
-            -DASTIA_MODULE_ABI_LAYOUT=${CMAKE_CURRENT_BINARY_DIR}/modules/tests/module_abi_layout
+            -DASTIA_TYPED_CONTRACT_LAYOUT=${CMAKE_CURRENT_BINARY_DIR}/modules/tests/typed_contract_layout
             -DASTIA_VIRTIO_BLK_UNIT=${CMAKE_CURRENT_BINARY_DIR}/modules/virtio-blk/virtio_blk_unit
             -DASTIA_USB_UNIT=${CMAKE_CURRENT_BINARY_DIR}/modules/usb/usb_unit
             -DASTIA_RTL8139_UNIT=${CMAKE_CURRENT_BINARY_DIR}/modules/rtl8139/rtl8139_unit

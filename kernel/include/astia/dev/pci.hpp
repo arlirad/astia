@@ -113,16 +113,16 @@ namespace astia::dev {
         pci_interrupt_blocker interrupt_blocker = pci_interrupt_blocker::no_capability;
     };
 
-    class pci_device_info final : public device_info {
+    class pci_device_info final : public hw::device_info {
         public:
         explicit pci_device_info(const pci_device& value) : value_(value) {}
 
-        device_bus bus() const override { return device_bus::pci; }
-        bool equals(const device_info& other) const override;
+        hw::bus_kind bus() const override { return hw::bus_kind::pci; }
+        bool equals(const hw::device_info& other) const override;
 
         const pci_device& device() const { return value_; }
         pci_device& mutable_device() const { return value_; }
-        static const pci_device_info* get(const device_info& value);
+        static const pci_device_info* get(const hw::device_info& value);
 
         private:
         mutable pci_device value_;
