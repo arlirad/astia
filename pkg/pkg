@@ -83,18 +83,30 @@ def validate_directory_trust(fd, label):
         fail(f"package directory is outside the trusted ownership/mode boundary: {label}")
 
 
+def directory_metadata(path):
+    return path.lstat()
+
+
 def validate_root_ancestry(path):
     current = Path(path)
+    effective_uid = os.geteuid()
     while True:
         try:
-            info = current.lstat()
+            info = directory_metadata(current)
         except FileNotFoundError:
             current = current.parent
             continue
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
             fail(f"package root ancestry is not a directory: {current}")
-        if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not info.st_mode & stat.S_ISVTX:
+        sticky = bool(info.st_mode & stat.S_ISVTX)
+        if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not sticky:
             fail(f"package root ancestry is mutable by an untrusted user: {current}")
+        if (
+            info.st_mode & stat.S_IWUSR
+            and info.st_uid not in (effective_uid, 0)
+            and not sticky
+        ):
+            fail(f"package root ancestry is owner-writable by a foreign user: {current}")
         if current == current.parent:
             break
         current = current.parent

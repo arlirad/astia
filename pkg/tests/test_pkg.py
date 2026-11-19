@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import os
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -402,6 +403,34 @@ class PackageManagerTest(unittest.TestCase):
             parent.chmod(0o700)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("mutable by an untrusted user", result.stderr)
+
+    def test_root_ancestry_owner_and_sticky_trust_rules(self):
+        module = load_pkg_module()
+        effective_uid = os.geteuid()
+        root = Path("/pkg/root")
+
+        def check(parent_uid, parent_mode, expected_error=None):
+            metadata = {
+                Path("/"): type("Metadata", (), {"st_mode": stat.S_IFDIR | 0o755, "st_uid": 0})(),
+                Path("/pkg"): type("Metadata", (), {"st_mode": stat.S_IFDIR | parent_mode, "st_uid": parent_uid})(),
+                root: type("Metadata", (), {"st_mode": stat.S_IFDIR | 0o755, "st_uid": effective_uid})(),
+            }
+            original = module.directory_metadata
+            module.directory_metadata = lambda path: metadata[Path(path)]
+            try:
+                if expected_error is None:
+                    module.validate_root_ancestry(root)
+                else:
+                    with self.assertRaises(module.PkgError) as raised:
+                        module.validate_root_ancestry(root)
+                    self.assertIn(expected_error, str(raised.exception))
+            finally:
+                module.directory_metadata = original
+
+        check(effective_uid, 0o755)
+        check(0, 0o755)
+        check(2000, 0o1777)
+        check(2000, 0o755, "owner-writable by a foreign user")
 
     def test_archive_expansion_limit(self):
         archive_path = self.repo / "huge-members.tar.gz"

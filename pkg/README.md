@@ -141,13 +141,16 @@ so a cleanup fsync failure cannot leave a journal-less active transaction.
 Ownership and installed-package state
 live under `.pkg`; package paths cannot use that reserved namespace.
 
-The supported root trust boundary is the package root and its ancestry being
-free of untrusted group/other write access, with mutable package directories
-owned by the process UID. Sticky shared ancestors such as `/tmp` are accepted
-because they protect child renames. This prevents other-user directory-rename
-races; a same-UID process that can mutate the trusted root concurrently is
-outside the threat model. The prototype does not claim hostile shared-root
-safety.
+The supported root trust boundary requires the package root and mutable
+package descendants to be owned by the effective process UID and not writable
+by group/other. An ancestor is accepted when it is process-owned, an explicitly
+trusted system directory owned by UID 0 without group/other write access, or a
+sticky directory whose sticky semantics prevent an untrusted owner from
+renaming this process-owned child. Any other foreign-UID owner-writable
+ancestor is rejected before the root is opened. This prevents other-user
+directory-rename races; a same-UID process that can mutate the trusted root
+concurrently is outside the threat model. The prototype does not claim hostile
+shared-root safety.
 
 The prototype is not yet an Astia-native utility. Its intended next
 integration step is to reuse the format, verifier, ownership model, and
