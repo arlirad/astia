@@ -7,6 +7,8 @@
 
 extern unsigned char module_lifecycle_blob[];
 extern unsigned int  module_lifecycle_blob_len;
+extern unsigned char module_lifecycle_atexit_blob[];
+extern unsigned int  module_lifecycle_atexit_blob_len;
 extern unsigned char module_lifecycle_no_fini_blob[];
 extern unsigned int  module_lifecycle_no_fini_blob_len;
 extern unsigned char module_lifecycle_priority_blob[];
@@ -36,6 +38,7 @@ namespace {
     observation* active_observation = nullptr;
 
     void lifecycle_record(int event);
+    int  module_atexit(void (*handler)(void));
 
     void* map_image(void* context, astia::u64, astia::usize size, astia::usize,
                     bool fixed) {
@@ -60,10 +63,14 @@ namespace {
 
     astia::u64 resolve_image(void* context, const char* name) {
         auto* state = static_cast<loader_state*>(context);
-        if (!state->resolve_enabled || std::strcmp(name, "lifecycle_record") != 0) {
+        if (!state->resolve_enabled) {
             return 0;
         }
-        return reinterpret_cast<std::uintptr_t>(&lifecycle_record);
+        if (std::strcmp(name, "lifecycle_record") == 0)
+            return reinterpret_cast<std::uintptr_t>(&lifecycle_record);
+        if (std::strcmp(name, "atexit") == 0)
+            return reinterpret_cast<std::uintptr_t>(&module_atexit);
+        return 0;
     }
 
     void lifecycle_record(int event) {
@@ -78,6 +85,10 @@ namespace {
                 astia::mod::at(0) == active_observation->current &&
                 active_observation->current->running;
         }
+    }
+
+    int module_atexit(void (*handler)(void)) {
+        return astia::mod::register_exit_handler(handler);
     }
 
     ASTIA_NO_SANITIZE_FUNCTION int invoke_entry(int (*entry)()) {
@@ -165,6 +176,30 @@ ASTIA_TEST(module_lifecycle_runs_loaded_image_and_unloads_after_exit) {
     ASTIA_CHECK(astia::mod::count() == before);
     ASTIA_CHECK(state.mapped == 1);
     ASTIA_CHECK(state.unmapped == 1);
+    active_observation = nullptr;
+}
+
+ASTIA_TEST(module_lifecycle_runs_atexit_handlers_before_fini) {
+    loader_state state{};
+    observation  observation{};
+    active_observation                      = &observation;
+    const astia::elf::env            env    = environment(state);
+    const astia::mod::loaded_module* module = astia::mod::load_module(
+        blob(module_lifecycle_atexit_blob, module_lifecycle_atexit_blob_len), env);
+
+    ASTIA_CHECK(module != nullptr);
+    if (module == nullptr) {
+        active_observation = nullptr;
+        return;
+    }
+    observation.current = module;
+    ASTIA_CHECK(astia::mod::run_module(module) == 38);
+    ASTIA_CHECK(observation.event_count == 1);
+    ASTIA_CHECK(observation.events[0] == 300);
+    ASTIA_CHECK(astia::mod::exit_module(module));
+    ASTIA_CHECK(observation.event_count == 2);
+    ASTIA_CHECK(observation.events[1] == 301);
+    ASTIA_CHECK(astia::mod::unload_module(module));
     active_observation = nullptr;
 }
 

@@ -25,6 +25,7 @@ namespace astia::mod {
 
         loaded_module modules[max_modules] = {};
         usize         used                 = 0;
+        loaded_module* active               = nullptr;
 
         /// Frame-allocator-backed memory for the ELF loader.
         ///
@@ -91,6 +92,7 @@ namespace astia::mod {
         slot.fini_count     = img.fini_count;
         slot.loader_context = e.ctx;
         slot.loader_unmap   = e.unmap;
+        slot.exit_count     = 0;
         for (usize i = 0; i < img.init_count; ++i)
             slot.init_array[i] = img.init_array[i];
         for (usize i = 0; i < img.fini_count; ++i)
@@ -132,6 +134,8 @@ namespace astia::mod {
         }
         const_cast<loaded_module*>(mod)->running = true;
         loaded_module* mutable_mod               = const_cast<loaded_module*>(mod);
+        loaded_module* previous                  = active;
+        active                                   = mutable_mod;
         for (usize i = 0; i < mutable_mod->init_count; ++i)
             if (mutable_mod->init_array[i] != nullptr) {
 #ifdef ASTIA_MODULE_HOST_TEST
@@ -142,16 +146,28 @@ namespace astia::mod {
             }
         mutable_mod->initialized = true;
 #ifdef ASTIA_MODULE_HOST_TEST
-        return host_test::invoke_entry(mutable_mod->entry);
+        const int result = host_test::invoke_entry(mutable_mod->entry);
 #else
-        return mutable_mod->entry();
+        const int result = mutable_mod->entry();
 #endif
+        active = previous;
+        return result;
     }
 
     bool exit_module(const loaded_module* mod) {
         if (mod == nullptr || !mod->running)
             return false;
         loaded_module* mutable_mod = const_cast<loaded_module*>(mod);
+        loaded_module* previous    = active;
+        active                     = mutable_mod;
+        for (usize i = mutable_mod->exit_count; i != 0; --i) {
+            loaded_module::exit_handler& handler = mutable_mod->exit_handlers[i - 1];
+            if (handler.plain != nullptr)
+                handler.plain();
+            else if (handler.cxa != nullptr)
+                handler.cxa(handler.argument);
+        }
+        mutable_mod->exit_count = 0;
         for (usize i = mutable_mod->fini_count; i != 0; --i)
             if (mutable_mod->fini_array[i - 1] != nullptr) {
 #ifdef ASTIA_MODULE_HOST_TEST
@@ -160,9 +176,49 @@ namespace astia::mod {
                 mutable_mod->fini_array[i - 1]();
 #endif
             }
+        active                   = previous;
         mutable_mod->initialized = false;
         mutable_mod->running     = false;
         return true;
+    }
+
+    int register_exit_handler(void (*handler)(void)) {
+        if (active == nullptr || handler == nullptr ||
+            active->exit_count == loaded_module::max_exit_handlers)
+            return -1;
+        active->exit_handlers[active->exit_count++] = {handler, nullptr, nullptr,
+                                                       nullptr};
+        return 0;
+    }
+
+    int register_exit_handler(void (*handler)(void*), void* argument, void* dso) {
+        if (active == nullptr || handler == nullptr ||
+            active->exit_count == loaded_module::max_exit_handlers)
+            return -1;
+        active->exit_handlers[active->exit_count++] = {nullptr, handler, argument, dso};
+        return 0;
+    }
+
+    void finalize_exit_handlers(void* dso) {
+        if (active == nullptr)
+            return;
+        loaded_module::exit_handler remaining[loaded_module::max_exit_handlers];
+        usize                       remaining_count = 0;
+        for (usize i = active->exit_count; i != 0;) {
+            const loaded_module::exit_handler handler = active->exit_handlers[--i];
+            if (dso == nullptr || handler.dso == dso) {
+                if (handler.plain != nullptr)
+                    handler.plain();
+                else if (handler.cxa != nullptr)
+                    handler.cxa(handler.argument);
+            }
+            else {
+                remaining[remaining_count++] = handler;
+            }
+        }
+        active->exit_count = remaining_count;
+        for (usize i = 0; i < remaining_count; ++i)
+            active->exit_handlers[i] = remaining[remaining_count - i - 1];
     }
 
     usize count() {
@@ -174,3 +230,16 @@ namespace astia::mod {
     }
 
 } // namespace astia::mod
+
+extern "C" int astia_module_register_atexit(void (*handler)(void)) {
+    return astia::mod::register_exit_handler(handler);
+}
+
+extern "C" int astia_module_register_cxa_atexit(void (*handler)(void*), void* argument,
+                                                void* dso) {
+    return astia::mod::register_exit_handler(handler, argument, dso);
+}
+
+extern "C" void astia_module_finalize_cxa(void* dso) {
+    astia::mod::finalize_exit_handlers(dso);
+}

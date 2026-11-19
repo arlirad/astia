@@ -6,6 +6,8 @@
 
 #include "hid_keyboard.hpp"
 
+#include <new>
+
 namespace astia::usb::xhci {
 
     bool pci_match(const astia::hw::pci_device* device);
@@ -505,6 +507,7 @@ namespace astia::usb::xhci {
                     const uint32_t command = common_.read<uint32_t>(operational(0));
                     common_.write<uint32_t>(operational(0),
                                             command & ~operational_run_stop);
+                    (void) wait_status(status_halted, status_halted);
                 }
                 started_ = false;
                 transfer_memory_.release();
@@ -585,10 +588,17 @@ namespace astia::usb::xhci {
                 auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
                 if (stable == nullptr || controller_instance.start(stable) != 0)
                     return false;
-                device_model model{};
+                auto* model = new (std::nothrow) device_model{};
+                if (model == nullptr) {
+                    controller_instance.stop();
+                    return false;
+                }
                 for (uint8_t port = 1; port <= controller_instance.max_ports(); ++port)
-                    if (controller_instance.enumerate_port(port, model) == 0)
+                    if (controller_instance.enumerate_port(port, *model) == 0) {
+                        delete model;
                         return true;
+                    }
+                delete model;
                 controller_instance.stop();
                 return false;
             }
