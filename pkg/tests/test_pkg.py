@@ -3,11 +3,14 @@
 # Copyright (c) 2026 Arlirad
 
 import hashlib
+import importlib.machinery
+import importlib.util
 import io
 import json
 import subprocess
 import tarfile
 import tempfile
+import urllib.request
 import unittest
 from pathlib import Path
 
@@ -96,8 +99,11 @@ class PackageManagerTest(unittest.TestCase):
         self.temp.cleanup()
 
     def run_pkg(self, *args):
+        return self.run_pkg_at(self.root, *args)
+
+    def run_pkg_at(self, root, *args):
         return subprocess.run(
-            [str(PKG), "--root", str(self.root), *args],
+            [str(PKG), "--root", str(root), *args],
             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
 
@@ -221,9 +227,134 @@ class PackageManagerTest(unittest.TestCase):
         result = self.run_pkg("-su", "--repo", str(self.repo))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("2.0.0", result.stdout)
+        newer = package_entry(self.repo, "hello", "3.0.0")
+        write_index(self.repo, {"hello": {"versions": {"1.0.0": old, "2.0.0": new, "3.0.0": newer}}})
+        result = self.run_pkg("-us", "--repo", str(self.repo))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("3.0.0", result.stdout)
         result = self.run_pkg("-is", "hello", "1.0.0", "extra", "--repo", str(self.repo))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("requires NAME", result.stderr)
+
+    def test_short_flag_permutations_and_repeats(self):
+        archive = package_entry(self.repo, "hello", "1.0.0")
+        write_index(self.repo, {"hello": {"versions": {"1.0.0": archive}}})
+        for number, flags in enumerate(("-si", "-is", "-ssi", "-iis", "-sis", "-s -i", "-i -s", "hello -s -i")):
+            root = Path(self.temp.name) / f"root-{number}"
+            flag_args = flags.split()
+            if flag_args[0] == "hello":
+                command = (*flag_args, "--repo", str(self.repo))
+            else:
+                command = (*flag_args, "hello", "--repo", str(self.repo))
+            result = self.run_pkg_at(root, *command)
+            self.assertEqual(result.returncode, 0, f"{flags}: {result.stderr}")
+            self.assertEqual((root / "bin/hello").read_text(), "hello 1.0.0\n")
+        sync_root = Path(self.temp.name) / "sync-root"
+        result = self.run_pkg_at(sync_root, "-s", "--repo", str(self.repo))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        install_root = Path(self.temp.name) / "install-root"
+        result = self.run_pkg_at(install_root, "-s", "--repo", str(self.repo))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_pkg_at(install_root, "-i", "hello")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_short_flag_conflicts_and_unknown_flags_are_deterministic(self):
+        cases = (
+            (("-iu",), "conflicting short flags: -iu"),
+            (("-ir",), "conflicting short flags: -ir"),
+            (("-siu",), "conflicting short flags: -siu"),
+            (("-x",), "unknown short flag: -x"),
+            (("-sxx",), "unknown short flag: -x"),
+        )
+        for number, (flags, message) in enumerate(cases):
+            root = Path(self.temp.name) / f"invalid-root-{number}"
+            result = self.run_pkg_at(root, *flags, "--repo", str(self.repo))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(message, result.stderr)
+            self.assertFalse(root.exists())
+
+    def test_package_arguments_are_validated_and_dash_names_need_separator(self):
+        self.sync_package()
+        result = self.run_pkg("-i", "--", "-hello")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid package name", result.stderr)
+        result = self.run_pkg("-i", "hello", "not-a-version")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid version", result.stderr)
+        result = self.run_pkg("-i", "-hello")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unknown short flag: -h", result.stderr)
+
+    def test_parent_symlink_escape_is_rejected(self):
+        self.sync_package()
+        outside = Path(self.temp.name) / "outside"
+        outside.mkdir()
+        (self.root / "bin").symlink_to(outside, target_is_directory=True)
+        result = self.run_pkg("-i", "hello")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((outside / "hello").exists())
+
+    def test_crash_recovery_restores_backup(self):
+        self.sync_package()
+        self.assertEqual(self.run_pkg("-i", "hello").returncode, 0)
+        state = json.loads((self.root / ".pkg/state.json").read_text())
+        transaction = self.root / ".pkg/.txn-crash"
+        backup = transaction / "backup"
+        backup.mkdir(parents=True)
+        target = self.root / "bin/hello"
+        target.replace(backup / "0")
+        journal = {
+            "schema": 1,
+            "new_state": {"schema": 1, "installed": {}, "owners": {}},
+            "backups": [{"name": "0", "path": "bin/hello"}],
+            "placed": [],
+        }
+        (transaction / "journal.json").write_text(json.dumps(journal))
+        result = self.run_pkg("list")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "bin/hello").read_text(), "hello 1.0.0\n")
+        self.assertEqual(json.loads((self.root / ".pkg/state.json").read_text()), state)
+        self.assertFalse(transaction.exists())
+
+    def test_backup_directory_loss_fails_closed(self):
+        self.sync_package()
+        self.assertEqual(self.run_pkg("-i", "hello").returncode, 0)
+        transaction = self.root / ".pkg/.txn-missing-backup"
+        transaction.mkdir()
+        (transaction / "journal.json").write_text(json.dumps({
+            "schema": 1,
+            "new_state": {"schema": 1, "installed": {}, "owners": {}},
+            "backups": [{"name": "0", "path": "bin/hello"}],
+            "placed": [],
+        }))
+        result = self.run_pkg("status")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("backup directory is missing", result.stderr)
+        self.assertEqual((self.root / "bin/hello").read_text(), "hello 1.0.0\n")
+
+    def test_archive_expansion_limit(self):
+        archive_path = self.repo / "huge-members.tar.gz"
+        with tarfile.open(archive_path, "w:gz") as archive:
+            for index in range(4097):
+                info = tarfile.TarInfo(f"directory-{index}")
+                info.type = tarfile.DIRTYPE
+                archive.addfile(info)
+        entry = package_entry(self.repo, "huge", "1.0.0", archive=archive_path)
+        write_index(self.repo, {"huge": {"versions": {"1.0.0": entry}}})
+        self.assertEqual(self.run_pkg("sync", "--repo", str(self.repo)).returncode, 0)
+        result = self.run_pkg("install", "huge")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("too many members", result.stderr)
+
+    def test_https_downgrade_redirect_is_rejected(self):
+        loader = importlib.machinery.SourceFileLoader("pkg_impl", str(PKG))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        handler = module.NoDowngradeRedirectHandler()
+        request = urllib.request.Request("https://example.test/index.json")
+        with self.assertRaises(module.PkgError):
+            handler.redirect_request(request, object(), 302, "Found", {}, "http://example.test/index.json")
 
 
 if __name__ == "__main__":

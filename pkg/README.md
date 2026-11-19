@@ -18,13 +18,18 @@ The compact interface follows a deliberately small pacman-like grammar:
   cached index.
 * `-r NAME` (or `remove`) removes one installed package.
 * `-is NAME [VERSION]` syncs, then installs, in that order.
-* `-su` syncs, then upgrades every package already installed to the newest
+* `-u` upgrades every package already installed to the newest
   compatible version. Each package is a separate transactional upgrade; a
   later failure does not undo an earlier package transaction.
+* `-su` syncs, then performs the `-u` upgrade.
 
-Only `-is` and `-su` are accepted as combined flags. Other combinations,
-extra operands, and missing `--repo` fail before any package operation. The
-long `list` and `status` commands remain available.
+Short operation flags are parsed character by character. Repeated flags are
+normalized away, and `-si`, `-is`, `-s -i`, and `-i -s` all mean sync followed
+by install; `-su` and `-us` mean sync followed by upgrade. Conflicting or
+unknown flags, extra operands, and missing `--repo` fail before any package
+operation. The long `list`, `status`, and `upgrade` commands remain available.
+Use `--` before an operand that begins with `-`; package names and versions
+still must satisfy their respective syntax.
 
 The target is a CPU architecture, not a generic ABI: `x86_64`, `aarch64`,
 and `riscv64` are examples. The prototype detects the host CPU through
@@ -38,6 +43,7 @@ dimensions, not architecture fallbacks.
 ./pkg/pkg --root build/tmp/pkg-root -s --repo ./repository
 ./pkg/pkg --root build/tmp/pkg-root -i hello [1.2.3]
 ./pkg/pkg --root build/tmp/pkg-root -is hello --repo ./repository
+./pkg/pkg --root build/tmp/pkg-root -u
 ./pkg/pkg --root build/tmp/pkg-root -su --repo ./repository
 ./pkg/pkg --root build/tmp/pkg-root list
 ./pkg/pkg --root build/tmp/pkg-root status
