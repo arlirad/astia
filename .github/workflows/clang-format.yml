@@ -1,0 +1,60 @@
+name: C/C++ formatting
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+    inputs:
+      full_tree:
+        description: Check every tracked C/C++ source and header file
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      CLANG_FORMAT_VERSION: 18.1.8
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned clang-format
+        run: |
+          python -m pip install \
+            --disable-pip-version-check \
+            --no-cache-dir \
+            --only-binary=:all: \
+            "clang-format==${CLANG_FORMAT_VERSION}"
+
+      - name: Verify clang-format version
+        run: |
+          expected="clang-format version ${CLANG_FORMAT_VERSION}"
+          actual="$(clang-format --version)"
+          if [[ "$actual" != "$expected" ]]; then
+            printf 'Expected %s, got %s\n' "$expected" "$actual" >&2
+            exit 1
+          fi
+
+      - name: Check formatting
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.after || github.sha }}
+          CLANG_FORMAT_FULL_TREE: ${{ inputs.full_tree || '0' }}
+        run: .github/scripts/check-format.sh
