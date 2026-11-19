@@ -50,17 +50,17 @@ namespace astia::fs {
     }
 
     long devfs_mount::unregister_file(const char* path, const mm::shptr<file>& object) {
-        core::spinlock_guard guard(namespace_lock_);
+        core::spinlock_guard guard(_namespace_lock);
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
         for (u32 i = 0; i < devfs_max_entries; ++i) {
-            if (!entries_[i].used || !equal(entries_[i].path, path))
+            if (!_entries[i].used || !equal(_entries[i].path, path))
                 continue;
-            if (object && entries_[i].object.get() != object.get())
+            if (object && _entries[i].object.get() != object.get())
                 return -ENOENT;
-            entries_[i].object = {};
-            entries_[i].path[0] = '\0';
-            entries_[i].used = false;
+            _entries[i].object = {};
+            _entries[i].path[0] = '\0';
+            _entries[i].used = false;
             return 0;
         }
         return -ENOENT;
