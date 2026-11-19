@@ -62,8 +62,20 @@ namespace astia::module {
     msix_route::msix_route(msix_route&& other) noexcept
         : _device(other._device), _vector(other._vector), _table_offset(other._table_offset),
           _table_index(other._table_index), _table_bar(other._table_bar),
-          _mapped_by_route(other._mapped_by_route), _enabled(other._enabled) {
-        other = {};
+          _mapped_by_route(other._mapped_by_route), _registered(other._registered),
+          _vector_masked(other._vector_masked), _vector_unmasked(other._vector_unmasked),
+          _disable_pending(other._disable_pending), _enabled(other._enabled) {
+        other._device = nullptr;
+        other._vector = {};
+        other._table_offset = 0;
+        other._table_index = 0;
+        other._table_bar = 0;
+        other._mapped_by_route = false;
+        other._registered = false;
+        other._vector_masked = false;
+        other._vector_unmasked = false;
+        other._disable_pending = false;
+        other._enabled = false;
     }
 
     msix_route& msix_route::operator=(msix_route&& other) noexcept {
@@ -75,15 +87,29 @@ namespace astia::module {
             _table_index = other._table_index;
             _table_bar = other._table_bar;
             _mapped_by_route = other._mapped_by_route;
+            _registered = other._registered;
+            _vector_masked = other._vector_masked;
+            _vector_unmasked = other._vector_unmasked;
+            _disable_pending = other._disable_pending;
             _enabled = other._enabled;
-            other = {};
+            other._device = nullptr;
+            other._vector = {};
+            other._table_offset = 0;
+            other._table_index = 0;
+            other._table_bar = 0;
+            other._mapped_by_route = false;
+            other._registered = false;
+            other._vector_masked = false;
+            other._vector_unmasked = false;
+            other._disable_pending = false;
+            other._enabled = false;
         }
         return *this;
     }
 
     bool msix_route::request(hw::pci_device& device, arch::interrupt_vector_handler handler,
                              void* context) {
-        if (_vector.valid() || handler == nullptr || !device.interrupt.msix ||
+        if (_registered || _vector.valid() || handler == nullptr || !device.interrupt.msix ||
             device.interrupt.vector_count == 0 ||
             device.interrupt_blocker == hw::pci_interrupt_blocker::invalid_capability)
             return false;
@@ -96,19 +122,23 @@ namespace astia::module {
         _table_index = 0;
         _table_bar = device.interrupt.table_bar;
         _mapped_by_route = false;
+        _registered = true;
+        _vector_masked = false;
+        _vector_unmasked = false;
+        _disable_pending = false;
         _enabled = false;
         arch::msi_message message{};
         if (!arch::interrupt_vector_message(_vector, message)) {
-            arch::unregister_interrupt_vector(_vector);
-            *this = {};
+            release();
             return false;
         }
         return true;
     }
 
     bool msix_route::program() {
-        if (!_vector.valid() || !arch::mask_interrupt_vector(_vector))
+        if (!_registered || !_vector.valid() || !arch::mask_interrupt_vector(_vector))
             return false;
+        _vector_masked = true;
         volatile u32* entry = table_entry(*this);
         arch::msi_message message{};
         if (entry == nullptr || !arch::interrupt_vector_message(_vector, message))
@@ -122,7 +152,7 @@ namespace astia::module {
     }
 
     bool msix_route::enable() {
-        if (!_vector.valid() || _device == nullptr)
+        if (!_registered || !_vector.valid() || _device == nullptr)
             return false;
         volatile u32* entry = table_entry(*this);
         u16 control = 0;
@@ -131,49 +161,90 @@ namespace astia::module {
                                    static_cast<u16>(_device->interrupt.capability + 2),
                                    control))
             return false;
+        _disable_pending = true;
         if (!hw::pci_config_write16(
                 _device->bdf, static_cast<u16>(_device->interrupt.capability + 2),
                 static_cast<u16>((control | (1u << 15)) & ~(1u << 14))))
             return false;
-        return true;
-    }
-
-    bool msix_route::unmask() {
-        if (!_vector.valid() || table_entry(*this) == nullptr ||
-            !arch::unmask_interrupt_vector(_vector))
-            return false;
-        mask_table(table_entry(*this), false);
         _enabled = true;
         return true;
     }
 
-    bool msix_route::disable() {
-        if (!_vector.valid() || _device == nullptr || !arch::mask_interrupt_vector(_vector))
+    bool msix_route::unmask() {
+        if (!_registered || !_vector.valid() || !_enabled ||
+            !arch::unmask_interrupt_vector(_vector))
             return false;
-        mask_table(table_entry(*this), true);
-        u16 control = 0;
-        if (!hw::pci_config_read16(_device->bdf,
-                                   static_cast<u16>(_device->interrupt.capability + 2),
-                                   control) ||
-            !hw::pci_config_write16(
-                _device->bdf, static_cast<u16>(_device->interrupt.capability + 2),
-                static_cast<u16>(control & ~(1u << 15))))
+        _vector_unmasked = true;
+        volatile u32* entry = table_entry(*this);
+        if (entry == nullptr) {
+            (void) disable();
             return false;
-        _enabled = false;
+        }
+        mask_table(entry, false);
         return true;
     }
 
-    bool msix_route::release() {
-        if (!_vector.valid())
-            return true;
-        if (_enabled && !disable())
-            return false;
-        if (_device != nullptr && _mapped_by_route)
-            hw::pci_unmap_bar(*_device, _table_bar);
-        const bool result = arch::unregister_interrupt_vector(_vector);
-        if (result)
-            *this = {};
+    bool msix_route::disable() {
+        bool result = true;
+        if (_vector_unmasked) {
+            if (!arch::mask_interrupt_vector(_vector)) {
+                result = false;
+            } else {
+                _vector_unmasked = false;
+                _vector_masked = true;
+            }
+            volatile u32* entry = table_entry(*this);
+            if (entry == nullptr) {
+                result = false;
+            } else {
+                mask_table(entry, true);
+            }
+        }
+        if (_disable_pending) {
+            if (_device == nullptr) {
+                result = false;
+            } else {
+                u16 control = 0;
+                if (!hw::pci_config_read16(
+                        _device->bdf, static_cast<u16>(_device->interrupt.capability + 2),
+                        control) ||
+                    !hw::pci_config_write16(
+                        _device->bdf, static_cast<u16>(_device->interrupt.capability + 2),
+                        static_cast<u16>(control & ~(1u << 15)))) {
+                    result = false;
+                } else {
+                    _enabled = false;
+                    _disable_pending = false;
+                }
+            }
+        }
         return result;
+    }
+
+    bool msix_route::release() {
+        if (!_registered && !_vector.valid())
+            return true;
+        if (!disable())
+            return false;
+        if (_device != nullptr && _mapped_by_route) {
+            if (!hw::pci_unmap_bar(*_device, _table_bar))
+                return false;
+            _mapped_by_route = false;
+        }
+        if (_registered && !arch::unregister_interrupt_vector(_vector))
+            return false;
+        _device = nullptr;
+        _vector = {};
+        _table_offset = 0;
+        _table_index = 0;
+        _table_bar = 0;
+        _mapped_by_route = false;
+        _registered = false;
+        _vector_masked = false;
+        _vector_unmasked = false;
+        _disable_pending = false;
+        _enabled = false;
+        return true;
     }
 
     bool pci_enable_bus_master(hw::pci_device& device) {

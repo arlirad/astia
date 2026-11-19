@@ -318,7 +318,8 @@ add_custom_command(
         OUTPUT ${_fix_dir}/module_symbols.o
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
-        -fno-exceptions -fno-rtti -fno-stack-protector -fno-asynchronous-unwind-tables
+        -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-stack-protector
+        -fno-asynchronous-unwind-tables
         -mcmodel=large -o ${_fix_dir}/module_symbols.o
         ${CMAKE_CURRENT_SOURCE_DIR}/module_symbols.cpp
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_symbols.cpp
@@ -424,6 +425,24 @@ astia_add_host_test(astia_mod_test
         kernel_symbol_table_fixture.S
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/exports.cpp
 )
+
+astia_add_host_test(astia_module_msix_test
+        module_msix_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module_driver.cpp
+)
+target_compile_options(astia_module_msix_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_link_options(astia_module_msix_test PRIVATE
+        "-Wl,-no-pie" "-Wl,--gc-sections")
+
+astia_add_host_test(astia_module_lifecycle_test
+        module_lifecycle_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
+)
+target_compile_options(astia_module_lifecycle_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_link_options(astia_module_lifecycle_test PRIVATE
+        "-Wl,-no-pie" "-Wl,--gc-sections")
 add_test(NAME astia_kernel_symbol_visibility
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/symbol_table_visibility_test.py

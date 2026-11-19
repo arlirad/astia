@@ -31,6 +31,22 @@ namespace astia::elf {
             return false;
         }
 
+        bool section_name(const view& v, u16 index, const char*& out) {
+            if (index >= v.shnum || v.shstr == nullptr)
+                return false;
+            const u32 offset = v.sh[index].sh_name;
+            if (offset >= v.shstrsize)
+                return false;
+            const char* name = v.shstr + offset;
+            for (usize i = 0; i < v.shstrsize - offset; ++i) {
+                if (name[i] == '\0') {
+                    out = name;
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // Validate the section table, then locate the symbol table and its
         // linked string table. Returns false on anything malformed or
         // truncated.
@@ -58,6 +74,14 @@ namespace astia::elf {
 
             v.sh    = reinterpret_cast<const elf64_shdr*>(v.base + eh.e_shoff);
             v.shnum = eh.e_shnum;
+            if (eh.e_shstrndx >= v.shnum)
+                return false;
+            const elf64_shdr& shstr = v.sh[eh.e_shstrndx];
+            if (shstr.sh_type != sht_strtab ||
+                !in_bounds(shstr.sh_offset, shstr.sh_size, len))
+                return false;
+            v.shstr = reinterpret_cast<const char*>(v.base + shstr.sh_offset);
+            v.shstrsize = static_cast<usize>(shstr.sh_size);
 
             // Locate SHT_SYMTAB and follow sh_link to its SHT_STRTAB.
             for (u16 i = 0; i < v.shnum; ++i) {

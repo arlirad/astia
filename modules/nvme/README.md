@@ -3,9 +3,9 @@
 `nvme.cpp` is compiled as an x86-64 C++ ET_REL module and copied into the QEMU
 initrd. The `mod` init step loads and runs its `int module_main()` entrypoint
 before PCI enumeration. The module registers its typed PCI driver through
-`astia::hw::drivers().register_driver`; the generic kernel adapter owns the
-shared block-device group and exposes stable namespace paths such as
-`/dev/nvme0n1` and `/dev/nvme0n2`.
+`astia::hw::drivers().register_driver`; the typed driver owns its shared
+block-device group and exposes stable namespace paths such as `/dev/nvme0n1`
+and `/dev/nvme0n2`.
 
 The module uses the typed C++ module contract for PCI configuration and BAR
 mapping, DMA page allocation, user-buffer pinning/copying, and block I/O.
@@ -15,7 +15,7 @@ their callbacks, and running modules cannot be unloaded.
 Controller discovery issues Identify Controller, then walks the NVMe active
 namespace ID list (CNS 02h). Each namespace is identified independently and
 registered with a path derived from its NSID, so enumeration order cannot
-renumber an existing namespace. The adapter retains a shared controller
+renumber an existing namespace. The driver retains a shared controller
 lifetime until every namespace block and its device-file references are gone.
 
 Reads and writes support aligned transfers up to two `astia::mm::page_size`

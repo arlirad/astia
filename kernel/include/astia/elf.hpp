@@ -35,8 +35,9 @@ namespace astia::elf {
     inline constexpr usize elf_ident_size = 16;
 
     /// Fixed caps used by the loader's stack-backed metadata tables.
-    inline constexpr usize max_sections        = 256;
-    inline constexpr usize max_program_headers = 64;
+    inline constexpr usize max_sections             = 256;
+    inline constexpr usize max_program_headers      = 64;
+    inline constexpr usize max_init_array_entries   = 64;
 
     /// What kind of ELF image this is (from the header's e_type, after
     /// validating the ELF64/x86-64 identity).
@@ -98,6 +99,8 @@ namespace astia::elf {
         void* loc    = nullptr; ///< Runtime address (vaddr + load_bias).
     };
 
+    using init_fn = void (*)();
+
     /// Upper bound on PT_LOAD segments we track. A typical binary has 4; the
     /// fixed cap keeps the list off the heap, mirroring memory_map / init.
     inline constexpr usize max_segments = 8;
@@ -113,6 +116,10 @@ namespace astia::elf {
             0; ///< Relocation bias (0 for ET_REL and ET_EXEC; chosen for ET_DYN).
         usize   nsegs              = 0; ///< PT_LOAD segment count (executables only).
         segment segs[max_segments] = {};
+        init_fn init_array[max_init_array_entries] = {};
+        usize init_count = 0;
+        init_fn fini_array[max_init_array_entries] = {};
+        usize fini_count = 0;
 
         // Static TLS template (PT_TLS), materialized per thread by the
         // consumer of this image: file offset and sizes of [tdata][tbss],

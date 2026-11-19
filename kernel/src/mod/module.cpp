@@ -69,11 +69,18 @@ namespace astia::mod {
         }
 
         loaded_module& slot = modules[used];
-        slot.name           = "module";
-        slot.base           = img.base;
-        slot.size           = img.size;
-        slot.entry          = reinterpret_cast<int (*)()>(img.entry);
-        slot.running        = false;
+        slot.name        = "module";
+        slot.base        = img.base;
+        slot.size        = img.size;
+        slot.entry       = reinterpret_cast<int (*)()>(img.entry);
+        slot.running     = false;
+        slot.initialized = false;
+        slot.init_count  = img.init_count;
+        slot.fini_count  = img.fini_count;
+        for (usize i = 0; i < img.init_count; ++i)
+            slot.init_array[i] = img.init_array[i];
+        for (usize i = 0; i < img.fini_count; ++i)
+            slot.fini_array[i] = img.fini_array[i];
         ++used;
         return &slot;
     }
@@ -109,7 +116,24 @@ namespace astia::mod {
             return -1;
         }
         const_cast<loaded_module*>(mod)->running = true;
-        return mod->entry();
+        loaded_module* mutable_mod = const_cast<loaded_module*>(mod);
+        for (usize i = 0; i < mutable_mod->init_count; ++i)
+            if (mutable_mod->init_array[i] != nullptr)
+                mutable_mod->init_array[i]();
+        mutable_mod->initialized = true;
+        return mutable_mod->entry();
+    }
+
+    bool exit_module(const loaded_module* mod) {
+        if (mod == nullptr || !mod->running)
+            return false;
+        loaded_module* mutable_mod = const_cast<loaded_module*>(mod);
+        for (usize i = mutable_mod->fini_count; i != 0; --i)
+            if (mutable_mod->fini_array[i - 1] != nullptr)
+                mutable_mod->fini_array[i - 1]();
+        mutable_mod->initialized = false;
+        mutable_mod->running = false;
+        return true;
     }
 
     usize count() {

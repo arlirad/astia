@@ -33,6 +33,7 @@ namespace astia::module {
         bool release();
         bool active() const { return _vector.valid(); }
         u32 table_index() const { return _table_index; }
+        bool registered() const { return _registered; }
 
         public:
         hw::pci_device* _device = nullptr;
@@ -41,6 +42,10 @@ namespace astia::module {
         u32 _table_index = 0;
         u8 _table_bar = 0;
         bool _mapped_by_route = false;
+        bool _registered = false;
+        bool _vector_masked = false;
+        bool _vector_unmasked = false;
+        bool _disable_pending = false;
         bool _enabled = false;
     };
 

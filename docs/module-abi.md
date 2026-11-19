@@ -17,16 +17,22 @@ int module_main();
 The loader resolves its exact Itanium C++ symbol `_Z11module_mainv`. The
 return type is `int`; it is not encoded in that symbol name. `load_module`
 relocates and registers the image without calling the entrypoint.
-`run_module` marks the image running, invokes the `int (*)()` entrypoint
-synchronously, and returns its integer result. A negative result is a module
-error convention; the loader logs it but does not reinterpret it as an
-exception or coroutine failure. A running image cannot be unloaded.
+`run_module` marks the image running, invokes every validated `.init_array`
+function in array order, then calls the `int (*)()` entrypoint synchronously.
+A negative result is a module error convention; the loader logs it but does
+not reinterpret it as an exception or coroutine failure. `exit_module` invokes
+validated `.fini_array` functions in reverse order and clears the running
+state so teardown can be followed by `unload_module`.
 
 Module entrypoints are not `astia::core::task` functions. The loader does not
 await or resume a task, and it does not inspect task completion or error state.
 Asynchronous device requests are managed by the typed I/O and driver
 contracts; changing module startup to an async lifecycle is a separate
 follow-up.
+
+The loader bounds both constructor arrays, requires each non-null entry to
+point into an allocated executable section, and rejects unsupported
+pre-initialization or legacy constructor sections.
 
 ## Typed ownership
 
