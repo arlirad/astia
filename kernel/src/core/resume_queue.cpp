@@ -97,7 +97,7 @@ namespace astia::core {
             }
         }
         if (!found)
-            __builtin_trap();
+            return false;
 
         resume_slot& slot = queue.slots[free];
         slot.continuation = continuation;
@@ -109,14 +109,16 @@ namespace astia::core {
                 arch::cpu::request_local_reschedule();
                 return true;
             }
-            __builtin_trap();
+            release_slot(slot);
+            return false;
         }
         if (queue.ready.try_push(free) || queue.overflow.try_push(free)) {
             arch::cpu::request_local_reschedule();
             return true;
         }
 
-        __builtin_trap();
+        release_slot(slot);
+        return false;
     }
 
     void cancel_resume(std::coroutine_handle<> continuation, u64 generation) {

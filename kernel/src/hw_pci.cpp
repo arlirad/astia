@@ -111,6 +111,8 @@ namespace astia::hw {
                 return false;
             if (preserve_high && !read_dword(address, static_cast<u16>(offset & ~3u), raw))
                 return false;
+            if (preserve_high && offset == command_status_offset)
+                raw &= 0xffffu;
             const u16 shift = static_cast<u16>((offset & 2u) * 8u);
             raw = (raw & ~(0xffffu << shift)) | (static_cast<u32>(value) << shift);
             return write_dword(address, static_cast<u16>(offset & ~3u), raw);

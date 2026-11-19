@@ -2,8 +2,57 @@
 #include <astia/dev/device.hpp>
 #include <astia/dev/device_file.hpp>
 #include "test.hpp"
+#include <atomic>
+#include <cstdlib>
+#include <thread>
+
+namespace astia::mm::heap {
+
+optional<u8*> alloc(usize size) {
+    return static_cast<u8*>(std::malloc(size));
+}
+
+void free(void* value) {
+    std::free(value);
+}
+
+}
 
 namespace {
+    class submit_only_file final : public astia::fs::file {
+        public:
+        long submit(astia::io::request& request) override {
+            ++calls;
+            stable = request.stable();
+            direction = request.direction();
+            return static_cast<long>(request.length());
+        }
+
+        int calls = 0;
+        bool stable = false;
+        astia::io::direction direction = astia::io::direction::input;
+    };
+
+    class dispatch_file final : public astia::fs::file {
+        public:
+        long read(void*, astia::u32 length, astia::u64) override {
+            ++reads;
+            return static_cast<long>(length);
+        }
+        long write(const void*, astia::u32 length, astia::u64) override {
+            ++writes;
+            return static_cast<long>(length);
+        }
+        long submit(astia::io::request&) override {
+            ++submits;
+            return -EIO;
+        }
+
+        int reads = 0;
+        int writes = 0;
+        int submits = 0;
+    };
+
     class test_device final : public astia::dev::device {
         public:
         explicit test_device(const char* name) : device(name, astia::dev::dv_sync) {}
@@ -33,11 +82,18 @@ namespace {
         bool acknowledge_cancel = true;
         int cancel_count = 0;
         astia::io::request* pending = nullptr;
+        std::atomic<bool>* cancel_entered = nullptr;
+        std::atomic<bool>* cancel_gate = nullptr;
 
         private:
         static void cancel_request(astia::io::request& request) {
             auto* value = static_cast<parked_device*>(request.device_state());
             ++value->cancel_count;
+            if (value->cancel_entered != nullptr)
+                value->cancel_entered->store(true, std::memory_order_release);
+            if (value->cancel_gate != nullptr)
+                while (!value->cancel_gate->load(std::memory_order_acquire))
+                    std::this_thread::yield();
             value->pending = nullptr;
             request.device_state(nullptr);
             request.cancel_handler_set(nullptr);
@@ -78,8 +134,9 @@ ASTIA_TEST(device_file_detach_cancels_parked_request_once) {
     char buffer[512]{};
     astia::io::request request(buffer, sizeof buffer, 0, 0, astia::io::direction::input);
 
-    ASTIA_CHECK(file.submit(request) == 0);
-    ASTIA_CHECK(device.pending == &request);
+    ASTIA_CHECK(file.submit(request) == -EAGAIN);
+    ASTIA_CHECK(device.pending == nullptr);
+    ASTIA_CHECK(device.cancel_count == 1);
     device.acknowledge_cancel = false;
     file.detach();
     ASTIA_CHECK(device.cancel_count == 1);
@@ -88,4 +145,123 @@ ASTIA_TEST(device_file_detach_cancels_parked_request_once) {
     request.cancel_acknowledge();
     ASTIA_CHECK(!request.cancel_device(true));
     ASTIA_CHECK(file.submit(request) == -ENODEV);
+}
+
+ASTIA_TEST(device_file_detach_cancels_parked_flight_once) {
+    parked_device device;
+    astia::dev::device_file file(&device);
+    char buffer[1]{};
+    astia::io::request request(buffer, sizeof buffer, 0, 0, astia::io::direction::input);
+    auto* flight = new astia::io::flight(request);
+
+    ASTIA_CHECK(request.park_device());
+    ASTIA_CHECK(file.submit(request) == 0);
+    ASTIA_CHECK(device.pending == &request);
+
+    file.detach();
+    ASTIA_CHECK(device.cancel_count == 1);
+    ASTIA_CHECK(device.pending == nullptr);
+    ASTIA_CHECK(request.cancellation_requested());
+
+    flight->release_owner();
+    ASTIA_CHECK(flight->canceled());
+    request.acknowledge();
+    ASTIA_CHECK(device.cancel_count == 1);
+    ASTIA_CHECK(device.pending == nullptr);
+}
+
+ASTIA_TEST(device_file_detach_waits_for_active_cancellation_handler) {
+    parked_device device;
+    astia::dev::device_file file(&device);
+    char buffer[1]{};
+    astia::io::request request(buffer, sizeof buffer, 0, 0, astia::io::direction::input);
+    auto* flight = new astia::io::flight(request);
+    std::atomic<bool> handler_entered{false};
+    std::atomic<bool> allow_ack{false};
+    device.cancel_entered = &handler_entered;
+    device.cancel_gate    = &allow_ack;
+
+    ASTIA_CHECK(request.park_device());
+    ASTIA_CHECK(file.submit(request) == 0);
+    ASTIA_CHECK(device.pending == &request);
+
+    std::atomic<bool> detach_done{false};
+    std::thread worker([&] {
+        file.detach();
+        detach_done.store(true, std::memory_order_release);
+    });
+    while (!handler_entered.load(std::memory_order_acquire))
+        std::this_thread::yield();
+    ASTIA_CHECK(!detach_done.load(std::memory_order_acquire));
+    allow_ack.store(true, std::memory_order_release);
+    worker.join();
+
+    ASTIA_CHECK(detach_done.load(std::memory_order_acquire));
+    ASTIA_CHECK(device.cancel_count == 1);
+    ASTIA_CHECK(device.pending == nullptr);
+    ASTIA_CHECK(request.cancellation_requested());
+    request.acknowledge();
+    flight->release_owner();
+}
+
+ASTIA_TEST(aio_parked_request_stays_stable_across_stretch) {
+    char first[4]{};
+    char second[8]{};
+    astia::io::request request(first, sizeof first, 0x10, 0x1234,
+                               astia::io::direction::input);
+    auto* flight = new astia::io::flight(request);
+
+    ASTIA_CHECK(request.stable());
+    ASTIA_CHECK(request.park_device());
+    auto* const address = &request;
+    request.stretch(second, sizeof second, 0x2000);
+
+    ASTIA_CHECK(&request == address);
+    ASTIA_CHECK(request.stable());
+    ASTIA_CHECK(request.buffer() == static_cast<void*>(second));
+    ASTIA_CHECK(request.length() == sizeof second);
+    ASTIA_CHECK(request.offset() == 0x2000);
+    ASTIA_CHECK(request.user_data() == 0x1234);
+    ASTIA_CHECK(request.direction() == astia::io::direction::input);
+    flight->release_owner();
+    ASTIA_CHECK(flight->canceled());
+    request.acknowledge();
+}
+
+ASTIA_TEST(aio_completed_parked_flight_releases_owner_once) {
+    char buffer[1]{};
+    astia::io::request request(buffer, sizeof buffer, 0, 0, astia::io::direction::input);
+    auto* flight = new astia::io::flight(request);
+
+    ASTIA_CHECK(request.park_device());
+    ASTIA_CHECK(request.begin_device());
+    request.acknowledge();
+    request.end_device();
+    flight->release_owner();
+}
+
+ASTIA_TEST(open_file_keeps_synchronous_dispatch_fast_path) {
+    auto object = astia::mm::shptr<astia::fs::file>(new dispatch_file{});
+    astia::fs::open_file handle(object, astia::fs::open_file_status_flags::readwrite);
+    astia::u8 read_buffer[4]{};
+    const astia::u8 write_buffer[2]{};
+
+    ASTIA_CHECK(handle.read(read_buffer, sizeof read_buffer, 0) == sizeof read_buffer);
+    ASTIA_CHECK(handle.write(write_buffer, sizeof write_buffer, 0) == sizeof write_buffer);
+    auto* file = static_cast<dispatch_file*>(object.get());
+    ASTIA_CHECK(file->reads == 1);
+    ASTIA_CHECK(file->writes == 1);
+    ASTIA_CHECK(file->submits == 0);
+}
+
+ASTIA_TEST(open_file_falls_back_to_submit_only_file) {
+    auto object = astia::mm::shptr<astia::fs::file>(new submit_only_file{});
+    astia::fs::open_file handle(object, astia::fs::open_file_status_flags::readwrite);
+    astia::u8 buffer[3]{};
+
+    ASTIA_CHECK(handle.read(buffer, sizeof buffer, 0) == sizeof buffer);
+    auto* submitter = static_cast<submit_only_file*>(object.get());
+    ASTIA_CHECK(submitter->calls == 1);
+    ASTIA_CHECK(submitter->stable);
+    ASTIA_CHECK(submitter->direction == astia::io::direction::input);
 }

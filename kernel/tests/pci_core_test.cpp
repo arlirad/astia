@@ -201,6 +201,26 @@ ASTIA_TEST(pci_bus_master_and_resource_ownership) {
     astia::hw::pci_reset_config_backend();
 }
 
+ASTIA_TEST(pci_command_writes_do_not_replay_status_w1c_bits) {
+    reset_fixture();
+    astia::hw::pci_set_config_backend({config_read, config_write});
+    const astia::hw::pci_bdf address{0, 3, 0};
+    ASTIA_CHECK(astia::hw::pci_config_write16(address, 0x04, 0x0007));
+    ASTIA_CHECK(config_read(address, 0x04) == 0x00100007u);
+    astia::hw::pci_reset_config_backend();
+}
+
+ASTIA_TEST(pci_status_writes_w1c_bits_and_preserve_command) {
+    reset_fixture();
+    astia::hw::pci_set_config_backend({config_read, config_write});
+    const astia::hw::pci_bdf address{0, 3, 0};
+    ASTIA_CHECK(astia::hw::pci_config_write16(address, 0x04, 0x0007));
+    put32(address, 0x04, 0x00010007u);
+    ASTIA_CHECK(astia::hw::pci_config_write16(address, 0x06, 0x0001));
+    ASTIA_CHECK(config_read(address, 0x04) == 0x00000007u);
+    astia::hw::pci_reset_config_backend();
+}
+
 ASTIA_TEST(pci_interrupt_capability_is_explicit) {
     astia::hw::pci_device none{};
     ASTIA_CHECK(astia::hw::pci_interrupt_capability_of(none) ==

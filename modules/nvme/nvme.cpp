@@ -921,9 +921,8 @@ namespace {
         }
 
         void remove(const astia::hw::device_info&) override {
-            device.quiesce();
             unregister_nodes();
-            device.release();
+            device.stop();
             _product = {};
         }
 

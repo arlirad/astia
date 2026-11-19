@@ -246,6 +246,10 @@ namespace astia::sys::aio_dispatch {
             for (;;) {
                 const usize ask = static_cast<usize>(op.request.length());
                 long        n   = 0;
+                if (op.request.cancellation_requested() || !op.request.begin_device()) {
+                    result = -ECANCELED;
+                    return io_outcome::completed;
+                }
                 if (op.socket_accept) {
                     const auto* socket = op.object->node()->unix_socket_capability();
                     n = socket == nullptr ? -EOPNOTSUPP
@@ -255,18 +259,25 @@ namespace astia::sys::aio_dispatch {
                     n = op.object->submit(op.request);
                 }
                 if (op.control) {
-                    if (n == 0 && !op.request.complete())
+                    if (n == 0 && !op.request.complete()) {
+                        op.request.end_device();
                         return io_outcome::parked;
+                    }
                     result = n;
+                    op.request.acknowledge();
+                    op.request.end_device();
                     return io_outcome::completed;
                 }
                 if (n == 0 && !op.request.complete()) {
+                    op.request.end_device();
                     return io_outcome::parked; // a resume picks this request up
                 }
                 if (n < 0) {
                     // A stretch that already moved bytes is reported as the
                     // short operation it is; an error would throw them away.
                     result = op.moved != 0 ? static_cast<long>(op.moved) : n;
+                    op.request.acknowledge();
+                    op.request.end_device();
                     return io_outcome::completed;
                 }
                 const usize consumed = op.entries.advance(static_cast<usize>(n));
@@ -278,6 +289,8 @@ namespace astia::sys::aio_dispatch {
                     // n == 0 arm is what stops a completed nothing from being
                     // read as a stretched entry and asked for again.
                     result = static_cast<long>(op.moved);
+                    op.request.acknowledge();
+                    op.request.end_device();
                     return io_outcome::completed;
                 }
                 // On to the next entry.  The file layer resolved the caller's
@@ -290,11 +303,9 @@ namespace astia::sys::aio_dispatch {
                 const bool append_reserved = op.request.append_reserved();
                 const bool has_append_length = op.request.has_append_length();
                 const u32 append_length = op.request.append_length();
-                const u64 request_generation = op.request.generation();
-                op.request = io::request(
-                    op.entries.window(), static_cast<u32>(op.entries.chunk()),
-                    op.request.offset(), op.request.user_data(), op.request.direction());
-                op.request.generation(request_generation);
+                op.request.end_device();
+                op.request.stretch(op.entries.window(), static_cast<u32>(op.entries.chunk()),
+                                   op.request.offset());
                 op.request.wake_handler_set(wake_request, op.object->node().get());
                 op.request.updates_position(updates_position);
                 if (has_append_length)
@@ -411,6 +422,27 @@ namespace astia::sys::aio_dispatch {
             p->request =
                 io::request(p->entries.window(), static_cast<u32>(p->entries.chunk()),
                            s.offset, s.user_data, direction);
+            p->flight = new io::flight(p->request);
+            if (p->flight == nullptr) {
+                p->done = true;
+                if (!cq_post(ring, s.user_data, -ENOMEM)) {
+                    p->pending_cqe       = true;
+                    p->pending_user_data = s.user_data;
+                    p->pending_result    = -ENOMEM;
+                }
+                return true;
+            }
+            if (!p->request.park_device()) {
+                p->flight->release_owner();
+                p->flight = nullptr;
+                p->done = true;
+                if (!cq_post(ring, s.user_data, -EAGAIN)) {
+                    p->pending_cqe       = true;
+                    p->pending_user_data = s.user_data;
+                    p->pending_result    = -EAGAIN;
+                }
+                return true;
+            }
             p->generation = issue_request_generation();
             p->request.generation(p->generation);
             p->request.wake_handler_set(wake_request, p->object->node().get());
@@ -809,6 +841,7 @@ namespace astia::sys::aio_dispatch {
                     if (!cq_post(ring, target, -ECANCELED))
                         return false;
                     p.request.cancel_device(false);
+                    p.request.acknowledge();
                     p.done = true;
                     return cq_post(ring, s.user_data, 0);
                 }

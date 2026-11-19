@@ -1154,9 +1154,26 @@ namespace astia::fs {
     }
 
     long open_file::read(void* buf, u32 len, u64 offset) {
-        io::request request(buf, len, offset, 0, io::direction::input);
-        const long result = submit(request);
-        return result == 0 && !request.complete() ? -EAGAIN : result;
+        if (!_object)
+            return -EBADF;
+        const bool current = offset == offset_current;
+        const u64  actual  = current ? current_position() : offset;
+        long result = dispatch_read(_object.get(), buf, len, actual);
+        if (result == -ENOSYS) {
+            io_packet packet(mm::shptr<open_file>::borrowed(this), buf, len, actual,
+                             io::direction::input);
+            if (!packet)
+                return -ENOMEM;
+            if (!packet.request().park_device())
+                return -EAGAIN;
+            result = packet.submit();
+            if (result == 0 && !packet.request().complete())
+                return -EAGAIN;
+            packet.request().acknowledge();
+        }
+        if (result > 0 && current)
+            set_position(actual + static_cast<u64>(result));
+        return result;
     }
 
     long open_file::seek(i64 offset, i32 whence) {
@@ -1220,9 +1237,32 @@ namespace astia::fs {
     }
 
     long open_file::write(const void* buf, u32 len, u64 offset) {
-        io::request request(const_cast<void*>(buf), len, offset, 0, io::direction::output);
-        const long result = submit(request);
-        return result == 0 && !request.complete() ? -EAGAIN : result;
+        if (!_object)
+            return -EBADF;
+        const bool current = offset == offset_current;
+        u64        actual  = current ? current_position() : offset;
+        if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0) {
+            const long reserved = reserve_append(len, &actual);
+            if (reserved < 0)
+                return reserved;
+        }
+        long result = dispatch_write(_object.get(), buf, len, actual);
+        if (result == -ENOSYS) {
+            io_packet packet(mm::shptr<open_file>::borrowed(this),
+                             const_cast<void*>(buf), len, actual,
+                             io::direction::output);
+            if (!packet)
+                return -ENOMEM;
+            if (!packet.request().park_device())
+                return -EAGAIN;
+            result = packet.submit();
+            if (result == 0 && !packet.request().complete())
+                return -EAGAIN;
+            packet.request().acknowledge();
+        }
+        if (result > 0 && (current || (_flags & static_cast<u32>(open_file_status_flags::append)) != 0))
+            set_position(actual + static_cast<u64>(result));
+        return result;
     }
     long open_file::submit(io::request& request) {
         if (!_object)

@@ -80,6 +80,7 @@ namespace astia::sys::aio_ring {
         mm::shptr<fs::open_file> object;
         mm::iovec                entries;
         io::request               request;
+        io::flight*               flight = nullptr;
         u64                      generation = 0;
         usize                    moved = 0;
     };

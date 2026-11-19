@@ -1,16 +1,17 @@
 #include "device_file.hpp"
 #include <astia/dev/blk/blkdev.hpp>
 
+#include <astia/arch/cpu.hpp>
 #include <astia/api/errno.h>
 
 namespace astia::dev {
 
     void device_file::detach() {
-        __atomic_store_n(&detached_, true, __ATOMIC_RELEASE);
         io::request* requests[max_pending_requests]{};
         u32 count = 0;
         {
             core::spinlock_guard guard(pending_lock_);
+            __atomic_store_n(&detached_, true, __ATOMIC_RELEASE);
             count = pending_count_;
             for (u32 i = 0; i < count; ++i)
                 requests[i] = pending_[i];
@@ -18,6 +19,16 @@ namespace astia::dev {
         for (u32 i = 0; i < count; ++i)
             if (requests[i] != nullptr)
                 requests[i]->cancel_device(true);
+        for (;;) {
+            bool pending = false;
+            {
+                core::spinlock_guard guard(pending_lock_);
+                pending = pending_count_ != 0;
+            }
+            if (!pending && __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0)
+                break;
+            ASTIA_CPU_RELAX();
+        }
     }
 
     bool device_file::tracked_request(const io::request& request) const {
@@ -109,6 +120,12 @@ namespace astia::dev {
             return -ECANCELED;
         }
         const long result = value->submit(request);
+        if (result == 0 && !request.complete() && !request.stable()) {
+            request.cancel_device(false);
+            untrack_request(request);
+            end_operation();
+            return -EAGAIN;
+        }
         if (result != 0 || request.complete())
             untrack_request(request);
         end_operation();

@@ -7,6 +7,8 @@ set_property(DIRECTORY PROPERTY LINK_OPTIONS "")
 option(ASTIA_CROSS_USERSPACE "Use the Clang Astia sysroot for init_libc" OFF)
 include(${ASTIA_KERNEL_SOURCE_DIR}/../cmake/AstiaCTest.cmake)
 
+find_package(Threads REQUIRED)
+
 function(astia_apply_host_sanitizers target)
     if(ASTIA_HOST_SANITIZER_COMPILE_OPTIONS)
         target_compile_options(${target} PRIVATE
@@ -187,6 +189,7 @@ target_compile_options(astia_device_test PRIVATE
         -fno-pie -fno-rtti -ffunction-sections -fdata-sections)
 target_link_options(astia_device_test PRIVATE
         "-Wl,-no-pie" "-Wl,--gc-sections")
+target_link_libraries(astia_device_test PRIVATE Threads::Threads)
 
 astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp
@@ -213,8 +216,8 @@ target_include_directories(astia_driver_manager_test PRIVATE ${ASTIA_KERNEL_SOUR
 astia_add_host_test(astia_net_test
         net_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/net/net.cpp)
+set_tests_properties(astia_net_test PROPERTIES TIMEOUT 30)
 
-find_package(Threads REQUIRED)
 astia_add_host_test(astia_mpmc_queue_test mpmc_queue_test.cpp)
 target_link_libraries(astia_mpmc_queue_test PRIVATE Threads::Threads)
 astia_add_host_test(astia_rcu_domain_test rcu_domain_test.cpp)
