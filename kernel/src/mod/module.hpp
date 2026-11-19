@@ -3,6 +3,7 @@
 #include "exports.hpp"
 #include "types.hpp"
 #include <astia/common.hpp>
+#include <astia/elf.hpp>
 #include <astia/span.hpp>
 
 // Kernel module registry.
@@ -24,6 +25,11 @@ namespace astia::mod {
         usize       size; ///< Bytes allocated for the image.
         int (*entry)();   ///< Resolved module_main().
         bool running;     ///< True once entry() has been called.
+        bool initialized;
+        elf::init_fn init_array[elf::max_init_array_entries];
+        usize init_count;
+        elf::init_fn fini_array[elf::max_init_array_entries];
+        usize fini_count;
     };
 
     /// Upper bound on simultaneously loaded modules. Fixed capacity keeps the
@@ -47,6 +53,8 @@ namespace astia::mod {
     /// allocation and drops the registry slot. Returns false if `mod` is not a
     /// registered module.
     bool unload_module(const loaded_module* mod);
+
+    bool exit_module(const loaded_module* mod);
 
     /// Call a loaded module's entry point. Returns the module's return code, or
     /// -1 if `mod` is null or already running.

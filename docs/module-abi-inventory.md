@@ -8,14 +8,13 @@
 | Entry point | C++ `int module_main()` | `run_module` marks the image running before a synchronous call; a running image cannot be unloaded. |
 | Symbols | Linked kernel export table | Imported addresses are valid only while the matching kernel build is running. |
 | Registration | `astia::hw::driver_registry` and endpoint registries | Registration objects and callback tables must remain in the image for the whole registered lifetime. |
-| Removal | `hw::driver::remove` and endpoint unregister functions | Removal must complete before an image can be unloaded; the current loader keeps run modules non-unloadable. |
+| Removal | `hw::driver::remove`, `exit_module`, and endpoint unregister functions | Driver and endpoint removal must complete before `exit_module`; finalizers run in reverse order before `unload_module`. |
 
-There is no module unload callback. A module that returns from `module_main`
-still remains resident because its driver objects, callback tables, interrupt
-handlers, and device contexts may still be referenced. `unload_module` is
-therefore allowed only for an image whose entrypoint has never been run.
-`loaded_module*` values are registry addresses and are invalid after unload or
-registry compaction.
+Modules remain resident after `module_main` returns because their driver
+objects, callback tables, interrupt handlers, and device contexts may still be
+referenced. The owner must unregister those resources, call `exit_module`, and
+then call `unload_module`. `loaded_module*` values are registry addresses and
+are invalid after unload or registry compaction.
 
 ## Public header
 
@@ -43,10 +42,10 @@ task context.
 
 ## Validation inventory
 
-- `kernel/src/mod/module.cpp`: ET_REL allocation, relocation, registry, and
-  unload policy.
-- `kernel/src/mod/module_driver.cpp`: typed device registration adapters,
-  device removal, DMA/user-buffer wrappers, and module lifetime checks.
+- `kernel/src/mod/module.cpp`: ET_REL allocation, relocation, constructor and
+  destructor arrays, registry, and unload policy.
+- `kernel/src/mod/module_driver.cpp`: typed PCI/MSI-X, DMA/user-buffer,
+  logging, and registered-I/O helpers.
 - `kernel/src/elf/reloc_loader.cpp`: C++ entrypoint and symbol resolution.
 - `modules/tests/typed_*`: typed contract and header fixtures.
 - `kernel/tests/elf_test.cpp`: ET_REL and executable loader coverage.
