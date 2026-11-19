@@ -56,7 +56,8 @@ dimensions, not architecture fallbacks.
 `--repo` accepts either a local directory containing `index.json` or a static
 HTTP(S) repository URL. A URL ending in `index.json` is used directly;
 otherwise `/index.json` is appended. An HTTPS index may use only HTTPS archive
-URLs, and redirects may not downgrade HTTPS to HTTP. `sync` validates and
+URLs, and redirects may not downgrade HTTPS to HTTP or change to another
+transport such as FTP. FTP transport is disabled entirely. `sync` validates and
 atomically replaces the cached index. Package archives are fetched only by
 `install`, then checked for both indexed size and SHA-256.
 
@@ -134,7 +135,10 @@ succeed. Files owned by another package or unmanaged files are never
 clobbered. Remove and upgrades use the same backup-and-rollback behavior.
 Recovery is fail-closed: journal evidence is retained until restoration and
 its directory syncs succeed, so an injected or real recovery failure cannot be
-reported as a successful transaction. Ownership and installed-package state
+reported as a successful transaction. Completed transactions are first renamed
+to a cleanup tombstone and parent-synced; startup retries tombstone removal,
+so a cleanup fsync failure cannot leave a journal-less active transaction.
+Ownership and installed-package state
 live under `.pkg`; package paths cannot use that reserved namespace.
 
 The supported root trust boundary is the package root and its ancestry being

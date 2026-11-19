@@ -208,41 +208,36 @@ def remove_tree_at(parent_fd, name):
     sync_directory(parent_fd)
 
 
+def cleanup_sync_directory(fd):
+    if os.environ.get("PKG_TEST_FAIL_CLEANUP_FSYNC") == "1":
+        fail("injected cleanup fsync failure")
+    sync_directory(fd)
+
+
 def remove_transaction_at(parent_fd, name):
-    child_fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
-    try:
-        for entry in os.scandir(child_fd):
-            if entry.name == "journal.json":
-                continue
-            info = entry.stat(follow_symlinks=False)
-            if stat.S_ISDIR(info.st_mode):
-                remove_tree_at(child_fd, entry.name)
-            else:
-                os.unlink(entry.name, dir_fd=child_fd)
-        sync_directory(child_fd)
-        try:
-            os.unlink("journal.json", dir_fd=child_fd)
-        except FileNotFoundError:
-            pass
-        sync_directory(child_fd)
-    finally:
-        os.close(child_fd)
-    sync_directory(parent_fd)
-    os.rmdir(name, dir_fd=parent_fd)
-    sync_directory(parent_fd)
+    tombstone = f".pkg-cleanup-{uuid.uuid4().hex}"
+    os.replace(name, tombstone, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+    cleanup_sync_directory(parent_fd)
 
 
 class NoDowngradeRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
         old_scheme = urllib.parse.urlparse(request.full_url).scheme.lower()
         new_scheme = urllib.parse.urlparse(newurl).scheme.lower()
+        if new_scheme not in ("http", "https"):
+            fail(f"refusing unsupported redirect scheme: {new_scheme}")
         if old_scheme == "https" and new_scheme == "http":
             fail("refusing HTTPS downgrade redirect")
         return super().redirect_request(request, fp, code, msg, headers, newurl)
 
 
+class DisabledFTPHandler(urllib.request.FTPHandler):
+    def ftp_open(self, request):
+        raise urllib.error.URLError("FTP transport is disabled")
+
+
 def open_url(request, timeout):
-    opener = urllib.request.build_opener(NoDowngradeRedirectHandler)
+    opener = urllib.request.build_opener(NoDowngradeRedirectHandler(), DisabledFTPHandler())
     return opener.open(request, timeout=timeout)
 
 
@@ -846,6 +841,9 @@ def recover_transaction_fds(state, txn_fd, backup_fd, journal):
 
 def recover_transactions(state):
     for entry in os.scandir(state.internal_fd):
+        if entry.name.startswith(".pkg-cleanup-"):
+            remove_tree_at(state.internal_fd, entry.name)
+            continue
         if not entry.name.startswith(".txn-"):
             continue
         info = entry.stat(follow_symlinks=False)

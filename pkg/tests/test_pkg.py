@@ -11,6 +11,7 @@ import os
 import subprocess
 import tarfile
 import tempfile
+import urllib.error
 import urllib.request
 import unittest
 from pathlib import Path
@@ -129,6 +130,7 @@ class PackageManagerTest(unittest.TestCase):
     def make_crash_transaction(self):
         self.sync_package()
         self.assertEqual(self.run_pkg("-i", "hello").returncode, 0)
+        self.assertEqual(self.run_pkg("status").returncode, 0)
         state = json.loads((self.root / ".pkg/state.json").read_text())
         transaction = self.root / ".pkg/.txn-crash"
         backup = transaction / "backup"
@@ -360,6 +362,19 @@ class PackageManagerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(transaction.exists())
 
+    def test_cleanup_fsync_failure_leaves_recoverable_tombstone(self):
+        state, transaction, backup, target = self.make_crash_transaction()
+        result = self.run_pkg("status", env={"PKG_TEST_FAIL_CLEANUP_FSYNC": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(transaction.exists())
+        tombstones = sorted((self.root / ".pkg").glob(".pkg-cleanup-*"))
+        self.assertEqual(len(tombstones), 1)
+        self.assertTrue((tombstones[0] / "journal.json").exists())
+        self.assertEqual(target.read_text(), "hello 1.0.0\n")
+        result = self.run_pkg("status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(list((self.root / ".pkg").glob(".pkg-cleanup-*")))
+
     def test_backup_directory_loss_fails_closed(self):
         self.sync_package()
         self.assertEqual(self.run_pkg("-i", "hello").returncode, 0)
@@ -416,12 +431,15 @@ class PackageManagerTest(unittest.TestCase):
         with self.assertRaises(module.PkgError):
             module.validate_index(index, "remote", "https")
 
-    def test_https_downgrade_redirect_is_rejected(self):
+    def test_non_http_redirects_and_ftp_transport_are_rejected(self):
         module = load_pkg_module()
         handler = module.NoDowngradeRedirectHandler()
         request = urllib.request.Request("https://example.test/index.json")
-        with self.assertRaises(module.PkgError):
-            handler.redirect_request(request, object(), 302, "Found", {}, "http://example.test/index.json")
+        for target in ("http://example.test/index.json", "ftp://example.test/index.json", "file:///tmp/index.json", "gopher://example.test/index"):
+            with self.assertRaises(module.PkgError):
+                handler.redirect_request(request, object(), 302, "Found", {}, target)
+        with self.assertRaises(urllib.error.URLError):
+            module.open_url(urllib.request.Request("ftp://example.test/index.json"), 1)
 
     def test_standalone_upgrade_uses_cached_repository(self):
         old = package_entry(self.repo, "hello", "1.0.0")
