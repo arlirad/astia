@@ -131,15 +131,18 @@ namespace astia::arch::x86_64::smp {
                 const u8 length = p[1];
                 if (length < 2 || p + length > end)
                     break;
-                if ((type == 0 && length >= 8 &&
-                     (reinterpret_cast<const u32*>(p + 4)[0] & 1u)) ||
-                    (type == 9 && length >= 16 &&
-                     (reinterpret_cast<const u32*>(p + 8)[0] & 1u))) {
+                u32 flags = 0;
+                if (type == 0 && length >= 8)
+                    flags = reinterpret_cast<const u32*>(p + 4)[0];
+                else if (type == 9 && length >= 16)
+                    flags = reinterpret_cast<const u32*>(p + 8)[0];
+                if (((type == 0 && length >= 8) || (type == 9 && length >= 16)) &&
+                    (flags & 1u)) {
                     if (count < max_cpus) {
                         apic_ids[count++] =
                             type == 0 ? p[3]
                                       : static_cast<u32>(
-                                            reinterpret_cast<const u32*>(p + 8)[0]);
+                                            reinterpret_cast<const u32*>(p + 4)[0]);
                     }
                 }
                 p += length;
