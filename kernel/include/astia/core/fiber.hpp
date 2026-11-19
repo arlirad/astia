@@ -12,14 +12,14 @@ namespace astia::core {
         public:
         using entry_fn = void (*)(void*);
 
-        fiber(entry_fn entry, void* argument) : entry_(entry), argument_(argument) {}
+        fiber(entry_fn entry, void* argument) : _entry(entry), _argument(argument) {}
         fiber(const fiber&)            = delete;
         fiber& operator=(const fiber&) = delete;
         ~fiber();
 
         bool start();
         bool resume();
-        bool done() const { return finished_; }
+        bool done() const { return _finished; }
 
         /// Yield from the currently running fiber back to its resumer.
         static bool yield();
@@ -28,14 +28,14 @@ namespace astia::core {
         static void trampoline();
         static constexpr usize stack_bytes = 16 * 1024;
 
-        entry_fn        entry_     = nullptr;
-        void*           argument_  = nullptr;
-        arch::context*  context_   = nullptr;
-        arch::context*  caller_    = nullptr;
-        void*           stack_     = nullptr;
-        u32             owner_cpu_ = 0;
-        bool            started_   = false;
-        bool            finished_  = false;
+        entry_fn        _entry     = nullptr;
+        void*           _argument  = nullptr;
+        arch::context*  _context   = nullptr;
+        arch::context*  _caller    = nullptr;
+        void*           _stack     = nullptr;
+        u32             _owner_cpu = 0;
+        bool            _started   = false;
+        bool            _finished  = false;
     };
 
 } // namespace astia::core

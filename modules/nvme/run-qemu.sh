@@ -3,6 +3,15 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 build=${NVME_BUILD:-$root/build-nvme}
+case "$build" in
+    /*) ;;
+    *) build=$root/$build ;;
+esac
+artifact_build=${ASTIA_TEST_BUILD:-$build}
+case "$artifact_build" in
+    /*) ;;
+    *) artifact_build=$root/$artifact_build ;;
+esac
 image=${NVME_IMAGE:-$root/modules/nvme/fixture.raw}
 timeout_seconds=${NVME_TIMEOUT:-40}
 qemu=${QEMU:-qemu-system-x86_64}
@@ -11,6 +20,10 @@ case=${NVME_CASE:-all}
 run_case() {
     label=$1
     case_build=$2
+    case "$case_build" in
+        /*) ;;
+        *) case_build=$root/$case_build ;;
+    esac
     force_polling=$3
     case_log=${NVME_LOG:-${TMPDIR:-/tmp}/astia-nvme-$label.log}
     staging=${case_build}/nvme-initrd
@@ -23,18 +36,36 @@ run_case() {
         dd if=/dev/zero of="$namespace2" bs=1M count=2 status=none
         printf 'ASTIA_NVME_NAMESPACE_002\n' | dd of="$namespace2" conv=notrunc status=none
     fi
-    cmake -S "$root" -B "$case_build" -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt \
-        -DASTIA_RUNTIME_SKIP_LIFECYCLE=ON -DASTIA_NVME_FORCE_POLLING="$force_polling"
-    cmake --build "$case_build" --target astiakrn_runtime nvme_module
+    if [ -z "${ASTIA_TEST_BUILD:-}" ]; then
+        cmake -S "$root" -B "$case_build" -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt \
+            -DASTIA_RUNTIME_SKIP_LIFECYCLE=ON -DASTIA_NVME_FORCE_POLLING="$force_polling"
+        cmake --build "$case_build" --target astiakrn_runtime nvme_module
+        kernel_build=$case_build
+        kernel=$case_build/kernel/src/astiakrn_runtime
+        if test "$force_polling" = ON; then
+            module=$case_build/modules/nvme/nvme-polling.o
+        else
+            module=$case_build/modules/nvme/nvme-msix.o
+        fi
+    else
+        cmake --build "$artifact_build" --target astiakrn_module_runtime "nvme_${label}_module"
+        kernel_build=$artifact_build
+        kernel=$artifact_build/kernel/src/astiakrn_module_runtime
+        if test "$force_polling" = ON; then
+            module=$artifact_build/modules/nvme/nvme-polling.o
+        else
+            module=$artifact_build/modules/nvme/nvme-msix.o
+        fi
+    fi
     cp "$image" "$case_image"
     rm -rf "$staging"
     mkdir -p "$staging"
-    cp "$case_build/modules/nvme/nvme.o" "$staging/nvme.o"
+    cp "$module" "$staging/nvme.o"
     (cd "$staging" && find nvme.o -print | cpio -o -H newc > "$initrd")
 
     set +e
     timeout "$timeout_seconds" "$qemu" \
-        -machine q35 -m 128M -kernel "$case_build/kernel/src/astiakrn_runtime" \
+        -machine q35 -m 128M -kernel "$kernel" \
         -initrd "$initrd" \
         -drive "if=none,format=raw,file=$case_image,id=nvme0ns1" \
         -drive "if=none,format=raw,file=$namespace2,id=nvme0ns2" \

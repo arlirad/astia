@@ -9,6 +9,7 @@
 #include "proc.hpp"
 #include "user_mem.hpp"
 #include <astia/api/errno.h>
+#include <astia/mapping.hpp>
 
 namespace astia::sys::aio_socket {
 
@@ -37,13 +38,14 @@ namespace astia::sys::aio_socket {
             proc::process* current = proc::current_process();
             if (current == nullptr)
                 return cq_post_guarded(ring, s.user_data, -ESRCH);
-            mm::shptr<fs::open_file> read_end;
-            mm::shptr<fs::open_file> write_end;
-            long                     rc = fs::create_pipe(read_end, write_end);
-            if (rc < 0)
-                return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-            i32 read_fd  = -1;
-            i32 write_fd = -1;
+            auto pipe = fs::create_pipe();
+            if (!pipe)
+                return cq_post_guarded(ring, s.user_data,
+                                       static_cast<i32>(-astia::errno_value(pipe.error)));
+            auto& read_end  = pipe.value.first;
+            auto& write_end = pipe.value.second;
+            i32   read_fd   = -1;
+            i32   write_fd  = -1;
             for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
                 if (read_fd < 0 && !current->descriptor(fd_t{fd})) {
                     if (current->set_descriptor(fd_t{fd}, read_end))

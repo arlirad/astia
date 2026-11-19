@@ -11,14 +11,14 @@ namespace astia::proc {
     i64 cwd_context::copy_cwd(span<char> buffer) const {
         if (buffer.null() || buffer.empty())
             return -EINVAL;
-        arch::interrupt_spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(_lock);
         usize length = 0;
-        while (cwd_[length] != '\0')
+        while (_cwd[length] != '\0')
             ++length;
         if (length + 1 > buffer.size())
             return -ERANGE;
         for (usize i = 0; i <= length; ++i)
-            buffer.data()[i] = cwd_[i];
+            buffer.data()[i] = _cwd[i];
         return static_cast<i64>(length + 1);
     }
 
@@ -30,11 +30,11 @@ namespace astia::proc {
     i64 cwd_context::compose_path_locked(const char* path, span<char> buffer) const {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
-        return compose_from_locked(cwd_, path, buffer);
+        return compose_from_locked(_cwd, path, buffer);
     }
 
     i64 cwd_context::compose_path(const char* path, span<char> buffer) const {
-        arch::interrupt_spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(_lock);
         return compose_path_locked(path, buffer);
     }
 
@@ -46,7 +46,7 @@ namespace astia::proc {
             return compose_path(path, buffer);
         if (directory == nullptr)
             return -ENOTDIR;
-        arch::interrupt_spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(_lock);
         return compose_from_locked(directory, path, buffer);
     }
 
@@ -54,7 +54,7 @@ namespace astia::proc {
         if (path == nullptr || path[0] == '\0')
             return -EINVAL;
 
-        arch::interrupt_spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(_lock);
         char full[fs::path_max]{};
         const i64 compose_rc = compose_path_locked(path, span<char>(full, sizeof full));
         if (compose_rc < 0)
@@ -73,27 +73,27 @@ namespace astia::proc {
         usize length = 0;
         while (resolved[length] != '\0')
             ++length;
-        if (length + 1 > sizeof(cwd_))
+        if (length + 1 > sizeof(_cwd))
             return -ENAMETOOLONG;
         for (usize i = 0; i <= length; ++i)
-            cwd_[i] = resolved[i];
+            _cwd[i] = resolved[i];
         return 0;
     }
 
     void cwd_context::inherit_from(const cwd_context& parent) {
         char snapshot[fs::path_max]{};
         {
-            arch::interrupt_spinlock_guard guard(parent.lock_);
+            arch::interrupt_spinlock_guard guard(parent._lock);
             for (usize i = 0; i < sizeof(snapshot); ++i) {
-                snapshot[i] = parent.cwd_[i];
+                snapshot[i] = parent._cwd[i];
                 if (snapshot[i] == '\0')
                     break;
             }
         }
-        arch::interrupt_spinlock_guard guard(lock_);
-        for (usize i = 0; i < sizeof(cwd_); ++i) {
-            cwd_[i] = snapshot[i];
-            if (cwd_[i] == '\0')
+        arch::interrupt_spinlock_guard guard(_lock);
+        for (usize i = 0; i < sizeof(_cwd); ++i) {
+            _cwd[i] = snapshot[i];
+            if (_cwd[i] == '\0')
                 break;
         }
     }

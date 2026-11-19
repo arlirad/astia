@@ -45,15 +45,15 @@ namespace astia::dev {
         const u32 rows = info.height / font.glyph_height();
         if (columns == 0 || rows == 0 || columns > max_columns || rows > max_rows)
             return false;
-        pixels_ = static_cast<volatile u8*>(pixels);
-        info_ = info;
-        font_ = &font;
-        columns_ = columns;
-        rows_ = rows;
-        cursor_column_ = 0;
-        cursor_row_ = 0;
-        cursor_drawn_ = false;
-        escape_state_ = escape_state::normal;
+        _pixels = static_cast<volatile u8*>(pixels);
+        _info = info;
+        _font = &font;
+        _columns = columns;
+        _rows = rows;
+        _cursor_column = 0;
+        _cursor_row = 0;
+        _cursor_drawn = false;
+        _escape_state = escape_state::normal;
         reset_attributes();
         clear_screen();
         show_cursor();
@@ -61,28 +61,28 @@ namespace astia::dev {
     }
 
     void framebuffer_renderer::detach() {
-        pixels_ = nullptr;
-        font_ = nullptr;
-        columns_ = 0;
-        rows_ = 0;
-        cursor_column_ = 0;
-        cursor_row_ = 0;
-        cursor_drawn_ = false;
+        _pixels = nullptr;
+        _font = nullptr;
+        _columns = 0;
+        _rows = 0;
+        _cursor_column = 0;
+        _cursor_row = 0;
+        _cursor_drawn = false;
     }
 
     void framebuffer_renderer::pixel(u32 x, u32 y, u32 value) const {
-        if (x >= info_.width || y >= info_.height)
+        if (x >= _info.width || y >= _info.height)
             return;
-        const bool packed = info_.pixel_format == boot::framebuffer_pixel_format::rgb888 ||
-                             info_.pixel_format == boot::framebuffer_pixel_format::bgr888;
+        const bool packed = _info.pixel_format == boot::framebuffer_pixel_format::rgb888 ||
+                             _info.pixel_format == boot::framebuffer_pixel_format::bgr888;
         const u32 bytes_per_pixel = packed ? 3 : 4;
-        volatile u8* destination = pixels_ + static_cast<usize>(y) * info_.pitch +
+        volatile u8* destination = _pixels + static_cast<usize>(y) * _info.pitch +
                                    static_cast<usize>(x) * bytes_per_pixel;
         const u8 r = static_cast<u8>(value >> 16);
         const u8 g = static_cast<u8>(value >> 8);
         const u8 b = static_cast<u8>(value);
-        if (info_.pixel_format == boot::framebuffer_pixel_format::rgb888 ||
-            info_.pixel_format == boot::framebuffer_pixel_format::rgbx8888) {
+        if (_info.pixel_format == boot::framebuffer_pixel_format::rgb888 ||
+            _info.pixel_format == boot::framebuffer_pixel_format::rgbx8888) {
             destination[0] = r;
             destination[1] = g;
             destination[2] = b;
@@ -101,11 +101,11 @@ namespace astia::dev {
     }
 
     void framebuffer_renderer::draw_cell(u32 column, u32 row) {
-        if (column >= columns_ || row >= rows_ || font_ == nullptr)
+        if (column >= _columns || row >= _rows || _font == nullptr)
             return;
-        const cell& value = cells_[row * max_columns + column];
-        const u8* glyph = font_->glyph(value.character);
-        const u32 glyph_height = font_->glyph_height();
+        const cell& value = _cells[row * max_columns + column];
+        const u8* glyph = _font->glyph(value.character);
+        const u32 glyph_height = _font->glyph_height();
         for (u32 y = 0; y < glyph_height; ++y) {
             const u8 bits = glyph == nullptr ? 0 : glyph[y];
             for (u32 x = 0; x < 8; ++x) {
@@ -117,104 +117,104 @@ namespace astia::dev {
     }
 
     void framebuffer_renderer::clear_screen() {
-        for (u32 row = 0; row < rows_; ++row) {
-            for (u32 column = 0; column < columns_; ++column) {
-                cells_[row * max_columns + column] = cell{' ', foreground_, background_};
+        for (u32 row = 0; row < _rows; ++row) {
+            for (u32 column = 0; column < _columns; ++column) {
+                _cells[row * max_columns + column] = cell{' ', _foreground, _background};
                 draw_cell(column, row);
             }
         }
     }
 
     void framebuffer_renderer::clear_line(u32 row, u32 first, u32 last) {
-        if (row >= rows_)
+        if (row >= _rows)
             return;
-        last = min(last, columns_);
-        for (u32 column = min(first, columns_); column < last; ++column) {
-            cells_[row * max_columns + column] = cell{' ', foreground_, background_};
+        last = min(last, _columns);
+        for (u32 column = min(first, _columns); column < last; ++column) {
+            _cells[row * max_columns + column] = cell{' ', _foreground, _background};
             draw_cell(column, row);
         }
     }
 
     void framebuffer_renderer::hide_cursor() {
-        if (cursor_drawn_) {
-            draw_cell(cursor_column_, cursor_row_);
-            cursor_drawn_ = false;
+        if (_cursor_drawn) {
+            draw_cell(_cursor_column, _cursor_row);
+            _cursor_drawn = false;
         }
     }
 
     void framebuffer_renderer::show_cursor() {
-        if (pixels_ == nullptr || cursor_column_ >= columns_ || cursor_row_ >= rows_)
+        if (_pixels == nullptr || _cursor_column >= _columns || _cursor_row >= _rows)
             return;
-        const u32 y = cursor_row_ * font_->glyph_height() + font_->glyph_height() - 1;
+        const u32 y = _cursor_row * _font->glyph_height() + _font->glyph_height() - 1;
         for (u32 x = 0; x < 8; ++x)
-            pixel(cursor_column_ * 8 + x, y, colour(foreground_));
-        cursor_drawn_ = true;
+            pixel(_cursor_column * 8 + x, y, colour(_foreground));
+        _cursor_drawn = true;
     }
 
     void framebuffer_renderer::reset_attributes() {
-        foreground_ = 7;
-        background_ = 0;
+        _foreground = 7;
+        _background = 0;
     }
 
     void framebuffer_renderer::scroll() {
-        if (rows_ == 0)
+        if (_rows == 0)
             return;
-        for (u32 row = 1; row < rows_; ++row) {
-            for (u32 column = 0; column < columns_; ++column)
-                cells_[(row - 1) * max_columns + column] = cells_[row * max_columns + column];
+        for (u32 row = 1; row < _rows; ++row) {
+            for (u32 column = 0; column < _columns; ++column)
+                _cells[(row - 1) * max_columns + column] = _cells[row * max_columns + column];
         }
-        for (u32 column = 0; column < columns_; ++column)
-            cells_[(rows_ - 1) * max_columns + column] = cell{' ', foreground_, background_};
-        for (u32 row = 0; row < rows_; ++row)
-            for (u32 column = 0; column < columns_; ++column)
+        for (u32 column = 0; column < _columns; ++column)
+            _cells[(_rows - 1) * max_columns + column] = cell{' ', _foreground, _background};
+        for (u32 row = 0; row < _rows; ++row)
+            for (u32 column = 0; column < _columns; ++column)
                 draw_cell(column, row);
-        cursor_row_ = rows_ - 1;
+        _cursor_row = _rows - 1;
     }
 
     void framebuffer_renderer::newline() {
-        cursor_column_ = 0;
-        ++cursor_row_;
-        if (cursor_row_ >= rows_)
+        _cursor_column = 0;
+        ++_cursor_row;
+        if (_cursor_row >= _rows)
             scroll();
     }
 
     void framebuffer_renderer::put_character(u8 byte) {
         if (byte < 0x20)
             byte = '?';
-        if (font_->glyph(byte) == nullptr)
+        if (_font->glyph(byte) == nullptr)
             byte = '?';
-        cells_[cursor_row_ * max_columns + cursor_column_] = cell{byte, foreground_, background_};
-        draw_cell(cursor_column_, cursor_row_);
-        ++cursor_column_;
-        if (cursor_column_ >= columns_)
+        _cells[_cursor_row * max_columns + _cursor_column] = cell{byte, _foreground, _background};
+        draw_cell(_cursor_column, _cursor_row);
+        ++_cursor_column;
+        if (_cursor_column >= _columns)
             newline();
     }
 
     u32 framebuffer_renderer::csi_parameter(u32 index, u32 fallback) const {
-        if (index >= csi_count_ || csi_values_[index] == 0)
+        if (index >= _csi_count || _csi_values[index] == 0)
             return fallback;
-        return csi_values_[index];
+        return _csi_values[index];
     }
 
     void framebuffer_renderer::csi_final(u8 byte) {
-        if (csi_private_ && byte != 'h' && byte != 'l')
+        if (_csi_private && byte != 'h' && byte != 'l')
             return;
         if (byte == 'm') {
-            if (csi_count_ == 0) {
+            if (_csi_count == 0) {
                 reset_attributes();
                 return;
             }
-            for (u32 i = 0; i < csi_count_; ++i) {
-                const u32 value = csi_values_[i];
+            for (u32 i = 0; i < _csi_count; ++i) {
+                const u32 value = _csi_values[i];
                 if (value == 0) reset_attributes();
-                else if (value == 1) foreground_ = static_cast<u8>(foreground_ | 8);
-                else if (value == 22) foreground_ = static_cast<u8>(foreground_ & 7);
-                else if (value >= 30 && value <= 37) foreground_ = ansi_colour(value);
-                else if (value >= 40 && value <= 47) background_ = ansi_colour(value - 10);
-                else if (value >= 90 && value <= 97) foreground_ = ansi_colour(value);
-                else if (value >= 100 && value <= 107) background_ = ansi_colour(value - 10);
-                else if (value == 39) foreground_ = 7;
-                else if (value == 49) background_ = 0;
+                else if (value == 1) _foreground = static_cast<u8>(_foreground | 8);
+                else if (value == 22) _foreground = static_cast<u8>(_foreground & 7);
+                else if (value >= 30 && value <= 37) _foreground = ansi_colour(value);
+                else if (value >= 40 && value <= 47) _background = ansi_colour(value - 10);
+                else if (value >= 90 && value <= 97) _foreground = ansi_colour(value);
+                else if (value >= 100 && value <= 107) _background = ansi_colour(value - 10);
+                else if (value == 39) _foreground = 7;
+                else if (value == 49) _background = 0;
             }
         }
         else if (byte == 'J') {
@@ -223,75 +223,75 @@ namespace astia::dev {
         }
         else if (byte == 'K') {
             const u32 mode = csi_parameter(0, 0);
-            if (mode == 0) clear_line(cursor_row_, cursor_column_, columns_);
-            else if (mode == 1) clear_line(cursor_row_, 0, cursor_column_ + 1);
-            else if (mode == 2) clear_line(cursor_row_, 0, columns_);
+            if (mode == 0) clear_line(_cursor_row, _cursor_column, _columns);
+            else if (mode == 1) clear_line(_cursor_row, 0, _cursor_column + 1);
+            else if (mode == 2) clear_line(_cursor_row, 0, _columns);
         }
         else if (byte == 'H' || byte == 'f') {
-            cursor_row_ = min(csi_parameter(0, 1) - 1, rows_ - 1);
-            cursor_column_ = min(csi_parameter(1, 1) - 1, columns_ - 1);
+            _cursor_row = min(csi_parameter(0, 1) - 1, _rows - 1);
+            _cursor_column = min(csi_parameter(1, 1) - 1, _columns - 1);
         }
-        else if (byte == 'A') cursor_row_ -= min(csi_parameter(0, 1), cursor_row_);
-        else if (byte == 'B') cursor_row_ = min(cursor_row_ + csi_parameter(0, 1), rows_ - 1);
-        else if (byte == 'C') cursor_column_ = min(cursor_column_ + csi_parameter(0, 1), columns_ - 1);
-        else if (byte == 'D') cursor_column_ -= min(csi_parameter(0, 1), cursor_column_);
-        else if (byte == 'G') cursor_column_ = min(csi_parameter(0, 1) - 1, columns_ - 1);
-        else if (byte == 'd') cursor_row_ = min(csi_parameter(0, 1) - 1, rows_ - 1);
+        else if (byte == 'A') _cursor_row -= min(csi_parameter(0, 1), _cursor_row);
+        else if (byte == 'B') _cursor_row = min(_cursor_row + csi_parameter(0, 1), _rows - 1);
+        else if (byte == 'C') _cursor_column = min(_cursor_column + csi_parameter(0, 1), _columns - 1);
+        else if (byte == 'D') _cursor_column -= min(csi_parameter(0, 1), _cursor_column);
+        else if (byte == 'G') _cursor_column = min(csi_parameter(0, 1) - 1, _columns - 1);
+        else if (byte == 'd') _cursor_row = min(csi_parameter(0, 1) - 1, _rows - 1);
     }
 
     bool framebuffer_renderer::write_byte(u8 byte) {
         if (!ready())
             return false;
         hide_cursor();
-        if (escape_state_ == escape_state::escape) {
+        if (_escape_state == escape_state::escape) {
             if (byte == '[') {
-                escape_state_ = escape_state::csi;
-                csi_count_ = 0;
-                csi_value_ = 0;
-                csi_have_value_ = false;
-                csi_private_ = false;
+                _escape_state = escape_state::csi;
+                _csi_count = 0;
+                _csi_value = 0;
+                _csi_have_value = false;
+                _csi_private = false;
             }
             else {
-                escape_state_ = escape_state::normal;
+                _escape_state = escape_state::normal;
             }
         }
-        else if (escape_state_ == escape_state::csi) {
-            if (byte == '?' && csi_count_ == 0 && !csi_have_value_) {
-                csi_private_ = true;
+        else if (_escape_state == escape_state::csi) {
+            if (byte == '?' && _csi_count == 0 && !_csi_have_value) {
+                _csi_private = true;
             }
             else if (byte >= '0' && byte <= '9') {
-                csi_value_ = min(csi_value_ * 10 + byte - '0', 9999u);
-                csi_have_value_ = true;
+                _csi_value = min(_csi_value * 10 + byte - '0', 9999u);
+                _csi_have_value = true;
             }
             else if (byte == ';') {
-                if (csi_count_ < 8) csi_values_[csi_count_++] = csi_have_value_ ? csi_value_ : 0;
-                csi_value_ = 0;
-                csi_have_value_ = false;
+                if (_csi_count < 8) _csi_values[_csi_count++] = _csi_have_value ? _csi_value : 0;
+                _csi_value = 0;
+                _csi_have_value = false;
             }
             else if (byte >= 0x40 && byte <= 0x7e) {
-                if (csi_count_ < 8 && (csi_have_value_ || csi_count_ != 0))
-                    csi_values_[csi_count_++] = csi_have_value_ ? csi_value_ : 0;
+                if (_csi_count < 8 && (_csi_have_value || _csi_count != 0))
+                    _csi_values[_csi_count++] = _csi_have_value ? _csi_value : 0;
                 csi_final(byte);
-                escape_state_ = escape_state::normal;
+                _escape_state = escape_state::normal;
             }
             else {
-                escape_state_ = escape_state::normal;
+                _escape_state = escape_state::normal;
             }
         }
         else if (byte == 0x1b) {
-            escape_state_ = escape_state::escape;
+            _escape_state = escape_state::escape;
         }
         else if (byte == '\n') {
             newline();
         }
         else if (byte == '\r') {
-            cursor_column_ = 0;
+            _cursor_column = 0;
         }
         else if (byte == '\b') {
-            if (cursor_column_ != 0) --cursor_column_;
+            if (_cursor_column != 0) --_cursor_column;
         }
         else if (byte == '\t') {
-            cursor_column_ = min((cursor_column_ + 8) & ~7u, columns_ - 1);
+            _cursor_column = min((_cursor_column + 8) & ~7u, _columns - 1);
         }
         else if (byte >= 0x20) {
             put_character(byte);

@@ -874,6 +874,8 @@ if (ARCH STREQUAL "x86_64")
                 "daemond: clean shutdown"
                 "init: clean shutdown")
         set_tests_properties(astia_native_daemond_service PROPERTIES TIMEOUT 60)
+        add_custom_target(astia_native_service_boot_initrd ALL
+                DEPENDS ${_fix_dir}/native_service_boot_initrd.cpio)
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/native_failure_boot_initrd.cpio
@@ -906,6 +908,8 @@ if (ARCH STREQUAL "x86_64")
                 "daemond: malformed service record"
                 "init: daemond failed")
         set_tests_properties(astia_native_daemond_failure PROPERTIES TIMEOUT 60)
+        add_custom_target(astia_native_failure_boot_initrd ALL
+                DEPENDS ${_fix_dir}/native_failure_boot_initrd.cpio)
 
         add_custom_target(astia_native_initrd_fixtures ALL
                 DEPENDS ${_fix_dir}/native_boot_initrd.cpio

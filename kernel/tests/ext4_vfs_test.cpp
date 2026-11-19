@@ -41,14 +41,14 @@ namespace {
         }
 
         void put16(u64 offset, u16 value) {
-            image_[offset] = static_cast<u8>(value);
-            image_[offset + 1] = static_cast<u8>(value >> 8);
+            _image[offset] = static_cast<u8>(value);
+            _image[offset + 1] = static_cast<u8>(value >> 8);
         }
         void put32(u64 offset, u32 value) {
-            image_[offset] = static_cast<u8>(value);
-            image_[offset + 1] = static_cast<u8>(value >> 8);
-            image_[offset + 2] = static_cast<u8>(value >> 16);
-            image_[offset + 3] = static_cast<u8>(value >> 24);
+            _image[offset] = static_cast<u8>(value);
+            _image[offset + 1] = static_cast<u8>(value >> 8);
+            _image[offset + 2] = static_cast<u8>(value >> 16);
+            _image[offset + 3] = static_cast<u8>(value >> 24);
         }
         void make_inode(u64 offset, u16 mode, u32 number, u32 block) {
             put16(offset, mode);
@@ -71,7 +71,7 @@ namespace {
             put32(offset + 4, length);
             put16(offset + 0x1A, 1);
             put32(offset + 0x64, 1);
-            std::memcpy(image_ + offset + 0x28, target, length);
+            std::memcpy(_image + offset + 0x28, target, length);
         }
         void make_long_symlink(u64 offset, u32 block, u32 length) {
             put16(offset, 0120777);
@@ -81,7 +81,7 @@ namespace {
             put32(offset + 0x64, 1);
         }
         void make_valid_image() {
-            std::memset(image_, 0, sizeof image_);
+            std::memset(_image, 0, sizeof _image);
             put32(1024 + 0x00, 16);
             put32(1024 + 0x04, 32);
             put32(1024 + 0x18, 0);
@@ -100,43 +100,43 @@ namespace {
             make_symlink(4992, "loop1");
             put32(5 * 1024, 2);
             put16(5 * 1024 + 4, 12);
-            image_[5 * 1024 + 6] = 1;
-            image_[5 * 1024 + 7] = 2;
-            image_[5 * 1024 + 8] = '.';
+            _image[5 * 1024 + 6] = 1;
+            _image[5 * 1024 + 7] = 2;
+            _image[5 * 1024 + 8] = '.';
             put32(5 * 1024 + 12, 2);
             put16(5 * 1024 + 16, 12);
-            image_[5 * 1024 + 18] = 2;
-            image_[5 * 1024 + 19] = 2;
-            image_[5 * 1024 + 20] = '.';
-            image_[5 * 1024 + 21] = '.';
+            _image[5 * 1024 + 18] = 2;
+            _image[5 * 1024 + 19] = 2;
+            _image[5 * 1024 + 20] = '.';
+            _image[5 * 1024 + 21] = '.';
             put32(5 * 1024 + 24, 12);
             put16(5 * 1024 + 28, 20);
-            image_[5 * 1024 + 30] = 9;
-            image_[5 * 1024 + 31] = 1;
-            std::memcpy(image_ + 5 * 1024 + 32, "known.txt", 9);
+            _image[5 * 1024 + 30] = 9;
+            _image[5 * 1024 + 31] = 1;
+            std::memcpy(_image + 5 * 1024 + 32, "known.txt", 9);
             put32(5 * 1024 + 44, 13);
             put16(5 * 1024 + 48, 20);
-            image_[5 * 1024 + 50] = 5;
-            image_[5 * 1024 + 51] = 7;
-            std::memcpy(image_ + 5 * 1024 + 52, "known", 5);
+            _image[5 * 1024 + 50] = 5;
+            _image[5 * 1024 + 51] = 7;
+            std::memcpy(_image + 5 * 1024 + 52, "known", 5);
             put32(5 * 1024 + 64, 14);
             put16(5 * 1024 + 68, 20);
-            image_[5 * 1024 + 70] = 4;
-            image_[5 * 1024 + 71] = 7;
-            std::memcpy(image_ + 5 * 1024 + 72, "long", 4);
+            _image[5 * 1024 + 70] = 4;
+            _image[5 * 1024 + 71] = 7;
+            std::memcpy(_image + 5 * 1024 + 72, "long", 4);
             put32(5 * 1024 + 84, 15);
             put16(5 * 1024 + 88, 20);
-            image_[5 * 1024 + 90] = 5;
-            image_[5 * 1024 + 91] = 7;
-            std::memcpy(image_ + 5 * 1024 + 92, "loop1", 5);
+            _image[5 * 1024 + 90] = 5;
+            _image[5 * 1024 + 91] = 7;
+            std::memcpy(_image + 5 * 1024 + 92, "loop1", 5);
             put32(5 * 1024 + 104, 16);
             put16(5 * 1024 + 108, 920);
-            image_[5 * 1024 + 110] = 5;
-            image_[5 * 1024 + 111] = 7;
-            std::memcpy(image_ + 5 * 1024 + 112, "loop2", 5);
-            std::memcpy(image_ + 6 * 1024, "hello from ext4\n", 16);
+            _image[5 * 1024 + 110] = 5;
+            _image[5 * 1024 + 111] = 7;
+            std::memcpy(_image + 5 * 1024 + 112, "loop2", 5);
+            std::memcpy(_image + 6 * 1024, "hello from ext4\n", 16);
             for (u32 i = 0; i < 64; ++i)
-                image_[7 * 1024 + i] = static_cast<u8>('a' + i % 26);
+                _image[7 * 1024 + i] = static_cast<u8>('a' + i % 26);
         }
         void make_indexed_image() {
             make_valid_image();
@@ -145,23 +145,23 @@ namespace {
             put32(3200 + 0x20, 0x00081000);
             put16(3200 + 0x38, 3);
             put32(4480 + 0x3C, 8);
-            std::memset(image_ + 5 * 1024, 0, 3 * 1024);
+            std::memset(_image + 5 * 1024, 0, 3 * 1024);
 
             const u64 root = 5 * 1024;
             put32(root, 2);
             put16(root + 4, 12);
-            image_[root + 6] = 1;
-            image_[root + 7] = 2;
-            image_[root + 8] = '.';
+            _image[root + 6] = 1;
+            _image[root + 7] = 2;
+            _image[root + 8] = '.';
             put32(root + 12, 2);
             put16(root + 16, 1024 - 12);
-            image_[root + 18] = 2;
-            image_[root + 19] = 2;
-            image_[root + 20] = '.';
-            image_[root + 21] = '.';
-            image_[root + 0x1C] = 1;
-            image_[root + 0x1D] = 8;
-            image_[root + 0x1E] = 1;
+            _image[root + 18] = 2;
+            _image[root + 19] = 2;
+            _image[root + 20] = '.';
+            _image[root + 21] = '.';
+            _image[root + 0x1C] = 1;
+            _image[root + 0x1D] = 8;
+            _image[root + 0x1E] = 1;
             put16(root + 0x20, 100);
             put16(root + 0x22, 1);
             put32(root + 0x24, 1);
@@ -175,10 +175,10 @@ namespace {
             const u64 leaf = 7 * 1024;
             put32(leaf, 12);
             put16(leaf + 4, 1024);
-            image_[leaf + 6] = 9;
-            image_[leaf + 7] = 1;
-            std::memcpy(image_ + leaf + 8, "known.txt", 9);
-            std::memcpy(image_ + 8 * 1024, "hello from ext4\n", 16);
+            _image[leaf + 6] = 9;
+            _image[leaf + 7] = 1;
+            std::memcpy(_image + leaf + 8, "known.txt", 9);
+            std::memcpy(_image + 8 * 1024, "hello from ext4\n", 16);
         }
         void corrupt_magic() {
             put16(1024 + 0x38, 0);
@@ -188,19 +188,19 @@ namespace {
         }
 
         u32 reads() const {
-            return reads_;
+            return _reads;
         }
 
         protected:
         long read_blocks(void* buffer, u32 length, u64 offset) override {
-            ++reads_;
-            std::memcpy(buffer, image_ + offset, length);
+            ++_reads;
+            std::memcpy(buffer, _image + offset, length);
             return length;
         }
 
         private:
-        u8 image_[image_size]{};
-        u32 reads_ = 0;
+        u8 _image[image_size]{};
+        u32 _reads = 0;
     };
 
     fake_blkdev fake_device;

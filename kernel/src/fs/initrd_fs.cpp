@@ -8,16 +8,16 @@ namespace astia::fs {
     namespace {
         class initrd_file final : public file {
             public:
-            explicit initrd_file(astia::span<const u8> data) : data_(data) {}
+            explicit initrd_file(astia::span<const u8> data) : _data(data) {}
 
             long read(void* buffer, u32 length, u64 offset) override {
                 if (buffer == nullptr && length != 0)
                     return -EFAULT;
-                if (offset >= data_.size())
+                if (offset >= _data.size())
                     return 0;
-                const usize available = data_.size() - static_cast<usize>(offset);
+                const usize available = _data.size() - static_cast<usize>(offset);
                 const usize count     = available < length ? available : length;
-                const auto* source    = data_.data() + offset;
+                const auto* source    = _data.data() + offset;
                 auto*       target    = static_cast<u8*>(buffer);
                 for (usize i = 0; i < count; ++i)
                     target[i] = source[i];
@@ -28,14 +28,14 @@ namespace astia::fs {
                 return -EROFS;
             }
             long size() const override {
-                return static_cast<long>(data_.size());
+                return static_cast<long>(_data.size());
             }
             file_mode mode() const override {
                 return file_mode(file_type::regular, readonly_file_permissions);
             }
 
             private:
-            astia::span<const u8> data_;
+            astia::span<const u8> _data;
         };
 
         bool equal(const char* lhs, const char* rhs) {
@@ -98,21 +98,21 @@ namespace astia::fs {
     }
 
     bool initrd_mount::add(const char* path, astia::span<const u8> data) {
-        if (attached_ || path == nullptr || data.data() == nullptr || data.empty())
+        if (_attached || path == nullptr || data.data() == nullptr || data.empty())
             return false;
         char normalized[path_max]{};
         normalized[0] = '/';
         if (!copy_path(normalized + 1, path))
             return false;
         for (u32 i = 0; i < initrd_max_entries; ++i) {
-            if (entries_[i].used && equal(entries_[i].path, normalized))
+            if (_entries[i].used && equal(_entries[i].path, normalized))
                 return false;
         }
         for (u32 i = 0; i < initrd_max_entries; ++i) {
-            if (!entries_[i].used) {
-                entries_[i].used = true;
-                copy_path(entries_[i].path, normalized);
-                entries_[i].data = data;
+            if (!_entries[i].used) {
+                _entries[i].used = true;
+                copy_path(_entries[i].path, normalized);
+                _entries[i].data = data;
                 return true;
             }
         }
@@ -120,17 +120,17 @@ namespace astia::fs {
     }
 
     bool initrd_mount::attach(const initrd::archive& archive) {
-        if (attached_)
+        if (_attached)
             return false;
         if (!initrd::each(archive, add_file, this)) {
             // A failed parse never publishes this namespace.  Clear the
             // candidate so a caller may retry it, while attached instances
             // remain protected by the guard above.
             for (u32 i = 0; i < initrd_max_entries; ++i)
-                entries_[i] = entry{};
+                _entries[i] = entry{};
             return false;
         }
-        attached_ = true;
+        _attached = true;
         return true;
     }
 
@@ -139,9 +139,9 @@ namespace astia::fs {
         if (path == nullptr)
             return {};
         for (u32 i = 0; i < initrd_max_entries; ++i) {
-            if (entries_[i].used && equal(entries_[i].path, path)) {
+            if (_entries[i].used && equal(_entries[i].path, path)) {
                 mm::shptr<initrd_file> object =
-                    mm::shptr<initrd_file>(new initrd_file(entries_[i].data));
+                    mm::shptr<initrd_file>(new initrd_file(_entries[i].data));
                 return object ? mm::share<open_file>(object, flags)
                               : mm::shptr<open_file>{};
             }
@@ -155,20 +155,20 @@ namespace astia::fs {
         if (path[1] == '\0')
             return directory_dir;
         for (u32 i = 0; i < initrd_max_entries; ++i)
-            if (entries_[i].used && equal(entries_[i].path, path))
+            if (_entries[i].used && equal(_entries[i].path, path))
                 return directory_reg;
         // Directories are implicit in the archive namespace.
         u32 length = 0;
         while (path[length] != '\0')
             ++length;
         for (u32 i = 0; i < initrd_max_entries; ++i) {
-            if (!entries_[i].used)
+            if (!_entries[i].used)
                 continue;
             bool prefix = true;
             for (u32 j = 0; j < length; ++j)
-                if (entries_[i].path[j] != path[j])
+                if (_entries[i].path[j] != path[j])
                     prefix = false;
-            if (prefix && entries_[i].path[length] == '/')
+            if (prefix && _entries[i].path[length] == '/')
                 return directory_dir;
         }
         return directory_unknown;
@@ -179,11 +179,11 @@ namespace astia::fs {
             if (path[1] == '\0')
                 return file_mode(file_type::directory, readonly_directory_permissions);
             for (u32 i = 0; i < initrd_max_entries; ++i)
-                if (entries_[i].used && equal(entries_[i].path, path))
+                if (_entries[i].used && equal(_entries[i].path, path))
                     return file_mode(file_type::regular, readonly_file_permissions);
             /* Directories are implicit in the archive namespace. */
             for (u32 i = 0; i < initrd_max_entries; ++i)
-                if (entries_[i].used) {
+                if (_entries[i].used) {
                     u32 n = 0;
                     while (path[n] != '\0')
                         ++n;
@@ -191,10 +191,10 @@ namespace astia::fs {
                     if (!prefix) {
                         prefix = true;
                         for (u32 j = 0; j < n; ++j)
-                            if (entries_[i].path[j] != path[j])
+                            if (_entries[i].path[j] != path[j])
                                 prefix = false;
                     }
-                    if (prefix && entries_[i].path[n] == '/')
+                    if (prefix && _entries[i].path[n] == '/')
                         return file_mode(file_type::directory,
                                          readonly_directory_permissions);
                 }
@@ -208,9 +208,9 @@ namespace astia::fs {
             return -EINVAL;
         u64 ordinal = 0;
         for (u32 i = 0; i < initrd_max_entries; ++i) {
-            if (!entries_[i].used)
+            if (!_entries[i].used)
                 continue;
-            const char* full = entries_[i].path;
+            const char* full = _entries[i].path;
             char        candidate[256]{};
             file_type   candidate_type = directory_unknown;
             if (!child_name(path, full, astia::span<char>(candidate, sizeof candidate),
@@ -218,11 +218,11 @@ namespace astia::fs {
                 continue;
             bool duplicate = false;
             for (u32 p = 0; p < i && !duplicate; ++p) {
-                if (!entries_[p].used)
+                if (!_entries[p].used)
                     continue;
                 char      prior[256]{};
                 file_type prior_type = directory_unknown;
-                if (child_name(path, entries_[p].path,
+                if (child_name(path, _entries[p].path,
                                astia::span<char>(prior, sizeof prior), prior_type) &&
                     equal(candidate, prior))
                     duplicate = true;
@@ -244,7 +244,7 @@ namespace astia::fs {
         // Publish only a completely parsed archive.  Once published, the
         // instance is immutable: replacing it would leave open_file mount
         // pointers referring to a reset or freed namespace.
-        if (instance_ != nullptr)
+        if (_instance != nullptr)
             return false;
         initrd_mount* candidate = new initrd_mount{};
         if (candidate == nullptr)
@@ -253,12 +253,12 @@ namespace astia::fs {
             delete candidate;
             return false;
         }
-        instance_ = candidate;
+        _instance = candidate;
         return true;
     }
 
     fs::mount* initrd_filesystem::mount(const char*) const {
-        return instance_;
+        return _instance;
     }
 
     initrd_filesystem& initrd_type() {

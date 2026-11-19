@@ -28,6 +28,18 @@ struct astia_module_pci_driver {
     astia_module_pci_remove_fn remove;
 };
 
+struct astia_module_pci_namespace {
+    uint32_t id;
+    uint32_t reserved0;
+    uint64_t size;
+    uint32_t block_size;
+    uint32_t reserved1;
+    void* context;
+    const char* device_path;
+};
+
+struct astia_module_pci_block_driver;
+
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(struct astia_module_pci_device) == 32,
                               "PCI device layout");
 ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_device, opaque) == 0,
@@ -48,8 +60,21 @@ ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_device, reserved
                                "PCI device reserved offset");
 ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(struct astia_module_pci_driver) == 32,
                                "PCI driver layout");
+ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(struct astia_module_pci_namespace) == 40,
+                              "PCI namespace layout");
+ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_namespace, id) == 0,
+                              "PCI namespace ID offset");
+ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_namespace, size) == 8,
+                              "PCI namespace size offset");
+ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_namespace, block_size) == 16,
+                              "PCI namespace block size offset");
+ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_namespace, context) == 24,
+                              "PCI namespace context offset");
+ASTIA_MODULE_ABI_STATIC_ASSERT(offsetof(struct astia_module_pci_namespace, device_path) == 32,
+                              "PCI namespace path offset");
 
 ASTIA_MODULE_ABI_EXTERN_C_BEGIN
+int astia_module_register_pci_block_driver(const struct astia_module_pci_block_driver* driver);
 int astia_module_register_pci_driver(const struct astia_module_pci_driver* driver);
 int astia_module_pci_enable_bus_master(void* device);
 int astia_module_pci_map_bar(void* device, uint8_t index);

@@ -9,7 +9,7 @@ namespace astia::fs {
 
     class ext4_file final : public file {
         public:
-        ext4_file(ext4_mount* owner, const ext4::inode& node) : owner_(owner), node_(node) {}
+        ext4_file(ext4_mount* owner, const ext4::inode& node) : _owner(owner), _node(node) {}
 
         long read(void* buffer, u32 length, u64 offset) override;
         long write(const void*, u32, u64) override {
@@ -18,16 +18,16 @@ namespace astia::fs {
         long size() const override;
         file_mode mode() const override;
         uid_t uid() const override {
-            return uid_t(node_.uid);
+            return uid_t(_node.uid);
         }
         gid_t gid() const override {
-            return gid_t(node_.gid);
+            return gid_t(_node.gid);
         }
         u64 inode() const override {
-            return node_.number;
+            return _node.number;
         }
         u32 nlink() const override {
-            return node_.links;
+            return _node.links;
         }
         long truncate(u64) override {
             return -EROFS;
@@ -49,17 +49,17 @@ namespace astia::fs {
         }
 
         const ext4::inode& on_disk_inode() const {
-            return node_;
+            return _node;
         }
 
         private:
-        ext4_mount* owner_;
-        ext4::inode node_;
+        ext4_mount* _owner;
+        ext4::inode _node;
     };
 
     class ext4_mount final : public mount {
         public:
-        explicit ext4_mount(const mm::shptr<open_file>& source) : source_(source) {}
+        explicit ext4_mount(const mm::shptr<open_file>& source) : _source(source) {}
 
         bool initialize();
         mm::shptr<open_file> open(const char* path, u32 flags) override;
@@ -106,9 +106,9 @@ namespace astia::fs {
         static file_type vfs_type(ext4::node_type type);
         static file_mode vfs_mode(const ext4::inode& node);
 
-        mm::shptr<open_file> source_;
-        mutable ext4::reader reader_;
-        ext4::inode root_;
+        mm::shptr<open_file> _source;
+        mutable ext4::reader _reader;
+        ext4::inode _root;
     };
 
     class ext4_filesystem final : public filesystem {

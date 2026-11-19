@@ -9,6 +9,17 @@
 namespace astia::proc {
 
     namespace {
+        bool is_power_of_two(u64 value) {
+            return value != 0 && (value & (value - 1)) == 0;
+        }
+
+        bool checked_align_up(u64 value, u64 alignment, u64& result) {
+            if (!is_power_of_two(alignment) || value > ~u64{0} - (alignment - 1))
+                return false;
+            result = (value + alignment - 1) & ~(alignment - 1);
+            return true;
+        }
+
         /// One PT_LOAD segment's physical run, recorded at map time so
         /// the load can file it as a VMA afterwards.
         struct mapped_segment {
@@ -61,7 +72,18 @@ namespace astia::proc {
 
         void* map_user(void* opaque, u64 hint, usize size, usize align, bool fixed) {
             auto&     image = *static_cast<image_map*>(opaque);
-            const u64 base  = fixed ? hint : (image.next_base + align - 1) & ~(align - 1);
+            if (align == 0 || (align & (align - 1)) != 0)
+                return nullptr;
+            u64 base = hint;
+            if (!fixed) {
+                base = image.next_base;
+                const u64 residue = hint & (align - 1);
+                const u64 current = base & (align - 1);
+                const u64 delta = (residue + align - current) & (align - 1);
+                if (base > ~u64{0} - delta)
+                    return nullptr;
+                base += delta;
+            }
             if (base < user_image_base || base + size >= user_address_limit ||
                 image.count >= elf::max_segments) {
                 return nullptr;
@@ -165,13 +187,27 @@ namespace astia::proc {
         // frames come as one contiguous run so the block can be filed
         // as a single VMA (fork shares it copy-on-write); frames_out
         // hands the run back for that adoption.
+        bool tls_layout(const elf::image& image, u64& tls_span, u64& pages) {
+            const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
+            if (image.tls_filesz > image.tls_memsz ||
+                !is_power_of_two(align) ||
+                !checked_align_up(image.tls_memsz, align, tls_span) ||
+                tls_span > ~u64{0} - user_tls_tcb_headroom ||
+                tls_span + user_tls_tcb_headroom >
+                    ~u64{0} - (elf::page_size - 1))
+                return false;
+            const u64 total = tls_span + user_tls_tcb_headroom + elf::page_size - 1;
+            pages = total / elf::page_size;
+            return pages != 0;
+        }
+
         bool map_tls_template(mm::address_space& map, span<const u8> bytes,
                               const elf::image& image, u64& tp_out, u64& frames_out,
                               u64& pages_out) {
-            const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
-            const u64 tls_span = (image.tls_memsz + align - 1) & ~(align - 1);
-            const u64 pages =
-                (tls_span + user_tls_tcb_headroom + elf::page_size - 1) / elf::page_size;
+            u64 tls_span = 0;
+            u64 pages = 0;
+            if (!tls_layout(image, tls_span, pages))
+                return false;
             if (image.tls_offset > bytes.size() ||
                 image.tls_filesz > bytes.size() - image.tls_offset)
                 return false;
@@ -241,7 +277,7 @@ namespace astia::proc {
 
     bool process::load_user_image(span<const u8> bytes, u64* entry_out) {
         if (bytes.null() || bytes.empty() || entry_out == nullptr ||
-            address_space_.attached() || !mm::address_space::kernel().valid()) {
+            _address_space.attached() || !mm::address_space::kernel().valid()) {
             return false;
         }
 
@@ -280,8 +316,8 @@ namespace astia::proc {
             return false;
         }
 
-        address_space_ = static_cast<mm::address_space&&>(map);
-        if (!address_space_.attached()) {
+        _address_space = static_cast<mm::address_space&&>(map);
+        if (!_address_space.attached()) {
             cleanup_pending(image_state, map);
             return false;
         }
@@ -298,11 +334,11 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
                                   region)) {
-                rollback_mapping_failure(address_space_, seg.virt, seg.pages, seg.frames,
+                rollback_mapping_failure(_address_space, seg.virt, seg.pages, seg.frames,
                                          region);
                 image_state.segs[i].mapped = false;
                 image_state.segs[i].used = false;
-                cleanup_pending(image_state, address_space_);
+                cleanup_pending(image_state, _address_space);
                 discard_image();
                 return false;
             }
@@ -316,19 +352,19 @@ namespace astia::proc {
             u64 tp         = 0;
             u64 tls_frames = 0;
             u64 tls_pages  = 0;
-            if (!map_tls_template(address_space_, bytes, image, tp, tls_frames,
+            if (!map_tls_template(_address_space, bytes, image, tp, tls_frames,
                                   tls_pages)) {
-                rollback_tls_failure(&image_state, address_space_);
+                rollback_tls_failure(&image_state, _address_space);
                 return false;
             }
-            tls_tp_      = tp;
+            _tls_tp      = tp;
             auto* region = mm::phys_region::adopt(tls_frames, tls_pages);
             if (region == nullptr ||
                 !register_mapping(user_tls_base, tls_pages,
                                   map_protection::read | map_protection::write, region)) {
-                rollback_mapping_failure(address_space_, user_tls_base, tls_pages, tls_frames,
+                rollback_mapping_failure(_address_space, user_tls_base, tls_pages, tls_frames,
                                          region);
-                rollback_tls_failure(&image_state, address_space_);
+                rollback_tls_failure(&image_state, _address_space);
                 return false;
             }
         }
@@ -371,13 +407,13 @@ namespace astia::proc {
         }
 
         core::task<bool> map_tls_file_async(mm::address_space& map,
-                                             const mm::shptr<fs::open_file>& file,
+                                             mm::shptr<fs::open_file> file,
                                              const elf::image& image, u64& tp_out,
                                              u64& frames_out, u64& pages_out) {
-            const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
-            const u64 tls_span = (image.tls_memsz + align - 1) & ~(align - 1);
-            const u64 pages =
-                (tls_span + user_tls_tcb_headroom + elf::page_size - 1) / elf::page_size;
+            u64 tls_span = 0;
+            u64 pages = 0;
+            if (!tls_layout(image, tls_span, pages))
+                co_return false;
             const u64 frames = mm::kernel_frames().alloc(pages, mm::frame_flags::zeroed);
             if (frames == mm::frame_allocator::invalid_frame)
                 co_return false;
@@ -413,8 +449,8 @@ namespace astia::proc {
     }
 
     core::task<bool> process::load_user_file_async(
-        const mm::shptr<fs::open_file>& file, usize length, u64* entry_out) {
-        if (!file || length == 0 || entry_out == nullptr || address_space_.attached())
+        mm::shptr<fs::open_file> file, usize length, u64* entry_out) {
+        if (!file || length == 0 || entry_out == nullptr || _address_space.attached())
             co_return false;
         mm::address_space map = mm::address_space::create();
         if (!map.valid())
@@ -431,8 +467,8 @@ namespace astia::proc {
         }
         elf::image image = loaded.value;
 
-        address_space_ = static_cast<mm::address_space&&>(map);
-        if (!address_space_.attached()) {
+        _address_space = static_cast<mm::address_space&&>(map);
+        if (!_address_space.attached()) {
             cleanup_pending(stream.map, map);
             co_return false;
         }
@@ -442,11 +478,11 @@ namespace astia::proc {
             if (region == nullptr ||
                 !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
                                   region)) {
-                rollback_mapping_failure(address_space_, seg.virt, seg.pages, seg.frames,
+                rollback_mapping_failure(_address_space, seg.virt, seg.pages, seg.frames,
                                          region);
                 seg.mapped = false;
                 seg.used = false;
-                cleanup_pending(stream.map, address_space_);
+                cleanup_pending(stream.map, _address_space);
                 discard_image();
                 co_return false;
             }
@@ -454,25 +490,25 @@ namespace astia::proc {
         }
         if (image.tls_memsz != 0) {
             u64 tls_frames = 0, tls_pages = 0, tp = 0;
-            auto tls = co_await map_tls_file_async(address_space_, file, image, tp,
+            auto tls = co_await map_tls_file_async(_address_space, file, image, tp,
                                                     tls_frames, tls_pages);
             if (!tls || !tls.value) {
-                rollback_tls_failure(&stream.map, address_space_);
+                rollback_tls_failure(&stream.map, _address_space);
                 co_return false;
             }
             auto* region = mm::phys_region::adopt(tls_frames, tls_pages);
             if (region == nullptr ||
                 !register_mapping(user_tls_base, tls_pages,
                                   map_protection::read | map_protection::write, region)) {
-                rollback_mapping_failure(address_space_, user_tls_base, tls_pages, tls_frames,
+                rollback_mapping_failure(_address_space, user_tls_base, tls_pages, tls_frames,
                                          region);
-                rollback_tls_failure(&stream.map, address_space_);
+                rollback_tls_failure(&stream.map, _address_space);
                 co_return false;
             }
-            tls_tp_ = tp;
+            _tls_tp = tp;
         }
         if (image.tls_memsz == 0)
-            tls_tp_ = 0;
+            _tls_tp = 0;
         *entry_out = reinterpret_cast<u64>(image.entry);
         co_return true;
     }
