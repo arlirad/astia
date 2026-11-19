@@ -227,13 +227,17 @@ namespace astia::arch::x86_64::smp {
             have_acpi = false;
             cpu_total = platform::clamp_cpu_count(cpuid_threads());
         }
+        const u32 bsp = lapic::id();
         if (found != 0) {
-            const u32 bsp      = lapic::id();
-            bool      have_bsp = false;
-            for (u32 i = 0; i < found; ++i)
+            bool have_bsp = false;
+            bool have_ap  = false;
+            for (u32 i = 0; i < found; ++i) {
                 if (apic_ids[i] == bsp)
                     have_bsp = true;
-            if (!have_bsp)
+                else
+                    have_ap = true;
+            }
+            if (!have_bsp || !have_ap)
                 have_acpi = false;
         }
         if (found != 0)
@@ -251,7 +255,6 @@ namespace astia::arch::x86_64::smp {
             return true;
         }
 
-        const u32  bsp       = lapic::id();
         const bool broadcast = !have_acpi;
         u32        index     = 1;
         for (u32 n = 0; n < cpu_total; ++n) {
