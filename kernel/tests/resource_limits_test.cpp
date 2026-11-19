@@ -21,7 +21,8 @@ ASTIA_TEST(resource_limits_publish_fixed_contracts) {
     ASTIA_CHECK(astia::resource_limits::coroutine::frame_slots == 32);
     ASTIA_CHECK(astia::resource_limits::coroutine::frame_slot_bytes == 2048);
     ASTIA_CHECK(ASTIA_AIO_MAX_RING_SLOTS == astia::resource_limits::abi::aio_ring_slots);
-    ASTIA_CHECK(ASTIA_AIO_MAX_RING_ENTRIES == astia::resource_limits::abi::aio_ring_entries);
+    ASTIA_CHECK(ASTIA_AIO_MAX_RING_ENTRIES ==
+                astia::resource_limits::abi::aio_ring_entries);
     ASTIA_CHECK(ASTIA_AIO_MAX_PARKED_OPERATIONS ==
                 astia::resource_limits::abi::aio_parked_operations);
 }

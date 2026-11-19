@@ -12,7 +12,7 @@ namespace astia::proc {
         if (buffer.null() || buffer.empty())
             return -EINVAL;
         arch::interrupt_spinlock_guard guard(_lock);
-        usize length = 0;
+        usize                          length = 0;
         while (_cwd[length] != '\0')
             ++length;
         if (length + 1 > buffer.size())
@@ -55,12 +55,12 @@ namespace astia::proc {
             return -EINVAL;
 
         arch::interrupt_spinlock_guard guard(_lock);
-        char full[fs::path_max]{};
+        char                           full[fs::path_max]{};
         const i64 compose_rc = compose_path_locked(path, span<char>(full, sizeof full));
         if (compose_rc < 0)
             return compose_rc;
 
-        char resolved[fs::path_max]{};
+        char       resolved[fs::path_max]{};
         const long resolve_rc = fs::resolve_path(full, resolved, sizeof resolved, true);
         if (resolve_rc < 0)
             return resolve_rc;

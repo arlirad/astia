@@ -93,9 +93,9 @@ ASTIA_TEST(rcu_hashmap_supports_concurrent_readers_and_writers) {
 
 ASTIA_TEST(rcu_vector_supports_concurrent_cas_writers) {
     astia::core::rcu_vector<int, 16> vector;
-    std::atomic<bool> start{false};
-    std::atomic<bool> failed{false};
-    std::vector<std::thread> workers;
+    std::atomic<bool>                start{false};
+    std::atomic<bool>                failed{false};
+    std::vector<std::thread>         workers;
     for (int writer = 0; writer < 4; ++writer) {
         workers.emplace_back([&, writer] {
             while (!start.load(std::memory_order_acquire))

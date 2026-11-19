@@ -20,7 +20,7 @@ ASTIA_TEST(aio_cq_consume_acknowledges_notification_generation) {
         astia_cq_ring cq{};
     } value;
 
-    value.ring.cq_off = sizeof(astia_rings);
+    value.ring.cq_off          = sizeof(astia_rings);
     value.cq.notify_generation = 7;
     astia_cq_consume(&value.ring, 1);
 
@@ -40,10 +40,10 @@ ASTIA_TEST(aio_ring_lifecycle_initializes_and_reuses_cursors) {
     } value;
     value.ring.sq_off = sizeof(astia_rings);
     value.ring.cq_off = sizeof(astia_rings) + sizeof(astia_sq_ring);
-    value.sq.entries = 2;
-    value.sq.mask = 1;
-    value.cq.entries = 2;
-    value.cq.mask = 1;
+    value.sq.entries  = 2;
+    value.sq.mask     = 1;
+    value.cq.entries  = 2;
+    value.cq.mask     = 1;
     ASTIA_CHECK(astia_sq_space(&value.ring) == 2);
     __atomic_store_n(&value.sq.tail, 2u, __ATOMIC_RELEASE);
     ASTIA_CHECK(astia_sq_space(&value.ring) == 0);
@@ -53,16 +53,16 @@ ASTIA_TEST(aio_ring_lifecycle_initializes_and_reuses_cursors) {
 
 ASTIA_TEST(aio_completion_and_cancel_publish_once) {
     struct fixture {
-        astia_rings ring{};
+        astia_rings   ring{};
         astia_cq_ring cq{};
-        astia_cqe cqe[2]{};
+        astia_cqe     cqe[2]{};
     } value;
-    value.ring.cq_off = sizeof(astia_rings);
-    value.ring.cqes_off = sizeof(astia_rings) + sizeof(astia_cq_ring);
-    value.cq.entries = 2;
-    value.cq.mask = 1;
+    value.ring.cq_off     = sizeof(astia_rings);
+    value.ring.cqes_off   = sizeof(astia_rings) + sizeof(astia_cq_ring);
+    value.cq.entries      = 2;
+    value.cq.mask         = 1;
     bool target_completed = false;
-    auto post = [&](uint64_t tag, int32_t result) {
+    auto post             = [&](uint64_t tag, int32_t result) {
         if (tag == 0x70 && target_completed)
             return false;
         const uint32_t head = __atomic_load_n(&value.cq.head, __ATOMIC_ACQUIRE);

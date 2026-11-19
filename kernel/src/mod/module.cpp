@@ -15,7 +15,7 @@ namespace astia::mod {
     namespace {
 
         loaded_module modules[max_modules] = {};
-        usize  used                 = 0;
+        usize         used                 = 0;
 
         /// Frame-allocator-backed memory for the ELF loader.
         ///
@@ -39,7 +39,7 @@ namespace astia::mod {
         }
 
         void image_unmap(void*, void* address, usize size) {
-            using fa = mm::frame_allocator;
+            using fa     = mm::frame_allocator;
             usize frames = (size + fa::frame_size - 1) / fa::frame_size;
             mm::kernel_frames().release(reinterpret_cast<u64>(address), frames);
         }
@@ -69,11 +69,11 @@ namespace astia::mod {
         }
 
         loaded_module& slot = modules[used];
-        slot.name    = "module";
-        slot.base    = img.base;
-        slot.size    = img.size;
-        slot.entry   = reinterpret_cast<int (*)()>(img.entry);
-        slot.running = false;
+        slot.name           = "module";
+        slot.base           = img.base;
+        slot.size           = img.size;
+        slot.entry          = reinterpret_cast<int (*)()>(img.entry);
+        slot.running        = false;
         ++used;
         return &slot;
     }

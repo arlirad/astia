@@ -26,16 +26,20 @@ namespace astia::proc {
         u64 stack = 0;
     };
 
-    inline constexpr u32 max_processes                  = resource_limits::policy::process_count;
-    inline constexpr u32 max_threads_per_process        = resource_limits::policy::threads_per_process;
-    inline constexpr u32 max_waiters_per_process        = resource_limits::policy::process_waiters;
+    inline constexpr u32 max_processes = resource_limits::policy::process_count;
+    inline constexpr u32 max_threads_per_process =
+        resource_limits::policy::threads_per_process;
+    inline constexpr u32 max_waiters_per_process =
+        resource_limits::policy::process_waiters;
     inline constexpr u32 max_signal_waiters_per_process = signal_waiter_capacity;
-    inline constexpr u32 max_supplementary_groups       = resource_limits::policy::supplementary_groups;
+    inline constexpr u32 max_supplementary_groups =
+        resource_limits::policy::supplementary_groups;
 
     /// Userspace spawn limits for the startup frame (argv/envp).
-    inline constexpr u32   max_argv_entries       = resource_limits::policy::argv_entries;
-    inline constexpr u32   max_env_entries        = resource_limits::policy::env_entries;
-    inline constexpr usize max_spawn_string_bytes = resource_limits::policy::spawn_string_bytes;
+    inline constexpr u32   max_argv_entries = resource_limits::policy::argv_entries;
+    inline constexpr u32   max_env_entries  = resource_limits::policy::env_entries;
+    inline constexpr usize max_spawn_string_bytes =
+        resource_limits::policy::spawn_string_bytes;
 
     enum class process_state : u8 {
         fresh,
@@ -92,8 +96,8 @@ namespace astia::proc {
         }
         u32 set_umask(u32 value) {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
-            const u32 old = _umask;
-            _umask = value & 0777u;
+            const u32                      old = _umask;
+            _umask                             = value & 0777u;
             return old;
         }
         i64  setuid(u32);
@@ -151,11 +155,11 @@ namespace astia::proc {
                 _session       = parent._session;
             }
             _controlling_terminal = parent._controlling_terminal;
-            _uid         = parent._uid;
-            _euid        = parent._euid;
-            _gid         = parent._gid;
-            _egid        = parent._egid;
-            _group_count = parent._group_count;
+            _uid                  = parent._uid;
+            _euid                 = parent._euid;
+            _gid                  = parent._gid;
+            _egid                 = parent._egid;
+            _group_count          = parent._group_count;
             for (u32 i = 0; i < _group_count; ++i)
                 _groups[i] = parent._groups[i];
             _rlimit_nofile = parent._rlimit_nofile;
@@ -219,7 +223,7 @@ namespace astia::proc {
         void signal_state_change(signal_number signal);
         void interrupt_signal_io(signal_number signal);
         void request_kill();
-        i64 alarm(u32 seconds, u64 now, u32 hz);
+        i64  alarm(u32 seconds, u64 now, u32 hz);
         void expire_alarm(u64 now);
         void signal_termination(signal_number signal) {
             _termination_signal = static_cast<i32>(signal);
@@ -313,18 +317,18 @@ namespace astia::proc {
         /// `argument` becomes the new entry's first ABI argument.
         mm::shptr<thread> create_thread(u64 entry, u64 user_stack_top, u64 argument,
                                         u64 argument1 = 0, bool owns_user_stack = false,
-                                        u64 user_stack_base = 0,
+                                        u64   user_stack_base = 0,
                                         usize user_stack_size = 0);
         struct thread_stack_snapshot {
-            u64  stack_base = 0;
+            u64   stack_base = 0;
             usize stack_size = 0;
-            bool detached = false;
-            bool supported = false;
+            bool  detached   = false;
+            bool  supported  = false;
         };
         mm::shptr<thread> thread_stack_info(tid_t id, thread_stack_snapshot& snapshot);
         /// Find a thread by its process-local tid, retaining it while a
         /// blocking join syscall operates on it.
-        mm::shptr<thread>     thread_by_tid(tid_t id);
+        mm::shptr<thread>        thread_by_tid(tid_t id);
         const mm::address_space* address_space() const {
             return _address_space.attached() ? &_address_space : nullptr;
         }
@@ -424,18 +428,18 @@ namespace astia::proc {
             return exec_user_image(span<const u8>(static_cast<const u8*>(bytes), length),
                                    argv, envp, entry_out, stack_out);
         }
-        core::task<exec_result>
-        exec_user_file_async(mm::shptr<fs::open_file> file, usize length,
-                             char* const argv[], char* const envp[]);
-        core::task<bool> load_user_file_async(mm::shptr<fs::open_file> file,
-                                              usize length, u64* entry_out);
+        core::task<exec_result> exec_user_file_async(mm::shptr<fs::open_file> file,
+                                                     usize length, char* const argv[],
+                                                     char* const envp[]);
+        core::task<bool> load_user_file_async(mm::shptr<fs::open_file> file, usize length,
+                                              u64* entry_out);
 
         /// Fork: the child's first thread, resuming `uctx` inside the
         /// parent's ring-3 call site with rax = 0.
         mm::shptr<thread> create_fork_thread(const arch::user_context& uctx,
-                                              signal_mask blocked_signals,
-                                              u64 user_stack_base = 0,
-                                              usize user_stack_size = 0);
+                                             signal_mask               blocked_signals,
+                                             u64   user_stack_base = 0,
+                                             usize user_stack_size = 0);
 
         /// Resolve a ring-3 write fault: a uniquely-held CoW page
         /// regains its write bit, otherwise the page is copied out and
@@ -467,7 +471,7 @@ namespace astia::proc {
                                const mm::shptr<fs::open_file>& file, u64 file_offset,
                                u64& base_out, usize region_page = 0, bool shared = false,
                                bool stack = false);
-        bool grow_stack(mmap_region* vma, u64 addr, bool write);
+        bool   grow_stack(mmap_region* vma, u64 addr, bool write);
         pid_t  _pid;
         pid_t  _parent_pid;
         pgrp_t _process_group;
@@ -481,29 +485,29 @@ namespace astia::proc {
         // These are observed by registry, scheduler, and wait paths that do
         // not hold _lifecycle_lock. Keep the byte-sized representation
         // and publish transitions explicitly rather than widening the record.
-        u8           _state              = static_cast<u8>(process_state::fresh);
-        i32          _exit_status        = 0;
-        i32          _termination_signal = 0;
-        i32          _stop_signal        = 0;
-        u8           _stop_event         = 0;
-        u8           _continued_event    = 0;
-        u8           _exit_requested     = 0;
+        u8           _state                 = static_cast<u8>(process_state::fresh);
+        i32          _exit_status           = 0;
+        i32          _termination_signal    = 0;
+        i32          _stop_signal           = 0;
+        u8           _stop_event            = 0;
+        u8           _continued_event       = 0;
+        u8           _exit_requested        = 0;
         i32          _requested_exit_status = 0;
         signal_state _signals{};
-        u64          _alarm_deadline     = 0;
+        u64          _alarm_deadline = 0;
 
-        mm::shptr<thread>        _threads[max_threads_per_process];
-        u32                      _thread_count = 0;
-        thread*                  _waiters[max_waiters_per_process]{};
-        signal_waiter_registry   _signal_waiters{};
-        fd_table                 _descriptors;
-        mm::address_space       _address_space;
-        u64                      _tls_tp = 0;
-        astia_rlimit             _rlimit_nofile{max_process_fds, max_process_fds};
-        astia_rlimit             _rlimit_as{~u64{0}, ~u64{0}};
-        u64                      _mapped_bytes      = 0;
-        cwd_context              _cwd{};
-        mmap_region*             _mmap_regions      = nullptr; // base-sorted
+        mm::shptr<thread>      _threads[max_threads_per_process];
+        u32                    _thread_count = 0;
+        thread*                _waiters[max_waiters_per_process]{};
+        signal_waiter_registry _signal_waiters{};
+        fd_table               _descriptors;
+        mm::address_space      _address_space;
+        u64                    _tls_tp = 0;
+        astia_rlimit           _rlimit_nofile{max_process_fds, max_process_fds};
+        astia_rlimit           _rlimit_as{~u64{0}, ~u64{0}};
+        u64                    _mapped_bytes = 0;
+        cwd_context            _cwd{};
+        mmap_region*           _mmap_regions = nullptr; // base-sorted
         // Lifecycle/thread state is process-local; keeping this lock on the
         // object avoids serializing unrelated processes.
         core::spinlock _lifecycle_lock{};

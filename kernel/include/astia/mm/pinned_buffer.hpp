@@ -65,7 +65,7 @@ namespace astia::mm {
         bool valid() const {
             return _region != nullptr;
         }
-        bool contiguous() const;
+        bool  contiguous() const;
         usize pages() const {
             return _count;
         }

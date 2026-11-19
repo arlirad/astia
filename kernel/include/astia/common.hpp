@@ -91,7 +91,7 @@ namespace astia {
 #else
 #error "Astia kernel page geometry is unsupported on this target"
 #endif
-        inline constexpr u64   page_mask = page_size - 1;
+        inline constexpr u64 page_mask = page_size - 1;
     } // namespace mm
 
     /// Time conversion factors used by kernel clocks and deadlines. These are

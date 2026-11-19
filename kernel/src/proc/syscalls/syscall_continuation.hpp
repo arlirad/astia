@@ -17,10 +17,10 @@ namespace astia::proc::syscall {
         };
 
         arch::syscall_frame _frame{};
-        mm::shptr<process> _owner;
-        mm::shptr<thread> _waiter;
-        i64 _result = -EINTR;
-        u8  _phase  = static_cast<u8>(phase::pending);
+        mm::shptr<process>  _owner;
+        mm::shptr<thread>   _waiter;
+        i64                 _result = -EINTR;
+        u8                  _phase  = static_cast<u8>(phase::pending);
 
         phase current_phase() const {
             return static_cast<phase>(__atomic_load_n(&_phase, __ATOMIC_ACQUIRE));
@@ -53,7 +53,7 @@ namespace astia::proc::syscall {
         }
 
         bool finish(phase target, i64 value, bool wake) {
-            u8 expected = static_cast<u8>(phase::pending);
+            u8   expected   = static_cast<u8>(phase::pending);
             bool was_parked = false;
             for (;;) {
                 const phase observed = static_cast<phase>(expected);
@@ -75,15 +75,15 @@ namespace astia::proc::syscall {
 
         public:
         syscall_continuation(const arch::syscall_frame& frame,
-                             const mm::shptr<process>& owner = {},
-                             const mm::shptr<thread>& waiter = {})
+                             const mm::shptr<process>&  owner  = {},
+                             const mm::shptr<thread>&   waiter = {})
             : _frame(frame), _owner(owner), _waiter(waiter) {}
 
         ~syscall_continuation() {
             (void) finish(phase::canceled, -EINTR, false);
         }
 
-        syscall_continuation(const syscall_continuation&) = delete;
+        syscall_continuation(const syscall_continuation&)            = delete;
         syscall_continuation& operator=(const syscall_continuation&) = delete;
 
         void bind(const mm::shptr<process>& owner, const mm::shptr<thread>& waiter) {

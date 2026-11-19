@@ -91,9 +91,9 @@ namespace astia::dev {
         }
 
         protected:
-        char     _name[16]{}; // {} matters: an uninitialized array member
-                              // makes the type non-literal (constant
-                              // initialization rejects writes into it)
+        char _name[16]{}; // {} matters: an uninitialized array member
+                          // makes the type non-literal (constant
+                          // initialization rejects writes into it)
         unsigned _flags;
     };
 

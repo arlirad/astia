@@ -6,7 +6,7 @@ namespace astia::core {
 
     system_rcu_type& system_rcu_domain() {
         alignas(system_rcu_type) static u8 storage[sizeof(system_rcu_type)];
-        static bool initialized = false;
+        static bool                        initialized = false;
         if (!initialized) {
             ::new (storage) system_rcu_type{};
             initialized = true;

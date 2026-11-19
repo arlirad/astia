@@ -31,7 +31,7 @@ namespace {
 }
 
 int main() {
-    alignas(4) std::uint8_t memory[8]{};
+    alignas(4) std::uint8_t         memory[8]{};
     astia::dev::regs<std::uint32_t> mmio{memory};
     mmio[0] = 0x12345678;
     assert(mmio[0] == 0x12345678);

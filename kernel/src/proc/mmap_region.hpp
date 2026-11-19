@@ -8,20 +8,20 @@
 namespace astia::proc {
 
     struct shared_futex_mapping {
-        mm::phys_region* backing = nullptr;
+        mm::phys_region*                    backing = nullptr;
         mm::shptr<mm::phys_region_identity> identity;
-        u32* word = nullptr;
-        usize page = 0;
-        usize offset = 0;
+        u32*                                word   = nullptr;
+        usize                               page   = 0;
+        usize                               offset = 0;
 
         void release() {
             mm::phys_region* region = backing;
-            backing = nullptr;
-            identity = {};
-            word = nullptr;
+            backing                 = nullptr;
+            identity                = {};
+            word                    = nullptr;
             if (region != nullptr)
                 region->release_range(page, 1);
-            page = 0;
+            page   = 0;
             offset = 0;
         }
     };
@@ -91,11 +91,11 @@ namespace astia::proc {
         // A reserved mapping is in the VMA list only to claim its address
         // range.  It is not visible to lookup/fault/pin until page tables
         // have been installed and the transaction publishes it.
-        bool             pending   = false;
-        bool             stack     = false;
+        bool             pending      = false;
+        bool             stack        = false;
         usize            mapped_pages = 0;
-        bool             holds_ref = false;
-        mm::phys_region* backing   = nullptr;
+        bool             holds_ref    = false;
+        mm::phys_region* backing      = nullptr;
         /// First page in `backing` represented by this VMA.  This is
         /// non-zero when an unmap trims the front of a region or when
         /// a shared file mapping starts at a page offset.

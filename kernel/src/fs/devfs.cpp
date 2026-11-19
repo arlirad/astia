@@ -58,9 +58,9 @@ namespace astia::fs {
                 continue;
             if (object && _entries[i].object.get() != object.get())
                 return -ENOENT;
-            _entries[i].object = {};
+            _entries[i].object  = {};
             _entries[i].path[0] = '\0';
-            _entries[i].used = false;
+            _entries[i].used    = false;
             return 0;
         }
         return -ENOENT;

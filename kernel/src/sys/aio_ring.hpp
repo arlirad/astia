@@ -2,7 +2,6 @@
 
 #include "aio.hpp"
 #include "proc.hpp"
-
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
@@ -15,15 +14,16 @@
 namespace astia::sys::aio_ring {
 
     inline constexpr u32 slot_count = resource_limits::queue::aio_ring_slots;
-    inline constexpr u32 parked_slot_count = resource_limits::queue::aio_parked_operations;
-    inline constexpr u32 kernel_ring_slot_count = slot_count;
-    inline constexpr u32 parked_operation_slots = parked_slot_count;
+    inline constexpr u32 parked_slot_count =
+        resource_limits::queue::aio_parked_operations;
+    inline constexpr u32   kernel_ring_slot_count = slot_count;
+    inline constexpr u32   parked_operation_slots = parked_slot_count;
     inline constexpr usize mapping_bytes =
         sizeof(astia_rings) + sizeof(astia_sq_ring) + sizeof(astia_cq_ring) +
         sizeof(astia_sqe) * kernel_ring_max_entries +
         sizeof(astia_cqe) * (2 * kernel_ring_max_entries);
-    inline constexpr usize mapping_pages = align_up(mapping_bytes, mm::page_size) /
-                                           mm::page_size;
+    inline constexpr usize mapping_pages =
+        align_up(mapping_bytes, mm::page_size) / mm::page_size;
     inline constexpr u32 user_mapping_pages = static_cast<u32>(mapping_pages);
 
     struct ring_lock {
@@ -75,14 +75,14 @@ namespace astia::sys::aio_ring {
         u64                      recvfrom_address_user = 0;
         bool                     pending_cqe           = false;
         u64                      pending_user_data     = 0;
-        i32                      pending_result         = 0;
+        i32                      pending_result        = 0;
         i32                      fd;
         mm::shptr<fs::open_file> object;
         mm::iovec                entries;
-        io::request               request;
-        io::flight*               flight = nullptr;
+        io::request              request;
+        io::flight*              flight     = nullptr;
         u64                      generation = 0;
-        usize                    moved = 0;
+        usize                    moved      = 0;
     };
 
     struct parked_cleanup {
@@ -111,7 +111,7 @@ namespace astia::sys::aio_ring {
 
     extern ring_slot* g_slots[slot_count];
     extern ring_lock  g_ring_pool_lock;
-    extern u8 slot_storage[slot_count][sizeof(ring_slot)];
+    extern u8         slot_storage[slot_count][sizeof(ring_slot)];
 
     astia_rings* rings_of(const ring_slot& slot);
     ring_slot*   slot_of(const astia_rings* ring);

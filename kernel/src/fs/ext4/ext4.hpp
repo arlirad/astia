@@ -9,15 +9,16 @@ namespace astia::fs {
 
     class ext4_file final : public file {
         public:
-        ext4_file(ext4_mount* owner, const ext4::inode& node) : _owner(owner), _node(node) {}
+        ext4_file(ext4_mount* owner, const ext4::inode& node)
+            : _owner(owner), _node(node) {}
 
         long read(void* buffer, u32 length, u64 offset) override;
         long write(const void*, u32, u64) override {
             return -EROFS;
         }
-        long size() const override;
+        long      size() const override;
         file_mode mode() const override;
-        uid_t uid() const override {
+        uid_t     uid() const override {
             return uid_t(_node.uid);
         }
         gid_t gid() const override {
@@ -61,16 +62,16 @@ namespace astia::fs {
         public:
         explicit ext4_mount(const mm::shptr<open_file>& source) : _source(source) {}
 
-        bool initialize();
+        bool                 initialize();
         mm::shptr<open_file> open(const char* path, u32 flags) override;
-        long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                            file_type* type) override;
+        long      read_directory(const char* path, u64 index, char* name, u32 capacity,
+                                 file_type* type) override;
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
-        uid_t node_uid(const char* path) const override;
-        gid_t node_gid(const char* path) const override;
-        long readlink(const char* path, char* buffer, u32 capacity) const override;
-        long register_file(const char*, const mm::shptr<file>&) override {
+        uid_t     node_uid(const char* path) const override;
+        gid_t     node_gid(const char* path) const override;
+        long      readlink(const char* path, char* buffer, u32 capacity) const override;
+        long      register_file(const char*, const mm::shptr<file>&) override {
             return -EROFS;
         }
         long mkdir(const char*, file_mode) override {
@@ -100,15 +101,15 @@ namespace astia::fs {
         private:
         friend class ext4_file;
         static bool read_source(void* context, u64 offset, void* buffer, usize length);
-        bool source_read(u64 offset, void* buffer, usize length) const;
-        bool lookup(const char* path, ext4::inode& node) const;
+        bool        source_read(u64 offset, void* buffer, usize length) const;
+        bool        lookup(const char* path, ext4::inode& node) const;
         bool child(const ext4::inode& parent, const char* name, ext4::inode& node) const;
         static file_type vfs_type(ext4::node_type type);
         static file_mode vfs_mode(const ext4::inode& node);
 
         mm::shptr<open_file> _source;
         mutable ext4::reader _reader;
-        ext4::inode _root;
+        ext4::inode          _root;
     };
 
     class ext4_filesystem final : public filesystem {
@@ -117,7 +118,7 @@ namespace astia::fs {
             return "ext4";
         }
         fs::mount* mount(const char* source) const override;
-        bool owns_mount() const override {
+        bool       owns_mount() const override {
             return true;
         }
         void destroy_mount(fs::mount* value) const override {

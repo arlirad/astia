@@ -16,7 +16,8 @@ namespace astia::core {
 
     template <typename T>
     constexpr T byteswap(T value) {
-        static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
+        static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 ||
+                      sizeof(T) == 8);
         T result = 0;
         for (usize index = 0; index < sizeof(T); ++index) {
             result = static_cast<T>(result << 8);
@@ -30,7 +31,7 @@ namespace astia::core {
 
         template <typename T>
         T load(const u8* source, byte_order order) {
-            T native{};
+            T     native{};
             auto* destination = reinterpret_cast<u8*>(&native);
             for (usize index = 0; index < sizeof(T); ++index)
                 destination[index] = source[index];
@@ -54,7 +55,8 @@ namespace astia::core {
 
     template <typename T>
     class le {
-        static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
+        static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 ||
+                      sizeof(T) == 8);
 
         public:
         le() = default;
@@ -97,7 +99,8 @@ namespace astia::core {
 
     template <typename T>
     class be {
-        static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
+        static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 ||
+                      sizeof(T) == 8);
 
         public:
         be() = default;

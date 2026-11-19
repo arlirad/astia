@@ -19,23 +19,25 @@ namespace astia::core {
 
         bool start();
         bool resume();
-        bool done() const { return _finished; }
+        bool done() const {
+            return _finished;
+        }
 
         /// Yield from the currently running fiber back to its resumer.
         static bool yield();
 
         private:
-        static void trampoline();
+        static void            trampoline();
         static constexpr usize stack_bytes = 16 * 1024;
 
-        entry_fn        _entry     = nullptr;
-        void*           _argument  = nullptr;
-        arch::context*  _context   = nullptr;
-        arch::context*  _caller    = nullptr;
-        void*           _stack     = nullptr;
-        u32             _owner_cpu = 0;
-        bool            _started   = false;
-        bool            _finished  = false;
+        entry_fn       _entry     = nullptr;
+        void*          _argument  = nullptr;
+        arch::context* _context   = nullptr;
+        arch::context* _caller    = nullptr;
+        void*          _stack     = nullptr;
+        u32            _owner_cpu = 0;
+        bool           _started   = false;
+        bool           _finished  = false;
     };
 
 } // namespace astia::core

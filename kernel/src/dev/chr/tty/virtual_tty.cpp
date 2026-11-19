@@ -7,8 +7,9 @@
 namespace astia::dev {
 
     long virtual_tty::write(const void* buf, u32 len, u64 off) {
-        return (_backend != nullptr || console_backend_available()) ? tty::write(buf, len, off)
-                                                                     : -ENODEV;
+        return (_backend != nullptr || console_backend_available())
+                   ? tty::write(buf, len, off)
+                   : -ENODEV;
     }
 
     u32 virtual_tty::poll(u32 events, u32 flags) {

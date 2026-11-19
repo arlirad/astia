@@ -154,9 +154,9 @@ ASTIA_TEST(phys_region_copy_page_rolls_back_on_allocation_failure) {
     const auto before = init_world();
     auto*      region = phys_region::create(1, true);
     ASTIA_CHECK(region != nullptr);
-    const auto frame = region->page_base(0);
-    const auto used  = astia::mm::heap::used();
-    void*      held[4096]{};
+    const auto   frame = region->page_base(0);
+    const auto   used  = astia::mm::heap::used();
+    void*        held[4096]{};
     astia::usize held_count = 0;
     while (held_count < sizeof held / sizeof held[0]) {
         auto block = astia::mm::heap::alloc(16);
