@@ -50,6 +50,12 @@ if(ASTIA_BUILD_TESTS)
     set_tests_properties(usb_xhci_probe_stack_usage PROPERTIES
             LABELS "module;usb;xhci;host;deterministic"
             DEPENDS usb_module)
+    add_test(NAME usb_xhci_stop_quarantine_policy
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/stop_quarantine_policy.py
+                    ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp)
+    set_tests_properties(usb_xhci_stop_quarantine_policy PROPERTIES
+            LABELS "module;usb;xhci;host;deterministic")
     add_test(NAME usb_xhci_qemu_enumeration
             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
     set_tests_properties(usb_xhci_qemu_enumeration PROPERTIES

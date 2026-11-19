@@ -1,18 +1,21 @@
-#include <astia/dev/driver.hpp>
-#include <astia/dev/mmio.hpp>
-#include <astia/hw/pci.hpp>
-#include "test.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/mmio.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/arch/pci_config.hpp>
+#include <astia/dev/driver.hpp>
+#include <astia/dev/mmio.hpp>
+#include <astia/hw/pci.hpp>
+
+#include "test.hpp"
+
 #include <cstdio>
 
 namespace {
 
     struct fake_pci {
-        bool probe_low  = false;
-        bool probe_high = false;
+        astia::u16 command    = 0;
+        bool       probe_low  = false;
+        bool       probe_high = false;
 
         bool selected(astia::arch::pci_bdf address) const {
             return address.bus == 0 && address.device == 1 && address.function == 0;
@@ -39,6 +42,8 @@ namespace {
             switch (offset) {
             case 0x00:
                 return 0x56781234u;
+            case 0x04:
+                return command;
             case 0x08:
                 return 0x01060201u;
             case 0x10:
@@ -58,10 +63,14 @@ namespace {
                 probe_low = value == ~astia::u32{0};
             if (offset == 0x1c)
                 probe_high = value == ~astia::u32{0};
+            if (offset == 0x04)
+                command = static_cast<astia::u16>(value);
         }
     };
 
     fake_pci state;
+    unsigned mmio_maps   = 0;
+    unsigned mmio_unmaps = 0;
 
     class capture_driver final : public astia::hw::driver {
         public:
@@ -82,6 +91,16 @@ namespace {
     };
 
     capture_driver capture;
+
+    bool map_mmio(astia::u64, astia::u64, bool, astia::u64& virtual_address) {
+        ++mmio_maps;
+        virtual_address = 0xffffc00000001000ull;
+        return true;
+    }
+
+    void unmap_mmio(astia::u64, astia::u64) {
+        ++mmio_unmaps;
+    }
 
 } // namespace
 
@@ -155,4 +174,28 @@ ASTIA_TEST(mmio_mapping_rejects_unavailable_kernel_paging) {
     auto unavailable = astia::dev::mmio_mapping::map(0x1000, 4);
     ASTIA_CHECK(!unavailable);
     ASTIA_CHECK(unavailable.error == astia::error_t::enosys);
+}
+
+ASTIA_TEST(pci_resource_rollback_supports_reprobe) {
+    astia::hw::pci_device device{};
+    device.bdf             = {0, 1, 0};
+    device.bar_count       = 1;
+    device.bars[0].present = true;
+    device.bars[0].size    = 0x1000;
+    device.bars[0].address = 0x90000000;
+
+    ASTIA_CHECK(astia::hw::pci_set_mmio_mapper(map_mmio, unmap_mmio));
+    ASTIA_CHECK(astia::hw::pci_enable_bus_master(device));
+    ASTIA_CHECK((device.command & 4u) != 0);
+    ASTIA_CHECK(astia::hw::pci_map_bar(device, 0));
+    ASTIA_CHECK(!astia::hw::pci_map_bar(device, 0));
+    ASTIA_CHECK(device.bars[0].mapped_valid);
+    ASTIA_CHECK(astia::hw::pci_unmap_bar(device, 0));
+    ASTIA_CHECK(!device.bars[0].mapped_valid);
+    ASTIA_CHECK(astia::hw::pci_map_bar(device, 0));
+    ASTIA_CHECK(astia::hw::pci_unmap_bar(device, 0));
+    ASTIA_CHECK(astia::hw::pci_disable_bus_master(device));
+    ASTIA_CHECK((device.command & 4u) == 0);
+    ASTIA_CHECK(mmio_maps == 2);
+    ASTIA_CHECK(mmio_unmaps == 2);
 }

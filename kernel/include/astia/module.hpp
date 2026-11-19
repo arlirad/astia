@@ -59,6 +59,10 @@ namespace astia::module {
     inline bool pci_enable_bus_master(hw::pci_device* device) {
         return device != nullptr && module::pci_enable_bus_master(*device);
     }
+    bool        pci_disable_bus_master(hw::pci_device& device);
+    inline bool pci_disable_bus_master(hw::pci_device* device) {
+        return device != nullptr && module::pci_disable_bus_master(*device);
+    }
     bool        pci_disable_msix(hw::pci_device& device);
     inline bool pci_disable_msix(hw::pci_device* device) {
         return device != nullptr && pci_disable_msix(*device);
@@ -66,6 +70,10 @@ namespace astia::module {
     bool        pci_map_bar(hw::pci_device& device, u8 index);
     inline bool pci_map_bar(hw::pci_device* device, u8 index) {
         return device != nullptr && module::pci_map_bar(*device, index);
+    }
+    bool        pci_unmap_bar(hw::pci_device& device, u8 index);
+    inline bool pci_unmap_bar(hw::pci_device* device, u8 index) {
+        return device != nullptr && module::pci_unmap_bar(*device, index);
     }
     u64        pci_bar_mapped(const hw::pci_device& device, u8 index);
     inline u64 pci_bar_mapped(const hw::pci_device* device, u8 index) {

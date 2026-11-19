@@ -26,6 +26,17 @@ namespace astia::mod {
         loaded_module  modules[max_modules] = {};
         usize          used                 = 0;
         loaded_module* active               = nullptr;
+        struct load_state {
+            void* dso = nullptr;
+        } production_load_state;
+
+        bool name_equals(const char* left, const char* right) {
+            while (*left != '\0' && *left == *right) {
+                ++left;
+                ++right;
+            }
+            return *left == *right;
+        }
 
         /// Frame-allocator-backed memory for the ELF loader.
         ///
@@ -35,7 +46,8 @@ namespace astia::mod {
         /// leaves the kernel on an identity map of physical memory, so the
         /// returned physical address is directly usable — readable, writable
         /// (for relocation), and executable.
-        void* image_map(void*, u64 /*hint*/, usize size, usize align, bool fixed) {
+        void* image_map(void* context, u64 /*hint*/, usize size, usize align,
+                        bool fixed) {
             using fa = mm::frame_allocator;
             if (fixed || size == 0 || align > fa::frame_size) {
                 return nullptr; // the frame allocator cannot honor a fixed address
@@ -45,7 +57,10 @@ namespace astia::mod {
             if (phys == fa::invalid_frame) {
                 return nullptr;
             }
-            return reinterpret_cast<void*>(static_cast<usize>(phys));
+            void* image = reinterpret_cast<void*>(static_cast<usize>(phys));
+            if (context != nullptr)
+                static_cast<load_state*>(context)->dso = image;
+            return image;
         }
 
         void image_unmap(void*, void* address, usize size) {
@@ -56,15 +71,19 @@ namespace astia::mod {
 
         /// Backs the loader's undefined-symbol resolution with the linked
         /// kernel symbol table. Signature must match elf::resolve_fn.
-        u64 image_resolve(void*, const char* name) {
+        u64 image_resolve(void* context, const char* name) {
+            if (name != nullptr && name_equals(name, "__dso_handle") &&
+                context != nullptr)
+                return reinterpret_cast<u64>(static_cast<load_state*>(context)->dso);
             return resolve(name);
         }
 
     } // namespace
 
     const loaded_module* load_module(span<const u8> image) {
+        production_load_state = {};
         elf::env e{};
-        e.ctx     = nullptr;
+        e.ctx     = &production_load_state;
         e.map     = image_map;
         e.unmap   = image_unmap;
         e.resolve = image_resolve;
@@ -93,6 +112,7 @@ namespace astia::mod {
         slot.loader_context = e.ctx;
         slot.loader_unmap   = e.unmap;
         slot.exit_count     = 0;
+        slot.dso_identity   = img.base;
         for (usize i = 0; i < img.init_count; ++i)
             slot.init_array[i] = img.init_array[i];
         for (usize i = 0; i < img.fini_count; ++i)
@@ -160,14 +180,7 @@ namespace astia::mod {
         loaded_module* mutable_mod = const_cast<loaded_module*>(mod);
         loaded_module* previous    = active;
         active                     = mutable_mod;
-        for (usize i = mutable_mod->exit_count; i != 0; --i) {
-            loaded_module::exit_handler& handler = mutable_mod->exit_handlers[i - 1];
-            if (handler.plain != nullptr)
-                handler.plain();
-            else if (handler.cxa != nullptr)
-                handler.cxa(handler.argument);
-        }
-        mutable_mod->exit_count = 0;
+        finalize_exit_handlers(nullptr);
         for (usize i = mutable_mod->fini_count; i != 0; --i)
             if (mutable_mod->fini_array[i - 1] != nullptr) {
 #ifdef ASTIA_MODULE_HOST_TEST
@@ -176,6 +189,7 @@ namespace astia::mod {
                 mutable_mod->fini_array[i - 1]();
 #endif
             }
+        finalize_exit_handlers(nullptr);
         active                   = previous;
         mutable_mod->initialized = false;
         mutable_mod->running     = false;
@@ -183,42 +197,65 @@ namespace astia::mod {
     }
 
     int register_exit_handler(void (*handler)(void)) {
-        if (active == nullptr || handler == nullptr ||
-            active->exit_count == loaded_module::max_exit_handlers)
+        if (active == nullptr || handler == nullptr)
+            return -1;
+        for (usize i = 0; i < active->exit_count; ++i) {
+            if (!active->exit_handlers[i].removed)
+                continue;
+            active->exit_handlers[i] = {handler, nullptr, nullptr, active->dso_identity,
+                                        false};
+            return 0;
+        }
+        if (active->exit_count == loaded_module::max_exit_handlers)
             return -1;
         active->exit_handlers[active->exit_count++] = {handler, nullptr, nullptr,
-                                                       nullptr};
+                                                       active->dso_identity, false};
         return 0;
     }
 
     int register_exit_handler(void (*handler)(void*), void* argument, void* dso) {
-        if (active == nullptr || handler == nullptr ||
-            active->exit_count == loaded_module::max_exit_handlers)
+        if (active == nullptr || handler == nullptr)
             return -1;
-        active->exit_handlers[active->exit_count++] = {nullptr, handler, argument, dso};
+        void* identity = dso != nullptr ? dso : active->dso_identity;
+        for (usize i = 0; i < active->exit_count; ++i) {
+            if (!active->exit_handlers[i].removed)
+                continue;
+            active->exit_handlers[i] = {nullptr, handler, argument, identity, false};
+            return 0;
+        }
+        if (active->exit_count == loaded_module::max_exit_handlers)
+            return -1;
+        active->exit_handlers[active->exit_count++] = {nullptr, handler, argument,
+                                                       identity, false};
         return 0;
     }
 
     void finalize_exit_handlers(void* dso) {
         if (active == nullptr)
             return;
-        loaded_module::exit_handler remaining[loaded_module::max_exit_handlers];
-        usize                       remaining_count = 0;
-        for (usize i = active->exit_count; i != 0;) {
-            const loaded_module::exit_handler handler = active->exit_handlers[--i];
-            if (dso == nullptr || handler.dso == dso) {
-                if (handler.plain != nullptr)
-                    handler.plain();
-                else if (handler.cxa != nullptr)
-                    handler.cxa(handler.argument);
+        for (;;) {
+            usize selected = active->exit_count;
+            for (usize i = active->exit_count; i != 0; --i) {
+                const loaded_module::exit_handler& handler = active->exit_handlers[i - 1];
+                if (!handler.removed && (dso == nullptr || handler.dso == dso)) {
+                    selected = i - 1;
+                    break;
+                }
             }
-            else {
-                remaining[remaining_count++] = handler;
-            }
+            if (selected == active->exit_count)
+                break;
+            loaded_module::exit_handler& handler = active->exit_handlers[selected];
+            handler.removed                      = true;
+            if (handler.plain != nullptr)
+                handler.plain();
+            else if (handler.cxa != nullptr)
+                handler.cxa(handler.argument);
         }
-        active->exit_count = remaining_count;
-        for (usize i = 0; i < remaining_count; ++i)
-            active->exit_handlers[i] = remaining[remaining_count - i - 1];
+        usize remaining = 0;
+        for (usize i = 0; i < active->exit_count; ++i)
+            if (!active->exit_handlers[i].removed)
+                active->exit_handlers[remaining++] = active->exit_handlers[i];
+        active->exit_count = remaining;
     }
 
     usize count() {

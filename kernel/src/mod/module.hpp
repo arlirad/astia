@@ -26,6 +26,7 @@ namespace astia::mod {
             void (*cxa)(void*)  = nullptr;
             void* argument      = nullptr;
             void* dso           = nullptr;
+            bool  removed       = false;
         };
 
         static constexpr usize max_exit_handlers = 64;
@@ -43,7 +44,8 @@ namespace astia::mod {
         void*         loader_context;
         elf::unmap_fn loader_unmap;
         exit_handler  exit_handlers[max_exit_handlers];
-        usize         exit_count = 0;
+        usize         exit_count   = 0;
+        void*         dso_identity = nullptr;
     };
 
     /// Upper bound on simultaneously loaded modules. Fixed capacity keeps the

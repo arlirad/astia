@@ -7,7 +7,7 @@ extern "C" int  astia_module_register_cxa_atexit(void (*)(void*), void*, void*);
 extern "C" void astia_module_finalize_cxa(void*);
 
 extern "C" {
-void* __dso_handle = nullptr;
+void* __dso_handle = &__dso_handle;
 
 int __cxa_atexit(void (*function)(void*), void* argument, void* dso_handle) {
     return astia_module_register_cxa_atexit(function, argument, dso_handle);
