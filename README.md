@@ -188,7 +188,7 @@ compressed archives are not opened.
 ## Testing
 
 The C/C++ formatting workflow checks changed `.c`, `.cpp`, `.h`, and `.hpp`
-files with the repository `.clang-format` configuration. Run the same check
+files with the repository `.clang-format` configuration. Run a full-tree check
 locally with a pinned formatter, for example:
 
 ```sh
