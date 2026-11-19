@@ -104,6 +104,8 @@ git -C "$test_root" add a.cpp
 git -C "$test_root" commit --quiet -m initial
 initial_head="$(git -C "$test_root" rev-parse HEAD)"
 git -C "$test_root" update-ref refs/remotes/origin/main "$initial_head"
+[[ "$(git -C "$test_root" rev-parse refs/remotes/origin/main)" == "$initial_head" ]] ||
+    die 'zero-SHA fixture base is not HEAD'
 initial_args="$(run_check push "$(printf '0%.0s' {1..40})" "$initial_head")"
 assert_files "$initial_args" a.cpp b.cpp
 
