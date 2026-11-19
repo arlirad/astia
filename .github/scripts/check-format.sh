@@ -33,19 +33,62 @@ base_sha="${BASE_SHA:-}"
 head_sha="${HEAD_SHA:-}"
 event="${GITHUB_EVENT_NAME:-}"
 
+is_commit() {
+    [[ "$1" =~ ^[[:xdigit:]]{40,64}$ ]] &&
+        git cat-file -e "$1^{commit}" >/dev/null 2>&1
+}
+
+is_zero_sha() {
+    [[ "$1" =~ ^0{40,64}$ ]]
+}
+
+main_ref() {
+    local ref
+    for ref in refs/remotes/origin/main refs/heads/main; do
+        if git rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
+            printf '%s\n' "$ref"
+            return 0
+        fi
+    done
+    return 1
+}
+
+merge_base_with_main() {
+    local ref
+    ref="$(main_ref)" || return 1
+    git merge-base "$head_sha" "$ref"
+}
+
 if [[ "$full_tree" -eq 0 ]]; then
     case "$event" in
-        pull_request|push)
-            if [[ ! "$base_sha" =~ ^[[:xdigit:]]{40,64}$ ||
-                ! "$head_sha" =~ ^[[:xdigit:]]{40,64}$ ]]; then
-                full_tree=1
-            elif ! git cat-file -e "$base_sha^{commit}" ||
-                ! git cat-file -e "$head_sha^{commit}"; then
-                full_tree=1
+        pull_request)
+            is_commit "$base_sha" && is_commit "$head_sha" ||
+                die 'pull_request requires valid BASE_SHA and HEAD_SHA commits'
+            ;;
+        push)
+            is_commit "$head_sha" ||
+                die 'push requires a valid HEAD_SHA commit'
+            if ! is_commit "$base_sha"; then
+                if is_zero_sha "$base_sha"; then
+                    if ! base_sha="$(merge_base_with_main)"; then
+                        full_tree=1
+                    fi
+                elif ! base_sha="$(merge_base_with_main)"; then
+                    die 'push requires a valid BASE_SHA commit or a main merge-base'
+                fi
             fi
             ;;
         *)
             full_tree=1
+            ;;
+    esac
+fi
+
+if [[ "$full_tree" -eq 0 ]]; then
+    case "$event" in
+        pull_request|push)
+            is_commit "$base_sha" && is_commit "$head_sha" ||
+                die "could not resolve $event formatting range"
             ;;
     esac
 fi
