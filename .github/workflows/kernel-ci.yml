@@ -38,6 +38,7 @@ jobs:
             gzip \
             lld \
             llvm \
+            mtools \
             ninja-build \
             python3 \
             qemu-system-x86 \
