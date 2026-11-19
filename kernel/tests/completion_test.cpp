@@ -1,5 +1,6 @@
-#include "support/test.hpp"
 #include <astia/core/completion.hpp>
+
+#include "support/test.hpp"
 
 ASTIA_TEST(completion_stores_value_once) {
     astia::core::completion<int> completion;
