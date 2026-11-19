@@ -3,12 +3,12 @@
 `virtio_blk.cpp` is a bounded x86-64 ET_REL module for modern virtio-blk-pci
 devices. It scans the PCI capability chain, maps common, notify, and device
 configuration regions, negotiates `VIRTIO_F_VERSION_1` and
-`VIRTIO_BLK_F_FLUSH`, and registers `/dev/vblk0` through the generic module
-block-device ABI.
+`VIRTIO_BLK_F_FLUSH`, and registers `/dev/vblk0` through the typed C++ block
+device contract.
 
 The driver uses one split virtqueue backed by contiguous DMA memory and bounce
 buffers for reads and writes. Reads and writes are limited to two
-`ASTIA_PAGE_SIZE` pages (8192 bytes on the x86-64 ABI) and
+`astia::mm::page_size` pages (8192 bytes on the x86-64 ABI) and
 must be 512-byte aligned. Writes are exposed only when the device is not
 read-only and offers flush; every successful write is followed by a VirtIO
 flush. Completion is bounded polling, with queue reset for timeout and

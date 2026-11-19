@@ -227,10 +227,8 @@ if(ASTIA_BUILD_TESTS)
             astia_typed_contract_layout_target
             astia_typed_module
             astia_typed_header_alone
-            astia_module_abi_layout_target
-            astia_module_abi_header_alone
-            astia_module_c_compatibility
-            astia_module_cpp_compatibility
+            astia_module_msix_test
+            astia_module_lifecycle_test
             virtio_blk_unit_target
             virtio_blk_teardown_target
             nvme_teardown_target
@@ -247,10 +245,8 @@ if(ASTIA_BUILD_TESTS)
             astia_typed_contract_layout_target
             astia_typed_module
             astia_typed_header_alone
-            astia_module_abi_layout_target
-            astia_module_abi_header_alone
-            astia_module_c_compatibility
-            astia_module_cpp_compatibility
+            astia_module_msix_test
+            astia_module_lifecycle_test
             virtio_blk_unit_target
             virtio_blk_teardown_target
             nvme_teardown_target

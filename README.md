@@ -46,6 +46,7 @@ experimental, or still being integrated; see
   contracts and generic device adapters.
 - **Device and network foundations**: NVMe and VirtIO block modules, plus
   bounded RTL8139 and USB/xHCI work for QEMU fixtures.
+- **Storage**: read-only ext4 integration and initrd/newc support.
 - **QEMU workflows**: interactive native zsh, optional GNU nano, boot tests,
   and hardware-driver fixtures.
 
@@ -54,7 +55,7 @@ experimental, or still being integrated; see
 The repository follows a layered kernel/userspace layout:
 
 - `kernel/src/` and `kernel/include/`: kernel implementation and public ABI.
-- `modules/`: loadable drivers and module ABI fixtures (`nvme`, `virtio-blk`).
+- `modules/`: loadable drivers and typed module fixtures (`nvme`, `virtio-blk`).
 - `libc/`: freestanding libc headers, implementation, and host tests.
 - `init/`, `daemond/`, `coreutils/`: native init, service management, and
   userspace utilities.

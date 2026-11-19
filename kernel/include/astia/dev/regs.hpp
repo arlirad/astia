@@ -6,7 +6,7 @@
 namespace astia::dev {
 
     /// C++ device-driver view of a mapped MMIO register block.  The wrapper
-    /// owns no mapping and is not part of the C module ABI; the caller owns
+    /// owns no mapping and is not part of the public module contract; the caller owns
     /// the mapped address and must keep it valid for the wrapper's lifetime.
     template <typename T>
     class regs {

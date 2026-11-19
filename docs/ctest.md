@@ -56,13 +56,15 @@ repository smoke tests without compiling the host test tree.
 With `ASTIA_BUILD_TESTS=ON`, `ASTIA_CROSS_USERSPACE=ON`, and both external and
 manual suites disabled, the current tree discovers 142 tests: 135 enabled and
 7 intentionally disabled. The seven disabled entries are
-`astia_zsh_pty_regression`,
-`astia_zsh_signal_regression`, `astia_zsh_interactive_manual`,
-`astia_nano_pty_smoke`, `astia_vga_graphical`, `astia_vga_pvh_fallback`, and
-`astia_posix_batch`; they are registered for discovery but require external
-or manual opt-in. The count can change when optional host tools or test
-artifacts are unavailable, so use `ctest --test-dir build-tests -N` as the
-authoritative count for a particular configuration.
+`astia_zsh_pty_regression`, `astia_zsh_signal_regression`,
+`astia_zsh_interactive_manual`, `astia_nano_pty_smoke`, `astia_vga_graphical`,
+`astia_vga_pvh_fallback`, and `astia_posix_batch`; they are registered for
+discovery but require external or manual opt-in. Module coverage is provided
+by the typed-contract, lifecycle, I/O-request, NVMe-teardown, and virtio-blk-
+teardown tests; removed legacy module-header compatibility targets are not
+registered. The count can change when optional host tools or test artifacts
+are unavailable, so use `ctest --test-dir build-tests -N` as the authoritative
+count for a particular configuration.
 
 Use labels to select suites:
 
@@ -81,6 +83,15 @@ unless `ASTIA_ENABLE_EXTERNAL_TESTS=ON` is set at configure time. Graphical
 and interactive tests have `manual` labels and also require
 `ASTIA_ENABLE_MANUAL_TESTS=ON`; they never run accidentally in CI. Keep both
 options OFF in the normal CLion profile.
+
+The ELF fixture test invokes compiler-produced ET_REL code through function
+pointers. Clang's `-fsanitize=undefined` includes its function-type check,
+which expects sanitizer metadata immediately before every indirect-call
+target; a loaded module intentionally has no such metadata. The test keeps
+the check enabled everywhere else and uses a narrow `no_sanitize("function")`
+boundary only for calls into the unsanitized fixture. This preserves the
+loader, relocation, constructor, destructor, and state assertions under
+Clang UBSAN without treating the foreign module as instrumented code.
 
 Enabling the external suites requires QEMU, `cpio`, and clean external source
 trees. Provide a clean zsh checkout with `ASTIA_ZSH_SOURCE` and a clean LTP

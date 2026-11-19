@@ -306,10 +306,11 @@ endfunction()
 add_custom_command(
         OUTPUT ${_fix_dir}/hello_mod.o
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-        COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -mcmodel=large
-        -fno-stack-protector -fno-asynchronous-unwind-tables
-        -o ${_fix_dir}/hello_mod.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.c
-        DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.c
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-stack-protector
+        -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/hello_mod.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.cpp
+        DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.cpp
         COMMENT "Compiling ET_REL fixture hello_mod.o"
 )
 astia_embed_blob(_hello_mod_cpp ${_fix_dir}/hello_mod.o hello_mod_blob)
@@ -318,13 +319,103 @@ add_custom_command(
         OUTPUT ${_fix_dir}/module_symbols.o
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
-        -fno-exceptions -fno-rtti -fno-stack-protector -fno-asynchronous-unwind-tables
+        -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-stack-protector
+        -fno-asynchronous-unwind-tables -fno-unwind-tables
         -mcmodel=large -o ${_fix_dir}/module_symbols.o
         ${CMAKE_CURRENT_SOURCE_DIR}/module_symbols.cpp
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_symbols.cpp
         COMMENT "Compiling C++ ET_REL symbol fixture"
 )
 astia_embed_blob(_module_symbols_cpp ${_fix_dir}/module_symbols.o module_symbols_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_priority_malformed.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_priority_malformed.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_priority_malformed_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_priority_malformed_fixture.cpp
+        COMMENT "Compiling ET_REL malformed priority fixture"
+)
+astia_embed_blob(_module_priority_malformed_cpp
+        ${_fix_dir}/module_priority_malformed.o module_priority_malformed_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_priority_overflow.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_priority_overflow.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_priority_overflow_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_priority_overflow_fixture.cpp
+        COMMENT "Compiling ET_REL overflow priority fixture"
+)
+astia_embed_blob(_module_priority_overflow_cpp
+        ${_fix_dir}/module_priority_overflow.o module_priority_overflow_blob)
+
+foreach(_astia_priority_trailing_dot_fixture init fini)
+    add_custom_command(
+            OUTPUT ${_fix_dir}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot.o
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+            COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+            -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+            -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+            -o ${_fix_dir}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot.o
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot_fixture.cpp
+            DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot_fixture.cpp
+            COMMENT "Compiling ET_REL trailing-dot ${_astia_priority_trailing_dot_fixture} priority fixture"
+    )
+    astia_embed_blob(
+            _module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot_cpp
+            ${_fix_dir}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot.o
+            module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot_blob)
+endforeach()
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_fixture.cpp
+        COMMENT "Compiling ET_REL lifecycle fixture"
+)
+astia_embed_blob(_lifecycle_fixture_cpp
+        ${_fix_dir}/module_lifecycle.o module_lifecycle_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle_no_fini.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle_no_fini.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_no_fini_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_no_fini_fixture.cpp
+        COMMENT "Compiling ET_REL no-fini lifecycle fixture"
+)
+astia_embed_blob(_lifecycle_no_fini_fixture_cpp
+        ${_fix_dir}/module_lifecycle_no_fini.o module_lifecycle_no_fini_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle_priority.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle_priority.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_priority_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_priority_fixture.cpp
+        COMMENT "Compiling ET_REL lifecycle priority fixture"
+)
+astia_embed_blob(_lifecycle_priority_fixture_cpp
+        ${_fix_dir}/module_lifecycle_priority.o module_lifecycle_priority_blob)
 
 # ET_DYN (PIE) executable: self-contained, entry at fixture_entry, with a data
 # pointer that forces an R_X86_64_RELATIVE dynamic relocation.
@@ -356,6 +447,10 @@ astia_add_host_test(astia_elf_test
         elf_test.cpp
         ${_hello_mod_cpp}
         ${_module_symbols_cpp}
+        ${_module_priority_malformed_cpp}
+        ${_module_priority_overflow_cpp}
+        ${_module_priority_init_trailing_dot_cpp}
+        ${_module_priority_fini_trailing_dot_cpp}
         ${_fixture_dyn_cpp}
         ${_fixture_exec_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
@@ -424,6 +519,32 @@ astia_add_host_test(astia_mod_test
         kernel_symbol_table_fixture.S
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/exports.cpp
 )
+
+astia_add_host_test(astia_module_msix_test
+        module_msix_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module_driver.cpp
+)
+target_compile_options(astia_module_msix_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_link_options(astia_module_msix_test PRIVATE
+        "-Wl,-no-pie" "-Wl,--gc-sections")
+
+astia_add_host_test(astia_module_lifecycle_test
+        module_lifecycle_test.cpp
+        ${_lifecycle_fixture_cpp}
+        ${_lifecycle_no_fini_fixture_cpp}
+        ${_lifecycle_priority_fixture_cpp}
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/exec_loader.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/reloc_loader.cpp
+)
+target_compile_options(astia_module_lifecycle_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_compile_definitions(astia_module_lifecycle_test PRIVATE
+        ASTIA_MODULE_HOST_TEST=1)
+target_link_options(astia_module_lifecycle_test PRIVATE
+        "-Wl,-no-pie" "-Wl,--gc-sections")
 add_test(NAME astia_kernel_symbol_visibility
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/symbol_table_visibility_test.py
@@ -620,10 +741,10 @@ if (ARCH STREQUAL "x86_64")
         add_custom_command(
                 OUTPUT ${_fix_dir}/hello_initrd.o
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -mcmodel=large
-                -fno-stack-protector -fno-asynchronous-unwind-tables
-                -o ${_fix_dir}/hello_initrd.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.c
-                DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.c
+                COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+                -mcmodel=large -fno-stack-protector -fno-asynchronous-unwind-tables
+                -o ${_fix_dir}/hello_initrd.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.cpp
+                DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.cpp
                 COMMENT "Compiling ET_REL fixture hello_initrd.o"
         )
         # The libc in ring 3: the same sources the host tests link, but
