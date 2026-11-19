@@ -1,120 +1,88 @@
-set(ASTIA_USB_OBJECT ${CMAKE_CURRENT_BINARY_DIR} /
-    usb.o) include(${CMAKE_CURRENT_SOURCE_DIR} /../../ cmake /
-                   AstiaCTest.cmake) set(ASTIA_USB_UNIT ${CMAKE_CURRENT_BINARY_DIR} /
-                                         usb_unit)
+set(ASTIA_USB_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb.o)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/AstiaCTest.cmake)
+set(ASTIA_USB_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_unit)
 
-    set(ASTIA_USB_ABI_HEADERS ${ASTIA_KERNEL_SOURCE_DIR} / include / astia / module.hpp)
+set(ASTIA_USB_ABI_HEADERS
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp)
 
-        add_custom_command(
-            OUTPUT ${ASTIA_USB_OBJECT} COMMAND ${CMAKE_CXX_COMPILER} - std =
-                c++ 20 - O2 - ffreestanding - fno - builtin - fno - pic - fno - pie -
-                fno - exceptions - fno - rtti - fno - threadsafe - statics - fno - stack -
-                protector - fno - omit - frame - pointer - mno - red - zone -
-                mcmodel = large - fno - asynchronous - unwind - tables - fno - use - cxa -
-                          atexit - Wall - Wextra - Werror - pedantic -
-                          I${ASTIA_KERNEL_SOURCE_DIR} / include -
-                          I${CMAKE_CURRENT_SOURCE_DIR} -
-                          c ${CMAKE_CURRENT_SOURCE_DIR} / xhci.cpp -
-                          o ${ASTIA_USB_OBJECT} DEPENDS ${CMAKE_CURRENT_SOURCE_DIR} /
-                              xhci.cpp                  ${CMAKE_CURRENT_SOURCE_DIR} /
-                              usb_protocol.hpp          ${CMAKE_CURRENT_SOURCE_DIR} /
-                              xhci.hpp                  ${ASTIA_USB_ABI_HEADERS} COMMENT
-                              "Compiling USB xHCI foundation loadable module" VERBATIM)
+add_custom_command(
+        OUTPUT ${ASTIA_USB_OBJECT}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                -std=c++20 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie
+                -fno-exceptions -fno-rtti -fno-threadsafe-statics
+                -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
+                -mcmodel=large -fno-asynchronous-unwind-tables -fno-use-cxa-atexit
+                -Wall -Wextra -Werror -pedantic
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                -c ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp -o ${ASTIA_USB_OBJECT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/usb_protocol.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/xhci.hpp
+                ${ASTIA_USB_ABI_HEADERS}
+        COMMENT "Compiling USB xHCI foundation loadable module"
+        VERBATIM)
 
-            add_custom_target(usb_module ALL DEPENDS ${ASTIA_USB_OBJECT})
+add_custom_target(usb_module ALL DEPENDS ${ASTIA_USB_OBJECT})
 
-                add_custom_command(
-                    OUTPUT ${ASTIA_USB_UNIT} COMMAND ${CMAKE_CXX_COMPILER} -
-                        std = c++ 20 - Wall - Wextra - Werror -
-                              pedantic ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS} -
-                              I${CMAKE_CURRENT_SOURCE_DIR} -
-                              I${ASTIA_KERNEL_SOURCE_DIR} /
-                                  include ${CMAKE_CURRENT_SOURCE_DIR} / tests /
-                                  usb_protocol_test.cpp -
-                              o ${ASTIA_USB_UNIT} DEPENDS ${CMAKE_CURRENT_SOURCE_DIR} /
-                                  tests /
-                                  usb_protocol_test.cpp ${CMAKE_CURRENT_SOURCE_DIR} /
-                                  usb_protocol.hpp      ${CMAKE_CURRENT_SOURCE_DIR} /
-                                  xhci.hpp              VERBATIM)
+add_custom_command(
+        OUTPUT ${ASTIA_USB_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_protocol_test.cpp
+                -o ${ASTIA_USB_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_protocol_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/usb_protocol.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/xhci.hpp
+        VERBATIM)
 
-                    add_custom_target(usb_unit_target ALL DEPENDS ${ASTIA_USB_UNIT})
+add_custom_target(usb_unit_target ALL DEPENDS ${ASTIA_USB_UNIT})
 
-                        if (ASTIA_BUILD_TESTS) add_test(NAME usb_protocol_unit COMMAND ${
-                            ASTIA_USB_UNIT}) astia_append_test_label("module;usb;xhci;"
-                                                                     "host;deterministic")
-                            add_test(NAME usb_xhci_probe_stack_usage COMMAND ${
-                                         Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR} /
-                                     tests / probe_stack_usage.py ${ASTIA_USB_OBJECT})
-                                set_tests_properties(
-                                    usb_xhci_probe_stack_usage PROPERTIES LABELS
-                                    "module;usb;xhci;host;deterministic" FIXTURES_REQUIRED
-                                        usb -
-                                    module - artifacts)
-                                    add_test(
-                                        NAME usb_module_prepare COMMAND $ {
-                                            CMAKE_COMMAND
-                                        } --build $ { CMAKE_BINARY_DIR } --target
-                                            usb_module) set_tests_properties(usb_module_prepare
-                                                                                 PROPERTIES LABELS
-                                                                             "build;"
-                                                                             "module;usb;"
-                                                                             "xhci;"
-                                                                             "determinist"
-                                                                             "i"
-                                                                             "c" FIXTURES_SETUP
-                                                                                 usb -
-                                                                             module -
-                                                                             artifacts
-                                                                                 TIMEOUT 300)
-                                        add_test(
-                                            NAME usb_xhci_stop_quarantine_policy COMMAND ${
-                                                Python3_EXECUTABLE} ${
-                                                CMAKE_CURRENT_SOURCE_DIR} /
-                                            tests /
-                                            stop_quarantine_policy.py ${
-                                                CMAKE_CURRENT_SOURCE_DIR} /
-                                            xhci.cpp) set_tests_properties(usb_xhci_stop_quarantine_policy
-                                                                               PROPERTIES LABELS
-                                                                           "module;usb;"
-                                                                           "xhci;host;"
-                                                                           "deterministi"
-                                                                           "c")
-                                            add_test(
-                                                NAME usb_xhci_qemu_enumeration COMMAND ${
-                                                    CMAKE_CURRENT_SOURCE_DIR} /
-                                                    run -
-                                                qemu.sh)
-                                                set_tests_properties(
-                                                    usb_xhci_qemu_enumeration
-                                                        PROPERTIES LABELS
-                                                    "module;usb;xhci;qemu;"
-                                                    "deterministic" ENVIRONMENT
-                                                    "ASTIA_TEST_BUILD=${CMAKE_BINARY_"
-                                                    "DIR}" FIXTURES_REQUIRED
-                                                                                   astia -
-                                                    qemu - artifacts RESOURCE_LOCK astia -
-                                                    qemu) endif()
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME usb_protocol_unit COMMAND ${ASTIA_USB_UNIT})
+    astia_append_test_label("module;usb;xhci;host;deterministic")
+    add_test(NAME usb_xhci_probe_stack_usage
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/probe_stack_usage.py
+                    ${ASTIA_USB_OBJECT})
+    set_tests_properties(usb_xhci_probe_stack_usage PROPERTIES
+            LABELS "module;usb;xhci;host;deterministic"
+            FIXTURES_REQUIRED usb-module-artifacts)
+    add_test(NAME usb_module_prepare
+            COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
+                    --target usb_module)
+    set_tests_properties(usb_module_prepare PROPERTIES
+            LABELS "build;module;usb;xhci;deterministic"
+            FIXTURES_SETUP usb-module-artifacts
+            TIMEOUT 300)
+    add_test(NAME usb_xhci_stop_quarantine_policy
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/stop_quarantine_policy.py
+                    ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp)
+    set_tests_properties(usb_xhci_stop_quarantine_policy PROPERTIES
+            LABELS "module;usb;xhci;host;deterministic")
+    add_test(NAME usb_xhci_qemu_enumeration
+            COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
+    set_tests_properties(usb_xhci_qemu_enumeration PROPERTIES
+            LABELS "module;usb;xhci;qemu;deterministic"
+            ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}"
+            FIXTURES_REQUIRED astia-qemu-artifacts
+            RESOURCE_LOCK astia-qemu)
+endif()
 
-                                                    add_custom_target(
-                                                        usb_qemu_capability_smoke
-                                                                COMMAND
-                                                                    ${CMAKE_CURRENT_SOURCE_DIR} /
-                                                            run -
-                                                        qemu.sh WORKING_DIRECTORY ${
-                                                            CMAKE_CURRENT_SOURCE_DIR} VERBATIM)
+add_custom_target(usb_qemu_capability_smoke
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        VERBATIM)
 
-                                                        add_custom_target(
-                                                            usb_qemu_keyboard_vga_smoke COMMAND ${
-                                                                CMAKE_CURRENT_SOURCE_DIR} /
-                                                                run -
-                                                            keyboard - vga -
-                                                            smoke.sh WORKING_DIRECTORY ${
-                                                                CMAKE_CURRENT_SOURCE_DIR} VERBATIM)
+add_custom_target(usb_qemu_keyboard_vga_smoke
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-keyboard-vga-smoke.sh
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        VERBATIM)
 
-                                                            add_custom_target(
-                                                                usb_qemu_enumeration_smoke
-                                                                        COMMAND ${
-                                                                            CMAKE_CURRENT_SOURCE_DIR} /
-                                                                    run -
-                                                                qemu.sh WORKING_DIRECTORY ${
-                                                                    CMAKE_CURRENT_SOURCE_DIR} VERBATIM)
+add_custom_target(usb_qemu_enumeration_smoke
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        VERBATIM)
