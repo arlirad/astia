@@ -53,6 +53,12 @@ namespace {
         }
         if (offset >= 0x10 && offset < 0x28)
             bar_probe[address.function][(offset - 0x10) / 4] = 0;
+        if (offset == 0x04) {
+            astia::u32 previous = 0;
+            std::memcpy(&previous, &config[address.device][address.function][offset],
+                        sizeof(previous));
+            value = (value & 0x0000ffffu) | ((previous >> 16) & ~(value >> 16)) << 16;
+        }
         std::memcpy(&config[address.device][address.function][offset], &value, sizeof(value));
     }
 

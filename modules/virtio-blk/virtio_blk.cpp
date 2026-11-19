@@ -189,6 +189,8 @@ namespace {
         bool write_supported = false;
         bool started = false;
         bool failed = false;
+        bool quiescing = false;
+        bool release_pending = false;
         queue _requestqueue{};
 
         bool region_valid(const capability_region& region, unsigned required) const {
@@ -376,9 +378,12 @@ namespace {
         }
 
         void release() {
-            disable_queue();
-            if (common.mapped())
-                (void) reset_device();
+            quiesce();
+            if (pending.active) {
+                release_pending = true;
+                return;
+            }
+            release_pending = false;
             _requestqueue.memory.release();
             common = {};
             notify = {};
@@ -386,7 +391,29 @@ namespace {
             started = false;
         }
 
+        void quiesce() {
+            if (quiescing)
+                return;
+            quiescing = true;
+            disable_queue();
+            if (common.mapped())
+                (void) reset_device();
+            if (!pending.active)
+                return;
+            pending.completed = true;
+            pending.result = -19;
+            pending.hardware_done = true;
+            if (pending.io != nullptr) {
+                if (pending.io->device_state() != nullptr)
+                    pending.io->wake();
+            } else {
+                pending.request.release();
+                pending = {};
+            }
+        }
+
         bool start() {
+            quiescing = false;
             if (astia_module_pci_enable_bus_master(pci) != 0 ||
                 astia_module_pci_disable_msix(pci) != 0 || !find_capabilities())
                 return false;
@@ -437,6 +464,7 @@ namespace {
             bool flush = false;
             bool canceled = false;
             bool active = false;
+            bool hardware_done = false;
         } pending{};
 
         bool valid_transfer(unsigned length, uint64_t offset, bool write) const {
@@ -554,7 +582,8 @@ namespace {
         }
 
         int submit_async(astia::io::request& io) {
-            if (pending.active || (io.direction() != astia::io::direction::input &&
+            if (quiescing || pending.active ||
+                (io.direction() != astia::io::direction::input &&
                                    io.direction() != astia::io::direction::output))
                 return -16;
             const bool write = io.direction() == astia::io::direction::output;
@@ -572,6 +601,7 @@ namespace {
             pending.status_offset = status_offset;
             pending.write = write;
             pending.active = true;
+            pending.hardware_done = false;
             if (write)
                 copy_bytes(static_cast<unsigned char*>(pending.request.data()) + 64,
                            io.buffer(), io.length());
@@ -589,12 +619,27 @@ namespace {
         int poll_async(astia::io::request& io) {
             if (!pending.active || pending.io != &io)
                 return -2;
+            if (pending.completed) {
+                if (!pending.hardware_done) {
+                    volatile used_ring* used = _requestqueue.used();
+                    if (used->index != _requestqueue.used_index) {
+                        ++_requestqueue.used_index;
+                        pending.hardware_done = true;
+                        if (pending.io != nullptr && pending.io->device_state() != nullptr)
+                            pending.io->wake();
+                    }
+                }
+                if (pending.io == nullptr && pending.hardware_done) {
+                    pending.request.release();
+                    pending = {};
+                }
+                return 0;
+            }
             if (io.timeout_expired()) {
-                if (ring_reset)
-                    (void) reset_queue_after_timeout();
+                pending.hardware_done = ring_reset && reset_queue_after_timeout();
                 pending.result = -110;
                 pending.completed = true;
-                if (pending.io->device_state() != nullptr)
+                if (pending.hardware_done && pending.io->device_state() != nullptr)
                     pending.io->wake();
                 return 0;
             }
@@ -623,6 +668,7 @@ namespace {
                 copy_bytes(pending.io->buffer(), bytes + 64, pending.length);
                 pending.result = static_cast<long>(pending.length);
                 pending.completed = true;
+                pending.hardware_done = true;
                 if (pending.io->device_state() != nullptr)
                     pending.io->wake();
                 return 0;
@@ -639,28 +685,36 @@ namespace {
             }
             pending.result = pending.length;
             pending.completed = true;
+            pending.hardware_done = true;
             if (pending.io->device_state() != nullptr)
                 pending.io->wake();
             return 0;
         }
 
-        int cancel_async(astia::io::request& io) {
+        int cancel_async(astia::io::request& io, bool retain) {
             if (!pending.active || pending.io != &io)
                 return -2;
             pending.canceled = true;
-            if (ring_reset)
-                (void) reset_queue_after_timeout();
-            pending.request.release();
-            pending = {};
+            pending.completed = true;
+            pending.result = -125;
+            if (!retain)
+                pending.io = nullptr;
+            pending.hardware_done = quiescing || (ring_reset && reset_queue_after_timeout());
+            if (retain && pending.hardware_done && pending.io->device_state() != nullptr)
+                pending.io->wake();
             return 0;
         }
 
         bool complete_async(astia::io::request& io, long& result) {
-            if (!pending.active || pending.io != &io || !pending.completed)
+            if (!pending.active || pending.io != &io || !pending.completed ||
+                !pending.hardware_done)
                 return false;
             result = pending.result;
             pending.request.release();
             pending = {};
+            io.cancel_acknowledge();
+            if (release_pending)
+                release();
             return true;
         }
 
@@ -673,6 +727,7 @@ namespace {
         }
     };
 
+#ifndef ASTIA_TEARDOWN_TEST
     controller device;
 
     class virtio_block final : public astia::dev::blk::blkdev {
@@ -718,9 +773,12 @@ namespace {
         static void cancel_request(astia::io::request& request) {
             auto* self = static_cast<virtio_block*>(request.device_state());
             if (self != nullptr) {
-                (void) self->_owner.cancel_async(request);
-                request.device_state(nullptr);
-                request.cancel_handler_set(nullptr);
+                const bool retain = request.cancellation_retain();
+                (void) self->_owner.cancel_async(request, retain);
+                if (!retain) {
+                    request.device_state(nullptr);
+                    request.cancel_handler_set(nullptr);
+                }
             }
         }
 
@@ -776,6 +834,7 @@ namespace {
             return _product;
         }
         void remove(const astia::hw::device_info&) override {
+            device.quiesce();
             if (_file) {
                 _file->detach();
                 (void) astia::fs::unregister_device("/dev/vblk0", _file);
@@ -844,3 +903,4 @@ namespace {
 extern "C" int module_main() {
     return astia::hw::drivers().register_driver(driver) ? 0 : -22;
 }
+#endif

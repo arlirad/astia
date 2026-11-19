@@ -426,7 +426,7 @@ namespace astia::hw {
         }
         const u16 command = device.command;
         if (!write_word_raw(device.bdf, command_status_offset, command & ~(command_io | command_memory),
-                            true))
+                            false))
             return false;
         bool ok = write_dword(device.bdf, offset, ~u32{0});
         if (ok && result.is_64bit)
@@ -440,7 +440,7 @@ namespace astia::hw {
         if (result.is_64bit)
             ok = write_dword(device.bdf, static_cast<u16>(offset + 4), original_high) && ok;
         ok = write_dword(device.bdf, offset, original) && ok;
-        write_word_raw(device.bdf, command_status_offset, command, true);
+        write_word_raw(device.bdf, command_status_offset, command, false);
         if (!ok)
             return false;
         if (result.io) {

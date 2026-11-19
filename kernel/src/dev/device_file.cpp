@@ -7,13 +7,62 @@ namespace astia::dev {
 
     void device_file::detach() {
         __atomic_store_n(&detached_, true, __ATOMIC_RELEASE);
-        while (__atomic_load_n(&active_, __ATOMIC_ACQUIRE) != 0)
-            ASTIA_CPU_RELAX();
+        io::request* requests[max_pending_requests]{};
+        u32 count = 0;
+        {
+            core::spinlock_guard guard(pending_lock_);
+            count = pending_count_;
+            for (u32 i = 0; i < count; ++i)
+                requests[i] = pending_[i];
+        }
+        for (u32 i = 0; i < count; ++i)
+            if (requests[i] != nullptr)
+                requests[i]->cancel_device(true);
     }
 
-    device* device_file::begin_operation() const {
+    bool device_file::tracked_request(const io::request& request) const {
+        core::spinlock_guard guard(pending_lock_);
+        for (u32 i = 0; i < pending_count_; ++i)
+            if (pending_[i] == &request)
+                return true;
+        return false;
+    }
+
+    bool device_file::track_request(io::request& request) const {
+        core::spinlock_guard guard(pending_lock_);
+        if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE))
+            return false;
+        for (u32 i = 0; i < pending_count_; ++i)
+            if (pending_[i] == &request)
+                return true;
+        if (pending_count_ == max_pending_requests)
+            return false;
+        pending_[pending_count_++] = &request;
+        request.cancel_observer_set(observe_cancellation, const_cast<device_file*>(this));
+        return true;
+    }
+
+    void device_file::untrack_request(io::request& request) const {
+        core::spinlock_guard guard(pending_lock_);
+        for (u32 i = 0; i < pending_count_; ++i) {
+            if (pending_[i] != &request)
+                continue;
+            pending_[i] = pending_[--pending_count_];
+            pending_[pending_count_] = nullptr;
+            request.cancel_observer_set(nullptr, nullptr);
+            return;
+        }
+    }
+
+    void device_file::observe_cancellation(io::request& request, void* context) {
+        if (context != nullptr)
+            static_cast<device_file*>(context)->untrack_request(request);
+    }
+
+    device* device_file::begin_operation(const io::request* request) const {
         __atomic_add_fetch(&active_, 1u, __ATOMIC_ACQ_REL);
-        if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE)) {
+        if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE) &&
+            (request == nullptr || !tracked_request(*request))) {
             __atomic_sub_fetch(&active_, 1u, __ATOMIC_ACQ_REL);
             return nullptr;
         }
@@ -47,10 +96,21 @@ namespace astia::dev {
     }
 
     long device_file::submit(io::request& request) {
-        device* value = begin_operation();
+        device* value = begin_operation(&request);
         if (value == nullptr)
             return -ENODEV;
+        if (!track_request(request)) {
+            end_operation();
+            return __atomic_load_n(&detached_, __ATOMIC_ACQUIRE) ? -ENODEV : -EBUSY;
+        }
+        if (request.cancellation_requested() && !request.has_cancel_handler()) {
+            untrack_request(request);
+            end_operation();
+            return -ECANCELED;
+        }
         const long result = value->submit(request);
+        if (result != 0 || request.complete())
+            untrack_request(request);
         end_operation();
         return result;
     }

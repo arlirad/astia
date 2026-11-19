@@ -2,6 +2,7 @@
 #include "test.hpp"
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
+#include <astia/mm/share.hpp>
 
 namespace {
 
@@ -113,5 +114,27 @@ ASTIA_TEST(heap_ignores_foreign_and_double_frees) {
     free(got.value);
     const auto used_before = astia::mm::heap::used();
     free(got.value); // double free: ignored
+    ASTIA_CHECK(astia::mm::heap::used() == used_before);
+}
+
+namespace {
+
+    struct shared_probe {
+        int* destroyed;
+
+        ~shared_probe() {
+            ++*destroyed;
+        }
+    };
+
+}
+
+ASTIA_TEST(shptr_share_releases_value_when_control_block_allocation_fails) {
+    int destroyed = 0;
+    const astia::usize used_before = astia::mm::heap::used();
+    astia_test::fail_next_allocation();
+    auto shared = astia::mm::share<shared_probe>(&destroyed);
+    ASTIA_CHECK(!shared);
+    ASTIA_CHECK(destroyed == 1);
     ASTIA_CHECK(astia::mm::heap::used() == used_before);
 }

@@ -29,6 +29,32 @@ if(ASTIA_BUILD_TESTS)
     astia_append_test_label("module;virtio;host;deterministic")
 endif()
 
+set(ASTIA_VIRTIO_BLK_TEARDOWN_UNIT ${CMAKE_CURRENT_BINARY_DIR}/virtio_blk_teardown_unit)
+add_custom_command(
+        OUTPUT ${ASTIA_VIRTIO_BLK_TEARDOWN_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                -std=c++20 -Wall -Wextra -Werror -pedantic
+                -ffunction-sections -fdata-sections
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${CMAKE_CURRENT_SOURCE_DIR}/../..
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_teardown_test.cpp
+                -Wl,--gc-sections
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
+                -o ${ASTIA_VIRTIO_BLK_TEARDOWN_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_teardown_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk_protocol.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp
+        VERBATIM)
+add_custom_target(virtio_blk_teardown_target ALL DEPENDS ${ASTIA_VIRTIO_BLK_TEARDOWN_UNIT})
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME virtio_blk_teardown_unit
+             COMMAND ${ASTIA_VIRTIO_BLK_TEARDOWN_UNIT})
+    astia_append_test_label("module;virtio;host;deterministic;teardown")
+endif()
+
 add_custom_command(
         OUTPUT ${ASTIA_VIRTIO_BLK_OBJECT}
         COMMAND ${CMAKE_CXX_COMPILER}

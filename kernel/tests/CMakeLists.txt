@@ -28,8 +28,9 @@ find_program(ASTIA_ZSTD zstd REQUIRED)
 add_library(astia_test_support STATIC
         support/main.cpp
         support/arena.cpp
-        support/freestanding_new.cpp
 )
+set_source_files_properties(support/main.cpp
+        PROPERTIES COMPILE_OPTIONS "-fno-threadsafe-statics")
 astia_apply_host_sanitizers(astia_test_support)
 target_include_directories(astia_test_support PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/support
@@ -54,11 +55,18 @@ set(_astia_test_includes
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64
 )
 
+add_library(astia_host_file_runtime OBJECT
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs.cpp)
+target_include_directories(astia_host_file_runtime PRIVATE ${_astia_test_includes})
+target_compile_options(astia_host_file_runtime PRIVATE
+        -fno-pie -fno-rtti -ffunction-sections -fdata-sections -fno-sanitize=all)
+
 function(astia_add_host_test name)
-    add_executable(${name} ${ARGN})
+    add_executable(${name} ${ARGN} support/freestanding_new.cpp)
     set_target_properties(${name} PROPERTIES LINK_OPTIONS "")
-    target_link_libraries(${name} PRIVATE astia_test_support)
+    target_link_libraries(${name} PRIVATE c astia_test_support)
     target_include_directories(${name} PRIVATE ${_astia_test_includes})
+    target_compile_options(${name} PRIVATE -fno-threadsafe-statics)
     astia_apply_host_sanitizers(${name})
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
@@ -85,6 +93,8 @@ astia_add_host_test(astia_fs_async_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         support/resume_queue_host.cpp
 )
+target_compile_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
+target_link_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_user_layout_test user_layout_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
@@ -170,7 +180,13 @@ astia_add_host_test(astia_device_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
-        support/file_host.cpp)
+        support/device_ready_host.cpp)
+target_sources(astia_device_test PRIVATE
+        $<TARGET_OBJECTS:astia_host_file_runtime>)
+target_compile_options(astia_device_test PRIVATE
+        -fno-pie -fno-rtti -ffunction-sections -fdata-sections)
+target_link_options(astia_device_test PRIVATE
+        "-Wl,-no-pie" "-Wl,--gc-sections")
 
 astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp
@@ -288,6 +304,7 @@ astia_embed_blob(_hello_mod_cpp ${_fix_dir}/hello_mod.o hello_mod_blob)
 
 add_custom_command(
         OUTPUT ${_fix_dir}/module_symbols.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
         -fno-exceptions -fno-rtti -fno-stack-protector -fno-asynchronous-unwind-tables
         -mcmodel=large -o ${_fix_dir}/module_symbols.o
@@ -513,7 +530,6 @@ astia_add_arena_test(astia_ext4_vfs_test
 )
 target_link_libraries(astia_ext4_vfs_test PRIVATE fs)
 target_compile_options(astia_ext4_vfs_test PRIVATE -fno-rtti)
-target_link_options(astia_ext4_vfs_test PRIVATE "-Wl,--allow-multiple-definition")
 target_include_directories(astia_ext4_vfs_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
@@ -760,59 +776,47 @@ if (ARCH STREQUAL "x86_64")
         # Native PID-1 split: init only bootstraps/waits for daemond; daemond owns
         # the fixed-capacity, non-shell rc file.  Keep this as a separate image
         # from init_user, whose purpose is the raw syscall ABI regression.
-        add_custom_command(
-                OUTPUT ${_fix_dir}/native_init ${_fix_dir}/native_daemond ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps ${_fix_dir}/native_true
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
-                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
-                -o ${_fix_dir}/native_init.o ${ASTIA_KERNEL_SOURCE_DIR}/../init/init.c
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
-                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
-                -o ${_fix_dir}/native_daemond.o ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.c
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
-                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
-                -I${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src
-                -o ${_fix_dir}/native_daemondctl.o ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
-                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
-                -I${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src
-                -o ${_fix_dir}/native_ps.o ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/ps.c
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
-                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
-                -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include -I${ASTIA_KERNEL_SOURCE_DIR}/include
-                -I${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src
-                -o ${_fix_dir}/native_true.o ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/true.c
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
-                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
-                -o ${_fix_dir}/native_init ${_fix_dir}/crt0.o ${_fix_dir}/native_init.o
-                $<TARGET_FILE:astia_userspace_libc> -lgcc
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
-                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
-                -o ${_fix_dir}/native_daemond ${_fix_dir}/crt0.o ${_fix_dir}/native_daemond.o
-                $<TARGET_FILE:astia_userspace_libc> -lgcc
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
-                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
-                -o ${_fix_dir}/native_daemondctl ${_fix_dir}/crt0.o ${_fix_dir}/native_daemondctl.o
-                $<TARGET_FILE:astia_userspace_libc> -lgcc
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
-                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
-                -o ${_fix_dir}/native_ps ${_fix_dir}/crt0.o ${_fix_dir}/native_ps.o
-                $<TARGET_FILE:astia_userspace_libc> -lgcc
-                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
-                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
-                -o ${_fix_dir}/native_true ${_fix_dir}/crt0.o ${_fix_dir}/native_true.o
-                $<TARGET_FILE:astia_userspace_libc> -lgcc
-                DEPENDS ${ASTIA_KERNEL_SOURCE_DIR}/../init/init.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.h ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/ps.c
+        function(astia_add_native_program name source extra_include)
+            set(_native_object ${_fix_dir}/${name}.o)
+            if (extra_include)
+                set(_native_extra_include -I${extra_include})
+            else ()
+                set(_native_extra_include)
+            endif ()
+            add_custom_command(
+                    OUTPUT ${_fix_dir}/${name}
+                    COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                    -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                    -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
+                    -I${ASTIA_KERNEL_SOURCE_DIR}/include ${_native_extra_include}
+                    -o ${_native_object} ${source}
+                    COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
+                    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                    -o ${_fix_dir}/${name} ${_fix_dir}/crt0.o ${_native_object}
+                    $<TARGET_FILE:astia_userspace_libc> -lgcc
+                    DEPENDS ${source}
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.h
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/common.h
+                    ${_fix_dir}/crt0.o astia_userspace_libc
+                    COMMENT "Building native ${name} image")
+        endfunction()
+        astia_add_native_program(native_init
+                ${ASTIA_KERNEL_SOURCE_DIR}/../init/init.c "")
+        astia_add_native_program(native_daemond
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.c "")
+        astia_add_native_program(native_daemondctl
+                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+        astia_add_native_program(native_ps
+                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/ps.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+        astia_add_native_program(native_true
                 ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/true.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/common.h ${_fix_dir}/crt0.o
-                astia_userspace_libc
-                COMMENT "Building native init and daemond images")
+                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+        add_custom_target(astia_native_programs
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
+                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps ${_fix_dir}/native_true)
         add_custom_command(
                 OUTPUT ${_fix_dir}/native_boot_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/sbin
@@ -828,10 +832,11 @@ if (ARCH STREQUAL "x86_64")
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_stage ${_fix_dir}/native_boot_initrd.cpio
                 sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/rc
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
+                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
+                ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/rc
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native init/daemond initrd")
-        add_custom_target(astia_native_boot_initrd ALL DEPENDS ${_fix_dir}/native_boot_initrd.cpio)
         add_test(NAME astia_native_daemond_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
@@ -855,11 +860,11 @@ if (ARCH STREQUAL "x86_64")
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_service_stage ${_fix_dir}/native_service_boot_initrd.cpio
                 sbin/init sbin/daemond bin/true bin/init_libc etc/rc
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond ${_fix_dir}/native_daemondctl ${_fix_dir}/native_true ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/service.rc
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
+                ${_fix_dir}/native_true ${_init_libc_image}
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/service.rc
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native service supervision initrd")
-        add_custom_target(astia_native_service_boot_initrd ALL
-                DEPENDS ${_fix_dir}/native_service_boot_initrd.cpio)
         add_test(NAME astia_native_daemond_service
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
@@ -885,11 +890,11 @@ if (ARCH STREQUAL "x86_64")
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_failure_stage ${_fix_dir}/native_failure_boot_initrd.cpio
                 sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/failure.rc
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
+                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
+                ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/failure.rc
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing failing native daemond initrd")
-        add_custom_target(astia_native_failure_boot_initrd ALL
-                DEPENDS ${_fix_dir}/native_failure_boot_initrd.cpio)
         add_test(NAME astia_native_daemond_failure
                 COMMAND env
                 ASTIA_EXPECT_QEMU_STATUS=3
@@ -901,6 +906,11 @@ if (ARCH STREQUAL "x86_64")
                 "daemond: malformed service record"
                 "init: daemond failed")
         set_tests_properties(astia_native_daemond_failure PROPERTIES TIMEOUT 60)
+
+        add_custom_target(astia_native_initrd_fixtures ALL
+                DEPENDS ${_fix_dir}/native_boot_initrd.cpio
+                ${_fix_dir}/native_service_boot_initrd.cpio
+                ${_fix_dir}/native_failure_boot_initrd.cpio)
 
         if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
             add_custom_target(astia_grub_iso ALL
