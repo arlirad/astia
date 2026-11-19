@@ -43,6 +43,13 @@ add_custom_target(usb_unit_target ALL DEPENDS ${ASTIA_USB_UNIT})
 if(ASTIA_BUILD_TESTS)
     add_test(NAME usb_protocol_unit COMMAND ${ASTIA_USB_UNIT})
     astia_append_test_label("module;usb;xhci;host;deterministic")
+    add_test(NAME usb_xhci_probe_stack_usage
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/probe_stack_usage.py
+                    ${ASTIA_USB_OBJECT})
+    set_tests_properties(usb_xhci_probe_stack_usage PROPERTIES
+            LABELS "module;usb;xhci;host;deterministic"
+            DEPENDS usb_module)
     add_test(NAME usb_xhci_qemu_enumeration
             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
     set_tests_properties(usb_xhci_qemu_enumeration PROPERTIES
