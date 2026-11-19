@@ -75,7 +75,7 @@ namespace {
     };
 
     void set_termios(test_tty& tty, tcflag_t input, tcflag_t output, tcflag_t local) {
-        struct termios value{};
+        struct termios value {};
         ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
         value.c_iflag = input;
         value.c_oflag = output;
@@ -117,7 +117,7 @@ ASTIA_TEST(tty_raw_mode_delivers_bytes) {
 
 ASTIA_TEST(tty_default_termios_commits_carriage_return) {
     test_tty       tty;
-    struct termios value{};
+    struct termios value {};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     ASTIA_CHECK(value.c_iflag == (ICRNL | IXON));
     ASTIA_CHECK(value.c_oflag == (OPOST | ONLCR));
@@ -153,7 +153,7 @@ ASTIA_TEST(tty_canonical_default_reader_delivers_each_enter_once) {
 
 ASTIA_TEST(tty_raw_zle_transition_poll_and_single_byte_reads) {
     test_tty       tty;
-    struct termios value{};
+    struct termios value {};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     struct termios saved = value;
     value.c_iflag        = ICRNL | INLCR;
@@ -178,7 +178,7 @@ ASTIA_TEST(tty_raw_zle_transition_poll_and_single_byte_reads) {
 
 ASTIA_TEST(tty_line_reader_tcsetattr_and_editing) {
     test_tty       tty;
-    struct termios value{};
+    struct termios value {};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     value.c_iflag |= ICRNL;
     value.c_oflag &= ~(OPOST | ONLCR);
@@ -215,7 +215,7 @@ ASTIA_TEST(tty_raw_input_echoes_only_when_enabled) {
                 result[3] == 127);
     ASTIA_CHECK(tty.output.empty());
 
-    struct termios value{};
+    struct termios value {};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     value.c_lflag = ECHONL;
     ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
@@ -273,7 +273,7 @@ ASTIA_TEST(tty_host_injection_canonical_fd0_shtty_alias) {
 ASTIA_TEST(tty_host_injection_raw_vmin_one_preserves_cr_lf) {
     test_tty tty;
     set_termios(tty, 0, 0, 0);
-    struct termios value{};
+    struct termios value {};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     value.c_cc[VMIN]  = 1;
     value.c_cc[VTIME] = 0;
@@ -301,7 +301,7 @@ ASTIA_TEST(tty_host_injection_raw_vmin_one_preserves_cr_lf) {
 ASTIA_TEST(tty_host_injection_vmin_vtime_wakes_once) {
     test_tty tty;
     set_termios(tty, 0, 0, 0);
-    struct termios value{};
+    struct termios value {};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     value.c_cc[VMIN]  = 2;
     value.c_cc[VTIME] = 0;
@@ -346,7 +346,7 @@ ASTIA_TEST(tty_canonical_line_notifies_once_at_enter) {
 
 ASTIA_TEST(tty_noncanonical_vmin_vtime_modes) {
     test_tty       tty;
-    struct termios value{};
+    struct termios value {};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     value.c_iflag = 0;
     value.c_oflag = 0;
@@ -393,7 +393,7 @@ ASTIA_TEST(tty_noncanonical_vmin_vtime_modes) {
 ASTIA_TEST(tty_noncanonical_vmin_waits_for_minimum) {
     test_tty tty;
     set_termios(tty, 0, 0, 0);
-    struct termios value{};
+    struct termios value {};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     value.c_cc[VMIN] = 2;
     ASTIA_CHECK(tty.ioctl(TCSETS, &value, sizeof(value)) == 0);
@@ -496,7 +496,7 @@ ASTIA_TEST(tty_empty_eof_is_a_zero_length_read) {
 ASTIA_TEST(tty_tcsetsf_flushes_pending_input) {
     test_tty tty;
     set_termios(tty, 0, 0, ICANON);
-    struct termios value{};
+    struct termios value {};
     ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value)) == 0);
     tty.tty_receive('x');
     ASTIA_CHECK(tty.ioctl(TCSETSF, &value, sizeof(value)) == 0);

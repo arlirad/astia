@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../ipc/signal.hpp"
-#include <astia/arch/context.hpp>
 #include <astia/api/signal.h>
+#include <astia/arch/context.hpp>
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/shptr.hpp>
