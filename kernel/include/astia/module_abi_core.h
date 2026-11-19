@@ -34,6 +34,12 @@ ASTIA_MODULE_ABI_STATIC_ASSERT(sizeof(uint64_t) == 8, "uint64_t width");
 ASTIA_MODULE_ABI_STATIC_ASSERT((ASTIA_PAGE_SIZE & (ASTIA_PAGE_SIZE - 1u)) == 0,
                                "page size must be a power of two");
 
+#if defined(__cplusplus)
+/* C++ modules use the semantic C++ entrypoint resolved by the ELF loader. */
+int module_main(void);
+#else
+/* Retained C modules use the explicit legacy adapter path in the loader. */
 ASTIA_MODULE_ABI_EXTERN_C_BEGIN
 int module_main(void);
 ASTIA_MODULE_ABI_EXTERN_C_END
+#endif

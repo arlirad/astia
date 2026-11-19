@@ -40,6 +40,32 @@ namespace astia::hw {
         return false;
     }
 
+    bool driver_registry::unregister_driver(driver& value) {
+        u32  write = 0;
+        bool found = false;
+        for (u32 i = 0; i < _device_count; ++i) {
+            binding& item = _bindings[i];
+            if (item._driver_instance != &value) {
+                _bindings[write++] = static_cast<binding&&>(item);
+                continue;
+            }
+            if (item._device_info_instance)
+                value.remove(*item._device_info_instance);
+            item  = {};
+            found = true;
+        }
+        _device_count = write;
+        for (u32 i = 0; i < _driver_count; ++i) {
+            if (_drivers[i] != &value)
+                continue;
+            for (u32 j = i; j + 1 < _driver_count; ++j)
+                _drivers[j] = _drivers[j + 1];
+            _drivers[--_driver_count] = nullptr;
+            return true;
+        }
+        return found;
+    }
+
     void driver_registry::unbind_all() {
         for (u32 i = _device_count; i != 0; --i) {
             binding& item = _bindings[i - 1];

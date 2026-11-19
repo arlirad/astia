@@ -109,8 +109,9 @@ namespace astia::elf {
     struct image {
         void* entry = nullptr; ///< Entry point (module_main for ET_REL, e_entry + bias
                                ///< for executables).
-        void* base = nullptr;  ///< Base of the loaded allocation (lowest mapped address).
-        usize size = 0;        ///< Total bytes spanned by the image.
+        bool  legacy_entry = false; ///< True when the retained C module adapter was used.
+        void* base = nullptr; ///< Base of the loaded allocation (lowest mapped address).
+        usize size = 0;       ///< Total bytes spanned by the image.
         kind  loaded = kind::none; ///< Which loader produced this.
         u64   load_bias =
             0; ///< Relocation bias (0 for ET_REL and ET_EXEC; chosen for ET_DYN).

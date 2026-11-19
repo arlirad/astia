@@ -259,6 +259,7 @@ namespace astia::elf {
         }
 
         constexpr const char* module_entry_symbol = "_Z11module_mainv";
+        constexpr const char* legacy_entry_symbol = "module_main";
         u32                   entry_index         = ~u32{0};
         for (usize i = 0; i < v.symcount; ++i) {
             const elf64_sym& sym  = v.sym[i];
@@ -277,6 +278,27 @@ namespace astia::elf {
                  sym.st_size > v.sh[sym.st_shndx].sh_size - sym.st_value))
                 return false;
             entry_index = static_cast<u32>(i);
+        }
+        bool legacy_entry = false;
+        if (entry_index == ~u32{0}) {
+            for (usize i = 0; i < v.symcount; ++i) {
+                const elf64_sym& sym  = v.sym[i];
+                const char*      name = nullptr;
+                if (!symbol_name(v, sym, name) || !str_eq(name, legacy_entry_symbol))
+                    continue;
+                if (entry_index != ~u32{0} || sym.st_shndx == shn_undef ||
+                    sym.st_shndx >= v.shnum || st_type(sym.st_info) != stt_func ||
+                    st_bind(sym.st_info) != stb_global ||
+                    st_visibility(sym.st_other) != 0 ||
+                    (v.sh[sym.st_shndx].sh_flags & (shf_alloc | shf_execinstr)) !=
+                        (shf_alloc | shf_execinstr) ||
+                    sym.st_value >= v.sh[sym.st_shndx].sh_size ||
+                    (sym.st_size != 0 &&
+                     sym.st_size > v.sh[sym.st_shndx].sh_size - sym.st_value))
+                    return false;
+                entry_index  = static_cast<u32>(i);
+                legacy_entry = true;
+            }
         }
         if (entry_index == ~u32{0})
             return false;
@@ -364,12 +386,13 @@ namespace astia::elf {
         u64 addr = 0;
         if (!sym_addr(v, e, sec_base, entry_index, addr) || !executable_address(addr))
             return false;
-        out.entry     = reinterpret_cast<void*>(addr);
-        out.base      = block;
-        out.size      = static_cast<usize>(offset);
-        out.loaded    = kind::relocatable;
-        out.load_bias = 0;
-        out.nsegs     = 0;
+        out.entry        = reinterpret_cast<void*>(addr);
+        out.legacy_entry = legacy_entry;
+        out.base         = block;
+        out.size         = static_cast<usize>(offset);
+        out.loaded       = kind::relocatable;
+        out.load_bias    = 0;
+        out.nsegs        = 0;
         mapped.keep();
         return true;
     }

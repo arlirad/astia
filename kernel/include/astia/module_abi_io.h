@@ -25,6 +25,11 @@ struct astia_module_pci_block_driver {
     int64_t (*read)(void* context, void* buffer, uint32_t length, uint64_t offset);
     int (*selftest)(void);
     int (*async_submit)(void* context, struct astia_module_io_request* request);
+    /*
+     * async_cancel must return only after controller/DMA quiescence.  The
+     * kernel does not release the bridge, request, or module context before
+     * this acknowledgement.
+     */
     int (*async_cancel)(void* context, struct astia_module_io_request* request);
     int (*async_poll)(void* context, struct astia_module_io_request* request);
     int64_t (*write)(void* context, const void* buffer, uint32_t length, uint64_t offset);

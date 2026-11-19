@@ -193,10 +193,12 @@ namespace astia::mod {
         struct registration {
             const astia_module_pci_block_driver* ops = nullptr;
             alignas(driver) u8 storage[sizeof(driver)]{};
-            driver*        instance      = nullptr;
-            bool           selftest_done = false;
-            async_bridge   bridges[max_async_requests]{};
-            core::spinlock async_lock;
+            driver*              instance       = nullptr;
+            bool                 selftest_done  = false;
+            const loaded_module* owner          = nullptr;
+            u32                  live_lifetimes = 0;
+            async_bridge         bridges[max_async_requests]{};
+            core::spinlock       async_lock;
         };
 
         class pci_device final : public dev::device {
@@ -449,30 +451,36 @@ namespace astia::mod {
         struct pci_registration {
             const astia_module_pci_driver* ops = nullptr;
             alignas(pci_driver) u8 storage[sizeof(pci_driver)]{};
-            pci_driver* instance = nullptr;
+            pci_driver*          instance = nullptr;
+            const loaded_module* owner    = nullptr;
         };
 
         struct net_registration {
             const astia::module::net_driver* ops = nullptr;
             alignas(net_driver) u8 storage[sizeof(net_driver)]{};
-            net_driver* instance      = nullptr;
-            bool        selftest_done = false;
+            net_driver*          instance      = nullptr;
+            bool                 selftest_done = false;
+            const loaded_module* owner         = nullptr;
         };
 
         struct usb_registration {
             const astia_module_usb_driver* ops = nullptr;
             alignas(usb_driver) u8 storage[sizeof(usb_driver)]{};
-            usb_driver* instance = nullptr;
+            usb_driver*          instance = nullptr;
+            const loaded_module* owner    = nullptr;
         };
 
         class controller_lifetime final {
             public:
             controller_lifetime(registration& registration, void* context)
-                : registration_(registration), context_(context) {}
+                : registration_(registration), context_(context) {
+                ++registration_.live_lifetimes;
+            }
 
             ~controller_lifetime() {
                 if (registration_.ops->remove != nullptr)
                     registration_.ops->remove(context_);
+                --registration_.live_lifetimes;
             }
 
             private:
@@ -490,6 +498,16 @@ namespace astia::mod {
         u32                  usb_registration_count = 0;
         mm::shptr<mm::iovec> pin_tokens[max_pin_tokens]{};
         u32                  next_async_generation = 1;
+
+        template <typename registration_type>
+        registration_type* acquire_registration(registration_type* slots, u32& count) {
+            for (u32 i = 0; i < count; ++i)
+                if (slots[i].instance == nullptr && slots[i].ops == nullptr)
+                    return &slots[i];
+            if (count == max_registrations)
+                return nullptr;
+            return &slots[count++];
+        }
 
         struct bridge_lease {
             registration* registration_owner = nullptr;
@@ -1171,15 +1189,21 @@ namespace astia::mod {
         if (ops.name == nullptr || ops.name[0] == '\0' || ops.device_path == nullptr ||
             ops.device_path[0] == '\0' || ops.match == nullptr || ops.probe == nullptr ||
             ops.size == nullptr || ops.block_size == nullptr || ops.read == nullptr ||
+            (ops.async_submit != nullptr && ops.async_cancel == nullptr) ||
             registration_count == max_registrations)
             return false;
-        registration& slot = registrations[registration_count++];
+        registration* slot_ptr = acquire_registration(registrations, registration_count);
+        if (slot_ptr == nullptr)
+            return false;
+        registration& slot = *slot_ptr;
         slot.ops           = &ops;
+        slot.owner         = current_module();
         slot.instance      = ::new (slot.storage) driver(slot);
         if (!hw::drivers().register_driver(*slot.instance)) {
             slot.instance->~driver();
             slot.instance = nullptr;
-            --registration_count;
+            slot.ops      = nullptr;
+            slot.owner    = nullptr;
             return false;
         }
         return true;
@@ -1189,13 +1213,19 @@ namespace astia::mod {
         if (ops.name == nullptr || ops.name[0] == '\0' || ops.match == nullptr ||
             ops.probe == nullptr || pci_registration_count == max_registrations)
             return false;
-        pci_registration& slot = pci_registrations[pci_registration_count++];
+        pci_registration* slot_ptr =
+            acquire_registration(pci_registrations, pci_registration_count);
+        if (slot_ptr == nullptr)
+            return false;
+        pci_registration& slot = *slot_ptr;
         slot.ops               = &ops;
+        slot.owner             = current_module();
         slot.instance          = ::new (slot.storage) pci_driver(ops);
         if (!hw::drivers().register_driver(*slot.instance)) {
             slot.instance->~pci_driver();
             slot.instance = nullptr;
-            --pci_registration_count;
+            slot.ops      = nullptr;
+            slot.owner    = nullptr;
             return false;
         }
         return true;
@@ -1205,14 +1235,19 @@ namespace astia::mod {
         if (ops.name == nullptr || ops.name[0] == '\0' || ops.match == nullptr ||
             ops.probe == nullptr || net_registration_count == max_registrations)
             return false;
-        net_registration& slot = net_registrations[net_registration_count++];
+        net_registration* slot_ptr =
+            acquire_registration(net_registrations, net_registration_count);
+        if (slot_ptr == nullptr)
+            return false;
+        net_registration& slot = *slot_ptr;
         slot.ops               = &ops;
+        slot.owner             = current_module();
         slot.instance          = ::new (slot.storage) net_driver(ops);
         if (!hw::drivers().register_driver(*slot.instance)) {
             slot.instance->~net_driver();
             slot.instance = nullptr;
             slot.ops      = nullptr;
-            --net_registration_count;
+            slot.owner    = nullptr;
             return false;
         }
         return true;
@@ -1222,17 +1257,77 @@ namespace astia::mod {
         if (ops.name == nullptr || ops.name[0] == '\0' || ops.match == nullptr ||
             ops.probe == nullptr || usb_registration_count == max_registrations)
             return false;
-        usb_registration& slot = usb_registrations[usb_registration_count++];
+        usb_registration* slot_ptr =
+            acquire_registration(usb_registrations, usb_registration_count);
+        if (slot_ptr == nullptr)
+            return false;
+        usb_registration& slot = *slot_ptr;
         slot.ops               = &ops;
+        slot.owner             = current_module();
         slot.instance          = ::new (slot.storage) usb_driver(slot);
         if (!hw::drivers().register_driver(*slot.instance)) {
             slot.instance->~usb_driver();
             slot.instance = nullptr;
             slot.ops      = nullptr;
-            --usb_registration_count;
+            slot.owner    = nullptr;
             return false;
         }
         return true;
+    }
+
+    void release_legacy_module(const loaded_module* owner) {
+        if (owner == nullptr)
+            return;
+        for (u32 i = 0; i < registration_count; ++i) {
+            registration& slot = registrations[i];
+            if (slot.owner != owner)
+                continue;
+            if (slot.instance != nullptr) {
+                hw::drivers().unregister_driver(*slot.instance);
+                slot.instance->~driver();
+                slot.instance = nullptr;
+            }
+            slot.ops           = nullptr;
+            slot.owner         = nullptr;
+            slot.selftest_done = false;
+        }
+        for (u32 i = 0; i < pci_registration_count; ++i) {
+            pci_registration& slot = pci_registrations[i];
+            if (slot.owner != owner)
+                continue;
+            if (slot.instance != nullptr) {
+                hw::drivers().unregister_driver(*slot.instance);
+                slot.instance->~pci_driver();
+                slot.instance = nullptr;
+            }
+            slot.ops   = nullptr;
+            slot.owner = nullptr;
+        }
+        for (u32 i = 0; i < net_registration_count; ++i) {
+            net_registration& slot = net_registrations[i];
+            if (slot.owner != owner)
+                continue;
+            if (slot.instance != nullptr) {
+                hw::drivers().unregister_driver(*slot.instance);
+                slot.instance->~net_driver();
+                slot.instance = nullptr;
+            }
+            slot.ops           = nullptr;
+            slot.owner         = nullptr;
+            slot.selftest_done = false;
+        }
+        for (u32 i = 0; i < usb_registration_count; ++i) {
+            usb_registration& slot = usb_registrations[i];
+            if (slot.owner != owner)
+                continue;
+            if (slot.instance != nullptr) {
+                hw::drivers().unregister_driver(*slot.instance);
+                slot.instance->~usb_driver();
+                slot.instance = nullptr;
+            }
+            slot.ops   = nullptr;
+            slot.owner = nullptr;
+        }
     }
 
     bool async_handle_checks() {

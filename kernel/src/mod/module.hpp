@@ -21,10 +21,11 @@ namespace astia::mod {
 
     /// A loaded kernel module.
     struct loaded_module {
-        const char* name;      ///< Module name (for diagnostics).
-        void*       base;      ///< Load address of the image allocation.
-        usize       size;      ///< Bytes allocated for the image.
-        int (*entry)();        ///< Resolved module_main().
+        const char* name; ///< Module name (for diagnostics).
+        void*       base; ///< Load address of the image allocation.
+        usize       size; ///< Bytes allocated for the image.
+        int (*entry)();   ///< Resolved module_main().
+        bool          legacy_entry = false;
         bool          running; ///< True once entry() has been called.
         bool          initialized;
         elf::init_fn  init_array[elf::max_init_array_entries];
@@ -69,5 +70,6 @@ namespace astia::mod {
 
     /// The i-th loaded module, or null if `i` is out of range.
     const loaded_module* at(usize i);
+    const loaded_module* current_module();
 
 } // namespace astia::mod

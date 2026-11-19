@@ -50,6 +50,7 @@ namespace astia::hw {
         static constexpr u32 max_devices = resource_limits::policy::bound_devices;
 
         bool register_driver(driver& value);
+        bool unregister_driver(driver& value);
         bool bind(mm::shptr<device_info> device);
         void unbind_all();
         u32  driver_count() const {

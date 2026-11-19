@@ -10,6 +10,7 @@
 #include <astia/mm/frame_allocator.hpp>
 
 #include "exports.hpp"
+#include "module_legacy_driver.hpp"
 
 namespace astia::mod {
 
@@ -23,8 +24,13 @@ namespace astia::mod {
 
     namespace {
 
-        loaded_module modules[max_modules] = {};
-        usize         used                 = 0;
+        loaded_module  modules[max_modules] = {};
+        usize          used                 = 0;
+        loaded_module* active_module        = nullptr;
+
+        [[maybe_unused]] int invoke_legacy_entry(const loaded_module& mod) {
+            return mod.entry();
+        }
 
         /// Frame-allocator-backed memory for the ELF loader.
         ///
@@ -85,6 +91,7 @@ namespace astia::mod {
         slot.base           = img.base;
         slot.size           = img.size;
         slot.entry          = reinterpret_cast<int (*)()>(img.entry);
+        slot.legacy_entry   = img.legacy_entry;
         slot.running        = false;
         slot.initialized    = false;
         slot.init_count     = img.init_count;
@@ -130,6 +137,8 @@ namespace astia::mod {
         if (mod == nullptr || mod->running || mod->entry == nullptr) {
             return -1;
         }
+        loaded_module* previous                  = active_module;
+        active_module                            = const_cast<loaded_module*>(mod);
         const_cast<loaded_module*>(mod)->running = true;
         loaded_module* mutable_mod               = const_cast<loaded_module*>(mod);
         for (usize i = 0; i < mutable_mod->init_count; ++i)
@@ -141,17 +150,23 @@ namespace astia::mod {
 #endif
             }
         mutable_mod->initialized = true;
+        int result               = 0;
 #ifdef ASTIA_MODULE_HOST_TEST
-        return host_test::invoke_entry(mutable_mod->entry);
+        result = host_test::invoke_entry(mutable_mod->entry);
 #else
-        return mutable_mod->entry();
+        result = mutable_mod->legacy_entry ? invoke_legacy_entry(*mutable_mod)
+                                           : mutable_mod->entry();
 #endif
+        active_module = previous;
+        return result;
     }
 
     bool exit_module(const loaded_module* mod) {
         if (mod == nullptr || !mod->running)
             return false;
         loaded_module* mutable_mod = const_cast<loaded_module*>(mod);
+        if (release_legacy_module != nullptr)
+            release_legacy_module(mutable_mod);
         for (usize i = mutable_mod->fini_count; i != 0; --i)
             if (mutable_mod->fini_array[i - 1] != nullptr) {
 #ifdef ASTIA_MODULE_HOST_TEST
@@ -171,6 +186,10 @@ namespace astia::mod {
 
     const loaded_module* at(usize i) {
         return i < used ? &modules[i] : nullptr;
+    }
+
+    const loaded_module* current_module() {
+        return active_module;
     }
 
 } // namespace astia::mod
