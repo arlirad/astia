@@ -249,6 +249,15 @@ add_test(NAME astia_public_header_alone
 set_tests_properties(astia_public_header_alone
         PROPERTIES LABELS "kernel;headers;deterministic")
 
+add_test(NAME astia_architecture_boundaries
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
+        -DASTIA_ARCHITECTURE_BOUNDARIES_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/architecture_boundaries.py
+        -DASTIA_PYTHON=${Python3_EXECUTABLE}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/architecture_boundaries_test.cmake)
+set_tests_properties(astia_architecture_boundaries
+        PROPERTIES LABELS "kernel;architecture;deterministic")
+
 add_test(NAME astia_kernel_warning_flags
         COMMAND ${CMAKE_COMMAND}
         -DASTIA_MODE=kernel

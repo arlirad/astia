@@ -4,16 +4,33 @@ set(ASTIA_PUBLIC_HEADERS
         astia/boot/framebuffer.hpp
         astia/boot/virt/multiboot2.hpp
         astia/boot/virt/pvh.hpp
+        astia/core/async_operation.hpp
+        astia/core/endian.hpp
+        astia/core/fiber.hpp
+        astia/core/mpmc_queue.hpp
+        astia/core/rcu_domain.hpp
+        astia/core/rcu_hashmap.hpp
+        astia/core/rcu_runtime.hpp
+        astia/core/rcu_vector.hpp
+        astia/core/resume_queue.hpp
+        astia/core/spinlock.hpp
+        astia/core/task.hpp
         astia/dev/blk/blkdev.hpp
-        astia/dev/device.hpp
+        astia/dev/capabilities.hpp
         astia/dev/chr/chrdev.hpp
+        astia/dev/device.hpp
+        astia/dev/device_file.hpp
         astia/dev/driver.hpp
-        astia/hw/driver.hpp
         astia/dev/io.hpp
         astia/dev/irq.hpp
         astia/dev/mmio.hpp
-        astia/hw/pci.hpp
+        astia/dev/pci.hpp
         astia/dev/regs.hpp
+        astia/dev/uart_platform.hpp
+        astia/fs.hpp
+        astia/hw/driver.hpp
+        astia/hw/mmio.hpp
+        astia/hw/pci.hpp
         astia/io.hpp
         astia/mm/iovec.hpp
         astia/mm/dma_buffer.hpp
