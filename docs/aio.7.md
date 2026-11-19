@@ -2,7 +2,7 @@
 
 ## NAME
 
-`core::async_operation<T>`, `fs::io_packet` - one-shot kernel I/O completion;
+`core::completion<T>`, `fs::io_packet` - one-shot kernel I/O completion;
 Astia AIO - shared submission and completion rings.
 
 ## SYNOPSIS
@@ -29,15 +29,17 @@ Kernel asynchronous file operations submit work to the VFS without making a
 device method wait. A request may complete immediately, park while the device
 cannot progress, or complete from an interrupt-driven path.
 
-`core::async_operation<T>` is a one-shot awaitable with pending, completing,
-completed, and canceled states. It stores either a value or an `error_t`; one
-producer wins the completion race. One awaiter attaches one continuation and
-consumes the optional result without a callback or lock.
+`core::completion<T>` is a one-shot awaitable with pending, completing,
+completed, and canceled states. It owns either a value or an `error_t`, plus
+the awaiting continuation handle; it does not own the coroutine frame. One
+producer wins the completion race. One awaiter consumes the optional result
+without a callback or lock.
 
 ## OPERATION/DATA FLOW
 
 `fs::io_packet` holds the open-file reference and the stable `io_request` for
-one device flight. Its request owns the `async_operation<i64>` completion.
+one device flight. Its request owns the `completion<i64>` result and
+continuation state.
 `submit()` hands the request to the file and returns an immediate submission
 result. A negative result is a submission error; zero means the operation is
 in flight; a positive result is an immediate byte count. A later byte count or
@@ -77,7 +79,7 @@ descriptor and buffer validation.
 submission errors immediately. Allocation of a kernel completion can return
 `error_t::enomem`. A CQE result is non-negative on success, such as a byte
 count, descriptor, process ID, or readiness mask, and negative on `-errno`.
-Cancellation completes the async operation with `error_t::eagain`.
+Cancellation completes the `core::completion<T>` with `error_t::eagain`.
 
 A short read is a normal result for `read()` but is `error_t::eio` from
 `read_exact()`. A full owner-CPU resume queue can lose the wakeup and must be

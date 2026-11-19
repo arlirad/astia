@@ -4,7 +4,7 @@ set(ASTIA_PUBLIC_HEADERS
         astia/boot/framebuffer.hpp
         astia/boot/virt/multiboot2.hpp
         astia/boot/virt/pvh.hpp
-        astia/core/async_operation.hpp
+        astia/core/completion.hpp
         astia/core/endian.hpp
         astia/core/fiber.hpp
         astia/core/mpmc_queue.hpp
