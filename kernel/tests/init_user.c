@@ -61,7 +61,7 @@ static astia_sqe* fill(astia_rings* ring, uint32_t op, int32_t fd, uint64_t addr
     astia_sqe* s = astia_sqe_slot(ring);
     if (s == NULL)
         return NULL;
-    *s           = (astia_sqe) {0};
+    *s           = (astia_sqe){0};
     s->op        = op;
     s->fd        = fd;
     s->address   = address;
@@ -222,7 +222,7 @@ void c_main(const long* frame) {
     if (fill(ring, OP_STATX, (int32_t) fd, 0, (uint64_t) (uintptr_t) &st,
              (uint32_t) sizeof st, tag) == NULL)
         astia_exit(11);
-    rc = kick(ring, (uint64_t) tag++, &(long) {0});
+    rc = kick(ring, (uint64_t) tag++, &(long){0});
     if (rc != 0 || st.size == 0)
         astia_exit(12);
 
@@ -230,7 +230,7 @@ void c_main(const long* frame) {
     if (fill(ring, OP_STATX, -1, (uint64_t) (uintptr_t) "/sbin/init",
              (uint64_t) (uintptr_t) &st_path, (uint32_t) sizeof st_path, tag) == NULL)
         astia_exit(13);
-    rc = kick(ring, (uint64_t) tag++, &(long) {0});
+    rc = kick(ring, (uint64_t) tag++, &(long){0});
     if (rc != 0 || st_path.size != st.size)
         astia_exit(14);
 
@@ -251,7 +251,7 @@ void c_main(const long* frame) {
         if (fill(ring, OP_READ, (int32_t) fd, (uint64_t) (uintptr_t) expect, 0,
                  (uint32_t) sizeof expect, tag) == NULL)
             astia_exit(22);
-        if (kick(ring, (uint64_t) tag++, &(long) {0}) != (long) sizeof expect)
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != (long) sizeof expect)
             astia_exit(22);
 
         iov[0].base = part0;
@@ -265,7 +265,7 @@ void c_main(const long* frame) {
         if (fill(ring, OP_READV, (int32_t) fd, (uint64_t) (uintptr_t) iov, 0, 4, tag) ==
             NULL)
             astia_exit(22);
-        if (kick(ring, (uint64_t) tag++, &(long) {0}) != (long) sizeof expect)
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != (long) sizeof expect)
             astia_exit(22);
 
         for (i = 0; i < (int) sizeof part0; ++i)
@@ -291,7 +291,7 @@ void c_main(const long* frame) {
         if (fill(ring, OP_READV, (int32_t) fd, (uint64_t) (uintptr_t) many, 0, 32, tag) ==
             NULL)
             astia_exit(23);
-        if (kick(ring, (uint64_t) tag++, &(long) {0}) != -EINVAL)
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != -EINVAL)
             astia_exit(23);
     }
 
@@ -319,7 +319,7 @@ void c_main(const long* frame) {
         if (osqe == NULL)
             astia_exit(24);
         osqe->op_flags = O_CREAT | O_RDWR | O_TRUNC;
-        wfd            = (int32_t) kick(ring, (uint64_t) tag++, &(long) {0});
+        wfd            = (int32_t) kick(ring, (uint64_t) tag++, &(long){0});
         if (wfd < 0)
             astia_exit(24);
 
@@ -331,23 +331,23 @@ void c_main(const long* frame) {
         iov[2].len  = sizeof w2;
         if (fill(ring, OP_WRITEV, wfd, (uint64_t) (uintptr_t) iov, 0, 3, tag) == NULL)
             astia_exit(24);
-        if (kick(ring, (uint64_t) tag++, &(long) {0}) != (long) sizeof back)
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != (long) sizeof back)
             astia_exit(24);
         if (fill(ring, OP_CLOSE, wfd, 0, 0, 0, tag) == NULL)
             astia_exit(24);
-        if (kick(ring, (uint64_t) tag++, &(long) {0}) != 0)
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != 0)
             astia_exit(24);
 
         if (fill(ring, OP_OPENAT, -1, (uint64_t) (uintptr_t) "/tmp/readv.bin", 0, 0,
                  tag) == NULL)
             astia_exit(24);
-        rfd = (int32_t) kick(ring, (uint64_t) tag++, &(long) {0});
+        rfd = (int32_t) kick(ring, (uint64_t) tag++, &(long){0});
         if (rfd < 0)
             astia_exit(24);
         if (fill(ring, OP_READ, rfd, (uint64_t) (uintptr_t) back, 0,
                  (uint32_t) sizeof back, tag) == NULL)
             astia_exit(24);
-        if (kick(ring, (uint64_t) tag++, &(long) {0}) != (long) sizeof back)
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != (long) sizeof back)
             astia_exit(24);
         /* At the end of the file a read is a completed nothing — 0 bytes,
            not an operation the engine parks and waits on a resume for that
@@ -360,14 +360,14 @@ void c_main(const long* frame) {
             if (fill(ring, OP_READ, rfd, (uint64_t) (uintptr_t) &eof_byte, at, 1, tag) ==
                 NULL)
                 astia_exit(25);
-            if (kick(ring, (uint64_t) tag++, &(long) {0}) != 0)
+            if (kick(ring, (uint64_t) tag++, &(long){0}) != 0)
                 astia_exit(25);
             if (eof_byte != 'x')
                 astia_exit(25);
         }
         if (fill(ring, OP_CLOSE, rfd, 0, 0, 0, tag) == NULL)
             astia_exit(24);
-        if (kick(ring, (uint64_t) tag++, &(long) {0}) != 0)
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != 0)
             astia_exit(24);
 
         for (i = 0; i < (int) sizeof w0; ++i)
@@ -384,7 +384,7 @@ void c_main(const long* frame) {
     /* --- CLOSE ------------------------------------------------------- */
     if (fill(ring, OP_CLOSE, (int32_t) fd, 0, 0, 0, tag) == NULL)
         astia_exit(15);
-    rc = kick(ring, (uint64_t) tag++, &(long) {0});
+    rc = kick(ring, (uint64_t) tag++, &(long){0});
     if (rc != 0)
         astia_exit(15);
 

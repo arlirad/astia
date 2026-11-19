@@ -2,8 +2,8 @@
 #undef RENAME_NOREPLACE
 #undef RENAME_EXCHANGE
 #undef RENAME_WHITEOUT
-#include <astia/fs.hpp>
 #include <astia/api/errno.h>
+#include <astia/fs.hpp>
 
 namespace {
     enum class submit_mode {

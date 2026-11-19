@@ -2,10 +2,10 @@
 
 #include <astia/arch/pci_config.hpp>
 #include <astia/common.hpp>
-#include <astia/optional.hpp>
-#include <astia/resource_limits.hpp>
 #include <astia/dev/driver.hpp>
 #include <astia/dev/mmio.hpp>
+#include <astia/optional.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::dev {
 
