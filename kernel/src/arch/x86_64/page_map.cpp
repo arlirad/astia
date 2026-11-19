@@ -174,33 +174,6 @@ namespace astia::arch {
             return reinterpret_cast<u64*>(phys);
         }
 
-        bool map_boot_stack(page_map& map, const page_map* parent) {
-#ifdef ASTIA_HOST_TEST
-            (void) map;
-            (void) parent;
-            return true;
-#else
-            if (parent == nullptr || !parent->valid()) {
-                return true;
-            }
-            const vaddr_t first =
-                reinterpret_cast<vaddr_t>(boot_stack) & ~mm::page_mask;
-            const vaddr_t last =
-                (reinterpret_cast<vaddr_t>(boot_stack_top) - 1) & ~mm::page_mask;
-            for (vaddr_t virt = first;; virt += mm::page_size) {
-                const paddr_t phys = parent->translate(virt);
-                if (phys == page_map::invalid ||
-                    !map.map_4k(virt, phys,
-                                page_flags::present | page_flags::writable)) {
-                    return false;
-                }
-                if (virt == last) {
-                    return true;
-                }
-            }
-#endif
-        }
-
         /// `owner`'s root-table page.
         u64* root_table(const page_map& owner) {
             if (active_map == &owner) {
