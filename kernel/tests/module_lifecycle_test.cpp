@@ -34,6 +34,7 @@ namespace {
         unsigned mapped          = 0;
         unsigned unmapped        = 0;
         bool     resolve_enabled = true;
+        void*    dso             = nullptr;
     };
 
     struct observation {
@@ -59,6 +60,7 @@ namespace {
             return nullptr;
         }
         ++state->mapped;
+        state->dso = image;
         return image;
     }
 
@@ -73,6 +75,8 @@ namespace {
         if (!state->resolve_enabled) {
             return 0;
         }
+        if (std::strcmp(name, "__dso_handle") == 0)
+            return reinterpret_cast<std::uintptr_t>(state->dso);
         if (std::strcmp(name, "lifecycle_record") == 0)
             return reinterpret_cast<std::uintptr_t>(&lifecycle_record);
         if (std::strcmp(name, "atexit") == 0)
@@ -204,10 +208,11 @@ ASTIA_TEST(module_lifecycle_runs_atexit_handlers_before_fini) {
     ASTIA_CHECK(observation.event_count == 1);
     ASTIA_CHECK(observation.events[0] == 300);
     ASTIA_CHECK(astia::mod::exit_module(module));
-    ASTIA_CHECK(observation.event_count == 4);
-    ASTIA_CHECK(observation.events[1] == 302);
-    ASTIA_CHECK(observation.events[2] == 303);
-    ASTIA_CHECK(observation.events[3] == 301);
+    ASTIA_CHECK(observation.event_count == 5);
+    ASTIA_CHECK(observation.events[1] == 304);
+    ASTIA_CHECK(observation.events[2] == 302);
+    ASTIA_CHECK(observation.events[3] == 303);
+    ASTIA_CHECK(observation.events[4] == 301);
     ASTIA_CHECK(astia::mod::unload_module(module));
     active_observation = nullptr;
 }
