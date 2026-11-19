@@ -93,10 +93,10 @@ ASTIA_TEST(page_map_unmap_removes_4k) {
 }
 
 ASTIA_TEST(page_map_protect_4k_changes_flags) {
-    auto pm = make_map();
-    const astia::u64 virt = 0x510000;
-    const astia::u64 phys = astia_test::arena_base + 0x310000;
-    const auto user_rw = rw | page_flags::user;
+    auto             pm      = make_map();
+    const astia::u64 virt    = 0x510000;
+    const astia::u64 phys    = astia_test::arena_base + 0x310000;
+    const auto       user_rw = rw | page_flags::user;
 
     ASTIA_CHECK(pm.map_4k(virt, phys, user_rw));
     ASTIA_CHECK(pm.user_accessible(virt));

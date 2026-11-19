@@ -8,21 +8,21 @@ namespace astia::core {
     /// Bounded epoch-based RCU domain. Readers are lockless; writers retire
     /// objects and call poll() from a safe maintenance context. A reader must
     /// not block or migrate CPUs while it is active.
-    template <u32 CpuCount = 256,
+    template <u32 CpuCount       = 256,
               u32 RetireCapacity = resource_limits::queue::rcu_retired>
     class rcu_domain {
         static_assert(CpuCount != 0 && RetireCapacity != 0);
 
         struct retired_item {
-            void* value = nullptr;
+            void* value            = nullptr;
             void (*destroy)(void*) = nullptr;
-            u64 epoch = 0;
+            u64 epoch              = 0;
         };
         struct cpu_state {
-            u32 nesting = 0;
-            u64 epoch   = 0;
+            u32          nesting = 0;
+            u64          epoch   = 0;
             retired_item retired[RetireCapacity]{};
-            u32 retired_count = 0;
+            u32          retired_count = 0;
         };
 
         alignas(cache_line_bytes) u64 _epoch = 1;
@@ -52,15 +52,17 @@ namespace astia::core {
                 if (_active)
                     --_domain._cpus[_cpu].nesting;
             }
-            read_guard(const read_guard&) = delete;
+            read_guard(const read_guard&)            = delete;
             read_guard& operator=(const read_guard&) = delete;
 
-            bool active() const { return _active; }
+            bool active() const {
+                return _active;
+            }
 
             private:
             rcu_domain& _domain;
-            u32          _cpu;
-            bool         _active = false;
+            u32         _cpu;
+            bool        _active = false;
         };
 
         /// Retire an object after removing it from the published structure.
@@ -71,8 +73,8 @@ namespace astia::core {
             cpu_state& state = _cpus[cpu];
             if (state.retired_count == RetireCapacity)
                 return false;
-            state.retired[state.retired_count++] = {value, destroy,
-                                                    __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST)};
+            state.retired[state.retired_count++] = {
+                value, destroy, __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST)};
             return true;
         }
 
@@ -87,7 +89,7 @@ namespace astia::core {
             u32 reclaimed = 0;
             for (u32 cpu = 0; cpu < CpuCount; ++cpu) {
                 cpu_state& state = _cpus[cpu];
-                u32 write = 0;
+                u32        write = 0;
                 for (u32 read = 0; read < state.retired_count; ++read) {
                     retired_item item = state.retired[read];
                     if (grace_complete(item.epoch)) {
@@ -113,7 +115,9 @@ namespace astia::core {
             if (cpu < CpuCount && _cpus[cpu].nesting == 0)
                 _cpus[cpu].epoch = __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST);
         }
-        u64 epoch() const { return __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST); }
+        u64 epoch() const {
+            return __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST);
+        }
     };
 
 } // namespace astia::core

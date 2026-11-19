@@ -104,9 +104,9 @@ namespace astia::arch::x86_64 {
         const u64 access = 0x89ull << 40;
         const u64 base   = reinterpret_cast<u64>(&task_state[cpu_index]);
         cpu_gdt[5]       = (sizeof(tss) - 1) | ((base & 0xFFFFFFu) << 16) | access |
-                           (((sizeof(tss) - 1) >> 16) & 0xFu) << 48 |
-                           ((base >> 24) & 0xFFull) << 56;
-        cpu_gdt[6]       = base >> 32;
+                     (((sizeof(tss) - 1) >> 16) & 0xFu) << 48 |
+                     ((base >> 24) & 0xFFull) << 56;
+        cpu_gdt[6] = base >> 32;
 
         descriptor[cpu_index].limit = sizeof(gdt[0]) - 1;
         descriptor[cpu_index].base  = reinterpret_cast<u64>(cpu_gdt);

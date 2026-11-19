@@ -1,33 +1,33 @@
 #pragma once
 
-#include <astia/module_abi.h>
 #include <astia/mm/shptr.hpp>
+#include <astia/module_abi.h>
 #include <astia/net.hpp>
 
 namespace astia::module {
     struct net_driver;
 }
 
-extern "C" int astia_module_register_pci_net_driver(
-    const astia::module::net_driver* driver);
+extern "C" int
+astia_module_register_pci_net_driver(const astia::module::net_driver* driver);
 
 namespace astia::module {
 
-    using pci_device = astia_module_pci_device;
+    using pci_device    = astia_module_pci_device;
     using pci_namespace = astia_module_pci_namespace;
-    using io_request = astia_module_io_request;
-    using msix_route = astia_module_msix_route;
+    using io_request    = astia_module_io_request;
+    using msix_route    = astia_module_msix_route;
 
-    using net_match_fn = int (*)(const pci_device*);
-    using net_probe_fn = int (*)(const pci_device*, astia::net::netdev**);
-    using net_remove_fn = void (*)(astia::net::netdev*);
+    using net_match_fn    = int (*)(const pci_device*);
+    using net_probe_fn    = int (*)(const pci_device*, astia::net::netdev**);
+    using net_remove_fn   = void (*)(astia::net::netdev*);
     using net_selftest_fn = int (*)();
 
     struct net_driver {
-        const char* name;
-        net_match_fn match;
-        net_probe_fn probe;
-        net_remove_fn remove;
+        const char*     name;
+        net_match_fn    match;
+        net_probe_fn    probe;
+        net_remove_fn   remove;
         net_selftest_fn selftest;
 
         constexpr net_driver(const char* value, net_match_fn match_fn,
@@ -36,8 +36,8 @@ namespace astia::module {
             : name(value), match(match_fn), probe(probe_fn), remove(remove_fn),
               selftest(selftest_fn) {}
     };
-    using net_device = astia::net::netdev;
-    using netdev = astia::net::netdev;
+    using net_device     = astia::net::netdev;
+    using netdev         = astia::net::netdev;
     using net_tx_request = astia::net::tx_request;
 
     struct block_driver : astia_module_pci_block_driver {
@@ -52,13 +52,13 @@ namespace astia::module {
                                int (*async_cancel)(void*, io_request*),
                                int (*async_poll)(void*, io_request*),
                                int64_t (*write)(void*, const void*, uint32_t, uint64_t),
-                               int (*flush)(void*),
-                               uint32_t (*namespace_count)(void*),
+                               int (*flush)(void*), uint32_t (*namespace_count)(void*),
                                int (*namespace_info)(void*, uint32_t, pci_namespace*))
-            : astia_module_pci_block_driver{name, device_path, match, probe, remove, size,
-                                             block_size, read, selftest, async_submit,
-                                             async_cancel, async_poll, write, flush,
-                                             namespace_count, namespace_info} {}
+            : astia_module_pci_block_driver{
+                  name,     device_path,  match,           probe,
+                  remove,   size,         block_size,      read,
+                  selftest, async_submit, async_cancel,    async_poll,
+                  write,    flush,        namespace_count, namespace_info} {}
     };
 
     static_assert(sizeof(block_driver) == sizeof(astia_module_pci_block_driver));
@@ -76,21 +76,22 @@ namespace astia::module {
     class dma_buffer {
         public:
         astia_module_dma_buffer value{};
-        bool allocated = false;
+        bool                    allocated = false;
 
-        dma_buffer() = default;
-        dma_buffer(const dma_buffer&) = delete;
+        dma_buffer()                             = default;
+        dma_buffer(const dma_buffer&)            = delete;
         dma_buffer& operator=(const dma_buffer&) = delete;
-        dma_buffer(dma_buffer&& other) noexcept : value(other.value), allocated(other.allocated) {
-            other.value = {};
+        dma_buffer(dma_buffer&& other) noexcept
+            : value(other.value), allocated(other.allocated) {
+            other.value     = {};
             other.allocated = false;
         }
         dma_buffer& operator=(dma_buffer&& other) noexcept {
             if (this != &other) {
                 release();
-                value = other.value;
-                allocated = other.allocated;
-                other.value = {};
+                value           = other.value;
+                allocated       = other.allocated;
+                other.value     = {};
                 other.allocated = false;
             }
             return *this;
@@ -106,7 +107,8 @@ namespace astia::module {
         }
 
         void release() {
-            if (value.virtual_address != nullptr || value.physical != 0 || value.pages != 0)
+            if (value.virtual_address != nullptr || value.physical != 0 ||
+                value.pages != 0)
                 astia_module_dma_release(&value);
             allocated = false;
         }
@@ -120,6 +122,6 @@ namespace astia::module {
     using shared = mm::shptr<T>;
 
     inline constexpr unsigned abi_version = ASTIA_MODULE_ABI_VERSION;
-    inline constexpr unsigned page_size = ASTIA_PAGE_SIZE;
+    inline constexpr unsigned page_size   = ASTIA_PAGE_SIZE;
 
 }

@@ -35,7 +35,7 @@ namespace astia::core {
         alignas(cache_line_bytes) u64 enqueue_position_ = 0;
         alignas(cache_line_bytes) u64 dequeue_position_ = 0;
         slot slots_[Capacity];
-        u8 initialized_ = 0;
+        u8   initialized_ = 0;
 
         static T* value(slot& entry) {
             return reinterpret_cast<T*>(entry.storage);
@@ -116,7 +116,7 @@ namespace astia::core {
         void initialize() {
             u8 expected = 0;
             if (!__atomic_compare_exchange_n(&initialized_, &expected, 1, false,
-                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
                 while (__atomic_load_n(&initialized_, __ATOMIC_ACQUIRE) == 1)
                     ASTIA_CPU_RELAX();
                 return;

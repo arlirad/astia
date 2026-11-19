@@ -5,7 +5,7 @@
 
 namespace astia::core {
     namespace {
-        constexpr u32 max_cpus = arch::platform::max_cpu_count;
+        constexpr u32 max_cpus       = arch::platform::max_cpu_count;
         constexpr u32 queue_capacity = resource_limits::queue::resume;
 
         enum class slot_state : u8 {
@@ -17,16 +17,16 @@ namespace astia::core {
 
         struct resume_slot {
             std::coroutine_handle<> continuation{};
-            u64                      generation = 0;
-            u8                       state = static_cast<u8>(slot_state::free);
+            u64                     generation = 0;
+            u8                      state      = static_cast<u8>(slot_state::free);
         };
 
         struct cpu_queue {
-            spinlock                              lock;
-            mpmc_queue<u16, queue_capacity>       ready;
-            mpmc_queue<u16, queue_capacity>       overflow;
-            resume_slot                           slots[queue_capacity * 2]{};
-            std::coroutine_handle<>               active{};
+            spinlock                        lock;
+            mpmc_queue<u16, queue_capacity> ready;
+            mpmc_queue<u16, queue_capacity> overflow;
+            resume_slot                     slots[queue_capacity * 2]{};
+            std::coroutine_handle<>         active{};
         };
 
         cpu_queue queues[max_cpus];
@@ -39,7 +39,7 @@ namespace astia::core {
 
         void release_slot(resume_slot& slot) {
             slot.continuation = {};
-            slot.generation = 0;
+            slot.generation   = 0;
             __atomic_store_n(&slot.state, static_cast<u8>(slot_state::free),
                              __ATOMIC_RELEASE);
         }
@@ -76,18 +76,18 @@ namespace astia::core {
         if (cpu >= max_cpus)
             return false;
 
-        cpu_queue& queue = queues[cpu];
+        cpu_queue&                     queue = queues[cpu];
         arch::interrupt_spinlock_guard guard(queue.lock);
         for (u16 i = 0; i < queue_capacity * 2; ++i) {
             resume_slot& slot = queue.slots[i];
-            const auto state = static_cast<slot_state>(
-                __atomic_load_n(&slot.state, __ATOMIC_ACQUIRE));
+            const auto   state =
+                static_cast<slot_state>(__atomic_load_n(&slot.state, __ATOMIC_ACQUIRE));
             if ((state == slot_state::queued || state == slot_state::running) &&
                 slot.continuation.address() == continuation.address() &&
                 slot.generation == generation)
                 return true;
         }
-        u16 free = 0;
+        u16  free  = 0;
         bool found = false;
         for (u16 i = 0; i < queue_capacity * 2; ++i) {
             if (is_state(queue.slots[i], slot_state::free)) {
@@ -101,7 +101,7 @@ namespace astia::core {
 
         resume_slot& slot = queue.slots[free];
         slot.continuation = continuation;
-        slot.generation = generation;
+        slot.generation   = generation;
         __atomic_store_n(&slot.state, static_cast<u8>(slot_state::queued),
                          __ATOMIC_RELEASE);
         if (!queue.overflow.empty_approx()) {
@@ -128,17 +128,18 @@ namespace astia::core {
             cpu_queue& queue = queues[cpu];
             for (;;) {
                 arch::interrupt_spinlock_guard guard(queue.lock);
-                bool retry = false;
+                bool                           retry = false;
                 for (u16 i = 0; i < queue_capacity * 2; ++i) {
-                    resume_slot& slot = queue.slots[i];
-                    const auto state = static_cast<slot_state>(
+                    resume_slot& slot  = queue.slots[i];
+                    const auto   state = static_cast<slot_state>(
                         __atomic_load_n(&slot.state, __ATOMIC_ACQUIRE));
                     if (slot.continuation.address() != continuation.address())
                         continue;
                     if (generation != 0 && slot.generation != generation)
                         continue;
                     if (state == slot_state::queued) {
-                        __atomic_store_n(&slot.state, static_cast<u8>(slot_state::canceled),
+                        __atomic_store_n(&slot.state,
+                                         static_cast<u8>(slot_state::canceled),
                                          __ATOMIC_RELEASE);
                     }
                     else if (state == slot_state::running) {
@@ -180,7 +181,7 @@ namespace astia::core {
         if (cpu >= max_cpus)
             return 0;
         cpu_queue& queue = queues[cpu];
-        u32 count = 0;
+        u32        count = 0;
         while (count < budget) {
             u16 index = 0;
             {

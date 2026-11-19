@@ -19,10 +19,10 @@ namespace astia::fs {
         inline constexpr u32 max_mounts = 16;
 
         struct type_entry {
-            const filesystem* type               = nullptr;
-            u32               generation         = 0;
-            u32               active_operations  = 0;
-            u32               mount_count        = 0;
+            const filesystem* type              = nullptr;
+            u32               generation        = 0;
+            u32               active_operations = 0;
+            u32               mount_count       = 0;
         };
 
         // This policy is deliberately private to the registry.  The public
@@ -39,7 +39,7 @@ namespace astia::fs {
             mount*          instance;
             mount_ownership ownership;
             void (*destroy)(mount*);
-            u32 active_operations;
+            u32         active_operations;
             type_entry* owner;
             u32         owner_generation;
         };
@@ -146,8 +146,8 @@ namespace astia::fs {
             }
 
             private:
-            type_entry*        _entry    = nullptr;
-            const filesystem*  _instance = nullptr;
+            type_entry*       _entry    = nullptr;
+            const filesystem* _instance = nullptr;
         };
 
         bool path_matches(const char* target, const char* path) {
@@ -412,7 +412,7 @@ namespace astia::fs {
             return -EINVAL;
 
         core::spinlock_guard guard(mount_registry_lock);
-        const char* name = type->name();
+        const char*          name = type->name();
         for (u32 i = 0; i < max_types; ++i) {
             if (types[i].type != nullptr && equal(types[i].type->name(), name))
                 return -EEXIST;
@@ -425,7 +425,7 @@ namespace astia::fs {
             entry.generation = entry.generation + 1 == 0 ? 1 : entry.generation + 1;
             entry.active_operations = 0;
             entry.mount_count       = 0;
-            registration = {i, entry.generation};
+            registration            = {i, entry.generation};
             return 0;
         }
         return -ENFILE;
@@ -436,15 +436,15 @@ namespace astia::fs {
             return -EINVAL;
 
         core::spinlock_guard guard(mount_registry_lock);
-        type_entry& entry = types[registration.slot];
+        type_entry&          entry = types[registration.slot];
         if (entry.type == nullptr || entry.generation != registration.generation)
             return -ENOENT;
         if (entry.active_operations != 0 || entry.mount_count != 0)
             return -EBUSY;
-        entry.type               = nullptr;
-        entry.active_operations  = 0;
-        entry.mount_count        = 0;
-        registration             = filesystem_registration{};
+        entry.type              = nullptr;
+        entry.active_operations = 0;
+        entry.mount_count       = 0;
+        registration            = filesystem_registration{};
         return 0;
     }
 
@@ -453,7 +453,7 @@ namespace astia::fs {
             return -EINVAL;
 
         core::spinlock_guard guard(mount_registry_lock);
-        type_entry* entry = nullptr;
+        type_entry*          entry = nullptr;
         for (u32 i = 0; i < max_types; ++i) {
             if (types[i].type == type) {
                 entry = &types[i];
@@ -592,11 +592,11 @@ namespace astia::fs {
             return resolve_result;
         if (equal(checked_target, "/"))
             return -EBUSY;
-        mount*          instance  = nullptr;
-        mount_ownership ownership = mount_ownership::static_instance;
-        const filesystem* destroyer = nullptr;
-        type_entry* owner         = nullptr;
-        bool        owner_operation = false;
+        mount*            instance        = nullptr;
+        mount_ownership   ownership       = mount_ownership::static_instance;
+        const filesystem* destroyer       = nullptr;
+        type_entry*       owner           = nullptr;
+        bool              owner_operation = false;
         {
             core::spinlock_guard registry_guard(mount_registry_lock);
             mount_entry*         selected = nullptr;
@@ -616,21 +616,21 @@ namespace astia::fs {
                 if (path_matches(checked_target, mounts[i].target))
                     return -EBUSY;
             }
-            instance            = selected->instance;
-            ownership           = selected->ownership;
-            owner               = selected->owner;
-            destroyer           = owner != nullptr ? owner->type : nullptr;
+            instance  = selected->instance;
+            ownership = selected->ownership;
+            owner     = selected->owner;
+            destroyer = owner != nullptr ? owner->type : nullptr;
             if (owner != nullptr && owner->generation == selected->owner_generation) {
                 ++owner->active_operations;
                 if (owner->mount_count != 0)
                     --owner->mount_count;
                 owner_operation = true;
             }
-            selected->used      = false;
-            selected->instance  = nullptr;
-            selected->ownership = mount_ownership::static_instance;
-            selected->destroy   = nullptr;
-            selected->owner     = nullptr;
+            selected->used             = false;
+            selected->instance         = nullptr;
+            selected->ownership        = mount_ownership::static_instance;
+            selected->destroy          = nullptr;
+            selected->owner            = nullptr;
             selected->owner_generation = 0;
             ++mount_registry_generation;
             publish_mount_snapshot_locked();
@@ -715,8 +715,8 @@ namespace astia::fs {
         mount_operation operation(resolved);
         if (!operation)
             return {};
-        auto result = operation.instance()->open(relative_path(*operation.entry(), resolved),
-                                                 ASTIA_AIO_O_DIRECTORY);
+        auto result = operation.instance()->open(
+            relative_path(*operation.entry(), resolved), ASTIA_AIO_O_DIRECTORY);
         if (!result)
             result = mm::share<open_file>(resolved, node_mode(resolved));
         if (result)
@@ -1158,7 +1158,7 @@ namespace astia::fs {
             return -EBADF;
         const bool current = offset == offset_current;
         const u64  actual  = current ? current_position() : offset;
-        long result = dispatch_read(_object.get(), buf, len, actual);
+        long       result  = dispatch_read(_object.get(), buf, len, actual);
         if (result == -ENOSYS) {
             io_packet packet(mm::shptr<open_file>::borrowed(this), buf, len, actual,
                              io::direction::input);
@@ -1219,7 +1219,7 @@ namespace astia::fs {
         if (!state)
             return -ENOMEM;
         core::spinlock_guard guard(state->append_lock);
-        const long size = dispatch_size(_object.get());
+        const long           size = dispatch_size(_object.get());
         if (size < 0)
             return size;
         u64 base = static_cast<u64>(size);
@@ -1230,9 +1230,9 @@ namespace astia::fs {
         const u64 end = base + static_cast<u64>(length);
         if (end > static_cast<u64>(~i64{0} >> 1))
             return -EOVERFLOW;
-        state->append_position   = end;
+        state->append_position    = end;
         state->append_initialized = true;
-        *offset = base;
+        *offset                   = base;
         return 0;
     }
 
@@ -1248,9 +1248,8 @@ namespace astia::fs {
         }
         long result = dispatch_write(_object.get(), buf, len, actual);
         if (result == -ENOSYS) {
-            io_packet packet(mm::shptr<open_file>::borrowed(this),
-                             const_cast<void*>(buf), len, actual,
-                             io::direction::output);
+            io_packet packet(mm::shptr<open_file>::borrowed(this), const_cast<void*>(buf),
+                             len, actual, io::direction::output);
             if (!packet)
                 return -ENOMEM;
             if (!packet.request().park_device())
@@ -1260,7 +1259,8 @@ namespace astia::fs {
                 return -EAGAIN;
             packet.request().acknowledge();
         }
-        if (result > 0 && (current || (_flags & static_cast<u32>(open_file_status_flags::append)) != 0))
+        if (result > 0 &&
+            (current || (_flags & static_cast<u32>(open_file_status_flags::append)) != 0))
             set_position(actual + static_cast<u64>(result));
         return result;
     }
@@ -1274,8 +1274,8 @@ namespace astia::fs {
         u64        actual  = current ? current_position() : request.offset();
         if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0 &&
             request.direction() == io::direction::output && !request.append_reserved()) {
-            const u32 length = request.has_append_length() ? request.append_length()
-                                                            : request.length();
+            const u32 length =
+                request.has_append_length() ? request.append_length() : request.length();
             const long reserved = reserve_append(length, &actual);
             if (reserved < 0)
                 return reserved;

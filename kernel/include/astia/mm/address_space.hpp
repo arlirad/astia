@@ -52,17 +52,17 @@ namespace astia::mm {
         bool attached() const;
         bool valid() const;
 
-        bool map_4k(vaddr_t virt, paddr_t phys, mapping_flags flags);
-        bool unmap(vaddr_t virt);
-        bool protect_4k(vaddr_t virt, mapping_flags flags);
+        bool    map_4k(vaddr_t virt, paddr_t phys, mapping_flags flags);
+        bool    unmap(vaddr_t virt);
+        bool    protect_4k(vaddr_t virt, mapping_flags flags);
         paddr_t translate(vaddr_t virt) const;
-        bool writable(vaddr_t virt) const;
-        bool user_accessible(vaddr_t virt) const;
-        bool executable(vaddr_t virt) const;
-        bool valid_user_range(u64 address, usize length) const;
-        bool validate(u64 address, usize length, access required) const;
+        bool    writable(vaddr_t virt) const;
+        bool    user_accessible(vaddr_t virt) const;
+        bool    executable(vaddr_t virt) const;
+        bool    valid_user_range(u64 address, usize length) const;
+        bool    validate(u64 address, usize length, access required) const;
 
-        void activate() const;
+        void        activate() const;
         static void invalidate(vaddr_t virt);
 
         private:
@@ -86,10 +86,10 @@ namespace astia::mm {
         void rollback();
 
         private:
-        address_space* _space   = nullptr;
-        vaddr_t        _first   = 0;
-        usize          _pages   = 0;
-        usize          _mapped  = 0;
+        address_space* _space    = nullptr;
+        vaddr_t        _first    = 0;
+        usize          _pages    = 0;
+        usize          _mapped   = 0;
         bool           _finished = false;
     };
 

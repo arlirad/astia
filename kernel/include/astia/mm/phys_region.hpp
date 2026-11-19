@@ -153,16 +153,16 @@ namespace astia::mm {
         void detach_parent(const phys_region* expected);
         bool initialize(u64 base, usize pages, bool lazy = false);
 
-        core::spinlock _lock{};
-        u64            _base        = 0;
-        usize          _pages       = 0;
-        u32            _refs        = 1;
-        u16*           _page_refs   = nullptr;
-        u16*           _dest_refs   = nullptr; ///< in-flight destination pins
-        u64*           _page_bases  = nullptr; ///< non-null for lazy regions
-        child*         _children    = nullptr;
-        phys_region*   _parent      = nullptr;
-        usize          _parent_page = 0;
+        core::spinlock              _lock{};
+        u64                         _base       = 0;
+        usize                       _pages      = 0;
+        u32                         _refs       = 1;
+        u16*                        _page_refs  = nullptr;
+        u16*                        _dest_refs  = nullptr; ///< in-flight destination pins
+        u64*                        _page_bases = nullptr; ///< non-null for lazy regions
+        child*                      _children   = nullptr;
+        phys_region*                _parent     = nullptr;
+        usize                       _parent_page = 0;
         shptr<phys_region_identity> _identity;
     };
 

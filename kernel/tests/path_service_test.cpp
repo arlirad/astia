@@ -7,9 +7,10 @@
 #undef RENAME_EXCHANGE
 #endif
 
+#include "../src/fs/path_service.hpp"
 #include <astia/api/errno.h>
 #include <astia/fs.hpp>
-#include "../src/fs/path_service.hpp"
+
 #include <cstring>
 
 namespace {
@@ -80,30 +81,34 @@ ASTIA_TEST(path_service_composes_absolute_and_relative_paths) {
     ASTIA_CHECK(astia::fs::path_service::compose(
                     "/work", ".", astia::span<char>(short_buffer, sizeof short_buffer)) ==
                 -ERANGE);
-    ASTIA_CHECK(astia::fs::path_service::compose(
-                    "/work", "child", astia::span<char>(short_buffer, sizeof short_buffer)) ==
-                -ENAMETOOLONG);
+    ASTIA_CHECK(
+        astia::fs::path_service::compose(
+            "/work", "child", astia::span<char>(short_buffer, sizeof short_buffer)) ==
+        -ENAMETOOLONG);
 }
 
 ASTIA_TEST(path_service_normalizes_dotdot_and_symlinks) {
     char buffer[astia::fs::path_max]{};
-    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/../target", buffer,
-                                                 sizeof buffer, false) == 0);
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/../target", buffer, sizeof buffer,
+                                                 false) == 0);
     ASTIA_CHECK(std::strcmp(buffer, "/target") == 0);
-    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/link", buffer, sizeof buffer) == 0);
-    ASTIA_CHECK(std::strcmp(buffer, "/tree/file") == 0);
-    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/link", buffer, sizeof buffer, false) ==
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/link", buffer, sizeof buffer) ==
                 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/tree/file") == 0);
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/link", buffer, sizeof buffer,
+                                                 false) == 0);
     ASTIA_CHECK(std::strcmp(buffer, "/tree/link") == 0);
-    ASTIA_CHECK(astia::fs::path_service::resolve("/absolute", buffer, sizeof buffer) == 0);
+    ASTIA_CHECK(astia::fs::path_service::resolve("/absolute", buffer, sizeof buffer) ==
+                0);
     ASTIA_CHECK(std::strcmp(buffer, "/target") == 0);
-    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/file/child", buffer, sizeof buffer) ==
-                -ENOTDIR);
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/file/child", buffer,
+                                                 sizeof buffer) == -ENOTDIR);
 }
 
 ASTIA_TEST(path_service_preserves_loop_and_length_errors) {
     char buffer[astia::fs::path_max]{};
-    ASTIA_CHECK(astia::fs::path_service::resolve("/loop1", buffer, sizeof buffer) == -ELOOP);
+    ASTIA_CHECK(astia::fs::path_service::resolve("/loop1", buffer, sizeof buffer) ==
+                -ELOOP);
     ASTIA_CHECK(astia::fs::path_service::resolve("/tree/file/", buffer, sizeof buffer) ==
                 -ENOTDIR);
 

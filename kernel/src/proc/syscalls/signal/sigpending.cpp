@@ -7,8 +7,8 @@
 namespace astia::proc::syscall {
 
     i64 sigpending(u64 set_ptr) {
-        auto* owner = current_process();
-        auto* self = current_thread();
+        auto*      owner = current_process();
+        auto*      self  = current_thread();
         const auto range = sys::user_ptr<u32>(set_ptr).validate();
         if (owner == nullptr || self == nullptr)
             return -ESRCH;

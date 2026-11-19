@@ -36,10 +36,10 @@ namespace astia::boot {
         /// ABI's convention the first module *is* the ramdisk, which is how
         /// Linux reads it too, so it is split out here and `modules` starts
         /// after it.
-        module_info initrd;
-        module_info modules[max_modules]{}; ///< Loader modules besides the initrd.
-        usize  module_count = 0;       ///< Number of valid entries in modules.
-        framebuffer_info framebuffer;   ///< One loader-provided linear framebuffer.
+        module_info      initrd;
+        module_info      modules[max_modules]{}; ///< Loader modules besides the initrd.
+        usize            module_count = 0;       ///< Number of valid entries in modules.
+        framebuffer_info framebuffer; ///< One loader-provided linear framebuffer.
     };
 
 } // namespace astia::boot

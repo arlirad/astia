@@ -154,12 +154,12 @@ ASTIA_TEST(initrd_rejects_short_input) {
 ASTIA_TEST(initrd_rejects_malformed_cpio_name) {
     std::vector<unsigned char> image(initrd_newc_blob,
                                      initrd_newc_blob + initrd_newc_blob_len);
-    image[94] = '0';
-    image[95] = '0';
-    image[96] = '0';
-    image[97] = '0';
-    image[98] = '0';
-    image[99] = '0';
+    image[94]  = '0';
+    image[95]  = '0';
+    image[96]  = '0';
+    image[97]  = '0';
+    image[98]  = '0';
+    image[99]  = '0';
     image[100] = '0';
     image[101] = '0';
     astia::initrd::archive a;

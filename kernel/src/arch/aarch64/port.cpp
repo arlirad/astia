@@ -60,7 +60,7 @@ namespace astia::arch {
     mmio_window_bounds mmio_window() {
         return {kernel_base, kernel_base + 0x400000000000ull};
     }
-    const u64 image_base  = 0xFFFFFF8000000000ull;
+    const u64 image_base = 0xFFFFFF8000000000ull;
     // No recursive window yet (no page_map port); 0 = disabled.
     const u64 recursive_base = 0;
 

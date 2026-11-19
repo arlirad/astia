@@ -8,12 +8,13 @@ namespace astia::fs {
                                      u32 length, u64 offset, io::direction direction) {
             if (!file)
                 co_return error_t::ebadf;
-            auto completion = mm::uptr<core::async_operation<i64>>(
-                new core::async_operation<i64>());
+            auto completion =
+                mm::uptr<core::async_operation<i64>>(new core::async_operation<i64>());
             if (!completion)
                 co_return error_t::enomem;
-            io_packet packet(file, buffer, length, offset, direction,
-                             static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
+            io_packet packet(
+                file, buffer, length, offset, direction,
+                static_cast<mm::uptr<core::async_operation<i64>>&&>(completion));
             if (!packet)
                 co_return error_t::enomem;
             core::async_operation<i64>* operation = packet.completion();
@@ -51,14 +52,16 @@ namespace astia::fs {
                       io::direction::input);
     }
 
-    core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer, u64 offset) {
+    core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer,
+                          u64 offset) {
         if (buffer.size() > static_cast<usize>(~u32{0}))
             return core::task<i64>(error_t::erange);
-        return submit(file, const_cast<u8*>(buffer.data()), static_cast<u32>(buffer.size()),
-                      offset, io::direction::output);
+        return submit(file, const_cast<u8*>(buffer.data()),
+                      static_cast<u32>(buffer.size()), offset, io::direction::output);
     }
 
-    core::task<i64> read_exact(const mm::shptr<open_file>& file, span<u8> buffer, u64 offset) {
+    core::task<i64> read_exact(const mm::shptr<open_file>& file, span<u8> buffer,
+                               u64 offset) {
         auto result = co_await read(file, buffer, offset);
         if (!result)
             co_return result.error;

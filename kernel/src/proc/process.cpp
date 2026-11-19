@@ -1,7 +1,7 @@
 #include "process.hpp"
 
-#include "../ipc/futex.hpp"
 #include "../fs/path_service.hpp"
+#include "../ipc/futex.hpp"
 #include "../sys/aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
@@ -128,15 +128,14 @@ namespace astia::proc {
             return;
         }
         mm::shptr<process> pending[dead_process_capacity];
-        u32 count = 0;
+        u32                count = 0;
         {
             arch::interrupt_spinlock_guard guard(dead_thread_lock);
             for (u32 i = 0; i < dead_process_count; ++i) {
-                pending[i] =
-                    static_cast<mm::shptr<process>&&>(dead_process_queue[i]);
+                pending[i] = static_cast<mm::shptr<process>&&>(dead_process_queue[i]);
                 dead_process_queue[i] = {};
             }
-            count               = dead_process_count;
+            count              = dead_process_count;
             dead_process_count = 0;
         }
         for (u32 i = 0; i < count; ++i) {
@@ -153,8 +152,8 @@ namespace astia::proc {
             return length;
         }
 
-        bool write_user(process* owner, u64 base, u64 top, u64 vaddr,
-                        const void* src, usize length) {
+        bool write_user(process* owner, u64 base, u64 top, u64 vaddr, const void* src,
+                        usize length) {
             const auto* bytes = static_cast<const u8*>(src);
             while (length != 0) {
                 if (vaddr < base || vaddr >= top || length > top - vaddr) {
@@ -162,12 +161,13 @@ namespace astia::proc {
                 }
                 const u64 page = vaddr & ~mm::page_mask;
                 if (owner == nullptr || owner->address_space() == nullptr ||
-                    (owner->address_space()->translate(page) == mm::address_space::invalid &&
+                    (owner->address_space()->translate(page) ==
+                         mm::address_space::invalid &&
                      !owner->cow_fault(page, false))) {
                     return false;
                 }
-                const u64 phys = owner->address_space()->translate(page);
-                auto*       target = static_cast<u8*>(mm::kernel_frames().to_virt(phys));
+                const u64 phys   = owner->address_space()->translate(page);
+                auto*     target = static_cast<u8*>(mm::kernel_frames().to_virt(phys));
                 if (target == nullptr) {
                     return false;
                 }
@@ -448,7 +448,8 @@ namespace astia::proc {
             }
             for (u32 i = 0; i < max_threads_per_process; ++i) {
                 thread* value = _threads[i].get();
-                if (value == nullptr || value == caller || value->state() == thread_state::dead)
+                if (value == nullptr || value == caller ||
+                    value->state() == thread_state::dead)
                     continue;
                 value->request_exit();
                 if (value->state() == thread_state::blocked)
@@ -484,7 +485,7 @@ namespace astia::proc {
         bool discard_status = false;
         if (auto parent = retain_process(_parent_pid)) {
             const auto disposition = parent->signals().disposition(signal_number::chld);
-            discard_status = (disposition.flags & ASTIA_SA_NOCLDWAIT) != 0;
+            discard_status         = (disposition.flags & ASTIA_SA_NOCLDWAIT) != 0;
         }
         mm::shptr<process> deferred;
         if (discard_status) {
@@ -543,8 +544,8 @@ namespace astia::proc {
         if (!parent)
             return;
         info.signo = static_cast<i32>(signal_number::chld);
-        const bool stop_or_continue = info.code == ASTIA_CLD_STOPPED ||
-                                      info.code == ASTIA_CLD_CONTINUED;
+        const bool stop_or_continue =
+            info.code == ASTIA_CLD_STOPPED || info.code == ASTIA_CLD_CONTINUED;
         const auto disposition = parent->signals().disposition(signal_number::chld);
         if (!stop_or_continue || (disposition.flags & ASTIA_SA_NOCLDSTOP) == 0) {
             (void) parent->signals().send(signal_number::chld, info);
@@ -654,7 +655,8 @@ namespace astia::proc {
             const u64 duration = static_cast<u64>(seconds) * hz;
             next = UINT64_MAX - now < duration ? UINT64_MAX : now + duration;
         }
-        const u64 previous = __atomic_exchange_n(&_alarm_deadline, next, __ATOMIC_ACQ_REL);
+        const u64 previous =
+            __atomic_exchange_n(&_alarm_deadline, next, __ATOMIC_ACQ_REL);
         if (previous == 0 || previous <= now)
             return 0;
         const u64 remaining = previous - now;
@@ -722,7 +724,7 @@ namespace astia::proc {
         if (value == nullptr || value->tls_mapping_base() == 0 ||
             value->tls_mapping_pages() == 0)
             return;
-        const u64 base = value->tls_mapping_base();
+        const u64   base  = value->tls_mapping_base();
         const usize bytes = value->tls_mapping_pages() * mm::phys_region::frame_size;
         value->clear_tls_mapping();
         (void) unmap(base, bytes);
@@ -734,13 +736,13 @@ namespace astia::proc {
             return;
         const u64 stack_top = value->user_stack_top();
         value->clear_user_stack_metadata();
-        u64 base = 0;
+        u64   base  = 0;
         usize bytes = 0;
         {
             arch::interrupt_spinlock_guard guard(_mmap_lock);
             for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
                 if (it->stack && it->covers(stack_top - 1)) {
-                    base = it->base;
+                    base  = it->base;
                     bytes = static_cast<usize>(it->size());
                     break;
                 }
@@ -824,7 +826,8 @@ namespace astia::proc {
         u32     count;
         {
             arch::interrupt_spinlock_guard guard(process_wait_lock);
-            count = _signal_waiters.expire(now, wake_list, max_signal_waiters_per_process);
+            count =
+                _signal_waiters.expire(now, wake_list, max_signal_waiters_per_process);
         }
         for (u32 i = 0; i < count; ++i)
             if (wake_list[i]->state() == thread_state::blocked)
@@ -952,12 +955,12 @@ namespace astia::proc {
     bool process::build_user_stack(char* const argv[], char* const envp[], u64* rsp_out) {
         if (!_address_space.attached() || rsp_out == nullptr)
             return false;
-        process*              caller = current_process();
+        process*                 caller = current_process();
         const mm::address_space* caller_map =
             caller == nullptr ? nullptr : caller->address_space();
         _address_space.activate();
         const u64 stack_base = user_stack_top - user_stack_bytes;
-        const u64 stack = map_anonymous(
+        const u64 stack      = map_anonymous(
             stack_base, user_stack_bytes, map_protection::read | map_protection::write,
             map_flags::priv | map_flags::anonymous | map_flags::stack);
         if (stack != stack_base) {
@@ -978,8 +981,8 @@ namespace astia::proc {
             argv_list[argc++] = _name;
         while (envp != nullptr && envc < max_env_entries && envp[envc] != nullptr)
             envp_list[envc] = envp[envc], ++envc;
-        const bool built = build_initial_stack(this, stack_base, user_stack_top, argv_list,
-                                               argc, envp_list, envc, rsp_out);
+        const bool built = build_initial_stack(this, stack_base, user_stack_top,
+                                               argv_list, argc, envp_list, envc, rsp_out);
         if (caller_map != nullptr)
             caller_map->activate();
         else
@@ -993,13 +996,13 @@ namespace astia::proc {
     }
 
     void process::replace_image(process& staging) {
-        mm::address_space old_map = static_cast<mm::address_space&&>(_address_space);
-        mmap_region* old_regions = _mmap_regions;
+        mm::address_space old_map     = static_cast<mm::address_space&&>(_address_space);
+        mmap_region*      old_regions = _mmap_regions;
 
-        _address_space = static_cast<mm::address_space&&>(staging._address_space);
-        _mmap_regions  = staging._mmap_regions;
-        _mapped_bytes  = staging._mapped_bytes;
-        _tls_tp        = staging._tls_tp;
+        _address_space        = static_cast<mm::address_space&&>(staging._address_space);
+        _mmap_regions         = staging._mmap_regions;
+        _mapped_bytes         = staging._mapped_bytes;
+        _tls_tp               = staging._tls_tp;
         staging._mmap_regions = nullptr;
         staging._mapped_bytes = 0;
         staging._tls_tp       = 0;
@@ -1042,9 +1045,10 @@ namespace astia::proc {
         return true;
     }
 
-    core::task<exec_result> process::exec_user_file_async(
-        mm::shptr<fs::open_file> file, usize length, char* const argv[],
-        char* const envp[]) {
+    core::task<exec_result> process::exec_user_file_async(mm::shptr<fs::open_file> file,
+                                                          usize                    length,
+                                                          char* const              argv[],
+                                                          char* const envp[]) {
         if (!file)
             co_return error_t::ebadf;
 
@@ -1147,8 +1151,8 @@ namespace astia::proc {
             return false;
         }
 
-        u64  base = process_tls_first -
-                    (static_cast<u64>(id % max_threads_per_process) * process_tls_stride);
+        u64 base = process_tls_first -
+                   (static_cast<u64>(id % max_threads_per_process) * process_tls_stride);
         bool free = false;
         for (u32 attempt = 0; attempt < max_threads_per_process; ++attempt) {
             free = true;
@@ -1211,8 +1215,8 @@ namespace astia::proc {
         return {};
     }
 
-    mm::shptr<thread> process::thread_stack_info(tid_t id,
-                                                  thread_stack_snapshot& snapshot) {
+    mm::shptr<thread> process::thread_stack_info(tid_t                  id,
+                                                 thread_stack_snapshot& snapshot) {
         arch::interrupt_spinlock_guard guard(_lifecycle_lock);
         for (u32 i = 0; i < max_threads_per_process; ++i) {
             if (!_threads[i] || _threads[i]->tid() != id ||
@@ -1220,8 +1224,8 @@ namespace astia::proc {
                 continue;
             snapshot.stack_base = _threads[i]->user_stack_base();
             snapshot.stack_size = _threads[i]->user_stack_size();
-            snapshot.detached  = _threads[i]->detached();
-            snapshot.supported = _threads[i]->user_stack_metadata_supported();
+            snapshot.detached   = _threads[i]->detached();
+            snapshot.supported  = _threads[i]->user_stack_metadata_supported();
             return _threads[i];
         }
         return {};
@@ -1243,8 +1247,8 @@ namespace astia::proc {
 
     mm::shptr<thread> process::create_fork_thread(const arch::user_context& uctx,
                                                   signal_mask blocked_signals,
-                                                  u64 user_stack_base,
-                                                  usize user_stack_size) {
+                                                  u64         user_stack_base,
+                                                  usize       user_stack_size) {
         auto value = mm::share<thread>(this, proc::allocate_tid());
         if (!value || !value->prepare_fork_user(uctx)) {
             return {};

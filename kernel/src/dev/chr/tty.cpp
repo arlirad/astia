@@ -261,7 +261,7 @@ namespace astia::dev {
             }
             const u32 count = (next - _rx_tail) & (rx_capacity_bytes - 1);
             ready           = _termios.c_cc[VMIN] == 0 || count >= _termios.c_cc[VMIN] ||
-                              (_termios.c_cc[VTIME] != 0 && count != 0);
+                    (_termios.c_cc[VTIME] != 0 && count != 0);
             return finish();
         }
 

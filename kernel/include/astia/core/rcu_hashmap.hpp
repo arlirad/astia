@@ -1,7 +1,7 @@
 #pragma once
 
-#include <astia/optional.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/optional.hpp>
 
 namespace astia::core {
 
@@ -24,13 +24,13 @@ namespace astia::core {
             mm::shptr<node> buckets[bucket_count]{};
         };
         struct retired_snapshot {
-            snapshot*        value;
+            snapshot*         value;
             retired_snapshot* next;
         };
         struct shard {
-            mutable u32      readers = 0;
-            snapshot*         published = nullptr;
-            mutable retired_snapshot* retired = nullptr;
+            mutable u32               readers   = 0;
+            snapshot*                 published = nullptr;
+            mutable retired_snapshot* retired   = nullptr;
         };
 
         Hash hash_;
@@ -65,8 +65,8 @@ namespace astia::core {
                 for (; item != nullptr; item = item->next.get()) {
                     if (equal_(item->key, key))
                         continue;
-                    auto copy = mm::shptr<node>(new node(item->key, item->value,
-                                                         next->buckets[bucket]));
+                    auto copy = mm::shptr<node>(
+                        new node(item->key, item->value, next->buckets[bucket]));
                     if (!copy)
                         return {};
                     next->buckets[bucket] = static_cast<mm::shptr<node>&&>(copy);
@@ -77,7 +77,7 @@ namespace astia::core {
 
         void retire(shard& state, snapshot* old, retired_snapshot* record) const {
             record->value = old;
-            auto* head = __atomic_load_n(&state.retired, __ATOMIC_RELAXED);
+            auto* head    = __atomic_load_n(&state.retired, __ATOMIC_RELAXED);
             do {
                 record->next = head;
             } while (!__atomic_compare_exchange_n(&state.retired, &head, record, false,
@@ -129,7 +129,7 @@ namespace astia::core {
         rcu_hashmap& operator=(const rcu_hashmap&) = delete;
 
         optional<Value> find(const Key& key) const {
-            read_guard guard(*this, shard_index(key));
+            read_guard   guard(*this, shard_index(key));
             const Value* value = guard.find(key);
             return value == nullptr ? optional<Value>{} : optional<Value>(*value);
         }
@@ -150,8 +150,8 @@ namespace astia::core {
                 __atomic_add_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
                 snapshot* old = __atomic_load_n(&state.published, __ATOMIC_SEQ_CST);
 
-                snapshot* next = clone_without(old, key);
-                auto record = new retired_snapshot{};
+                snapshot* next   = clone_without(old, key);
+                auto      record = new retired_snapshot{};
                 if (!next || record == nullptr) {
                     delete next;
                     delete record;
@@ -160,7 +160,8 @@ namespace astia::core {
                 }
                 if (!remove) {
                     const usize bucket = bucket_index(key);
-                    auto item = mm::shptr<node>(new node(key, value, next->buckets[bucket]));
+                    auto        item =
+                        mm::shptr<node>(new node(key, value, next->buckets[bucket]));
                     if (!item) {
                         delete next;
                         delete record;

@@ -1,8 +1,8 @@
 #pragma once
 
 #include <astia/common.hpp>
-#include <astia/span.hpp>
 #include <astia/core/task.hpp>
+#include <astia/span.hpp>
 
 // A freestanding x86-64 ELF loader, generic over the two shapes the kernel
 // actually consumes:
@@ -56,7 +56,7 @@ namespace astia::elf {
     /// preserve `hint`'s congruence class modulo `align`; this lets ET_DYN
     /// retain PT_LOAD load-bias congruence without requiring the hint itself
     /// to be aligned to `align`. Returns null on failure.
-    using map_fn = void* (*)(void* ctx, u64 hint, usize size, usize align, bool fixed);
+    using map_fn = void* (*) (void* ctx, u64 hint, usize size, usize align, bool fixed);
 
     /// Resolve an undefined global symbol by name to its runtime address.
     /// Returns 0 if the name is unknown. (Integer, not pointer, so neither side
@@ -66,25 +66,26 @@ namespace astia::elf {
 
     using copy_fn       = bool (*)(void* ctx, u64 address, span<const u8> source);
     using unmap_fn      = void (*)(void* ctx, void* address, usize size);
-    using async_read_fn = core::task<i64> (*)(void* ctx, span<u8> destination, u64 offset);
+    using async_read_fn = core::task<i64> (*)(void* ctx, span<u8> destination,
+                                              u64 offset);
 
     /// Caller-supplied environment: where memory comes from and how symbols
     /// are resolved.
     struct env {
-        void*         ctx        = nullptr;
-        map_fn        map        = nullptr;
-        unmap_fn      unmap      = nullptr;
-        resolve_fn    resolve    = nullptr;
-        copy_fn       copy       = nullptr;
+        void*      ctx     = nullptr;
+        map_fn     map     = nullptr;
+        unmap_fn   unmap   = nullptr;
+        resolve_fn resolve = nullptr;
+        copy_fn    copy    = nullptr;
     };
 
     struct async_env {
-        void*         ctx        = nullptr;
-        map_fn        map        = nullptr;
-        resolve_fn    resolve    = nullptr;
-        async_read_fn read       = nullptr;
-        copy_fn       copy       = nullptr;
-        unmap_fn      unmap      = nullptr;
+        void*         ctx     = nullptr;
+        map_fn        map     = nullptr;
+        resolve_fn    resolve = nullptr;
+        async_read_fn read    = nullptr;
+        copy_fn       copy    = nullptr;
+        unmap_fn      unmap   = nullptr;
     };
 
     /// One loaded PT_LOAD segment of an executable (relocatable images leave
@@ -105,8 +106,8 @@ namespace astia::elf {
     struct image {
         void* entry = nullptr; ///< Entry point (module_main for ET_REL, e_entry + bias
                                ///< for executables).
-        void* base  = nullptr; ///< Base of the loaded allocation (lowest mapped address).
-        usize size  = 0;       ///< Total bytes spanned by the image.
+        void* base = nullptr;  ///< Base of the loaded allocation (lowest mapped address).
+        usize size = 0;        ///< Total bytes spanned by the image.
         kind  loaded = kind::none; ///< Which loader produced this.
         u64   load_bias =
             0; ///< Relocation bias (0 for ET_REL and ET_EXEC; chosen for ET_DYN).

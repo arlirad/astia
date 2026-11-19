@@ -1,7 +1,7 @@
 #pragma once
 
-#include <astia/common.hpp>
 #include <astia/arch/io.hpp>
+#include <astia/common.hpp>
 #include <astia/dev/capabilities.hpp>
 
 // Port I/O and MSR primitives shared by the x86_64 device drivers
@@ -56,12 +56,24 @@ namespace astia::arch::x86_64 {
 
 namespace astia::arch::x86_64 {
 
-    inline u8 pio_read8(void*, u16 port) { return inb(port); }
-    inline u16 pio_read16(void*, u16 port) { return inw(port); }
-    inline u32 pio_read32(void*, u16 port) { return inl(port); }
-    inline void pio_write8(void*, u16 port, u8 value) { outb(port, value); }
-    inline void pio_write16(void*, u16 port, u16 value) { outw(port, value); }
-    inline void pio_write32(void*, u16 port, u32 value) { outl(port, value); }
+    inline u8 pio_read8(void*, u16 port) {
+        return inb(port);
+    }
+    inline u16 pio_read16(void*, u16 port) {
+        return inw(port);
+    }
+    inline u32 pio_read32(void*, u16 port) {
+        return inl(port);
+    }
+    inline void pio_write8(void*, u16 port, u8 value) {
+        outb(port, value);
+    }
+    inline void pio_write16(void*, u16 port, u16 value) {
+        outw(port, value);
+    }
+    inline void pio_write32(void*, u16 port, u32 value) {
+        outl(port, value);
+    }
 
     extern dev::pio_bus& device_pio;
 

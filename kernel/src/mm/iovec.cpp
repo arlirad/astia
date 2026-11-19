@@ -145,7 +145,7 @@ namespace astia::mm {
         if (_remaining == 0 || _index >= _count || !_segments[_index].frames.valid())
             return frame_allocator::invalid_frame;
         const pinned_segment& segment = _segments[_index];
-        const usize byte = segment.offset + _offset;
+        const usize           byte    = segment.offset + _offset;
         return segment.frames.phys(byte / phys_region::frame_size) +
                static_cast<u64>(byte % phys_region::frame_size);
     }
@@ -154,12 +154,12 @@ namespace astia::mm {
         if (_remaining == 0 || _index >= _count) {
             return 0;
         }
-        const pinned_segment& segment = _segments[_index];
-        const usize left = segment.length - _offset;
-        const usize available = left < _remaining ? left : _remaining;
+        const pinned_segment& segment   = _segments[_index];
+        const usize           left      = segment.length - _offset;
+        const usize           available = left < _remaining ? left : _remaining;
         if (!segment.frames.valid() || segment.frames.contiguous())
             return available;
-        const usize byte = segment.offset + _offset;
+        const usize byte      = segment.offset + _offset;
         const usize page_left = phys_region::frame_size - byte % phys_region::frame_size;
         return available < page_left ? available : page_left;
     }

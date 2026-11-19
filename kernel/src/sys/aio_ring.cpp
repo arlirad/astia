@@ -1,10 +1,9 @@
 #include "aio_ring.hpp"
 
 #include "user_mem.hpp"
-#include <astia/proc/user_layout.hpp>
-
 #include <astia/api/errno.h>
 #include <astia/memory.hpp>
+#include <astia/proc/user_layout.hpp>
 
 namespace astia::sys::aio_ring {
 
@@ -25,7 +24,7 @@ namespace astia::sys::aio_ring {
         };
 
         core::spinlock g_waiter_bucket_locks[waiter_index_buckets];
-        u16 g_waiter_index_heads[waiter_index_buckets] = {
+        u16            g_waiter_index_heads[waiter_index_buckets] = {
             waiter_index_none, waiter_index_none, waiter_index_none, waiter_index_none,
             waiter_index_none, waiter_index_none, waiter_index_none, waiter_index_none,
             waiter_index_none, waiter_index_none, waiter_index_none, waiter_index_none,
@@ -35,8 +34,7 @@ namespace astia::sys::aio_ring {
             waiter_index_none, waiter_index_none, waiter_index_none, waiter_index_none,
             waiter_index_none, waiter_index_none, waiter_index_none, waiter_index_none};
         waiter_index_entry g_waiter_index[slot_count * parked_slot_count];
-        u64 g_ready_generation = 0;
-
+        u64                g_ready_generation = 0;
 
         u32 waiter_index_hash(const fs::file* key) {
             return (static_cast<u32>(reinterpret_cast<u64>(key) >> 4) &
@@ -98,8 +96,7 @@ namespace astia::sys::aio_ring {
         }
     }
 
-    void waiter_index_insert(const ring_slot& slot, u32 park_index,
-                             const fs::file* key) {
+    void waiter_index_insert(const ring_slot& slot, u32 park_index, const fs::file* key) {
         const u32 number = waiter_index_number(slot.pool_index, park_index);
         const u32 bucket = waiter_index_hash(key);
         g_waiter_bucket_locks[bucket].lock();
@@ -110,8 +107,8 @@ namespace astia::sys::aio_ring {
     }
 
     void waiter_index_remove(const ring_slot& slot, u32 park_index) {
-        const u32 number = waiter_index_number(slot.pool_index, park_index);
-        const fs::file* key = g_waiter_index[number].key;
+        const u32       number = waiter_index_number(slot.pool_index, park_index);
+        const fs::file* key    = g_waiter_index[number].key;
         if (key == nullptr)
             return;
         const u32 bucket = waiter_index_hash(key);
@@ -140,18 +137,17 @@ namespace astia::sys::aio_ring {
         waiter_index_remove(slot, park_index);
     }
 
-    void publish_waiter_hint(const ring_slot& slot, u32 park_index,
-                             const fs::file* key) {
+    void publish_waiter_hint(const ring_slot& slot, u32 park_index, const fs::file* key) {
         waiter_index_insert(slot, park_index, key);
     }
 
     void snapshot_waiters(const fs::file* key,
                           bool (&indexed)[slot_count][parked_slot_count]) {
         arch::interrupt_guard index_gate;
-        const u32 bucket = waiter_index_hash(key);
+        const u32             bucket = waiter_index_hash(key);
         g_waiter_bucket_locks[bucket].lock();
         for (u16 n = g_waiter_index_heads[bucket]; n != waiter_index_none;
-             n = g_waiter_index[n].next)
+             n     = g_waiter_index[n].next)
             if (g_waiter_index[n].key == key)
                 indexed[n / parked_slot_count][n % parked_slot_count] = true;
         g_waiter_bucket_locks[bucket].unlock();
@@ -223,8 +219,8 @@ namespace astia::sys::aio_ring {
             ring->sq_off != sizeof(astia_rings) ||
             ring->cq_off != ring->sq_off + sizeof(astia_sq_ring) ||
             ring->sqes_off != ring->cq_off + sizeof(astia_cq_ring) ||
-            ring->cqes_off != ring->sqes_off + static_cast<u32>(sizeof(astia_sqe)) *
-                                                        slot.sq_entries)
+            ring->cqes_off !=
+                ring->sqes_off + static_cast<u32>(sizeof(astia_sqe)) * slot.sq_entries)
             return false;
         const astia_sq_ring* sq = astia_rings_sq(const_cast<astia_rings*>(ring));
         const astia_cq_ring* cq = astia_rings_cq(const_cast<astia_rings*>(ring));
@@ -235,28 +231,29 @@ namespace astia::sys::aio_ring {
         const u32 sq_head = __atomic_load_n(&sq->head, __ATOMIC_RELAXED);
         const u32 cq_tail = __atomic_load_n(&cq->tail, __ATOMIC_ACQUIRE);
         const u32 cq_head = __atomic_load_n(&cq->head, __ATOMIC_RELAXED);
-        return sq_tail - sq_head <= slot.sq_entries && cq_tail - cq_head <= slot.cq_entries;
+        return sq_tail - sq_head <= slot.sq_entries &&
+               cq_tail - cq_head <= slot.cq_entries;
     }
 
     long map_ring_for_user(ring_slot& slot, u32 index, proc::process* owner, u64* out) {
         if (owner == nullptr || out == nullptr)
             return -ESRCH;
-        auto& space = owner->memory_space();
+        auto& space  = owner->memory_space();
         auto  kernel = mm::address_space::kernel();
         if (!space.valid() || !kernel.valid())
             return -ESRCH;
         const u64 base = proc::user_layout_policy::ring_base +
                          proc::user_layout_policy::ring_slot_span * index;
-        const u64 first = reinterpret_cast<u64>(rings_of(slot));
+        const u64               first = reinterpret_cast<u64>(rings_of(slot));
         mm::mapping_transaction transaction(space, base, user_mapping_pages);
         for (u32 page = 0; page < user_mapping_pages; ++page) {
-            const u64 offset = static_cast<u64>(page) * mm::page_size;
-            const paddr_t phys = kernel.translate(first + offset);
+            const u64     offset = static_cast<u64>(page) * mm::page_size;
+            const paddr_t phys   = kernel.translate(first + offset);
             if (phys == mm::address_space::invalid ||
                 !transaction.map_4k(base + offset, phys & ~mm::page_mask,
-                                     mm::mapping_flags::present |
-                                         mm::mapping_flags::writable |
-                                         mm::mapping_flags::user)) {
+                                    mm::mapping_flags::present |
+                                        mm::mapping_flags::writable |
+                                        mm::mapping_flags::user)) {
                 return -ENOMEM;
             }
         }
@@ -279,8 +276,8 @@ namespace astia::sys::aio_ring {
     }
 
     void cq_retrigger(ring_slot& slot, astia_rings* ring) {
-        astia_cq_ring* cq = astia_rings_cq(ring);
-        const u32 acknowledged = __atomic_load_n(&cq->notify_ack, __ATOMIC_ACQUIRE);
+        astia_cq_ring* cq           = astia_rings_cq(ring);
+        const u32      acknowledged = __atomic_load_n(&cq->notify_ack, __ATOMIC_ACQUIRE);
         if (slot.notify_pending && acknowledged == slot.notify_signaled)
             slot.notify_pending = false;
         if (!slot.notify_pending && astia_cq_ready(ring) != 0 && slot.owner) {
@@ -296,7 +293,8 @@ namespace astia::sys::aio_ring {
     bool cq_post(astia_rings* ring, u64 user_data, i32 result) {
         ring_slot* storage = nullptr;
         for (u32 i = 0; i < slot_count; ++i)
-            if (g_slots[i] != nullptr && g_slots[i]->used && rings_of(*g_slots[i]) == ring) {
+            if (g_slots[i] != nullptr && g_slots[i]->used &&
+                rings_of(*g_slots[i]) == ring) {
                 storage = g_slots[i];
                 break;
             }
@@ -304,10 +302,10 @@ namespace astia::sys::aio_ring {
             storage = slot_of(ring);
         if (storage == nullptr)
             return false;
-        astia_rings* storage_ring = rings_of(*storage);
-        astia_cq_ring* cq = astia_rings_cq(storage_ring);
-        const u32 head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
-        const u32 tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+        astia_rings*   storage_ring = rings_of(*storage);
+        astia_cq_ring* cq           = astia_rings_cq(storage_ring);
+        const u32      head         = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
+        const u32      tail         = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
         if (tail - head >= cq->entries)
             return false;
         astia_cqe* c = &astia_rings_cqes(storage_ring)[tail & cq->mask];
@@ -324,7 +322,8 @@ namespace astia::sys::aio_ring {
     }
 
     long setup(u32 entries, u32 flags, astia_rings** out) {
-        if (out == nullptr || flags != 0 || entries == 0 || entries > kernel_ring_max_entries)
+        if (out == nullptr || flags != 0 || entries == 0 ||
+            entries > kernel_ring_max_entries)
             return -EINVAL;
         u32 sq = 1;
         while (sq < entries)
@@ -344,7 +343,7 @@ namespace astia::sys::aio_ring {
             slot.pool_index = i;
             clear_slot(slot, slot.cleanup);
             slot.cleanup.release();
-            slot.used = true;
+            slot.used              = true;
             proc::process* current = proc::current_process();
             if (current == nullptr) {
                 slot.used = false;
@@ -355,29 +354,29 @@ namespace astia::sys::aio_ring {
                 slot.used = false;
                 continue;
             }
-            astia_rings* r = rings_of(slot);
-            r->magic = RINGS_MAGIC;
-            r->version = API_VERSION;
-            r->features = FEAT_SINGLE_MMAP;
-            r->sq_entries = sq;
-            r->cq_entries = cq;
-            r->sq_off = sizeof(astia_rings);
-            r->cq_off = r->sq_off + sizeof(astia_sq_ring);
-            r->sqes_off = r->cq_off + sizeof(astia_cq_ring);
-            r->cqes_off = r->sqes_off + static_cast<u32>(sizeof(astia_sqe)) * sq;
-            slot.sq_entries = sq;
-            slot.cq_entries = cq;
+            astia_rings* r     = rings_of(slot);
+            r->magic           = RINGS_MAGIC;
+            r->version         = API_VERSION;
+            r->features        = FEAT_SINGLE_MMAP;
+            r->sq_entries      = sq;
+            r->cq_entries      = cq;
+            r->sq_off          = sizeof(astia_rings);
+            r->cq_off          = r->sq_off + sizeof(astia_sq_ring);
+            r->sqes_off        = r->cq_off + sizeof(astia_cq_ring);
+            r->cqes_off        = r->sqes_off + static_cast<u32>(sizeof(astia_sqe)) * sq;
+            slot.sq_entries    = sq;
+            slot.cq_entries    = cq;
             astia_sq_ring* sqp = astia_rings_sq(r);
-            sqp->mask = sq - 1;
-            sqp->entries = sq;
+            sqp->mask          = sq - 1;
+            sqp->entries       = sq;
             astia_cq_ring* cqp = astia_rings_cq(r);
-            cqp->mask = cq - 1;
-            cqp->entries = cq;
+            cqp->mask          = cq - 1;
+            cqp->entries       = cq;
 
-            astia_rings* visible = r;
-            proc::process* owner = proc::current_process();
+            astia_rings*   visible = r;
+            proc::process* owner   = proc::current_process();
             if (owner != nullptr && owner->memory_space().valid()) {
-                u64 user_address = 0;
+                u64        user_address = 0;
                 const long rc = map_ring_for_user(slot, i, owner, &user_address);
                 if (rc < 0) {
                     clear_slot(slot, slot.cleanup);
@@ -386,8 +385,9 @@ namespace astia::sys::aio_ring {
                 }
                 visible = reinterpret_cast<astia_rings*>(user_address);
             }
-            if (!sys::copy_out(span<u8>::bytes(reinterpret_cast<u64>(out), sizeof visible),
-                               &visible)) {
+            if (!sys::copy_out(
+                    span<u8>::bytes(reinterpret_cast<u64>(out), sizeof visible),
+                    &visible)) {
                 unmap_ring_user(slot, owner);
                 clear_slot(slot, slot.cleanup);
                 slot.cleanup.release();
@@ -403,7 +403,7 @@ namespace astia::sys::aio_ring {
         ring_slot* slot = slot_of(ring);
         if (slot == nullptr || !ring_layout_ok(*slot, ring))
             return -EINVAL;
-        ring_guard ring_lock_guard(slot->lock);
+        ring_guard      ring_lock_guard(slot->lock);
         parked_cleanup& cleanup = slot->cleanup;
         reap_completed(*slot, cleanup);
         if (slot->waiters != 0) {

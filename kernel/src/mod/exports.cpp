@@ -4,10 +4,10 @@ namespace astia::mod {
 
     namespace {
 
-        constexpr u32 table_magic = 0x41535453;
-        constexpr u16 table_version = 1;
-        constexpr usize header_size = 20;
-        constexpr usize entry_size = 16;
+        constexpr u32   table_magic   = 0x41535453;
+        constexpr u16   table_version = 1;
+        constexpr usize header_size   = 20;
+        constexpr usize entry_size    = 16;
 
         extern "C" const u8 __kernel_symbol_table_start[] __attribute__((weak));
         extern "C" const u8 __kernel_symbol_table_end[] __attribute__((weak));
@@ -42,24 +42,25 @@ namespace astia::mod {
 
     u64 resolve(const char* name) {
         const u8* start = __kernel_symbol_table_start;
-        const u8* end = __kernel_symbol_table_end;
+        const u8* end   = __kernel_symbol_table_end;
         if (name == nullptr || start == nullptr || end == nullptr || end <= start) {
             return 0;
         }
-        const u8* table = start;
-        const usize size = static_cast<usize>(end - table);
+        const u8*   table = start;
+        const usize size  = static_cast<usize>(end - table);
         if (size < header_size || read_u32(table) != table_magic ||
             read_u16(table + 4) != table_version || read_u16(table + 6) != entry_size) {
             return 0;
         }
-        const u32 count = read_u32(table + 8);
+        const u32 count          = read_u32(table + 8);
         const u32 strings_offset = read_u32(table + 12);
-        const u32 total_size = read_u32(table + 16);
-        if (total_size > size || strings_offset < header_size || strings_offset > total_size ||
+        const u32 total_size     = read_u32(table + 16);
+        if (total_size > size || strings_offset < header_size ||
+            strings_offset > total_size ||
             count > (strings_offset - header_size) / entry_size) {
             return 0;
         }
-        const u8* strings = table + strings_offset;
+        const u8*   strings      = table + strings_offset;
         const usize strings_size = total_size - strings_offset;
         for (u32 i = 0; i < count; ++i) {
             const u8* entry = table + header_size + static_cast<usize>(i) * entry_size;

@@ -44,7 +44,7 @@ namespace astia::fs::path_service {
         if (path[0] == '.' && path[1] == '\0') {
             return copy_string(buffer.data(), buffer.size(), base, -ERANGE);
         }
-        char candidate[path_max]{};
+        char  candidate[path_max]{};
         usize at = 0;
         for (; base[at] != '\0' && at + 1 < sizeof candidate; ++at)
             candidate[at] = base[at];
@@ -53,8 +53,7 @@ namespace astia::fs::path_service {
         if (at > 1 && at + 1 < sizeof candidate)
             candidate[at++] = '/';
         usize source = 0;
-        for (; path[source] != '\0' && at + 1 < sizeof candidate;
-             ++source, ++at)
+        for (; path[source] != '\0' && at + 1 < sizeof candidate; ++source, ++at)
             candidate[at] = path[source];
         if (path[source] != '\0')
             return -ENAMETOOLONG;
