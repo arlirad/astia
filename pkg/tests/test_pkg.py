@@ -7,6 +7,7 @@ import importlib.machinery
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import tarfile
 import tempfile
@@ -74,6 +75,14 @@ def write_index(repo, packages):
     (repo / "index.json").write_text(json.dumps(index), encoding="utf-8")
 
 
+def load_pkg_module():
+    loader = importlib.machinery.SourceFileLoader("pkg_impl", str(PKG))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
 def package_entry(repo, name, version, archive=None, dependencies=None, architecture=ARCH):
     archive = archive or make_archive(repo, name, version, {"bin/" + name: f"{name} {version}\n"})
     return {
@@ -98,13 +107,17 @@ class PackageManagerTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_pkg(self, *args):
-        return self.run_pkg_at(self.root, *args)
+    def run_pkg(self, *args, env=None):
+        return self.run_pkg_at(self.root, *args, env=env)
 
-    def run_pkg_at(self, root, *args):
+    def run_pkg_at(self, root, *args, env=None):
+        environment = None
+        if env is not None:
+            environment = os.environ.copy()
+            environment.update(env)
         return subprocess.run(
             [str(PKG), "--root", str(root), *args],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment,
         )
 
     def sync_package(self, name="hello", version="1.0.0", **kwargs):
@@ -112,6 +125,24 @@ class PackageManagerTest(unittest.TestCase):
         write_index(self.repo, {name: {"versions": {version: entry}}})
         result = self.run_pkg("sync", "--repo", str(self.repo))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def make_crash_transaction(self):
+        self.sync_package()
+        self.assertEqual(self.run_pkg("-i", "hello").returncode, 0)
+        state = json.loads((self.root / ".pkg/state.json").read_text())
+        transaction = self.root / ".pkg/.txn-crash"
+        backup = transaction / "backup"
+        backup.mkdir(parents=True)
+        target = self.root / "bin/hello"
+        target.replace(backup / "0")
+        journal = {
+            "schema": 1,
+            "new_state": {"schema": 1, "installed": {}, "owners": {}},
+            "backups": [{"name": "0", "path": "bin/hello"}],
+            "placed": [],
+        }
+        (transaction / "journal.json").write_text(json.dumps(journal))
+        return state, transaction, backup, target
 
     def test_sync_install_list_remove_and_idempotency(self):
         self.sync_package()
@@ -295,25 +326,38 @@ class PackageManagerTest(unittest.TestCase):
         self.assertFalse((outside / "hello").exists())
 
     def test_crash_recovery_restores_backup(self):
-        self.sync_package()
-        self.assertEqual(self.run_pkg("-i", "hello").returncode, 0)
-        state = json.loads((self.root / ".pkg/state.json").read_text())
-        transaction = self.root / ".pkg/.txn-crash"
-        backup = transaction / "backup"
-        backup.mkdir(parents=True)
-        target = self.root / "bin/hello"
-        target.replace(backup / "0")
-        journal = {
-            "schema": 1,
-            "new_state": {"schema": 1, "installed": {}, "owners": {}},
-            "backups": [{"name": "0", "path": "bin/hello"}],
-            "placed": [],
-        }
-        (transaction / "journal.json").write_text(json.dumps(journal))
+        state, transaction, backup, target = self.make_crash_transaction()
         result = self.run_pkg("list")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((self.root / "bin/hello").read_text(), "hello 1.0.0\n")
+        self.assertEqual(target.read_text(), "hello 1.0.0\n")
         self.assertEqual(json.loads((self.root / ".pkg/state.json").read_text()), state)
+        self.assertFalse(transaction.exists())
+
+    def test_recovery_restore_failure_preserves_journal(self):
+        state, transaction, backup, target = self.make_crash_transaction()
+        result = self.run_pkg("status", env={"PKG_TEST_FAIL_RECOVERY_RESTORE": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(transaction.exists())
+        self.assertTrue((transaction / "journal.json").exists())
+        self.assertTrue((backup / "0").exists())
+        self.assertFalse(target.exists())
+        self.assertEqual(json.loads((self.root / ".pkg/state.json").read_text()), state)
+        result = self.run_pkg("status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(target.read_text(), "hello 1.0.0\n")
+        self.assertFalse(transaction.exists())
+
+    def test_recovery_fsync_failure_preserves_journal(self):
+        state, transaction, backup, target = self.make_crash_transaction()
+        result = self.run_pkg("status", env={"PKG_TEST_FAIL_RECOVERY_FSYNC": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(transaction.exists())
+        self.assertTrue((transaction / "journal.json").exists())
+        self.assertTrue(target.exists())
+        self.assertEqual(target.read_text(), "hello 1.0.0\n")
+        self.assertEqual(json.loads((self.root / ".pkg/state.json").read_text()), state)
+        result = self.run_pkg("status")
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(transaction.exists())
 
     def test_backup_directory_loss_fails_closed(self):
@@ -332,6 +376,18 @@ class PackageManagerTest(unittest.TestCase):
         self.assertIn("backup directory is missing", result.stderr)
         self.assertEqual((self.root / "bin/hello").read_text(), "hello 1.0.0\n")
 
+    def test_mutable_root_ancestry_is_rejected(self):
+        parent = Path(self.temp.name) / "mutable-parent"
+        parent.mkdir()
+        parent.chmod(0o777)
+        self.root = parent / "root"
+        try:
+            result = self.run_pkg("status")
+        finally:
+            parent.chmod(0o700)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("mutable by an untrusted user", result.stderr)
+
     def test_archive_expansion_limit(self):
         archive_path = self.repo / "huge-members.tar.gz"
         with tarfile.open(archive_path, "w:gz") as archive:
@@ -346,15 +402,52 @@ class PackageManagerTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("too many members", result.stderr)
 
+    def test_https_index_rejects_absolute_http_archive(self):
+        module = load_pkg_module()
+        archive = make_archive(self.repo, "secure", "1.0.0", {"bin/secure": "secure\n"})
+        entry = package_entry(self.repo, "secure", "1.0.0", archive=archive)
+        entry["artifacts"][ARCH]["archive"] = "http://mirror.test/secure.tar.gz"
+        index = {
+            "schema": 1,
+            "generated_at": "2026-01-01T00:00:00Z",
+            "repository": {"name": "test", "channel": "stable", "architectures": ["x86_64"]},
+            "packages": {"secure": {"versions": {"1.0.0": entry}}},
+        }
+        with self.assertRaises(module.PkgError):
+            module.validate_index(index, "remote", "https")
+
     def test_https_downgrade_redirect_is_rejected(self):
-        loader = importlib.machinery.SourceFileLoader("pkg_impl", str(PKG))
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        module = importlib.util.module_from_spec(spec)
-        loader.exec_module(module)
+        module = load_pkg_module()
         handler = module.NoDowngradeRedirectHandler()
         request = urllib.request.Request("https://example.test/index.json")
         with self.assertRaises(module.PkgError):
             handler.redirect_request(request, object(), 302, "Found", {}, "http://example.test/index.json")
+
+    def test_standalone_upgrade_uses_cached_repository(self):
+        old = package_entry(self.repo, "hello", "1.0.0")
+        write_index(self.repo, {"hello": {"versions": {"1.0.0": old}}})
+        result = self.run_pkg("-is", "hello", "--repo", str(self.repo))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        new = package_entry(self.repo, "hello", "2.0.0")
+        write_index(self.repo, {"hello": {"versions": {"1.0.0": old, "2.0.0": new}}})
+        result = self.run_pkg("sync", "--repo", str(self.repo))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_pkg("-u")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("2.0.0", result.stdout)
+        result = self.run_pkg("upgrade")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_python_parser_upgrade_matches_stacked_flags(self):
+        module = load_pkg_module()
+        values, operation, operands = module.parse_python_cli(["-u"])
+        self.assertEqual(operation, "upgrade")
+        self.assertIsNone(values["repo"])
+        self.assertEqual(operands, [])
+        values, operation, operands = module.parse_python_cli(["-us", "--repo", "repo"])
+        self.assertEqual(operation, "sync-upgrade")
+        self.assertEqual(values["repo"], "repo")
+        self.assertEqual(operands, [])
 
 
 if __name__ == "__main__":

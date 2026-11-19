@@ -75,19 +75,55 @@ def sync_directory(fd):
     os.fsync(fd)
 
 
+def validate_directory_trust(fd, label):
+    info = os.fstat(fd)
+    if not stat.S_ISDIR(info.st_mode):
+        fail(f"package directory is not a directory: {label}")
+    if info.st_uid != os.geteuid() or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        fail(f"package directory is outside the trusted ownership/mode boundary: {label}")
+
+
+def validate_root_ancestry(path):
+    current = Path(path)
+    while True:
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            current = current.parent
+            continue
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            fail(f"package root ancestry is not a directory: {current}")
+        if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not info.st_mode & stat.S_ISVTX:
+            fail(f"package root ancestry is mutable by an untrusted user: {current}")
+        if current == current.parent:
+            break
+        current = current.parent
+
+
 def open_directory_at(parent_fd, name, create=False, mode=0o755):
     if create:
         try:
-            sync_directory(parent_fd)
             os.mkdir(name, mode, dir_fd=parent_fd)
             sync_directory(parent_fd)
         except FileExistsError:
             pass
-    return os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    try:
+        validate_directory_trust(fd, name)
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
 
 
 def open_root(path):
-    return os.open(path, DIRECTORY_FLAGS)
+    fd = os.open(path, DIRECTORY_FLAGS)
+    try:
+        validate_directory_trust(fd, path)
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
 
 
 def open_parent_at(root_fd, relative, create=False):
@@ -172,6 +208,30 @@ def remove_tree_at(parent_fd, name):
     sync_directory(parent_fd)
 
 
+def remove_transaction_at(parent_fd, name):
+    child_fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    try:
+        for entry in os.scandir(child_fd):
+            if entry.name == "journal.json":
+                continue
+            info = entry.stat(follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                remove_tree_at(child_fd, entry.name)
+            else:
+                os.unlink(entry.name, dir_fd=child_fd)
+        sync_directory(child_fd)
+        try:
+            os.unlink("journal.json", dir_fd=child_fd)
+        except FileNotFoundError:
+            pass
+        sync_directory(child_fd)
+    finally:
+        os.close(child_fd)
+    sync_directory(parent_fd)
+    os.rmdir(name, dir_fd=parent_fd)
+    sync_directory(parent_fd)
+
+
 class NoDowngradeRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
         old_scheme = urllib.parse.urlparse(request.full_url).scheme.lower()
@@ -230,7 +290,7 @@ def version_key(version):
     return numbers, (0, tuple(parts))
 
 
-def validate_archive_reference(value, source_kind):
+def validate_archive_reference(value, source_kind, source_scheme=None):
     if not isinstance(value, str) or not value or "\x00" in value:
         fail("invalid archive reference")
     parsed = urllib.parse.urlparse(value)
@@ -241,6 +301,8 @@ def validate_archive_reference(value, source_kind):
             fail(f"unsafe archive URL: {value}")
         if any(part == ".." for part in parsed.path.split("/")):
             fail(f"unsafe archive URL: {value}")
+        if source_scheme == "https" and parsed.scheme.lower() != "https":
+            fail("HTTPS repositories require HTTPS archive URLs")
         return
     if source_kind == "remote":
         if value.startswith("/"):
@@ -248,7 +310,7 @@ def validate_archive_reference(value, source_kind):
     safe_rel(value, "archive path")
 
 
-def validate_index(index, source_kind):
+def validate_index(index, source_kind, source_scheme=None):
     if not isinstance(index, dict):
         fail("index must be an object")
     if index.get("schema") != 1:
@@ -298,7 +360,7 @@ def validate_index(index, source_kind):
                 normalized_artifacts.add(normalized)
                 if not isinstance(artifact, dict) or not {"archive", "sha256", "size"}.issubset(artifact):
                     fail(f"incomplete artifact metadata for {name} {version} {architecture}")
-                validate_archive_reference(artifact["archive"], source_kind)
+                validate_archive_reference(artifact["archive"], source_kind, source_scheme)
                 if not isinstance(artifact["sha256"], str) or not HEX_RE.fullmatch(artifact["sha256"]):
                     fail(f"invalid SHA-256 for {name} {version} {architecture}")
                 if not isinstance(artifact["size"], int) or isinstance(artifact["size"], bool) or artifact["size"] < 1:
@@ -309,6 +371,18 @@ def validate_index(index, source_kind):
     return index
 
 
+def repository_scheme(repository):
+    scheme = repository.get("scheme")
+    if isinstance(scheme, str) and scheme:
+        return scheme.lower()
+    index_source = repository.get("index_source")
+    if isinstance(index_source, str):
+        parsed = urllib.parse.urlparse(index_source)
+        if parsed.scheme:
+            return parsed.scheme.lower()
+    return None
+
+
 def source_info(repo):
     parsed = urllib.parse.urlparse(repo)
     if parsed.scheme:
@@ -317,7 +391,7 @@ def source_info(repo):
         if parsed.username or parsed.password or parsed.fragment:
             fail("unsafe repository URL")
         index_url = repo if parsed.path.endswith(".json") else repo.rstrip("/") + "/index.json"
-        return {"kind": "remote", "index_source": index_url, "base": index_url}
+        return {"kind": "remote", "index_source": index_url, "base": index_url, "scheme": parsed.scheme.lower()}
     path = Path(repo).expanduser().resolve()
     if path.is_dir():
         path = path / "index.json"
@@ -374,7 +448,10 @@ def archive_source(repository, archive):
         if path.is_symlink() or not path.is_file():
             fail(f"archive does not exist: {path}")
         return {"kind": "local", "path": str(path)}
-    return {"kind": "remote", "url": urllib.parse.urljoin(repository["base"], archive)}
+    url = urllib.parse.urljoin(repository["base"], archive)
+    if repository_scheme(repository) == "https" and urllib.parse.urlparse(url).scheme.lower() != "https":
+        fail("HTTPS repositories require HTTPS archive URLs")
+    return {"kind": "remote", "url": url}
 
 
 def read_archive(source):
@@ -579,7 +656,7 @@ class State:
             fail("malformed package immutability data")
         if repository.get("kind") not in ("local", "remote"):
             fail("malformed cached repository")
-        validate_index(index, repository["kind"])
+        validate_index(index, repository["kind"], repository_scheme(repository))
         return index, repository, immutable
 
     def lock(self):
@@ -591,11 +668,12 @@ class State:
 
 
 def ensure_root(value):
-    root = Path(value).expanduser()
+    root = Path(os.path.abspath(os.path.expanduser(value)))
     if root in (Path("/"), Path("/usr")):
         fail("refusing unsafe package root")
     try:
         root.mkdir(parents=True, exist_ok=True)
+        validate_root_ancestry(root)
         fd = open_root(root)
     except OSError as exc:
         fail(f"package root is not a directory or is a symlink: {exc}")
@@ -611,7 +689,7 @@ def sync(root, repo):
     source = source_info(repo)
     data = read_source(source)
     index = parse_json(data, "repository index")
-    validate_index(index, source["kind"])
+    validate_index(index, source["kind"], source.get("scheme"))
     state = State(root)
     with state.lock():
         old_immutable = {}
@@ -719,6 +797,18 @@ def close_fds(fds):
         os.close(fd)
 
 
+def recovery_sync_directory(fd):
+    if os.environ.get("PKG_TEST_FAIL_RECOVERY_FSYNC") == "1":
+        fail("injected recovery fsync failure")
+    sync_directory(fd)
+
+
+def recovery_replace(source_name, target_name, source_fd, target_fd):
+    if os.environ.get("PKG_TEST_FAIL_RECOVERY_RESTORE") == "1":
+        fail("injected recovery restore failure")
+    os.replace(source_name, target_name, src_dir_fd=source_fd, dst_dir_fd=target_fd)
+
+
 def recover_transaction_fds(state, txn_fd, backup_fd, journal):
     for rel in reversed(journal["placed"]):
         parent_fd, target_name = target_parent(state.root_fd, rel)
@@ -727,9 +817,9 @@ def recover_transaction_fds(state, txn_fd, backup_fd, journal):
             if info is not None:
                 if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
                     fail(f"cannot recover unsafe package target: {rel}")
-                sync_directory(parent_fd)
+                recovery_sync_directory(parent_fd)
                 os.unlink(target_name, dir_fd=parent_fd)
-                sync_directory(parent_fd)
+                recovery_sync_directory(parent_fd)
         finally:
             os.close(parent_fd)
     for entry in reversed(journal["backups"]):
@@ -744,13 +834,12 @@ def recover_transaction_fds(state, txn_fd, backup_fd, journal):
             if target_info is not None:
                 if stat.S_ISLNK(target_info.st_mode) or not stat.S_ISREG(target_info.st_mode):
                     fail(f"cannot recover unsafe package target: {entry['path']}")
-                sync_directory(parent_fd)
+                recovery_sync_directory(parent_fd)
                 os.unlink(target_name, dir_fd=parent_fd)
-                sync_directory(parent_fd)
-            sync_directory(parent_fd)
-            os.replace(entry["name"], target_name, src_dir_fd=backup_fd, dst_dir_fd=parent_fd)
-            sync_directory(parent_fd)
-            sync_directory(backup_fd)
+                recovery_sync_directory(parent_fd)
+            recovery_replace(entry["name"], target_name, backup_fd, parent_fd)
+            recovery_sync_directory(parent_fd)
+            recovery_sync_directory(backup_fd)
         finally:
             os.close(parent_fd)
 
@@ -776,7 +865,8 @@ def recover_transactions(state):
                 safe_rel(backup["name"], "transaction backup")
             current = state.load()
             if current == journal["new_state"]:
-                remove_tree_at(state.internal_fd, entry.name)
+                recovery_sync_directory(state.internal_fd)
+                remove_transaction_at(state.internal_fd, entry.name)
                 continue
             try:
                 backup_fd = os.open("backup", DIRECTORY_FLAGS, dir_fd=txn_fd)
@@ -790,18 +880,18 @@ def recover_transactions(state):
                         if info is not None:
                             if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
                                 fail(f"cannot recover unsafe package target: {rel}")
-                            sync_directory(parent_fd)
+                            recovery_sync_directory(parent_fd)
                             os.unlink(target_name, dir_fd=parent_fd)
-                            sync_directory(parent_fd)
+                            recovery_sync_directory(parent_fd)
                     finally:
                         os.close(parent_fd)
-                remove_tree_at(state.internal_fd, entry.name)
+                remove_transaction_at(state.internal_fd, entry.name)
                 continue
             try:
                 recover_transaction_fds(state, txn_fd, backup_fd, journal)
             finally:
                 os.close(backup_fd)
-            remove_tree_at(state.internal_fd, entry.name)
+            remove_transaction_at(state.internal_fd, entry.name)
         finally:
             os.close(txn_fd)
 
@@ -822,6 +912,7 @@ def install_locked(state, name, requested, architecture):
     os.mkdir(txn_name, 0o700, dir_fd=state.internal_fd)
     sync_directory(state.internal_fd)
     txn_fd = os.open(txn_name, DIRECTORY_FLAGS, dir_fd=state.internal_fd)
+    transaction_cleanup = True
     try:
         os.mkdir("stage", 0o700, dir_fd=txn_fd)
         os.mkdir("backup", 0o700, dir_fd=txn_fd)
@@ -840,6 +931,7 @@ def install_locked(state, name, requested, architecture):
                 if rel in old_files and owners.get(rel) != name:
                     fail(f"ownership database disagrees for {rel}")
             if old_package and old_package.get("version") == version and old_package.get("architecture") == architecture and old_package.get("sha256") == artifact["sha256"] and old_files == new_files:
+                transaction_cleanup = True
                 print(f"{name} {version} is already installed")
                 return
             new_state = copy.deepcopy(state_value)
@@ -859,6 +951,7 @@ def install_locked(state, name, requested, architecture):
                 "placed": [],
             }
             transaction_journal(txn_fd, journal)
+            transaction_cleanup = False
             backups = []
             try:
                 for entry in backup_entries:
@@ -887,14 +980,20 @@ def install_locked(state, name, requested, architecture):
                     finally:
                         close_fds((source_parent_fd, target_parent_fd))
                 write_state(state, new_state)
+                transaction_cleanup = True
             except Exception:
-                recover_transaction_fds(state, txn_fd, backup_fd, journal)
+                try:
+                    recover_transaction_fds(state, txn_fd, backup_fd, journal)
+                except Exception:
+                    raise
+                transaction_cleanup = True
                 raise
         finally:
             close_fds((stage_fd, backup_fd))
     finally:
         os.close(txn_fd)
-        remove_tree_at(state.internal_fd, txn_name)
+        if transaction_cleanup:
+            remove_transaction_at(state.internal_fd, txn_name)
     print(f"installed {name} {version} ({architecture})")
 
 
@@ -932,6 +1031,7 @@ def remove(root, name):
         os.mkdir(txn_name, 0o700, dir_fd=state.internal_fd)
         sync_directory(state.internal_fd)
         txn_fd = os.open(txn_name, DIRECTORY_FLAGS, dir_fd=state.internal_fd)
+        transaction_cleanup = True
         try:
             os.mkdir("backup", 0o700, dir_fd=txn_fd)
             sync_directory(txn_fd)
@@ -943,6 +1043,7 @@ def remove(root, name):
                 entries = [{"name": str(index), "path": rel} for index, rel in enumerate(files)]
                 journal = {"schema": 1, "new_state": new_state, "backups": entries, "placed": []}
                 transaction_journal(txn_fd, journal)
+                transaction_cleanup = False
                 try:
                     for entry in entries:
                         parent_fd, target_name = target_parent(state.root_fd, entry["path"])
@@ -955,14 +1056,20 @@ def remove(root, name):
                         finally:
                             os.close(parent_fd)
                     write_state(state, new_state)
+                    transaction_cleanup = True
                 except Exception:
-                    recover_transaction_fds(state, txn_fd, backup_fd, journal)
+                    try:
+                        recover_transaction_fds(state, txn_fd, backup_fd, journal)
+                    except Exception:
+                        raise
+                    transaction_cleanup = True
                     raise
             finally:
                 os.close(backup_fd)
         finally:
             os.close(txn_fd)
-            remove_tree_at(state.internal_fd, txn_name)
+            if transaction_cleanup:
+                remove_transaction_at(state.internal_fd, txn_name)
     print(f"removed {name}")
 
 
@@ -1022,8 +1129,6 @@ def normalize_actions(actions):
     if "u" in present and "i" in present:
         flags = "".join(flag for flag in SHORT_ACTION_ORDER if flag in present)
         fail(f"conflicting short flags: -{flags}")
-    if "u" in present and "s" not in present:
-        fail("short flag -u requires -s (use -su)")
     if present == {"s"}:
         return "sync"
     if present == {"i"}:
@@ -1032,6 +1137,8 @@ def normalize_actions(actions):
         return "remove"
     if present == {"s", "i"}:
         return "sync-install"
+    if present == {"u"}:
+        return "upgrade"
     if present == {"s", "u"}:
         return "sync-upgrade"
     flags = "".join(flag for flag in SHORT_ACTION_ORDER if flag in present)
@@ -1091,8 +1198,6 @@ def parse_python_cli(argv):
         operands.append(value)
         index += 1
     operation = long_operation or normalize_actions(actions)
-    if operation == "upgrade":
-        operation = "sync-upgrade"
     if operation is None:
         fail("an operation is required (use -s, -i, -r, -si, or -su)")
     validate_operands(operation, operands)
@@ -1135,7 +1240,7 @@ def parse_cli(argv):
         "repo": fields[2] or None,
         "arch": fields[3] or None,
     }
-    operation = "sync-upgrade" if fields[0] == "upgrade" else fields[0]
+    operation = fields[0]
     operands = fields[4:]
     validate_operands(operation, operands)
     if operation in ("sync", "sync-install", "sync-upgrade") and not values["repo"]:

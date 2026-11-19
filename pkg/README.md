@@ -18,16 +18,19 @@ The compact interface follows a deliberately small pacman-like grammar:
   cached index.
 * `-r NAME` (or `remove`) removes one installed package.
 * `-is NAME [VERSION]` syncs, then installs, in that order.
-* `-u` upgrades every package already installed to the newest
-  compatible version. Each package is a separate transactional upgrade; a
-  later failure does not undo an earlier package transaction.
+* `-u` upgrades every package already installed to the newest compatible
+  version from the cached repository; it is intentionally offline and does not
+  take `--repo`. Each package is a separate transactional upgrade; a later
+  failure does not undo an earlier package transaction.
 * `-su` syncs, then performs the `-u` upgrade.
 
 Short operation flags are parsed character by character. Repeated flags are
 normalized away, and `-si`, `-is`, `-s -i`, and `-i -s` all mean sync followed
-by install; `-su` and `-us` mean sync followed by upgrade. Conflicting or
-unknown flags, extra operands, and missing `--repo` fail before any package
-operation. The long `list`, `status`, and `upgrade` commands remain available.
+by install; `-u` and `upgrade` use the cached repository without syncing, while
+`-su` and `-us` mean sync followed by upgrade. Conflicting or unknown flags,
+extra operands, and missing `--repo` for a sync operation fail before any
+package operation. The long `list`, `status`, and `upgrade` commands remain
+available.
 Use `--` before an operand that begins with `-`; package names and versions
 still must satisfy their respective syntax.
 
@@ -52,9 +55,10 @@ dimensions, not architecture fallbacks.
 
 `--repo` accepts either a local directory containing `index.json` or a static
 HTTP(S) repository URL. A URL ending in `index.json` is used directly;
-otherwise `/index.json` is appended. `sync` validates and atomically replaces
-the cached index. Package archives are fetched only by `install`, then checked
-for both indexed size and SHA-256.
+otherwise `/index.json` is appended. An HTTPS index may use only HTTPS archive
+URLs, and redirects may not downgrade HTTPS to HTTP. `sync` validates and
+atomically replaces the cached index. Package archives are fetched only by
+`install`, then checked for both indexed size and SHA-256.
 
 ## Static repository format
 
@@ -128,8 +132,18 @@ Installation extracts into a transaction staging directory, checks every
 manifest and target, and commits ownership state only after all file moves
 succeed. Files owned by another package or unmanaged files are never
 clobbered. Remove and upgrades use the same backup-and-rollback behavior.
-Ownership and installed-package state live under `.pkg`; package paths cannot
-use that reserved namespace.
+Recovery is fail-closed: journal evidence is retained until restoration and
+its directory syncs succeed, so an injected or real recovery failure cannot be
+reported as a successful transaction. Ownership and installed-package state
+live under `.pkg`; package paths cannot use that reserved namespace.
+
+The supported root trust boundary is the package root and its ancestry being
+free of untrusted group/other write access, with mutable package directories
+owned by the process UID. Sticky shared ancestors such as `/tmp` are accepted
+because they protect child renames. This prevents other-user directory-rename
+races; a same-UID process that can mutate the trusted root concurrently is
+outside the threat model. The prototype does not claim hostile shared-root
+safety.
 
 The prototype is not yet an Astia-native utility. Its intended next
 integration step is to reuse the format, verifier, ownership model, and
