@@ -9,6 +9,8 @@ extern unsigned char module_lifecycle_blob[];
 extern unsigned int  module_lifecycle_blob_len;
 extern unsigned char module_lifecycle_no_fini_blob[];
 extern unsigned int  module_lifecycle_no_fini_blob_len;
+extern unsigned char module_lifecycle_priority_blob[];
+extern unsigned int  module_lifecycle_priority_blob_len;
 
 #if defined(__clang__)
 #define ASTIA_NO_SANITIZE_FUNCTION __attribute__((no_sanitize("function")))
@@ -182,6 +184,40 @@ ASTIA_TEST(module_lifecycle_allows_optional_exit_array) {
     ASTIA_CHECK(astia::mod::exit_module(module));
     ASTIA_CHECK(astia::mod::unload_module(module));
     ASTIA_CHECK(state.unmapped == 1);
+}
+
+ASTIA_TEST(module_lifecycle_sorts_compiler_priority_sections) {
+    loader_state state{};
+    observation  observation{};
+    active_observation                      = &observation;
+    const astia::elf::env            env    = environment(state);
+    const astia::mod::loaded_module* module = astia::mod::load_module(
+        blob(module_lifecycle_priority_blob, module_lifecycle_priority_blob_len), env);
+
+    ASTIA_CHECK(module != nullptr);
+    if (module == nullptr) {
+        active_observation = nullptr;
+        return;
+    }
+    observation.current = module;
+    ASTIA_CHECK(module->init_count == 3);
+    ASTIA_CHECK(module->fini_count == 3);
+    ASTIA_CHECK(astia::mod::run_module(module) == 47);
+    ASTIA_CHECK(observation.event_count == 4);
+    ASTIA_CHECK(observation.events[0] == 101);
+    ASTIA_CHECK(observation.events[1] == 102);
+    ASTIA_CHECK(observation.events[2] == 199);
+    ASTIA_CHECK(observation.events[3] == 103);
+    ASTIA_CHECK(astia::mod::exit_module(module));
+    ASTIA_CHECK(observation.event_count == 7);
+    ASTIA_CHECK(observation.events[4] == 299);
+    ASTIA_CHECK(observation.events[5] == 202);
+    ASTIA_CHECK(observation.events[6] == 201);
+    ASTIA_CHECK(observation.callbacks_pinned);
+    ASTIA_CHECK(astia::mod::unload_module(module));
+    ASTIA_CHECK(state.mapped == 1);
+    ASTIA_CHECK(state.unmapped == 1);
+    active_observation = nullptr;
 }
 
 ASTIA_TEST(module_lifecycle_rolls_back_failed_load) {

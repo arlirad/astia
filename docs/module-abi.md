@@ -30,9 +30,13 @@ Asynchronous device requests are managed by the typed I/O and driver
 contracts; changing module startup to an async lifecycle is a separate
 follow-up.
 
-The loader bounds both constructor arrays, requires each non-null entry to
-point into an allocated executable section, and rejects unsupported
-pre-initialization or legacy constructor sections.
+The loader bounds both constructor arrays, treats an unsuffixed array section
+as priority 65535, and sorts numeric `.init_array.N`/`.fini_array.N` sections
+in ascending priority while retaining section-table order for ties. Runtime
+finalization then traverses the sorted fini array in reverse, as required by
+the ELF ABI. Non-numeric or overflowing priority suffixes are rejected.
+Each non-null entry must point into an allocated executable section, and
+unsupported pre-initialization or legacy constructor sections are rejected.
 
 ## Typed ownership
 

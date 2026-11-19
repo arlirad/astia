@@ -14,6 +14,54 @@ namespace astia::elf {
             return *a == *b;
         }
 
+        bool array_priority(const char* name, const char* base, u16& priority) {
+            usize i = 0;
+            while (base[i] != '\0') {
+                if (name[i] != base[i])
+                    return false;
+                ++i;
+            }
+            if (name[i] == '\0') {
+                priority = 65535;
+                return true;
+            }
+            if (name[i] != '.' || name[i + 1] == '\0')
+                return false;
+            ++i;
+            u32 value = 0;
+            for (; name[i] != '\0'; ++i) {
+                if (name[i] < '0' || name[i] > '9')
+                    return false;
+                const u32 digit = static_cast<u32>(name[i] - '0');
+                if (value > (65535u - digit) / 10u)
+                    return false;
+                value = value * 10u + digit;
+            }
+            priority = static_cast<u16>(value);
+            return true;
+        }
+
+        struct array_section {
+            const u8* data;
+            usize     count;
+            u16       index;
+            u16       priority;
+        };
+
+        void sort_array_sections(array_section* sections, usize count) {
+            for (usize i = 1; i < count; ++i) {
+                const array_section current = sections[i];
+                usize               j       = i;
+                while (j != 0 && (current.priority < sections[j - 1].priority ||
+                                  (current.priority == sections[j - 1].priority &&
+                                   current.index < sections[j - 1].index))) {
+                    sections[j] = sections[j - 1];
+                    --j;
+                }
+                sections[j] = current;
+            }
+        }
+
     } // namespace
 
     // ========================================================================
@@ -246,40 +294,70 @@ namespace astia::elf {
             return false;
         };
 
+        array_section init_sections[max_init_array_entries] = {};
+        array_section fini_sections[max_init_array_entries] = {};
+        usize         init_section_count          = 0;
+        usize         fini_section_count          = 0;
+        usize         init_entry_count            = 0;
+        usize         fini_entry_count            = 0;
         for (u16 i = 0; i < v.shnum; ++i) {
             const elf64_shdr& section = v.sh[i];
-            const char* name = nullptr;
+            const char*       name    = nullptr;
             if (!section_name(v, i, name))
                 return false;
             if (str_eq(name, ".preinit_array") || str_eq(name, ".init") ||
-                str_eq(name, ".fini") || str_eq(name, ".ctors") ||
-                str_eq(name, ".dtors"))
+                str_eq(name, ".fini") || str_eq(name, ".ctors") || str_eq(name, ".dtors"))
                 return false;
             if (section.sh_type != sht_init_array && section.sh_type != sht_fini_array)
                 continue;
-            if ((section.sh_flags & (shf_alloc | shf_write)) !=
-                    (shf_alloc | shf_write) ||
+            if ((section.sh_flags & (shf_alloc | shf_write)) != (shf_alloc | shf_write) ||
                 (section.sh_entsize != 0 && section.sh_entsize != sizeof(u64)) ||
                 section.sh_size % sizeof(u64) != 0)
                 return false;
-            const usize count = section.sh_size / sizeof(u64);
-            init_fn* destination = section.sh_type == sht_init_array
-                                       ? out.init_array
-                                       : out.fini_array;
-            usize* destination_count = section.sh_type == sht_init_array
-                                           ? &out.init_count
-                                           : &out.fini_count;
-            if (count > max_init_array_entries - *destination_count)
+            const usize count    = section.sh_size / sizeof(u64);
+            u16         priority = 0;
+            const char* base =
+                section.sh_type == sht_init_array ? ".init_array" : ".fini_array";
+            if (!array_priority(name, base, priority))
                 return false;
-            const u8* source = static_cast<const u8*>(sec_base[i]);
-            for (usize j = 0; j < count; ++j) {
-                const u64 address = read_u64_bytes(source + j * sizeof(u64));
-                if (address != 0 && !executable_address(address))
-                    return false;
-                destination[(*destination_count)++] =
-                    reinterpret_cast<init_fn>(address);
-            }
+            if (count == 0)
+                continue;
+            array_section* sections =
+                section.sh_type == sht_init_array ? init_sections : fini_sections;
+            usize* section_count = section.sh_type == sht_init_array
+                                       ? &init_section_count
+                                       : &fini_section_count;
+            usize* entry_count =
+                section.sh_type == sht_init_array ? &init_entry_count : &fini_entry_count;
+            if (*section_count == max_init_array_entries ||
+                count > max_init_array_entries - *entry_count)
+                return false;
+            sections[*section_count] = {static_cast<const u8*>(sec_base[i]), count, i,
+                                        priority};
+            ++*section_count;
+            *entry_count += count;
         }
+
+        sort_array_sections(init_sections, init_section_count);
+        sort_array_sections(fini_sections, fini_section_count);
+        const auto append_array = [&](const array_section* sections, usize section_count,
+                                      init_fn* destination, usize& destination_count) {
+            for (usize i = 0; i < section_count; ++i) {
+                const array_section& section = sections[i];
+                for (usize j = 0; j < section.count; ++j) {
+                    const u64 address = read_u64_bytes(section.data + j * sizeof(u64));
+                    if (address != 0 && !executable_address(address))
+                        return false;
+                    destination[destination_count++] = reinterpret_cast<init_fn>(address);
+                }
+            }
+            return true;
+        };
+        if (!append_array(init_sections, init_section_count, out.init_array,
+                          out.init_count) ||
+            !append_array(fini_sections, fini_section_count, out.fini_array,
+                          out.fini_count))
+            return false;
 
         u64 addr = 0;
         if (!sym_addr(v, e, sec_base, entry_index, addr) || !executable_address(addr))
