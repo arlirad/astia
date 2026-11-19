@@ -31,9 +31,9 @@ ReflowComments: true
 
 IncludeBlocks: Regroup
 IncludeCategories:
-  - Regex: '^"(astia)'
+  - Regex: '^"astia/'
     Priority: 1
-  - Regex: 'astia*'
+  - Regex: '^<astia/'
     Priority: 2
   - Regex: '<[[:alnum:].]+>'
     Priority: 4
