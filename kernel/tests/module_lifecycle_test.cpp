@@ -13,6 +13,9 @@ extern unsigned char module_lifecycle_limit_blob[];
 extern unsigned int  module_lifecycle_limit_blob_len;
 extern unsigned char module_lifecycle_dso_blob[];
 extern unsigned int  module_lifecycle_dso_blob_len;
+
+extern "C" int       astia_test_cxa_atexit(void (*)(void*), void*, void*);
+extern "C" void      astia_test_cxa_finalize(void*);
 extern unsigned char module_lifecycle_no_fini_blob[];
 extern unsigned int  module_lifecycle_no_fini_blob_len;
 extern unsigned char module_lifecycle_priority_blob[];
@@ -43,8 +46,6 @@ namespace {
 
     void lifecycle_record(int event);
     int  module_atexit(void (*handler)(void));
-    int  module_register_cxa(void (*handler)(void*), void* argument, void* dso);
-    void module_finalize(void* dso);
 
     void* map_image(void* context, astia::u64, astia::usize size, astia::usize,
                     bool fixed) {
@@ -76,10 +77,10 @@ namespace {
             return reinterpret_cast<std::uintptr_t>(&lifecycle_record);
         if (std::strcmp(name, "atexit") == 0)
             return reinterpret_cast<std::uintptr_t>(&module_atexit);
-        if (std::strcmp(name, "lifecycle_register_cxa") == 0)
-            return reinterpret_cast<std::uintptr_t>(&module_register_cxa);
-        if (std::strcmp(name, "lifecycle_finalize") == 0)
-            return reinterpret_cast<std::uintptr_t>(&module_finalize);
+        if (std::strcmp(name, "__cxa_atexit") == 0)
+            return reinterpret_cast<std::uintptr_t>(&astia_test_cxa_atexit);
+        if (std::strcmp(name, "__cxa_finalize") == 0)
+            return reinterpret_cast<std::uintptr_t>(&astia_test_cxa_finalize);
         return 0;
     }
 
@@ -99,14 +100,6 @@ namespace {
 
     int module_atexit(void (*handler)(void)) {
         return astia::mod::register_exit_handler(handler);
-    }
-
-    int module_register_cxa(void (*handler)(void*), void* argument, void* dso) {
-        return astia::mod::register_exit_handler(handler, argument, dso);
-    }
-
-    void module_finalize(void* dso) {
-        astia::mod::finalize_exit_handlers(dso);
     }
 
     ASTIA_NO_SANITIZE_FUNCTION int invoke_entry(int (*entry)()) {
@@ -273,8 +266,9 @@ ASTIA_TEST(module_lifecycle_filters_external_dso_finalize) {
     ASTIA_CHECK(observation.events[0] == 411);
     ASTIA_CHECK(observation.events[1] == 410);
     ASTIA_CHECK(astia::mod::exit_module(module));
-    ASTIA_CHECK(observation.event_count == 3);
-    ASTIA_CHECK(observation.events[2] == 412);
+    ASTIA_CHECK(observation.event_count == 4);
+    ASTIA_CHECK(observation.events[2] == 413);
+    ASTIA_CHECK(observation.events[3] == 412);
     ASTIA_CHECK(astia::mod::unload_module(module));
     active_observation = nullptr;
 }

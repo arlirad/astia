@@ -182,3 +182,13 @@ ASTIA_TEST(msix_unmask_failure_disables_global_msix_before_release) {
     check_released(route);
     ASTIA_CHECK(state.disable_write_count == 1);
 }
+
+ASTIA_TEST(msix_disable_restore_preserves_disabled_function_mask_state) {
+    reset();
+    state.control = 0;
+    auto pci      = device();
+    ASTIA_CHECK(astia::module::pci_disable_msix(pci));
+    ASTIA_CHECK(state.control == (1u << 14));
+    ASTIA_CHECK(astia::module::pci_restore_msix(pci, 0));
+    ASTIA_CHECK(state.control == 0);
+}
