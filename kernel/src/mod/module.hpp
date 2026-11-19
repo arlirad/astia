@@ -30,6 +30,8 @@ namespace astia::mod {
         usize init_count;
         elf::init_fn fini_array[elf::max_init_array_entries];
         usize fini_count;
+        void* loader_context;
+        elf::unmap_fn loader_unmap;
     };
 
     /// Upper bound on simultaneously loaded modules. Fixed capacity keeps the
@@ -45,6 +47,7 @@ namespace astia::mod {
     /// `image` need not stay valid after the call: section contents are copied
     /// into frame-allocator memory.
     const loaded_module*        load_module(span<const u8> image);
+    const loaded_module*        load_module(span<const u8> image, const elf::env& env);
     inline const loaded_module* load_module(const void* image, usize size) {
         return load_module(span<const u8>(static_cast<const u8*>(image), size));
     }
