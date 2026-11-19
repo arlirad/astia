@@ -105,7 +105,7 @@ Bad:
 Generate the site from the complete kernel source tree:
 
 ```bash
-python3 tools/man7/generate.py kernel/src dist/man7 --docs docs
+python3 tools/man/generate.py kernel/src dist/man7 --docs docs
 ```
 
 The generator:
@@ -121,9 +121,9 @@ The generator:
 - adds the native filesystem/descriptor APIs from the libc source root as
   section 3 pages, grouped separately from section 2 syscall pages;
 - links each generated page back to the combined manual index.
-- reads section 7 overview pages from the repository `docs/*.7.md` directory
-  and writes them as `<name>.7.html` pages in the `MAN 7 - OVERVIEWS` index
-  group.
+- reads section 7 overview pages from the repository `docs/*.md` directory
+  (including the `*.7.md` source overviews) and writes them as `<name>.7.html`
+  pages in the `MAN 7 - OVERVIEWS` index group.
 
 Overview Markdown intentionally uses a dependency-free subset: ATX headings,
 paragraphs, fenced code blocks, and flat ordered or unordered lists. The first
@@ -149,7 +149,7 @@ not provide.
 The generated pages use the local Nodivia-derived theme in:
 
 ```text
-tools/man7/nodivia.css
+tools/man/nodivia.css
 ```
 
 Keep the man-page structure semantic. Use headings for sections, `<pre>` for
@@ -177,10 +177,11 @@ The Arbiter site configuration is:
 After changing documentation, verify:
 
 ```bash
-python3 tools/man7/generate.py kernel/src /tmp/astia-man7 --docs docs
+python3 tools/man/generate.py kernel/src /tmp/astia-man7 --docs docs
 grep -R "<h2>" /tmp/astia-man7/index.html
 find /tmp/astia-man7 -name '*.7.html' -print
-test "$(find /tmp/astia-man7 -maxdepth 1 -name '*.7.html' | wc -l)" -eq 4
+test "$(find docs -maxdepth 1 -name '*.md' | wc -l)" -eq \
+  "$(find /tmp/astia-man7 -maxdepth 1 -name '*.7.html' | wc -l)"
 curl -fsS https://arlia.nodivia.pl/kill.html
 ```
 
@@ -203,11 +204,6 @@ intentional restrictions, rather than importing a generic POSIX contract.
 Use a non‑breaking hyphen in prose where a compound term needs punctuation.
 The ASCII hyphen remains reserved for ABI errno spellings such as `-EINVAL`.
 
-The current overview pages are:
-
-```text
-docs/task.7.md
-docs/aio.7.md
-docs/exec.7.md
-docs/rcu.7.md
-```
+Overview sources are discovered from `docs/*.md`; translated sources are
+discovered from `docs/pl/*.md`. Files using the `.7.md` naming convention
+remain the section 7 source overviews.
