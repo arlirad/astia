@@ -1,9 +1,9 @@
 #pragma once
 
-#include "framebuffer_renderer.hpp"
-#include <astia/dev/mmio.hpp>
 #include "../../console.hpp"
+#include "framebuffer_renderer.hpp"
 #include <astia/boot.hpp>
+#include <astia/dev/mmio.hpp>
 
 namespace astia::dev {
 

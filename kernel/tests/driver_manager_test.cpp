@@ -169,7 +169,7 @@ ASTIA_TEST(driver_manager_rejects_equal_candidates) {
 }
 
 ASTIA_TEST(driver_manager_owns_published_product_until_unbind) {
-    int destroyed = 0;
+    int                     destroyed = 0;
     class publishing_driver final : public test_driver {
         public:
         explicit publishing_driver(int* destroyed)

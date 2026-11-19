@@ -1,10 +1,10 @@
 #pragma once
 
-#include <astia/dev/regs.hpp>
-#include "../tty.hpp"
 #include "../../console.hpp"
+#include "../tty.hpp"
 #include <astia/api/termios.h>
 #include <astia/common.hpp>
+#include <astia/dev/regs.hpp>
 #include <astia/dev/uart_platform.hpp>
 
 // COM1 as a 16550 UART, shaped by the dev layer's blk/char/net split:

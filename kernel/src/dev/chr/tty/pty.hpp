@@ -57,7 +57,9 @@ namespace astia::dev {
         bool                   _locked      = true;
         fs::file*              _master_file = nullptr;
         fs::file*              _slave_file  = nullptr;
-        struct winsize         _winsize{24, 80, 0, 0};
+        struct winsize         _winsize {
+            24, 80, 0, 0
+        };
     };
 
     mm::shptr<fs::open_file> pty_open_master(u32 flags);

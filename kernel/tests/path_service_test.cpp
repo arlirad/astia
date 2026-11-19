@@ -7,9 +7,9 @@
 #undef RENAME_EXCHANGE
 #endif
 
+#include "../src/fs/path_service.hpp"
 #include <astia/api/errno.h>
 #include <astia/fs.hpp>
-#include "../src/fs/path_service.hpp"
 
 #include <cstring>
 
