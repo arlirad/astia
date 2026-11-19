@@ -21,7 +21,7 @@
 #define MAP_FIXED_NOREPLACE 0x100000
 #endif
 
-// --- ET_REL fixture: imports kernel_add (see tests/hello_mod.c) ---
+// --- ET_REL fixture: imports kernel_add (see tests/hello_mod.cpp) ---
 extern unsigned char hello_mod_blob[];
 extern unsigned int  hello_mod_blob_len;
 
@@ -31,7 +31,7 @@ extern unsigned int  fixture_dyn_blob_len;
 extern unsigned char fixture_exec_blob[];
 extern unsigned int  fixture_exec_blob_len;
 
-extern "C" int kernel_add(int a, int b) {
+int kernel_add(int a, int b) {
     return a + b;
 }
 
@@ -103,7 +103,7 @@ namespace {
             }
         }
         std::uintptr_t target = 0;
-        if (std::strcmp(name, "kernel_add") == 0) {
+        if (std::strcmp(name, "_Z10kernel_addii") == 0) {
             target = reinterpret_cast<std::uintptr_t>(&kernel_add);
         }
         else if (std::strcmp(name, "_ZN14kernel_fixture3addEii") == 0) {
@@ -614,18 +614,18 @@ ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
     ASTIA_CHECK(string_size != 0);
     if (string_size != 0) {
         size_t name_offset = string_size;
-        for (size_t i = 0; i + sizeof("module_main") <= string_size; ++i) {
-            if (std::memcmp(buf.data + string_offset + i, "module_main",
-                            sizeof("module_main") - 1) == 0 &&
-                buf.data[string_offset + i + sizeof("module_main") - 1] == '\0') {
+        for (size_t i = 0; i + sizeof("_Z11module_mainv") <= string_size; ++i) {
+            if (std::memcmp(buf.data + string_offset + i, "_Z11module_mainv",
+                            sizeof("_Z11module_mainv") - 1) == 0 &&
+                buf.data[string_offset + i + sizeof("_Z11module_mainv") - 1] == '\0') {
                 name_offset = i;
                 break;
             }
         }
         ASTIA_CHECK(name_offset < string_size);
         if (name_offset < string_size)
-            buf.data[string_offset + name_offset + sizeof("module_main") - 1] = 'x';
-        reloc_arena     a{};
+            buf.data[string_offset + name_offset + sizeof("_Z11module_mainv") - 1] = 'x';
+        reloc_arena a{};
         astia::elf::env e{};
         e.ctx     = &a;
         e.map     = reloc_map;

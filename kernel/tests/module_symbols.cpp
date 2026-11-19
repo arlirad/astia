@@ -5,6 +5,6 @@ namespace kernel_fixture {
 
 }
 
-extern "C" int module_main() {
+int module_main() {
     return kernel_fixture::add(20, 22) + kernel_fixture::bias();
 }

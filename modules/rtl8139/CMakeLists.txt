@@ -2,13 +2,7 @@ set(ASTIA_RTL8139_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/rtl8139.o)
 set(ASTIA_RTL8139_UNIT ${CMAKE_CURRENT_BINARY_DIR}/rtl8139_unit)
 
 set(ASTIA_RTL8139_ABI_HEADERS
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_core.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_pci.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_memory.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_io.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_interrupt.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp)
 
 add_custom_command(
@@ -39,7 +33,8 @@ add_custom_command(
                 -o ${ASTIA_RTL8139_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/rtl8139_protocol_test.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139_protocol.hpp
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_core.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp
         VERBATIM)
 
 add_custom_target(rtl8139_unit_target ALL DEPENDS ${ASTIA_RTL8139_UNIT})

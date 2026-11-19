@@ -56,13 +56,15 @@ repository smoke tests without compiling the host test tree.
 With `ASTIA_BUILD_TESTS=ON`, `ASTIA_CROSS_USERSPACE=ON`, and both external and
 manual suites disabled, the current tree discovers 142 tests: 135 enabled and
 7 intentionally disabled. The seven disabled entries are
-`astia_zsh_pty_regression`,
-`astia_zsh_signal_regression`, `astia_zsh_interactive_manual`,
-`astia_nano_pty_smoke`, `astia_vga_graphical`, `astia_vga_pvh_fallback`, and
-`astia_posix_batch`; they are registered for discovery but require external
-or manual opt-in. The count can change when optional host tools or test
-artifacts are unavailable, so use `ctest --test-dir build-tests -N` as the
-authoritative count for a particular configuration.
+`astia_zsh_pty_regression`, `astia_zsh_signal_regression`,
+`astia_zsh_interactive_manual`, `astia_nano_pty_smoke`, `astia_vga_graphical`,
+`astia_vga_pvh_fallback`, and `astia_posix_batch`; they are registered for
+discovery but require external or manual opt-in. Module coverage is provided
+by the typed-contract, lifecycle, I/O-request, NVMe-teardown, and virtio-blk-
+teardown tests; removed legacy module-header compatibility targets are not
+registered. The count can change when optional host tools or test artifacts
+are unavailable, so use `ctest --test-dir build-tests -N` as the authoritative
+count for a particular configuration.
 
 Use labels to select suites:
 

@@ -1,4 +1,4 @@
-#include <astia/module_abi.h>
+#include <astia/module.hpp>
 #include <astia/mm/dma_buffer.hpp>
 #include <astia/dev/blk/blkdev.hpp>
 #include <astia/dev/driver.hpp>
@@ -151,7 +151,7 @@ namespace {
 
         void clear() {
             auto* bytes = static_cast<unsigned char*>(memory.data());
-            for (unsigned i = 0; i < ASTIA_PAGE_SIZE; ++i)
+            for (unsigned i = 0; i < astia::mm::page_size; ++i)
                 bytes[i] = 0;
             available_index = 0;
             used_index = 0;
@@ -162,17 +162,17 @@ namespace {
         asm volatile("mfence" ::: "memory");
     }
 
-    uint8_t pci_byte(void* pci, uint16_t offset) {
-        const uint32_t value = astia_module_pci_read32(pci, static_cast<uint16_t>(offset & ~3u));
+    uint8_t pci_byte(const astia::hw::pci_device* pci, uint16_t offset) {
+        const uint32_t value = astia::module::pci_read32(pci, static_cast<uint16_t>(offset & ~3u));
         return static_cast<uint8_t>(value >> ((offset & 3u) * 8u));
     }
 
-    uint32_t pci_dword(void* pci, uint16_t offset) {
-        return astia_module_pci_read32(pci, static_cast<uint16_t>(offset & ~3u));
+    uint32_t pci_dword(const astia::hw::pci_device* pci, uint16_t offset) {
+        return astia::module::pci_read32(pci, static_cast<uint16_t>(offset & ~3u));
     }
 
     struct controller {
-        void* pci = nullptr;
+        astia::hw::pci_device* pci = nullptr;
         mmio common{};
         mmio notify{};
         mmio device_config{};
@@ -195,20 +195,20 @@ namespace {
 
         bool region_valid(const capability_region& region, unsigned required) const {
             if (!region.present || region.bar >= 6 || region.offset > ~uint64_t{0} - required ||
-                region.offset + required > astia_module_pci_bar_size(pci, region.bar))
+                region.offset + required > astia::module::pci_bar_size(pci, region.bar))
                 return false;
             return true;
         }
 
         bool map_region(const capability_region& region, mmio& result) {
             if (!region.present || region.bar >= 6 || region.offset > ~uint64_t{0} - region.length ||
-                region.offset + region.length > astia_module_pci_bar_size(pci, region.bar))
+                region.offset + region.length > astia::module::pci_bar_size(pci, region.bar))
                 return false;
-            uint64_t mapped = astia_module_pci_bar_mapped(pci, region.bar);
+            uint64_t mapped = astia::module::pci_bar_mapped(pci, region.bar);
             if (mapped == 0) {
-                if (astia_module_pci_map_bar(pci, region.bar) != 0)
+                if (!astia::module::pci_map_bar(pci, region.bar))
                     return false;
-                mapped = astia_module_pci_bar_mapped(pci, region.bar);
+                mapped = astia::module::pci_bar_mapped(pci, region.bar);
             }
             if (mapped == 0)
                 return false;
@@ -337,7 +337,7 @@ namespace {
             _requestqueue.descriptor_offset = 0;
             _requestqueue.available_offset = size * 16;
             _requestqueue.used_offset = (_requestqueue.available_offset + 6 + size * 2 + 3) & ~3u;
-            if (_requestqueue.used_offset + 6 + size * 8 > ASTIA_PAGE_SIZE)
+            if (_requestqueue.used_offset + 6 + size * 8 > astia::mm::page_size)
                 return false;
             if (!_requestqueue.memory.allocate(1))
                 return false;
@@ -419,8 +419,8 @@ namespace {
 
         bool start() {
             quiescing = false;
-            if (astia_module_pci_enable_bus_master(pci) != 0 ||
-                astia_module_pci_disable_msix(pci) != 0 || !find_capabilities())
+            if (!astia::module::pci_enable_bus_master(pci) ||
+                !astia::module::pci_disable_msix(pci) || !find_capabilities())
                 return false;
             if (!map_region(common_cap, common) || !map_region(notify_cap, notify) ||
                 !map_region(device_cap, device_config) || common_cap.length < 0x38 ||
@@ -437,7 +437,7 @@ namespace {
             if ((common.read<uint8_t>(0x14) & status_driver_ok) == 0)
                 return false;
             started = true;
-            astia_module_log_u64("vblk", "sectors", capacity);
+            astia::module::log_u64("vblk", "sectors", capacity);
             return true;
         }
 
@@ -861,18 +861,18 @@ namespace {
                                sector[6] == 'V' && sector[7] == 'I';
             if (!known)
                 return false;
-            astia_module_log("vblk", "known sector ok");
-            astia_module_log("vblk", "invalid geometry rejected");
+            astia::module::log("vblk", "known sector ok");
+            astia::module::log("vblk", "invalid geometry rejected");
             char async_read[512]{};
-            if (astia_module_read_registered_async("/dev/vblk0", async_read,
+            if (astia::module::read_registered_async("/dev/vblk0", async_read,
                                                    sizeof async_read, 0) != 0 ||
                 async_read[0] != 'A' || async_read[1] != 'S' || async_read[2] != 'T' ||
                 async_read[3] != 'I' || async_read[4] != 'A' || async_read[5] != '_' ||
                 async_read[6] != 'V' || async_read[7] != 'I')
                 return false;
             if (!device.write_supported) {
-                astia_module_log("vblk", "attached kernel-buffer async read ok");
-                astia_module_log("vblk", "write rejected: read-only or no flush");
+                astia::module::log("vblk", "attached kernel-buffer async read ok");
+                astia::module::log("vblk", "write rejected: read-only or no flush");
                 return true;
             }
             char written[512]{};
@@ -890,7 +890,7 @@ namespace {
             if (device.read(persisted, sizeof persisted, 512) != sizeof persisted ||
                 persisted[0] != 'A' || persisted[6] != 'W' || persisted[7] != 'R')
                 return false;
-            astia_module_log("vblk", "write flush persistence ok");
+            astia::module::log("vblk", "write flush persistence ok");
             return true;
         }
 
@@ -904,7 +904,7 @@ namespace {
 
 }
 
-extern "C" int module_main() {
+int module_main() {
     return astia::hw::drivers().register_driver(driver) ? 0 : -22;
 }
 #endif

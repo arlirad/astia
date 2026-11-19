@@ -1,1 +1,0 @@
-int astia_module_header_alone_cpp;

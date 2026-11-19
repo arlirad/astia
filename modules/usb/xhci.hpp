@@ -2,7 +2,7 @@
 
 #include "usb_protocol.hpp"
 #include <astia/core/endian.hpp>
-#include <astia/module_abi_pci.h>
+#include <astia/hw/pci.hpp>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -37,7 +37,7 @@ struct probe_result {
     capability_snapshot capabilities{};
 };
 
-int enumerate_pci_port(const astia_module_pci_device* device, uint8_t port,
+int enumerate_pci_port(astia::hw::pci_device* device, uint8_t port,
                        device_model& result);
 
 enum class trb_type : uint8_t {

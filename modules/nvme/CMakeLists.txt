@@ -13,11 +13,7 @@ endif ()
 set(ASTIA_NVME_COMMON_DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nvme_protocol.hpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_core.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_interrupt.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_io.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_memory.h
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_pci.h
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/shptr.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp

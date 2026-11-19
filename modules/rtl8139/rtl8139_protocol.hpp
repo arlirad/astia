@@ -1,7 +1,9 @@
 #pragma once
 
-#include <astia/module_abi.hpp>
+#include <astia/hw/pci.hpp>
+#include <astia/net.hpp>
 
+#include <astia/common.hpp>
 #include <stdint.h>
 
 namespace astia::rtl8139 {
@@ -15,7 +17,7 @@ constexpr uint8_t pci_programming_interface = 0x00;
 constexpr uint32_t rx_ring_size = 8u * 1024u;
 constexpr uint32_t rx_ring_allocation = rx_ring_size + 16u;
 constexpr uint32_t rx_ring_pages =
-    (rx_ring_allocation + ASTIA_PAGE_SIZE - 1u) / ASTIA_PAGE_SIZE;
+    (rx_ring_allocation + astia::mm::page_size - 1u) / astia::mm::page_size;
 constexpr uint32_t rx_header_size = 4;
 constexpr uint32_t rx_crc_size = 4;
 constexpr uint32_t rx_max_frame_with_crc = 4096;
@@ -152,7 +154,7 @@ class register_file final {
     }
 };
 
-inline bool pci_match(const astia_module_pci_device* device) {
+inline bool pci_match(const astia::hw::pci_device* device) {
     return device != nullptr && device->vendor_id == pci_vendor_id &&
            device->device_id == pci_device_id && device->class_code == pci_class_network &&
            device->subclass == pci_subclass_ethernet &&

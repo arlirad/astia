@@ -32,7 +32,7 @@ namespace {
 
 }
 
-extern "C" int module_main() {
+int module_main() {
     astia::io::request request(nullptr, 0, 0, 0, astia::io::direction::input);
     (void) request;
     (void) block;
