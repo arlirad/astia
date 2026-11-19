@@ -14,22 +14,23 @@ namespace astia::elf {
             return *a == *b;
         }
 
-        bool array_priority(const char* name, const char* base, u16& priority) {
+        bool array_priority(const char* name, usize name_size, const char* base,
+                            u16& priority) {
             usize i = 0;
             while (base[i] != '\0') {
-                if (name[i] != base[i])
+                if (i == name_size || name[i] != base[i])
                     return false;
                 ++i;
             }
-            if (name[i] == '\0') {
+            if (i == name_size) {
                 priority = 65535;
                 return true;
             }
-            if (name[i] != '.' || name[i + 1] == '\0')
+            if (name[i] != '.' || i + 1 == name_size)
                 return false;
             ++i;
             u32 value = 0;
-            for (; name[i] != '\0'; ++i) {
+            for (; i != name_size; ++i) {
                 if (name[i] < '0' || name[i] > '9')
                     return false;
                 const u32 digit = static_cast<u32>(name[i] - '0');
@@ -303,7 +304,8 @@ namespace astia::elf {
         for (u16 i = 0; i < v.shnum; ++i) {
             const elf64_shdr& section = v.sh[i];
             const char*       name    = nullptr;
-            if (!section_name(v, i, name))
+            usize             name_size = 0;
+            if (!section_name(v, i, name, name_size))
                 return false;
             if (str_eq(name, ".preinit_array") || str_eq(name, ".init") ||
                 str_eq(name, ".fini") || str_eq(name, ".ctors") || str_eq(name, ".dtors"))
@@ -318,7 +320,7 @@ namespace astia::elf {
             u16         priority = 0;
             const char* base =
                 section.sh_type == sht_init_array ? ".init_array" : ".fini_array";
-            if (!array_priority(name, base, priority))
+            if (!array_priority(name, name_size, base, priority))
                 return false;
             if (count == 0)
                 continue;

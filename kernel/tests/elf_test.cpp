@@ -30,6 +30,10 @@ extern unsigned char module_priority_malformed_blob[];
 extern unsigned int  module_priority_malformed_blob_len;
 extern unsigned char module_priority_overflow_blob[];
 extern unsigned int  module_priority_overflow_blob_len;
+extern unsigned char module_priority_init_trailing_dot_blob[];
+extern unsigned int  module_priority_init_trailing_dot_blob_len;
+extern unsigned char module_priority_fini_trailing_dot_blob[];
+extern unsigned int  module_priority_fini_trailing_dot_blob_len;
 
 // --- Executable fixtures (see tests/fixture_exec.c) ---
 extern unsigned char fixture_dyn_blob[];
@@ -838,6 +842,18 @@ ASTIA_TEST(elf_relocatable_rejects_malformed_priority_suffix) {
 
 ASTIA_TEST(elf_relocatable_rejects_overflowing_priority_suffix) {
     blob_copy buf(module_priority_overflow_blob, module_priority_overflow_blob_len);
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_trailing_dot_init_priority_suffix) {
+    blob_copy buf(module_priority_init_trailing_dot_blob,
+                  module_priority_init_trailing_dot_blob_len);
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_trailing_dot_fini_priority_suffix) {
+    blob_copy buf(module_priority_fini_trailing_dot_blob,
+                  module_priority_fini_trailing_dot_blob_len);
     ASTIA_CHECK(!load_relocatable_fixture(buf));
 }
 

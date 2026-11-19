@@ -356,6 +356,25 @@ add_custom_command(
 astia_embed_blob(_module_priority_overflow_cpp
         ${_fix_dir}/module_priority_overflow.o module_priority_overflow_blob)
 
+foreach(_astia_priority_trailing_dot_fixture init fini)
+    add_custom_command(
+            OUTPUT ${_fix_dir}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot.o
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+            COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+            -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+            -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+            -o ${_fix_dir}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot.o
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot_fixture.cpp
+            DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot_fixture.cpp
+            COMMENT "Compiling ET_REL trailing-dot ${_astia_priority_trailing_dot_fixture} priority fixture"
+    )
+    astia_embed_blob(
+            _module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot_cpp
+            ${_fix_dir}/module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot.o
+            module_priority_${_astia_priority_trailing_dot_fixture}_trailing_dot_blob)
+endforeach()
+
 add_custom_command(
         OUTPUT ${_fix_dir}/module_lifecycle.o
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
@@ -430,6 +449,8 @@ astia_add_host_test(astia_elf_test
         ${_module_symbols_cpp}
         ${_module_priority_malformed_cpp}
         ${_module_priority_overflow_cpp}
+        ${_module_priority_init_trailing_dot_cpp}
+        ${_module_priority_fini_trailing_dot_cpp}
         ${_fixture_dyn_cpp}
         ${_fixture_exec_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
