@@ -84,13 +84,30 @@ push_head="$(git -C "$test_root" rev-parse HEAD)"
 push_args="$(run_check push "$base_sha" "$push_head")"
 assert_files "$push_args" b.cpp
 
+git -C "$test_root" checkout --quiet -b rename "$base_sha"
+git -C "$test_root" mv a.cpp renamed.cpp
+git -C "$test_root" commit --quiet -m rename
+rename_head="$(git -C "$test_root" rev-parse HEAD)"
+rename_args="$(run_check push "$base_sha" "$rename_head")"
+assert_files "$rename_args" renamed.cpp
+
+git -C "$test_root" checkout --quiet -b delete "$base_sha"
+git -C "$test_root" rm --quiet a.cpp
+git -C "$test_root" commit --quiet -m delete
+delete_head="$(git -C "$test_root" rev-parse HEAD)"
+delete_args="$(run_check push "$base_sha" "$delete_head")"
+[[ ! -e "$delete_args" ]] || die 'deleted file invoked formatter'
+
 git -C "$test_root" checkout --quiet -b initial "$base_sha"
 printf 'int a() { return 2; }\n' >"$test_root/a.cpp"
 git -C "$test_root" add a.cpp
 git -C "$test_root" commit --quiet -m initial
 initial_head="$(git -C "$test_root" rev-parse HEAD)"
+git -C "$test_root" update-ref refs/remotes/origin/main "$initial_head"
+[[ "$(git -C "$test_root" rev-parse refs/remotes/origin/main)" == "$initial_head" ]] ||
+    die 'zero-SHA fixture base is not HEAD'
 initial_args="$(run_check push "$(printf '0%.0s' {1..40})" "$initial_head")"
-assert_files "$initial_args" a.cpp
+assert_files "$initial_args" a.cpp b.cpp
 
 git -C "$test_root" checkout --quiet -b no-main "$base_sha"
 git -C "$test_root" update-ref -d refs/remotes/origin/main
