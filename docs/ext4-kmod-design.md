@@ -32,8 +32,8 @@ Every filesystem, including one eventually supplied by a module, is an
 ordinary first-class `fs::filesystem` registered through the filesystem
 registry. A type must be unregistered before its implementation is unloaded,
 and unregister is rejected while factories or mounts still refer to it.
-The current module ABI does not expose the C++ filesystem interfaces, so this
-slice does not add module-specific filesystem APIs or mount ext4.
+The typed module contract does not expose the C++ filesystem interfaces, so
+this slice does not add module-specific filesystem APIs or mount ext4.
 
 The existing mount factory accepts only a source string and has no mount
 options or source-open capability contract. A future integration should first

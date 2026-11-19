@@ -13,17 +13,6 @@ if(ASTIA_MODE STREQUAL "kernel")
     if(NOT commands MATCHES "astiakrn\\.dir/" OR NOT commands MATCHES "-Werror")
         message(FATAL_ERROR "production kernel compile command is not warning-as-error")
     endif()
-elseif(ASTIA_MODE STREQUAL "module_c")
-    execute_process(
-            COMMAND "${ASTIA_C_COMPILER}" -std=c11 -Wall -Wextra -Werror -Wmissing-prototypes
-                    -pedantic -ffreestanding -fno-pic -fno-pie
-                    "-I${ASTIA_KERNEL_INCLUDE}" -c "${ASTIA_SOURCE}" -o "${ASTIA_OUTPUT}"
-            RESULT_VARIABLE result
-            OUTPUT_VARIABLE output
-            ERROR_VARIABLE error)
-    if(result)
-        message(FATAL_ERROR "C module ABI warning regression failed:\n${output}${error}")
-    endif()
 elseif(ASTIA_MODE STREQUAL "module_cxx")
     execute_process(
             COMMAND "${ASTIA_CXX_COMPILER}" -O2 -std=c++20 -ffreestanding -fno-builtin

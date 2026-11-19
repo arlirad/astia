@@ -306,10 +306,10 @@ endfunction()
 add_custom_command(
         OUTPUT ${_fix_dir}/hello_mod.o
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-        COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -mcmodel=large
-        -fno-stack-protector -fno-asynchronous-unwind-tables
-        -o ${_fix_dir}/hello_mod.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.c
-        DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.c
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-stack-protector -fno-asynchronous-unwind-tables
+        -o ${_fix_dir}/hello_mod.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.cpp
+        DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_mod.cpp
         COMMENT "Compiling ET_REL fixture hello_mod.o"
 )
 astia_embed_blob(_hello_mod_cpp ${_fix_dir}/hello_mod.o hello_mod_blob)
@@ -620,10 +620,10 @@ if (ARCH STREQUAL "x86_64")
         add_custom_command(
                 OUTPUT ${_fix_dir}/hello_initrd.o
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -mcmodel=large
-                -fno-stack-protector -fno-asynchronous-unwind-tables
-                -o ${_fix_dir}/hello_initrd.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.c
-                DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.c
+                COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+                -mcmodel=large -fno-stack-protector -fno-asynchronous-unwind-tables
+                -o ${_fix_dir}/hello_initrd.o ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.cpp
+                DEPENDS ${ASTIA_MODULES_SOURCE_DIR}/tests/hello_initrd.cpp
                 COMMENT "Compiling ET_REL fixture hello_initrd.o"
         )
         # The libc in ring 3: the same sources the host tests link, but

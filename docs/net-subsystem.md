@@ -10,10 +10,10 @@ stack consumes the registry in `<astia/net.hpp>` directly.
 The C++ API in `<astia/net.hpp>` is the device boundary. `astia::net::netdev`
 is a standalone typed network object with metadata, callback context, RX/TX ownership
 paths, and generation state. `astia::net::registry` is the single network-device
-registry. The PCI module ABI only supplies match, probe, and remove adapters;
-probe returns the `astia::net::netdev` constructed by the module. Pointers
-are 64-bit, lengths are byte counts, and the ABI page size is
-`ASTIA_PAGE_SIZE` (4096 on the supported x86-64 target). Device register
+registry. The typed C++ module contract supplies PCI match, probe, and remove
+adapters; probe returns the `astia::net::netdev` constructed by the module.
+Pointers are 64-bit, lengths are byte counts, and the page size is
+`astia::mm::page_size` (4096 on the supported x86-64 target). Device register
 access remains driver-specific; RTL8139 uses typed offsets and little-endian
 accessors in its protocol header.
 

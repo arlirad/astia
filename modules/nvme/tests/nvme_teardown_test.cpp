@@ -31,8 +31,14 @@ namespace astia::mm {
 #include "../nvme.cpp"
 }
 
-extern "C" int astia_module_pci_msix_release(astia_module_msix_route*) {
-    return 0;
+namespace astia::module {
+
+    msix_route::~msix_route() {}
+
+    bool pci_msix_release(msix_route*) {
+        return true;
+    }
+
 }
 
 namespace {

@@ -8,7 +8,7 @@ int main() {
     using namespace nvme_protocol;
 
     geometry geometry{true, 16, 512};
-    static_assert(ASTIA_PAGE_SIZE == astia::mm::page_size);
+    static_assert(astia::mm::page_size == astia::mm::page_size);
     char buffer[max_transfer]{};
     assert(valid_transfer(geometry, buffer, 512, 0));
     assert(valid_transfer(geometry, buffer, max_transfer, 0));
@@ -34,19 +34,19 @@ int main() {
     assert(encode_io(read, read_opcode, 8, 1, 0x2fff, 4097, 0, 1, false));
     assert(read.dword[8] == 0x3000);
     assert(read.dword[9] == 0);
-    assert(!set_prp(read, ASTIA_PAGE_SIZE - 1u, max_transfer));
-    assert(set_prp(read, ASTIA_PAGE_SIZE, max_transfer));
+    assert(!set_prp(read, astia::mm::page_size - 1u, max_transfer));
+    assert(set_prp(read, astia::mm::page_size, max_transfer));
     assert(read.dword[8] == 0x2000);
-    assert(set_prp(read, ASTIA_PAGE_SIZE - 1u, ASTIA_PAGE_SIZE + 1u));
-    assert(!set_prp(read, ASTIA_PAGE_SIZE - 1u, ASTIA_PAGE_SIZE + 2u));
+    assert(set_prp(read, astia::mm::page_size - 1u, astia::mm::page_size + 1u));
+    assert(!set_prp(read, astia::mm::page_size - 1u, astia::mm::page_size + 2u));
     assert(!set_prp(read, 0, 0));
     assert(page_count(0) == 0);
-    assert(page_count(ASTIA_PAGE_SIZE) == 1);
-    assert(page_count(ASTIA_PAGE_SIZE + 1u) == 2);
+    assert(page_count(astia::mm::page_size) == 1);
+    assert(page_count(astia::mm::page_size + 1u) == 2);
     assert(page_count(max_transfer) == 2);
-    assert(fits_one_page(ASTIA_PAGE_SIZE, ASTIA_PAGE_SIZE));
-    assert(fits_one_page(ASTIA_PAGE_SIZE - 1u, 1));
-    assert(!fits_one_page(ASTIA_PAGE_SIZE - 1u, 2));
+    assert(fits_one_page(astia::mm::page_size, astia::mm::page_size));
+    assert(fits_one_page(astia::mm::page_size - 1u, 1));
+    assert(!fits_one_page(astia::mm::page_size - 1u, 2));
     assert(!fits_one_page(UINT64_MAX, 1));
     assert(valid_queue_depth(2, 2));
     assert(valid_queue_depth(16, 64));

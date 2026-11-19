@@ -1,6 +1,6 @@
 #pragma once
 
-#include <astia/module_abi_core.h>
+#include <astia/common.hpp>
 
 #include <stdint.h>
 
@@ -13,10 +13,11 @@ namespace astia_virtio_blk {
     constexpr uint32_t request_in = 0;
     constexpr uint32_t request_out = 1;
     constexpr uint32_t request_flush = 4;
-    constexpr uint32_t max_transfer = ASTIA_PAGE_SIZE * 2u;
+    constexpr uint32_t max_transfer = astia::mm::page_size * 2u;
 
     constexpr uint32_t page_count(uint32_t length) {
-        return length / ASTIA_PAGE_SIZE + (length % ASTIA_PAGE_SIZE != 0 ? 1u : 0u);
+        return length / astia::mm::page_size +
+               (length % astia::mm::page_size != 0 ? 1u : 0u);
     }
 
     inline void encode_header(uint8_t* bytes, uint32_t type, uint64_t sector) {

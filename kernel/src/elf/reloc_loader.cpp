@@ -208,7 +208,9 @@ namespace astia::elf {
             }
         }
 
-        // --- Find the entry point: the defined symbol named "module_main".
+        constexpr const char* module_entry_symbol = "_Z11module_mainv";
+
+        // --- Find the C++ module entry point.
         for (usize i = 0; i < v.symcount; ++i) {
             const elf64_sym& sym = v.sym[i];
             if (sym.st_shndx == shn_undef || sym.st_shndx >= v.shnum) {
@@ -218,7 +220,7 @@ namespace astia::elf {
             if (!symbol_name(v, sym, name)) {
                 return false;
             }
-            if (!str_eq(name, "module_main")) {
+            if (!str_eq(name, module_entry_symbol)) {
                 continue;
             }
             u64 addr = 0;

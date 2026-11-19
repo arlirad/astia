@@ -1,10 +1,10 @@
-#include <astia/module_abi.hpp>
+#include <astia/module.hpp>
 
 #include "rtl8139_protocol.hpp"
 
 namespace {
 
-using astia::module::dma_buffer;
+using astia::mm::dma_buffer;
 using astia::module::net_device;
 using astia::rtl8139::bounded_spsc_queue;
 using astia::rtl8139::device_state;
@@ -29,13 +29,13 @@ register_offset offset_for(uint16_t offset) {
 }
 
 class rtl8139_controller final {
-    astia_module_pci_device* _pci = nullptr;
+    astia::hw::pci_device* _pci = nullptr;
     register_file _registers;
     dma_buffer _rx_ring_dma;
     rx_ring _rx_ring;
     tx_ring _tx_ring;
     bounded_spsc_queue<rx_packet, astia::rtl8139::rx_deferred_depth> _rx_deferred;
-    astia_module_msix_route _irq_route{};
+    astia::module::msix_route _irq_route{};
     net_device _net_device{"rtl8139", this};
     device_state _state = device_state::detached;
     bool _irq_active = false;
@@ -63,8 +63,8 @@ class rtl8139_controller final {
     }
 
     uint8_t* rx_buffer() const {
-        return _rx_ring_dma.allocated
-                   ? static_cast<uint8_t*>(_rx_ring_dma.value.virtual_address)
+        return _rx_ring_dma
+                   ? static_cast<uint8_t*>(_rx_ring_dma.data())
                    : nullptr;
     }
 
@@ -83,10 +83,10 @@ class rtl8139_controller final {
     }
 
     bool configure_hardware() {
-        if (!physical_address_ok(_rx_ring_dma.value.physical))
+        if (!physical_address_ok(_rx_ring_dma.physical()))
             return false;
         _registers.write32(register_offset::rx_buffer_start,
-                           static_cast<uint32_t>(_rx_ring_dma.value.physical));
+                           static_cast<uint32_t>(_rx_ring_dma.physical()));
         _registers.write32(register_offset::rx_config, (3u << 8) | 0x0fu);
         _registers.write32(register_offset::tx_config, 6u << 8);
         _registers.write8(register_offset::command,
@@ -100,14 +100,14 @@ class rtl8139_controller final {
     }
 
     bool request_irq() {
-        if (_pci == nullptr || _pci->msix == 0)
+        if (_pci == nullptr || !_pci->interrupt.msix)
             return false;
-        if (astia_module_pci_msix_request(_pci->opaque, irq_entry, this, &_irq_route) != 0)
+        if (!astia::module::pci_msix_request(_pci, irq_entry, this, &_irq_route))
             return false;
-        if (astia_module_pci_msix_program(&_irq_route) != 0 ||
-            astia_module_pci_msix_enable(&_irq_route) != 0 ||
-            astia_module_pci_msix_unmask(&_irq_route) != 0) {
-            astia_module_pci_msix_release(&_irq_route);
+        if (!astia::module::pci_msix_program(&_irq_route) ||
+            !astia::module::pci_msix_enable(&_irq_route) ||
+            !astia::module::pci_msix_unmask(&_irq_route)) {
+            astia::module::pci_msix_release(&_irq_route);
             _irq_route = {};
             return false;
         }
@@ -118,8 +118,8 @@ class rtl8139_controller final {
     void release_irq() {
         if (!_irq_active)
             return;
-        astia_module_pci_msix_disable(&_irq_route);
-        astia_module_pci_msix_release(&_irq_route);
+        astia::module::pci_msix_disable(&_irq_route);
+        astia::module::pci_msix_release(&_irq_route);
         _irq_route = {};
         _irq_active = false;
     }
@@ -221,21 +221,21 @@ class rtl8139_controller final {
             recycle_rx(packet);
     }
 
-    int attach(astia_module_pci_device* device) {
+    int attach(astia::hw::pci_device* device) {
         if (!pci_match(device) || _state != device_state::detached)
             return -19;
         uint8_t bar = 0xff;
         for (uint8_t index = 0; index < device->bar_count && index < 6; ++index) {
-            if (device->bar_present[index] != 0 && device->bar_io[index] == 0) {
+            if (device->bars[index].present && !device->bars[index].io) {
                 bar = index;
                 break;
             }
         }
-        if (bar == 0xff || astia_module_pci_enable_bus_master(device->opaque) != 0 ||
-            astia_module_pci_map_bar(device->opaque, bar) != 0)
+        if (bar == 0xff || !astia::module::pci_enable_bus_master(device) ||
+            !astia::module::pci_map_bar(device, bar))
             return -19;
-        const uint64_t mapped = astia_module_pci_bar_mapped(device->opaque, bar);
-        const uint64_t size = astia_module_pci_bar_size(device->opaque, bar);
+        const uint64_t mapped = astia::module::pci_bar_mapped(device, bar);
+        const uint64_t size = astia::module::pci_bar_size(device, bar);
         if (mapped == 0 || size < 0x100)
             return -19;
         _pci = device;
@@ -257,7 +257,7 @@ class rtl8139_controller final {
         _net_device.set_generation(_generation);
         _net_device.set_running(true);
         _state = request_irq() ? device_state::running : device_state::probed_no_irq;
-        astia_module_log("rtl8139", "probe ok");
+        astia::module::log("rtl8139", "probe ok");
         return 0;
     }
 
@@ -266,7 +266,7 @@ class rtl8139_controller final {
         static_cast<rtl8139_controller*>(context)->interrupt();
     }
 
-    int probe(astia_module_pci_device* device) { return attach(device); }
+    int probe(astia::hw::pci_device* device) { return attach(device); }
 
     void set_callbacks(rx_irq_callback immediate, rx_deferred_callback deferred, void* context) {
         _net_device.set_callbacks(immediate, deferred, context);
@@ -382,23 +382,23 @@ class rtl8139_controller final {
         request.reclaim = tx_selftest_reclaim;
         const int submitted = _net_device.tx().submit(request);
         if (submitted != 0) {
-            astia_module_log_u64("rtl8139", "public tx submit failed", submitted);
+            astia::module::log_u64("rtl8139", "public tx submit failed", submitted);
             return 0;
         }
         tx_request active{};
         if (!_net_device.tx().dequeue(active)) {
-            astia_module_log("rtl8139", "public tx dequeue failed");
+            astia::module::log("rtl8139", "public tx dequeue failed");
             return 0;
         }
         if (!_net_device.tx().complete(active, 0)) {
-            astia_module_log("rtl8139", "public tx complete failed");
+            astia::module::log("rtl8139", "public tx complete failed");
             return 0;
         }
         if (_net_device.tx().poll() != 1 || _tx_selftest_reclaimed != 1) {
-            astia_module_log("rtl8139", "public tx reclaim failed");
+            astia::module::log("rtl8139", "public tx reclaim failed");
             return 0;
         }
-        astia_module_log("rtl8139", "public tx selftest ok");
+        astia::module::log("rtl8139", "public tx selftest ok");
         return 1;
     }
 
@@ -415,63 +415,40 @@ rtl8139_controller controller;
 
 } // namespace
 
-extern "C" int rtl8139_pci_probe(astia_module_pci_device* device) {
-    return controller.probe(device);
-}
+class rtl8139_driver final : public astia::hw::driver {
+    public:
+    const char* name() const override { return "rtl8139"; }
 
-extern "C" int rtl8139_set_callbacks(astia::rtl8139::rx_irq_callback immediate,
-                                       astia::rtl8139::rx_deferred_callback deferred,
-                                       void* context) {
-    controller.set_callbacks(immediate, deferred, context);
-    return 0;
-}
+    bool match(const astia::hw::device_info& info) const override {
+        const auto* pci = astia::hw::pci_device_info::get(info);
+        return pci != nullptr && astia::rtl8139::pci_match(&pci->device());
+    }
 
-extern "C" int rtl8139_submit(const astia::rtl8139::tx_request* request) {
-    return request == nullptr ? -22 : controller.submit(*request);
-}
+    bool probe(const astia::hw::device_info& info) override {
+        const auto* pci = astia::hw::pci_device_info::get(info);
+        if (pci == nullptr)
+            return false;
+        auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
+        if (stable == nullptr || controller.probe(stable) != 0)
+            return false;
+        if (!astia::net::devices().register_device(*controller.device())) {
+            controller.detach_process();
+            return false;
+        }
+        return true;
+    }
 
-extern "C" unsigned rtl8139_service_tx() {
-    return controller.service_tx();
-}
+    void remove(const astia::hw::device_info&) override {
+        astia::net::devices().unregister_device(*controller.device());
+        controller.detach_process();
+    }
 
-extern "C" unsigned rtl8139_poll() {
-    return controller.poll_completions();
-}
+    bool selftest() override { return controller.selftest() != 0; }
+};
 
-extern "C" int rtl8139_reset() {
-    return controller.reset_process();
-}
+rtl8139_driver driver;
 
-extern "C" int rtl8139_detach() {
-    return controller.detach_process();
-}
-
-extern "C" int rtl8139_pci_match(const astia_module_pci_device* device) {
-    return astia::rtl8139::pci_match(device) ? 1 : 0;
-}
-
-extern "C" int rtl8139_pci_probe_net(const astia_module_pci_device* device,
-                                       astia::net::netdev** value) {
-    if (value == nullptr || device == nullptr)
-        return -22;
-    const int result = controller.probe(const_cast<astia_module_pci_device*>(device));
-    if (result == 0)
-        *value = controller.device();
-    return result;
-}
-
-extern "C" void rtl8139_pci_remove_net(astia::net::netdev*) {
-    controller.detach_process();
-}
-
-extern "C" int rtl8139_selftest() {
-    return controller.selftest();
-}
-
-extern "C" int module_main() {
+int module_main() {
     controller.initialize();
-    static const astia::module::net_driver driver{
-        "rtl8139", rtl8139_pci_match, rtl8139_pci_probe_net, rtl8139_pci_remove_net,
-        rtl8139_selftest};
-    return astia::module::register_net_driver(driver);
+    return astia::hw::drivers().register_driver(driver) ? 0 : -22;
 }

@@ -1,4 +1,4 @@
-#include <astia/module_abi.h>
+#include <astia/module.hpp>
 #include <astia/mm/dma_buffer.hpp>
 #include <astia/dev/regs.hpp>
 
@@ -7,7 +7,7 @@
 
 namespace astia::usb::xhci {
 
-bool pci_match(const astia_module_pci_device* device);
+bool pci_match(const astia::hw::pci_device* device);
 
 namespace {
 
@@ -103,7 +103,7 @@ uint32_t residual(const trb& event) {
 }
 
 class controller {
-    void* pci_ = nullptr;
+    astia::hw::pci_device* pci_ = nullptr;
     mmio common_{};
     mmio doorbells_{};
     mmio runtime_{};
@@ -158,13 +158,13 @@ class controller {
             !erst_memory_.allocate(1) || !input_memory_.allocate(1) ||
             !device_context_.allocate(1) || !transfer_memory_.allocate(2))
             return false;
-        clear_bytes(dcbaa_.data(), ASTIA_PAGE_SIZE);
-        clear_bytes(command_memory_.data(), ASTIA_PAGE_SIZE);
-        clear_bytes(event_memory_.data(), ASTIA_PAGE_SIZE);
-        clear_bytes(erst_memory_.data(), ASTIA_PAGE_SIZE);
-        clear_bytes(input_memory_.data(), ASTIA_PAGE_SIZE);
-        clear_bytes(device_context_.data(), ASTIA_PAGE_SIZE);
-        clear_bytes(transfer_memory_.data(), ASTIA_PAGE_SIZE * 2);
+        clear_bytes(dcbaa_.data(), astia::mm::page_size);
+        clear_bytes(command_memory_.data(), astia::mm::page_size);
+        clear_bytes(event_memory_.data(), astia::mm::page_size);
+        clear_bytes(erst_memory_.data(), astia::mm::page_size);
+        clear_bytes(input_memory_.data(), astia::mm::page_size);
+        clear_bytes(device_context_.data(), astia::mm::page_size);
+        clear_bytes(transfer_memory_.data(), astia::mm::page_size * 2);
         command_physical_ = command_memory_.physical();
         event_physical_ = event_memory_.physical();
         auto* command = static_cast<trb*>(command_memory_.data());
@@ -273,7 +273,7 @@ class controller {
 
     void make_input_context(uint8_t port, uint8_t speed, uint16_t max_packet_size) {
         const unsigned context_size = capabilities_.context_size_64 ? 64 : 32;
-        clear_bytes(input_memory_.data(), ASTIA_PAGE_SIZE);
+        clear_bytes(input_memory_.data(), astia::mm::page_size);
         store32(input_memory_.data(), 4, (1u << 0) | (1u << endpoint_control));
         store32(input_memory_.data(), context_size + 0,
                 (static_cast<uint32_t>(speed) << slot_speed_shift) |
@@ -358,11 +358,11 @@ class controller {
     int transfer(const setup_packet& setup, uint16_t max_packet_size) {
         transfer_handle handle{};
         auto* buffer = static_cast<uint8_t*>(transfer_memory_.data()) +
-                       ASTIA_PAGE_SIZE;
+                       astia::mm::page_size;
         const uint32_t length = setup.length;
-        if (length > ASTIA_PAGE_SIZE ||
+        if (length > astia::mm::page_size ||
             !control_.submit(setup, length == 0 ? nullptr : buffer,
-                              length == 0 ? 0 : transfer_memory_.physical() + ASTIA_PAGE_SIZE,
+                              length == 0 ? 0 : transfer_memory_.physical() + astia::mm::page_size,
                               length, max_packet_size, handle))
             return -22;
         doorbells_.write<uint32_t>(slot_ * 4, endpoint_control);
@@ -434,7 +434,7 @@ class controller {
             if (transfer_result < 0 || static_cast<unsigned>(transfer_result) > length)
                 return false;
             for (unsigned i = 0; i < static_cast<unsigned>(transfer_result); ++i)
-                descriptor[i] = static_cast<uint8_t*>(transfer_memory_.data())[ASTIA_PAGE_SIZE + i];
+                descriptor[i] = static_cast<uint8_t*>(transfer_memory_.data())[astia::mm::page_size + i];
             if (!session.complete(length == 0 ? nullptr : descriptor,
                                   static_cast<uint16_t>(transfer_result)))
                 return false;
@@ -448,16 +448,16 @@ class controller {
     }
 
     public:
-    int start(const astia_module_pci_device* device) {
+    int start(astia::hw::pci_device* device) {
         if (started_ || device == nullptr || !pci_match(device))
             return -19;
-        pci_ = device->opaque;
-        if (astia_module_pci_enable_bus_master(pci_) != 0 ||
-            astia_module_pci_disable_msix(pci_) != 0 ||
-            astia_module_pci_map_bar(pci_, 0) != 0)
+        pci_ = device;
+        if (!astia::module::pci_enable_bus_master(pci_) ||
+            !astia::module::pci_disable_msix(pci_) ||
+            !astia::module::pci_map_bar(pci_, 0))
             return -19;
-        const uint64_t mapped = astia_module_pci_bar_mapped(pci_, 0);
-        const uint64_t size = astia_module_pci_bar_size(pci_, 0);
+        const uint64_t mapped = astia::module::pci_bar_mapped(pci_, 0);
+        const uint64_t size = astia::module::pci_bar_size(pci_, 0);
         if (mapped == 0 || size < 0x800)
             return -95;
         probe_result checked{};
@@ -504,19 +504,19 @@ controller controller_instance;
 
 }
 
-bool pci_match(const astia_module_pci_device* device) {
+bool pci_match(const astia::hw::pci_device* device) {
     return device != nullptr && device->class_code == 0x0c && device->subclass == 0x03 &&
            device->programming_interface == 0x30 && device->bar_count != 0 &&
-           device->bar_present[0] != 0 && device->bar_io[0] == 0;
+           device->bars[0].present && !device->bars[0].io;
 }
 
-int pci_capability_probe(const astia_module_pci_device* device, probe_result& result) {
+int pci_capability_probe(astia::hw::pci_device* device, probe_result& result) {
     if (!pci_match(device))
         return -19;
-    if (astia_module_pci_map_bar(device->opaque, 0) != 0)
+    if (!astia::module::pci_map_bar(device, 0))
         return -19;
-    const uint64_t mapped = astia_module_pci_bar_mapped(device->opaque, 0);
-    const uint64_t size = astia_module_pci_bar_size(device->opaque, 0);
+    const uint64_t mapped = astia::module::pci_bar_mapped(device, 0);
+    const uint64_t size = astia::module::pci_bar_size(device, 0);
     if (mapped == 0 || size < 0x20)
         return -19;
     if (!probe(reinterpret_cast<volatile const uint8_t*>(mapped), size, result))
@@ -524,7 +524,7 @@ int pci_capability_probe(const astia_module_pci_device* device, probe_result& re
     return -95;
 }
 
-int enumerate_pci_port(const astia_module_pci_device* device, uint8_t port,
+int enumerate_pci_port(astia::hw::pci_device* device, uint8_t port,
                        device_model& result) {
     const int start_result = controller_instance.start(device);
     if (start_result != 0)
@@ -538,39 +538,41 @@ namespace astia::usb::xhci {
 
 namespace {
 
-int probe_pci(const astia_module_pci_device* device, void** context) {
-    if (context == nullptr || !pci_match(device))
-        return -19;
-    *context = nullptr;
-    const int result = controller_instance.start(device);
-    if (result != 0) {
-        return result;
+class xhci_driver final : public astia::hw::driver {
+    public:
+    const char* name() const override { return "xhci"; }
+
+    bool match(const astia::hw::device_info& info) const override {
+        const auto* pci = astia::hw::pci_device_info::get(info);
+        return pci != nullptr && pci_match(&pci->device());
     }
-    device_model model{};
-    for (uint8_t port = 1; port <= controller_instance.max_ports(); ++port) {
-        if (controller_instance.enumerate_port(port, model) != 0)
-            continue;
-        *context = &controller_instance;
-        return 0;
+
+    bool probe(const astia::hw::device_info& info) override {
+        const auto* pci = astia::hw::pci_device_info::get(info);
+        if (pci == nullptr)
+            return false;
+        auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
+        if (stable == nullptr || controller_instance.start(stable) != 0)
+            return false;
+        device_model model{};
+        for (uint8_t port = 1; port <= controller_instance.max_ports(); ++port)
+            if (controller_instance.enumerate_port(port, model) == 0)
+                return true;
+        controller_instance.stop();
+        return false;
     }
-    controller_instance.stop();
-    return -19;
-}
 
-int match_pci(const astia_module_pci_device* device) {
-    return pci_match(device) ? 1 : 0;
-}
+    void remove(const astia::hw::device_info&) override {
+        controller_instance.stop();
+    }
+};
 
-void remove_pci(void*) {
-    controller_instance.stop();
-}
-
-const astia_module_pci_driver pci_driver{"xhci", match_pci, probe_pci, remove_pci};
+xhci_driver driver;
 
 }
 
 }
 
-extern "C" int module_main() {
-    return astia_module_register_pci_driver(&astia::usb::xhci::pci_driver);
+int module_main() {
+    return astia::hw::drivers().register_driver(astia::usb::xhci::driver) ? 0 : -19;
 }
