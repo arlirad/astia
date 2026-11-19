@@ -68,14 +68,11 @@ if [[ "$full_tree" -eq 0 ]]; then
         push)
             is_commit "$head_sha" ||
                 die 'push requires a valid HEAD_SHA commit'
-            if ! is_commit "$base_sha"; then
-                if is_zero_sha "$base_sha"; then
-                    if ! base_sha="$(merge_base_with_main)"; then
-                        full_tree=1
-                    fi
-                elif ! base_sha="$(merge_base_with_main)"; then
-                    die 'push requires a valid BASE_SHA commit or a main merge-base'
-                fi
+            if is_zero_sha "$base_sha"; then
+                full_tree=1
+            elif ! is_commit "$base_sha" &&
+                ! base_sha="$(merge_base_with_main)"; then
+                die 'push requires a valid BASE_SHA commit or a main merge-base'
             fi
             ;;
         *)
