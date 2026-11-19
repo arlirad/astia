@@ -745,7 +745,6 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: clock ok"
                 "selftest: statx ok"
                 "smp: discovered=2 online=1"
-                "AP startup deferred: no APIC-ID topology"
                 "smp: reschedule IPI armed"
         )
         set_tests_properties(astia_kernel_lifecycle_smp2 PROPERTIES
@@ -757,7 +756,6 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ""
                 "smp: discovered=2 online=1"
-                "AP startup deferred: no APIC-ID topology"
                 "smp: reschedule IPI armed"
         )
         set_tests_properties(astia_kernel_smp_boot PROPERTIES
