@@ -54,3 +54,14 @@ ASTIA_TEST(shptr_borrowed_static_storage_never_deletes) {
     value->~probe();
     ASTIA_CHECK(destroyed == 1);
 }
+
+ASTIA_TEST(shptr_adopt_releases_value_when_control_block_allocation_fails) {
+    int destroyed = 0;
+    probe* value = new probe{&destroyed};
+    astia_test::fail_next_allocation();
+    auto adopted = astia::mm::shptr<probe>::adopt(value, [](void* raw) {
+        delete static_cast<probe*>(raw);
+    });
+    ASTIA_CHECK(!adopted);
+    ASTIA_CHECK(destroyed == 1);
+}

@@ -43,6 +43,12 @@ namespace {
 
 } // namespace
 
+namespace std {
+
+    const nothrow_t nothrow{};
+
+}
+
 __attribute__((weak)) void* operator new(astia::usize size) {
     return allocate(size);
 }
@@ -51,11 +57,29 @@ __attribute__((weak)) void* operator new[](astia::usize size) {
     return allocate(size);
 }
 
+__attribute__((weak)) void* operator new(astia::usize size, const std::nothrow_t&) noexcept {
+    return allocate(size);
+}
+
+__attribute__((weak)) void* operator new[](astia::usize size, const std::nothrow_t&) noexcept {
+    return allocate(size);
+}
+
 __attribute__((weak)) void* operator new(astia::usize size, std::align_val_t alignment) {
     return allocate_aligned(size, static_cast<astia::usize>(alignment));
 }
 
 __attribute__((weak)) void* operator new[](astia::usize size, std::align_val_t alignment) {
+    return allocate_aligned(size, static_cast<astia::usize>(alignment));
+}
+
+__attribute__((weak)) void* operator new(astia::usize size, std::align_val_t alignment,
+                                         const std::nothrow_t&) noexcept {
+    return allocate_aligned(size, static_cast<astia::usize>(alignment));
+}
+
+__attribute__((weak)) void* operator new[](astia::usize size, std::align_val_t alignment,
+                                          const std::nothrow_t&) noexcept {
     return allocate_aligned(size, static_cast<astia::usize>(alignment));
 }
 

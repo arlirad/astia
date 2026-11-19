@@ -808,7 +808,7 @@ namespace astia::sys::aio_dispatch {
                         return false;
                     if (!cq_post(ring, target, -ECANCELED))
                         return false;
-                    p.request.cancel_device();
+                    p.request.cancel_device(false);
                     p.done = true;
                     return cq_post(ring, s.user_data, 0);
                 }

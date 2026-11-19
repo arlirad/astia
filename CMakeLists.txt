@@ -197,6 +197,8 @@ if(ASTIA_BUILD_TESTS)
             astia_typed_module
             astia_typed_header_alone
             virtio_blk_unit_target
+            virtio_blk_teardown_target
+            nvme_teardown_target
             usb_unit_target
             rtl8139_unit_target)
         if(NOT TARGET ${_astia_module_test_target})
@@ -211,6 +213,8 @@ if(ASTIA_BUILD_TESTS)
             astia_typed_module
             astia_typed_header_alone
             virtio_blk_unit_target
+            virtio_blk_teardown_target
+            nvme_teardown_target
             usb_unit_target
             rtl8139_unit_target)
 

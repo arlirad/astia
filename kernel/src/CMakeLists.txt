@@ -40,6 +40,7 @@ set(_astia_kernel_libs
         plat_${PLATFORM}
         util
         libcore
+        libcore_freestanding
         dbg
         -Wl,--no-whole-archive
 )

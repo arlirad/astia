@@ -41,6 +41,7 @@ namespace astia::dev {
             }
             _name[i] = '\0';
         }
+        virtual ~device() = default;
 
         const char* name() const {
             return _name;

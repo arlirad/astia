@@ -221,9 +221,49 @@ namespace astia::io {
         void cancel_handler_set(cancel_handler handler) {
             _cancel_handler = handler;
         }
-        void cancel_device() {
+        bool has_cancel_handler() const {
+            return _cancel_handler != nullptr;
+        }
+        using cancel_observer = void (*)(request&, void*);
+        void cancel_observer_set(cancel_observer observer, void* context) {
+            _cancel_observer = observer;
+            _cancel_context = context;
+        }
+        bool cancellation_retain() const {
+            return _cancel_retain;
+        }
+        bool cancellation_requested() const {
+            return _cancel_requested;
+        }
+        bool cancel_device(bool retain = false) {
+            bool expected = false;
+            if (!__atomic_compare_exchange_n(&_cancel_requested, &expected, true, false,
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return false;
+            _cancel_retain = retain;
             if (_cancel_handler != nullptr)
                 _cancel_handler(*this);
+            else {
+                wake();
+                cancel_acknowledge();
+            }
+            if (!retain)
+                cancel_acknowledge();
+            return true;
+        }
+        void cancel_acknowledge() {
+            if (!__atomic_load_n(&_cancel_requested, __ATOMIC_ACQUIRE))
+                return;
+            bool expected = false;
+            if (!__atomic_compare_exchange_n(&_cancel_acknowledged, &expected, true, false,
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return;
+            auto observer = _cancel_observer;
+            void* context = _cancel_context;
+            _cancel_observer = nullptr;
+            _cancel_context = nullptr;
+            if (observer != nullptr)
+                observer(*this, context);
         }
 
         private:
@@ -251,6 +291,11 @@ namespace astia::io {
         flight*   _flight       = nullptr;
         mm::uptr<core::async_operation<i64>> _completion;
         cancel_handler _cancel_handler = nullptr;
+        cancel_observer _cancel_observer = nullptr;
+        void* _cancel_context = nullptr;
+        bool _cancel_requested = false;
+        bool _cancel_acknowledged = false;
+        bool _cancel_retain = false;
     };
 
     class flight {
