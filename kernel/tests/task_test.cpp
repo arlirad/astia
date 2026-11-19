@@ -3,6 +3,7 @@
 #include <astia/core/task.hpp>
 #include <astia/core/async_operation.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/resource_limits.hpp>
 
 namespace astia::proc {
     struct process {};
@@ -287,5 +288,25 @@ ASTIA_TEST(resume_queue_rejects_stale_generation) {
     ASTIA_CHECK(astia::core::drain_resumes() == 1);
     ASTIA_CHECK(astia::core::schedule_resume(continuation, 12));
     astia::core::cancel_resume(continuation, 12);
+    ASTIA_CHECK(astia::core::drain_resumes() == 0);
+}
+
+ASTIA_TEST(resume_queue_saturation_is_bounded) {
+    astia::core::initialize_resume_queues();
+    const auto continuation = std::noop_coroutine();
+    astia::u32 accepted = 0;
+    for (;;) {
+        if (!astia::core::schedule_resume(continuation, accepted + 1))
+            break;
+        ++accepted;
+    }
+    ASTIA_CHECK(accepted != 0);
+    astia::u32 drained = 0;
+    while (const astia::u32 count = astia::core::drain_resumes(
+               astia::resource_limits::queue::resume * 2 + 1))
+        drained += count;
+    ASTIA_CHECK(drained == accepted);
+    ASTIA_CHECK(astia::core::schedule_resume(continuation, accepted + 1));
+    astia::core::cancel_resume(continuation, accepted + 1);
     ASTIA_CHECK(astia::core::drain_resumes() == 0);
 }

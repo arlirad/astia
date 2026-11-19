@@ -45,10 +45,11 @@ namespace astia::core {
             const u64 generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
             auto continuation = __atomic_exchange_n(
                 reinterpret_cast<void**>(&continuation_), nullptr, __ATOMIC_ACQ_REL);
-            if (continuation != nullptr &&
-                !schedule_resume(std::coroutine_handle<>::from_address(continuation),
-                                 generation))
-                __builtin_trap();
+            if (continuation != nullptr) {
+                const auto handle = std::coroutine_handle<>::from_address(continuation);
+                if (!schedule_resume(handle, generation))
+                    handle.resume();
+            }
             __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
         }
 

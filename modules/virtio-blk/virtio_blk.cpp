@@ -412,6 +412,11 @@ namespace {
             }
         }
 
+        void stop() {
+            quiesce();
+            release();
+        }
+
         bool start() {
             quiescing = false;
             if (astia_module_pci_enable_bus_master(pci) != 0 ||
@@ -834,14 +839,13 @@ namespace {
             return _product;
         }
         void remove(const astia::hw::device_info&) override {
-            device.quiesce();
             if (_file) {
                 _file->detach();
                 (void) astia::fs::unregister_device("/dev/vblk0", _file);
                 _file = {};
             }
             _product = {};
-            device.release();
+            device.stop();
         }
         bool selftest() override {
             char sector[512]{};
