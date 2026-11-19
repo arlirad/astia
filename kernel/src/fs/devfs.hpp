@@ -24,10 +24,10 @@ namespace astia::fs {
             mm::shptr<file> object;
         };
 
-        entry entries_[devfs_max_entries]{};
+        entry _entries[devfs_max_entries]{};
         // Protects entry publication and lookup; object methods run after
         // lookup with a retained reference and without this lock held.
-        mutable core::spinlock namespace_lock_;
+        mutable core::spinlock _namespace_lock;
     };
 
     class devfs final : public filesystem {
@@ -40,11 +40,11 @@ namespace astia::fs {
         fs::mount* mount(const char* source) const override;
 
         void attach(devfs_mount* instance) {
-            instance_ = instance;
+            _instance = instance;
         }
 
         private:
-        devfs_mount* instance_ = nullptr;
+        devfs_mount* _instance = nullptr;
     };
 
 } // namespace astia::fs

@@ -63,12 +63,12 @@ namespace astia::core {
         }
 
         T get() const {
-            return detail::load<T>(bytes_, byte_order::little);
+            return detail::load<T>(_bytes, byte_order::little);
         }
         T get() const volatile {
             u8 copy[sizeof(T)]{};
             for (usize index = 0; index < sizeof(T); ++index)
-                copy[index] = bytes_[index];
+                copy[index] = _bytes[index];
             return detail::load<T>(copy, byte_order::little);
         }
         operator T() const {
@@ -82,7 +82,7 @@ namespace astia::core {
             return *this;
         }
         void set(T value) {
-            detail::store(bytes_, value, byte_order::little);
+            detail::store(_bytes, value, byte_order::little);
         }
         static T load(const void* source) {
             return detail::load<T>(static_cast<const u8*>(source), byte_order::little);
@@ -92,7 +92,7 @@ namespace astia::core {
         }
 
         private:
-        u8 bytes_[sizeof(T)]{};
+        u8 _bytes[sizeof(T)]{};
     };
 
     template <typename T>
@@ -106,12 +106,12 @@ namespace astia::core {
         }
 
         T get() const {
-            return detail::load<T>(bytes_, byte_order::big);
+            return detail::load<T>(_bytes, byte_order::big);
         }
         T get() const volatile {
             u8 copy[sizeof(T)]{};
             for (usize index = 0; index < sizeof(T); ++index)
-                copy[index] = bytes_[index];
+                copy[index] = _bytes[index];
             return detail::load<T>(copy, byte_order::big);
         }
         operator T() const {
@@ -125,7 +125,7 @@ namespace astia::core {
             return *this;
         }
         void set(T value) {
-            detail::store(bytes_, value, byte_order::big);
+            detail::store(_bytes, value, byte_order::big);
         }
         static T load(const void* source) {
             return detail::load<T>(static_cast<const u8*>(source), byte_order::big);
@@ -135,7 +135,7 @@ namespace astia::core {
         }
 
         private:
-        u8 bytes_[sizeof(T)]{};
+        u8 _bytes[sizeof(T)]{};
     };
 
 } // namespace astia::core

@@ -16,13 +16,13 @@ namespace astia::proc {
                 return false;
             }
             for (u32 i = 0; i < signal_waiter_capacity; ++i) {
-                if (values_[i].value == value) {
+                if (_values[i].value == value) {
                     return true;
                 }
             }
             for (u32 i = 0; i < signal_waiter_capacity; ++i) {
-                if (values_[i].value == nullptr) {
-                    values_[i] = {value, timed, deadline, false};
+                if (_values[i].value == nullptr) {
+                    _values[i] = {value, timed, deadline, false};
                     return true;
                 }
             }
@@ -31,8 +31,8 @@ namespace astia::proc {
 
         void remove(thread* value) {
             for (u32 i = 0; i < signal_waiter_capacity; ++i) {
-                if (values_[i].value == value) {
-                    values_[i] = {};
+                if (_values[i].value == value) {
+                    _values[i] = {};
                 }
             }
         }
@@ -43,8 +43,8 @@ namespace astia::proc {
             }
             u32 count = 0;
             for (u32 i = 0; i < signal_waiter_capacity && count < capacity; ++i) {
-                if (values_[i].value != nullptr) {
-                    output[count++] = values_[i].value;
+                if (_values[i].value != nullptr) {
+                    output[count++] = _values[i].value;
                 }
             }
             return count;
@@ -52,17 +52,17 @@ namespace astia::proc {
 
         bool timed_out(thread* value) const {
             for (u32 i = 0; i < signal_waiter_capacity; ++i) {
-                if (values_[i].value == value)
-                    return values_[i].expired;
+                if (_values[i].value == value)
+                    return _values[i].expired;
             }
             return false;
         }
 
         bool consume_wake(thread* value) {
             for (u32 i = 0; i < signal_waiter_capacity; ++i) {
-                if (values_[i].value == value) {
-                    const bool pending = values_[i].wake_pending;
-                    values_[i].wake_pending = false;
+                if (_values[i].value == value) {
+                    const bool pending      = _values[i].wake_pending;
+                    _values[i].wake_pending = false;
                     return pending;
                 }
             }
@@ -74,10 +74,10 @@ namespace astia::proc {
                 return 0;
             u32 count = 0;
             for (u32 i = 0; i < signal_waiter_capacity && count < capacity; ++i) {
-                if (values_[i].value == nullptr)
+                if (_values[i].value == nullptr)
                     continue;
-                values_[i].wake_pending = true;
-                output[count++] = values_[i].value;
+                _values[i].wake_pending = true;
+                output[count++]         = _values[i].value;
             }
             return count;
         }
@@ -88,25 +88,25 @@ namespace astia::proc {
             }
             u32 count = 0;
             for (u32 i = 0; i < signal_waiter_capacity && count < capacity; ++i) {
-                auto& waiter = values_[i];
+                auto& waiter = _values[i];
                 if (waiter.value == nullptr || !waiter.timed || waiter.expired ||
                     waiter.deadline > now)
                     continue;
-                waiter.expired = true;
+                waiter.expired      = true;
                 waiter.wake_pending = true;
-                output[count++] = waiter.value;
+                output[count++]     = waiter.value;
             }
             return count;
         }
 
         private:
         struct waiter {
-            thread* value    = nullptr;
-            bool    timed    = false;
-            u64     deadline = 0;
-            bool    expired  = false;
+            thread* value        = nullptr;
+            bool    timed        = false;
+            u64     deadline     = 0;
+            bool    expired      = false;
             bool    wake_pending = false;
-        } values_[signal_waiter_capacity]{};
+        } _values[signal_waiter_capacity]{};
     };
 
 } // namespace astia::proc

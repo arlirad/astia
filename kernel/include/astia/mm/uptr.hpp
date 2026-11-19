@@ -10,11 +10,11 @@ namespace astia::mm {
     class uptr {
         public:
         constexpr uptr() = default;
-        explicit uptr(T* value) : value_(value) {}
+        explicit uptr(T* value) : _value(value) {}
         uptr(const uptr&)            = delete;
         uptr& operator=(const uptr&) = delete;
 
-        uptr(uptr&& other) noexcept : value_(other.release()) {}
+        uptr(uptr&& other) noexcept : _value(other.release()) {}
         uptr& operator=(uptr&& other) noexcept {
             if (this != &other)
                 reset(other.release());
@@ -26,38 +26,38 @@ namespace astia::mm {
         }
 
         T* get() const {
-            return value_;
+            return _value;
         }
         T* operator->() const {
-            return value_;
+            return _value;
         }
         T& operator*() const {
-            return *value_;
+            return *_value;
         }
         explicit operator bool() const {
-            return value_ != nullptr;
+            return _value != nullptr;
         }
         bool operator==(decltype(nullptr)) const {
-            return value_ == nullptr;
+            return _value == nullptr;
         }
         bool operator!=(decltype(nullptr)) const {
-            return value_ != nullptr;
+            return _value != nullptr;
         }
 
         void reset(T* value = nullptr) {
-            if (value_ != value) {
-                delete value_;
-                value_ = value;
+            if (_value != value) {
+                delete _value;
+                _value = value;
             }
         }
         T* release() {
-            T* value = value_;
-            value_   = nullptr;
+            T* value = _value;
+            _value   = nullptr;
             return value;
         }
 
         private:
-        T* value_ = nullptr;
+        T* _value = nullptr;
     };
 
 } // namespace astia::mm

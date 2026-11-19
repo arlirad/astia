@@ -14,24 +14,24 @@ namespace astia::proc {
         auto error  = dev::open_console(ASTIA_AIO_O_RDWR);
         if (!input || !output || !error)
             return false;
-        arch::interrupt_spinlock_guard guard(lock_);
-        entries_[STDIN].file  = input;
-        entries_[STDOUT].file = output;
-        entries_[STDERR].file = error;
+        arch::interrupt_spinlock_guard guard(_lock);
+        _entries[STDIN].file  = input;
+        _entries[STDOUT].file = output;
+        _entries[STDERR].file = error;
         return true;
     }
 
     mm::shptr<fs::open_file> fd_table::get(fd_t fd) const {
-        arch::interrupt_spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(_lock);
         return fd.value >= 0 && static_cast<u32>(fd.value) < max_process_fds
-                   ? entries_[fd.value].file
+                   ? _entries[fd.value].file
                    : mm::shptr<fs::open_file>{};
     }
 
     u32 fd_table::flags(fd_t fd) const {
-        arch::interrupt_spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(_lock);
         return fd.value >= 0 && static_cast<u32>(fd.value) < max_process_fds
-                   ? entries_[fd.value].flags
+                   ? _entries[fd.value].flags
                    : 0;
     }
 
@@ -45,10 +45,10 @@ namespace astia::proc {
         }
         mm::shptr<fs::open_file> old;
         {
-            arch::interrupt_spinlock_guard guard(lock_);
-            old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd.value].file);
-            entries_[fd.value].file  = file;
-            entries_[fd.value].flags = flags;
+            arch::interrupt_spinlock_guard guard(_lock);
+            old = static_cast<mm::shptr<fs::open_file>&&>(_entries[fd.value].file);
+            _entries[fd.value].file  = file;
+            _entries[fd.value].flags = flags;
         }
         return true;
     }
@@ -57,11 +57,11 @@ namespace astia::proc {
         if (fd.value < 0 || static_cast<u32>(fd.value) >= max_process_fds) {
             return false;
         }
-        arch::interrupt_spinlock_guard guard(lock_);
-        if (!entries_[fd.value].file) {
+        arch::interrupt_spinlock_guard guard(_lock);
+        if (!_entries[fd.value].file) {
             return false;
         }
-        entries_[fd.value].flags = flags;
+        _entries[fd.value].flags = flags;
         return true;
     }
 
@@ -71,9 +71,9 @@ namespace astia::proc {
         }
         mm::shptr<fs::open_file> old;
         {
-            arch::interrupt_spinlock_guard guard(lock_);
-            old = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd.value].file);
-            entries_[fd.value].flags = 0;
+            arch::interrupt_spinlock_guard guard(_lock);
+            old = static_cast<mm::shptr<fs::open_file>&&>(_entries[fd.value].file);
+            _entries[fd.value].flags = 0;
         }
         return true;
     }
@@ -81,10 +81,10 @@ namespace astia::proc {
     void fd_table::clear_all() {
         mm::shptr<fs::open_file> old[max_process_fds];
         {
-            arch::interrupt_spinlock_guard guard(lock_);
+            arch::interrupt_spinlock_guard guard(_lock);
             for (u32 fd = 0; fd < max_process_fds; ++fd) {
-                old[fd] = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
-                entries_[fd].flags = 0;
+                old[fd] = static_cast<mm::shptr<fs::open_file>&&>(_entries[fd].file);
+                _entries[fd].flags = 0;
             }
         }
     }
@@ -92,11 +92,11 @@ namespace astia::proc {
     void fd_table::close_on_exec() {
         mm::shptr<fs::open_file> old[max_process_fds];
         {
-            arch::interrupt_spinlock_guard guard(lock_);
+            arch::interrupt_spinlock_guard guard(_lock);
             for (u32 fd = 0; fd < max_process_fds; ++fd) {
-                if ((entries_[fd].flags & ASTIA_FD_CLOEXEC) != 0) {
-                    old[fd] = static_cast<mm::shptr<fs::open_file>&&>(entries_[fd].file);
-                    entries_[fd].flags = 0;
+                if ((_entries[fd].flags & ASTIA_FD_CLOEXEC) != 0) {
+                    old[fd] = static_cast<mm::shptr<fs::open_file>&&>(_entries[fd].file);
+                    _entries[fd].flags = 0;
                 }
             }
         }
@@ -121,8 +121,8 @@ namespace astia::proc {
 
         mm::shptr<fs::open_file> source;
         {
-            arch::interrupt_spinlock_guard guard(lock_);
-            source = entries_[old_fd.value].file;
+            arch::interrupt_spinlock_guard guard(_lock);
+            source = _entries[old_fd.value].file;
         }
         if (!source)
             return error_t::ebadf;
@@ -131,11 +131,11 @@ namespace astia::proc {
         if (!copy)
             return error_t::emfile;
 
-        arch::interrupt_spinlock_guard guard(lock_);
+        arch::interrupt_spinlock_guard guard(_lock);
         for (u32 fd = static_cast<u32>(minimum.value); fd < maximum; ++fd) {
-            if (!entries_[fd].file) {
-                entries_[fd].file  = copy;
-                entries_[fd].flags = flags;
+            if (!_entries[fd].file) {
+                _entries[fd].file  = copy;
+                _entries[fd].flags = flags;
                 return fd_t{static_cast<i32>(fd)};
             }
         }
@@ -150,8 +150,8 @@ namespace astia::proc {
 
         mm::shptr<fs::open_file> source;
         {
-            arch::interrupt_spinlock_guard guard(lock_);
-            source = entries_[old_fd.value].file;
+            arch::interrupt_spinlock_guard guard(_lock);
+            source = _entries[old_fd.value].file;
         }
         if (!source)
             return error_t::ebadf;
@@ -164,10 +164,10 @@ namespace astia::proc {
 
         mm::shptr<fs::open_file> old;
         {
-            arch::interrupt_spinlock_guard guard(lock_);
-            old = static_cast<mm::shptr<fs::open_file>&&>(entries_[new_fd.value].file);
-            entries_[new_fd.value].file  = copy;
-            entries_[new_fd.value].flags = 0;
+            arch::interrupt_spinlock_guard guard(_lock);
+            old = static_cast<mm::shptr<fs::open_file>&&>(_entries[new_fd.value].file);
+            _entries[new_fd.value].file  = copy;
+            _entries[new_fd.value].flags = 0;
         }
         return new_fd;
     }

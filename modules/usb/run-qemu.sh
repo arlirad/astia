@@ -3,6 +3,15 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 build=${ASTIA_USB_BUILD:-$root/build-usb}
+case "$build" in
+    /*) ;;
+    *) build=$root/$build ;;
+esac
+artifact_build=${ASTIA_TEST_BUILD:-$build}
+case "$artifact_build" in
+    /*) ;;
+    *) artifact_build=$root/$artifact_build ;;
+esac
 log=${ASTIA_USB_LOG:-$build/usb-qemu.log}
 trace=${ASTIA_USB_TRACE:-$build/usb-qemu.trace}
 staging=$build/usb-initrd
@@ -23,16 +32,22 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-cmake -S "$root" -B "$build" -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt \
-    -DASTIA_RUNTIME_SKIP_LIFECYCLE=ON
-cmake --build "$build" --target astiakrn_runtime usb_module
+if [ -z "${ASTIA_TEST_BUILD:-}" ]; then
+    cmake -S "$root" -B "$build" -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt \
+        -DASTIA_RUNTIME_SKIP_LIFECYCLE=ON
+    cmake --build "$build" --target astiakrn_runtime usb_module
+    kernel=$build/kernel/src/astiakrn_runtime
+else
+    cmake --build "$artifact_build" --target astiakrn_module_runtime usb_module
+    kernel=$artifact_build/kernel/src/astiakrn_module_runtime
+fi
 mkdir -p "$staging"
-cp "$build/modules/usb/usb.o" "$staging/usb.o"
+cp "$artifact_build/modules/usb/usb.o" "$staging/usb.o"
 (cd "$staging" && find usb.o -print | cpio -o -H newc > "$initrd")
 
 set +e
 timeout "${ASTIA_USB_TIMEOUT:-30}" "$qemu" \
-    -machine q35 -m 128M -kernel "$build/kernel/src/astiakrn_runtime" \
+    -machine q35 -m 128M -kernel "$kernel" \
     -initrd "$initrd" -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 \
     -serial "file:$log" -display none -monitor none -device isa-debug-exit -no-reboot \
     -trace "enable=usb_xhci_*,file=$trace"

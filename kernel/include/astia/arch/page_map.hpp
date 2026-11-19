@@ -73,17 +73,17 @@ namespace astia::arch {
         page_map& operator=(page_map&& other) noexcept;
 
         bool valid() const {
-            return root_ != 0;
+            return _root != 0;
         }
 
         /// Physical address of the root table (what the arch loads).
         paddr_t root() const {
-            return root_;
+            return _root;
         }
 
         /// The parent this map was created with, or nullptr.
         const page_map* parent() const {
-            return parent_;
+            return _parent;
         }
 
         /// Map one 4 KiB page. Splits a 2 MiB page if one is in the way.
@@ -113,10 +113,10 @@ namespace astia::arch {
 
         private:
         explicit page_map(paddr_t root, const page_map* parent)
-            : root_(root), parent_(parent) {}
+            : _root(root), _parent(parent) {}
 
-        paddr_t         root_   = 0;
-        const page_map* parent_ = nullptr;
+        paddr_t         _root   = 0;
+        const page_map* _parent = nullptr;
     };
 
     /// The kernel's own address space, installed by the arch paging init

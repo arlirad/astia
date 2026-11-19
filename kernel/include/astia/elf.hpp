@@ -52,8 +52,10 @@ namespace astia::elf {
 
     /// Map `size` bytes aligned to `align` (a power of two). When `fixed` is
     /// true the region must begin exactly at `hint` (an ET_EXEC's link
-    /// address); otherwise `hint` is advisory and the callback picks any
-    /// address (relocatable blocks and ET_DYN spans). Returns null on failure.
+    /// address). Otherwise the callback may choose the address, but it must
+    /// preserve `hint`'s congruence class modulo `align`; this lets ET_DYN
+    /// retain PT_LOAD load-bias congruence without requiring the hint itself
+    /// to be aligned to `align`. Returns null on failure.
     using map_fn = void* (*)(void* ctx, u64 hint, usize size, usize align, bool fixed);
 
     /// Resolve an undefined global symbol by name to its runtime address.
@@ -154,7 +156,9 @@ namespace astia::elf {
 
     /// Streaming executable loader. Reads only the ELF header/PHDR table and
     /// then fetches PT_LOAD file ranges through the async environment.
-    core::task<image> load_executable_stream(const async_env& e, usize file_size);
+    /// The callback context must remain valid until the returned task is done.
+    /// The callback table itself is copied into the coroutine frame.
+    core::task<image> load_executable_stream(async_env e, usize file_size);
 
     /// Dispatch to the right loader based on kind_of(). Returns false for
     /// anything that is not a supported ELF image.

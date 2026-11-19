@@ -9,7 +9,7 @@ function(astia_append_test_label label)
         endif()
         list(REMOVE_DUPLICATES _astia_labels)
         set_tests_properties(${_astia_test}
-                PROPERTIES LABELS "${_astia_labels}" RUN_SERIAL TRUE)
+                PROPERTIES LABELS "${_astia_labels}")
     endforeach()
 endfunction()
 
@@ -38,7 +38,7 @@ function(astia_register_script_test name label script)
             TIMEOUT "${ASTIA_SCRIPT_TIMEOUT}")
     if(";${label};" MATCHES ";qemu;")
         set_tests_properties(${name} PROPERTIES
-                RESOURCE_LOCK astia-qemu RUN_SERIAL TRUE)
+                RESOURCE_LOCK astia-qemu)
     endif()
     if(ASTIA_SCRIPT_WORKING_DIRECTORY)
         set_tests_properties(${name} PROPERTIES

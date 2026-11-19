@@ -154,44 +154,44 @@ namespace astia::core {
         };
 
         task() = default;
-        explicit task(handle value) : coroutine_(value) {}
-        explicit task(error_t error) : error_(error) {}
+        explicit task(handle value) : _coroutine(value) {}
+        explicit task(error_t error) : _error(error) {}
         task(const task&)            = delete;
         task& operator=(const task&) = delete;
-        task(task&& other) noexcept : coroutine_(other.coroutine_), error_(other.error_) {
-            other.coroutine_ = {};
-            other.error_     = error_t::enone;
+        task(task&& other) noexcept : _coroutine(other._coroutine), _error(other._error) {
+            other._coroutine = {};
+            other._error     = error_t::enone;
         }
         task& operator=(task&& other) noexcept {
             if (this != &other) {
                 reset();
-                coroutine_       = other.coroutine_;
-                error_            = other.error_;
-                other.coroutine_ = {};
-                other.error_      = error_t::enone;
+                _coroutine       = other._coroutine;
+                _error            = other._error;
+                other._coroutine = {};
+                other._error      = error_t::enone;
             }
             return *this;
         }
         ~task() { reset(); }
 
-        bool done() const { return !coroutine_ || coroutine_.done(); }
-        bool valid() const { return coroutine_ && !coroutine_.done(); }
+        bool done() const { return !_coroutine || _coroutine.done(); }
+        bool valid() const { return _coroutine && !_coroutine.done(); }
         error_t error() const {
-            if (error_ != error_t::enone)
-                return error_;
-            return coroutine_ ? coroutine_.promise().result : error_t::enone;
+            if (_error != error_t::enone)
+                return _error;
+            return _coroutine ? _coroutine.promise().result : error_t::enone;
         }
         bool failed() const { return error() != error_t::enone; }
-        T* value() { return coroutine_ ? &coroutine_.promise().value : nullptr; }
+        T* value() { return _coroutine ? &_coroutine.promise().value : nullptr; }
 
         bool resume() {
             if (done())
                 return false;
-            auto waiting = coroutine_.promise().link.waiting;
+            auto waiting = _coroutine.promise().link.waiting;
             if (waiting && !waiting.done())
                 waiting.resume();
             else
-                coroutine_.resume();
+                _coroutine.resume();
             return true;
         }
 
@@ -244,22 +244,22 @@ namespace astia::core {
             }
         };
         awaiter operator co_await() && noexcept {
-            awaiter value{coroutine_, {}, nullptr};
-            coroutine_ = {};
+            awaiter value{_coroutine, {}, nullptr};
+            _coroutine = {};
             return value;
         }
         void reset() {
-            if (coroutine_) {
-                cancel_resume(coroutine_);
-                detail::detach_resume_context(coroutine_.promise().link);
-                coroutine_.destroy();
+            if (_coroutine) {
+                cancel_resume(_coroutine);
+                detail::detach_resume_context(_coroutine.promise().link);
+                _coroutine.destroy();
             }
-            coroutine_ = {};
+            _coroutine = {};
         }
 
         private:
-        handle  coroutine_{};
-        error_t error_ = error_t::enone;
+        handle  _coroutine{};
+        error_t _error = error_t::enone;
     };
 
     /// Minimal owning coroutine task. It is deliberately a building block:
@@ -273,35 +273,35 @@ namespace astia::core {
         using handle = std::coroutine_handle<promise_type>;
 
         task() = default;
-        explicit task(handle coroutine) : coroutine_(coroutine) {}
-        explicit task(error_t error) : error_(error) {}
+        explicit task(handle coroutine) : _coroutine(coroutine) {}
+        explicit task(error_t error) : _error(error) {}
         task(const task&)            = delete;
         task& operator=(const task&) = delete;
 
-        task(task&& other) noexcept : coroutine_(other.coroutine_), error_(other.error_) {
-            other.coroutine_ = {};
-            other.error_     = error_t::enone;
+        task(task&& other) noexcept : _coroutine(other._coroutine), _error(other._error) {
+            other._coroutine = {};
+            other._error     = error_t::enone;
         }
         task& operator=(task&& other) noexcept {
             if (this != &other) {
                 reset();
-                coroutine_       = other.coroutine_;
-                error_           = other.error_;
-                other.coroutine_ = {};
-                other.error_     = error_t::enone;
+                _coroutine       = other._coroutine;
+                _error           = other._error;
+                other._coroutine = {};
+                other._error     = error_t::enone;
             }
             return *this;
         }
 
         ~task() { reset(); }
 
-        bool valid() const { return coroutine_ && !coroutine_.done(); }
-        bool done() const { return !coroutine_ || coroutine_.done(); }
+        bool valid() const { return _coroutine && !_coroutine.done(); }
+        bool done() const { return !_coroutine || _coroutine.done(); }
         bool failed() const { return error() != error_t::enone; }
         error_t error() const {
-            if (error_ != error_t::enone)
-                return error_;
-            return coroutine_ ? coroutine_.promise().result : error_t::enone;
+            if (_error != error_t::enone)
+                return _error;
+            return _coroutine ? _coroutine.promise().result : error_t::enone;
         }
 
         /// Resume one step. The caller owns scheduling and must not resume a
@@ -309,11 +309,11 @@ namespace astia::core {
         bool resume() {
             if (done())
                 return false;
-            auto waiting = coroutine_.promise().link.waiting;
+            auto waiting = _coroutine.promise().link.waiting;
             if (waiting && !waiting.done())
                 waiting.resume();
             else
-                coroutine_.resume();
+                _coroutine.resume();
             return true;
         }
 
@@ -368,18 +368,18 @@ namespace astia::core {
         };
 
         awaiter operator co_await() && noexcept {
-            awaiter result{coroutine_, {}, nullptr};
-            coroutine_ = {};
+            awaiter result{_coroutine, {}, nullptr};
+            _coroutine = {};
             return result;
         }
 
         void reset() {
-            if (coroutine_) {
-                cancel_resume(coroutine_);
-                detail::detach_resume_context(coroutine_.promise().link);
-                coroutine_.destroy();
+            if (_coroutine) {
+                cancel_resume(_coroutine);
+                detail::detach_resume_context(_coroutine.promise().link);
+                _coroutine.destroy();
             }
-            coroutine_ = {};
+            _coroutine = {};
         }
 
         struct promise_type {
@@ -435,26 +435,26 @@ namespace astia::core {
             u32 next;
         };
 
-        inline static frame_slot frame_pool_[frame_slot_count]{};
-        inline static u32        frame_head_ = 0;
-        inline static u32        frame_initialized_ = 0;
-        inline static u32        pool_allocations_ = 0;
+        inline static frame_slot _frame_pool[frame_slot_count]{};
+        inline static u32        _frame_head = 0;
+        inline static u32        _frame_initialized = 0;
+        inline static u32        _pool_allocations = 0;
 
         static void initialize_pool() {
-            u32 state = __atomic_load_n(&frame_initialized_, __ATOMIC_ACQUIRE);
+            u32 state = __atomic_load_n(&_frame_initialized, __ATOMIC_ACQUIRE);
             if (state == 2)
                 return;
             u32 expected = 0;
-            if (__atomic_compare_exchange_n(&frame_initialized_, &expected, 1, false,
+            if (__atomic_compare_exchange_n(&_frame_initialized, &expected, 1, false,
                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
                 for (u32 i = 0; i + 1 < frame_slot_count; ++i)
-                    frame_pool_[i].next = i + 1;
-                frame_pool_[frame_slot_count - 1].next = frame_slot_count;
-                __atomic_store_n(&frame_head_, 0, __ATOMIC_RELEASE);
-                __atomic_store_n(&frame_initialized_, 2, __ATOMIC_RELEASE);
+                    _frame_pool[i].next = i + 1;
+                _frame_pool[frame_slot_count - 1].next = frame_slot_count;
+                __atomic_store_n(&_frame_head, 0, __ATOMIC_RELEASE);
+                __atomic_store_n(&_frame_initialized, 2, __ATOMIC_RELEASE);
             }
             else {
-                while (__atomic_load_n(&frame_initialized_, __ATOMIC_ACQUIRE) != 2) {
+                while (__atomic_load_n(&_frame_initialized, __ATOMIC_ACQUIRE) != 2) {
                 }
             }
         }
@@ -463,13 +463,13 @@ namespace astia::core {
             if (size > frame_slot_bytes)
                 return nullptr;
             initialize_pool();
-            u32 head = __atomic_load_n(&frame_head_, __ATOMIC_ACQUIRE);
+            u32 head = __atomic_load_n(&_frame_head, __ATOMIC_ACQUIRE);
             while (head != frame_slot_count) {
-                u32 next = frame_pool_[head].next;
-                if (__atomic_compare_exchange_n(&frame_head_, &head, next, false,
+                u32 next = _frame_pool[head].next;
+                if (__atomic_compare_exchange_n(&_frame_head, &head, next, false,
                                                 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                    __atomic_add_fetch(&pool_allocations_, 1, __ATOMIC_RELAXED);
-                    return frame_pool_[head].storage;
+                    __atomic_add_fetch(&_pool_allocations, 1, __ATOMIC_RELAXED);
+                    return _frame_pool[head].storage;
                 }
             }
             return nullptr;
@@ -477,9 +477,9 @@ namespace astia::core {
 
         static bool owns_frame(void* value, u32& index) {
             const usize address = reinterpret_cast<usize>(value);
-            const usize first   = reinterpret_cast<usize>(frame_pool_[0].storage);
-            const usize last = reinterpret_cast<usize>(frame_pool_[frame_slot_count - 1].storage) +
-                               sizeof(frame_pool_[frame_slot_count - 1].storage);
+            const usize first   = reinterpret_cast<usize>(_frame_pool[0].storage);
+            const usize last = reinterpret_cast<usize>(_frame_pool[frame_slot_count - 1].storage) +
+                               sizeof(_frame_pool[frame_slot_count - 1].storage);
             if (address < first || address >= last)
                 return false;
             const usize stride = sizeof(frame_slot);
@@ -494,21 +494,21 @@ namespace astia::core {
             u32 index = 0;
             if (!owns_frame(value, index))
                 return;
-            u32 head = __atomic_load_n(&frame_head_, __ATOMIC_RELAXED);
+            u32 head = __atomic_load_n(&_frame_head, __ATOMIC_RELAXED);
             do {
-                frame_pool_[index].next = head;
-            } while (!__atomic_compare_exchange_n(&frame_head_, &head, index, false,
+                _frame_pool[index].next = head;
+            } while (!__atomic_compare_exchange_n(&_frame_head, &head, index, false,
                                                   __ATOMIC_RELEASE, __ATOMIC_RELAXED));
         }
 
         public:
         static u32 pooled_frame_allocations() {
-            return __atomic_load_n(&pool_allocations_, __ATOMIC_RELAXED);
+            return __atomic_load_n(&_pool_allocations, __ATOMIC_RELAXED);
         }
 
         private:
-        handle coroutine_{};
-        error_t error_ = error_t::enone;
+        handle _coroutine{};
+        error_t _error = error_t::enone;
     };
 
     struct yield_awaitable {

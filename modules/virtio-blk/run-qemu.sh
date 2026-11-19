@@ -3,7 +3,17 @@ set -eu
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 build=${VIRTIO_BLK_BUILD:-$root/build-virtio-blk}
-image=${VIRTIO_BLK_IMAGE:-$root/modules/virtio-blk/fixture.raw}
+case "$build" in
+    /*) ;;
+    *) build=$root/$build ;;
+esac
+artifact_build=${ASTIA_TEST_BUILD:-$build}
+case "$artifact_build" in
+    /*) ;;
+    *) artifact_build=$root/$artifact_build ;;
+esac
+source_image=${VIRTIO_BLK_IMAGE:-$root/modules/virtio-blk/fixture.raw}
+image=${VIRTIO_BLK_CASE_IMAGE:-$build/fixture.raw}
 timeout_seconds=${VIRTIO_BLK_TIMEOUT:-40}
 qemu=${QEMU:-qemu-system-x86_64}
 log=${VIRTIO_BLK_LOG:-${TMPDIR:-/tmp}/astia-virtio-blk.log}
@@ -11,12 +21,20 @@ readonly=${VIRTIO_BLK_READONLY:-0}
 staging=${build}/virtio-blk-initrd
 initrd=${build}/virtio-blk-initrd.cpio
 
-cmake -S "$root" -B "$build" -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt \
-    -DASTIA_RUNTIME_SKIP_LIFECYCLE=ON
-cmake --build "$build" --target astiakrn_runtime virtio_blk_module
+if [ -z "${ASTIA_TEST_BUILD:-}" ]; then
+    cmake -S "$root" -B "$build" -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt \
+        -DASTIA_RUNTIME_SKIP_LIFECYCLE=ON
+    cmake --build "$build" --target astiakrn_runtime virtio_blk_module
+    kernel=$build/kernel/src/astiakrn_runtime
+else
+    cmake --build "$artifact_build" --target astiakrn_module_runtime virtio_blk_module
+    kernel=$artifact_build/kernel/src/astiakrn_module_runtime
+fi
+mkdir -p "$build"
+cp "$source_image" "$image"
 rm -rf "$staging"
 mkdir -p "$staging"
-cp "$build/modules/virtio-blk/virtio_blk.o" "$staging/virtio_blk.o"
+cp "$artifact_build/modules/virtio-blk/virtio_blk.o" "$staging/virtio_blk.o"
 (cd "$staging" && find virtio_blk.o -print | cpio -o -H newc > "$initrd")
 
 drive_readonly=
@@ -26,7 +44,7 @@ fi
 
 set +e
 timeout "$timeout_seconds" "$qemu" \
-    -machine q35 -m 128M -kernel "$build/kernel/src/astiakrn_runtime" \
+    -machine q35 -m 128M -kernel "$kernel" \
     -initrd "$initrd" \
     -drive "if=none,format=raw,file=$image,id=vblk0$drive_readonly" \
     -device virtio-blk-pci,drive=vblk0,disable-legacy=on \

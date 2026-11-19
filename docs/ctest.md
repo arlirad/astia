@@ -9,6 +9,31 @@ cmake --build build-tests
 ctest --test-dir build-tests --output-on-failure
 ```
 
+For the fastest complete local run, configure and build one tree, then run
+CTest from that same tree:
+
+```sh
+time cmake --build build-tests --parallel
+time ctest --test-dir build-tests --parallel "$(nproc)" --output-on-failure
+```
+
+The QEMU fixture preparation test builds the shared lifecycle and
+module-only runtimes, both NVMe variants, and the virtio/USB/RTL8139 modules
+once per tree. QEMU tests retain isolated initrds, disk images, and state
+directories; their serial QEMU resource lock is unchanged. Test runners only
+fall back to standalone configuration when invoked directly without
+`ASTIA_TEST_BUILD`.
+
+CTest can safely run independent host tests in parallel; QEMU and boot tests
+remain serialized by the `astia-qemu` resource lock. Fast focused runs use
+the existing labels without changing the authoritative full suite:
+
+```sh
+ctest --test-dir build-tests --parallel "$(nproc)" -L host --output-on-failure
+ctest --test-dir build-tests --parallel "$(nproc)" -L 'nvme|virtio|usb' \
+  --output-on-failure
+```
+
 The repository-level CMake project enables `ASTIA_BUILD_TESTS` by default, so
 a fresh CLion CMake profile rooted at the repository registers the
 deterministic tests for the CTest Application. Verify discovery without

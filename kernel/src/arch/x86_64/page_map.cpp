@@ -209,6 +209,33 @@ namespace astia::arch {
             return phys_ptr(owner.root());
         }
 
+        bool map_boot_stack(page_map& map, const page_map* parent) {
+#ifdef ASTIA_HOST_TEST
+            (void) map;
+            (void) parent;
+            return true;
+#else
+            if (parent == nullptr || !parent->valid()) {
+                return true;
+            }
+            const vaddr_t first =
+                reinterpret_cast<vaddr_t>(boot_stack) & ~mm::page_mask;
+            const vaddr_t last =
+                (reinterpret_cast<vaddr_t>(boot_stack_top) - 1) & ~mm::page_mask;
+            for (vaddr_t virt = first;; virt += mm::page_size) {
+                const paddr_t phys = parent->translate(virt);
+                if (phys == page_map::invalid ||
+                    !map.map_4k(virt, phys,
+                                page_flags::present | page_flags::writable)) {
+                    return false;
+                }
+                if (virt == last) {
+                    return true;
+                }
+            }
+#endif
+        }
+
         /// The next-level table on `virt`'s walk, given the entry pointing
         /// at it (which the caller has verified present or just created).
         u64* next_table(const page_map& owner, vaddr_t virt, table_level level,
@@ -273,9 +300,9 @@ namespace astia::arch {
     } // namespace
 
     page_map::page_map(page_map&& other) noexcept
-        : root_(other.root_), parent_(other.parent_) {
-        other.root_   = 0;
-        other.parent_ = nullptr;
+        : _root(other._root), _parent(other._parent) {
+        other._root   = 0;
+        other._parent = nullptr;
     }
 
     page_map::~page_map() {
@@ -292,18 +319,18 @@ namespace astia::arch {
                 release_table(entry & address_mask, 3);
             }
         }
-        mm::kernel_frames().release(root_);
-        root_   = 0;
-        parent_ = nullptr;
+        mm::kernel_frames().release(_root);
+        _root   = 0;
+        _parent = nullptr;
     }
 
     page_map& page_map::operator=(page_map&& other) noexcept {
         if (this != &other) {
             page_map old(static_cast<page_map&&>(*this));
-            root_         = other.root_;
-            parent_       = other.parent_;
-            other.root_   = 0;
-            other.parent_ = nullptr;
+            _root         = other._root;
+            _parent       = other._parent;
+            other._root   = 0;
+            other._parent = nullptr;
         }
         return *this;
     }
@@ -483,7 +510,7 @@ namespace astia::arch {
             // Nothing of our own here; a parent (normally the kernel map)
             // may own the address — e.g. a kernel mapping that appeared
             // after this map was created.
-            return parent_ != nullptr ? parent_->translate(virt) : invalid;
+            return _parent != nullptr ? _parent->translate(virt) : invalid;
         }
         const u64 pdpe =
             next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
@@ -512,7 +539,7 @@ namespace astia::arch {
             return false;
         const u64 pml4e = root_table(*this)[pml4_index(virt)];
         if ((pml4e & entry_present) == 0)
-            return parent_ != nullptr && parent_->writable(virt);
+            return _parent != nullptr && _parent->writable(virt);
         const u64 pdpe =
             next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
         if ((pdpe & entry_present) == 0)
@@ -575,7 +602,7 @@ namespace astia::arch {
     void page_map::activate() const {
 #ifndef ASTIA_HOST_TEST
         active_map = this;
-        asm volatile("mov %0, %%cr3" : : "r"(root_) : "memory");
+        asm volatile("mov %0, %%cr3" : : "r"(_root) : "memory");
 #endif
     }
 

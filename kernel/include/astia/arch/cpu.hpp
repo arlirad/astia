@@ -74,7 +74,7 @@ namespace astia::arch {
     /// in the wrong frame's destructor.
     class interrupt_guard {
         public:
-        interrupt_guard() : open_(cpu::check_interrupts()) {
+        interrupt_guard() : _open(cpu::check_interrupts()) {
             cpu::nointerrupts();
         }
         ~interrupt_guard() {
@@ -84,30 +84,30 @@ namespace astia::arch {
         interrupt_guard& operator=(const interrupt_guard&) = delete;
 
         void unlock() {
-            if (open_) {
+            if (_open) {
                 cpu::interrupts();
-                open_ = false;
+                _open = false;
             }
         }
 
         bool was_open() const {
-            return open_;
+            return _open;
         }
 
         void release_masked() {
-            open_ = false;
+            _open = false;
         }
 
         private:
-        bool open_; // was the gate open when we masked it?
+        bool _open; // was the gate open when we masked it?
     };
 
     /// Mask interrupts before acquiring a lock so an IRQ on this CPU cannot
     /// preempt a holder and spin forever on that same lock.
     class interrupt_spinlock_guard {
         public:
-        explicit interrupt_spinlock_guard(core::spinlock& lock) : gate_(), lock_(lock) {
-            lock_.lock();
+        explicit interrupt_spinlock_guard(core::spinlock& lock) : _gate(), _lock(lock) {
+            _lock.lock();
         }
         ~interrupt_spinlock_guard() {
             unlock();
@@ -117,17 +117,17 @@ namespace astia::arch {
         interrupt_spinlock_guard& operator=(const interrupt_spinlock_guard&) = delete;
 
         void unlock() {
-            if (locked_) {
-                lock_.unlock();
-                locked_ = false;
-                gate_.unlock();
+            if (_locked) {
+                _lock.unlock();
+                _locked = false;
+                _gate.unlock();
             }
         }
 
         private:
-        interrupt_guard gate_;
-        core::spinlock& lock_;
-        bool            locked_ = true;
+        interrupt_guard _gate;
+        core::spinlock& _lock;
+        bool            _locked = true;
     };
 
 } // namespace astia::arch

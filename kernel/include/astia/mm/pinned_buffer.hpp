@@ -63,11 +63,11 @@ namespace astia::mm {
         void release();
 
         bool valid() const {
-            return region_ != nullptr;
+            return _region != nullptr;
         }
         bool contiguous() const;
         usize pages() const {
-            return count_;
+            return _count;
         }
 
         /// Kernel address of page `index` — what a device should be handed.
@@ -78,10 +78,10 @@ namespace astia::mm {
         u64 phys(usize index = 0) const;
 
         private:
-        phys_region* region_      = nullptr;
-        usize        first_       = 0;
-        usize        count_       = 0;
-        bool         destination_ = false;
+        phys_region* _region      = nullptr;
+        usize        _first       = 0;
+        usize        _count       = 0;
+        bool         _destination = false;
     };
 
 } // namespace astia::mm

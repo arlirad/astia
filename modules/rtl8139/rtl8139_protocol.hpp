@@ -1,8 +1,6 @@
 #pragma once
 
-#include <astia/module_abi_core.h>
-#include <astia/module_abi_pci.h>
-#include <astia/net.hpp>
+#include <astia/module_abi.hpp>
 
 #include <stdint.h>
 
@@ -95,29 +93,29 @@ constexpr void store_le32(uint8_t* data, uint32_t value) {
 }
 
 class register_file final {
-    volatile uint8_t* base_ = nullptr;
-    uint64_t size_ = 0;
+    volatile uint8_t* _base = nullptr;
+    uint64_t _size = 0;
 
     bool contains(register_offset offset, uint64_t width) const {
         const uint64_t value = static_cast<uint16_t>(offset);
-        return base_ != nullptr && value <= size_ && width <= size_ - value;
+        return _base != nullptr && value <= _size && width <= _size - value;
     }
 
     public:
     register_file() = default;
-    register_file(volatile uint8_t* base, uint64_t size) : base_(base), size_(size) {}
+    register_file(volatile uint8_t* base, uint64_t size) : _base(base), _size(size) {}
 
-    bool valid() const { return base_ != nullptr && size_ >= 0x100; }
+    bool valid() const { return _base != nullptr && _size >= 0x100; }
 
     uint8_t read8(register_offset offset) const {
-        return contains(offset, 1) ? base_[static_cast<uint16_t>(offset)] : 0xff;
+        return contains(offset, 1) ? _base[static_cast<uint16_t>(offset)] : 0xff;
     }
 
     uint16_t read16(register_offset offset) const {
         if (!contains(offset, 2))
             return 0xffff;
         const uint16_t address = static_cast<uint16_t>(offset);
-        const uint8_t bytes[] = {base_[address], base_[address + 1]};
+        const uint8_t bytes[] = {_base[address], _base[address + 1]};
         return le16(bytes);
     }
 
@@ -125,32 +123,32 @@ class register_file final {
         if (!contains(offset, 4))
             return 0xffffffffu;
         const uint16_t address = static_cast<uint16_t>(offset);
-        const uint8_t bytes[] = {base_[address], base_[address + 1], base_[address + 2],
-                                 base_[address + 3]};
+        const uint8_t bytes[] = {_base[address], _base[address + 1], _base[address + 2],
+                                 _base[address + 3]};
         return le32(bytes);
     }
 
     void write8(register_offset offset, uint8_t value) const {
         if (contains(offset, 1))
-            base_[static_cast<uint16_t>(offset)] = value;
+            _base[static_cast<uint16_t>(offset)] = value;
     }
 
     void write16(register_offset offset, uint16_t value) const {
         if (!contains(offset, 2))
             return;
         const uint16_t address = static_cast<uint16_t>(offset);
-        base_[address] = static_cast<uint8_t>(value);
-        base_[address + 1] = static_cast<uint8_t>(value >> 8);
+        _base[address] = static_cast<uint8_t>(value);
+        _base[address + 1] = static_cast<uint8_t>(value >> 8);
     }
 
     void write32(register_offset offset, uint32_t value) const {
         if (!contains(offset, 4))
             return;
         const uint16_t address = static_cast<uint16_t>(offset);
-        base_[address] = static_cast<uint8_t>(value);
-        base_[address + 1] = static_cast<uint8_t>(value >> 8);
-        base_[address + 2] = static_cast<uint8_t>(value >> 16);
-        base_[address + 3] = static_cast<uint8_t>(value >> 24);
+        _base[address] = static_cast<uint8_t>(value);
+        _base[address + 1] = static_cast<uint8_t>(value >> 8);
+        _base[address + 2] = static_cast<uint8_t>(value >> 16);
+        _base[address + 3] = static_cast<uint8_t>(value >> 24);
     }
 };
 
@@ -227,25 +225,119 @@ inline rx_inspect_result inspect_rx_packet(const uint8_t* ring, uint16_t cursor,
     return rx_inspect_result::ready;
 }
 
-enum class rx_action : uint8_t { recycle, defer, drop };
-using rx_irq_callback = rx_action (*)(void*, const packet_view&);
-using rx_deferred_callback = void (*)(void*, const packet_view&);
+class rx_ring final {
+    uint8_t* _data = nullptr;
+    uint16_t _cursor = 0;
 
-struct tx_request;
-using tx_reclaim_callback = void (*)(void*, const tx_request&, int);
+    public:
+    void initialize(uint8_t* data = nullptr) {
+        _data = data;
+        _cursor = 0;
+    }
 
-struct tx_request {
-    const uint8_t* data = nullptr;
-    uint64_t physical = 0;
-    uint16_t length = 0;
-    uint64_t generation = 0;
-    void* cookie = nullptr;
-    tx_reclaim_callback reclaim = nullptr;
+    void reset(uint8_t* data, uint16_t cursor = 0) {
+        _data = data;
+        _cursor = ring_offset(cursor);
+    }
+
+    uint16_t cursor() const { return _cursor; }
+    bool pending(uint16_t hardware_cursor) const {
+        return _data != nullptr && _cursor != ring_offset(hardware_cursor);
+    }
+
+    rx_inspect_result acquire(rx_packet& packet) const {
+        return inspect_rx_packet(_data, _cursor, packet);
+    }
+
+    bool recycle(const rx_packet& packet) {
+        if (_data == nullptr || packet.view.ring_offset != _cursor ||
+            packet.view.next_offset == _cursor)
+            return false;
+        _cursor = packet.view.next_offset;
+        return true;
+    }
+
+    bool recycle_to(uint16_t next) {
+        const uint16_t normalized = ring_offset(next);
+        if (_data == nullptr || normalized == _cursor)
+            return false;
+        _cursor = normalized;
+        return true;
+    }
 };
+
+using rx_action = astia::net::rx_action;
+using rx_irq_callback = astia::net::rx_irq_callback;
+using rx_deferred_callback = astia::net::rx_deferred_callback;
+using tx_request = astia::net::tx_request;
 
 struct tx_completion {
     tx_request request{};
     int status = 0;
+};
+
+enum class tx_slot_state : uint8_t { free, device, completion };
+
+class tx_ring final {
+    struct slot {
+        tx_request request{};
+        tx_slot_state state = tx_slot_state::free;
+    };
+
+    slot _slots[tx_descriptor_count]{};
+
+    public:
+    void initialize() {
+        for (slot& value : _slots)
+            value = {};
+    }
+
+    int available() const {
+        for (uint32_t index = 0; index < tx_descriptor_count; ++index)
+            if (_slots[index].state == tx_slot_state::free)
+                return static_cast<int>(index);
+        return -1;
+    }
+
+    bool claim(uint32_t index, const tx_request& request) {
+        if (index >= tx_descriptor_count || _slots[index].state != tx_slot_state::free)
+            return false;
+        _slots[index].request = request;
+        _slots[index].state = tx_slot_state::device;
+        return true;
+    }
+
+    const tx_request* request(uint32_t index) const {
+        return index < tx_descriptor_count && _slots[index].state != tx_slot_state::free
+                   ? &_slots[index].request
+                   : nullptr;
+    }
+
+    tx_slot_state state(uint32_t index) const {
+        return index < tx_descriptor_count ? _slots[index].state : tx_slot_state::free;
+    }
+
+    bool complete(uint32_t index, tx_request& result) {
+        if (index >= tx_descriptor_count || _slots[index].state != tx_slot_state::device)
+            return false;
+        result = _slots[index].request;
+        _slots[index].state = tx_slot_state::completion;
+        return true;
+    }
+
+    bool restore(uint32_t index) {
+        if (index >= tx_descriptor_count || _slots[index].state != tx_slot_state::completion)
+            return false;
+        _slots[index].state = tx_slot_state::device;
+        return true;
+    }
+
+    bool release(uint32_t index) {
+        if (index >= tx_descriptor_count || _slots[index].state == tx_slot_state::free)
+            return false;
+        _slots[index] = {};
+        return true;
+    }
 };
 
 template <typename T, uint32_t Capacity>
@@ -253,16 +345,6 @@ using bounded_mpsc_queue = astia::net::bounded_mpsc_queue<T, Capacity>;
 
 template <typename T, uint32_t Capacity>
 using bounded_spsc_queue = astia::net::bounded_spsc_queue<T, Capacity>;
-
-struct net_device {
-    const char* name = nullptr;
-    uint8_t mac[6]{};
-    uint16_t mtu = 1500;
-    bool running = false;
-    void* context = nullptr;
-    rx_irq_callback rx_irq = nullptr;
-    rx_deferred_callback rx_deferred = nullptr;
-};
 
 enum class device_state : uint8_t {
     detached,
