@@ -21,12 +21,16 @@ namespace astia::elf::detail {
     inline constexpr u16 et_dyn    = 3;
     inline constexpr u16 em_x86_64 = 62;
 
-    inline constexpr u32 sht_symtab = 2;
-    inline constexpr u32 sht_strtab = 3;
-    inline constexpr u32 sht_rela   = 4;
-    inline constexpr u32 sht_nobits = 8;
+    inline constexpr u32 sht_symtab     = 2;
+    inline constexpr u32 sht_strtab     = 3;
+    inline constexpr u32 sht_rela       = 4;
+    inline constexpr u32 sht_nobits     = 8;
+    inline constexpr u32 sht_init_array = 14;
+    inline constexpr u32 sht_fini_array = 15;
 
-    inline constexpr u64 shf_alloc = 1ull << 1;
+    inline constexpr u64 shf_write     = 1ull << 0;
+    inline constexpr u64 shf_alloc     = 1ull << 1;
+    inline constexpr u64 shf_execinstr = 1ull << 2;
 
     inline constexpr u16 shn_undef  = 0;
     inline constexpr u16 shn_abs    = 0xfff1;
@@ -121,6 +125,14 @@ namespace astia::elf::detail {
         return info >> 4;
     }
 
+    constexpr u8 st_type(u8 info) {
+        return info & 0x0f;
+    }
+
+    constexpr u8 st_visibility(u8 other) {
+        return other & 0x03;
+    }
+
     constexpr u32 r_sym(u64 info) {
         return static_cast<u32>(info >> 32);
     }
@@ -129,7 +141,10 @@ namespace astia::elf::detail {
         return static_cast<u32>(info & 0xffffffffu);
     }
 
-    inline constexpr u8 stb_weak = 2;
+    inline constexpr u8 stb_local  = 0;
+    inline constexpr u8 stb_global = 1;
+    inline constexpr u8 stb_weak   = 2;
+    inline constexpr u8 stt_func   = 2;
 
     inline bool is_power_of_two(u64 value) {
         return value != 0 && (value & (value - 1)) == 0;
@@ -233,9 +248,12 @@ namespace astia::elf::detail {
         usize             symcount  = 0;
         const char*       str       = nullptr;
         usize             strsize   = 0;
+        const char*       shstr     = nullptr;
+        usize             shstrsize = 0;
     };
 
     bool symbol_name(const view& v, const elf64_sym& sym, const char*& out);
+    bool section_name(const view& v, u16 index, const char*& out, usize& out_size);
     bool parse_relocatable(span<const u8> bytes, view& v);
     bool sym_addr(const view& v, const env& e, const void* const* sec_base, u32 index,
                   u64& out);

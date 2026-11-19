@@ -1,9 +1,5 @@
 #pragma once
 
-#if defined(__x86_64__)
-#include <astia/module_abi_core.h>
-#endif
-
 namespace astia {
 
     /// Common type definitions and constants
@@ -85,7 +81,7 @@ namespace astia {
     /// generic memory code does not grow independent copies of the geometry.
     namespace mm {
 #if defined(__x86_64__)
-        inline constexpr usize page_size = ASTIA_PAGE_SIZE;
+        inline constexpr usize page_size = 4096;
 #elif defined(__aarch64__)
         inline constexpr usize page_size = 4096;
 #else

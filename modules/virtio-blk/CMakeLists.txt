@@ -12,11 +12,7 @@ add_custom_command(
                 -o ${ASTIA_VIRTIO_BLK_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_blk_unit.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk_protocol.hpp
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_core.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_interrupt.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_io.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_memory.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_pci.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/shptr.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp
@@ -67,11 +63,7 @@ add_custom_command(
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp -o ${ASTIA_VIRTIO_BLK_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk_protocol.hpp
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_core.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_interrupt.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_io.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_memory.h
-                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module_abi_pci.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/shptr.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp

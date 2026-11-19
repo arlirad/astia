@@ -1,103 +1,60 @@
-# Astia module ABI
+# Astia loadable module contract
 
-The primary module API is the C++ header `kernel/include/astia/module_abi.hpp`.
-It provides typed driver descriptors, first-class network devices, RAII DMA
-ownership, shared-owner aliases, and registration adapters used by loadable
-modules. The only C header contract is `module_abi_core.h`: it defines the
-version/platform constants and the C-linkage `module_main` ET_REL loader
-entry. Other module headers are implementation details of the C++ contracts;
-they are not a source-compatibility promise for C modules.
-`ASTIA_MODULE_ABI_VERSION_MAJOR` is incremented for an
-incompatible change; `ASTIA_MODULE_ABI_VERSION_MINOR` is incremented for an
-additive change. The current ABI is version 1.1. Version 1.1 appends the
-optional `namespace_count` and `namespace_info` callbacks to the block-driver
-table; a null pair keeps the single-namespace behavior. Modules must be
-rebuilt for every ABI version change because registration receives a pointer
-to the complete table and does not carry a runtime table length.
+The public module interface is the C++ header
+`kernel/include/astia/module.hpp`. It exposes typed ownership and device
+operations under `astia::module`; semantic device, driver, packet, and
+registry contracts remain C++ interfaces. The old C module headers and C
+facade aliases are removed.
 
-ET_REL modules are built with static-destructor registration disabled because
-the loader owns module lifetime and does not run C++ termination arrays.
-Drivers still release DMA, interrupt, and asynchronous resources explicitly
-before their remove callback returns; local C++ RAII wrappers remain valid for
-scoped ownership.
+## Entry point and loading
 
-The relocation boundary is the x86-64 pointer ABI: pointers are 64 bits,
-`uint8_t`, `uint16_t`, `uint32_t`, and `uint64_t` retain their standard widths,
-and transfer results use `int64_t`. Semantic devices, drivers, packets, and
-registries are C++ contracts and must be consumed through their typed public
-interfaces. Do not use packed or compiler-specific structure attributes.
+Every loadable ET_REL object defines the C++ function:
 
-`ASTIA_PAGE_SIZE` is the compile-time memory-page contract shared by the
-kernel MM, module DMA allocation, user-buffer pinning, and protocol helpers.
-The current x86-64 ABI defines it as 4096 bytes. The public header emits a
-compile-time error for non-x86-64 targets rather than claiming that 4096 is
-universal; a future architecture must add an explicit ABI and kernel-MM
-definition before modules can be built for it.
+```cpp
+int module_main();
+```
 
-## Temporary kernel symbol surface
+The loader resolves its exact Itanium C++ symbol `_Z11module_mainv`. The
+return type is `int`; it is not encoded in that symbol name. `load_module`
+relocates and registers the image without calling the entrypoint.
+`run_module` marks the image running, invokes every validated `.init_array`
+function in array order, then calls the `int (*)()` entrypoint synchronously.
+A negative result is a module error convention; the loader logs it but does
+not reinterpret it as an exception or coroutine failure. `exit_module` invokes
+validated `.fini_array` functions in reverse order and clears the running
+state so teardown can be followed by `unload_module`.
 
-Until a deliberate kernel-module export policy is introduced, ET_REL modules
-may resolve every defined `STB_GLOBAL` or `STB_WEAK` kernel symbol whose ELF
-visibility is `STV_DEFAULT`. The build generates this resolver table from the
-linked kernel image, preserving the exact symbol spelling (including C++
-mangling) and linked address. Local, hidden, protected, and undefined symbols
-are not visible to modules. This broad surface is temporary and is not a
-module-to-module dependency mechanism; modules still cannot resolve symbols
-from another module.
+Module entrypoints are not `astia::core::task` functions. The loader does not
+await or resume a task, and it does not inspect task completion or error state.
+Asynchronous device requests are managed by the typed I/O and driver
+contracts; changing module startup to an async lifecycle is a separate
+follow-up.
 
-The block-driver table is 128 bytes. Its final callbacks are at offsets 112
-and 120; the preceding read, asynchronous, write, and flush callbacks remain
-at their existing offsets. This preserves the NVMe and VirtIO write, flush,
-and asynchronous callback ABI while making the namespace extension explicit.
+The loader bounds both constructor arrays, treats an unsuffixed array section
+as priority 65535, and sorts numeric `.init_array.N`/`.fini_array.N` sections
+in ascending priority while retaining section-table order for ties. Runtime
+finalization then traverses the sorted fini array in reverse, as required by
+the ELF ABI. Non-numeric or overflowing priority suffixes are rejected.
+Each non-null entry must point into an allocated executable section, and
+unsupported pre-initialization or legacy constructor sections are rejected.
 
-The kernel owns PCI devices, mapped BARs, interrupt routes, DMA frames, user
-buffer pins, registered files, and asynchronous request bridges. Module
+## Typed ownership
+
+`astia::module::msix_route`, `astia::module::user_pin`, and
+`astia::mm::dma_buffer` are move-only ownership types. Release, unpin,
+cancellation, and completion paths invalidate their owned state. Module
 contexts and callback tables remain valid until the registered driver's remove
-callback returns. A module must not retain a PCI, DMA, pin, MSI-X route, or
-request handle after its matching release, unpin, cancellation, or completion.
-Release functions clear owned output handles and reject stale or malformed
-handles where the ABI can identify them.
+callback returns.
 
-Invalid or stale MSI-X routes and asynchronous request handles are rejected.
-DMA and pin release operations are idempotent after their output handle has
-been cleared; callers must not copy or fabricate handles.
+The kernel owns PCI devices, mapped BARs, interrupt routes, DMA frames,
+user-buffer pins, registered files, and asynchronous request bridges. A
+module must not retain one of these handles after its matching release,
+unpin, cancellation, or completion.
 
-Module callbacks run in one of two contexts, reported by
-`astia_module_get_callback_context()`. `match`, `probe`, `remove`, the
-synchronous block callbacks, asynchronous submit/cancel/poll, and selftests
-run in process context and may block. An MSI-X interrupt handler runs in IRQ
-context: it must not block, call the filesystem, allocate, or invoke a
-synchronous block callback. A module may inspect device completion state there
-and call `astia_module_io_complete()`: the kernel records the result, wakes
-the parked operation, and returns `-EAGAIN`; the actual completion is applied
-when the next process-context poll resumes. Every accepted request completion
-is one-shot: a second completion returns `-EALREADY`, and cancellation or
-removal invalidates the request handle. Module callbacks must not retain the
-device or callback context after `remove` returns.
+## Verification
 
-The `astia_module_io_request.opaque` value is a kernel-issued, generation
-validated request handle, not a pointer. It identifies both the registering
-module and one bridge slot. The kernel rejects fabricated, copied-to-the
-wrong-device, stale, canceled, and reused-slot handles before dispatching a
-completion. A module must pass the value back unchanged and must not inspect,
-write, or manufacture it. The handle remains valid only between successful
-asynchronous submission and completion or cancellation; destruction of the
-owning device cancels all outstanding bridges before `remove` is called.
-
-MSI-X route pointers are opaque ownership tokens even though the ABI retains
-the 1.1 route layout. The kernel records the device, route geometry, and a
-generation cookie in the route's reserved bytes. Every route operation
-validates the token, generation, device, and 16-byte table-entry bounds.
-Copied, stale, double-released, wrong-device, and malformed routes are
-rejected. Modules must initialize a route to zero, pass the same route object
-to its release operation, and never write the route after a successful
-request.
-
-All lengths are byte counts and are bounded by the operation's device or page
-limits. Zero-length and null-buffer transfers are invalid. Block transfers
-must be aligned to the device block size and remain within the reported
-device size. MMIO offsets must be naturally aligned for the access width.
-
-The C and C++ layout tests under `modules/tests` compile the public header
-independently. The C fixture is compiled as a separate freestanding module,
-which verifies that a C module can consume the ABI without C++ declarations.
+`modules/tests` compiles the public C++ header independently and builds typed
+ET_REL fixtures. `kernel/tests/elf_test.cpp` verifies C++ symbol resolution,
+relocations, entrypoint execution, and malformed-symbol rejection.
+Driver-specific host, teardown, and QEMU tests cover NVMe, VirtIO, RTL8139,
+and USB consumers.
