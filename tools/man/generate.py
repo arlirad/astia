@@ -457,7 +457,9 @@ def main() -> int:
             subsystem = f"{subsystem}/{path.parent.name}"
         for name, body in comments(path.read_text()):
             pages[(name, 2)] = (body, subsystem)
-    for path in sorted(args.source.rglob("*_handler.cpp")):
+    for path in sorted(args.source.rglob("*.cpp")):
+        if "syscall_handler<" not in path.read_text():
+            continue
         if "syscalls" not in path.parts:
             continue
         syscall_index = path.parts.index("syscalls")

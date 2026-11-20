@@ -17,7 +17,7 @@ ABI syscall number. Files are grouped under their owning subsystem (`fs`, `mm`,
 
 ```cpp
 struct getpid_syscall
-    : sys::syscall_handler<getpid_syscall, sys::syscall_id::getpid,
+    : sys::syscall_handler<getpid, sys::syscall_id::getpid,
                            sys::syscall_mode::async> {
     static core::task<i64> invoke(sys::syscall_context& context);
 };

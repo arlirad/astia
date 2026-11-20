@@ -1,9 +1,12 @@
 #include "mount.hpp"
 
+#include <astia/api/errno.h>
+
 #include "../../proc/proc.hpp"
 #include "../../sys/user_mem.hpp"
 #include "../filesystem.hpp"
-#include <astia/api/errno.h>
+
+#include <syscall.hpp>
 
 namespace astia::fs::syscall {
     long mount(u64 type_address, u64 target_address, u64 source_address) {
@@ -28,3 +31,27 @@ namespace astia::fs::syscall {
         return mount_type(type, target, source_address == 0 ? nullptr : source);
     }
 }
+
+namespace astia::fs::syscalls {
+
+    /// mount - install a registered native filesystem at an existing directory.
+    ///
+    /// All names are copied before authorization.  The operation is root-only;
+    /// it changes only the in-memory VFS namespace and never opens a host path.
+    /// ABI ID: mount.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: fs subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct mount
+        : sys::syscall_handler<mount, sys::syscall_id::mount, sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor mount_descriptor = mount::descriptor;
+
+} // namespace astia::fs::syscalls

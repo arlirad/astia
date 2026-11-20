@@ -1,14 +1,5 @@
 #include "execve.hpp"
 
-#include "../../../ipc/futex.hpp"
-#include "../../../ipc/mapping.hpp"
-#include "../../mapping.hpp"
-#include "../../proc.hpp"
-#include "../../scheduler.hpp"
-#include "argv.hpp"
-#include "../syscall_continuation.hpp"
-#include "syscall.hpp"
-#include "user_mem.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -17,21 +8,31 @@
 #include <astia/fs.hpp>
 #include <astia/mapping.hpp>
 #include <astia/mm/share.hpp>
+
+#include "../../../ipc/futex.hpp"
+#include "../../../ipc/mapping.hpp"
+#include "../../mapping.hpp"
+#include "../../proc.hpp"
+#include "../../scheduler.hpp"
+#include "../syscall_continuation.hpp"
+#include "argv.hpp"
+#include "syscall.hpp"
+#include "user_mem.hpp"
 namespace astia::proc::syscall {
     using namespace detail;
 
     namespace {
         struct exec_continuation {
-            syscall_continuation      syscall;
-            mm::shptr<fs::open_file>  file;
-            argument_staging          staging;
-            u64                       entry  = 0;
-            u64                       stack  = 0;
+            syscall_continuation     syscall;
+            mm::shptr<fs::open_file> file;
+            argument_staging         staging;
+            u64                      entry = 0;
+            u64                      stack = 0;
             core::task<exec_result>  runner;
 
-            exec_continuation(const arch::syscall_frame& input,
-                              const mm::shptr<process>& process_value,
-                              const mm::shptr<thread>& thread_value,
+            exec_continuation(const arch::syscall_frame&      input,
+                              const mm::shptr<process>&       process_value,
+                              const mm::shptr<thread>&        thread_value,
                               const mm::shptr<fs::open_file>& file_value)
                 : syscall(input, process_value, thread_value), file(file_value) {}
 
@@ -44,9 +45,10 @@ namespace astia::proc::syscall {
             }
         };
 
-        core::task<exec_result> drive_exec(const mm::shptr<exec_continuation>& continuation) {
+        core::task<exec_result>
+        drive_exec(const mm::shptr<exec_continuation>& continuation) {
             auto result = co_await static_cast<core::task<exec_result>&&>(
-                    continuation->syscall.owner()->exec_user_file_async(
+                continuation->syscall.owner()->exec_user_file_async(
                     continuation->file, static_cast<usize>(continuation->file->size()),
                     continuation->staging.argv(), continuation->staging.envp()));
             if (!result) {
@@ -60,17 +62,16 @@ namespace astia::proc::syscall {
 
     i64 execve(const arch::syscall_frame& frame) {
         const arch::syscall_frame saved_frame = frame;
-        const u64                 path_ptr   = saved_frame.a0;
-        const u64                 argv_ptr   = saved_frame.a1;
-        const u64                 envp_ptr   = saved_frame.a2;
-        char                  path[path_cap];
+        const u64                 path_ptr    = saved_frame.a0;
+        const u64                 argv_ptr    = saved_frame.a1;
+        const u64                 envp_ptr    = saved_frame.a2;
+        char                      path[path_cap];
         if (!sys::copy_in_string(span<char>(path, sizeof path),
                                  sys::user_ptr<char>(path_ptr)))
             return -EFAULT;
-        auto staging = mm::share<exec_continuation>(saved_frame,
-                                                     mm::shptr<process>{},
-                                                     mm::shptr<thread>{},
-                                                     mm::shptr<fs::open_file>{});
+        auto staging =
+            mm::share<exec_continuation>(saved_frame, mm::shptr<process>{},
+                                         mm::shptr<thread>{}, mm::shptr<fs::open_file>{});
         if (!staging)
             return -ENOMEM;
         if (!staging->staging.allocate())
@@ -93,7 +94,7 @@ namespace astia::proc::syscall {
         if (!owner_ref || !self_ref)
             return -ESRCH;
         staging->syscall.bind(owner_ref, self_ref);
-        staging->file   = file;
+        staging->file = file;
 
         staging->runner = drive_exec(staging);
         if (!staging->runner.valid())
@@ -110,7 +111,8 @@ namespace astia::proc::syscall {
         if (result == 0) {
             arch::interrupt_guard gate;
             self->user_stack_top(staging->stack);
-            self->user_stack_metadata(user_stack_top - user_stack_bytes, user_stack_bytes);
+            self->user_stack_metadata(user_stack_top - user_stack_bytes,
+                                      user_stack_bytes);
             arch::context_set_fs_base(self->context(), owner->tls_tp());
             auto& next  = const_cast<arch::syscall_frame&>(frame);
             next.rip    = staging->entry;
@@ -120,3 +122,23 @@ namespace astia::proc::syscall {
         return result;
     }
 }
+
+namespace astia::proc::syscalls {
+
+    /// ABI ID: execve.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct execve : sys::syscall_handler<execve, sys::syscall_id::execve,
+                                         sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor execve_descriptor = execve::descriptor;
+
+} // namespace astia::proc::syscalls

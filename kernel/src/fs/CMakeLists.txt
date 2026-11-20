@@ -1,4 +1,12 @@
-file(GLOB_RECURSE ASTIA_FS_SYSCALL_SOURCES CONFIGURE_DEPENDS *syscalls*/*_handler.cpp)
+set(ASTIA_FS_HANDLER_CPP
+        syscalls/io_destroy.cpp
+        syscalls/io_register.cpp
+        syscalls/io_setup.cpp
+        syscalls/io_submit.cpp
+        syscalls/mount.cpp
+        syscalls/unmount.cpp
+)
+file(GLOB_RECURSE ASTIA_FS_SYSCALL_SOURCES CONFIGURE_DEPENDS syscalls/*.cpp)
 add_library(fs STATIC
         ${ASTIA_FS_SYSCALL_SOURCES}
         fs_io.cpp
@@ -21,7 +29,8 @@ add_library(fs STATIC
         init_fs.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/pipe.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/unix_socket.cpp
-)
+
+        ${ASTIA_FS_HANDLER_CPP})
 
 target_include_directories(fs PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}

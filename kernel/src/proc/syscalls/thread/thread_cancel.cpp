@@ -1,9 +1,12 @@
 #include "thread_cancel.hpp"
 
+#include <astia/api/errno.h>
+
+#include "../../../ipc/futex.hpp"
 #include "../../proc.hpp"
 #include "../../scheduler.hpp"
-#include "../../../ipc/futex.hpp"
-#include <astia/api/errno.h>
+
+#include <syscall.hpp>
 
 namespace astia::proc::syscall {
 
@@ -21,3 +24,25 @@ namespace astia::proc::syscall {
     }
 
 }
+
+namespace astia::proc::syscalls {
+
+    /// ABI ID: thread_cancel.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct thread_cancel
+        : sys::syscall_handler<thread_cancel, sys::syscall_id::thread_cancel,
+                               sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor thread_cancel_descriptor =
+        thread_cancel::descriptor;
+
+} // namespace astia::proc::syscalls

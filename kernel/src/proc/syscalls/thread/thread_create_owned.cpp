@@ -1,8 +1,11 @@
 #include "thread_create_owned.hpp"
 
+#include <astia/api/errno.h>
+
 #include "../../proc.hpp"
 #include "thread_create_common.hpp"
-#include <astia/api/errno.h>
+
+#include <syscall.hpp>
 
 namespace astia::proc::syscall {
 
@@ -21,3 +24,25 @@ namespace astia::proc::syscall {
     }
 
 }
+
+namespace astia::proc::syscalls {
+
+    /// ABI ID: thread_create_owned.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct thread_create_owned
+        : sys::syscall_handler<thread_create_owned, sys::syscall_id::thread_create_owned,
+                               sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor thread_create_owned_descriptor =
+        thread_create_owned::descriptor;
+
+} // namespace astia::proc::syscalls
