@@ -41,13 +41,18 @@ while IFS= read -r managed_name; do
     rm -f "$out/bin/$managed_name.key"
 done <"$next_source_manifest"
 mv "$next_source_manifest" "$source_manifest"
-common="--target=$target -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc -isystem $resource_dir/include -isystem $sysroot/include"
+compile_flags() {
+    "$clang" --target="$target" -ffreestanding -fno-builtin -fno-pic -fno-pie \
+        -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone \
+        -nostdinc -isystem "$resource_dir/include" -isystem "$sysroot/include" "$@"
+}
+
 toolchain_revision=$(
     {
         sha256sum "$root/coreutils/build.sh" \
             "$root/toolchain/build-init-libc.sh" "$clang_path"
         "$clang" --version
-        printf '%s\n' "$common" "$target"
+        printf '%s\n' "$target" "$resource_dir" "$sysroot"
     } | sha256sum | awk '{print $1}'
 )
 
@@ -62,7 +67,7 @@ for source in "$root"/coreutils/src/*.c; do
     if [ ! -f "$out/obj/$name.o" ] ||
         [ ! -f "$out/obj/$name.o.key" ] ||
         [ "$(cat "$out/obj/$name.o.key")" != "$object_key" ]; then
-        $clang $common -c "$source" -o "$out/obj/$name.o"
+        compile_flags -c "$source" -o "$out/obj/$name.o"
         printf '%s\n' "$object_key" >"$out/obj/$name.o.key"
     fi
     link_key=$(
@@ -75,7 +80,7 @@ for source in "$root"/coreutils/src/*.c; do
     if [ ! -f "$out/bin/$name" ] ||
         [ ! -f "$out/.keys/$name" ] ||
         [ "$(cat "$out/.keys/$name")" != "$link_key" ]; then
-        $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+        compile_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
             -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
             -o "$out/bin/$name" "$crt0" "$out/obj/$name.o" \
             "$sysroot/lib/libastia_libc.a" "$builtins"

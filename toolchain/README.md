@@ -155,6 +155,9 @@ existing userspace build caches, and writes the archive to
 `<CMake binary dir>/dev-initrd/initrd.cpio` (by default). The expanded
 manifest is in `<CMake binary dir>/dev-initrd/root`; the archive contains
 `/sbin/init`, `/bin/zsh`, `/bin/nano`, coreutils, and `/etc/zshenv`.
+`ASTIA_DEV_INITRD_RUN` may select another dedicated, non-symlink directory
+directly under the CMake binary directory; the target rejects build/source
+directories and other unsafe locations before cleaning its staging tree.
 The target depends only on the existing `astiakrn_runtime` and
 `astia_boot_initrd` artifacts when those targets are available, not the full
 kernel test-artifact aggregate.
