@@ -366,9 +366,14 @@ namespace astia::io {
             for (;;) {
                 const auto observed =
                     static_cast<state>(__atomic_load_n(&_state, __ATOMIC_ACQUIRE));
-                if (observed == state::active || observed == state::active_completed) {
-                    ASTIA_CPU_RELAX();
-                    continue;
+                if (observed == state::active) {
+                    request_ref().cancel_device(false);
+                    release_ref();
+                    return;
+                }
+                if (observed == state::active_completed) {
+                    release_ref();
+                    return;
                 }
                 if (observed == state::owner || observed == state::parked) {
                     const bool parked   = observed == state::parked;
@@ -378,13 +383,14 @@ namespace astia::io {
                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
                         if (parked)
                             request_ref().cancel_device(false);
-                        break;
+                        release_ref();
+                        return;
                     }
                     continue;
                 }
-                break;
+                release_ref();
+                return;
             }
-            release_ref();
         }
 
         friend class request;

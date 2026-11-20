@@ -191,10 +191,9 @@ ASTIA_TEST(fs_async_completion_first_keeps_parked_request_stable) {
     ASTIA_CHECK(parked_request != nullptr);
     ASTIA_CHECK(parked_request->begin_device());
     buffer[0] = 0xa5;
-    parked_request->end_device();
     ASTIA_CHECK(parked_completion->complete(4));
-    parked_request->acknowledge();
     ASTIA_CHECK(task.done());
+    parked_request->end_device();
     ASTIA_CHECK(!task.failed());
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 4);
     ASTIA_CHECK(buffer[0] == 0xa5);
