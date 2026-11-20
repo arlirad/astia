@@ -1,11 +1,14 @@
 #include "kill.hpp"
 
+#include <astia/api/errno.h>
+#include <astia/api/signal.h>
+
 #include "../../sys/aio.hpp"
 #include "../mapping.hpp"
 #include "../proc.hpp"
 #include "../signal_permission.hpp"
-#include <astia/api/errno.h>
-#include <astia/api/signal.h>
+
+#include <syscall.hpp>
 
 namespace astia::proc::syscall {
 
@@ -71,3 +74,39 @@ namespace astia::proc::syscall {
     }
 
 } // namespace astia::proc::syscall
+
+namespace astia::proc::syscalls {
+
+    /// kill - send a signal to a process or process group
+    ///
+    /// Synopsis:
+    ///     long kill(int pid, int signal);
+    ///
+    /// Description:
+    ///     pid > 0 targets one process, pid == 0 targets the caller's
+    ///     process group, and pid < 0 targets process group -pid. Signal
+    ///     zero performs an existence check without enqueuing a signal.
+    ///
+    /// Return Value:
+    ///     Returns zero on success.
+    ///
+    /// Errors:
+    ///     -EINVAL: signal or target identifier is malformed.
+    ///     -ESRCH: no matching live process or process group exists.
+    /// ABI ID: kill.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct kill
+        : sys::syscall_handler<kill, sys::syscall_id::kill, sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor kill_descriptor = kill::descriptor;
+
+} // namespace astia::proc::syscalls

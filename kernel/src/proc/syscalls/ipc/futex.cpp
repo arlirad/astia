@@ -1,12 +1,5 @@
 #include "futex.hpp"
 
-#include "../../../ipc/futex.hpp"
-#include "../../../ipc/mapping.hpp"
-#include "../../mapping.hpp"
-#include "../../proc.hpp"
-#include "../../scheduler.hpp"
-#include "syscall.hpp"
-#include "user_mem.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -15,6 +8,14 @@
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
+
+#include "../../../ipc/futex.hpp"
+#include "../../../ipc/mapping.hpp"
+#include "../../mapping.hpp"
+#include "../../proc.hpp"
+#include "../../scheduler.hpp"
+#include "syscall.hpp"
+#include "user_mem.hpp"
 namespace astia::proc {
     i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point,
                    bool shared);
@@ -42,3 +43,23 @@ namespace astia::proc::syscall {
         return -EINVAL;
     }
 }
+
+namespace astia::proc::syscalls {
+
+    /// ABI ID: futex.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct futex
+        : sys::syscall_handler<futex, sys::syscall_id::futex, sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor futex_descriptor = futex::descriptor;
+
+} // namespace astia::proc::syscalls

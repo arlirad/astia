@@ -12,7 +12,7 @@ from pathlib import Path
 def check_production_layout(repository: Path) -> None:
     source = repository / "kernel" / "src"
     handler_files = []
-    for path in source.glob("*/syscalls/**/*_handler.cpp"):
+    for path in source.glob("*/syscalls/**/*.cpp"):
         if "sys::syscall_handler<" in path.read_text():
             handler_files.append(path)
     assert len(handler_files) == 82

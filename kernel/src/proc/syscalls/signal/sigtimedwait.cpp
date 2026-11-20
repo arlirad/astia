@@ -1,14 +1,16 @@
 #include "sigtimedwait.hpp"
 
-#include "../../proc.hpp"
-#include "../../scheduler.hpp"
-#include "syscall.hpp"
-#include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/signal.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
+
+#include "../../proc.hpp"
+#include "../../scheduler.hpp"
+#include "syscall.hpp"
+#include "user_mem.hpp"
+
 #include <limits.h>
 
 namespace astia::proc::syscall {
@@ -51,14 +53,13 @@ namespace astia::proc::syscall {
                 return -EFAULT;
         }
 
-        const bool timed = timeout_ptr != 0;
+        const bool     timed = timeout_ptr != 0;
         astia_timespec timeout{};
         u64            deadline = 0;
         if (timed) {
             const auto timeout_range =
                 sys::user_ptr<astia_timespec>(timeout_ptr).validate();
-            if (!timeout_range ||
-                !sys::copy_in(&timeout, timeout_range.value.bytes()))
+            if (!timeout_range || !sys::copy_in(&timeout, timeout_range.value.bytes()))
                 return -EFAULT;
             if (timeout.tv_sec < 0 || timeout.tv_nsec < 0 ||
                 timeout.tv_nsec >= static_cast<i64>(nanoseconds_per_second))
@@ -68,12 +69,11 @@ namespace astia::proc::syscall {
                 return -ENOTSUP;
             const u64 now = monotonic_now_ns();
             if (static_cast<u64>(timeout.tv_sec) >
-                (UINT64_MAX - static_cast<u64>(timeout.tv_nsec)) /
-                    nanoseconds_per_second)
+                (UINT64_MAX - static_cast<u64>(timeout.tv_nsec)) / nanoseconds_per_second)
                 return -EINVAL;
-            const u64 duration = static_cast<u64>(timeout.tv_sec) *
-                                     nanoseconds_per_second +
-                                 static_cast<u64>(timeout.tv_nsec);
+            const u64 duration =
+                static_cast<u64>(timeout.tv_sec) * nanoseconds_per_second +
+                static_cast<u64>(timeout.tv_nsec);
             if (duration > UINT64_MAX - now)
                 return -EINVAL;
             deadline = now + duration;
@@ -86,7 +86,7 @@ namespace astia::proc::syscall {
                 return -EAGAIN;
             }
 
-            signal_info info{};
+            signal_info   info{};
             signal_number signal = self->signals().take_matching(mask, &info);
             if (!valid_signal(signal))
                 signal = owner->signals().take_matching(mask, &info);
@@ -120,3 +120,25 @@ namespace astia::proc::syscall {
     }
 
 } // namespace astia::proc::syscall
+
+namespace astia::proc::syscalls {
+
+    /// ABI ID: sigtimedwait.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct sigtimedwait
+        : sys::syscall_handler<sigtimedwait, sys::syscall_id::sigtimedwait,
+                               sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor sigtimedwait_descriptor =
+        sigtimedwait::descriptor;
+
+} // namespace astia::proc::syscalls

@@ -1,15 +1,16 @@
 #include "sigreturn.hpp"
 
-#include "../../mapping.hpp"
-#include "../../proc.hpp"
-#include "../../scheduler.hpp"
-#include "syscall.hpp"
-#include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/signal.h>
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/layout.hpp>
+
+#include "../../mapping.hpp"
+#include "../../proc.hpp"
+#include "../../scheduler.hpp"
+#include "syscall.hpp"
+#include "user_mem.hpp"
 
 namespace astia::proc::syscall {
 
@@ -64,3 +65,23 @@ namespace astia::proc::syscall {
     }
 
 } // namespace astia::proc::syscall
+
+namespace astia::proc::syscalls {
+
+    /// ABI ID: sigreturn.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct sigreturn : sys::syscall_handler<sigreturn, sys::syscall_id::sigreturn,
+                                            sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor sigreturn_descriptor = sigreturn::descriptor;
+
+} // namespace astia::proc::syscalls

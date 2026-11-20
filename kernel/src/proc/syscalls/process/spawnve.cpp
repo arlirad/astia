@@ -1,16 +1,17 @@
 #include "spawnve.hpp"
 
+#include <astia/api/errno.h>
+#include <astia/arch/context.hpp>
+#include <astia/fs.hpp>
+#include <astia/mapping.hpp>
+#include <astia/mm/share.hpp>
+
 #include "../../proc.hpp"
 #include "../../scheduler.hpp"
 #include "../syscall_continuation.hpp"
 #include "argv.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-#include <astia/api/errno.h>
-#include <astia/arch/context.hpp>
-#include <astia/fs.hpp>
-#include <astia/mapping.hpp>
-#include <astia/mm/share.hpp>
 namespace astia::proc::syscall {
     using namespace detail;
 
@@ -102,3 +103,23 @@ namespace astia::proc::syscall {
         return result;
     }
 }
+
+namespace astia::proc::syscalls {
+
+    /// ABI ID: spawnve.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct spawnve : sys::syscall_handler<spawnve, sys::syscall_id::spawnve,
+                                          sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor spawnve_descriptor = spawnve::descriptor;
+
+} // namespace astia::proc::syscalls

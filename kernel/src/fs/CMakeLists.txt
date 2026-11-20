@@ -1,6 +1,6 @@
 file(GLOB ASTIA_FS_AIO_SOURCES CONFIGURE_DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/aio/*.cpp)
-file(GLOB_RECURSE ASTIA_FS_SYSCALL_SOURCES CONFIGURE_DEPENDS *syscalls*/*_handler.cpp)
+file(GLOB_RECURSE ASTIA_FS_SYSCALL_SOURCES CONFIGURE_DEPENDS syscalls/*.cpp)
 
 add_library(fs STATIC
         ${ASTIA_FS_AIO_SOURCES}
@@ -15,13 +15,6 @@ add_library(fs STATIC
         ext4/ext4_reader.cpp
         tmpfs.cpp
         unix_pathname.cpp
-        syscalls.cpp
-        syscalls/io_setup.cpp
-        syscalls/io_destroy.cpp
-        syscalls/io_submit.cpp
-        syscalls/io_register.cpp
-        syscalls/mount.cpp
-        syscalls/unmount.cpp
         init_fs.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/pipe.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/unix_socket.cpp

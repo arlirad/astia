@@ -1,8 +1,11 @@
 #include "chdir.hpp"
 
+#include <astia/api/errno.h>
+
 #include "../../proc.hpp"
 #include "user_mem.hpp"
-#include <astia/api/errno.h>
+
+#include <syscall.hpp>
 namespace astia::proc::syscall {
     i64 chdir(u64 path) {
         auto* owner = current_process();
@@ -15,3 +18,23 @@ namespace astia::proc::syscall {
         return owner->change_directory(copy);
     }
 }
+
+namespace astia::proc::syscalls {
+
+    /// ABI ID: chdir.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct chdir
+        : sys::syscall_handler<chdir, sys::syscall_id::chdir, sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor chdir_descriptor = chdir::descriptor;
+
+} // namespace astia::proc::syscalls

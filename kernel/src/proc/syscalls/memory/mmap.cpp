@@ -1,12 +1,5 @@
 #include "mmap.hpp"
 
-#include "../../../ipc/futex.hpp"
-#include "../../../ipc/mapping.hpp"
-#include "../../mapping.hpp"
-#include "../../proc.hpp"
-#include "../../scheduler.hpp"
-#include "syscall.hpp"
-#include "user_mem.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -16,6 +9,14 @@
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
+
+#include "../../../ipc/futex.hpp"
+#include "../../../ipc/mapping.hpp"
+#include "../../mapping.hpp"
+#include "../../proc.hpp"
+#include "../../scheduler.hpp"
+#include "syscall.hpp"
+#include "user_mem.hpp"
 namespace astia::proc::syscall {
     i64 mmap(u64 addr, i64 len, u32 prot, u32 flags, i32 fd, i64 off) {
         auto* process = current_process();
@@ -66,3 +67,23 @@ namespace astia::proc::syscall {
             mapped_flags.value, static_cast<u64>(off)));
     }
 }
+
+namespace astia::proc::syscalls {
+
+    /// ABI ID: mmap.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct mmap
+        : sys::syscall_handler<mmap, sys::syscall_id::mmap, sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor mmap_descriptor = mmap::descriptor;
+
+} // namespace astia::proc::syscalls

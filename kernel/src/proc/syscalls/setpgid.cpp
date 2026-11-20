@@ -1,8 +1,11 @@
 #include "setpgid.hpp"
 
+#include <astia/api/errno.h>
+
 #include "../mapping.hpp"
 #include "../proc.hpp"
-#include <astia/api/errno.h>
+
+#include <syscall.hpp>
 namespace astia::proc::syscall {
     i64 setpgid(i32 pid_raw, i32 pgid_raw) {
         pid_t pid{};
@@ -22,3 +25,34 @@ namespace astia::proc::syscall {
         return proc::setpgid(pid, group);
     }
 }
+
+namespace astia::proc::syscalls {
+
+    /// setpgid - move a process into a process group.
+    ///
+    /// Synopsis:
+    ///     long setpgid(int pid, int pgid);
+    ///
+    /// Errors:
+    ///     -EINVAL: pid or pgid is invalid after special-value handling.
+    ///     -EPERM: The target is not the caller's child.
+    ///     -EPERM: The target belongs to another session.
+    ///     -EPERM: The target is a session leader.
+    ///     -ESRCH: The target process does not exist.
+    /// ABI ID: setpgid.
+    /// Sync/async mode: async.
+    /// Arguments: six ABI register words are available through syscall_context.
+    /// Result: a signed i64 result or a negative errno.
+    /// Ownership: proc subsystem.
+    /// Errors: invalid or unavailable operations return the owning implementation's
+    /// negative errno.
+    struct setpgid : sys::syscall_handler<setpgid, sys::syscall_id::setpgid,
+                                          sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+    extern const sys::syscall_descriptor setpgid_descriptor = setpgid::descriptor;
+
+} // namespace astia::proc::syscalls
