@@ -76,7 +76,10 @@ cmake --install "$libc_build"
 
 mkdir -p "$build/image"
 common_flags="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
-include_flags="-nostdinc -isystem $resource_dir/include -isystem $sysroot/include"
+compile_flags() {
+    "$clang" --target="$target" -ffreestanding -fno-pic -fno-pie \
+        -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone "$@"
+}
 
 image_revision=$(
     {
@@ -84,14 +87,15 @@ image_revision=$(
             "$root/kernel/tests/crt0.S" "$root/kernel/tests/init_libc.c" \
             "$root/toolchain/astia-x86_64-clang.cmake" "$clang_path"
         "$clang" --version
-        printf '%s\n' "$common_flags" "$include_flags" "$target" "$sysroot"
+        printf '%s\n' "$common_flags" "$resource_dir/include" \
+            "$sysroot/include" "$target" "$sysroot"
     } | sha256sum | awk '{print $1}'
 )
 crt0_key=$(printf '%s\n' "$image_revision" | sha256sum | awk '{print $1}')
 if [ ! -f "$build/image/crt0.o" ] ||
     [ ! -f "$build/image/crt0.key" ] ||
     [ "$(cat "$build/image/crt0.key")" != "$crt0_key" ]; then
-    $clang $common_flags -c -o "$build/image/crt0.o" "$root/kernel/tests/crt0.S"
+    compile_flags -c -o "$build/image/crt0.o" "$root/kernel/tests/crt0.S"
     printf '%s\n' "$crt0_key" >"$build/image/crt0.key"
 fi
 init_key=$(
@@ -104,7 +108,8 @@ init_key=$(
 if [ ! -f "$build/image/init_libc.o" ] ||
     [ ! -f "$build/image/init_libc.key" ] ||
     [ "$(cat "$build/image/init_libc.key")" != "$init_key" ]; then
-    $clang $common_flags -fno-builtin $include_flags -c \
+    compile_flags -fno-builtin -nostdinc \
+        -isystem "$resource_dir/include" -isystem "$sysroot/include" -c \
         -o "$build/image/init_libc.o" "$root/kernel/tests/init_libc.c"
     printf '%s\n' "$init_key" >"$build/image/init_libc.key"
 fi
@@ -118,7 +123,7 @@ link_key=$(
 if [ ! -f "$build/image/init_libc" ] ||
     [ ! -f "$build/image/init_libc.link-key" ] ||
     [ "$(cat "$build/image/init_libc.link-key")" != "$link_key" ]; then
-    $clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+    compile_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
         -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
         -o "$build/image/init_libc" "$build/image/crt0.o" "$build/image/init_libc.o" \
         "$sysroot/lib/libastia_libc.a" "$builtins"

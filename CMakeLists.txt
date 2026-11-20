@@ -173,52 +173,90 @@ set(ASTIA_DEV_INITRD_NANO_BUILD "${CMAKE_BINARY_DIR}/nano" CACHE PATH
 set(ASTIA_DEV_INITRD_KERNEL_BUILD "${CMAKE_BINARY_DIR}/kernel" CACHE PATH
     "Existing kernel build directory supplying the runtime and base initrd")
 
+get_filename_component(_astia_dev_initrd_run
+    "${ASTIA_DEV_INITRD_RUN}" ABSOLUTE BASE_DIR "${CMAKE_BINARY_DIR}")
+if(CMAKE_BINARY_DIR STREQUAL CMAKE_SOURCE_DIR)
+    message(FATAL_ERROR "dev_initrd requires an out-of-source CMake build directory")
+endif()
+get_filename_component(_astia_dev_initrd_run_parent
+    "${_astia_dev_initrd_run}" DIRECTORY)
+if(NOT _astia_dev_initrd_run_parent STREQUAL CMAKE_BINARY_DIR)
+    message(FATAL_ERROR
+        "ASTIA_DEV_INITRD_RUN must be a dedicated directory directly under "
+        "the CMake binary directory: ${CMAKE_BINARY_DIR}")
+endif()
+foreach(_astia_dev_initrd_protected_path
+        "${CMAKE_BINARY_DIR}"
+        "${CMAKE_SOURCE_DIR}"
+        "${ASTIA_DEV_INITRD_KERNEL_BUILD}"
+        "${ASTIA_DEV_INITRD_ZSH_BUILD}"
+        "${ASTIA_DEV_INITRD_NANO_BUILD}"
+        "${CMAKE_BINARY_DIR}/cross-libc"
+        "${CMAKE_BINARY_DIR}/CMakeFiles"
+        "${CMAKE_BINARY_DIR}/Testing")
+    get_filename_component(_astia_dev_initrd_protected
+        "${_astia_dev_initrd_protected_path}" ABSOLUTE
+        BASE_DIR "${CMAKE_BINARY_DIR}")
+    if(_astia_dev_initrd_run STREQUAL _astia_dev_initrd_protected)
+        message(FATAL_ERROR
+            "ASTIA_DEV_INITRD_RUN overlaps a protected build/source directory: "
+            "${_astia_dev_initrd_run}")
+    endif()
+endforeach()
+if(EXISTS "${_astia_dev_initrd_run}")
+    get_filename_component(_astia_dev_initrd_run_real
+        "${_astia_dev_initrd_run}" REALPATH)
+    if(NOT _astia_dev_initrd_run_real STREQUAL _astia_dev_initrd_run)
+        message(FATAL_ERROR
+            "ASTIA_DEV_INITRD_RUN must not be a symlink: ${_astia_dev_initrd_run}")
+    endif()
+endif()
+
 file(GLOB_RECURSE _astia_dev_initrd_sources CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/user/zsh/*"
     "${CMAKE_SOURCE_DIR}/user/nano/*"
     "${CMAKE_SOURCE_DIR}/user/gnulib/*"
-    "${CMAKE_SOURCE_DIR}/coreutils/src/*")
+    "${CMAKE_SOURCE_DIR}/coreutils/src/*"
+    "${CMAKE_SOURCE_DIR}/libc/*"
+    "${CMAKE_SOURCE_DIR}/toolchain/nano-astia/*")
 list(FILTER _astia_dev_initrd_sources EXCLUDE REGEX "/\\.git(/|$)")
 
-set(_astia_dev_initrd_archive "${ASTIA_DEV_INITRD_RUN}/initrd.cpio")
-set(_astia_dev_initrd_kernel_dependencies)
-if(TARGET astiakrn_runtime)
-    list(APPEND _astia_dev_initrd_kernel_dependencies astiakrn_runtime)
-endif()
-if(TARGET astia_boot_initrd)
-    list(APPEND _astia_dev_initrd_kernel_dependencies astia_boot_initrd)
-endif()
+set(_astia_dev_initrd_archive "${_astia_dev_initrd_run}/initrd.cpio")
 add_custom_command(
     OUTPUT "${_astia_dev_initrd_archive}"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${ASTIA_DEV_INITRD_RUN}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${_astia_dev_initrd_run}"
     COMMAND "${CMAKE_SOURCE_DIR}/toolchain/init-userspace.sh"
     COMMAND ${CMAKE_COMMAND} -E env
         "ASTIA_ZSH_BUILD_ONLY=1"
         "ASTIA_NANO=1"
-        "ASTIA_ZSH_RUN=${ASTIA_DEV_INITRD_RUN}"
+        "ASTIA_DEV_INITRD_BUILD_ROOT=${CMAKE_BINARY_DIR}"
+        "ASTIA_DEV_INITRD_RUN=${_astia_dev_initrd_run}"
+        "ASTIA_ZSH_RUN=${_astia_dev_initrd_run}"
         "ZSH_BUILD=${ASTIA_DEV_INITRD_ZSH_BUILD}"
         "ASTIA_NANO_BUILD=${ASTIA_DEV_INITRD_NANO_BUILD}"
         "ASTIA_TEST_BUILD=${ASTIA_DEV_INITRD_KERNEL_BUILD}"
         "${CMAKE_SOURCE_DIR}/toolchain/run-zsh-qemu.sh"
     DEPENDS
+        "${CMAKE_SOURCE_DIR}/.gitmodules"
         "${CMAKE_SOURCE_DIR}/toolchain/init-userspace.sh"
         "${CMAKE_SOURCE_DIR}/toolchain/run-zsh-qemu.sh"
         "${CMAKE_SOURCE_DIR}/toolchain/build-zsh.sh"
         "${CMAKE_SOURCE_DIR}/toolchain/build-nano.sh"
         "${CMAKE_SOURCE_DIR}/toolchain/build-init-libc.sh"
+        "${CMAKE_SOURCE_DIR}/toolchain/astia-x86_64-clang.cmake"
+        "${CMAKE_SOURCE_DIR}/toolchain/zsh-runner.c"
+        "${CMAKE_SOURCE_DIR}/toolchain/line-reader.c"
+        "${CMAKE_SOURCE_DIR}/toolchain/line-reader-runner.c"
+        "${CMAKE_SOURCE_DIR}/toolchain/pty-test.c"
+        "${CMAKE_SOURCE_DIR}/kernel/tests/crt0.S"
+        "${CMAKE_SOURCE_DIR}/kernel/tests/init_libc.c"
+        "${CMAKE_BINARY_DIR}/kernel/tests/fixtures/boot_initrd.cpio"
         "${CMAKE_SOURCE_DIR}/coreutils/build.sh"
         ${_astia_dev_initrd_sources}
-        ${_astia_dev_initrd_kernel_dependencies}
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     USES_TERMINAL
     VERBATIM)
 add_custom_target(dev_initrd DEPENDS "${_astia_dev_initrd_archive}")
-if(TARGET astiakrn_runtime)
-    add_dependencies(dev_initrd astiakrn_runtime)
-endif()
-if(TARGET astia_boot_initrd)
-    add_dependencies(dev_initrd astia_boot_initrd)
-endif()
 
 set(ASTIA_DIRECT_QEMU "$ENV{QEMU}" CACHE STRING
     "QEMU executable used by the direct VGA/GDB launcher")
@@ -262,6 +300,26 @@ if(ASTIA_BUILD_TESTS)
 endif()
 add_subdirectory(modules EXCLUDE_FROM_ALL)
 add_subdirectory(pkg)
+
+if(TARGET astiakrn_runtime)
+    add_dependencies(dev_initrd astiakrn_runtime)
+endif()
+if(TARGET astia_boot_initrd)
+    add_dependencies(dev_initrd astia_boot_initrd)
+endif()
+
+if(ASTIA_BUILD_TESTS AND ASTIA_ENABLE_EXTERNAL_TESTS)
+    add_test(NAME astia_dev_initrd_clean_build
+        COMMAND ${CMAKE_COMMAND}
+            "-DASTIA_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+            "-DASTIA_PARENT_BINARY_DIR=${CMAKE_BINARY_DIR}"
+            "-DASTIA_CLEAN_TEST_BINARY_DIR=${CMAKE_BINARY_DIR}/dev-initrd-clean-test"
+            "-DASTIA_GENERATOR=${CMAKE_GENERATOR}"
+            -P "${CMAKE_SOURCE_DIR}/cmake/dev_initrd_clean_build_check.cmake")
+    set_tests_properties(astia_dev_initrd_clean_build PROPERTIES
+        LABELS "build;userspace;external;deterministic"
+        TIMEOUT 1800)
+endif()
 
 if(ASTIA_BUILD_TESTS)
     add_custom_target(astia_qemu_test_artifacts)

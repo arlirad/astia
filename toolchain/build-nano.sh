@@ -102,7 +102,7 @@ if [ ! -f "$crt0" ]; then
     exit 1
 fi
 
-resource_dir=$($clang --target="$target" -print-resource-dir)
+resource_dir=$("$clang" --target="$target" -print-resource-dir)
 builtins=$(find "$resource_dir" -name "libclang_rt.builtins-x86_64.a" -print -quit)
 if [ -z "$builtins" ]; then
     echo "nano: clang compiler builtins not found" >&2
@@ -110,14 +110,26 @@ if [ -z "$builtins" ]; then
 fi
 
 mkdir -p "$build/astia"
+config_compat_dir=${TMPDIR:-/tmp}/astia-nano-config-$(printf '%s' "$build" |
+    sha256sum | awk '{print $1}')
+mkdir -p "$config_compat_dir"
+ln -sfn "$sysroot" "$config_compat_dir/sysroot"
+ln -sfn "$build/source" "$config_compat_dir/source"
+ln -sfn "$build/astia" "$config_compat_dir/astia"
+ln -sfn "$root/toolchain/nano-astia" "$config_compat_dir/nano-astia"
+ln -sfn "$crt0" "$config_compat_dir/crt0.o"
+ln -sfn "$builtins" "$config_compat_dir/libclang_rt.builtins.a"
+ln -sfn "$sysroot/lib/libastia_libc.a" "$config_compat_dir/libastia_libc.a"
 cat > "$build/astia-cc" <<EOF
 #!/bin/sh
 exec $clang --target=$target -U__linux__ -ffreestanding -fno-builtin -fno-pic -fno-pie \\
 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc \\
--isystem "$resource_dir/include" -isystem "$sysroot/include" "\$@"
+-isystem "$resource_dir/include" -isystem "$config_compat_dir/sysroot/include" "\$@"
 EOF
 chmod +x "$build/astia-cc"
-
+compiler_launcher=${TMPDIR:-/tmp}/astia-nano-cc-$(printf '%s' "$build" |
+    sha256sum | awk '{print $1}')
+ln -sfn "$build/astia-cc" "$compiler_launcher"
 curses_key=$(
     {
         sha256sum "$root/toolchain/nano-astia/curses.c" \
@@ -161,18 +173,22 @@ gl_cv_func_stat_file_slash=yes
 EOF
 
 cd "$build"
-config_key=$(printf '%s\n' "$build/source" "$source_revision" \
+config_key=$(printf '%s\n' "$config_compat_dir/source" "$source_revision" \
     "$bootstrap_revision" "$patch_revision" "$toolchain_revision" \
-    "$sysroot" "$crt0" "$builtins" | sha256sum | awk '{print $1}')
+    "$sysroot" "$crt0" "$builtins" "$compiler_launcher" "$config_compat_dir" |
+    sha256sum | awk '{print $1}')
 if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     [ "$(cat "$build/.astia-config-key")" != "$config_key" ]; then
     CONFIG_SITE="$build/config.site" PKG_CONFIG=/bin/false NCURSESW_CONFIG=no \
-        "$build/source/configure" --host="$target" --build=x86_64-pc-linux-gnu \
+        "$config_compat_dir/source/configure" \
+    --host="$target" --build=x86_64-pc-linux-gnu \
     --disable-nls --disable-utf8 --disable-color --disable-mouse \
     --disable-browser --disable-multibuffer --disable-libmagic --enable-tiny \
-    CC="$build/astia-cc" CPPFLAGS="-I$root/toolchain/nano-astia -include $root/toolchain/nano-astia/force-assert.h" CFLAGS='-O0' \
-    LDFLAGS="-nostdlib -static -Wl,-no-pie -Wl,-Ttext-segment=0x40000000 -L$build/astia" \
-        LIBS="$crt0 $builtins -lncurses $sysroot/lib/libastia_libc.a"
+    CC="$compiler_launcher" \
+    CPPFLAGS="-I$config_compat_dir/nano-astia -include $config_compat_dir/nano-astia/force-assert.h" \
+    CFLAGS='-O0' \
+    LDFLAGS="-nostdlib -static -Wl,-no-pie -Wl,-Ttext-segment=0x40000000 -L$config_compat_dir/astia" \
+        LIBS="$config_compat_dir/crt0.o $config_compat_dir/libclang_rt_builtins.a -lncurses $config_compat_dir/libastia_libc.a"
     printf '%s\n' "$config_key" >"$build/.astia-config-key"
 fi
 
