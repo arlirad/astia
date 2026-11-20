@@ -31,16 +31,14 @@ namespace {
     };
 
     constexpr aio::descriptor registered_handlers[] = {
-        aio::describe<fs_read_handler>(),
-        aio::describe<fs_cancel_handler>(),
+        fs_read_handler::describe(),
+        fs_cancel_handler::describe(),
     };
 
     static_assert(fs_read_handler::opcode_value == aio::opcode::read);
     static_assert(fs_cancel_handler::opcode_value == aio::opcode::cancel);
     static_assert(aio::handler_implementation<fs_read_handler>);
     static_assert(aio::handler_implementation<fs_cancel_handler>);
-    static_assert(!std::is_polymorphic_v<fs_read_handler>);
-    static_assert(!std::is_polymorphic_v<fs_cancel_handler>);
     static_assert(std::is_empty_v<fs_read_handler>);
     static_assert(std::is_empty_v<fs_cancel_handler>);
 
