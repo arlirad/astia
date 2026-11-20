@@ -394,8 +394,6 @@ namespace astia::io {
                         if (parked)
                             request_ref().cancel_device(false);
                         release_ref();
-                        if (parked)
-                            release_ref();
                         return;
                     }
                     continue;

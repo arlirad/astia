@@ -170,6 +170,7 @@ ASTIA_TEST(fs_async_cancels_parked_device_flight) {
     ASTIA_CHECK(parked_completion != nullptr);
     ASTIA_CHECK(parked_request != nullptr);
     task.reset();
+    parked_request->acknowledge();
 }
 
 ASTIA_TEST(fs_async_completion_first_keeps_parked_request_stable) {
@@ -240,6 +241,7 @@ ASTIA_TEST(fs_async_cancel_end_device_race_is_linearized) {
         start.store(true, std::memory_order_release);
         cancel.join();
         end.join();
+        packet.request().acknowledge();
     }
 }
 
