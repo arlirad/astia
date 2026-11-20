@@ -66,7 +66,7 @@ if os.environ.get("FAIL_HEADER") == "1" and "header.hpp" in line_filter:
 if os.environ.get("INVALID_OUTPUT") == "1":
     sys.stdout.buffer.write(b"\\xff")
 if os.environ.get("SKIP_OUTPUT") == "1":
-    print("Skipping source.cpp: Compile command not found.")
+    print("Skipping source\\nfile.cpp: Compile command not found.")
 """, encoding="utf-8")
     path.chmod(0o755)
     return path
