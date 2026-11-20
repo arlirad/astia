@@ -136,7 +136,7 @@ namespace {
         }
     };
 
-    void mark_quiesced(void* context) {
+    void mark_quiesced(void* context, astia::u64) {
         static_cast<std::atomic<bool>*>(context)->store(true, std::memory_order_release);
     }
 }
@@ -325,7 +325,7 @@ ASTIA_TEST(device_file_quiescence_callback_waits_for_active_submit) {
         std::this_thread::yield();
     file.detach();
     ASTIA_CHECK(!file.quiescent());
-    ASTIA_CHECK(!file.arm_quiescence_handler(mark_quiesced, &quiesced));
+    ASTIA_CHECK(!file.arm_quiescence_handler(mark_quiesced, &quiesced, 1));
     ASTIA_CHECK(!quiesced.load(std::memory_order_acquire));
 
     device.allow.store(true, std::memory_order_release);

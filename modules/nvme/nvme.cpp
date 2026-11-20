@@ -972,15 +972,13 @@ namespace {
                 return;
             __atomic_store_n(&_teardown_retry, false, __ATOMIC_RELEASE);
             ++_generation;
-            _teardown_context = new teardown_context{this, _generation};
             unregister_nodes();
             for (astia::u32 i = 0; i < _file_count; ++i)
                 if (_files[i])
-                    (void) _files[i]->arm_quiescence_handler(quiescence_callback,
-                                                             _teardown_context);
+                    (void) _files[i]->arm_quiescence_handler(quiescence_callback, this,
+                                                             _generation);
             __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
-            if (_teardown_context != nullptr)
-                finish_remove(_teardown_context);
+            finish_remove(_generation);
         }
 
         bool selftest() override {
@@ -1050,14 +1048,8 @@ namespace {
         }
 
         private:
-        struct teardown_context {
-            nvme_driver* owner;
-            astia::u64   generation;
-        };
-
-        static void quiescence_callback(void* context) {
-            auto* teardown = static_cast<teardown_context*>(context);
-            teardown->owner->finish_remove(teardown);
+        static void quiescence_callback(void* context, astia::u64 generation) {
+            static_cast<nvme_driver*>(context)->finish_remove(generation);
         }
 
         bool all_files_quiescent() const {
@@ -1067,8 +1059,8 @@ namespace {
             return true;
         }
 
-        void finish_remove(teardown_context* teardown) {
-            if (teardown != _teardown_context || teardown->generation != _generation)
+        void finish_remove(astia::u64 generation) {
+            if (generation != _generation)
                 return;
             astia::u32 expected = 2;
             if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 3, false,
@@ -1080,15 +1072,14 @@ namespace {
             if (!all_files_quiescent()) {
                 __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
                 if (__atomic_exchange_n(&_teardown_retry, false, __ATOMIC_ACQ_REL))
-                    finish_remove(teardown);
+                    finish_remove(generation);
                 return;
             }
             device.stop();
             for (astia::u32 i = 0; i < _file_count; ++i)
                 _files[i] = {};
-            _file_count       = 0;
-            _product          = {};
-            _teardown_context = nullptr;
+            _file_count = 0;
+            _product    = {};
             __atomic_store_n(&_teardown_state, 4, __ATOMIC_RELEASE);
         }
 
@@ -1108,11 +1099,10 @@ namespace {
 
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _files[max_namespaces]{};
-        astia::u32                                _file_count       = 0;
-        volatile astia::u32                       _teardown_state   = 0;
-        volatile bool                             _teardown_retry   = false;
-        astia::u64                                _generation       = 0;
-        teardown_context*                         _teardown_context = nullptr;
+        astia::u32                                _file_count     = 0;
+        volatile astia::u32                       _teardown_state = 0;
+        volatile bool                             _teardown_retry = false;
+        astia::u64                                _generation     = 0;
     };
 
     nvme_driver driver;

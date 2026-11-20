@@ -13,8 +13,9 @@ namespace astia::dev {
         explicit device_file(const mm::shptr<device>& device) : owner_(device) {}
 
         void detach();
-        using quiescence_handler = void (*)(void*);
-        bool          arm_quiescence_handler(quiescence_handler handler, void* context);
+        using quiescence_handler = void (*)(void*, u64);
+        bool          arm_quiescence_handler(quiescence_handler handler, void* context,
+                                             u64 generation);
         bool          quiescent() const;
         long          read(void* buf, u32 len, u64 offset) override;
         long          write(const void* buf, u32 len, u64 offset) override;
@@ -45,9 +46,10 @@ namespace astia::dev {
         mutable volatile u32       pending_count_ = 0;
         mutable io::request*       pending_[max_pending_requests]{};
         mutable bool               pending_owned_[max_pending_requests]{};
-        mutable quiescence_handler quiescence_handler_ = nullptr;
-        mutable void*              quiescence_context_ = nullptr;
-        bool                       detached_           = false;
+        mutable quiescence_handler quiescence_handler_    = nullptr;
+        mutable void*              quiescence_context_    = nullptr;
+        mutable u64                quiescence_generation_ = 0;
+        bool                       detached_              = false;
 
         device* device_instance() const {
             return owner_ ? owner_.get() : borrowed_;
