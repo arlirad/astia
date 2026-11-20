@@ -125,6 +125,9 @@ astia_add_host_test(astia_time_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/time.cpp)
 target_compile_options(astia_time_test PRIVATE -ffunction-sections -fdata-sections)
 target_link_options(astia_time_test PRIVATE -Wl,--gc-sections)
+astia_add_host_test(astia_syscall_dispatch_test
+        syscall_dispatch_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp)
 astia_add_host_test(astia_console_test
         console_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)
