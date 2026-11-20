@@ -35,6 +35,9 @@ UNSUPPORTED_FILES = {
 }
 CONFIG = pathlib.Path(__file__).with_name("clang-tidy-config.yml").resolve()
 HEADER_FILTER = r"(^|/)kernel/(include|src|tests)/"
+SKIPPED_COMPILE_COMMAND = re.compile(
+    r"(?m)^Skipping .+: Compile command not found\.$"
+)
 
 
 def git(args, root):
@@ -169,7 +172,10 @@ def analyze(args, source, line_filter):
                                 timeout=args.timeout)
     except (OSError, UnicodeError, subprocess.TimeoutExpired) as error:
         return source, 1, f"clang-tidy invocation failed for {source}: {error}\n"
-    return source, result.returncode, result.stdout + result.stderr
+    output = result.stdout + result.stderr
+    if result.returncode == 0 and SKIPPED_COMPILE_COMMAND.search(output):
+        return source, 1, output
+    return source, result.returncode, output
 
 
 def run_units(args, units, line_filter):
