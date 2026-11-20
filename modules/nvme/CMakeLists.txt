@@ -75,7 +75,7 @@ if(ASTIA_BUILD_TESTS)
     astia_add_test_label(nvme_protocol_unit "sanitizer-host")
     set_tests_properties(nvme_protocol_unit PROPERTIES
             ENVIRONMENT
-            "ASTIA_HOST_SANITIZER_FLAGS=${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}")
+            "ASTIA_HOST_SANITIZER_FLAGS=${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS};ASTIA_HOST_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
     add_test(NAME nvme_teardown_unit COMMAND ${ASTIA_NVME_TEARDOWN_UNIT})
     astia_append_test_label("module;nvme;host;deterministic;teardown")
     astia_add_test_label(nvme_teardown_unit "sanitizer-host")

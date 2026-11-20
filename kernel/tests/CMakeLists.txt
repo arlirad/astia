@@ -193,6 +193,8 @@ target_compile_options(astia_device_test PRIVATE
 target_link_options(astia_device_test PRIVATE
         "-Wl,-no-pie" "-Wl,--gc-sections")
 target_link_libraries(astia_device_test PRIVATE Threads::Threads)
+astia_remove_test_label(astia_device_test "sanitizer-host")
+astia_add_test_label(astia_device_test "sanitizer-host-partial")
 
 astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp
@@ -619,6 +621,7 @@ if (ASTIA_MKFS_EXT4 AND ASTIA_E2FSCK)
     add_dependencies(astia_ext4_real_test astia_ext4_real_fixture)
     add_test(NAME astia_ext4_real_test
             COMMAND astia_ext4_real_test ${_ext4_real_fixture})
+    astia_add_test_label(astia_ext4_real_test "sanitizer-host")
 endif ()
 
 # memory.cpp is the code under test here, so it overrides the host libc's
@@ -706,6 +709,8 @@ target_link_libraries(astia_ext4_vfs_test PRIVATE fs)
 target_compile_options(astia_ext4_vfs_test PRIVATE -fno-rtti)
 target_include_directories(astia_ext4_vfs_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_remove_test_label(astia_ext4_vfs_test "sanitizer-host")
+astia_add_test_label(astia_ext4_vfs_test "sanitizer-host-partial")
 
 # On-target integration test: boot the real kernel under QEMU and let its
 # isa-debug-exit status decide pass/fail. Covers what host tests cannot (CR3,
