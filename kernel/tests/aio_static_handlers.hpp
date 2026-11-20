@@ -38,24 +38,33 @@ namespace astia::io::aio::prototype {
             { Impl::handle(context, sqe) } noexcept -> std::same_as<dispatch_result>;
         };
 
-    template <typename Impl, opcode Opcode>
-    struct handler {
-        static constexpr opcode opcode_value = Opcode;
-
-        static dispatch_result dispatch(void* context, const astia_sqe& sqe) noexcept {
-            return Impl::handle(*static_cast<typename Impl::context_type*>(context), sqe);
-        }
-    };
-
     struct descriptor {
         opcode operation;
         dispatch_result (*invoke)(void*, const astia_sqe&) noexcept;
     };
 
-    template <typename Handler>
-    constexpr descriptor describe() noexcept {
-        return {Handler::opcode_value, &Handler::dispatch};
-    }
+    template <typename Impl, opcode Opcode>
+    struct handler {
+        static constexpr opcode opcode_value = Opcode;
+
+        static dispatch_result dispatch(void* context, const astia_sqe& sqe) noexcept {
+            static_assert(
+                handler_implementation<Impl>,
+                "AIO handler must implement the required static handle function");
+            static_assert(std::is_empty_v<Impl>,
+                          "AIO handlers must not carry per-instance state");
+            return Impl::handle(*static_cast<typename Impl::context_type*>(context), sqe);
+        }
+
+        static constexpr descriptor describe() noexcept {
+            static_assert(
+                handler_implementation<Impl>,
+                "AIO handler must implement the required static handle function");
+            static_assert(std::is_empty_v<Impl>,
+                          "AIO handlers must not carry per-instance state");
+            return {Opcode, &handler::dispatch};
+        }
+    };
 
     inline dispatch_result dispatch(std::span<const descriptor> handlers, void* context,
                                     const astia_sqe& sqe) noexcept {
