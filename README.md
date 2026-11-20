@@ -71,8 +71,9 @@ The repository follows a layered kernel/userspace layout:
 
 Prerequisites include Git, CMake 3.20+, a C/C++ toolchain, Clang for
 userspace, QEMU, Python 3 for helper scripts, and the archive tools used by
-the test suite (`cpio`, `xxd`, `gzip`, and `zstd`). The repository currently
-has no Git submodules, so no submodule initialization step is required.
+the test suite (`cpio`, `xxd`, `gzip`, and `zstd`). The repository contains
+pinned zsh, nano, and gnulib submodules. Initialize them with
+`toolchain/init-userspace.sh` before running userspace workflows.
 
 Build the supported kernel directly:
 
@@ -136,14 +137,17 @@ remains the framebuffer-backed path.
 ## Userspace and QEMU workflows
 
 The complete interactive zsh workflow builds the kernel test artifacts, Astia
-libc/sysroot, coreutils, and an unpatched upstream zsh checkout before
-launching QEMU:
+libc/sysroot, coreutils, and the pinned zsh submodule before launching QEMU.
+Initialize the upstream submodules after cloning:
 
 ```sh
+toolchain/init-userspace.sh
 ./toolchain/run-zsh-qemu.sh
 ```
 
-Use an existing clean zsh checkout and a reusable build directory when needed:
+Generated zsh and nano files are kept in the ignored `build/userspace` cache,
+so unchanged upstream sources are not rebuilt from scratch. Override the source
+or cache directories when needed:
 
 ```sh
 ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build \
@@ -159,8 +163,10 @@ The GRUB/framebuffer-backed zsh workflow is available separately as
 uses `/dev/ttv0` for shell I/O. See [`docs/zsh-vga.md`](docs/zsh-vga.md) for
 the graphical smoke harness and explicit UART fallback.
 
-GNU nano is opt-in. The launcher fetches and verifies the pinned source, builds
-it in a private cache, and adds it to the initrd as `/bin/nano`:
+GNU nano is opt-in. The launcher builds the pinned nano submodule in the
+reusable cache and adds it to the initrd as `/bin/nano`. If the pinned nano
+submodule endpoint is unavailable, `toolchain/init-userspace.sh` verifies and
+extracts the pinned GNU nano 8.6 archive instead:
 
 ```sh
 ASTIA_NANO=1 ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh

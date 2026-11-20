@@ -6,6 +6,7 @@ sysroot=${ASTIA_SYSROOT:-/tmp/astia-zsh-build/sysroot}
 crt0=${1:-${ASTIA_CRT0:-/tmp/astia-zsh-build/astia/image/crt0.o}}
 clang=${CLANG:-clang}
 target=x86_64-unknown-elf
+clang_path=$(command -v "$clang")
 resource_dir=$($clang --target=$target -print-resource-dir)
 builtins=$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a
 out=${COREUTILS_BUILD:-$root/coreutils/build}
@@ -20,19 +21,66 @@ if [ ! -f "$crt0" ]; then
     exit 1
 fi
 
-rm -rf "$out"
-mkdir -p "$out/obj" "$out/bin"
+mkdir -p "$out/obj" "$out/bin" "$out/.keys"
+source_manifest=$out/.keys/sources
+next_source_manifest=$source_manifest.$$
+for source in "$root"/coreutils/src/*.c; do
+    basename "$source" .c
+done | sort -u >"$next_source_manifest"
+if [ -f "$source_manifest" ]; then
+    while IFS= read -r managed_name; do
+        if ! grep -Fqx "$managed_name" "$next_source_manifest"; then
+            rm -f "$out/bin/$managed_name" "$out/obj/$managed_name.o" \
+                "$out/obj/$managed_name.o.key" "$out/.keys/$managed_name" \
+                "$out/bin/$managed_name.key"
+        fi
+        rm -f "$out/bin/$managed_name.key"
+    done <"$source_manifest"
+fi
+while IFS= read -r managed_name; do
+    rm -f "$out/bin/$managed_name.key"
+done <"$next_source_manifest"
+mv "$next_source_manifest" "$source_manifest"
 common="--target=$target -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc -isystem $resource_dir/include -isystem $sysroot/include"
+toolchain_revision=$(
+    {
+        sha256sum "$root/coreutils/build.sh" \
+            "$root/toolchain/build-init-libc.sh" "$clang_path"
+        "$clang" --version
+        printf '%s\n' "$common" "$target"
+    } | sha256sum | awk '{print $1}'
+)
 
 for source in "$root"/coreutils/src/*.c; do
     name=$(basename "$source" .c)
-    # shellcheck disable=SC2086
-    $clang $common -c "$source" -o "$out/obj/$name.o"
-    # shellcheck disable=SC2086
-    $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
-        -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
-        -o "$out/bin/$name" "$crt0" "$out/obj/$name.o" \
-        "$sysroot/lib/libastia_libc.a" "$builtins"
+    object_key=$(
+        {
+            sha256sum "$source" "$sysroot/lib/libastia_libc.a"
+            printf '%s\n' "$toolchain_revision"
+        } | sha256sum | awk '{print $1}'
+    )
+    if [ ! -f "$out/obj/$name.o" ] ||
+        [ ! -f "$out/obj/$name.o.key" ] ||
+        [ "$(cat "$out/obj/$name.o.key")" != "$object_key" ]; then
+        $clang $common -c "$source" -o "$out/obj/$name.o"
+        printf '%s\n' "$object_key" >"$out/obj/$name.o.key"
+    fi
+    link_key=$(
+        {
+            sha256sum "$out/obj/$name.o" "$crt0" \
+                "$sysroot/lib/libastia_libc.a" "$builtins"
+            printf '%s\n' "$toolchain_revision"
+        } | sha256sum | awk '{print $1}'
+    )
+    if [ ! -f "$out/bin/$name" ] ||
+        [ ! -f "$out/.keys/$name" ] ||
+        [ "$(cat "$out/.keys/$name")" != "$link_key" ]; then
+        $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+            -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+            -o "$out/bin/$name" "$crt0" "$out/obj/$name.o" \
+            "$sysroot/lib/libastia_libc.a" "$builtins"
+        printf '%s\n' "$link_key" >"$out/.keys/$name"
+    fi
 done
 
 printf 'built Astia coreutils:'
