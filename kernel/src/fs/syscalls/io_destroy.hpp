@@ -30,15 +30,3 @@ namespace astia::fs::syscall {
     ///     until they complete, so they prevent destruction.
     i64 io_destroy(u64 ring);
 }
-
-namespace astia::fs::syscall_handlers {
-
-    struct io_destroy_syscall
-        : sys::syscall_handler<io_destroy_syscall, sys::syscall_id::io_destroy,
-                               sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
-        }
-    };
-
-} // namespace astia::fs::syscall_handlers

@@ -14,6 +14,91 @@ set_tests_properties(astia_man_generator_layout PROPERTIES
         LABELS "docs;deterministic")
 
 find_package(Threads REQUIRED)
+set(ASTIA_SYSCALL_HANDLER_SOURCES
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/syscalls/io_destroy_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/syscalls/io_register_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/syscalls/io_setup_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/syscalls/io_submit_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/syscalls/mount_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/syscalls/unmount_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/accept_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/bind_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/connect_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/getsockopt_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/listen_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/recv_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/recvfrom_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/send_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/sendto_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/shutdown_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/socket_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/socketpair_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/alarm_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/getpgid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/getpgrp_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/getpid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/getppid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/gettid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/ipc/futex_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/ipc/shm_open_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/ipc/shm_unlink_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/kill_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/lseek_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/memory/mmap_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/memory/mprotect_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/memory/msync_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/memory/munmap_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/chdir_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/execve_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/exit_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/fchdir_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/fork_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/getcwd_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/getegid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/geteuid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/getgid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/getgroups_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/getrlimit_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/getsid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/getuid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/process_snapshot_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/setegid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/seteuid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/setgid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/setgroups_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/setregid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/setreuid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/setrlimit_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/setuid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/spawnve_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/process/waitpid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/setpgid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/setsid_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/signal/sigaction_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/signal/sigaltstack_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/signal/sigpending_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/signal/sigprocmask_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/signal/sigreturn_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/signal/sigsuspend_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/signal/sigtimedwait_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/signal/sigwait_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_cancel_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_cancel_pending_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_create2_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_create_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_create_owned_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_detach_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_exists_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_exit_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_getattr_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_join_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/thread_kill_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/thread/yield_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/umask_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscalls/clock_getres_handler.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscalls/clock_gettime_handler.cpp
+)
+
 find_program(ASTIA_OBJDUMP NAMES llvm-objdump objdump REQUIRED)
 
 # Fail at configure time with an actionable diagnostic instead of registering
@@ -136,19 +221,22 @@ astia_add_host_test(astia_syscall_dispatch_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/handler_registry.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
-        support/resume_queue_host.cpp)
+        support/resume_queue_host.cpp
+        ${ASTIA_SYSCALL_HANDLER_SOURCES})
 astia_add_host_test(astia_syscall_handler_prototype_test
         syscall_handler_prototype_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/handler_registry.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
-        support/resume_queue_host.cpp)
+        support/resume_queue_host.cpp
+        ${ASTIA_SYSCALL_HANDLER_SOURCES})
 astia_add_host_test(astia_net_syscall_prototype_test
         net_syscall_prototype_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/handler_registry.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
-        support/resume_queue_host.cpp)
+        support/resume_queue_host.cpp
+        ${ASTIA_SYSCALL_HANDLER_SOURCES})
 astia_add_host_test(astia_console_test
         console_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)

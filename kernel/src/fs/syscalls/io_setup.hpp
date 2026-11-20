@@ -39,15 +39,3 @@ namespace astia::fs::syscall {
     ///
     i64 io_setup(u32 entries, u32 flags, u64 out);
 }
-
-namespace astia::fs::syscall_handlers {
-
-    struct io_setup_syscall
-        : sys::syscall_handler<io_setup_syscall, sys::syscall_id::io_setup,
-                               sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
-        }
-    };
-
-} // namespace astia::fs::syscall_handlers

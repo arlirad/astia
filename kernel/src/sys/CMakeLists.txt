@@ -1,4 +1,6 @@
+file(GLOB_RECURSE ASTIA_SYS_SYSCALL_SOURCES CONFIGURE_DEPENDS *syscalls*/*_handler.cpp)
 add_library(sys STATIC
+        ${ASTIA_SYS_SYSCALL_SOURCES}
         aio.cpp
         syscall.cpp
         handler_registry.cpp

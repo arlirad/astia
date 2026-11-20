@@ -1,173 +1,341 @@
 #pragma once
 
-#include "../fs/syscalls/chdir.hpp"
-#include "../fs/syscalls/fchdir.hpp"
-#include "../fs/syscalls/getcwd.hpp"
-#include "../fs/syscalls/io_destroy.hpp"
-#include "../fs/syscalls/io_register.hpp"
-#include "../fs/syscalls/io_setup.hpp"
-#include "../fs/syscalls/io_submit.hpp"
-#include "../fs/syscalls/lseek.hpp"
-#include "../fs/syscalls/mount.hpp"
-#include "../fs/syscalls/shm_open.hpp"
-#include "../fs/syscalls/shm_unlink.hpp"
-#include "../fs/syscalls/umask.hpp"
-#include "../fs/syscalls/unmount.hpp"
-#include "../ipc/syscalls/futex.hpp"
-#include "../mm/syscalls/mmap.hpp"
-#include "../mm/syscalls/mprotect.hpp"
-#include "../mm/syscalls/msync.hpp"
-#include "../mm/syscalls/munmap.hpp"
-#include "../net/syscalls/accept.hpp"
-#include "../net/syscalls/bind.hpp"
-#include "../net/syscalls/connect.hpp"
-#include "../net/syscalls/getsockopt.hpp"
-#include "../net/syscalls/listen.hpp"
-#include "../net/syscalls/recv.hpp"
-#include "../net/syscalls/recvfrom.hpp"
-#include "../net/syscalls/send.hpp"
-#include "../net/syscalls/sendto.hpp"
-#include "../net/syscalls/shutdown.hpp"
-#include "../net/syscalls/socket.hpp"
-#include "../net/syscalls/socketpair.hpp"
-#include "../proc/syscalls/alarm.hpp"
-#include "../proc/syscalls/execve.hpp"
-#include "../proc/syscalls/exit.hpp"
-#include "../proc/syscalls/fork.hpp"
-#include "../proc/syscalls/getegid.hpp"
-#include "../proc/syscalls/geteuid.hpp"
-#include "../proc/syscalls/getgid.hpp"
-#include "../proc/syscalls/getgroups.hpp"
-#include "../proc/syscalls/getpgid.hpp"
-#include "../proc/syscalls/getpgrp.hpp"
-#include "../proc/syscalls/getpid.hpp"
-#include "../proc/syscalls/getppid.hpp"
-#include "../proc/syscalls/getrlimit.hpp"
-#include "../proc/syscalls/getsid.hpp"
-#include "../proc/syscalls/gettid.hpp"
-#include "../proc/syscalls/getuid.hpp"
-#include "../proc/syscalls/kill.hpp"
-#include "../proc/syscalls/process_snapshot.hpp"
-#include "../proc/syscalls/setegid.hpp"
-#include "../proc/syscalls/seteuid.hpp"
-#include "../proc/syscalls/setgid.hpp"
-#include "../proc/syscalls/setgroups.hpp"
-#include "../proc/syscalls/setpgid.hpp"
-#include "../proc/syscalls/setregid.hpp"
-#include "../proc/syscalls/setreuid.hpp"
-#include "../proc/syscalls/setrlimit.hpp"
-#include "../proc/syscalls/setsid.hpp"
-#include "../proc/syscalls/setuid.hpp"
-#include "../proc/syscalls/sigaction.hpp"
-#include "../proc/syscalls/sigaltstack.hpp"
-#include "../proc/syscalls/sigpending.hpp"
-#include "../proc/syscalls/sigprocmask.hpp"
-#include "../proc/syscalls/sigreturn.hpp"
-#include "../proc/syscalls/sigsuspend.hpp"
-#include "../proc/syscalls/sigtimedwait.hpp"
-#include "../proc/syscalls/sigwait.hpp"
-#include "../proc/syscalls/spawnve.hpp"
-#include "../proc/syscalls/thread_cancel.hpp"
-#include "../proc/syscalls/thread_cancel_pending.hpp"
-#include "../proc/syscalls/thread_create.hpp"
-#include "../proc/syscalls/thread_create2.hpp"
-#include "../proc/syscalls/thread_create_owned.hpp"
-#include "../proc/syscalls/thread_detach.hpp"
-#include "../proc/syscalls/thread_exists.hpp"
-#include "../proc/syscalls/thread_exit.hpp"
-#include "../proc/syscalls/thread_getattr.hpp"
-#include "../proc/syscalls/thread_join.hpp"
-#include "../proc/syscalls/thread_kill.hpp"
-#include "../proc/syscalls/waitpid.hpp"
-#include "../proc/syscalls/yield.hpp"
-#include "../sys/syscalls/clock_getres.hpp"
-#include "../sys/syscalls/clock_gettime.hpp"
 #include "syscall.hpp"
 
+namespace astia::fs::syscalls {
+    extern const ::astia::sys::syscall_descriptor io_setup_descriptor;
+}
+namespace astia::fs::syscalls {
+    extern const ::astia::sys::syscall_descriptor io_destroy_descriptor;
+}
+namespace astia::fs::syscalls {
+    extern const ::astia::sys::syscall_descriptor io_submit_descriptor;
+}
+namespace astia::fs::syscalls {
+    extern const ::astia::sys::syscall_descriptor io_register_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor mmap_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor munmap_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor mprotect_descriptor;
+}
+namespace astia::sys::syscalls {
+    extern const ::astia::sys::syscall_descriptor clock_gettime_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor exit_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor yield_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getpid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor gettid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor futex_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor waitpid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor spawnve_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor fork_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_create_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_create2_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_exit_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_join_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_detach_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor kill_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor sigaction_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor sigprocmask_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor execve_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor sigsuspend_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getpgrp_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor setpgid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor setsid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor sigreturn_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor chdir_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getcwd_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getuid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor geteuid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getgid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getegid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor setuid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor seteuid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor setgid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor setegid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor setreuid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor setregid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getgroups_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor setgroups_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor process_snapshot_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getsid_descriptor;
+}
+namespace astia::fs::syscalls {
+    extern const ::astia::sys::syscall_descriptor unmount_descriptor;
+}
+namespace astia::fs::syscalls {
+    extern const ::astia::sys::syscall_descriptor mount_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getrlimit_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor setrlimit_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor sigwait_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor sigaltstack_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getpgid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor getppid_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_cancel_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor alarm_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_create_owned_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_cancel_pending_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_exists_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_kill_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor sigpending_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor sigtimedwait_descriptor;
+}
+namespace astia::sys::syscalls {
+    extern const ::astia::sys::syscall_descriptor clock_getres_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor thread_getattr_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor msync_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor lseek_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor umask_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor shm_open_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor shm_unlink_descriptor;
+}
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor fchdir_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor accept_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor bind_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor connect_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor getsockopt_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor listen_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor recv_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor recvfrom_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor send_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor sendto_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor shutdown_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor socket_descriptor;
+}
+namespace astia::net::syscalls {
+    extern const ::astia::sys::syscall_descriptor socketpair_descriptor;
+}
+
 namespace astia::sys {
-    template <typename... types>
-    struct type_list {};
     namespace production {
-        template <typename... types>
-        using type_list   = ::astia::sys::type_list<types...>;
-        using handler_set = type_list<
-            fs::syscall_handlers::io_setup_syscall,
-            fs::syscall_handlers::io_destroy_syscall,
-            fs::syscall_handlers::io_submit_syscall,
-            fs::syscall_handlers::io_register_syscall, mm::syscall_handlers::mmap_syscall,
-            mm::syscall_handlers::munmap_syscall, mm::syscall_handlers::mprotect_syscall,
-            sys::syscall_handlers::clock_gettime_syscall,
-            proc::syscall_handlers::exit_syscall, proc::syscall_handlers::yield_syscall,
-            proc::syscall_handlers::getpid_syscall,
-            proc::syscall_handlers::gettid_syscall, ipc::syscall_handlers::futex_syscall,
-            proc::syscall_handlers::waitpid_syscall,
-            proc::syscall_handlers::spawnve_syscall, proc::syscall_handlers::fork_syscall,
-            proc::syscall_handlers::thread_create_syscall,
-            proc::syscall_handlers::thread_exit_syscall,
-            proc::syscall_handlers::thread_join_syscall,
-            proc::syscall_handlers::thread_detach_syscall,
-            proc::syscall_handlers::kill_syscall,
-            proc::syscall_handlers::sigaction_syscall,
-            proc::syscall_handlers::sigprocmask_syscall,
-            proc::syscall_handlers::thread_create2_syscall,
-            proc::syscall_handlers::execve_syscall,
-            proc::syscall_handlers::sigsuspend_syscall,
-            proc::syscall_handlers::getpgrp_syscall,
-            proc::syscall_handlers::setpgid_syscall,
-            proc::syscall_handlers::setsid_syscall,
-            proc::syscall_handlers::sigreturn_syscall,
-            fs::syscall_handlers::chdir_syscall, fs::syscall_handlers::getcwd_syscall,
-            proc::syscall_handlers::getuid_syscall,
-            proc::syscall_handlers::geteuid_syscall,
-            proc::syscall_handlers::getgid_syscall,
-            proc::syscall_handlers::getegid_syscall,
-            proc::syscall_handlers::setuid_syscall,
-            proc::syscall_handlers::seteuid_syscall,
-            proc::syscall_handlers::setgid_syscall,
-            proc::syscall_handlers::setegid_syscall,
-            proc::syscall_handlers::setreuid_syscall,
-            proc::syscall_handlers::setregid_syscall,
-            proc::syscall_handlers::getgroups_syscall,
-            proc::syscall_handlers::setgroups_syscall,
-            proc::syscall_handlers::process_snapshot_syscall,
-            proc::syscall_handlers::getsid_syscall, fs::syscall_handlers::unmount_syscall,
-            fs::syscall_handlers::mount_syscall,
-            proc::syscall_handlers::getrlimit_syscall,
-            proc::syscall_handlers::setrlimit_syscall,
-            proc::syscall_handlers::sigwait_syscall,
-            proc::syscall_handlers::sigaltstack_syscall,
-            proc::syscall_handlers::getpgid_syscall,
-            proc::syscall_handlers::getppid_syscall,
-            proc::syscall_handlers::thread_cancel_syscall,
-            proc::syscall_handlers::alarm_syscall,
-            proc::syscall_handlers::thread_create_owned_syscall,
-            proc::syscall_handlers::thread_cancel_pending_syscall,
-            proc::syscall_handlers::thread_exists_syscall,
-            proc::syscall_handlers::thread_kill_syscall,
-            proc::syscall_handlers::sigpending_syscall,
-            proc::syscall_handlers::sigtimedwait_syscall,
-            sys::syscall_handlers::clock_getres_syscall,
-            proc::syscall_handlers::thread_getattr_syscall,
-            mm::syscall_handlers::msync_syscall, fs::syscall_handlers::lseek_syscall,
-            fs::syscall_handlers::umask_syscall, fs::syscall_handlers::shm_open_syscall,
-            fs::syscall_handlers::shm_unlink_syscall,
-            fs::syscall_handlers::fchdir_syscall>;
-
+        inline const syscall_descriptor descriptors[] = {
+            ::astia::fs::syscalls::io_setup_descriptor,
+            ::astia::fs::syscalls::io_destroy_descriptor,
+            ::astia::fs::syscalls::io_submit_descriptor,
+            ::astia::fs::syscalls::io_register_descriptor,
+            ::astia::proc::syscalls::mmap_descriptor,
+            ::astia::proc::syscalls::munmap_descriptor,
+            ::astia::proc::syscalls::mprotect_descriptor,
+            ::astia::sys::syscalls::clock_gettime_descriptor,
+            ::astia::proc::syscalls::exit_descriptor,
+            ::astia::proc::syscalls::yield_descriptor,
+            ::astia::proc::syscalls::getpid_descriptor,
+            ::astia::proc::syscalls::gettid_descriptor,
+            ::astia::proc::syscalls::futex_descriptor,
+            ::astia::proc::syscalls::waitpid_descriptor,
+            ::astia::proc::syscalls::spawnve_descriptor,
+            ::astia::proc::syscalls::fork_descriptor,
+            ::astia::proc::syscalls::thread_create_descriptor,
+            ::astia::proc::syscalls::thread_create2_descriptor,
+            ::astia::proc::syscalls::thread_exit_descriptor,
+            ::astia::proc::syscalls::thread_join_descriptor,
+            ::astia::proc::syscalls::thread_detach_descriptor,
+            ::astia::proc::syscalls::kill_descriptor,
+            ::astia::proc::syscalls::sigaction_descriptor,
+            ::astia::proc::syscalls::sigprocmask_descriptor,
+            ::astia::proc::syscalls::execve_descriptor,
+            ::astia::proc::syscalls::sigsuspend_descriptor,
+            ::astia::proc::syscalls::getpgrp_descriptor,
+            ::astia::proc::syscalls::setpgid_descriptor,
+            ::astia::proc::syscalls::setsid_descriptor,
+            ::astia::proc::syscalls::sigreturn_descriptor,
+            ::astia::proc::syscalls::chdir_descriptor,
+            ::astia::proc::syscalls::getcwd_descriptor,
+            ::astia::proc::syscalls::getuid_descriptor,
+            ::astia::proc::syscalls::geteuid_descriptor,
+            ::astia::proc::syscalls::getgid_descriptor,
+            ::astia::proc::syscalls::getegid_descriptor,
+            ::astia::proc::syscalls::setuid_descriptor,
+            ::astia::proc::syscalls::seteuid_descriptor,
+            ::astia::proc::syscalls::setgid_descriptor,
+            ::astia::proc::syscalls::setegid_descriptor,
+            ::astia::proc::syscalls::setreuid_descriptor,
+            ::astia::proc::syscalls::setregid_descriptor,
+            ::astia::proc::syscalls::getgroups_descriptor,
+            ::astia::proc::syscalls::setgroups_descriptor,
+            ::astia::proc::syscalls::process_snapshot_descriptor,
+            ::astia::proc::syscalls::getsid_descriptor,
+            ::astia::fs::syscalls::unmount_descriptor,
+            ::astia::fs::syscalls::mount_descriptor,
+            ::astia::proc::syscalls::getrlimit_descriptor,
+            ::astia::proc::syscalls::setrlimit_descriptor,
+            ::astia::proc::syscalls::sigwait_descriptor,
+            ::astia::proc::syscalls::sigaltstack_descriptor,
+            ::astia::proc::syscalls::getpgid_descriptor,
+            ::astia::proc::syscalls::getppid_descriptor,
+            ::astia::proc::syscalls::thread_cancel_descriptor,
+            ::astia::proc::syscalls::alarm_descriptor,
+            ::astia::proc::syscalls::thread_create_owned_descriptor,
+            ::astia::proc::syscalls::thread_cancel_pending_descriptor,
+            ::astia::proc::syscalls::thread_exists_descriptor,
+            ::astia::proc::syscalls::thread_kill_descriptor,
+            ::astia::proc::syscalls::sigpending_descriptor,
+            ::astia::proc::syscalls::sigtimedwait_descriptor,
+            ::astia::sys::syscalls::clock_getres_descriptor,
+            ::astia::proc::syscalls::thread_getattr_descriptor,
+            ::astia::proc::syscalls::msync_descriptor,
+            ::astia::proc::syscalls::lseek_descriptor,
+            ::astia::proc::syscalls::umask_descriptor,
+            ::astia::proc::syscalls::shm_open_descriptor,
+            ::astia::proc::syscalls::shm_unlink_descriptor,
+            ::astia::proc::syscalls::fchdir_descriptor};
     } // namespace production
-
     namespace net {
-        using handler_set = type_list<::astia::net::syscall_handlers::accept_syscall,
-                                      ::astia::net::syscall_handlers::bind_syscall,
-                                      ::astia::net::syscall_handlers::connect_syscall,
-                                      ::astia::net::syscall_handlers::getsockopt_syscall,
-                                      ::astia::net::syscall_handlers::listen_syscall,
-                                      ::astia::net::syscall_handlers::recv_syscall,
-                                      ::astia::net::syscall_handlers::recvfrom_syscall,
-                                      ::astia::net::syscall_handlers::send_syscall,
-                                      ::astia::net::syscall_handlers::sendto_syscall,
-                                      ::astia::net::syscall_handlers::shutdown_syscall,
-                                      ::astia::net::syscall_handlers::socket_syscall,
-                                      ::astia::net::syscall_handlers::socketpair_syscall>;
-
+        inline const syscall_descriptor descriptors[] = {
+            ::astia::net::syscalls::accept_descriptor,
+            ::astia::net::syscalls::bind_descriptor,
+            ::astia::net::syscalls::connect_descriptor,
+            ::astia::net::syscalls::getsockopt_descriptor,
+            ::astia::net::syscalls::listen_descriptor,
+            ::astia::net::syscalls::recv_descriptor,
+            ::astia::net::syscalls::recvfrom_descriptor,
+            ::astia::net::syscalls::send_descriptor,
+            ::astia::net::syscalls::sendto_descriptor,
+            ::astia::net::syscalls::shutdown_descriptor,
+            ::astia::net::syscalls::socket_descriptor,
+            ::astia::net::syscalls::socketpair_descriptor};
     } // namespace net
 } // namespace astia::sys

@@ -11,14 +11,3 @@ namespace astia::fs::syscall {
     /// it changes only the in-memory VFS namespace and never opens a host path.
     long mount(u64 type, u64 target, u64 source);
 }
-
-namespace astia::fs::syscall_handlers {
-
-    struct mount_syscall : sys::syscall_handler<mount_syscall, sys::syscall_id::mount,
-                                                sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
-        }
-    };
-
-} // namespace astia::fs::syscall_handlers

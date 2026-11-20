@@ -25,14 +25,3 @@ namespace astia::proc::syscall {
     i64 kill(i32 pid_raw, i32 signal_raw);
 
 } // namespace astia::proc::syscall
-
-namespace astia::proc::syscall_handlers {
-
-    struct kill_syscall : sys::syscall_handler<kill_syscall, sys::syscall_id::kill,
-                                               sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
-        }
-    };
-
-} // namespace astia::proc::syscall_handlers
