@@ -1,8 +1,8 @@
 #pragma once
 
-#include "aio_ring.hpp"
+#include "ring.hpp"
 
-namespace astia::sys::aio_filesystem {
+namespace astia::io::aio::filesystem {
 
     constexpr bool handles(u32 op) {
         switch (op) {
@@ -27,6 +27,6 @@ namespace astia::sys::aio_filesystem {
         }
     }
 
-    bool dispatch(aio_ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
+    bool dispatch(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
 
-} // namespace astia::sys::aio_filesystem
+} // namespace astia::io::aio::filesystem

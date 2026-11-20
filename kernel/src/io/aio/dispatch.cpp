@@ -1,4 +1,4 @@
-#include "aio_dispatch.hpp"
+#include "dispatch.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/api/termios.h>
@@ -11,21 +11,20 @@
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/share.hpp>
 
-#include "../fs/mapping.hpp"
-#include "../ipc/unix_socket.hpp"
-#include "../proc/mapping.hpp"
-#include "aio_filesystem.hpp"
-#include "aio_readiness.hpp"
-#include "aio_socket.hpp"
-#include "proc.hpp"
-#include "time.hpp"
-#include "user_mem.hpp"
+#include "../../fs/mapping.hpp"
+#include "../../ipc/unix_socket.hpp"
+#include "../../proc/mapping.hpp"
+#include "../../proc/proc.hpp"
+#include "filesystem.hpp"
+#include "memory.hpp"
+#include "readiness.hpp"
+#include "socket.hpp"
 
 void* operator new(astia::usize size, void* where) noexcept;
 
-namespace astia::sys::aio_dispatch {
+namespace astia::io::aio::dispatch {
 
-    using namespace aio_ring;
+    using namespace ring;
 
     namespace detail {
         u64 next_request_generation = 1;
@@ -39,7 +38,7 @@ namespace astia::sys::aio_dispatch {
 
         void wake_request(void* context) {
             if (context != nullptr)
-                sys::io_device_ready_context(static_cast<io_device*>(context));
+                io_device_ready_context(static_cast<io_device*>(context));
         }
 
         class eventfd_file final : public fs::file {
@@ -58,7 +57,7 @@ namespace astia::sys::aio_dispatch {
                 if (value == 0)
                     return 0;
                 *static_cast<u64*>(buffer) = value;
-                sys::io_device_ready_context(this);
+                io_device_ready_context(this);
                 return sizeof(u64);
             }
 
@@ -74,7 +73,7 @@ namespace astia::sys::aio_dispatch {
                         return nonblock_ ? -EAGAIN : 0;
                     if (__atomic_compare_exchange_n(&value_, &old, old + add, false,
                                                     __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
-                        sys::io_device_ready_context(this);
+                        io_device_ready_context(this);
                         return sizeof(u64);
                     }
                 }
@@ -89,10 +88,10 @@ namespace astia::sys::aio_dispatch {
                 return ready & events;
             }
 
-            long submit(io::request& request) override {
+            long submit(::astia::io::request& request) override {
                 if (request.length() != sizeof(u64))
                     return -EINVAL;
-                const long result = request.direction() == io::direction::input
+                const long result = request.direction() == ::astia::io::direction::input
                                         ? read(request.buffer(), request.length(), 0)
                                         : write(request.buffer(), request.length(), 0);
                 if (result == 0 && nonblock_)
@@ -198,7 +197,7 @@ namespace astia::sys::aio_dispatch {
                 const u64 now = poll_now_ns();
                 const u64 remaining =
                     now >= op.sleep_deadline ? 0 : op.sleep_deadline - now;
-                if (!sys::copy_out_for(
+                if (!memory::copy_out_for(
                         owner, span<u8>::bytes(op.sleep_remaining_user, sizeof remaining),
                         &remaining))
                     result = -EFAULT;
@@ -248,7 +247,7 @@ namespace astia::sys::aio_dispatch {
         /// but the engine may call it once per entry, so an operation that
         /// spans several entries never forces a device to learn a cursor.
         /// A 0 that is not a park is a node finishing with nothing to move
-        /// (see io::request::complete); `result` is the operation's answer
+        /// (see ::astia::io::request::complete); `result` is the operation's answer
         /// once it completes — bytes moved, or -errno — and is untouched
         /// while it is parked.
         ///
@@ -340,11 +339,11 @@ namespace astia::sys::aio_dispatch {
                 astia_sockaddr address{};
                 const auto*    socket = op.object->node()->unix_socket_capability();
                 const auto     destination =
-                    sys::user_ptr<astia_sockaddr>(op.recvfrom_address_user)
+                    memory::user_ptr<astia_sockaddr>(op.recvfrom_address_user)
                         .validate_for(owner);
                 if (socket == nullptr || !socket->recvfrom_address(*op.object, address) ||
                     !destination ||
-                    !sys::copy_out_for(owner, destination.value.bytes(), &address))
+                    !memory::copy_out_for(owner, destination.value.bytes(), &address))
                     result = -EFAULT;
             }
         }
@@ -379,8 +378,9 @@ namespace astia::sys::aio_dispatch {
         /// consumed.
         bool submit_request(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
                             const mm::shptr<fs::open_file>& object,
-                            const span<u8>* entries, u32 count, io::direction direction,
-                            bool control = false, bool socket_accept = false) {
+                            const span<u8>* entries, u32 count,
+                            ::astia::io::direction direction, bool control = false,
+                            bool socket_accept = false) {
             parked_op* p          = nullptr;
             u32        park_index = 0;
             for (u32 i = 0; i < parked_operation_slots; ++i) {
@@ -420,8 +420,8 @@ namespace astia::sys::aio_dispatch {
             // device is working on.
             for (u32 i = 0; i < count; ++i) {
                 const long pinned =
-                    sys::pin_user_span_for(slot.owner.get(), entries[i], direction,
-                                           p->entries, slot.kernel_buffers);
+                    memory::pin_user_span_for(slot.owner.get(), entries[i], direction,
+                                              p->entries, slot.kernel_buffers);
                 if (pinned < 0) {
                     // A failed submission keeps nothing: release whatever the
                     // earlier entries had already taken, so a refused readv()
@@ -443,9 +443,9 @@ namespace astia::sys::aio_dispatch {
             // folds in the caller's byte offset inside the first page, so the
             // device works on the range the SQE named rather than on the page
             // it happens to sit on.
-            p->operation = new io::operation(p->entries.window(),
-                                             static_cast<u32>(p->entries.chunk()),
-                                             s.offset, s.user_data, direction);
+            p->operation = new ::astia::io::operation(
+                p->entries.window(), static_cast<u32>(p->entries.chunk()), s.offset,
+                s.user_data, direction);
             if (p->operation == nullptr) {
                 p->type = parked_op::kind::oom_completion;
                 if (cq_post(ring, s.user_data, -ENOMEM))
@@ -605,15 +605,16 @@ namespace astia::sys::aio_dispatch {
             if (!object) {
                 return context.complete(-EBADF);
             }
-            const io::direction direction =
+            const ::astia::io::direction direction =
                 (s.op == OP_READ || s.op == OP_RECV || s.op == OP_READV)
-                    ? io::direction::input
-                    : io::direction::output;
+                    ? ::astia::io::direction::input
+                    : ::astia::io::direction::output;
             const u32 access = object->flags() & fs::open_file_access_mask;
-            if ((direction == io::direction::output && access == 0 &&
+            if ((direction == ::astia::io::direction::output && access == 0 &&
                  (object->flags() & fs::pipe_write_endpoint_flag) == 0 &&
                  object->mode().is_regular()) ||
-                (direction == io::direction::input && access == ASTIA_AIO_O_WRONLY))
+                (direction == ::astia::io::direction::input &&
+                 access == ASTIA_AIO_O_WRONLY))
                 return context.complete(-EBADF);
             // READ/WRITE name one range, READV/WRITEV up to max_segments of
             // them.  Both become the same list, so the engine has one path
@@ -634,7 +635,7 @@ namespace astia::sys::aio_dispatch {
                 }
                 astia_iovec raw[mm::iovec::max_segments];
                 if (s.length != 0 &&
-                    !sys::copy_in(
+                    !memory::copy_in(
                         raw, span<u8>::bytes(s.address, static_cast<usize>(s.length) *
                                                             sizeof(astia_iovec)))) {
                     return context.complete(-EFAULT);
@@ -657,9 +658,9 @@ namespace astia::sys::aio_dispatch {
             usize total = 0;
             for (u32 i = 0; i < count; ++i) {
                 const bool kernel_buffer =
-                    context.slot.kernel_buffers && sys::kernel_span_ok(ranges[i]);
+                    context.slot.kernel_buffers && memory::kernel_span_ok(ranges[i]);
                 if (!kernel_buffer &&
-                    !sys::user_span_ok_for(context.slot.owner.get(), ranges[i])) {
+                    !memory::user_span_ok_for(context.slot.owner.get(), ranges[i])) {
                     return context.complete(-EFAULT);
                 }
                 if (ranges[i].length() > max_operation_bytes ||
@@ -836,7 +837,7 @@ namespace astia::sys::aio_dispatch {
             else {
                 return cq_post_guarded(ring, s.user_data, -ENOTTY);
             }
-            const auto argument = sys::user_ptr<u8>(s.address).validate(expected);
+            const auto argument = memory::user_ptr<u8>(s.address).validate(expected);
             if (s.length != expected || !argument)
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             mm::shptr<fs::open_file> object = file_for(s.fd);
@@ -844,7 +845,7 @@ namespace astia::sys::aio_dispatch {
                 return cq_post_guarded(ring, s.user_data, -EBADF);
             __atomic_thread_fence(__ATOMIC_SEQ_CST);
             alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
-            if (input && !sys::copy_in(ioctl_storage, argument.value.bytes(expected)))
+            if (input && !memory::copy_in(ioctl_storage, argument.value.bytes(expected)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             void* kernel_arg =
                 expected == 0 ? nullptr : static_cast<void*>(ioctl_storage);
@@ -852,7 +853,7 @@ namespace astia::sys::aio_dispatch {
             if (rc >= 0 && s.offset == TIOCSCTTY)
                 rc = proc::acquire_controlling_terminal(object);
             if (rc >= 0 && output &&
-                !sys::copy_out(argument.value.bytes(expected), ioctl_storage))
+                !memory::copy_out(argument.value.bytes(expected), ioctl_storage))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             __atomic_thread_fence(__ATOMIC_SEQ_CST);
             return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
@@ -895,10 +896,10 @@ namespace astia::sys::aio_dispatch {
         }
 
         bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            if (aio_filesystem::handles(s.op))
-                return aio_filesystem::dispatch(slot, ring, s);
-            if (aio_socket::handles(s.op))
-                return aio_socket::dispatch(slot, ring, s);
+            if (filesystem::handles(s.op))
+                return filesystem::dispatch(slot, ring, s);
+            if (socket::handles(s.op))
+                return socket::dispatch(slot, ring, s);
             switch (s.op) {
             case OP_NOP:
                 return cq_post_guarded(ring, s.user_data, 0);
@@ -926,10 +927,10 @@ namespace astia::sys::aio_dispatch {
                 return handle_ioctl(slot, ring, s);
 
             case OP_POLL_ADD:
-                return aio_readiness::dispatch(slot, ring, s, file_for(s.fd));
+                return readiness::dispatch(slot, ring, s, file_for(s.fd));
 
             case OP_SLEEP:
-                return aio_readiness::dispatch(slot, ring, s, {});
+                return readiness::dispatch(slot, ring, s, {});
 
             case OP_EVENTFD_CREATE:
                 return handle_eventfd_create(ring, s);
@@ -960,11 +961,11 @@ namespace astia::sys::aio_dispatch {
         return detail::parent_writable(current, path);
     }
 
-    bool submit_socket_request(aio_ring::ring_slot& slot, astia_rings* ring,
+    bool submit_socket_request(ring::ring_slot& slot, astia_rings* ring,
                                const astia_sqe&                sqe,
                                const mm::shptr<fs::open_file>& object,
                                const span<u8>* entries, u32 count,
-                               io::direction direction, bool control,
+                               ::astia::io::direction direction, bool control,
                                bool socket_accept) {
         return detail::submit_request(slot, ring, sqe, object, entries, count, direction,
                                       control, socket_accept);
@@ -991,4 +992,4 @@ namespace astia::sys::aio_dispatch {
         return detail::poll_now_ns();
     }
 
-} // namespace astia::sys::aio_dispatch
+} // namespace astia::io::aio::dispatch
