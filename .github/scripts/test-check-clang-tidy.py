@@ -65,6 +65,8 @@ if os.environ.get("FAIL_HEADER") == "1" and "header.hpp" in line_filter:
     raise SystemExit(1)
 if os.environ.get("INVALID_OUTPUT") == "1":
     sys.stdout.buffer.write(b"\\xff")
+if os.environ.get("SKIP_OUTPUT") == "1":
+    print("Skipping source.cpp: Compile command not found.")
 """, encoding="utf-8")
     path.chmod(0o755)
     return path
@@ -188,6 +190,8 @@ def test_empty_diff_smoke_and_errors():
     result = check(repo, build, head, head, repo / "missing-tidy")
     assert result.returncode == 1, result.stdout
     result = check(repo, build, head, head, tidy, {"INVALID_OUTPUT": "1"})
+    assert result.returncode == 1, result.stdout
+    result = check(repo, build, head, head, tidy, {"SKIP_OUTPUT": "1"})
     assert result.returncode == 1, result.stdout
 
 
