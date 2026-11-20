@@ -1,0 +1,115 @@
+name: Clang static analysis
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clang-tidy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clang-tidy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      LLVM_VERSION: "18"
+      CLANG_TIDY_TIMEOUT: "120"
+      CLANG_TIDY_JOBS: "2"
+    steps:
+      - name: Check out merge/source tree
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Install pinned Clang tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            clang-${LLVM_VERSION} \
+            clang-tidy-${LLVM_VERSION} \
+            cmake \
+            ninja-build \
+            python3
+          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
+          clang-${LLVM_VERSION} --version
+          clang-tidy-${LLVM_VERSION} --version
+          test "$(clang-tidy-${LLVM_VERSION} --version | sed -n 's/.*LLVM version \([0-9]*\).*/\1/p')" = "${LLVM_VERSION}"
+
+      - name: Load trusted checker and config from base
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/clang-tidy-trusted"
+          git show "${BASE_SHA}:.github/scripts/check-clang-tidy.py" \
+            > "$RUNNER_TEMP/clang-tidy-trusted/check-clang-tidy.py"
+          git show "${BASE_SHA}:.github/scripts/clang-tidy-config.yml" \
+            > "$RUNNER_TEMP/clang-tidy-trusted/clang-tidy-config.yml"
+          test -s "$RUNNER_TEMP/clang-tidy-trusted/check-clang-tidy.py"
+          test -s "$RUNNER_TEMP/clang-tidy-trusted/clang-tidy-config.yml"
+          python3 -m py_compile \
+            "$RUNNER_TEMP/clang-tidy-trusted/check-clang-tidy.py"
+
+      - name: Configure source compilation database
+        run: |
+          set -euo pipefail
+          rm -rf build-clang-tidy
+          mkdir -p build-clang-tidy
+          cmake -S . -B build-clang-tidy -G Ninja \
+            -DARCH=x86_64 \
+            -DPLATFORM=virt \
+            -DBOOT=virt \
+            -DASTIA_BUILD_TESTS=ON \
+            -DASTIA_CROSS_USERSPACE=OFF \
+            -DASTIA_ENABLE_EXTERNAL_TESTS=OFF \
+            -DASTIA_ENABLE_MANUAL_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang-${LLVM_VERSION} \
+            -DCMAKE_CXX_COMPILER=clang++-${LLVM_VERSION} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            2>&1 | tee build-clang-tidy/configure.log
+
+      - name: Build all supported source targets
+        run: |
+          set -euo pipefail
+          cmake --build build-clang-tidy --parallel 2 \
+            2>&1 | tee build-clang-tidy/build.log
+
+      - name: Analyze changed source lines
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before || github.sha }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.event.after || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/clang-tidy-trusted/check-clang-tidy.py" \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --root . \
+            --build build-clang-tidy \
+            --clang-tidy "clang-tidy-${LLVM_VERSION}" \
+            --jobs "$CLANG_TIDY_JOBS" \
+            --timeout "$CLANG_TIDY_TIMEOUT" \
+            2>&1 | tee build-clang-tidy/clang-tidy.log
+
+      - name: Upload analysis logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: clang-tidy-logs
+          if-no-files-found: warn
+          path: |
+            build-clang-tidy/configure.log
+            build-clang-tidy/build.log
+            build-clang-tidy/clang-tidy.log
