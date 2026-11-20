@@ -1,7 +1,9 @@
 #pragma once
 
+#include <astia/api/errno.h>
 #include <astia/arch/context.hpp>
 #include <astia/common.hpp>
+#include <astia/core/completion.hpp>
 #include <astia/resource_limits.hpp>
 
 namespace astia::sys {
@@ -100,8 +102,41 @@ namespace astia::sys {
     /// The shape that one handler has: the image itself, no registers.
     using syscall_image_handler = i64 (*)(const arch::syscall_frame& frame);
     using syscall_exit_hook     = void (*)(arch::syscall_frame& frame, i64 result);
+    struct operation_id {
+        u64 value;
+    };
+
+    struct syscall_user_data {
+        u64 value;
+    };
+
+    struct syscall_context {
+        syscall_id                 id;
+        i64                        arguments[syscall_argument_count];
+        const arch::syscall_frame& frame;
+        operation_id               operation;
+        syscall_user_data          user_data;
+    };
+
+    using async_syscall_handler = void (*)(syscall_context&       context,
+                                           core::completion<i64>& completion);
+
+    struct syscall_descriptor {
+        syscall_id            id;
+        async_syscall_handler invoke;
+    };
 
     namespace detail {
+
+        template <typename T>
+        struct is_async_handler {
+            static constexpr bool value = false;
+        };
+
+        template <>
+        struct is_async_handler<async_syscall_handler> {
+            static constexpr bool value = true;
+        };
 
         /// One register, by position.  The adapter walks 0..arity-1 of
         /// these, so a handler's parameters are the prefix of the ABI's
@@ -200,38 +235,27 @@ namespace astia::sys {
 
     bool register_exit_hook(syscall_exit_hook hook);
 
-    /// Register a handler written with only the arguments it uses, in ABI
-    /// order and of the types it means:
-    ///
-    ///     i64 sys_waitpid(i32 pid, u64 status_ptr);
-    ///     i64 sys_getpid();
-    ///
-    /// A handler that cannot say what it needs in six registers takes the
-    /// trap image itself, and is stored as it is:
-    ///
-    ///     i64 sys_fork(const arch::syscall_frame& frame);
-    ///
-    /// Either way the handler is a template argument and the id is not, so
-    /// the adapter is a distinct function per handler and the table keeps
-    /// storing plain function pointers.  A handler that asks for more than
-    /// the six ABI registers, or that is not a function at all, is a
-    /// compile error here rather than a bad call at the first trap.
-    template <auto handler>
+    template <auto function>
     bool register_syscall(syscall_id id) {
-        static_assert(detail::arity<decltype(handler)>::value <= syscall_argument_count,
-                      "a syscall handler sees the six ABI registers: name at most six "
-                      "parameters, in the order the ABI passes them");
-        return detail::register_abi(id, &detail::widened<handler>::call);
+        static_assert(detail::arity<decltype(function)>::value <= syscall_argument_count,
+                      "a syscall handler must use no more than the six ABI arguments");
+        return detail::register_abi(id, &detail::widened<function>::call);
     }
 
     template <typename Derived, syscall_id Id>
     struct handler {
+        using syscall_descriptor_marker = void;
+
         static constexpr syscall_id id = Id;
 
-        static i64 dispatch(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
-                            const arch::syscall_frame& frame) {
-            return detail::widened<&Derived::invoke>::call(a0, a1, a2, a3, a4, a5, frame);
+        static void thunk(syscall_context& context, core::completion<i64>& completion) {
+            static_assert(
+                detail::is_async_handler<decltype(&Derived::invoke)>::value,
+                "syscall handler invoke must be async and accept context/completion");
+            Derived::invoke(context, completion);
         }
+
+        static constexpr syscall_descriptor descriptor{Id, &thunk};
     };
 
     namespace detail {
@@ -254,19 +278,58 @@ namespace astia::sys {
             return true;
         }
 
+        template <typename Descriptor, typename = void>
+        struct valid_descriptor_interface {
+            static constexpr bool value = false;
+        };
+
+        template <typename Descriptor>
+        struct valid_descriptor_interface<
+            Descriptor,
+            decltype((void) typename Descriptor::syscall_descriptor_marker{},
+                     (void) Descriptor::descriptor, (void) Descriptor::descriptor.invoke,
+                     (void) &Descriptor::invoke)> {
+            static constexpr bool value =
+                is_async_handler<decltype(&Descriptor::invoke)>::value;
+        };
+
+    } // namespace detail
+
+    namespace detail {
+
+        template <typename Descriptor>
+        bool dispatch_descriptor(syscall_id id, syscall_context& context,
+                                 core::completion<i64>& completion) {
+            if (Descriptor::descriptor.id != id)
+                return false;
+            Descriptor::descriptor.invoke(context, completion);
+            return true;
+        }
+
         template <typename... Descriptors>
-        bool register_descriptor_set() {
-            return (register_abi(Descriptors::id, &Descriptors::dispatch) && ...);
+        bool dispatch_descriptors(syscall_id id, syscall_context& context,
+                                  core::completion<i64>& completion) {
+            bool dispatched = false;
+            ((dispatched = dispatched ||
+                           dispatch_descriptor<Descriptors>(id, context, completion)),
+             ...);
+            return dispatched;
         }
 
     } // namespace detail
 
     template <typename... Descriptors>
-    bool register_syscall_set() {
+    bool dispatch_async(syscall_id id, syscall_context& context,
+                        core::completion<i64>& completion) {
         static_assert(
             detail::valid_descriptor_ids<Descriptors...>(),
             "syscall descriptor IDs must be unique and within ABI table capacity");
-        return detail::register_descriptor_set<Descriptors...>();
+        static_assert((detail::valid_descriptor_interface<Descriptors>::value && ...),
+                      "syscall descriptors must expose a CRTP handler interface");
+        if (detail::dispatch_descriptors<Descriptors...>(id, context, completion))
+            return true;
+        completion.complete(-ENOSYS);
+        return false;
     }
 
     /// Dispatch a system call: the number the caller trapped with, the six
