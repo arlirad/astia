@@ -11,6 +11,7 @@ namespace {
         synchronous_short,
         synchronous_error,
         parked_zero,
+        parked_completion_first,
     };
 
     submit_mode submit_mode_state = submit_mode::synchronous_zero;
@@ -174,6 +175,29 @@ ASTIA_TEST(fs_async_cancels_parked_device_flight) {
     ASTIA_CHECK(completion->complete(17));
     ASTIA_CHECK(!completion->complete(18));
     request->acknowledge();
+}
+
+ASTIA_TEST(fs_async_completion_first_keeps_parked_request_stable) {
+    astia::fs::open_file file({}, astia::fs::open_file_status_flags::none);
+    auto                 handle = astia::mm::shptr<astia::fs::open_file>::borrowed(&file);
+    astia::u8            buffer[4]{};
+    submit_mode_state = submit_mode::parked_completion_first;
+    parked_completion = nullptr;
+    parked_request    = nullptr;
+
+    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+    ASTIA_CHECK(parked_request != nullptr);
+    ASTIA_CHECK(parked_request->begin_device());
+    buffer[0] = 0xa5;
+    parked_request->end_device();
+    ASTIA_CHECK(parked_completion->complete(4));
+    parked_request->acknowledge();
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(task.value() != nullptr && *task.value() == 4);
+    ASTIA_CHECK(buffer[0] == 0xa5);
 }
 
 ASTIA_TEST(fs_sync_rejects_missing_file) {
