@@ -36,7 +36,7 @@ UNSUPPORTED_FILES = {
 CONFIG = pathlib.Path(__file__).with_name("clang-tidy-config.yml").resolve()
 HEADER_FILTER = r"(^|/)kernel/(include|src|tests)/"
 SKIPPED_COMPILE_COMMAND = re.compile(
-    r"(?m)^Skipping .+: Compile command not found\.$"
+    r"(?ms)^Skipping .*?: Compile command not found\.$"
 )
 
 
