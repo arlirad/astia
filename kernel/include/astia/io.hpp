@@ -36,8 +36,10 @@
 // A backend must not complete the associated completion until its DMA or
 // other access to request.buffer() has quiesced. It may publish completion
 // before request.acknowledge(), but must still finish the request's device
-// transition; the owner reference keeps the request storage alive until
-// both sides release it.
+// transition. After cancellation, end_device() is terminal: the backend
+// calls it only after quiescing and it releases the device reference.
+// A backend may acknowledge before end_device(); it must not touch the
+// request after end_device() releases the final device reference.
 //
 // Nothing here blocks.  A device that parks is resumed from IRQ context; a
 // device whose work depends on something else (a filesystem waiting on a
@@ -435,6 +437,22 @@ namespace astia::io {
 
         void end_device() {
             u8 expected = static_cast<u8>(state::active);
+            if (request_ref().cancellation_requested()) {
+                if (__atomic_compare_exchange_n(&_state, &expected,
+                                                static_cast<u8>(state::completed), false,
+                                                __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) {
+                    release_ref();
+                    return;
+                }
+                if (expected == static_cast<u8>(state::active_completed)) {
+                    u8 completed = static_cast<u8>(state::active_completed);
+                    if (__atomic_compare_exchange_n(
+                            &_state, &completed, static_cast<u8>(state::completed), false,
+                            __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+                        release_ref();
+                    return;
+                }
+            }
             if (__atomic_compare_exchange_n(&_state, &expected,
                                             static_cast<u8>(state::parked), false,
                                             __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
