@@ -1,8 +1,9 @@
 #pragma once
 
-#include "user_mem.hpp"
 #include <astia/arch/layout.hpp>
 #include <astia/proc/user_layout.hpp>
+
+#include "user_mem.hpp"
 
 namespace astia::proc::syscall {
 

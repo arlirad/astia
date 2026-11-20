@@ -4,7 +4,11 @@
 #include <astia/arch/context.hpp>
 #include <astia/common.hpp>
 #include <astia/core/completion.hpp>
+#include <astia/core/task.hpp>
+#include <astia/mapping.hpp>
 #include <astia/resource_limits.hpp>
+
+#include <type_traits>
 
 namespace astia::sys {
 
@@ -96,8 +100,8 @@ namespace astia::sys {
     /// child in the caller's own state and so needs more of the caller
     /// than the arguments say.  Nothing else pays for it: the registers
     /// stay registers for the other nineteen calls.
-    using syscall_handler = i64 (*)(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
-                                    const arch::syscall_frame& frame);
+    using legacy_syscall_handler = i64 (*)(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
+                                           const arch::syscall_frame& frame);
 
     /// The shape that one handler has: the image itself, no registers.
     using syscall_image_handler = i64 (*)(const arch::syscall_frame& frame);
@@ -120,6 +124,7 @@ namespace astia::sys {
 
     using async_syscall_handler = void (*)(syscall_context&       context,
                                            core::completion<i64>& completion);
+    using task_syscall_handler  = core::task<i64> (*)(syscall_context& context);
 
     struct syscall_descriptor {
         syscall_id            id;
@@ -229,7 +234,7 @@ namespace astia::sys {
         /// The table door: store a handler already in the table's form.
         /// register_syscall() is what callers use; this is what it hands
         /// the table.
-        bool register_abi(syscall_id id, syscall_handler handler);
+        bool register_abi(syscall_id id, legacy_syscall_handler handler);
 
     } // namespace detail
 
@@ -242,17 +247,89 @@ namespace astia::sys {
         return detail::register_abi(id, &detail::widened<function>::call);
     }
 
-    template <typename Derived, syscall_id Id>
+    enum class syscall_mode : u8 {
+        sync,
+        async,
+    };
+
+    template <class Impl, syscall_id Id, syscall_mode Mode>
+    struct syscall_handler;
+
+    template <typename Impl, syscall_id Id>
+    struct syscall_handler<Impl, Id, syscall_mode::sync> {
+        using syscall_descriptor_marker = void;
+
+        static constexpr syscall_id id = Id;
+        static void thunk(syscall_context& context, core::completion<i64>& completion) {
+            static_assert(
+                std::is_same_v<decltype(&Impl::invoke), i64 (*)(syscall_context&)>,
+                "sync syscall handlers must return i64 from invoke(syscall_context&)");
+            completion.complete(Impl::invoke(context));
+        }
+
+        static constexpr syscall_descriptor descriptor{Id, &thunk};
+    };
+
+    template <typename Impl, syscall_id Id>
+    struct syscall_handler<Impl, Id, syscall_mode::async> {
+        using syscall_descriptor_marker = void;
+
+        static constexpr syscall_id id = Id;
+        static void thunk(syscall_context& context, core::completion<i64>& completion) {
+            static_assert(std::is_same_v<decltype(&Impl::invoke), task_syscall_handler>,
+                          "async syscall handlers must return core::task<i64> from "
+                          "invoke(syscall_context&)");
+            auto operation = Impl::invoke(context);
+            if (!operation.valid()) {
+                completion.fail(operation.error());
+                return;
+            }
+            operation.resume();
+            if (!operation.done()) {
+                completion.cancel();
+                return;
+            }
+            if (operation.failed()) {
+                completion.fail(operation.error());
+                return;
+            }
+            completion.complete(*operation.value());
+        }
+
+        static constexpr syscall_descriptor descriptor{Id, &thunk};
+    };
+
+    template <typename Impl, syscall_id Id>
     struct handler {
         using syscall_descriptor_marker = void;
 
         static constexpr syscall_id id = Id;
 
         static void thunk(syscall_context& context, core::completion<i64>& completion) {
-            static_assert(
-                detail::is_async_handler<decltype(&Derived::invoke)>::value,
-                "syscall handler invoke must be async and accept context/completion");
-            Derived::invoke(context, completion);
+            if constexpr (detail::is_async_handler<decltype(&Impl::invoke)>::value) {
+                Impl::invoke(context, completion);
+            }
+            else {
+                static_assert(
+                    std::is_same_v<decltype(&Impl::invoke), task_syscall_handler>,
+                    "syscall handlers must return core::task<i64> or accept "
+                    "context and completion");
+                auto operation = Impl::invoke(context);
+                if (!operation.valid()) {
+                    completion.fail(operation.error());
+                    return;
+                }
+                operation.resume();
+                if (!operation.done()) {
+                    completion.cancel();
+                    return;
+                }
+                if (operation.failed()) {
+                    completion.fail(operation.error());
+                    return;
+                }
+                completion.complete(*operation.value());
+            }
         }
 
         static constexpr syscall_descriptor descriptor{Id, &thunk};
@@ -290,7 +367,9 @@ namespace astia::sys {
                      (void) Descriptor::descriptor, (void) Descriptor::descriptor.invoke,
                      (void) &Descriptor::invoke)> {
             static constexpr bool value =
-                is_async_handler<decltype(&Descriptor::invoke)>::value;
+                is_async_handler<decltype(&Descriptor::invoke)>::value ||
+                std::is_same_v<decltype(&Descriptor::invoke), task_syscall_handler> ||
+                std::is_same_v<decltype(&Descriptor::invoke), i64 (*)(syscall_context&)>;
         };
 
     } // namespace detail
@@ -338,5 +417,8 @@ namespace astia::sys {
     /// image travels for the one handler that reads it.
     i64 dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
                  const arch::syscall_frame& frame);
+
+    bool production_dispatch(syscall_context& context, i64& result);
+    i64  legacy_dispatch(const syscall_context& context);
 
 } // namespace astia::sys

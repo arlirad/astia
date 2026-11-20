@@ -1,31 +1,39 @@
-# Syscall handler dispatch prototype
+# Syscall handler dispatch
 
 The x86-64 entry owns register decoding and packs `syscall_frame`; the C
 boundary converts its stable public ABI number and argument registers into the
-architecture-independent dispatcher. A syscall handler derives from
-`sys::handler<Derived, Id>` to bind its compile-time signature to a public
-number; the CRTP thunk adapts its `invoke` method to the table's plain function
-pointer. A descriptor set rejects duplicate/out-of-range IDs at compile time,
-while the existing runtime table still rejects duplicate registration and
-returns `-ENOSYS` for unhandled numbers. The handler adapter converts ABI words
-to declared argument types and widens the result to the ABI return type.
+architecture-independent dispatcher. A handler derives from the mode-last
+template `sys::syscall_handler<Impl, syscall_id, syscall_mode>`. `sync`
+implementations return `i64`; `async` implementations return
+`core::task<i64>`. Separate CRTP specializations enforce these contracts at
+compile time, so dispatch contains no runtime mode branch. Descriptor sets
+reject duplicate and out-of-range IDs at compile time, while the existing
+runtime table still rejects duplicate registration and returns `-ENOSYS` for
+unhandled numbers.
 
-The isolated `kernel/tests/syscall_prototype/` tree contains one handler file
-for every public ABI syscall number. Files are grouped under their owning
-subsystem (`fs`, `mm`, `ipc`, `proc`, or `sys`) and each CRTP handler exposes a
-completion object with exactly-once completion and cancellation. The
-prototype registry only aggregates descriptors; it contains no syscall
-semantics. Its test verifies every public ID is registered and dispatched, and
-checks pending, complete, and cancel behavior.
+The production `kernel/src/` tree contains one handler file for every public
+ABI syscall number. Files are grouped under their owning subsystem (`fs`, `mm`,
+`ipc`, `proc`, or `sys`) and use explicit snake_case declarations, for example:
 
-These handlers are contract and layout examples; they return `-EINPROGRESS`
-and do not replace or modify production syscall registrations or behavior.
-Socket operation prototypes live under `net/syscalls/`, with private
-prototype-only IDs 70–81. They model the socket AIO opcodes; they do not add
-public syscall numbers or change the public ABI. Socket semantics belong to
-`net`; `fs` owns AIO ring submission and delegates I/O execution through the
-existing `io` boundary. There is intentionally no synchronous `read` syscall
-in the public ABI. If a compatibility `read` entry point is later required,
-its handler should validate user arguments and translate them into an `io`
-request through an owner-facing API; `sys` should not inspect or construct
-AIO ring internals.
+```cpp
+struct getpid_syscall
+    : sys::syscall_handler<getpid_syscall, sys::syscall_id::getpid,
+                           sys::syscall_mode::async> {
+    static core::task<i64> invoke(sys::syscall_context& context);
+};
+```
+
+`kernel/src/sys/handler_registry.hpp` enumerates all 70 public handlers.
+The dispatcher owns completion and cancellation exactly once, while existing
+subsystem implementations remain the behavior behind the adapter. The tests
+enumerate the complete registry and cover pending, complete, cancel,
+duplicate, range, unknown-ID, and ABI-preservation behavior.
+
+Socket operation handlers live under `kernel/src/net/syscalls/`, with private
+prototype-only descriptors 70–81. They model socket AIO opcodes; they do not
+add public syscall numbers or change the public ABI. Socket semantics belong
+to `net`; `fs` owns AIO ring submission and delegates I/O execution through
+the existing `io` boundary. There is intentionally no synchronous `read` or
+public `write` syscall. A future compatibility read entry point must validate
+user arguments and translate them into an `io` request through an owner-facing
+API; `sys` must not inspect or construct AIO ring internals.

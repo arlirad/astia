@@ -1,9 +1,10 @@
 #pragma once
 
-#include "../proc.hpp"
-#include "../scheduler.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/context.hpp>
+
+#include "../proc.hpp"
+#include "../scheduler.hpp"
 
 namespace astia::proc::syscall {
 

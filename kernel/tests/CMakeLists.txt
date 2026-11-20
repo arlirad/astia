@@ -7,6 +7,12 @@ set_property(DIRECTORY PROPERTY LINK_OPTIONS "")
 option(ASTIA_CROSS_USERSPACE "Use the Clang Astia sysroot for init_libc" OFF)
 include(${ASTIA_KERNEL_SOURCE_DIR}/../cmake/AstiaCTest.cmake)
 
+add_test(NAME astia_man_generator_layout
+        COMMAND ${Python3_EXECUTABLE}
+                ${ASTIA_KERNEL_SOURCE_DIR}/../tools/man/test_generate.py)
+set_tests_properties(astia_man_generator_layout PROPERTIES
+        LABELS "docs;deterministic")
+
 find_package(Threads REQUIRED)
 find_program(ASTIA_OBJDUMP NAMES llvm-objdump objdump REQUIRED)
 
@@ -127,13 +133,22 @@ target_compile_options(astia_time_test PRIVATE -ffunction-sections -fdata-sectio
 target_link_options(astia_time_test PRIVATE -Wl,--gc-sections)
 astia_add_host_test(astia_syscall_dispatch_test
         syscall_dispatch_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/handler_registry.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
 astia_add_host_test(astia_syscall_handler_prototype_test
         syscall_handler_prototype_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/handler_registry.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
 astia_add_host_test(astia_net_syscall_prototype_test
         net_syscall_prototype_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/handler_registry.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
 astia_add_host_test(astia_console_test
         console_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)

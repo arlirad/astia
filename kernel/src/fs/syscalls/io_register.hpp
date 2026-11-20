@@ -1,5 +1,8 @@
 #pragma once
+
 #include <astia/common.hpp>
+
+#include <syscall.hpp>
 namespace astia::fs::syscall {
     /// io_register - Register asynchronous I/O resources.
     ///
@@ -29,3 +32,15 @@ namespace astia::fs::syscall {
     ///     validated because the handler returns -ENOSYS before using them.
     i64 io_register();
 }
+
+namespace astia::fs::syscall_handlers {
+
+    struct io_register_syscall
+        : sys::syscall_handler<io_register_syscall, sys::syscall_id::io_register,
+                               sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_context& context) {
+            co_return sys::legacy_dispatch(context);
+        }
+    };
+
+} // namespace astia::fs::syscall_handlers

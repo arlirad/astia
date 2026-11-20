@@ -14,12 +14,18 @@ kernel/src/proc/syscalls/<name>.hpp
 kernel/src/fs/syscalls/<name>.cpp
 kernel/src/fs/syscalls/<name>.hpp
 kernel/src/ipc/syscalls/<name>.cpp
+kernel/src/mm/syscalls/<name>.hpp
+kernel/src/net/syscalls/<name>.hpp
 kernel/src/sys/syscalls/<name>.cpp
+kernel/src/sys/syscalls/<name>.hpp
 ```
 
 The implementation file owns the behavior. The header owns the public
-kernel-side prototype and the man-page comment. The dispatcher only registers
-the handler; it must not duplicate the documentation.
+kernel-side prototype, CRTP handler, and man-page comment. Handler-only headers
+are valid when behavior is implemented in an existing subsystem source; they
+retain the same subsystem `syscalls/` path so documentation grouping and links
+remain stable. The dispatcher only registers the handler; it must not duplicate
+the documentation.
 
 ## Required man-page sections
 

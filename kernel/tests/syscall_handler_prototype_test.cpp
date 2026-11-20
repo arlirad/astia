@@ -1,83 +1,115 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 
+#include "handler_registry.hpp"
 #include "support/test.hpp"
 #include "syscall.hpp"
-#include "syscall_prototype/registry.hpp"
 
 namespace {
-    template <typename List>
-    struct dispatch_list;
-
-    template <typename... Handlers>
-    struct dispatch_list<astia::sys::prototype::type_list<Handlers...>> {
-        static bool run(astia::sys::syscall_id id, astia::sys::syscall_context& context,
-                        astia::core::completion<astia::i64>& completion) {
-            return astia::sys::dispatch_async<Handlers...>(id, context, completion);
+    struct sync_probe
+        : astia::sys::syscall_handler<sync_probe,
+                                      static_cast<astia::sys::syscall_id>(126),
+                                      astia::sys::syscall_mode::sync> {
+        static astia::i64 invoke(astia::sys::syscall_context& context) {
+            return context.arguments[0] + 1;
         }
     };
 
-    constexpr astia::sys::syscall_id public_ids[] = {
-        static_cast<astia::sys::syscall_id>(0),  static_cast<astia::sys::syscall_id>(1),
-        static_cast<astia::sys::syscall_id>(2),  static_cast<astia::sys::syscall_id>(3),
-        static_cast<astia::sys::syscall_id>(4),  static_cast<astia::sys::syscall_id>(5),
-        static_cast<astia::sys::syscall_id>(6),  static_cast<astia::sys::syscall_id>(7),
-        static_cast<astia::sys::syscall_id>(8),  static_cast<astia::sys::syscall_id>(9),
-        static_cast<astia::sys::syscall_id>(10), static_cast<astia::sys::syscall_id>(11),
-        static_cast<astia::sys::syscall_id>(12), static_cast<astia::sys::syscall_id>(13),
-        static_cast<astia::sys::syscall_id>(14), static_cast<astia::sys::syscall_id>(15),
-        static_cast<astia::sys::syscall_id>(16), static_cast<astia::sys::syscall_id>(17),
-        static_cast<astia::sys::syscall_id>(18), static_cast<astia::sys::syscall_id>(19),
-        static_cast<astia::sys::syscall_id>(20), static_cast<astia::sys::syscall_id>(21),
-        static_cast<astia::sys::syscall_id>(22), static_cast<astia::sys::syscall_id>(23),
-        static_cast<astia::sys::syscall_id>(24), static_cast<astia::sys::syscall_id>(25),
-        static_cast<astia::sys::syscall_id>(26), static_cast<astia::sys::syscall_id>(27),
-        static_cast<astia::sys::syscall_id>(28), static_cast<astia::sys::syscall_id>(29),
-        static_cast<astia::sys::syscall_id>(30), static_cast<astia::sys::syscall_id>(31),
-        static_cast<astia::sys::syscall_id>(32), static_cast<astia::sys::syscall_id>(33),
-        static_cast<astia::sys::syscall_id>(34), static_cast<astia::sys::syscall_id>(35),
-        static_cast<astia::sys::syscall_id>(36), static_cast<astia::sys::syscall_id>(37),
-        static_cast<astia::sys::syscall_id>(38), static_cast<astia::sys::syscall_id>(39),
-        static_cast<astia::sys::syscall_id>(40), static_cast<astia::sys::syscall_id>(41),
-        static_cast<astia::sys::syscall_id>(42), static_cast<astia::sys::syscall_id>(43),
-        static_cast<astia::sys::syscall_id>(44), static_cast<astia::sys::syscall_id>(45),
-        static_cast<astia::sys::syscall_id>(46), static_cast<astia::sys::syscall_id>(47),
-        static_cast<astia::sys::syscall_id>(48), static_cast<astia::sys::syscall_id>(49),
-        static_cast<astia::sys::syscall_id>(50), static_cast<astia::sys::syscall_id>(51),
-        static_cast<astia::sys::syscall_id>(52), static_cast<astia::sys::syscall_id>(53),
-        static_cast<astia::sys::syscall_id>(54), static_cast<astia::sys::syscall_id>(55),
-        static_cast<astia::sys::syscall_id>(56), static_cast<astia::sys::syscall_id>(57),
-        static_cast<astia::sys::syscall_id>(58), static_cast<astia::sys::syscall_id>(59),
-        static_cast<astia::sys::syscall_id>(60), static_cast<astia::sys::syscall_id>(61),
-        static_cast<astia::sys::syscall_id>(62), static_cast<astia::sys::syscall_id>(63),
-        static_cast<astia::sys::syscall_id>(64), static_cast<astia::sys::syscall_id>(65),
-        static_cast<astia::sys::syscall_id>(66), static_cast<astia::sys::syscall_id>(67),
-        static_cast<astia::sys::syscall_id>(68), static_cast<astia::sys::syscall_id>(69)};
+    struct async_probe
+        : astia::sys::syscall_handler<async_probe,
+                                      static_cast<astia::sys::syscall_id>(127),
+                                      astia::sys::syscall_mode::async> {
+        static astia::core::task<astia::i64> invoke(astia::sys::syscall_context&) {
+            co_return 42;
+        }
+    };
+
+    struct duplicate_probe
+        : astia::sys::syscall_handler<duplicate_probe,
+                                      static_cast<astia::sys::syscall_id>(126),
+                                      astia::sys::syscall_mode::sync> {
+        static astia::i64 invoke(astia::sys::syscall_context&) {
+            return 0;
+        }
+    };
+
+    struct out_of_range_probe
+        : astia::sys::syscall_handler<out_of_range_probe,
+                                      static_cast<astia::sys::syscall_id>(
+                                          astia::sys::syscall_table_capacity),
+                                      astia::sys::syscall_mode::sync> {
+        static astia::i64 invoke(astia::sys::syscall_context&) {
+            return 0;
+        }
+    };
+
+    static_assert(astia::sys::detail::valid_descriptor_ids<sync_probe, async_probe>());
+    static_assert(
+        !astia::sys::detail::valid_descriptor_ids<sync_probe, duplicate_probe>());
+    static_assert(!astia::sys::detail::valid_descriptor_ids<out_of_range_probe>());
+
+    template <typename List>
+    struct dispatch_list;
+
+    template <typename... handlers>
+    struct dispatch_list<astia::sys::type_list<handlers...>> {
+        static bool run(astia::sys::syscall_id id, astia::sys::syscall_context& context,
+                        astia::core::completion<astia::i64>& completion) {
+            return astia::sys::dispatch_async<handlers...>(id, context, completion);
+        }
+    };
 }
 
-ASTIA_TEST(prototype_has_a_separate_async_handler_for_each_public_syscall_id) {
+ASTIA_TEST(production_has_a_separate_async_handler_for_each_public_syscall_id) {
     static_assert(static_cast<astia::u32>(astia::sys::syscall_id::getpid) == SYS_GETPID);
-    static_assert(static_cast<astia::u32>(astia::sys::syscall_id::io_submit) ==
-                  SYS_IO_SUBMIT);
     static_assert(static_cast<astia::u32>(astia::sys::syscall_id::fchdir) == SYS_FCHDIR);
     astia::arch::syscall_frame frame{};
-    for (const auto id : public_ids) {
-        astia::sys::syscall_context         context{id, {0, 0, 0, 0, 0, 0}, frame, 0, 0};
+    for (astia::u32 number = 0; number < 70; ++number) {
+        const auto                  id = static_cast<astia::sys::syscall_id>(number);
+        astia::sys::syscall_context context{id, {0, 0, 0, 0, 0, 0}, frame, {}, {}};
         astia::core::completion<astia::i64> completion;
-        ASTIA_CHECK(dispatch_list<astia::sys::prototype::handler_set>::run(id, context,
-                                                                           completion));
+        ASTIA_CHECK(dispatch_list<astia::sys::production::handler_set>::run(id, context,
+                                                                            completion));
         ASTIA_CHECK(completion.done());
-        const auto result = completion.await_resume();
-        ASTIA_CHECK(result && result.value == -EINPROGRESS);
+        ASTIA_CHECK(completion.await_resume().value == -ENOSYS);
     }
 }
 
-ASTIA_TEST(prototype_unknown_id_is_rejected_without_abi_extension) {
+ASTIA_TEST(production_unknown_id_is_rejected_without_abi_extension) {
     astia::arch::syscall_frame          frame{};
     const auto                          id = static_cast<astia::sys::syscall_id>(128);
-    astia::sys::syscall_context         context{id, {0, 0, 0, 0, 0, 0}, frame, 0, 0};
+    astia::sys::syscall_context         context{id, {0, 0, 0, 0, 0, 0}, frame, {}, {}};
     astia::core::completion<astia::i64> completion;
-    ASTIA_CHECK(
-        !dispatch_list<astia::sys::prototype::handler_set>::run(id, context, completion));
+    ASTIA_CHECK(!dispatch_list<astia::sys::production::handler_set>::run(id, context,
+                                                                         completion));
     ASTIA_CHECK(completion.await_resume().value == -ENOSYS);
+}
+
+ASTIA_TEST(production_completion_is_exactly_once) {
+    astia::core::completion<astia::i64> completed;
+    ASTIA_CHECK(completed.complete(7));
+    ASTIA_CHECK(!completed.complete(8));
+    ASTIA_CHECK(!completed.cancel());
+    ASTIA_CHECK(completed.await_resume().value == 7);
+
+    astia::core::completion<astia::i64> canceled;
+    ASTIA_CHECK(canceled.cancel());
+    ASTIA_CHECK(!canceled.cancel());
+    ASTIA_CHECK(!canceled.complete(9));
+    ASTIA_CHECK(canceled.done());
+}
+
+ASTIA_TEST(mode_specializations_dispatch_without_runtime_mode_selection) {
+    astia::arch::syscall_frame  frame{};
+    astia::sys::syscall_context context{
+        static_cast<astia::sys::syscall_id>(126), {6, 0, 0, 0, 0, 0}, frame, {}, {}};
+    astia::core::completion<astia::i64> sync_result;
+    ASTIA_CHECK(astia::sys::dispatch_async<sync_probe>(context.id, context, sync_result));
+    ASTIA_CHECK(sync_result.await_resume().value == 7);
+
+    context.id = static_cast<astia::sys::syscall_id>(127);
+    astia::core::completion<astia::i64> async_result;
+    ASTIA_CHECK(
+        astia::sys::dispatch_async<async_probe>(context.id, context, async_result));
+    ASTIA_CHECK(async_result.await_resume().value == 42);
 }
