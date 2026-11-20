@@ -1,12 +1,10 @@
-#include "aio_ring.hpp"
+#include "ring.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/memory.hpp>
 #include <astia/proc/user_layout.hpp>
 
-#include "user_mem.hpp"
-
-namespace astia::sys::aio_ring {
+namespace astia::io::aio::ring {
 
     static_assert(alignof(ring_slot) >= mm::page_size);
     static_assert(mapping_bytes <= sizeof(ring_slot::map));
@@ -385,7 +383,7 @@ namespace astia::sys::aio_ring {
                 }
                 visible = reinterpret_cast<astia_rings*>(user_address);
             }
-            if (!sys::copy_out(
+            if (!memory::copy_out(
                     span<u8>::bytes(reinterpret_cast<u64>(out), sizeof visible),
                     &visible)) {
                 unmap_ring_user(slot, owner);
@@ -434,4 +432,4 @@ namespace astia::sys::aio_ring {
         return 0;
     }
 
-} // namespace astia::sys::aio_ring
+} // namespace astia::io::aio::ring
