@@ -981,7 +981,6 @@ namespace {
                                              teardown_word(generation, teardown_claiming),
                                              false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
                 return;
-            __atomic_store_n(&_teardown_retry, false, __ATOMIC_RELEASE);
             unregister_nodes();
             for (astia::u32 i = 0; i < _file_count; ++i)
                 if (_files[i])
@@ -1063,14 +1062,16 @@ namespace {
         static constexpr astia::u64 teardown_claiming        = 1;
         static constexpr astia::u64 teardown_waiting         = 2;
         static constexpr astia::u64 teardown_complete        = 4;
-        static constexpr astia::u64 teardown_generation_mask = UINT64_MAX >> 3;
+        static constexpr astia::u64 teardown_retry           = 8;
+        static constexpr astia::u64 teardown_generation_mask = UINT64_MAX >> 4;
 
-        static astia::u64 teardown_word(astia::u64 generation, astia::u64 state) {
-            return (generation << 3) | state;
+        static astia::u64 teardown_word(astia::u64 generation, astia::u64 state,
+                                        bool retry = false) {
+            return (generation << 4) | state | (retry ? teardown_retry : 0);
         }
 
         static astia::u64 teardown_generation(astia::u64 token) {
-            return token >> 3;
+            return token >> 4;
         }
 
         static astia::u64 teardown_state(astia::u64 token) {
@@ -1089,20 +1090,43 @@ namespace {
         }
 
         void finish_remove(astia::u64 generation) {
-            astia::u64 expected = teardown_word(generation, teardown_waiting);
-            if (!__atomic_compare_exchange_n(&_teardown_token, &expected,
-                                             teardown_word(generation, 3), false,
-                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                if (expected == teardown_word(generation, 3))
-                    __atomic_store_n(&_teardown_retry, true, __ATOMIC_RELEASE);
-                return;
+            astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+            for (;;) {
+                if (teardown_generation(expected) != generation)
+                    return;
+                if (teardown_state(expected) == 3) {
+                    if ((expected & teardown_retry) != 0)
+                        return;
+                    const astia::u64 desired = expected | teardown_retry;
+                    if (__atomic_compare_exchange_n(&_teardown_token, &expected, desired,
+                                                    false, __ATOMIC_ACQ_REL,
+                                                    __ATOMIC_ACQUIRE))
+                        return;
+                    continue;
+                }
+                if (teardown_state(expected) != teardown_waiting)
+                    return;
+                if (__atomic_compare_exchange_n(&_teardown_token, &expected,
+                                                teardown_word(generation, 3), false,
+                                                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                    break;
             }
             if (!all_files_quiescent()) {
-                __atomic_store_n(&_teardown_token,
-                                 teardown_word(generation, teardown_waiting),
-                                 __ATOMIC_RELEASE);
-                if (__atomic_exchange_n(&_teardown_retry, false, __ATOMIC_ACQ_REL))
-                    finish_remove(generation);
+                astia::u64 observed = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+                for (;;) {
+                    if (teardown_generation(observed) != generation ||
+                        teardown_state(observed) != 3)
+                        return;
+                    const bool retry = (observed & teardown_retry) != 0;
+                    if (__atomic_compare_exchange_n(
+                            &_teardown_token, &observed,
+                            teardown_word(generation, teardown_waiting, retry), false,
+                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                        if (retry)
+                            finish_remove(generation);
+                        break;
+                    }
+                }
                 return;
             }
             device.stop();
@@ -1133,7 +1157,6 @@ namespace {
         astia::mm::shptr<astia::dev::device_file> _files[max_namespaces]{};
         astia::u32                                _file_count     = 0;
         volatile astia::u64                       _teardown_token = 0;
-        volatile bool                             _teardown_retry = false;
     };
 
     nvme_driver driver;
