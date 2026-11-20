@@ -13,13 +13,15 @@ namespace astia::dev {
                __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0;
     }
 
-    bool device_file::arm_quiescence_handler(quiescence_handler handler, void* context) {
+    bool device_file::arm_quiescence_handler(quiescence_handler handler, void* context,
+                                             u64 generation) {
         quiescence_handler callback         = nullptr;
         void*              callback_context = nullptr;
         {
             core::spinlock_guard guard(pending_lock_);
-            quiescence_handler_ = handler;
-            quiescence_context_ = context;
+            quiescence_handler_    = handler;
+            quiescence_context_    = context;
+            quiescence_generation_ = generation;
             if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE) &&
                 __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE) == 0 &&
                 __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0) {
@@ -30,13 +32,14 @@ namespace astia::dev {
             }
         }
         if (callback != nullptr)
-            callback(callback_context);
+            callback(callback_context, generation);
         return callback != nullptr;
     }
 
     void device_file::notify_quiescent() const {
-        quiescence_handler callback = nullptr;
-        void*              context  = nullptr;
+        quiescence_handler callback   = nullptr;
+        void*              context    = nullptr;
+        u64                generation = 0;
         {
             core::spinlock_guard guard(pending_lock_);
             if (!__atomic_load_n(&detached_, __ATOMIC_ACQUIRE) ||
@@ -45,11 +48,12 @@ namespace astia::dev {
                 return;
             callback            = quiescence_handler_;
             context             = quiescence_context_;
+            generation          = quiescence_generation_;
             quiescence_handler_ = nullptr;
             quiescence_context_ = nullptr;
         }
         if (callback != nullptr)
-            callback(context);
+            callback(context, generation);
     }
 
     void device_file::detach() {
