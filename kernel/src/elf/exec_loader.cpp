@@ -618,10 +618,10 @@ namespace astia::elf {
             const u64 destination = mapped_addr + (ph[i].p_vaddr - span_start);
             u64       copied      = 0;
             while (copied < ph[i].p_filesz) {
-                const u64   remaining = ph[i].p_filesz - copied;
-                const usize length    = remaining < stream_read_chunk_size
-                                            ? static_cast<usize>(remaining)
-                                            : stream_read_chunk_size;
+                const u64   remaining  = ph[i].p_filesz - copied;
+                const usize length     = remaining < stream_read_chunk_size
+                                             ? static_cast<usize>(remaining)
+                                             : stream_read_chunk_size;
                 i64         read_value = 0;
                 if (e.read_to != nullptr) {
                     auto read = co_await e.read_to(e.ctx, destination + copied, length,
