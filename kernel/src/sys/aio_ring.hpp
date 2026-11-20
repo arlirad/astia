@@ -1,7 +1,5 @@
 #pragma once
 
-#include "aio.hpp"
-#include "proc.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
@@ -10,6 +8,9 @@
 #include <astia/memory.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/share.hpp>
+
+#include "aio.hpp"
+#include "proc.hpp"
 
 namespace astia::sys::aio_ring {
 
@@ -53,7 +54,13 @@ namespace astia::sys::aio_ring {
     };
 
     struct parked_op {
+        enum class kind : u8 {
+            operation,
+            oom_completion,
+        };
+
         bool                     used;
+        kind                     type                  = kind::operation;
         bool                     done                  = false;
         bool                     resuming              = false;
         bool                     control               = false;
@@ -79,10 +86,43 @@ namespace astia::sys::aio_ring {
         i32                      fd;
         mm::shptr<fs::open_file> object;
         mm::iovec                entries;
-        io::request              request;
-        io::flight*              flight     = nullptr;
+        io::operation*           operation  = nullptr;
         u64                      generation = 0;
         usize                    moved      = 0;
+
+        void clear() {
+            if (operation != nullptr)
+                operation->release_owner();
+            operation             = nullptr;
+            used                  = false;
+            type                  = kind::operation;
+            done                  = false;
+            resuming              = false;
+            control               = false;
+            signal_interruptible  = false;
+            socket_accept         = false;
+            readiness             = false;
+            sleeping              = false;
+            timed                 = false;
+            poll_timed            = false;
+            sleep_absolute        = false;
+            sleep_ready           = false;
+            device_ready          = false;
+            poll_events           = 0;
+            sleep_deadline        = 0;
+            timeout_deadline      = 0;
+            poll_deadline         = 0;
+            sleep_remaining_user  = 0;
+            recvfrom_address      = false;
+            recvfrom_address_user = 0;
+            pending_cqe           = false;
+            pending_user_data     = 0;
+            pending_result        = 0;
+            fd                    = 0;
+            object                = {};
+            generation            = 0;
+            moved                 = 0;
+        }
     };
 
     struct parked_cleanup {
