@@ -6,6 +6,8 @@
 #include "syscall.hpp"
 
 namespace {
+    astia::core::completion<astia::i64>* pending_source = nullptr;
+
     struct sync_probe
         : astia::sys::syscall_handler<sync_probe,
                                       static_cast<astia::sys::syscall_id>(126),
@@ -21,6 +23,18 @@ namespace {
                                       astia::sys::syscall_mode::async> {
         static astia::core::task<astia::i64> invoke(astia::sys::syscall_context&) {
             co_return 42;
+        }
+    };
+
+    struct pending_async_probe
+        : astia::sys::syscall_handler<pending_async_probe,
+                                      static_cast<astia::sys::syscall_id>(125),
+                                      astia::sys::syscall_mode::async> {
+        static astia::core::task<astia::i64> invoke(astia::sys::syscall_context&) {
+            const auto result = co_await *pending_source;
+            if (result)
+                co_return result.value;
+            co_return -EINTR;
         }
     };
 
@@ -112,4 +126,20 @@ ASTIA_TEST(mode_specializations_dispatch_without_runtime_mode_selection) {
     ASTIA_CHECK(
         astia::sys::dispatch_async<async_probe>(context.id, context, async_result));
     ASTIA_CHECK(async_result.await_resume().value == 42);
+}
+
+ASTIA_TEST(async_adapter_cancels_pending_task_without_blocking) {
+    astia::arch::syscall_frame  frame{};
+    astia::sys::syscall_context context{
+        static_cast<astia::sys::syscall_id>(125), {0, 0, 0, 0, 0, 0}, frame, {}, {}};
+    astia::core::completion<astia::i64> source;
+    pending_source = &source;
+    astia::core::completion<astia::i64> result;
+    ASTIA_CHECK(
+        astia::sys::dispatch_async<pending_async_probe>(context.id, context, result));
+    ASTIA_CHECK(result.done());
+    ASTIA_CHECK(!result.complete(9));
+    ASTIA_CHECK(result.await_resume().error == astia::error_t::eagain);
+    ASTIA_CHECK(source.complete(11));
+    pending_source = nullptr;
 }
