@@ -18,11 +18,16 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+    env:
+      LLVM_VERSION: "18"
+      CC: clang-18
+      CXX: clang++-18
     steps:
       - name: Check out repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install build and test dependencies
         run: |
@@ -30,15 +35,15 @@ jobs:
           sudo apt-get install --no-install-recommends -y \
             binutils \
             build-essential \
-            clang \
+            clang-${LLVM_VERSION} \
             cmake \
             cpio \
             g++-aarch64-linux-gnu \
             grub-common \
             grub-pc-bin \
             gzip \
-            lld \
-            llvm \
+            lld-${LLVM_VERSION} \
+            llvm-${LLVM_VERSION} \
             mtools \
             ninja-build \
             python3 \
@@ -46,10 +51,16 @@ jobs:
             xorriso \
             xxd \
             zstd
+          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
+          clang-${LLVM_VERSION} --version
+          clang++-${LLVM_VERSION} --version
+          /usr/lib/llvm-${LLVM_VERSION}/bin/llvm-objcopy --version
 
       - name: Configure test build
         run: |
+          set -o pipefail
           rm -rf build-tests
+          mkdir -p build-tests
           cmake -S . -B build-tests -G Ninja \
             -DARCH=x86_64 \
             -DPLATFORM=virt \
@@ -58,26 +69,38 @@ jobs:
             -DASTIA_CROSS_USERSPACE=ON \
             -DASTIA_ENABLE_EXTERNAL_TESTS=OFF \
             -DASTIA_ENABLE_MANUAL_TESTS=OFF \
-            -DCMAKE_BUILD_TYPE=Debug
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang-${LLVM_VERSION} \
+            -DCMAKE_CXX_COMPILER=clang++-${LLVM_VERSION} \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
+            2>&1 | tee build-tests/configure.log
 
       - name: Build kernel and test artifacts
-        run: cmake --build build-tests --parallel 2
+        run: |
+          set -o pipefail
+          cmake --build build-tests --parallel 2 2>&1 | tee build-tests/build.log
 
       - name: Run enabled CTest suite
         run: |
+          set -o pipefail
           ctest --test-dir build-tests \
             --output-on-failure \
             --output-log build-tests/ctest.log \
-            --parallel 2
+            --test-timeout 120 \
+            --parallel 1 \
+            2>&1 | tee build-tests/ctest-run.log
 
-      - name: Upload test logs on failure
-        if: failure()
+      - name: Upload configure, build, and test logs
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: kernel-ci-logs
           if-no-files-found: warn
           path: |
+            build-tests/configure.log
+            build-tests/build.log
             build-tests/ctest.log
+            build-tests/ctest-run.log
             build-tests/Testing/
             build-tests/**/CMakeError.log
             build-tests/**/CMakeOutput.log

@@ -59,6 +59,8 @@ The repository follows a layered kernel/userspace layout:
 - `libc/`: freestanding libc headers, implementation, and host tests.
 - `init/`, `daemond/`, `coreutils/`: native init, service management, and
   userspace utilities.
+- `pkg/`: sandboxed host-Linux package manager prototype and static repository
+  format.
 - `toolchain/`: Clang sysroot, zsh/nano builds, initrd packaging, and QEMU
   launchers.
 - `docs/`: ABI, filesystem, synchronization, networking, and conformance notes.

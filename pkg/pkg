@@ -1,0 +1,1291 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Arlirad
+
+import copy
+import fcntl
+import hashlib
+import io
+import json
+import os
+import platform
+import re
+import stat
+import subprocess
+import sys
+import tarfile
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from pathlib import Path
+
+
+MAX_BLOB_SIZE = 256 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 4096
+MAX_EXPANDED_SIZE = 256 * 1024 * 1024
+MAX_MEMBER_SIZE = 64 * 1024 * 1024
+MAX_MANIFEST_SIZE = 1024 * 1024
+VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?$")
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+_.-]*$")
+HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+ARCH_ALIASES = {
+    "amd64": "x86_64",
+    "x86_64": "x86_64",
+    "arm64": "aarch64",
+    "aarch64": "aarch64",
+    "riscv64": "riscv64",
+}
+
+
+class PkgError(Exception):
+    pass
+
+
+def fail(message):
+    raise PkgError(message)
+
+
+def parse_json(data, label):
+    duplicates = []
+
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                duplicates.append(key)
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        fail(f"malformed {label}: {exc}")
+    if duplicates:
+        fail(f"malformed {label}: duplicate key {duplicates[0]}")
+    return value
+
+
+DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+READ_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+WRITE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
+
+
+def sync_directory(fd):
+    os.fsync(fd)
+
+
+def validate_directory_trust(fd, label):
+    info = os.fstat(fd)
+    if not stat.S_ISDIR(info.st_mode):
+        fail(f"package directory is not a directory: {label}")
+    if info.st_uid != os.geteuid() or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        fail(f"package directory is outside the trusted ownership/mode boundary: {label}")
+
+
+def directory_metadata(path):
+    return path.lstat()
+
+
+def validate_root_ancestry(path):
+    current = Path(path)
+    effective_uid = os.geteuid()
+    while True:
+        try:
+            info = directory_metadata(current)
+        except FileNotFoundError:
+            current = current.parent
+            continue
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            fail(f"package root ancestry is not a directory: {current}")
+        if info.st_uid not in (effective_uid, 0):
+            fail(f"package root ancestry is not owned by a trusted UID: {current}")
+        sticky = bool(info.st_mode & stat.S_ISVTX)
+        if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not sticky:
+            fail(f"package root ancestry is mutable by an untrusted user: {current}")
+        if current == current.parent:
+            break
+        current = current.parent
+
+
+def open_directory_at(parent_fd, name, create=False, mode=0o755):
+    if create:
+        try:
+            os.mkdir(name, mode, dir_fd=parent_fd)
+            sync_directory(parent_fd)
+        except FileExistsError:
+            pass
+    fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    try:
+        validate_directory_trust(fd, name)
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
+
+
+def open_root(path):
+    fd = os.open(path, DIRECTORY_FLAGS)
+    try:
+        validate_directory_trust(fd, path)
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
+
+
+def open_parent_at(root_fd, relative, create=False):
+    parts = relative.split("/")
+    current = os.dup(root_fd)
+    try:
+        for part in parts[:-1]:
+            child = open_directory_at(current, part, create=create)
+            os.close(current)
+            current = child
+        return current, parts[-1]
+    except Exception:
+        os.close(current)
+        raise
+
+
+def entry_stat(parent_fd, name):
+    try:
+        return os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+
+
+def read_file_at(parent_fd, name, label):
+    try:
+        fd = os.open(name, READ_FLAGS, dir_fd=parent_fd)
+    except OSError as exc:
+        fail(f"cannot read {label}: {exc}")
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            fail(f"{label} is not a regular file")
+        with os.fdopen(fd, "rb") as stream:
+            fd = None
+            return stream.read()
+    except OSError as exc:
+        fail(f"cannot read {label}: {exc}")
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def atomic_json_at(parent_fd, name, value):
+    temporary = f".{name}.{uuid.uuid4().hex}.tmp"
+    fd = None
+    try:
+        fd = os.open(temporary, WRITE_FLAGS, 0o600, dir_fd=parent_fd)
+        encoded = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode()
+        view = memoryview(encoded)
+        while view:
+            view = view[os.write(fd, view):]
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        sync_directory(parent_fd)
+        os.replace(temporary, name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        sync_directory(parent_fd)
+    finally:
+        if fd is not None:
+            os.close(fd)
+        try:
+            os.unlink(temporary, dir_fd=parent_fd)
+        except FileNotFoundError:
+            pass
+
+
+def remove_tree_at(parent_fd, name):
+    child_fd = os.open(name, DIRECTORY_FLAGS, dir_fd=parent_fd)
+    try:
+        for entry in os.scandir(child_fd):
+            info = entry.stat(follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                remove_tree_at(child_fd, entry.name)
+            else:
+                sync_directory(child_fd)
+                os.unlink(entry.name, dir_fd=child_fd)
+                sync_directory(child_fd)
+    finally:
+        os.close(child_fd)
+    sync_directory(parent_fd)
+    os.rmdir(name, dir_fd=parent_fd)
+    sync_directory(parent_fd)
+
+
+def cleanup_sync_directory(fd):
+    if os.environ.get("PKG_TEST_FAIL_CLEANUP_FSYNC") == "1":
+        fail("injected cleanup fsync failure")
+    sync_directory(fd)
+
+
+def remove_transaction_at(parent_fd, name):
+    tombstone = f".pkg-cleanup-{uuid.uuid4().hex}"
+    os.replace(name, tombstone, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+    cleanup_sync_directory(parent_fd)
+
+
+class NoDowngradeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        old_scheme = urllib.parse.urlparse(request.full_url).scheme.lower()
+        new_scheme = urllib.parse.urlparse(newurl).scheme.lower()
+        if new_scheme not in ("http", "https"):
+            fail(f"refusing unsupported redirect scheme: {new_scheme}")
+        if old_scheme == "https" and new_scheme == "http":
+            fail("refusing HTTPS downgrade redirect")
+        return super().redirect_request(request, fp, code, msg, headers, newurl)
+
+
+class DisabledFTPHandler(urllib.request.FTPHandler):
+    def ftp_open(self, request):
+        raise urllib.error.URLError("FTP transport is disabled")
+
+
+def open_url(request, timeout):
+    opener = urllib.request.build_opener(NoDowngradeRedirectHandler(), DisabledFTPHandler())
+    return opener.open(request, timeout=timeout)
+
+
+def safe_rel(value, label="path"):
+    if not isinstance(value, str) or not value or "\x00" in value:
+        fail(f"invalid {label}")
+    if "\\" in value or value.startswith("/") or value.endswith("/"):
+        fail(f"unsafe {label}: {value!r}")
+    parts = value.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        fail(f"unsafe {label}: {value!r}")
+    if parts[0] == ".pkg":
+        fail(f"reserved {label}: {value!r}")
+    return "/".join(parts)
+
+
+def check_name(value):
+    if not isinstance(value, str) or not NAME_RE.fullmatch(value):
+        fail(f"invalid package name: {value!r}")
+    return value
+
+
+def detect_arch():
+    value = os.environ.get("ASTIA_MACHINE_ARCH", platform.machine())
+    return ARCH_ALIASES.get(value, value)
+
+
+def check_arch(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        fail(f"invalid CPU architecture: {value!r}")
+    return ARCH_ALIASES.get(value, value)
+
+
+def version_key(version):
+    match = VERSION_RE.fullmatch(version)
+    if not match:
+        fail(f"invalid version: {version!r}")
+    numbers = tuple(int(match.group(i)) for i in range(1, 4))
+    prerelease = match.group(4)
+    if prerelease is None:
+        return numbers, (1,)
+    parts = []
+    for part in prerelease.split("."):
+        parts.append((0, int(part)) if part.isdigit() else (1, part))
+    return numbers, (0, tuple(parts))
+
+
+def validate_archive_reference(value, source_kind, source_scheme=None):
+    if not isinstance(value, str) or not value or "\x00" in value:
+        fail("invalid archive reference")
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme:
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            fail(f"unsupported archive URL: {value}")
+        if parsed.username or parsed.password or parsed.fragment:
+            fail(f"unsafe archive URL: {value}")
+        if any(part == ".." for part in parsed.path.split("/")):
+            fail(f"unsafe archive URL: {value}")
+        if source_scheme == "https" and parsed.scheme.lower() != "https":
+            fail("HTTPS repositories require HTTPS archive URLs")
+        return
+    if source_kind == "remote":
+        if value.startswith("/"):
+            fail("remote archive path must be relative or an HTTP(S) URL")
+    safe_rel(value, "archive path")
+
+
+def validate_index(index, source_kind, source_scheme=None):
+    if not isinstance(index, dict):
+        fail("index must be an object")
+    if index.get("schema") != 1:
+        fail("unsupported index schema")
+    if not isinstance(index.get("generated_at"), str) or not index["generated_at"]:
+        fail("index generated_at is required")
+    repository = index.get("repository")
+    if not isinstance(repository, dict):
+        fail("index repository metadata is required")
+    for field in ("name", "channel"):
+        if not isinstance(repository.get(field), str) or not repository[field]:
+            fail(f"index repository.{field} is required")
+    architectures = repository.get("architectures")
+    if not isinstance(architectures, list) or not architectures or any(not isinstance(item, str) for item in architectures):
+        fail("index repository.architectures is required")
+    normalized_repository_architectures = set()
+    for architecture in architectures:
+        normalized = check_arch(architecture)
+        if normalized in normalized_repository_architectures:
+            fail(f"duplicate repository CPU architecture: {normalized}")
+        normalized_repository_architectures.add(normalized)
+    packages = index.get("packages")
+    if not isinstance(packages, dict) or not packages:
+        fail("index packages must be a non-empty object")
+    for name, package in packages.items():
+        check_name(name)
+        if not isinstance(package, dict) or set(package) != {"versions"}:
+            fail(f"invalid package entry for {name}")
+        versions = package["versions"]
+        if not isinstance(versions, dict) or not versions:
+            fail(f"package {name} has no versions")
+        for version, metadata in versions.items():
+            version_key(version)
+            if not isinstance(metadata, dict):
+                fail(f"invalid metadata for {name} {version}")
+            required = {"artifacts", "dependencies"}
+            if not required.issubset(metadata):
+                fail(f"incomplete metadata for {name} {version}")
+            artifacts = metadata["artifacts"]
+            if not isinstance(artifacts, dict) or not artifacts:
+                fail(f"package {name} {version} has no CPU architecture artifacts")
+            normalized_artifacts = set()
+            for architecture, artifact in artifacts.items():
+                normalized = check_arch(architecture)
+                if normalized in normalized_artifacts:
+                    fail(f"duplicate artifact CPU architecture for {name} {version}: {normalized}")
+                normalized_artifacts.add(normalized)
+                if not isinstance(artifact, dict) or not {"archive", "sha256", "size"}.issubset(artifact):
+                    fail(f"incomplete artifact metadata for {name} {version} {architecture}")
+                validate_archive_reference(artifact["archive"], source_kind, source_scheme)
+                if not isinstance(artifact["sha256"], str) or not HEX_RE.fullmatch(artifact["sha256"]):
+                    fail(f"invalid SHA-256 for {name} {version} {architecture}")
+                if not isinstance(artifact["size"], int) or isinstance(artifact["size"], bool) or artifact["size"] < 1:
+                    fail(f"invalid archive size for {name} {version} {architecture}")
+            dependencies = metadata["dependencies"]
+            if not isinstance(dependencies, list) or any(not isinstance(item, str) for item in dependencies):
+                fail(f"invalid dependencies for {name} {version}")
+    return index
+
+
+def repository_scheme(repository):
+    scheme = repository.get("scheme")
+    if isinstance(scheme, str) and scheme:
+        return scheme.lower()
+    index_source = repository.get("index_source")
+    if isinstance(index_source, str):
+        parsed = urllib.parse.urlparse(index_source)
+        if parsed.scheme:
+            return parsed.scheme.lower()
+    return None
+
+
+def source_info(repo):
+    parsed = urllib.parse.urlparse(repo)
+    if parsed.scheme:
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            fail("repository must be a local directory or HTTP(S) URL")
+        if parsed.username or parsed.password or parsed.fragment:
+            fail("unsafe repository URL")
+        index_url = repo if parsed.path.endswith(".json") else repo.rstrip("/") + "/index.json"
+        return {"kind": "remote", "index_source": index_url, "base": index_url, "scheme": parsed.scheme.lower()}
+    path = Path(repo).expanduser().resolve()
+    if path.is_dir():
+        path = path / "index.json"
+    if not path.is_file() or path.is_symlink():
+        fail(f"repository index does not exist: {path}")
+    return {"kind": "local", "index_source": str(path), "base": str(path.parent)}
+
+
+def read_source(source):
+    if source["kind"] == "local":
+        path = Path(source["index_source"])
+        if path.is_symlink() or not path.is_file():
+            fail(f"repository file is not a regular file: {path}")
+        try:
+            fd = os.open(path, READ_FLAGS)
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    fail(f"repository file is not a regular file: {path}")
+                with os.fdopen(fd, "rb") as stream:
+                    fd = None
+                    data = stream.read(MAX_BLOB_SIZE + 1)
+                    if len(data) > MAX_BLOB_SIZE:
+                        fail("repository response is too large")
+                    return data
+            finally:
+                if fd is not None:
+                    os.close(fd)
+        except OSError as exc:
+            fail(f"cannot read repository file: {exc}")
+    request = urllib.request.Request(source["index_source"], headers={"Accept": "application/json"})
+    try:
+        with open_url(request, timeout=30) as response:
+            data = response.read(MAX_BLOB_SIZE + 1)
+    except PkgError:
+        raise
+    except (urllib.error.URLError, OSError) as exc:
+        fail(f"cannot fetch {source['index_source']}: {exc}")
+    if len(data) > MAX_BLOB_SIZE:
+        fail("repository response is too large")
+    return data
+
+
+def archive_source(repository, archive):
+    parsed = urllib.parse.urlparse(archive)
+    if parsed.scheme:
+        return {"kind": "remote", "url": archive}
+    if repository["kind"] == "local":
+        base = Path(repository["base"]).resolve()
+        path = (base / archive).resolve()
+        try:
+            path.relative_to(base)
+        except ValueError:
+            fail("archive escapes local repository")
+        if path.is_symlink() or not path.is_file():
+            fail(f"archive does not exist: {path}")
+        return {"kind": "local", "path": str(path)}
+    url = urllib.parse.urljoin(repository["base"], archive)
+    if repository_scheme(repository) == "https" and urllib.parse.urlparse(url).scheme.lower() != "https":
+        fail("HTTPS repositories require HTTPS archive URLs")
+    return {"kind": "remote", "url": url}
+
+
+def read_archive(source):
+    if source["kind"] == "local":
+        path = Path(source["path"])
+        if path.is_symlink() or not path.is_file():
+            fail("archive is not a regular file")
+        try:
+            fd = os.open(path, READ_FLAGS)
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    fail("archive is not a regular file")
+                with os.fdopen(fd, "rb") as stream:
+                    fd = None
+                    data = stream.read(MAX_BLOB_SIZE + 1)
+            finally:
+                if fd is not None:
+                    os.close(fd)
+        except OSError as exc:
+            fail(f"cannot read archive: {exc}")
+    else:
+        parsed = urllib.parse.urlparse(source["url"])
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            fail("archive transport only supports HTTP(S)")
+        request = urllib.request.Request(source["url"], headers={"Accept": "application/gzip, application/octet-stream"})
+        try:
+            with open_url(request, timeout=60) as response:
+                data = response.read(MAX_BLOB_SIZE + 1)
+        except PkgError:
+            raise
+        except (urllib.error.URLError, OSError) as exc:
+            fail(f"cannot fetch archive: {exc}")
+    if len(data) > MAX_BLOB_SIZE:
+        fail("archive is too large")
+    return data
+
+
+def verify_digest(data, metadata):
+    if len(data) != metadata["size"]:
+        fail("archive size does not match index")
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != metadata["sha256"]:
+        fail("archive SHA-256 does not match index")
+
+
+def verify_manifest(data, name, version, metadata, stage_fd):
+    payload = {}
+    directories = set()
+    manifest = None
+    member_count = 0
+    expanded_size = 0
+    try:
+        archive = tarfile.open(fileobj=io.BytesIO(data), mode="r:gz")
+    except (tarfile.TarError, OSError) as exc:
+        fail(f"invalid package archive: {exc}")
+    try:
+        for member in archive:
+            member_count += 1
+            if member_count > MAX_ARCHIVE_MEMBERS:
+                fail("package archive has too many members")
+            rel = safe_rel(member.name, "archive member")
+            if member.isdir():
+                if rel in payload or rel in directories:
+                    fail(f"duplicate archive member: {rel}")
+                directories.add(rel)
+                continue
+            if member.issym() or member.islnk() or not member.isfile():
+                fail(f"unsupported archive member: {rel}")
+            if rel == "package.json":
+                if manifest is not None:
+                    fail("duplicate package.json")
+                fileobj = archive.extractfile(member)
+                if member.size < 0 or member.size > MAX_MANIFEST_SIZE:
+                    fail("package manifest is too large")
+                manifest_data = fileobj.read(MAX_MANIFEST_SIZE + 1)
+                if len(manifest_data) != member.size:
+                    fail("package manifest is too large")
+                expanded_size += len(manifest_data)
+                if expanded_size > MAX_EXPANDED_SIZE:
+                    fail("expanded package archive is too large")
+                manifest = parse_json(manifest_data, "package manifest")
+                continue
+            if rel in payload or rel in directories:
+                fail(f"duplicate archive member: {rel}")
+            if member.size < 0 or member.size > MAX_MEMBER_SIZE:
+                fail("package file is too large")
+            if expanded_size > MAX_EXPANDED_SIZE - member.size:
+                fail("expanded package archive is too large")
+            fileobj = archive.extractfile(member)
+            content = fileobj.read(member.size + 1)
+            if len(content) != member.size:
+                fail(f"invalid archive member size: {rel}")
+            expanded_size += len(content)
+            payload[rel] = content
+    except (tarfile.TarError, OSError) as exc:
+        fail(f"cannot read package archive: {exc}")
+    finally:
+        archive.close()
+    if not isinstance(manifest, dict) or manifest.get("format_schema") != 1:
+        fail("package manifest schema is unsupported")
+    if manifest.get("name") != name or manifest.get("version") != version:
+        fail("package manifest identity does not match index")
+    entries = manifest.get("files")
+    if not isinstance(entries, list) or not entries:
+        fail("package manifest files must be a non-empty list")
+    expected = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            fail("invalid package manifest file entry")
+        path = safe_rel(entry["path"], "manifest path")
+        if path == "package.json" or path in expected:
+            fail(f"duplicate or reserved manifest path: {path}")
+        if not isinstance(entry.get("sha256"), str) or not HEX_RE.fullmatch(entry["sha256"]):
+            fail(f"invalid manifest SHA-256 for {path}")
+        mode = entry.get("mode", 0o644)
+        if not isinstance(mode, int) or isinstance(mode, bool) or mode < 0 or mode > 0o777:
+            fail(f"invalid manifest mode for {path}")
+        expected[path] = (entry["sha256"], mode)
+    if set(expected) != set(payload):
+        fail("archive files do not match package manifest")
+    for path, (digest, mode) in expected.items():
+        content = payload[path]
+        if hashlib.sha256(content).hexdigest() != digest:
+            fail(f"package file SHA-256 does not match manifest: {path}")
+        parent_fd, destination = open_parent_at(stage_fd, path, create=True)
+        try:
+            sync_directory(parent_fd)
+            fd = os.open(destination, WRITE_FLAGS, mode, dir_fd=parent_fd)
+            try:
+                view = memoryview(content)
+                while view:
+                    view = view[os.write(fd, view):]
+                os.fchmod(fd, mode)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            sync_directory(parent_fd)
+        finally:
+            os.close(parent_fd)
+    return [{"path": path, "mode": mode} for path, (_, mode) in sorted(expected.items())]
+
+
+class State:
+    def __init__(self, root):
+        self.root = root
+        self.root_fd = open_root(root)
+        try:
+            self.internal_fd = open_directory_at(self.root_fd, ".pkg", create=True, mode=0o700)
+        except Exception:
+            os.close(self.root_fd)
+            raise
+        self.internal = Path(root) / ".pkg"
+        self.cache = self.internal / "cache.json"
+
+    def load(self):
+        try:
+            value = parse_json(read_file_at(self.internal_fd, "state.json", "package state"), "package state")
+        except PkgError as exc:
+            if "No such file or directory" in str(exc):
+                return {"schema": 1, "installed": {}, "owners": {}}
+            raise
+        if not isinstance(value, dict) or value.get("schema") != 1 or not isinstance(value.get("installed"), dict) or not isinstance(value.get("owners"), dict):
+            fail("malformed package state")
+        for path_value, package in value["owners"].items():
+            safe_rel(path_value, "owned path")
+            check_name(package)
+        return value
+
+    def load_optional(self, name, label):
+        try:
+            return parse_json(read_file_at(self.internal_fd, name, label), label)
+        except PkgError as exc:
+            if "No such file or directory" in str(exc):
+                return None
+            raise
+
+    def configure_arch(self, requested):
+        requested = check_arch(requested) if requested else None
+        config = self.load_optional("config.json", "package configuration")
+        if config is not None:
+            if not isinstance(config, dict) or not isinstance(config.get("architecture"), str):
+                fail("malformed package configuration")
+            configured = check_arch(config["architecture"])
+            if requested and requested != configured:
+                fail(f"package root targets {configured}; refusing architecture switch to {requested}")
+            return configured
+        architecture = requested or detect_arch()
+        check_arch(architecture)
+        atomic_json_at(self.internal_fd, "config.json", {"schema": 1, "architecture": architecture})
+        return architecture
+
+    def cache_data(self):
+        cached = self.load_optional("cache.json", "package cache")
+        if cached is None:
+            fail("no synced repository; run pkg sync first")
+        if not isinstance(cached, dict) or not isinstance(cached.get("index"), dict) or not isinstance(cached.get("repository"), dict):
+            fail("malformed package cache")
+        index = cached["index"]
+        repository = cached["repository"]
+        immutable = cached.get("immutability", {})
+        if not isinstance(immutable, dict):
+            fail("malformed package immutability data")
+        if repository.get("kind") not in ("local", "remote"):
+            fail("malformed cached repository")
+        validate_index(index, repository["kind"], repository_scheme(repository))
+        return index, repository, immutable
+
+    def lock(self):
+        fd = os.open("lock", os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600, dir_fd=self.internal_fd)
+        stream = os.fdopen(fd, "a+")
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        recover_transactions(self)
+        return stream
+
+
+def ensure_root(value):
+    root = Path(os.path.abspath(os.path.expanduser(value)))
+    if root in (Path("/"), Path("/usr")):
+        fail("refusing unsafe package root")
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        validate_root_ancestry(root)
+        fd = open_root(root)
+    except OSError as exc:
+        fail(f"package root is not a directory or is a symlink: {exc}")
+    try:
+        if not stat.S_ISDIR(os.fstat(fd).st_mode):
+            fail("package root is not a directory")
+    finally:
+        os.close(fd)
+    return root.absolute()
+
+
+def sync(root, repo):
+    source = source_info(repo)
+    data = read_source(source)
+    index = parse_json(data, "repository index")
+    validate_index(index, source["kind"], source.get("scheme"))
+    state = State(root)
+    with state.lock():
+        old_immutable = {}
+        old_cache = state.load_optional("cache.json", "package cache")
+        if old_cache is not None:
+            old_immutable = old_cache.get("immutability", {})
+            if not isinstance(old_immutable, dict):
+                fail("malformed cached immutability")
+        immutable = copy.deepcopy(old_immutable)
+        for name, package in index["packages"].items():
+            for version, metadata in package["versions"].items():
+                key = f"{name}@{version}"
+                for architecture, artifact in metadata["artifacts"].items():
+                    artifact_key = f"{key}@{check_arch(architecture)}"
+                    identity = {field: artifact[field] for field in ("archive", "sha256", "size")}
+                    if artifact_key in immutable and immutable[artifact_key] != identity:
+                        fail(f"immutable package artifact changed: {artifact_key}")
+                    immutable[artifact_key] = identity
+        atomic_json_at(state.internal_fd, "cache.json", {"schema": 1, "index": index, "repository": source, "immutability": immutable})
+    print(f"synced {len(index['packages'])} package(s)")
+
+
+def selected_version(index, name, requested, architecture):
+    check_name(name)
+    package = index["packages"].get(name)
+    if package is None:
+        fail(f"package not found: {name}")
+    versions = package["versions"]
+    def artifact_for(metadata):
+        for artifact_arch, artifact in metadata["artifacts"].items():
+            if check_arch(artifact_arch) == architecture:
+                return artifact
+        return None
+
+    compatible_versions = [version for version, metadata in versions.items() if artifact_for(metadata) is not None]
+    if not compatible_versions:
+        fail(f"package {name} has no artifact for CPU architecture {architecture}")
+    if requested is not None:
+        version_key(requested)
+        if requested not in versions:
+            fail(f"version not found: {name} {requested}")
+        artifact = artifact_for(versions[requested])
+        if artifact is None:
+            fail(f"package {name} {requested} has no artifact for CPU architecture {architecture}")
+        return requested, versions[requested], artifact
+    version = max(compatible_versions, key=version_key)
+    return version, versions[version], artifact_for(versions[version])
+
+
+def compatible(metadata, architecture):
+    if architecture not in {check_arch(value) for value in metadata["artifacts"]}:
+        fail(f"package has no artifact for CPU architecture {architecture}")
+    if metadata["dependencies"]:
+        fail("dependencies are declared but dependency resolution is not implemented")
+
+
+def check_target(root_fd, rel, owners, package):
+    owner = owners.get(rel)
+    if owner is not None and owner != package:
+        fail(f"refusing to clobber file owned by {owner}: {rel}")
+    try:
+        parent_fd, target_name = open_parent_at(root_fd, rel, create=False)
+    except FileNotFoundError:
+        if owner is not None and owner == package:
+            fail(f"owned package target is missing: {rel}")
+        return False
+    try:
+        info = entry_stat(parent_fd, target_name)
+    finally:
+        os.close(parent_fd)
+    if info is None:
+        if owner == package:
+            fail(f"owned package target is missing: {rel}")
+        return False
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        fail(f"package target is not a regular file: {rel}")
+    if owner != package:
+        fail(f"refusing to clobber unmanaged or foreign file: {rel}")
+    return True
+
+
+def write_state(state, value):
+    atomic_json_at(state.internal_fd, "state.json", value)
+
+
+def target_parent(root_fd, rel):
+    return open_parent_at(root_fd, rel, create=True)
+
+
+def target_exists(parent_fd, name):
+    info = entry_stat(parent_fd, name)
+    if info is None:
+        return False
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        fail(f"package target is not a regular file: {name}")
+    return True
+
+
+def transaction_journal(txn_fd, journal):
+    atomic_json_at(txn_fd, "journal.json", journal)
+
+
+def close_fds(fds):
+    for fd in fds:
+        os.close(fd)
+
+
+def recovery_sync_directory(fd):
+    if os.environ.get("PKG_TEST_FAIL_RECOVERY_FSYNC") == "1":
+        fail("injected recovery fsync failure")
+    sync_directory(fd)
+
+
+def recovery_replace(source_name, target_name, source_fd, target_fd):
+    if os.environ.get("PKG_TEST_FAIL_RECOVERY_RESTORE") == "1":
+        fail("injected recovery restore failure")
+    os.replace(source_name, target_name, src_dir_fd=source_fd, dst_dir_fd=target_fd)
+
+
+def recover_transaction_fds(state, txn_fd, backup_fd, journal):
+    for rel in reversed(journal["placed"]):
+        parent_fd, target_name = target_parent(state.root_fd, rel)
+        try:
+            info = entry_stat(parent_fd, target_name)
+            if info is not None:
+                if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                    fail(f"cannot recover unsafe package target: {rel}")
+                recovery_sync_directory(parent_fd)
+                os.unlink(target_name, dir_fd=parent_fd)
+                recovery_sync_directory(parent_fd)
+        finally:
+            os.close(parent_fd)
+    for entry in reversed(journal["backups"]):
+        parent_fd, target_name = target_parent(state.root_fd, entry["path"])
+        try:
+            backup_info = entry_stat(backup_fd, entry["name"])
+            target_info = entry_stat(parent_fd, target_name)
+            if backup_info is None:
+                if target_info is None:
+                    fail(f"cannot recover transaction: backup data is missing for {entry['path']}")
+                continue
+            if target_info is not None:
+                if stat.S_ISLNK(target_info.st_mode) or not stat.S_ISREG(target_info.st_mode):
+                    fail(f"cannot recover unsafe package target: {entry['path']}")
+                recovery_sync_directory(parent_fd)
+                os.unlink(target_name, dir_fd=parent_fd)
+                recovery_sync_directory(parent_fd)
+            recovery_replace(entry["name"], target_name, backup_fd, parent_fd)
+            recovery_sync_directory(parent_fd)
+            recovery_sync_directory(backup_fd)
+        finally:
+            os.close(parent_fd)
+
+
+def recover_transactions(state):
+    for entry in os.scandir(state.internal_fd):
+        if entry.name.startswith(".pkg-cleanup-"):
+            remove_tree_at(state.internal_fd, entry.name)
+            continue
+        if not entry.name.startswith(".txn-"):
+            continue
+        info = entry.stat(follow_symlinks=False)
+        if not stat.S_ISDIR(info.st_mode):
+            fail(f"unsafe package transaction: {entry.name}")
+        txn_fd = os.open(entry.name, DIRECTORY_FLAGS, dir_fd=state.internal_fd)
+        try:
+            journal = parse_json(read_file_at(txn_fd, "journal.json", "package transaction journal"), "package transaction journal")
+            if not isinstance(journal, dict) or journal.get("schema") != 1 or not isinstance(journal.get("new_state"), dict) or not isinstance(journal.get("backups"), list) or not isinstance(journal.get("placed"), list):
+                fail("malformed package transaction journal")
+            for rel in journal["placed"]:
+                safe_rel(rel, "transaction target")
+            for backup in journal["backups"]:
+                if not isinstance(backup, dict) or not isinstance(backup.get("name"), str) or not isinstance(backup.get("path"), str):
+                    fail("malformed package transaction backup")
+                safe_rel(backup["path"], "transaction target")
+                safe_rel(backup["name"], "transaction backup")
+            current = state.load()
+            if current == journal["new_state"]:
+                recovery_sync_directory(state.internal_fd)
+                remove_transaction_at(state.internal_fd, entry.name)
+                continue
+            try:
+                backup_fd = os.open("backup", DIRECTORY_FLAGS, dir_fd=txn_fd)
+            except FileNotFoundError:
+                if journal["backups"]:
+                    fail("cannot recover transaction: backup directory is missing")
+                for rel in reversed(journal["placed"]):
+                    parent_fd, target_name = target_parent(state.root_fd, rel)
+                    try:
+                        info = entry_stat(parent_fd, target_name)
+                        if info is not None:
+                            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                                fail(f"cannot recover unsafe package target: {rel}")
+                            recovery_sync_directory(parent_fd)
+                            os.unlink(target_name, dir_fd=parent_fd)
+                            recovery_sync_directory(parent_fd)
+                    finally:
+                        os.close(parent_fd)
+                remove_transaction_at(state.internal_fd, entry.name)
+                continue
+            try:
+                recover_transaction_fds(state, txn_fd, backup_fd, journal)
+            finally:
+                os.close(backup_fd)
+            remove_transaction_at(state.internal_fd, entry.name)
+        finally:
+            os.close(txn_fd)
+
+
+def install_locked(state, name, requested, architecture):
+    index, repository, immutable = state.cache_data()
+    version, metadata, artifact = selected_version(index, name, requested, architecture)
+    compatible(metadata, architecture)
+    artifact_key = f"{name}@{version}@{architecture}"
+    identity = {field: artifact[field] for field in ("archive", "sha256", "size")}
+    if immutable.get(artifact_key) != identity:
+        fail(f"cached artifact immutability record is missing or changed: {artifact_key}")
+    state_value = state.load()
+    archive = read_archive(archive_source(repository, artifact["archive"]))
+    verify_digest(archive, artifact)
+    txn_name = f".txn-{uuid.uuid4().hex}"
+    sync_directory(state.internal_fd)
+    os.mkdir(txn_name, 0o700, dir_fd=state.internal_fd)
+    sync_directory(state.internal_fd)
+    txn_fd = os.open(txn_name, DIRECTORY_FLAGS, dir_fd=state.internal_fd)
+    transaction_cleanup = True
+    try:
+        os.mkdir("stage", 0o700, dir_fd=txn_fd)
+        os.mkdir("backup", 0o700, dir_fd=txn_fd)
+        sync_directory(txn_fd)
+        stage_fd = os.open("stage", DIRECTORY_FLAGS, dir_fd=txn_fd)
+        backup_fd = os.open("backup", DIRECTORY_FLAGS, dir_fd=txn_fd)
+        try:
+            files = verify_manifest(archive, name, version, metadata, stage_fd)
+            owners = state_value["owners"]
+            old_package = state_value["installed"].get(name)
+            old_files = {entry["path"] for entry in old_package.get("files", [])} if old_package else set()
+            new_files = {entry["path"] for entry in files}
+            existing_targets = {}
+            for rel in sorted(old_files | new_files):
+                existing_targets[rel] = check_target(state.root_fd, rel, owners, name)
+                if rel in old_files and owners.get(rel) != name:
+                    fail(f"ownership database disagrees for {rel}")
+            if old_package and old_package.get("version") == version and old_package.get("architecture") == architecture and old_package.get("sha256") == artifact["sha256"] and old_files == new_files:
+                transaction_cleanup = True
+                print(f"{name} {version} is already installed")
+                return
+            new_state = copy.deepcopy(state_value)
+            new_state["installed"][name] = {"version": version, "architecture": architecture, "sha256": artifact["sha256"], "files": files}
+            new_state["owners"] = {rel: owner for rel, owner in owners.items() if owner != name and rel not in old_files}
+            new_state["owners"].update({file["path"]: name for file in files})
+            backup_entries = [
+                {"name": str(index_number), "path": rel}
+                for index_number, rel in enumerate(
+                    rel for rel in sorted(old_files | new_files) if existing_targets[rel]
+                )
+            ]
+            journal = {
+                "schema": 1,
+                "new_state": new_state,
+                "backups": backup_entries,
+                "placed": [],
+            }
+            transaction_journal(txn_fd, journal)
+            transaction_cleanup = False
+            backups = []
+            try:
+                for entry in backup_entries:
+                    rel = entry["path"]
+                    parent_fd, target_name = target_parent(state.root_fd, rel)
+                    try:
+                        if target_exists(parent_fd, target_name):
+                            sync_directory(parent_fd)
+                            os.replace(target_name, entry["name"], src_dir_fd=parent_fd, dst_dir_fd=backup_fd)
+                            sync_directory(parent_fd)
+                            sync_directory(backup_fd)
+                            backups.append(entry)
+                    finally:
+                        os.close(parent_fd)
+                for file in files:
+                    rel = file["path"]
+                    journal["placed"].append(rel)
+                    transaction_journal(txn_fd, journal)
+                    source_parent_fd, source_name = open_parent_at(stage_fd, rel, create=False)
+                    target_parent_fd, target_name = target_parent(state.root_fd, rel)
+                    try:
+                        sync_directory(target_parent_fd)
+                        os.replace(source_name, target_name, src_dir_fd=source_parent_fd, dst_dir_fd=target_parent_fd)
+                        sync_directory(source_parent_fd)
+                        sync_directory(target_parent_fd)
+                    finally:
+                        close_fds((source_parent_fd, target_parent_fd))
+                write_state(state, new_state)
+                transaction_cleanup = True
+            except Exception:
+                try:
+                    recover_transaction_fds(state, txn_fd, backup_fd, journal)
+                except Exception:
+                    raise
+                transaction_cleanup = True
+                raise
+        finally:
+            close_fds((stage_fd, backup_fd))
+    finally:
+        os.close(txn_fd)
+        if transaction_cleanup:
+            remove_transaction_at(state.internal_fd, txn_name)
+    print(f"installed {name} {version} ({architecture})")
+
+
+def install(root, name, requested, architecture):
+    state = State(root)
+    with state.lock():
+        install_locked(state, name, requested, architecture)
+
+
+def upgrade(root, architecture):
+    state = State(root)
+    with state.lock():
+        names = sorted(state.load()["installed"])
+        for name in names:
+            install_locked(state, name, None, architecture)
+    if not names:
+        print("no packages to upgrade")
+
+
+def remove(root, name):
+    check_name(name)
+    state = State(root)
+    with state.lock():
+        state_value = state.load()
+        package = state_value["installed"].get(name)
+        if package is None:
+            fail(f"package is not installed: {name}")
+        files = [entry["path"] for entry in package.get("files", [])]
+        for rel in files:
+            if state_value["owners"].get(rel) != name:
+                fail(f"ownership database disagrees for {rel}")
+            check_target(state.root_fd, rel, state_value["owners"], name)
+        txn_name = f".txn-{uuid.uuid4().hex}"
+        sync_directory(state.internal_fd)
+        os.mkdir(txn_name, 0o700, dir_fd=state.internal_fd)
+        sync_directory(state.internal_fd)
+        txn_fd = os.open(txn_name, DIRECTORY_FLAGS, dir_fd=state.internal_fd)
+        transaction_cleanup = True
+        try:
+            os.mkdir("backup", 0o700, dir_fd=txn_fd)
+            sync_directory(txn_fd)
+            backup_fd = os.open("backup", DIRECTORY_FLAGS, dir_fd=txn_fd)
+            try:
+                new_state = copy.deepcopy(state_value)
+                del new_state["installed"][name]
+                new_state["owners"] = {rel: owner for rel, owner in state_value["owners"].items() if owner != name}
+                entries = [{"name": str(index), "path": rel} for index, rel in enumerate(files)]
+                journal = {"schema": 1, "new_state": new_state, "backups": entries, "placed": []}
+                transaction_journal(txn_fd, journal)
+                transaction_cleanup = False
+                try:
+                    for entry in entries:
+                        parent_fd, target_name = target_parent(state.root_fd, entry["path"])
+                        try:
+                            if target_exists(parent_fd, target_name):
+                                sync_directory(parent_fd)
+                                os.replace(target_name, entry["name"], src_dir_fd=parent_fd, dst_dir_fd=backup_fd)
+                                sync_directory(parent_fd)
+                                sync_directory(backup_fd)
+                        finally:
+                            os.close(parent_fd)
+                    write_state(state, new_state)
+                    transaction_cleanup = True
+                except Exception:
+                    try:
+                        recover_transaction_fds(state, txn_fd, backup_fd, journal)
+                    except Exception:
+                        raise
+                    transaction_cleanup = True
+                    raise
+            finally:
+                os.close(backup_fd)
+        finally:
+            os.close(txn_fd)
+            if transaction_cleanup:
+                remove_transaction_at(state.internal_fd, txn_name)
+    print(f"removed {name}")
+
+
+def list_packages(root):
+    state = State(root)
+    with state.lock():
+        value = state.load()
+    for name in sorted(value["installed"]):
+        print(f"{name} {value['installed'][name]['version']}")
+
+
+def status(root):
+    state = State(root)
+    with state.lock():
+        value = state.load()
+        package_count = len(value["installed"])
+        cached = state.load_optional("cache.json", "package cache") is not None
+    print(f"root: {root}")
+    print(f"repository: {'synced' if cached else 'not synced'}")
+    print(f"installed: {package_count}")
+
+
+def validate_operands(operation, operands):
+    if operation in ("sync-install", "install"):
+        if not 1 <= len(operands) <= 2:
+            name = "-si" if operation == "sync-install" else "-i/install"
+            fail(f"{name} requires NAME and optionally VERSION")
+        check_name(operands[0])
+        if len(operands) == 2:
+            version_key(operands[1])
+    elif operation == "remove":
+        if len(operands) != 1:
+            fail("-r/remove requires NAME")
+        check_name(operands[0])
+    elif operation in ("sync", "sync-upgrade", "upgrade", "list", "status") and operands:
+        if operation == "sync-upgrade":
+            fail("-su does not take package names")
+        if operation == "upgrade":
+            fail("-u/upgrade does not take package names")
+        if operation == "sync":
+            fail("-s/sync does not take package names")
+        fail(f"{operation} does not take arguments")
+
+
+SHORT_ACTIONS = frozenset("siur")
+SHORT_ACTION_ORDER = ("s", "i", "u", "r")
+LONG_OPERATIONS = frozenset(("sync", "install", "remove", "list", "status", "upgrade"))
+
+
+def normalize_actions(actions):
+    if not actions:
+        return None
+    present = set(actions)
+    if "r" in present and len(present) != 1:
+        flags = "".join(flag for flag in SHORT_ACTION_ORDER if flag in present)
+        fail(f"conflicting short flags: -{flags}")
+    if "u" in present and "i" in present:
+        flags = "".join(flag for flag in SHORT_ACTION_ORDER if flag in present)
+        fail(f"conflicting short flags: -{flags}")
+    if present == {"s"}:
+        return "sync"
+    if present == {"i"}:
+        return "install"
+    if present == {"r"}:
+        return "remove"
+    if present == {"s", "i"}:
+        return "sync-install"
+    if present == {"u"}:
+        return "upgrade"
+    if present == {"s", "u"}:
+        return "sync-upgrade"
+    flags = "".join(flag for flag in SHORT_ACTION_ORDER if flag in present)
+    fail(f"invalid short flag combination: -{flags}")
+
+
+def parse_python_cli(argv):
+    values = {
+        "root": str(Path.cwd() / "build" / "tmp" / "pkg-root"),
+        "repo": None,
+        "arch": None,
+    }
+    actions = set()
+    long_operation = None
+    operands = []
+    end_options = False
+    index = 0
+    while index < len(argv):
+        value = argv[index]
+        if not end_options and value == "--":
+            end_options = True
+            index += 1
+            continue
+        if not end_options and value in ("--root", "--repo", "--arch"):
+            if index + 1 >= len(argv):
+                fail(f"{value} requires a value")
+            values[value[2:]] = argv[index + 1]
+            index += 2
+            continue
+        if not end_options and value.startswith("--"):
+            if value.startswith(("--root=", "--repo=", "--arch=")):
+                key, item = value[2:].split("=", 1)
+                if not item:
+                    fail(f"--{key} requires a value")
+                values[key] = item
+                index += 1
+                continue
+            fail(f"unknown option: {value}")
+        if not end_options and value.startswith("-"):
+            if value == "-":
+                fail("invalid short flag: -")
+            for flag in value[1:]:
+                if flag not in SHORT_ACTIONS:
+                    fail(f"unknown short flag: -{flag}")
+                actions.add(flag)
+            index += 1
+            continue
+        if not end_options and value in LONG_OPERATIONS:
+            if long_operation is not None:
+                fail(f"conflicting operations: {long_operation} and {value}")
+            if actions:
+                flags = "".join(flag for flag in SHORT_ACTION_ORDER if flag in actions)
+                fail(f"conflicting operations: -{flags} and {value}")
+            long_operation = value
+            index += 1
+            continue
+        operands.append(value)
+        index += 1
+    operation = long_operation or normalize_actions(actions)
+    if operation is None:
+        fail("an operation is required (use -s, -i, -r, -si, or -su)")
+    validate_operands(operation, operands)
+    if operation in ("sync", "sync-install", "sync-upgrade") and not values["repo"]:
+        fail(f"{operation} requires --repo")
+    return values, operation, operands
+
+
+def getopt_helper():
+    configured = os.environ.get("PKG_GETOPT_HELPER")
+    if configured:
+        return configured
+    candidates = [Path(__file__).with_name("pkg_cli_parser")]
+    candidates.extend(sorted(Path.cwd().glob("build*/pkg/pkg_cli_parser")))
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def parse_cli(argv):
+    helper = getopt_helper()
+    if helper is None:
+        return parse_python_cli(argv)
+    result = subprocess.run(
+        [helper, *argv],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        message = os.fsdecode(result.stderr).strip()
+        fail(message or "invalid command line")
+    fields = result.stdout.split(b"\0")
+    if fields[-1] != b"" or len(fields) < 5:
+        fail("shared libc getopt parser returned malformed output")
+    fields = [os.fsdecode(field) for field in fields[:-1]]
+    values = {
+        "root": fields[1] or str(Path.cwd() / "build" / "tmp" / "pkg-root"),
+        "repo": fields[2] or None,
+        "arch": fields[3] or None,
+    }
+    operation = fields[0]
+    operands = fields[4:]
+    validate_operands(operation, operands)
+    if operation in ("sync", "sync-install", "sync-upgrade") and not values["repo"]:
+        fail(f"{operation} requires --repo")
+    return values, operation, operands
+
+
+def main(argv):
+    try:
+        values, operation, operands = parse_cli(argv)
+        root = ensure_root(values["root"])
+        state = State(root)
+        architecture = state.configure_arch(values["arch"])
+        if operation == "sync":
+            sync(root, values["repo"])
+        elif operation == "sync-install":
+            sync(root, values["repo"])
+            install(root, operands[0], operands[1] if len(operands) == 2 else None, architecture)
+        elif operation == "sync-upgrade":
+            sync(root, values["repo"])
+            upgrade(root, architecture)
+        elif operation == "upgrade":
+            upgrade(root, architecture)
+        elif operation == "install":
+            install(root, operands[0], operands[1] if len(operands) == 2 else None, architecture)
+        elif operation == "remove":
+            remove(root, operands[0])
+        elif operation == "list":
+            list_packages(root)
+        elif operation == "status":
+            status(root)
+    except PkgError as exc:
+        print(f"pkg: error: {exc}", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, tarfile.TarError) as exc:
+        print(f"pkg: error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
