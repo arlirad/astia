@@ -6,6 +6,7 @@ sysroot=${ASTIA_SYSROOT:-/tmp/astia-zsh-build/sysroot}
 crt0=${1:-${ASTIA_CRT0:-/tmp/astia-zsh-build/astia/image/crt0.o}}
 clang=${CLANG:-clang}
 target=x86_64-unknown-elf
+clang_path=$(command -v "$clang")
 resource_dir=$($clang --target=$target -print-resource-dir)
 builtins=$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a
 out=${COREUTILS_BUILD:-$root/coreutils/build}
@@ -22,22 +23,44 @@ fi
 
 mkdir -p "$out/obj" "$out/bin"
 common="--target=$target -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc -isystem $resource_dir/include -isystem $sysroot/include"
+toolchain_revision=$(
+    {
+        sha256sum "$root/coreutils/build.sh" \
+            "$root/toolchain/build-init-libc.sh" "$clang_path"
+        "$clang" --version
+        printf '%s\n' "$common" "$target"
+    } | sha256sum | awk '{print $1}'
+)
 
 for source in "$root"/coreutils/src/*.c; do
     name=$(basename "$source" .c)
-    # shellcheck disable=SC2086
-    if [ ! -f "$out/obj/$name.o" ] || [ "$source" -nt "$out/obj/$name.o" ] ||
-        [ "$sysroot/lib/libastia_libc.a" -nt "$out/obj/$name.o" ]; then
+    object_key=$(
+        {
+            sha256sum "$source" "$sysroot/lib/libastia_libc.a"
+            printf '%s\n' "$toolchain_revision"
+        } | sha256sum | awk '{print $1}'
+    )
+    if [ ! -f "$out/obj/$name.o" ] ||
+        [ ! -f "$out/obj/$name.o.key" ] ||
+        [ "$(cat "$out/obj/$name.o.key")" != "$object_key" ]; then
         $clang $common -c "$source" -o "$out/obj/$name.o"
+        printf '%s\n' "$object_key" >"$out/obj/$name.o.key"
     fi
-    # shellcheck disable=SC2086
-    if [ ! -f "$out/bin/$name" ] || [ "$out/obj/$name.o" -nt "$out/bin/$name" ] ||
-        [ "$crt0" -nt "$out/bin/$name" ] ||
-        [ "$sysroot/lib/libastia_libc.a" -nt "$out/bin/$name" ]; then
+    link_key=$(
+        {
+            sha256sum "$out/obj/$name.o" "$crt0" \
+                "$sysroot/lib/libastia_libc.a" "$builtins"
+            printf '%s\n' "$toolchain_revision"
+        } | sha256sum | awk '{print $1}'
+    )
+    if [ ! -f "$out/bin/$name" ] ||
+        [ ! -f "$out/bin/$name.key" ] ||
+        [ "$(cat "$out/bin/$name.key")" != "$link_key" ]; then
         $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
             -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
             -o "$out/bin/$name" "$crt0" "$out/obj/$name.o" \
             "$sysroot/lib/libastia_libc.a" "$builtins"
+        printf '%s\n' "$link_key" >"$out/bin/$name.key"
     fi
 done
 

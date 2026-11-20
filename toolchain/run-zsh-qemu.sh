@@ -2,8 +2,8 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-zsh_build=${ZSH_BUILD:-$root/build/userspace/zsh}
-zsh_source=${ZSH_SOURCE:-$root/userspace/zsh}
+zsh_build=${ZSH_BUILD:-$root/build/user/zsh}
+zsh_source=${ZSH_SOURCE:-$root/user/zsh}
 kernel_build=${ASTIA_TEST_BUILD:-$root/kernel/build-tests}
 kernel=${ASTIA_KERNEL:-$kernel_build/src/astiakrn_runtime}
 base_initrd=${ASTIA_INITRD:-$kernel_build/tests/fixtures/boot_initrd.cpio}
@@ -142,9 +142,9 @@ ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
 
 if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
     if [ -z "$nano_binary" ]; then
-        nano_build=${ASTIA_NANO_BUILD:-$root/build/userspace/nano}
+        nano_build=${ASTIA_NANO_BUILD:-$root/build/user/nano}
         if ! ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
-            NANO_BUILD="$nano_build" NANO_SOURCE="${NANO_SOURCE:-$root/userspace/nano}" \
+            NANO_BUILD="$nano_build" NANO_SOURCE="${NANO_SOURCE:-$root/user/nano}" \
             "$root/toolchain/build-nano.sh"; then
             echo "Astia nano build failed in $nano_build." >&2
             echo "Initialize userspace sources with toolchain/init-userspace.sh or set NANO_SOURCE to a complete checkout." >&2

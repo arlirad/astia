@@ -2,15 +2,16 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-build=${NANO_BUILD:-$root/build/userspace/nano}
-source=${NANO_SOURCE:-$root/userspace/nano}
-gnulib_source=${NANO_GNULIB_SOURCE:-$root/userspace/gnulib}
+build=${NANO_BUILD:-$root/build/user/nano}
+source=${NANO_SOURCE:-$root/user/nano}
+gnulib_source=${NANO_GNULIB_SOURCE:-$root/user/gnulib}
 gnulib_revision=f05b5a23f6cef8833402a298d1576a0118912ac8
 sysroot=${ASTIA_SYSROOT:-$build/sysroot}
 crt0=${ASTIA_CRT0:-$build/astia/image/crt0.o}
 clang=${CLANG:-clang}
 target=${ASTIA_TARGET:-x86_64-unknown-elf}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
+clang_path=$(command -v "$clang")
 
 mkdir -p "$build"
 if [ ! -d "$source" ]; then
@@ -22,7 +23,7 @@ source_revision=$(
     if git -C "$source" rev-parse --git-dir >/dev/null 2>&1; then
         {
             git -C "$source" rev-parse HEAD
-            git -C "$source" diff --no-ext-diff --binary
+            git -C "$source" diff HEAD --no-ext-diff --binary
             git -C "$source" ls-files --others --exclude-standard |
                 while IFS= read -r source_file; do
                     sha256sum "$source/$source_file"
@@ -30,7 +31,7 @@ source_revision=$(
         } | sha256sum | awk '{print $1}'
     else
         find "$source" -type f -not -path "$source/.git/*" \
-            -printf '%P %T@ %s\n' | sort | sha256sum | awk '{print $1}'
+            -exec sha256sum {} + | sort | sha256sum | awk '{print $1}'
     fi
 )
 bootstrap_revision=
@@ -45,14 +46,34 @@ if [ ! -x "$source/configure" ]; then
         exit 1
     fi
     gnulib_source=$(CDPATH= cd -- "$gnulib_source" && pwd)
-    bootstrap_revision=$(git -C "$gnulib_source" rev-parse HEAD 2>/dev/null || true)
-    if [ "$bootstrap_revision" != "$gnulib_revision" ]; then
+    bootstrap_commit=$(git -C "$gnulib_source" rev-parse HEAD 2>/dev/null || true)
+    if [ "$bootstrap_commit" != "$gnulib_revision" ]; then
         echo "nano: gnulib source is not pinned to $gnulib_revision" >&2
         exit 1
     fi
+    bootstrap_revision=$(
+        {
+            printf '%s\n' "$bootstrap_commit"
+            git -C "$gnulib_source" diff HEAD --no-ext-diff --binary
+            git -C "$gnulib_source" ls-files --others --exclude-standard |
+                while IFS= read -r source_file; do
+                    sha256sum "$gnulib_source/$source_file"
+                done
+        } | sha256sum | awk '{print $1}'
+    )
 fi
+patch_revision=$(sha256sum "$root/toolchain/nano-astia/gnulib.patch" |
+    awk '{print $1}')
+toolchain_revision=$(
+    {
+        sha256sum "$root/toolchain/build-nano.sh" \
+            "$root/toolchain/build-init-libc.sh" "$clang_path"
+        find "$root/toolchain/nano-astia" -type f -exec sha256sum {} +
+        "$clang" --version
+    } | sha256sum | awk '{print $1}'
+)
 source_stamp="$build/source/.astia-source-revision"
-source_stamp_key="$source_revision:$bootstrap_revision"
+source_stamp_key="$source_revision:$bootstrap_revision:$patch_revision:$toolchain_revision"
 if [ ! -f "$source_stamp" ] || [ "$(cat "$source_stamp")" != "$source_stamp_key" ] ||
     [ ! -x "$build/source/configure" ]; then
     rm -rf "$build/source"
@@ -126,7 +147,9 @@ gl_cv_func_stat_file_slash=yes
 EOF
 
 cd "$build"
-config_key=$(printf '%s\n' "$build/source" "$source_revision" "$bootstrap_revision" "$clang" "$sysroot" "$crt0" "$builtins" | sha256sum | awk '{print $1}')
+config_key=$(printf '%s\n' "$build/source" "$source_revision" \
+    "$bootstrap_revision" "$patch_revision" "$toolchain_revision" \
+    "$sysroot" "$crt0" "$builtins" | sha256sum | awk '{print $1}')
 if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     [ "$(cat "$build/.astia-config-key")" != "$config_key" ]; then
     CONFIG_SITE="$build/config.site" PKG_CONFIG=/bin/false NCURSESW_CONFIG=no \

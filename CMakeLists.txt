@@ -40,7 +40,7 @@ option(ASTIA_CROSS_USERSPACE
 set(ASTIA_ZSH_SOURCE "$ENV{ZSH_SOURCE}" CACHE PATH
         "Clean upstream zsh source tree for external CTest suites")
 if(ASTIA_ZSH_SOURCE STREQUAL "")
-    set(ASTIA_ZSH_SOURCE "${CMAKE_SOURCE_DIR}/userspace/zsh" CACHE PATH
+    set(ASTIA_ZSH_SOURCE "${CMAKE_SOURCE_DIR}/user/zsh" CACHE PATH
             "Clean upstream zsh source tree for external CTest suites" FORCE)
 endif()
 set(ASTIA_POSIX_TEST_SOURCE "$ENV{POSIX_TEST_SOURCE}" CACHE PATH
@@ -79,7 +79,7 @@ endif()
 set(ASTIA_VGA_ZSH_SOURCE "$ENV{ZSH_SOURCE}" CACHE PATH
         "Clean upstream zsh source tree for the Astia VGA launcher")
 if(ASTIA_VGA_ZSH_SOURCE STREQUAL "")
-    set(ASTIA_VGA_ZSH_SOURCE "${CMAKE_SOURCE_DIR}/userspace/zsh" CACHE PATH
+    set(ASTIA_VGA_ZSH_SOURCE "${CMAKE_SOURCE_DIR}/user/zsh" CACHE PATH
             "Clean upstream zsh source tree for the Astia VGA launcher" FORCE)
 endif()
 set(ASTIA_VGA_KERNEL_BUILD "$ENV{ASTIA_KERNEL_BUILD}" CACHE PATH

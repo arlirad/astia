@@ -58,17 +58,17 @@ official GNU nano 8.6 archive with SHA-256
 With the pinned checkout:
 
 ```sh
-ZSH_SOURCE="$PWD/userspace/zsh" ZSH_BUILD="$PWD/build/userspace/zsh" \
+ZSH_SOURCE="$PWD/user/zsh" ZSH_BUILD="$PWD/build/user/zsh" \
   toolchain/build-zsh.sh
 ```
 
-The ELF is written to `build/userspace/zsh/output/zsh`. To add it to an
+The ELF is written to `build/user/zsh/output/zsh`. To add it to an
 existing initrd:
 
 ```sh
 toolchain/package-zsh-initrd.sh \
   kernel/build-tests/tests/fixtures/boot_initrd.cpio \
-  build/userspace/zsh/output/zsh \
+  build/user/zsh/output/zsh \
   /tmp/astia-zsh-initrd.cpio
 ```
 
@@ -91,8 +91,8 @@ From a fresh checkout, the complete flow is one command:
 Every normal launch runs the incremental kernel preflight before building the
 userspace image, so source changes cannot leave the default runtime stale.  It
 builds the Astia libc/sysroot and native coreutils, and starts QEMU. The
-default source is `userspace/zsh` and the default generated build cache is
-`build/userspace/zsh`; both are outside the submodule. `ZSH_SOURCE` may name an
+default source is `user/zsh` and the default generated build cache is
+`build/user/zsh`; both are outside the submodule. `ZSH_SOURCE` may name an
 existing complete zsh checkout and `ZSH_BUILD` selects the reusable build
 directory:
 
@@ -181,7 +181,7 @@ places them in `/bin` (`cat`, `echo`, `env`, `false`, `head`, `pwd`, `true`,
 
 Nano packaging is opt-in so normal zsh launches do not build it. Set
 `ASTIA_NANO=1` to build the pinned port automatically in the reusable
-`build/userspace/nano` cache and package it as `/bin/nano`:
+`build/user/nano` cache and package it as `/bin/nano`:
 
 ```sh
 ASTIA_NANO=1 ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
@@ -199,8 +199,8 @@ ASTIA_NANO_BINARY=/tmp/astia-nano-build/output/nano \
 The launcher invokes `toolchain/build-nano.sh` with the Astia sysroot and
 startup object; `ASTIA_NANO_BUILD` overrides the default cache directory and
 `NANO_SOURCE` overrides the pinned checkout. The default generated source and
-build trees are outside `userspace/nano`. The pinned git checkout contains
-`autogen.sh` but not generated `configure`; the pinned `userspace/gnulib`
+build trees are outside `user/nano`. The pinned git checkout contains
+`autogen.sh` but not generated `configure`; the pinned `user/gnulib`
 submodule supplies the exact bootstrap revision
 `f05b5a23f6cef8833402a298d1576a0118912ac8`:
 
@@ -242,7 +242,7 @@ repository, then build Astia libc and an unpatched zsh checkout:
 ```sh
 git clone --depth=1 https://github.com/linux-test-project/ltp.git /tmp/ltp
 toolchain/build-init-libc.sh
-ZSH_SOURCE="$PWD/userspace/zsh" ZSH_BUILD="$PWD/build/userspace/zsh" \
+ZSH_SOURCE="$PWD/user/zsh" ZSH_BUILD="$PWD/build/user/zsh" \
   toolchain/build-zsh.sh
 ```
 
@@ -316,9 +316,9 @@ with the explicit initrd path (the runner's QEMU stdin is never interactive):
 
 ```sh
 kernel/scripts/test.sh kernel/build-tests
-ZSH_SOURCE="$PWD/userspace/zsh" ZSH_BUILD="$PWD/build/userspace/zsh" \
+ZSH_SOURCE="$PWD/user/zsh" ZSH_BUILD="$PWD/build/user/zsh" \
   toolchain/build-zsh.sh
 ASTIA_KERNEL="$PWD/kernel/build-tests/src/astiakrn_runtime" \
 ASTIA_INITRD="$PWD/kernel/build-tests/tests/fixtures/boot_initrd.cpio" \
-ZSH_BUILD="$PWD/build/userspace/zsh" toolchain/run-zsh-regression.sh
+ZSH_BUILD="$PWD/build/user/zsh" toolchain/run-zsh-regression.sh
 ```

@@ -9,10 +9,11 @@ if [ -z "$zsh_source" ]; then
 fi
 
 zsh_source=$(CDPATH= cd -- "$zsh_source" && pwd)
-build=${ZSH_BUILD:-$root/build/userspace/zsh}
+build=${ZSH_BUILD:-$root/build/user/zsh}
 sysroot=${ASTIA_SYSROOT:-$build/sysroot}
 clang=${CLANG:-clang}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
+clang_path=$(command -v "$clang")
 resource_dir=$($clang --target=x86_64-unknown-elf -print-resource-dir)
 builtins=$(find "$resource_dir" -name "libclang_rt.builtins-x86_64.a" -print -quit)
 if [ -z "$builtins" ]; then
@@ -24,7 +25,7 @@ source_revision=$(
     if git -C "$zsh_source" rev-parse --git-dir >/dev/null 2>&1; then
         {
             git -C "$zsh_source" rev-parse HEAD
-            git -C "$zsh_source" diff --no-ext-diff --binary
+            git -C "$zsh_source" diff HEAD --no-ext-diff --binary
             git -C "$zsh_source" ls-files --others --exclude-standard |
                 while IFS= read -r source_file; do
                     sha256sum "$zsh_source/$source_file"
@@ -32,7 +33,7 @@ source_revision=$(
         } | sha256sum | awk '{print $1}'
     else
         find "$zsh_source" -type f -not -path "$zsh_source/.git/*" \
-            -printf '%P %T@ %s\n' | sort | sha256sum | awk '{print $1}'
+            -exec sha256sum {} + | sort | sha256sum | awk '{print $1}'
     fi
 )
 zsh_build_source=$zsh_source
@@ -63,6 +64,14 @@ EOF
 chmod +x "$build/astia-cc"
 
 cd "$build"
+toolchain_revision=$(
+    {
+        sha256sum "$root/toolchain/build-zsh.sh" \
+            "$root/toolchain/build-init-libc.sh" \
+            "$root/toolchain/astia-x86_64-clang.cmake" "$clang_path"
+        "$clang" --version
+    } | sha256sum | awk '{print $1}'
+)
 cat > "$build/config.site" <<'EOF'
 # Astia supplies the freestanding libc/kernel ABI.  These answers prevent
 # configure's cross-build probes from selecting host-only implementations.
@@ -76,7 +85,8 @@ ac_cv_func_setpgid=yes
 ac_cv_func_setsid=yes
 ac_cv_func_kill=yes
 EOF
-config_key=$(printf '%s\n' "$zsh_build_source" "$source_revision" "$clang" "$sysroot" "$builtins" | sha256sum | awk '{print $1}')
+config_key=$(printf '%s\n' "$zsh_build_source" "$source_revision" \
+    "$toolchain_revision" "$sysroot" "$builtins" | sha256sum | awk '{print $1}')
 if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     [ "$(cat "$build/.astia-config-key")" != "$config_key" ]; then
     CONFIG_SITE="$build/config.site" \
