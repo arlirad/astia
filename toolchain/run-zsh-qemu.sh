@@ -2,8 +2,8 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-zsh_build=${ZSH_BUILD:-/tmp/astia-zsh-build}
-zsh_source=${ZSH_SOURCE:-$zsh_build/source}
+zsh_build=${ZSH_BUILD:-$root/build/userspace/zsh}
+zsh_source=${ZSH_SOURCE:-$root/userspace/zsh}
 kernel_build=${ASTIA_TEST_BUILD:-$root/kernel/build-tests}
 kernel=${ASTIA_KERNEL:-$kernel_build/src/astiakrn_runtime}
 base_initrd=${ASTIA_INITRD:-$kernel_build/tests/fixtures/boot_initrd.cpio}
@@ -91,25 +91,14 @@ if [ -z "${ASTIA_TEST_BUILD:-}" ]; then
     "$root/kernel/scripts/test.sh" "$kernel_build"
 fi
 
-if [ -e "$zsh_source" ] && [ ! -d "$zsh_source" ]; then
-    echo "zsh source is not a directory: $zsh_source" >&2
-    exit 1
-fi
 if [ ! -d "$zsh_source" ]; then
     if [ -n "${ZSH_SOURCE:-}" ]; then
         echo "ZSH_SOURCE does not exist: $zsh_source" >&2
         exit 1
     fi
-    command -v git >/dev/null 2>&1 || {
-        echo "git is required to clone zsh into $zsh_source" >&2
-        exit 1
-    }
-    mkdir -p "$(dirname -- "$zsh_source")"
-    echo "Cloning a clean upstream zsh checkout into $zsh_source" >&2
-    git clone --depth=1 https://github.com/zsh-users/zsh.git "$zsh_source" || {
-        echo "could not clone zsh; set ZSH_SOURCE to a complete checkout" >&2
-        exit 1
-    }
+    echo "zsh submodule is missing: $zsh_source" >&2
+    echo "run: git submodule update --init --recursive" >&2
+    exit 1
 fi
 
 for source_file in \
@@ -126,17 +115,8 @@ for source_file in \
     fi
 done
 
-if [ ! -x "$zsh_source/configure" ]; then
-    zsh_build_source=$zsh_build/source-build
-    rm -rf "$zsh_build_source"
-    mkdir -p "$zsh_build_source"
-    cp -a "$zsh_source"/. "$zsh_build_source"/
-else
-    zsh_build_source=$zsh_source
-fi
-
 mkdir -p "$zsh_build"
-ZSH_SOURCE="$zsh_build_source" ZSH_BUILD="$zsh_build" "$root/toolchain/build-zsh.sh"
+ZSH_SOURCE="$zsh_source" ZSH_BUILD="$zsh_build" "$root/toolchain/build-zsh.sh"
 
 if [ ! -x "$kernel" ]; then
     echo "Astia kernel runtime is missing or not executable: $kernel" >&2
@@ -162,11 +142,12 @@ ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
 
 if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
     if [ -z "$nano_binary" ]; then
-        nano_build=${ASTIA_NANO_BUILD:-/tmp/astia-nano-build}
+        nano_build=${ASTIA_NANO_BUILD:-$root/build/userspace/nano}
         if ! ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
-            NANO_BUILD="$nano_build" "$root/toolchain/build-nano.sh"; then
+            NANO_BUILD="$nano_build" NANO_SOURCE="${NANO_SOURCE:-$root/userspace/nano}" \
+            "$root/toolchain/build-nano.sh"; then
             echo "Astia nano build failed in $nano_build." >&2
-            echo "Provide network access for the pinned GNU nano archive, or set ASTIA_NANO_BINARY to a verified build." >&2
+            echo "Initialize userspace/nano or set NANO_SOURCE to a complete checkout." >&2
             exit 1
         fi
         nano_binary=$nano_build/output/nano

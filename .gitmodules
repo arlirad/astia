@@ -1,0 +1,6 @@
+[submodule "userspace/zsh"]
+	path = userspace/zsh
+	url = https://github.com/zsh-users/zsh.git
+[submodule "userspace/nano"]
+	path = userspace/nano
+	url = https://git.savannah.gnu.org/git/nano.git

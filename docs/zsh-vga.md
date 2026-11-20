@@ -41,8 +41,9 @@ toolchain/run-zsh-vga-qemu.sh
 ```
 
 The graphical QEMU window is the terminal. The launcher verifies the boot
-marker before forwarding host input to COM1. Override the display backend and
-paths when needed:
+marker before forwarding host input to COM1. The default source is the pinned
+`userspace/zsh` submodule and generated files stay in the ignored build cache.
+Override the display backend and paths when needed:
 
 ```sh
 ASTIA_VGA_DISPLAY=gtk \
