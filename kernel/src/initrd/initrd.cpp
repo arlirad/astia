@@ -2,6 +2,8 @@
 
 #include "initrd.hpp"
 
+#include <astia/strings.hpp>
+
 namespace astia::initrd {
 
     namespace {
@@ -20,15 +22,18 @@ namespace astia::initrd {
         constexpr char  cpio_trailer[]    = "TRAILER!!!";
 
         struct cpio_entry {
-            const u8* name  = nullptr;
-            const u8* data  = nullptr;
-            usize     size  = 0;
-            u32       mode  = 0;
-            u32       check = 0;
-            usize     next  = 0;
+            const u8* name      = nullptr;
+            const u8* data      = nullptr;
+            usize     name_size = 0;
+            usize     size      = 0;
+            u32       mode      = 0;
+            u32       check     = 0;
+            usize     next      = 0;
         };
 
-        bool str_eq(const char* a, const char* b) {
+        // find() takes NUL-terminated input; archive names are validated as
+        // bounded C strings before they reach this comparison.
+        bool c_string_equal(const char* a, const char* b) {
             while (*a != '\0' && *a == *b) {
                 ++a;
                 ++b;
@@ -115,7 +120,11 @@ namespace astia::initrd {
             if (static_cast<usize>(namesize) > a.image.size() - name_off)
                 return false;
             const usize name_size = static_cast<usize>(namesize);
-            if (a.image.data()[name_off + name_size - 1] != 0)
+            string_view bounded_name;
+            if (!string_before_nul(
+                    {reinterpret_cast<const char*>(a.image.data() + name_off), name_size},
+                    bounded_name) ||
+                bounded_name.size != name_size - 1)
                 return false;
             const usize name_end = name_off + name_size;
             if (name_end > ~usize{0} - 3)
@@ -133,16 +142,19 @@ namespace astia::initrd {
                 !cpio_checksum(a.image.data() + data_off, data_size, out.check))
                 return false;
 
-            out.name = a.image.data() + name_off;
-            out.data = a.image.data() + data_off;
-            out.size = data_size;
-            out.next = next;
+            out.name      = a.image.data() + name_off;
+            out.data      = a.image.data() + data_off;
+            out.name_size = bounded_name.size;
+            out.size      = data_size;
+            out.next      = next;
             return true;
         }
 
         bool is_cpio_trailer(const cpio_entry& entry) {
             return entry.size == 0 &&
-                   str_eq(reinterpret_cast<const char*>(entry.name), cpio_trailer);
+                   string_equal(
+                       {reinterpret_cast<const char*>(entry.name), entry.name_size},
+                       {cpio_trailer, sizeof(cpio_trailer) - 1});
         }
 
     } // namespace
@@ -226,7 +238,7 @@ namespace astia::initrd {
 
         bool find_visit(void* ctx, const file& f) {
             auto* c = static_cast<find_ctx*>(ctx);
-            if (str_eq(f.name, c->name)) {
+            if (c_string_equal(f.name, c->name)) {
                 *c->out  = f;
                 c->found = true;
                 return false; // stop at the first match

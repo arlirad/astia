@@ -170,6 +170,36 @@ ASTIA_TEST(initrd_rejects_malformed_cpio_name) {
     ASTIA_CHECK(!astia::initrd::open(image.data(), image.size(), a));
 }
 
+ASTIA_TEST(initrd_trailer_name_comparison_is_length_bounded) {
+    std::vector<unsigned char> image(initrd_newc_blob,
+                                     initrd_newc_blob + initrd_newc_blob_len);
+    constexpr char             trailer[]      = "TRAILER!!!";
+    astia::usize               trailer_offset = image.size();
+    for (astia::usize i = 0; i + sizeof(trailer) <= image.size(); ++i) {
+        if (std::memcmp(image.data() + i, trailer, sizeof(trailer)) == 0) {
+            trailer_offset = i;
+            break;
+        }
+    }
+    ASTIA_CHECK(trailer_offset != image.size());
+    if (trailer_offset == image.size())
+        return;
+
+    astia::initrd::archive a;
+    ASTIA_CHECK(astia::initrd::open(image.data(), image.size(), a));
+    ASTIA_CHECK(astia::initrd::each(a, nullptr, nullptr));
+
+    image[trailer_offset + 7] = 0;
+    ASTIA_CHECK(astia::initrd::open(image.data(), image.size(), a));
+    ASTIA_CHECK(!astia::initrd::each(a, nullptr, nullptr));
+
+    image.assign(initrd_newc_blob, initrd_newc_blob + initrd_newc_blob_len);
+    const astia::usize header_offset = trailer_offset - 110;
+    std::memcpy(image.data() + header_offset + 94, "0000000c", 8);
+    ASTIA_CHECK(astia::initrd::open(image.data(), image.size(), a));
+    ASTIA_CHECK(!astia::initrd::each(a, nullptr, nullptr));
+}
+
 ASTIA_TEST(initrd_skips_nonregular_cpio_types) {
     std::vector<unsigned char> image(initrd_newc_blob,
                                      initrd_newc_blob + initrd_newc_blob_len);
