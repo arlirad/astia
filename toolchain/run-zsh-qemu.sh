@@ -15,12 +15,71 @@ nano_binary=${ASTIA_NANO_BINARY:-}
 nano_enabled=${ASTIA_NANO:-0}
 nano_harness=${ASTIA_NANO_HARNESS:-0}
 nano_iterations=${ASTIA_NANO_ITERATIONS:-3}
+build_only=${ASTIA_ZSH_BUILD_ONLY:-0}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 cpio=${ASTIA_CPIO:-cpio}
 target=x86_64-unknown-elf
-resource_dir=$($clang --target=$target -print-resource-dir)
+resource_dir=$("$clang" --target="$target" -print-resource-dir)
 sysroot=$zsh_build/sysroot
+
+case "$work" in
+    ''|/)
+        echo "ASTIA_ZSH_RUN must identify a dedicated working directory" >&2
+        exit 2
+        ;;
+esac
+work_base=$(basename -- "$work")
+case "$work_base" in
+    ''|.|..)
+        echo "ASTIA_ZSH_RUN must identify a dedicated working directory" >&2
+        exit 2
+        ;;
+esac
+work_parent=$(CDPATH= cd -- "$(dirname -- "$work")" 2>/dev/null && pwd -P) || {
+    echo "ASTIA_ZSH_RUN parent directory does not exist: $(dirname -- "$work")" >&2
+    exit 2
+}
+work_path=$work_parent/$work_base
+if [ -e "$work_path" ]; then
+    if [ ! -d "$work_path" ]; then
+        echo "ASTIA_ZSH_RUN is not a directory: $work_path" >&2
+        exit 2
+    fi
+    work_path=$(CDPATH= cd -- "$work_path" && pwd -P)
+    if [ -e "$work_path/.git" ] || [ -f "$work_path/CMakeCache.txt" ]; then
+        echo "refusing to remove a protected work directory: $work_path" >&2
+        exit 2
+    fi
+fi
+dev_initrd_build_root=
+if [ -n "${ASTIA_DEV_INITRD_RUN:-}" ]; then
+    if [ -z "${ASTIA_DEV_INITRD_BUILD_ROOT:-}" ] ||
+       [ ! -f "$ASTIA_DEV_INITRD_BUILD_ROOT/CMakeCache.txt" ]; then
+        echo "ASTIA_DEV_INITRD_BUILD_ROOT must identify the configured CMake build directory" >&2
+        exit 2
+    fi
+    dev_initrd_build_root=$(CDPATH= cd -- "$ASTIA_DEV_INITRD_BUILD_ROOT" && pwd -P)
+    if [ "$work_path" != "$ASTIA_DEV_INITRD_RUN" ] ||
+       [ "$work_parent" != "$dev_initrd_build_root" ]; then
+        echo "ASTIA_ZSH_RUN does not match the validated ASTIA_DEV_INITRD_RUN" >&2
+        exit 2
+    fi
+fi
+case "$root/" in
+    "$work_path/"*)
+        echo "ASTIA_ZSH_RUN must not contain the source tree: $work_path" >&2
+        exit 2
+        ;;
+esac
+case "$work_path/" in
+    "$root/"*)
+        if [ -z "$dev_initrd_build_root" ]; then
+            echo "ASTIA_ZSH_RUN must be outside the source tree: $work_path" >&2
+            exit 2
+        fi
+        ;;
+esac
 
 case "$clean_build" in
     0|1) ;;
@@ -69,10 +128,20 @@ case "$nano_iterations" in
         ;;
 esac
 
-command -v "$qemu" >/dev/null 2>&1 || {
-    echo "QEMU executable not found: $qemu" >&2
-    exit 1
-}
+case "$build_only" in
+    0|1) ;;
+    *)
+        echo "ASTIA_ZSH_BUILD_ONLY must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$build_only" = 0 ]; then
+    command -v "$qemu" >/dev/null 2>&1 || {
+        echo "QEMU executable not found: $qemu" >&2
+        exit 1
+    }
+fi
 command -v "$cpio" >/dev/null 2>&1 || {
     echo "cpio executable not found: $cpio" >&2
     exit 1
@@ -160,33 +229,37 @@ fi
 
 (cd "$work/root" && "$cpio" -id --quiet --no-absolute-filenames) <"$base_initrd"
 
-common_flags="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
-include_flags="-nostdinc -isystem $resource_dir/include -isystem $sysroot/include"
+compile_flags() {
+    "$clang" --target="$target" -ffreestanding -fno-pic -fno-pie \
+        -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone "$@"
+}
 
-# shellcheck disable=SC2086
-$clang $common_flags -fno-builtin $include_flags \
+compile_flags -fno-builtin -nostdinc \
+    -isystem "$resource_dir/include" -isystem "$sysroot/include" \
     -c -o "$work/runner.o" "$root/toolchain/zsh-runner.c"
-$clang $common_flags -fno-builtin $include_flags \
+compile_flags -fno-builtin -nostdinc \
+    -isystem "$resource_dir/include" -isystem "$sysroot/include" \
     -c -o "$work/line-reader.o" "$root/toolchain/line-reader.c"
-$clang $common_flags -fno-builtin $include_flags \
+compile_flags -fno-builtin -nostdinc \
+    -isystem "$resource_dir/include" -isystem "$sysroot/include" \
     -c -o "$work/line-reader-runner.o" "$root/toolchain/line-reader-runner.c"
-$clang $common_flags -fno-builtin $include_flags \
+compile_flags -fno-builtin -nostdinc \
+    -isystem "$resource_dir/include" -isystem "$sysroot/include" \
     -c -o "$work/pty-test.o" "$root/toolchain/pty-test.c"
-# shellcheck disable=SC2086
-$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+compile_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
     -o "$work/runner" "$zsh_build/astia/image/crt0.o" "$work/runner.o" \
     "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
-$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+compile_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
     -o "$work/line-reader" "$zsh_build/astia/image/crt0.o" "$work/line-reader.o" \
     "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
-$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+compile_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
     -o "$work/line-reader-runner" "$zsh_build/astia/image/crt0.o" \
     "$work/line-reader-runner.o" "$sysroot/lib/libastia_libc.a" \
     "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
-$clang $common_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
+compile_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
     -o "$work/pty-test" "$zsh_build/astia/image/crt0.o" "$work/pty-test.o" \
     "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
@@ -213,6 +286,11 @@ test -x "$work/root/bin/zsh"
 test -f "$work/root/etc/zshenv"
 (cd "$work/root" && find hello_initrd.o sbin bin etc -print |
     "$cpio" -o --format=newc --quiet) >"$work/initrd.cpio"
+
+if [ "$build_only" = 1 ]; then
+    printf 'Astia zsh/nano initrd: %s\n' "$work/initrd.cpio"
+    exit 0
+fi
 
 if [ "$harness" = 1 ]; then
     command -v python3 >/dev/null 2>&1 || {

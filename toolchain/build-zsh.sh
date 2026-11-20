@@ -14,7 +14,7 @@ sysroot=${ASTIA_SYSROOT:-$build/sysroot}
 clang=${CLANG:-clang}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
 clang_path=$(command -v "$clang")
-resource_dir=$($clang --target=x86_64-unknown-elf -print-resource-dir)
+resource_dir=$("$clang" --target=x86_64-unknown-elf -print-resource-dir)
 builtins=$(find "$resource_dir" -name "libclang_rt.builtins-x86_64.a" -print -quit)
 if [ -z "$builtins" ]; then
     echo "clang compiler builtins not found below $resource_dir" >&2
@@ -54,14 +54,25 @@ ASTIA_CROSS_BUILD="$build/astia" ASTIA_SYSROOT="$sysroot" CLANG="$clang" \
     "$root/toolchain/build-init-libc.sh"
 
 mkdir -p "$build"
+config_compat_dir=${TMPDIR:-/tmp}/astia-zsh-config-$(printf '%s' "$build" |
+    sha256sum | awk '{print $1}')
+mkdir -p "$config_compat_dir"
+ln -sfn "$sysroot" "$config_compat_dir/sysroot"
+ln -sfn "$zsh_build_source" "$config_compat_dir/source"
+ln -sfn "$build/astia/image/crt0.o" "$config_compat_dir/crt0.o"
+ln -sfn "$sysroot/lib/libastia_libc.a" "$config_compat_dir/libastia_libc.a"
+ln -sfn "$builtins" "$config_compat_dir/libclang_rt_builtins.a"
 cat > "$build/astia-cc" <<EOF
 #!/bin/sh
 exec $clang --target=x86_64-unknown-elf -ffreestanding -fno-builtin \
 -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
 -mno-red-zone -nostdinc -isystem "$resource_dir/include" \
--isystem "$sysroot/include" "\$@"
+-isystem "$config_compat_dir/sysroot/include" "\$@"
 EOF
 chmod +x "$build/astia-cc"
+compiler_launcher=${TMPDIR:-/tmp}/astia-zsh-cc-$(printf '%s' "$build" |
+    sha256sum | awk '{print $1}')
+ln -sfn "$build/astia-cc" "$compiler_launcher"
 
 cd "$build"
 toolchain_revision=$(
@@ -86,17 +97,19 @@ ac_cv_func_setsid=yes
 ac_cv_func_kill=yes
 EOF
 config_key=$(printf '%s\n' "$zsh_build_source" "$source_revision" \
-    "$toolchain_revision" "$sysroot" "$builtins" | sha256sum | awk '{print $1}')
+    "$toolchain_revision" "$sysroot" "$builtins" "$compiler_launcher" \
+    "$config_compat_dir" |
+    sha256sum | awk '{print $1}')
 if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     [ "$(cat "$build/.astia-config-key")" != "$config_key" ]; then
     CONFIG_SITE="$build/config.site" \
-        "$zsh_build_source/configure" \
+        "$config_compat_dir/source/configure" \
     --host=x86_64-unknown-elf \
     --build=x86_64-pc-linux-gnu \
-    CC="$build/astia-cc" \
+    CC="$compiler_launcher" \
     CFLAGS='-O0' \
     LDFLAGS='-nostdlib -static -Wl,-no-pie -Wl,-Ttext-segment=0x40000000' \
-        LIBS="$build/astia/image/crt0.o $sysroot/lib/libastia_libc.a $builtins"
+        LIBS="$config_compat_dir/crt0.o $config_compat_dir/libastia_libc.a $config_compat_dir/libclang_rt_builtins.a"
     printf '%s\n' "$config_key" >"$build/.astia-config-key"
 fi
 
