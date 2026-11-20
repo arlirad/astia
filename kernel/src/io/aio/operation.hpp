@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace astia::io::aio::prototype {
+namespace astia::io::aio {
 
     struct operation_id {
         std::uint32_t slot;
@@ -100,4 +100,4 @@ namespace astia::io::aio::prototype {
         bool            acknowledged_           = false;
     };
 
-} // namespace astia::io::aio::prototype
+} // namespace astia::io::aio

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "handler.hpp"
 #include "ring.hpp"
 
 namespace astia::io::aio::filesystem {
@@ -28,5 +29,15 @@ namespace astia::io::aio::filesystem {
     }
 
     bool dispatch(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
+
+    template <opcode Opcode>
+    struct operation : handler<operation<Opcode>, Opcode> {
+        static_assert(handles(static_cast<u32>(Opcode)));
+
+        static bool handle(ring::ring_slot& slot, astia_rings* ring,
+                           const astia_sqe& sqe) noexcept {
+            return dispatch(slot, ring, sqe);
+        }
+    };
 
 } // namespace astia::io::aio::filesystem
