@@ -45,6 +45,10 @@ $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     "$crt0" "$out/coreutils_test.o" "$sysroot/lib/libastia_libc.a" \
     "$resource/lib/linux/libclang_rt.builtins-x86_64.a"
 cp "$out/bin/"* "$out/root/bin/"
+for key in "$out/.keys/"*; do
+    [ -f "$key" ] || continue
+    cp "$key" "$out/root/bin/$(basename "$key").key"
+done
 cp "$root/daemond/passwd" "$out/root/etc/passwd"
 cp "$root/daemond/group" "$out/root/etc/group"
 init_libc=$kernel_build/tests/fixtures/init_libc
