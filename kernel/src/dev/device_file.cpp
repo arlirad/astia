@@ -6,6 +6,52 @@
 
 namespace astia::dev {
 
+    bool device_file::quiescent() const {
+        core::spinlock_guard guard(pending_lock_);
+        return __atomic_load_n(&detached_, __ATOMIC_ACQUIRE) &&
+               __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE) == 0 &&
+               __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0;
+    }
+
+    bool device_file::arm_quiescence_handler(quiescence_handler handler, void* context) {
+        quiescence_handler callback         = nullptr;
+        void*              callback_context = nullptr;
+        {
+            core::spinlock_guard guard(pending_lock_);
+            quiescence_handler_ = handler;
+            quiescence_context_ = context;
+            if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE) &&
+                __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE) == 0 &&
+                __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0) {
+                callback            = quiescence_handler_;
+                callback_context    = quiescence_context_;
+                quiescence_handler_ = nullptr;
+                quiescence_context_ = nullptr;
+            }
+        }
+        if (callback != nullptr)
+            callback(callback_context);
+        return callback != nullptr;
+    }
+
+    void device_file::notify_quiescent() const {
+        quiescence_handler callback = nullptr;
+        void*              context  = nullptr;
+        {
+            core::spinlock_guard guard(pending_lock_);
+            if (!__atomic_load_n(&detached_, __ATOMIC_ACQUIRE) ||
+                __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE) != 0 ||
+                __atomic_load_n(&active_, __ATOMIC_ACQUIRE) != 0)
+                return;
+            callback            = quiescence_handler_;
+            context             = quiescence_context_;
+            quiescence_handler_ = nullptr;
+            quiescence_context_ = nullptr;
+        }
+        if (callback != nullptr)
+            callback(context);
+    }
+
     void device_file::detach() {
         io::request* requests[max_pending_requests]{};
         bool         retained[max_pending_requests]{};
@@ -77,6 +123,7 @@ namespace astia::dev {
                 break;
             }
         }
+        notify_quiescent();
     }
 
     void device_file::cancellation_acknowledged(io::request& request) {
@@ -98,6 +145,7 @@ namespace astia::dev {
 
     void device_file::end_operation() const {
         __atomic_sub_fetch(&active_, 1u, __ATOMIC_ACQ_REL);
+        notify_quiescent();
     }
 
     long device_file::read(void* buf, u32 len, u64 offset) {

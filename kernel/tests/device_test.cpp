@@ -113,6 +113,32 @@ namespace {
                 request.cancel_acknowledge();
         }
     };
+
+    class blocking_device final : public astia::dev::device {
+        public:
+        blocking_device() : device("blocking", astia::dev::dv_sync) {}
+
+        std::atomic<bool> entered{false};
+        std::atomic<bool> allow{false};
+
+        long read(void*, astia::u32, astia::u64) override {
+            return -EIO;
+        }
+        long write(const void*, astia::u32, astia::u64) override {
+            return -EIO;
+        }
+
+        long submit(astia::io::request&) override {
+            entered.store(true, std::memory_order_release);
+            while (!allow.load(std::memory_order_acquire))
+                std::this_thread::yield();
+            return -EIO;
+        }
+    };
+
+    void mark_quiesced(void* context) {
+        static_cast<std::atomic<bool>*>(context)->store(true, std::memory_order_release);
+    }
 }
 
 ASTIA_TEST(device_constructor_does_not_probe_past_name_capacity) {
@@ -281,6 +307,33 @@ ASTIA_TEST(device_file_detach_preserves_operation_for_owner_release) {
     owner.join();
     ASTIA_CHECK(detach_done.load(std::memory_order_acquire));
     ASTIA_CHECK(owner_done.load(std::memory_order_acquire));
+}
+
+ASTIA_TEST(device_file_quiescence_callback_waits_for_active_submit) {
+    blocking_device         device;
+    astia::dev::device_file file(&device);
+    char                    buffer[1]{};
+    astia::io::request request(buffer, sizeof buffer, 0, 0, astia::io::direction::input);
+    std::atomic<bool>  submit_done{false};
+    std::atomic<bool>  quiesced{false};
+    std::thread        submitter([&] {
+        file.submit(request);
+        submit_done.store(true, std::memory_order_release);
+    });
+
+    while (!device.entered.load(std::memory_order_acquire))
+        std::this_thread::yield();
+    file.detach();
+    ASTIA_CHECK(!file.quiescent());
+    ASTIA_CHECK(!file.arm_quiescence_handler(mark_quiesced, &quiesced));
+    ASTIA_CHECK(!quiesced.load(std::memory_order_acquire));
+
+    device.allow.store(true, std::memory_order_release);
+    submitter.join();
+    while (!quiesced.load(std::memory_order_acquire))
+        std::this_thread::yield();
+    ASTIA_CHECK(submit_done.load(std::memory_order_acquire));
+    ASTIA_CHECK(file.quiescent());
 }
 
 ASTIA_TEST(aio_parked_request_stays_stable_across_stretch) {
