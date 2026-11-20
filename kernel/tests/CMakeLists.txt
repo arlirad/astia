@@ -128,6 +128,12 @@ target_link_options(astia_time_test PRIVATE -Wl,--gc-sections)
 astia_add_host_test(astia_syscall_dispatch_test
         syscall_dispatch_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp)
+astia_add_host_test(astia_syscall_handler_prototype_test
+        syscall_handler_prototype_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp)
+astia_add_host_test(astia_net_syscall_prototype_test
+        net_syscall_prototype_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp)
 astia_add_host_test(astia_console_test
         console_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)
