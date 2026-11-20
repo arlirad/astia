@@ -1,0 +1,157 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Arlirad -->
+
+# Astia package manager prototype
+
+`pkg` is a host-Linux prototype for the future Astia package manager. It is
+deliberately sandboxed: the default root is `build/tmp/pkg-root`, and a root of
+`/` or `/usr` is rejected. Tests create temporary roots and repositories and
+never modify a host system.
+
+## Commands and target CPU architecture
+
+The compact interface follows a deliberately small pacman-like grammar:
+
+* `-s` (or `sync`) validates and atomically caches `index.json`; it requires
+  `--repo`.
+* `-i NAME [VERSION]` (or `install`) installs the selected version from the
+  cached index.
+* `-r NAME` (or `remove`) removes one installed package.
+* `-is NAME [VERSION]` syncs, then installs, in that order.
+* `-u` upgrades every package already installed to the newest compatible
+  version from the cached repository; it is intentionally offline and does not
+  take `--repo`. Each package is a separate transactional upgrade; a later
+  failure does not undo an earlier package transaction.
+* `-su` syncs, then performs the `-u` upgrade.
+
+Short operation flags are parsed character by character. Repeated flags are
+normalized away, and `-si`, `-is`, `-s -i`, and `-i -s` all mean sync followed
+by install; `-u` and `upgrade` use the cached repository without syncing, while
+`-su` and `-us` mean sync followed by upgrade. Conflicting or unknown flags,
+extra operands, and missing `--repo` for a sync operation fail before any
+package operation. The long `list`, `status`, and `upgrade` commands remain
+available.
+Use `--` before an operand that begins with `-`; package names and versions
+still must satisfy their respective syntax.
+
+The target is a CPU architecture, not a generic ABI: `x86_64`, `aarch64`,
+and `riscv64` are examples. The prototype detects the host CPU through
+`platform.machine()` (or the `ASTIA_MACHINE_ARCH` integration hook), but
+`--arch ARCH` is required for cross-architecture sandbox tests and fixes the
+target architecture for that root. It refuses to silently fall back to
+another artifact. ABI/libc/OS variants are intentionally future metadata
+dimensions, not architecture fallbacks.
+
+```sh
+./pkg/pkg --root build/tmp/pkg-root -s --repo ./repository
+./pkg/pkg --root build/tmp/pkg-root -i hello [1.2.3]
+./pkg/pkg --root build/tmp/pkg-root -is hello --repo ./repository
+./pkg/pkg --root build/tmp/pkg-root -u
+./pkg/pkg --root build/tmp/pkg-root -su --repo ./repository
+./pkg/pkg --root build/tmp/pkg-root list
+./pkg/pkg --root build/tmp/pkg-root status
+./pkg/pkg --root build/tmp/pkg-root -r hello
+```
+
+`--repo` accepts either a local directory containing `index.json` or a static
+HTTP(S) repository URL. A URL ending in `index.json` is used directly;
+otherwise `/index.json` is appended. An HTTPS index may use only HTTPS archive
+URLs, and redirects may not downgrade HTTPS to HTTP or change to another
+transport such as FTP. FTP transport is disabled entirely. `sync` validates and
+atomically replaces the cached index. Package archives are fetched only by
+`install`, then checked for both indexed size and SHA-256.
+
+## Static repository format
+
+The repository is static JSON plus immutable gzip-compressed tar archives:
+
+```json
+{
+  "schema": 1,
+  "generated_at": "2026-01-01T00:00:00Z",
+  "repository": {
+    "name": "example",
+    "channel": "stable",
+    "architectures": ["x86_64", "aarch64"]
+  },
+  "packages": {
+    "hello": {
+      "versions": {
+        "1.0.0": {
+          "artifacts": {
+            "x86_64": {
+              "archive": "packages/hello-1.0.0-x86_64.tar.gz",
+              "sha256": "64 lowercase hexadecimal characters",
+              "size": 1234
+            },
+            "aarch64": {
+              "archive": "packages/hello-1.0.0-aarch64.tar.gz",
+              "sha256": "64 lowercase hexadecimal characters",
+              "size": 1256
+            }
+          },
+          "dependencies": []
+        }
+      }
+    }
+  }
+}
+```
+
+Versions use `major.minor.patch` with an optional SemVer-style prerelease.
+Each archive contains a root `package.json`:
+
+```json
+{
+  "format_schema": 1,
+  "name": "hello",
+  "version": "1.0.0",
+  "files": [
+    {"path": "bin/hello", "sha256": "64 lowercase hexadecimal characters", "mode": 493}
+  ]
+}
+```
+
+Only regular files and directories are accepted. Paths are relative,
+normalized POSIX paths; `..`, absolute paths, symlinks, hard links, devices,
+duplicate members, and `.pkg` paths are rejected. Package scripts are never
+executed. Dependencies are validated as metadata but installation is deferred
+when a non-empty dependency list is encountered.
+
+## Trust and transactions
+
+This MVP uses a local unsigned index and package digests. HTTPS protects
+transport, not package authenticity, and is not a substitute for signatures.
+An existing `name@version` cannot silently change archive URL, size, or
+digest in a root's cache. Future work should add signed index/package
+metadata, preferably an Ed25519/TUF-like root of trust with expiry,
+rollback/freeze protection, key rotation, and delegation. The current
+transport boundary is intentionally small so Astia's native HTTP stack can
+replace Python's host `urllib` implementation.
+
+Installation extracts into a transaction staging directory, checks every
+manifest and target, and commits ownership state only after all file moves
+succeed. Files owned by another package or unmanaged files are never
+clobbered. Remove and upgrades use the same backup-and-rollback behavior.
+Recovery is fail-closed: journal evidence is retained until restoration and
+its directory syncs succeed, so an injected or real recovery failure cannot be
+reported as a successful transaction. Completed transactions are first renamed
+to a cleanup tombstone and parent-synced; startup retries tombstone removal,
+so a cleanup fsync failure cannot leave a journal-less active transaction.
+Ownership and installed-package state
+live under `.pkg`; package paths cannot use that reserved namespace.
+
+The supported root trust boundary requires the package root and mutable
+package descendants to be owned by the effective process UID and not writable
+by group/other. An ancestor is accepted only when it is process-owned or an
+explicitly trusted system directory owned by UID 0. Sticky mode does not grant
+trust to a foreign owner; root-owned sticky system directories are accepted,
+but all other foreign-owned ancestors, including read-only ones, are rejected
+before the root is opened to prevent ownership/mode TOCTOU changes. This prevents other-user
+directory-rename races; a same-UID process that can mutate the trusted root
+concurrently is outside the threat model. The prototype does not claim hostile
+shared-root safety.
+
+The prototype is not yet an Astia-native utility. Its intended next
+integration step is to reuse the format, verifier, ownership model, and
+transaction protocol behind Astia's filesystem, process, and HTTP APIs.
