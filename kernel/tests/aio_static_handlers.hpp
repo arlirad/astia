@@ -38,11 +38,11 @@ namespace astia::io::aio::prototype {
             { Impl::handle(context, sqe) } noexcept -> std::same_as<dispatch_result>;
         };
 
-    template <handler_implementation Impl, opcode Opcode>
+    template <typename Impl, opcode Opcode>
     struct handler {
         static constexpr opcode opcode_value = Opcode;
 
-        static dispatch_result invoke(void* context, const astia_sqe& sqe) noexcept {
+        static dispatch_result dispatch(void* context, const astia_sqe& sqe) noexcept {
             return Impl::handle(*static_cast<typename Impl::context_type*>(context), sqe);
         }
     };
@@ -54,7 +54,7 @@ namespace astia::io::aio::prototype {
 
     template <typename Handler>
     constexpr descriptor describe() noexcept {
-        return {Handler::opcode_value, &Handler::invoke};
+        return {Handler::opcode_value, &Handler::dispatch};
     }
 
     inline dispatch_result dispatch(std::span<const descriptor> handlers, void* context,
