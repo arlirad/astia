@@ -287,7 +287,7 @@ namespace astia::mm {
         _page_bases = nullptr;
         heap::free(_page_refs);
         _identity = {};
-        heap::free(this);
+        delete this;
     }
 
     bool phys_region::release_range(usize first, usize count) {

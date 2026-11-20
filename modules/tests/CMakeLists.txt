@@ -50,8 +50,10 @@ set(ASTIA_TYPED_LAYOUT ${CMAKE_CURRENT_BINARY_DIR}/typed_contract_layout)
 add_custom_command(
         OUTPUT ${ASTIA_TYPED_LAYOUT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 ${CMAKE_CURRENT_SOURCE_DIR}/typed_contract_layout.cpp
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_TYPED_LAYOUT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/typed_contract_layout.cpp
                 ${ASTIA_TYPED_HEADERS}
@@ -59,6 +61,7 @@ add_custom_command(
 add_custom_target(astia_typed_contract_layout_target ALL DEPENDS ${ASTIA_TYPED_LAYOUT})
 if(ASTIA_BUILD_TESTS)
     add_test(NAME astia_typed_contract_layout COMMAND ${ASTIA_TYPED_LAYOUT})
+    astia_add_test_label(astia_typed_contract_layout "sanitizer-host")
 endif()
 
 astia_append_test_label("module;abi;deterministic")

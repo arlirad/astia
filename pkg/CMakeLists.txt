@@ -8,7 +8,9 @@ if(ASTIA_BUILD_TESTS)
     target_include_directories(pkg_getopt PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/../libc/include
             ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include)
+    astia_apply_host_sanitizers(pkg_getopt)
     add_executable(pkg_cli_parser cli_parser.c $<TARGET_OBJECTS:pkg_getopt>)
+    astia_apply_host_sanitizers(pkg_cli_parser)
     add_test(NAME pkg_host_tests
             COMMAND ${CMAKE_COMMAND} -E env
                     PKG_GETOPT_HELPER=$<TARGET_FILE:pkg_cli_parser>
@@ -17,4 +19,5 @@ if(ASTIA_BUILD_TESTS)
     set_tests_properties(pkg_host_tests PROPERTIES
             LABELS "pkg;host;deterministic"
             TIMEOUT 60)
+    astia_add_test_label(pkg_host_tests "sanitizer-host")
 endif()
