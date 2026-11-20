@@ -660,7 +660,8 @@ astia_add_arena_test(astia_exec_rollback_test
 astia_add_arena_test(astia_rcu_hashmap_test
         rcu_hashmap_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        support/interrupts_host.cpp)
 target_link_libraries(astia_rcu_hashmap_test PRIVATE Threads::Threads)
 
 astia_add_arena_test(astia_frame_allocator_test
@@ -686,6 +687,7 @@ astia_add_arena_test(astia_heap_test
         heap_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        support/interrupts_host.cpp
 )
 
 # mm::phys_region: region-local reference counting and the CoW
@@ -697,6 +699,7 @@ astia_add_arena_test(astia_phys_region_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/iovec.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        support/interrupts_host.cpp
 )
 
 astia_add_arena_test(astia_ext4_vfs_test
@@ -705,6 +708,7 @@ astia_add_arena_test(astia_ext4_vfs_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
         support/pty_vfs_host.cpp
+        support/interrupts_host.cpp
 )
 target_link_libraries(astia_ext4_vfs_test PRIVATE fs)
 target_compile_options(astia_ext4_vfs_test PRIVATE -fno-rtti)
