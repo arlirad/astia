@@ -921,11 +921,14 @@ namespace {
         }
 
         bool probe(const astia::hw::device_info& info) override {
-            astia::u32 teardown = __atomic_load_n(&_teardown_state, __ATOMIC_ACQUIRE);
-            if (teardown == 4)
-                __atomic_compare_exchange_n(&_teardown_state, &teardown, 0, false,
-                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-            else if (teardown != 0)
+            astia::u64       token = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+            const astia::u64 state = teardown_state(token);
+            if (state == teardown_complete &&
+                !__atomic_compare_exchange_n(&_teardown_token, &token,
+                                             teardown_word(teardown_generation(token), 0),
+                                             false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return {};
+            if (state != 0 && state != teardown_complete)
                 return {};
             const auto* pci = astia::hw::pci_device_info::get(info);
             if (pci == nullptr)
@@ -966,19 +969,28 @@ namespace {
         }
 
         void remove(const astia::hw::device_info&) override {
-            astia::u32 expected = 0;
-            if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 1, false,
-                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+            const astia::u64 generation =
+                teardown_generation(expected) == teardown_generation_mask
+                    ? 1
+                    : teardown_generation(expected) + 1;
+            const astia::u64 state = teardown_state(expected);
+            if (state != 0 && state != teardown_complete)
+                return;
+            if (!__atomic_compare_exchange_n(&_teardown_token, &expected,
+                                             teardown_word(generation, teardown_claiming),
+                                             false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
                 return;
             __atomic_store_n(&_teardown_retry, false, __ATOMIC_RELEASE);
-            ++_generation;
             unregister_nodes();
             for (astia::u32 i = 0; i < _file_count; ++i)
                 if (_files[i])
                     (void) _files[i]->arm_quiescence_handler(quiescence_callback, this,
-                                                             _generation);
-            __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
-            finish_remove(_generation);
+                                                             generation);
+            __atomic_store_n(&_teardown_token,
+                             teardown_word(generation, teardown_waiting),
+                             __ATOMIC_RELEASE);
+            finish_remove(generation);
         }
 
         bool selftest() override {
@@ -1048,6 +1060,23 @@ namespace {
         }
 
         private:
+        static constexpr astia::u64 teardown_claiming        = 1;
+        static constexpr astia::u64 teardown_waiting         = 2;
+        static constexpr astia::u64 teardown_complete        = 4;
+        static constexpr astia::u64 teardown_generation_mask = UINT64_MAX >> 3;
+
+        static astia::u64 teardown_word(astia::u64 generation, astia::u64 state) {
+            return (generation << 3) | state;
+        }
+
+        static astia::u64 teardown_generation(astia::u64 token) {
+            return token >> 3;
+        }
+
+        static astia::u64 teardown_state(astia::u64 token) {
+            return token & 7;
+        }
+
         static void quiescence_callback(void* context, astia::u64 generation) {
             static_cast<nvme_driver*>(context)->finish_remove(generation);
         }
@@ -1060,17 +1089,18 @@ namespace {
         }
 
         void finish_remove(astia::u64 generation) {
-            if (generation != _generation)
-                return;
-            astia::u32 expected = 2;
-            if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 3, false,
+            astia::u64 expected = teardown_word(generation, teardown_waiting);
+            if (!__atomic_compare_exchange_n(&_teardown_token, &expected,
+                                             teardown_word(generation, 3), false,
                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                if (expected == 3)
+                if (expected == teardown_word(generation, 3))
                     __atomic_store_n(&_teardown_retry, true, __ATOMIC_RELEASE);
                 return;
             }
             if (!all_files_quiescent()) {
-                __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
+                __atomic_store_n(&_teardown_token,
+                                 teardown_word(generation, teardown_waiting),
+                                 __ATOMIC_RELEASE);
                 if (__atomic_exchange_n(&_teardown_retry, false, __ATOMIC_ACQ_REL))
                     finish_remove(generation);
                 return;
@@ -1080,7 +1110,9 @@ namespace {
                 _files[i] = {};
             _file_count = 0;
             _product    = {};
-            __atomic_store_n(&_teardown_state, 4, __ATOMIC_RELEASE);
+            __atomic_store_n(&_teardown_token,
+                             teardown_word(generation, teardown_complete),
+                             __ATOMIC_RELEASE);
         }
 
         void unregister_nodes() {
@@ -1100,9 +1132,8 @@ namespace {
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _files[max_namespaces]{};
         astia::u32                                _file_count     = 0;
-        volatile astia::u32                       _teardown_state = 0;
+        volatile astia::u64                       _teardown_token = 0;
         volatile bool                             _teardown_retry = false;
-        astia::u64                                _generation     = 0;
     };
 
     nvme_driver driver;
