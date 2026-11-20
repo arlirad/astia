@@ -41,6 +41,7 @@ set(_astia_test_includes
         ${ASTIA_KERNEL_SOURCE_DIR}/src/proc
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio
+        ${ASTIA_KERNEL_SOURCE_DIR}/src
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt
