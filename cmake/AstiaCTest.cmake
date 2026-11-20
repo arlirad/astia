@@ -24,6 +24,27 @@ function(astia_add_test_label name label)
     set_tests_properties(${name} PROPERTIES LABELS "${_astia_labels}")
 endfunction()
 
+function(astia_remove_test_label name label)
+    get_property(_astia_labels TEST ${name} PROPERTY LABELS)
+    list(REMOVE_ITEM _astia_labels ${label})
+    set_tests_properties(${name} PROPERTIES LABELS "${_astia_labels}")
+endfunction()
+
+function(astia_apply_host_sanitizers target)
+    if(ASTIA_HOST_SANITIZER_COMPILE_OPTIONS)
+        target_compile_options(${target} PRIVATE
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS})
+    endif()
+    get_target_property(_astia_target_type ${target} TYPE)
+    if(ASTIA_HOST_SANITIZER_LINK_OPTIONS AND
+            (_astia_target_type STREQUAL "EXECUTABLE" OR
+             _astia_target_type STREQUAL "SHARED_LIBRARY" OR
+             _astia_target_type STREQUAL "MODULE_LIBRARY"))
+        target_link_options(${target} PRIVATE
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS})
+    endif()
+endfunction()
+
 function(astia_register_script_test name label script)
     set(options EXTERNAL MANUAL)
     set(one_value_args TIMEOUT WORKING_DIRECTORY)

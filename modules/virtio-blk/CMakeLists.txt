@@ -23,6 +23,7 @@ add_custom_target(virtio_blk_unit_target ALL DEPENDS ${ASTIA_VIRTIO_BLK_UNIT})
 if(ASTIA_BUILD_TESTS)
     add_test(NAME virtio_blk_unit COMMAND ${ASTIA_VIRTIO_BLK_UNIT})
     astia_append_test_label("module;virtio;host;deterministic")
+    astia_add_test_label(virtio_blk_unit "sanitizer-host")
 endif()
 
 set(ASTIA_VIRTIO_BLK_TEARDOWN_UNIT ${CMAKE_CURRENT_BINARY_DIR}/virtio_blk_teardown_unit)
@@ -49,6 +50,7 @@ if(ASTIA_BUILD_TESTS)
     add_test(NAME virtio_blk_teardown_unit
              COMMAND ${ASTIA_VIRTIO_BLK_TEARDOWN_UNIT})
     astia_append_test_label("module;virtio;host;deterministic;teardown")
+    astia_add_test_label(virtio_blk_teardown_unit "sanitizer-host")
 endif()
 
 add_custom_command(

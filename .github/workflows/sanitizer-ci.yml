@@ -1,0 +1,233 @@
+name: Host sanitizer CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sanitizer-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  asan-ubsan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      LLVM_VERSION: "18"
+      CC: clang-18
+      CXX: clang++-18
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            binutils \
+            build-essential \
+            clang-${LLVM_VERSION} \
+            cmake \
+            cpio \
+            e2fsprogs \
+            g++-aarch64-linux-gnu \
+            grub-common \
+            grub-pc-bin \
+            gzip \
+            lld-${LLVM_VERSION} \
+            llvm-${LLVM_VERSION} \
+            mtools \
+            ninja-build \
+            python3 \
+            qemu-system-x86 \
+            xorriso \
+            xxd \
+            zstd
+          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
+          clang-${LLVM_VERSION} --version
+          clang++-${LLVM_VERSION} --version
+
+      - name: Configure ASan and UBSan host build
+        run: |
+          set -o pipefail
+          rm -rf build-asan-ubsan
+          mkdir -p build-asan-ubsan
+          cmake -S . -B build-asan-ubsan -G Ninja \
+            -DARCH=x86_64 \
+            -DPLATFORM=virt \
+            -DBOOT=virt \
+            -DASTIA_BUILD_TESTS=ON \
+            -DASTIA_CROSS_USERSPACE=OFF \
+            -DASTIA_ENABLE_EXTERNAL_TESTS=OFF \
+            -DASTIA_ENABLE_MANUAL_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang-${LLVM_VERSION} \
+            -DCMAKE_CXX_COMPILER=clang++-${LLVM_VERSION} \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
+            2>&1 | tee build-asan-ubsan/configure.log
+
+      - name: Build ASan and UBSan host artifacts
+        run: |
+          set -o pipefail
+          cmake --build build-asan-ubsan --parallel 2 \
+            2>&1 | tee build-asan-ubsan/build.log
+
+      - name: Run ASan and UBSan host suite
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          set -o pipefail
+          echo "Fully instrumented executable tests:"
+          ctest --test-dir build-asan-ubsan -N -L '^sanitizer-host$'
+          echo "Partially instrumented executable tests:"
+          ctest --test-dir build-asan-ubsan -N -L '^sanitizer-host-partial$'
+          echo "Support checks:"
+          ctest --test-dir build-asan-ubsan -N -L '^sanitizer-host-support$'
+          echo "Staged libc sanitizer gap (normal CTest only):"
+          ctest --test-dir build-asan-ubsan -N -L '^sanitizer-unsupported-libc$'
+          ctest --test-dir build-asan-ubsan \
+            -L '^(sanitizer-host|sanitizer-host-partial|sanitizer-host-support)$' \
+            --output-on-failure \
+            --output-log build-asan-ubsan/ctest.log \
+            --test-timeout 120 \
+            --parallel 1 \
+            2>&1 | tee build-asan-ubsan/ctest-run.log
+
+      - name: Upload ASan and UBSan logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sanitizer-asan-ubsan-logs
+          if-no-files-found: warn
+          path: |
+            build-asan-ubsan/configure.log
+            build-asan-ubsan/build.log
+            build-asan-ubsan/ctest.log
+            build-asan-ubsan/ctest-run.log
+            build-asan-ubsan/Testing/
+            build-asan-ubsan/**/CMakeError.log
+            build-asan-ubsan/**/CMakeOutput.log
+            build-asan-ubsan/**/*.log
+            build-asan-ubsan/**/*.trace
+
+  tsan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      GCC_VERSION: "13"
+      CC: gcc-13
+      CXX: g++-13
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            binutils \
+            build-essential \
+            cmake \
+            cpio \
+            e2fsprogs \
+            g++-${GCC_VERSION} \
+            g++-aarch64-linux-gnu \
+            gcc-${GCC_VERSION} \
+            grub-common \
+            grub-pc-bin \
+            gzip \
+            mtools \
+            ninja-build \
+            python3 \
+            qemu-system-x86 \
+            xorriso \
+            xxd \
+            zstd
+          gcc-${GCC_VERSION} --version
+          g++-${GCC_VERSION} --version
+
+      - name: Configure TSan host build
+        run: |
+          set -o pipefail
+          rm -rf build-tsan
+          mkdir -p build-tsan
+          cmake -S . -B build-tsan -G Ninja \
+            -DARCH=x86_64 \
+            -DPLATFORM=virt \
+            -DBOOT=virt \
+            -DASTIA_BUILD_TESTS=ON \
+            -DASTIA_CROSS_USERSPACE=OFF \
+            -DASTIA_ENABLE_EXTERNAL_TESTS=OFF \
+            -DASTIA_ENABLE_MANUAL_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=gcc-${GCC_VERSION} \
+            -DCMAKE_CXX_COMPILER=g++-${GCC_VERSION} \
+            -DCMAKE_C_FLAGS=-fsanitize=thread \
+            -DCMAKE_CXX_FLAGS=-fsanitize=thread \
+            -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread \
+            2>&1 | tee build-tsan/configure.log
+
+      - name: Build TSan host artifacts
+        run: |
+          set -o pipefail
+          cmake --build build-tsan --parallel 2 \
+            2>&1 | tee build-tsan/build.log
+
+      - name: Run TSan host suite
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        run: |
+          set -o pipefail
+          echo "Fully instrumented executable tests:"
+          ctest --test-dir build-tsan -N -L '^sanitizer-host$'
+          echo "Partially instrumented executable tests:"
+          ctest --test-dir build-tsan -N -L '^sanitizer-host-partial$'
+          echo "Support checks:"
+          ctest --test-dir build-tsan -N -L '^sanitizer-host-support$'
+          echo "Staged libc sanitizer gap (normal CTest only):"
+          ctest --test-dir build-tsan -N -L '^sanitizer-unsupported-libc$'
+          ctest --test-dir build-tsan \
+            -L '^(sanitizer-host|sanitizer-host-partial|sanitizer-host-support)$' \
+            --output-on-failure \
+            --output-log build-tsan/ctest.log \
+            --test-timeout 120 \
+            --parallel 1 \
+            2>&1 | tee build-tsan/ctest-run.log
+
+      - name: Upload TSan logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sanitizer-tsan-logs
+          if-no-files-found: warn
+          path: |
+            build-tsan/configure.log
+            build-tsan/build.log
+            build-tsan/ctest.log
+            build-tsan/ctest-run.log
+            build-tsan/Testing/
+            build-tsan/**/CMakeError.log
+            build-tsan/**/CMakeOutput.log
+            build-tsan/**/*.log
+            build-tsan/**/*.trace

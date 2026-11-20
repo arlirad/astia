@@ -65,6 +65,7 @@ add_custom_target(usb_unit_target ALL DEPENDS ${ASTIA_USB_UNIT})
 if(ASTIA_BUILD_TESTS)
     add_test(NAME usb_protocol_unit COMMAND ${ASTIA_USB_UNIT})
     astia_append_test_label("module;usb;xhci;host;deterministic")
+    astia_add_test_label(usb_protocol_unit "sanitizer-host")
     add_test(NAME usb_xhci_probe_stack_usage
             COMMAND ${Python3_EXECUTABLE}
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/probe_stack_usage.py
@@ -72,6 +73,7 @@ if(ASTIA_BUILD_TESTS)
     set_tests_properties(usb_xhci_probe_stack_usage PROPERTIES
             LABELS "module;usb;xhci;host;deterministic"
             FIXTURES_REQUIRED usb-module-artifacts)
+    astia_add_test_label(usb_xhci_probe_stack_usage "sanitizer-host-support")
     add_test(NAME usb_module_prepare
             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
                     --target usb_module)
@@ -79,12 +81,14 @@ if(ASTIA_BUILD_TESTS)
             LABELS "build;module;usb;xhci;deterministic"
             FIXTURES_SETUP usb-module-artifacts
             TIMEOUT 300)
+    astia_add_test_label(usb_module_prepare "sanitizer-host-support")
     add_test(NAME usb_xhci_stop_quarantine_policy
             COMMAND ${Python3_EXECUTABLE}
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/stop_quarantine_policy.py
                     ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp)
     set_tests_properties(usb_xhci_stop_quarantine_policy PROPERTIES
             LABELS "module;usb;xhci;host;deterministic")
+    astia_add_test_label(usb_xhci_stop_quarantine_policy "sanitizer-host-support")
     add_test(NAME usb_xhci_qemu_enumeration
             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
     set_tests_properties(usb_xhci_qemu_enumeration PROPERTIES
