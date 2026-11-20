@@ -164,6 +164,62 @@ add_custom_target(astia_vga_qemu
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     USES_TERMINAL)
 
+set(ASTIA_DEV_INITRD_RUN "${CMAKE_BINARY_DIR}/dev-initrd" CACHE PATH
+    "Build directory containing the zsh/nano development initrd")
+set(ASTIA_DEV_INITRD_ZSH_BUILD "${CMAKE_BINARY_DIR}/zsh" CACHE PATH
+    "Reusable zsh and cross-libc build directory for dev_initrd")
+set(ASTIA_DEV_INITRD_NANO_BUILD "${CMAKE_BINARY_DIR}/nano" CACHE PATH
+    "Reusable nano build directory for dev_initrd")
+set(ASTIA_DEV_INITRD_KERNEL_BUILD "${CMAKE_BINARY_DIR}/kernel" CACHE PATH
+    "Existing kernel build directory supplying the runtime and base initrd")
+
+file(GLOB_RECURSE _astia_dev_initrd_sources CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/user/zsh/*"
+    "${CMAKE_SOURCE_DIR}/user/nano/*"
+    "${CMAKE_SOURCE_DIR}/user/gnulib/*"
+    "${CMAKE_SOURCE_DIR}/coreutils/src/*")
+list(FILTER _astia_dev_initrd_sources EXCLUDE REGEX "/\\.git(/|$)")
+
+set(_astia_dev_initrd_archive "${ASTIA_DEV_INITRD_RUN}/initrd.cpio")
+set(_astia_dev_initrd_kernel_dependencies)
+if(TARGET astiakrn_runtime)
+    list(APPEND _astia_dev_initrd_kernel_dependencies astiakrn_runtime)
+endif()
+if(TARGET astia_boot_initrd)
+    list(APPEND _astia_dev_initrd_kernel_dependencies astia_boot_initrd)
+endif()
+add_custom_command(
+    OUTPUT "${_astia_dev_initrd_archive}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ASTIA_DEV_INITRD_RUN}"
+    COMMAND "${CMAKE_SOURCE_DIR}/toolchain/init-userspace.sh"
+    COMMAND ${CMAKE_COMMAND} -E env
+        "ASTIA_ZSH_BUILD_ONLY=1"
+        "ASTIA_NANO=1"
+        "ASTIA_ZSH_RUN=${ASTIA_DEV_INITRD_RUN}"
+        "ZSH_BUILD=${ASTIA_DEV_INITRD_ZSH_BUILD}"
+        "ASTIA_NANO_BUILD=${ASTIA_DEV_INITRD_NANO_BUILD}"
+        "ASTIA_TEST_BUILD=${ASTIA_DEV_INITRD_KERNEL_BUILD}"
+        "${CMAKE_SOURCE_DIR}/toolchain/run-zsh-qemu.sh"
+    DEPENDS
+        "${CMAKE_SOURCE_DIR}/toolchain/init-userspace.sh"
+        "${CMAKE_SOURCE_DIR}/toolchain/run-zsh-qemu.sh"
+        "${CMAKE_SOURCE_DIR}/toolchain/build-zsh.sh"
+        "${CMAKE_SOURCE_DIR}/toolchain/build-nano.sh"
+        "${CMAKE_SOURCE_DIR}/toolchain/build-init-libc.sh"
+        "${CMAKE_SOURCE_DIR}/coreutils/build.sh"
+        ${_astia_dev_initrd_sources}
+        ${_astia_dev_initrd_kernel_dependencies}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    USES_TERMINAL
+    VERBATIM)
+add_custom_target(dev_initrd DEPENDS "${_astia_dev_initrd_archive}")
+if(TARGET astiakrn_runtime)
+    add_dependencies(dev_initrd astiakrn_runtime)
+endif()
+if(TARGET astia_boot_initrd)
+    add_dependencies(dev_initrd astia_boot_initrd)
+endif()
+
 set(ASTIA_DIRECT_QEMU "$ENV{QEMU}" CACHE STRING
     "QEMU executable used by the direct VGA/GDB launcher")
 if(ASTIA_DIRECT_QEMU STREQUAL "")
