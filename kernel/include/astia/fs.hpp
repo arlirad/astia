@@ -384,39 +384,46 @@ namespace astia::fs {
         mount*                             _mount = nullptr;
     };
 
-    /// Owns one in-flight kernel I/O operation. The request is stable for the
-    /// whole device flight; its completion is owned by the request itself.
+    /// Owns one in-flight kernel I/O operation. The operation and its request
+    /// stay at one address until terminal completion or cancellation ack.
     class io_packet {
         public:
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
                   io::direction direction, mm::uptr<core::completion<i64>> completion)
             : file_(file),
-              flight_(new io::flight(
+              operation_(new io::operation(
                   buffer, length, offset, direction,
-                  static_cast<mm::uptr<core::completion<i64>>&&>(completion))) {}
+                  static_cast<mm::uptr<core::completion<i64>>&&>(completion))) {
+            if (operation_)
+                operation_->heap_owned(true);
+        }
         io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
                   io::direction direction)
-            : file_(file), flight_(new io::flight(buffer, length, offset, direction)) {}
+            : file_(file),
+              operation_(new io::operation(buffer, length, offset, direction)) {
+            if (operation_)
+                operation_->heap_owned(true);
+        }
 
         ~io_packet() {
-            if (flight_ != nullptr)
-                flight_->cancel_owner();
+            if (operation_)
+                operation_->release_owner();
         }
 
         io_packet(const io_packet&)            = delete;
         io_packet& operator=(const io_packet&) = delete;
 
         explicit operator bool() const {
-            return flight_ != nullptr;
+            return static_cast<bool>(file_) && operation_ != nullptr;
         }
         long submit() {
-            return file_ && flight_ ? file_->submit(flight_->request()) : -EBADF;
+            return file_ && operation_ ? file_->submit(operation_->request()) : -EBADF;
         }
         io::request& request() {
-            return flight_->request();
+            return operation_->request();
         }
         const io::request& request() const {
-            return flight_->request();
+            return operation_->request();
         }
         core::completion<i64>* completion() const {
             return request().completion();
@@ -427,7 +434,7 @@ namespace astia::fs {
 
         private:
         mm::shptr<open_file> file_;
-        io::flight*          flight_;
+        io::operation*       operation_ = nullptr;
     };
 
     core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,

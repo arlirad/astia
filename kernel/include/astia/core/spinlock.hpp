@@ -8,6 +8,26 @@
 #define ASTIA_CPU_RELAX() ((void) 0)
 #endif
 
+#if defined(__SANITIZE_THREAD__)
+extern "C" void __tsan_acquire(void const*);
+extern "C" void __tsan_release(void const*);
+#define ASTIA_TSAN_ACQUIRE(value) __tsan_acquire(value)
+#define ASTIA_TSAN_RELEASE(value) __tsan_release(value)
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+extern "C" void __tsan_acquire(void const*);
+extern "C" void __tsan_release(void const*);
+#define ASTIA_TSAN_ACQUIRE(value) __tsan_acquire(value)
+#define ASTIA_TSAN_RELEASE(value) __tsan_release(value)
+#else
+#define ASTIA_TSAN_ACQUIRE(value) ((void) 0)
+#define ASTIA_TSAN_RELEASE(value) ((void) 0)
+#endif
+#else
+#define ASTIA_TSAN_ACQUIRE(value) ((void) 0)
+#define ASTIA_TSAN_RELEASE(value) ((void) 0)
+#endif
+
 namespace astia::core {
 
     /// Minimal test-and-set spinlock.
@@ -24,13 +44,15 @@ namespace astia::core {
         spinlock& operator=(const spinlock&) = delete;
 
         void lock() {
-            while (__atomic_test_and_set(&_flag, __ATOMIC_ACQUIRE)) {
+            while (__atomic_exchange_n(&_flag, true, __ATOMIC_ACQUIRE)) {
                 ASTIA_CPU_RELAX();
             }
+            ASTIA_TSAN_ACQUIRE(&_flag);
         }
 
         void unlock() {
-            __atomic_clear(&_flag, __ATOMIC_RELEASE);
+            ASTIA_TSAN_RELEASE(&_flag);
+            __atomic_store_n(&_flag, false, __ATOMIC_RELEASE);
         }
 
         private:
@@ -63,3 +85,6 @@ namespace astia::core {
     };
 
 } // namespace astia::core
+
+#undef ASTIA_TSAN_ACQUIRE
+#undef ASTIA_TSAN_RELEASE
