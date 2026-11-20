@@ -199,6 +199,28 @@ ASTIA_TEST(fs_async_completion_first_keeps_parked_request_stable) {
     ASTIA_CHECK(buffer[0] == 0xa5);
 }
 
+ASTIA_TEST(fs_async_active_cancel_releases_device_reference_once) {
+    for (int cycle = 0; cycle < 64; ++cycle) {
+        astia::fs::open_file file({}, astia::fs::open_file_status_flags::none);
+        auto      handle = astia::mm::shptr<astia::fs::open_file>::borrowed(&file);
+        astia::u8 buffer[1]{};
+        submit_mode_state = submit_mode::parked_zero;
+        parked_completion = nullptr;
+        parked_request    = nullptr;
+
+        auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, 1), 0);
+        ASTIA_CHECK(task.resume());
+        ASTIA_CHECK(parked_request != nullptr);
+        auto* request = parked_request;
+        ASTIA_CHECK(request->begin_device());
+        task.reset();
+        ASTIA_CHECK(request->cancellation_requested());
+        if ((cycle & 1) != 0)
+            request->acknowledge();
+        request->end_device();
+    }
+}
+
 ASTIA_TEST(fs_sync_rejects_missing_file) {
     astia::fs::open_file handle({}, astia::fs::open_file_status_flags::none);
     ASTIA_CHECK(handle.sync() == -EBADF);
