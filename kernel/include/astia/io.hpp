@@ -270,17 +270,17 @@ namespace astia::io {
             _cancel_context  = context;
         }
         bool cancellation_retain() const {
-            return _cancel_retain;
+            return __atomic_load_n(&_cancel_retain, __ATOMIC_ACQUIRE);
         }
         bool cancellation_requested() const {
-            return _cancel_requested;
+            return __atomic_load_n(&_cancel_requested, __ATOMIC_ACQUIRE);
         }
         bool cancel_device(bool retain = false) {
             bool expected = false;
             if (!__atomic_compare_exchange_n(&_cancel_requested, &expected, true, false,
                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
                 return false;
-            _cancel_retain = retain;
+            __atomic_store_n(&_cancel_retain, retain, __ATOMIC_RELEASE);
             if (_cancel_handler != nullptr)
                 _cancel_handler(*this);
             else {
@@ -346,6 +346,7 @@ namespace astia::io {
             parked,
             active,
             active_completed,
+            active_cancel_requested,
             canceled,
             completed,
         };
@@ -369,9 +370,16 @@ namespace astia::io {
                 const auto observed =
                     static_cast<state>(__atomic_load_n(&_state, __ATOMIC_ACQUIRE));
                 if (observed == state::active) {
-                    request_ref().cancel_device(false);
-                    release_ref();
-                    return;
+                    u8 expected = static_cast<u8>(state::active);
+                    if (__atomic_compare_exchange_n(
+                            &_state, &expected,
+                            static_cast<u8>(state::active_cancel_requested), false,
+                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                        request_ref().cancel_device(false);
+                        release_ref();
+                        return;
+                    }
+                    continue;
                 }
                 if (observed == state::active_completed) {
                     release_ref();
@@ -386,6 +394,8 @@ namespace astia::io {
                         if (parked)
                             request_ref().cancel_device(false);
                         release_ref();
+                        if (parked)
+                            release_ref();
                         return;
                     }
                     continue;
@@ -437,26 +447,18 @@ namespace astia::io {
 
         void end_device() {
             u8 expected = static_cast<u8>(state::active);
-            if (request_ref().cancellation_requested()) {
-                if (__atomic_compare_exchange_n(&_state, &expected,
-                                                static_cast<u8>(state::completed), false,
-                                                __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) {
-                    release_ref();
-                    return;
-                }
-                if (expected == static_cast<u8>(state::active_completed)) {
-                    u8 completed = static_cast<u8>(state::active_completed);
-                    if (__atomic_compare_exchange_n(
-                            &_state, &completed, static_cast<u8>(state::completed), false,
-                            __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
-                        release_ref();
-                    return;
-                }
-            }
             if (__atomic_compare_exchange_n(&_state, &expected,
                                             static_cast<u8>(state::parked), false,
                                             __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
                 return;
+            if (expected == static_cast<u8>(state::active_cancel_requested)) {
+                u8 completed = static_cast<u8>(state::active_cancel_requested);
+                if (__atomic_compare_exchange_n(&_state, &completed,
+                                                static_cast<u8>(state::completed), false,
+                                                __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+                    release_ref();
+                return;
+            }
             if (expected == static_cast<u8>(state::active_completed)) {
                 u8 completed = static_cast<u8>(state::active_completed);
                 if (__atomic_compare_exchange_n(&_state, &completed,
@@ -474,6 +476,15 @@ namespace astia::io {
                     return;
                 if (current == state::active_completed)
                     return;
+                if (current == state::active_cancel_requested) {
+                    u8 expected = static_cast<u8>(state::active_cancel_requested);
+                    if (__atomic_compare_exchange_n(
+                            &_state, &expected, static_cast<u8>(state::active_completed),
+                            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                        return;
+                    observed = expected;
+                    continue;
+                }
                 if (current == state::active) {
                     u8 expected = static_cast<u8>(state::active);
                     if (__atomic_compare_exchange_n(
