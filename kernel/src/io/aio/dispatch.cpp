@@ -18,6 +18,7 @@
 #include "filesystem.hpp"
 #include "memory.hpp"
 #include "readiness.hpp"
+#include "registry.hpp"
 #include "socket.hpp"
 
 void* operator new(astia::usize size, void* where) noexcept;
@@ -266,9 +267,9 @@ namespace astia::io::aio::dispatch {
                 }
                 if (op.socket_accept) {
                     const auto* socket = op.object->node()->unix_socket_capability();
-                    n                  = socket == nullptr
-                                             ? -EOPNOTSUPP
-                                             : socket->accept(*op.object, op.operation->request());
+                    n = socket == nullptr
+                            ? -EOPNOTSUPP
+                            : socket->accept(*op.object, op.operation->request());
                 }
                 else {
                     n = op.object->submit(op.operation->request());
@@ -829,7 +830,7 @@ namespace astia::io::aio::dispatch {
                 expected = sizeof(i32);
                 input    = s.offset == TIOCSPGRP || s.offset == TIOCSPTLCK;
                 output   = s.offset == TIOCGPGRP || s.offset == TIOCGPTN ||
-                         s.offset == TIOCGPTLCK;
+                           s.offset == TIOCGPTLCK;
             }
             else if (s.offset == TIOCSCTTY) {
                 expected = 0;
@@ -862,7 +863,7 @@ namespace astia::io::aio::dispatch {
         bool handle_cancel(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             const u64 target       = s.offset;
             auto      has_capacity = [ring](u32 count) {
-                const astia_cq_ring* cq = astia_rings_cq(ring);
+                const astia_cq_ring* cq   = astia_rings_cq(ring);
                 const u32            head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
                 const u32            tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
                 return tail - head <= cq->entries - count;
@@ -895,11 +896,7 @@ namespace astia::io::aio::dispatch {
             return cq_post_guarded(ring, s.user_data, -ENOENT);
         }
 
-        bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            if (filesystem::handles(s.op))
-                return filesystem::dispatch(slot, ring, s);
-            if (socket::handles(s.op))
-                return socket::dispatch(slot, ring, s);
+        bool dispatch_core(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             switch (s.op) {
             case OP_NOP:
                 return cq_post_guarded(ring, s.user_data, 0);
@@ -925,12 +922,6 @@ namespace astia::io::aio::dispatch {
 
             case OP_IOCTL:
                 return handle_ioctl(slot, ring, s);
-
-            case OP_POLL_ADD:
-                return readiness::dispatch(slot, ring, s, file_for(s.fd));
-
-            case OP_SLEEP:
-                return readiness::dispatch(slot, ring, s, {});
 
             case OP_EVENTFD_CREATE:
                 return handle_eventfd_create(ring, s);
@@ -972,7 +963,11 @@ namespace astia::io::aio::dispatch {
     }
 
     bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& sqe) {
-        return detail::dispatch_one(slot, ring, sqe);
+        return registry::dispatch(slot, ring, sqe);
+    }
+
+    bool dispatch_core(ring_slot& slot, astia_rings* ring, const astia_sqe& sqe) {
+        return detail::dispatch_core(slot, ring, sqe);
     }
 
     void retry_pending(ring_slot& slot, astia_rings* ring) {

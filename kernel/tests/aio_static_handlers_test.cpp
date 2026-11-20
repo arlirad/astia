@@ -1,151 +1,107 @@
+#include "aio_registry_test_support.hpp"
 #include "support/test.hpp"
 
 #undef RENAME_NOREPLACE
 #undef RENAME_EXCHANGE
 #undef RENAME_WHITEOUT
 
-#include <io/aio/handlers/cancel.hpp>
-#include <io/aio/handlers/read.hpp>
-#include <io/aio/prototype/core.hpp>
-#include <net/syscalls/accept.hpp>
-#include <net/syscalls/bind.hpp>
-#include <net/syscalls/connect.hpp>
-#include <net/syscalls/getsockopt.hpp>
-#include <net/syscalls/listen.hpp>
-#include <net/syscalls/recvfrom.hpp>
-#include <net/syscalls/sendto.hpp>
-#include <net/syscalls/shutdown.hpp>
-#include <net/syscalls/socket.hpp>
-#include <net/syscalls/socketpair.hpp>
+#include <io/aio/core_handlers.hpp>
+#include <io/aio/handler.hpp>
+#include <io/aio/operation.hpp>
+#include <io/aio/registry.hpp>
+#include <io/aio/socket.hpp>
+
 namespace {
 
-    namespace aio = astia::io::aio::prototype;
-    namespace net = astia::net::syscalls;
+    namespace aio = astia::io::aio;
 
-    struct fake_subsystem {
-        unsigned    read_calls            = 0;
-        unsigned    cancel_calls          = 0;
-        aio::opcode last_socket_operation = aio::opcode::read;
-
-        aio::dispatch_result read(const astia_sqe&) noexcept {
-            ++read_calls;
-            return aio::dispatch_result::pending;
-        }
-
-        aio::dispatch_result cancel(const astia_sqe&) noexcept {
-            ++cancel_calls;
-            return aio::dispatch_result::cancelled;
-        }
-
-        aio::dispatch_result socket_operation(aio::opcode operation,
-                                              const astia_sqe&) noexcept {
-            last_socket_operation = operation;
-            return aio::dispatch_result::pending;
+    struct fake_read : aio::handler<fake_read, aio::opcode::read> {
+        static bool handle(aio::ring::ring_slot&, astia_rings*,
+                           const astia_sqe&) noexcept {
+            return true;
         }
     };
 
-    using read_handler       = astia::io::aio::handlers::read<fake_subsystem>;
-    using cancel_handler     = astia::io::aio::handlers::cancel<fake_subsystem>;
-    using socket_handler     = net::socket<fake_subsystem>;
-    using bind_handler       = net::bind<fake_subsystem>;
-    using connect_handler    = net::connect<fake_subsystem>;
-    using listen_handler     = net::listen<fake_subsystem>;
-    using accept_handler     = net::accept<fake_subsystem>;
-    using sendto_handler     = net::sendto<fake_subsystem>;
-    using recvfrom_handler   = net::recvfrom<fake_subsystem>;
-    using socketpair_handler = net::socketpair<fake_subsystem>;
-    using shutdown_handler   = net::shutdown<fake_subsystem>;
-    using getsockopt_handler = net::getsockopt<fake_subsystem>;
-
-    constexpr aio::descriptor core_handlers[] = {
-        read_handler::describe(),
-        cancel_handler::describe(),
-    };
-    constexpr aio::descriptor socket_handlers[] = {
-        socket_handler::describe(),   bind_handler::describe(),
-        connect_handler::describe(),  listen_handler::describe(),
-        accept_handler::describe(),   sendto_handler::describe(),
-        recvfrom_handler::describe(), socketpair_handler::describe(),
-        shutdown_handler::describe(), getsockopt_handler::describe(),
+    struct fake_cancel : aio::handler<fake_cancel, aio::opcode::cancel> {
+        static bool handle(aio::ring::ring_slot&, astia_rings*,
+                           const astia_sqe&) noexcept {
+            return true;
+        }
     };
 
-    static_assert(read_handler::opcode_value == aio::opcode::read);
-    static_assert(cancel_handler::opcode_value == aio::opcode::cancel);
-    static_assert(aio::handler_implementation<read_handler>);
-    static_assert(aio::handler_implementation<cancel_handler>);
-    static_assert(std::is_empty_v<read_handler>);
-    static_assert(std::is_empty_v<cancel_handler>);
+    constexpr aio::descriptor duplicate[] = {
+        fake_read::describe(),
+        fake_read::describe(),
+    };
+
+    static_assert(aio::core::read::opcode_value == aio::opcode::read);
+    static_assert(aio::core::cancel::opcode_value == aio::opcode::cancel);
+    static_assert(aio::valid_opcode(aio::opcode::getsockopt));
+    static_assert(!aio::valid_opcode(aio::opcode::count));
+    static_assert(!aio::valid_manifest(duplicate));
 
 } // namespace
 
-ASTIA_TEST(aio_static_handlers_route_core_and_net_owned_operations) {
-    fake_subsystem context{};
-    astia_sqe      sqe{};
-    sqe.op = OP_READ;
+ASTIA_TEST(aio_production_handler_manifest_covers_abi_range) {
+    ASTIA_CHECK(aio::opcode_count == 43);
+    ASTIA_CHECK(aio::registry::manifest_size == aio::opcode_count);
+    ASTIA_CHECK(aio::valid_opcode(aio::opcode::nop));
+    ASTIA_CHECK(aio::valid_opcode(aio::opcode::getsockopt));
+    ASTIA_CHECK(!aio::valid_opcode(aio::opcode::count));
+}
 
-    ASTIA_CHECK(aio::dispatch(core_handlers, &context, sqe) ==
-                aio::dispatch_result::pending);
-    ASTIA_CHECK(context.read_calls == 1);
+ASTIA_TEST(aio_production_handler_crtp_descriptors_are_stable) {
+    constexpr aio::descriptor read   = fake_read::describe();
+    constexpr aio::descriptor cancel = fake_cancel::describe();
+    ASTIA_CHECK(read.operation == aio::opcode::read);
+    ASTIA_CHECK(cancel.operation == aio::opcode::cancel);
+    ASTIA_CHECK(read.invoke != nullptr);
+    ASTIA_CHECK(cancel.invoke != nullptr);
+}
+
+ASTIA_TEST(aio_production_socket_handlers_are_aio_operations) {
+    ASTIA_CHECK(aio::socket::operation<aio::opcode::socket>::opcode_value ==
+                aio::opcode::socket);
+    ASTIA_CHECK(aio::socket::operation<aio::opcode::sendto>::opcode_value ==
+                aio::opcode::sendto);
+    ASTIA_CHECK(aio::socket::operation<aio::opcode::recvfrom>::opcode_value ==
+                aio::opcode::recvfrom);
+}
+
+ASTIA_TEST(aio_production_handler_rejects_duplicate_descriptors) {
+    ASTIA_CHECK(!aio::valid_manifest(duplicate));
+}
+
+ASTIA_TEST(aio_production_registry_routes_by_opcode_owner) {
+    using namespace aio::test_support;
+    aio::ring::ring_slot slot{};
+    astia_rings          ring{};
+    astia_sqe            sqe{};
+
+    reset_registry_counters();
+    sqe.op = OP_READ;
+    ASTIA_CHECK(aio::registry::dispatch(slot, &ring, sqe));
+    ASTIA_CHECK(core_dispatches == 1);
+
+    sqe.op = OP_CANCEL;
+    ASTIA_CHECK(aio::registry::dispatch(slot, &ring, sqe));
+    ASTIA_CHECK(core_dispatches == 2);
+
+    sqe.op = OP_OPENAT;
+    ASTIA_CHECK(aio::registry::dispatch(slot, &ring, sqe));
+    ASTIA_CHECK(filesystem_dispatches == 1);
+
+    sqe.op = OP_POLL_ADD;
+    ASTIA_CHECK(aio::registry::dispatch(slot, &ring, sqe));
+    ASTIA_CHECK(readiness_dispatches == 1);
 
     sqe.op = OP_SOCKET;
-    ASTIA_CHECK(aio::dispatch(socket_handlers, &context, sqe) ==
-                aio::dispatch_result::pending);
-    ASTIA_CHECK(context.last_socket_operation == aio::opcode::socket);
-    ASTIA_CHECK(aio::dispatch(core_handlers, &context, sqe) ==
-                aio::dispatch_result::unknown_opcode);
-}
+    ASTIA_CHECK(aio::registry::dispatch(slot, &ring, sqe));
+    ASTIA_CHECK(socket_dispatches == 1);
 
-ASTIA_TEST(aio_static_handlers_enumerate_every_net_socket_operation) {
-    constexpr aio::opcode expected[] = {
-        aio::opcode::socket,     aio::opcode::bind,       aio::opcode::connect,
-        aio::opcode::listen,     aio::opcode::accept,     aio::opcode::sendto,
-        aio::opcode::recvfrom,   aio::opcode::socketpair, aio::opcode::shutdown,
-        aio::opcode::getsockopt,
-    };
-    fake_subsystem context{};
-    ASTIA_CHECK(std::size(socket_handlers) == std::size(expected));
-    for (unsigned i = 0; i < std::size(expected); ++i) {
-        ASTIA_CHECK(socket_handlers[i].operation == expected[i]);
-        astia_sqe sqe{};
-        sqe.op = static_cast<std::uint32_t>(expected[i]);
-        ASTIA_CHECK(aio::dispatch(socket_handlers, &context, sqe) ==
-                    aio::dispatch_result::pending);
-        ASTIA_CHECK(context.last_socket_operation == expected[i]);
-    }
-}
-
-ASTIA_TEST(aio_static_cancel_handler_routes_cancel_intent) {
-    fake_subsystem context{};
-    astia_sqe      sqe{};
-    sqe.op = OP_CANCEL;
-
-    ASTIA_CHECK(aio::dispatch(core_handlers, &context, sqe) ==
-                aio::dispatch_result::cancelled);
-    ASTIA_CHECK(context.cancel_calls == 1);
-}
-
-ASTIA_TEST(aio_static_handler_dispatch_rejects_unknown_opcode) {
-    fake_subsystem context{};
-    astia_sqe      sqe{};
     sqe.op = ~0u;
-
-    ASTIA_CHECK(aio::dispatch(core_handlers, &context, sqe) ==
-                aio::dispatch_result::unknown_opcode);
-    ASTIA_CHECK(context.read_calls == 0);
-}
-
-ASTIA_TEST(aio_static_handler_dispatch_detects_duplicate_opcodes) {
-    fake_subsystem context{};
-    astia_sqe      sqe{};
-    sqe.op                                = OP_READ;
-    constexpr aio::descriptor duplicate[] = {
-        read_handler::describe(),
-        read_handler::describe(),
-    };
-
-    ASTIA_CHECK(aio::dispatch(duplicate, &context, sqe) ==
-                aio::dispatch_result::duplicate_opcode);
-    ASTIA_CHECK(context.read_calls == 0);
+    ASTIA_CHECK(aio::registry::dispatch(slot, &ring, sqe));
+    ASTIA_CHECK(unknown_completions == 1);
 }
 
 ASTIA_TEST(aio_operation_completion_cancel_and_acknowledgement_are_once_only) {

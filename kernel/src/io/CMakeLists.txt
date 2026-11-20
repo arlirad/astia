@@ -3,6 +3,7 @@ add_library(io STATIC
         aio/dispatch.cpp
         aio/filesystem.cpp
         aio/readiness.cpp
+        aio/registry.cpp
         aio/socket.cpp
         aio/ring.cpp
 )
