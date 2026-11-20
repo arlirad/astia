@@ -2,50 +2,97 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-version=${NANO_VERSION:-8.6}
-url=${NANO_URL:-https://ftp.gnu.org/gnu/nano/nano-$version.tar.xz}
-sha256=${NANO_SHA256:-f7abfbf0eed5f573ab51bd77a458f32d82f9859c55e9689f819d96fe1437a619}
-build=${NANO_BUILD:-/tmp/astia-nano-build}
-source=${NANO_SOURCE:-}
+build=${NANO_BUILD:-$root/build/user/nano}
+source=${NANO_SOURCE:-$root/user/nano}
+gnulib_source=${NANO_GNULIB_SOURCE:-$root/user/gnulib}
+gnulib_revision=f05b5a23f6cef8833402a298d1576a0118912ac8
 sysroot=${ASTIA_SYSROOT:-$build/sysroot}
 crt0=${ASTIA_CRT0:-$build/astia/image/crt0.o}
 clang=${CLANG:-clang}
 target=${ASTIA_TARGET:-x86_64-unknown-elf}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
+clang_path=$(command -v "$clang")
 
 mkdir -p "$build"
-if [ -n "$source" ]; then
-    source=$(CDPATH= cd -- "$source" && pwd)
+if [ ! -d "$source" ]; then
+    echo "nano: source directory does not exist: $source" >&2
+    exit 1
+fi
+source=$(CDPATH= cd -- "$source" && pwd)
+source_revision=$(
+    if git -C "$source" rev-parse --git-dir >/dev/null 2>&1; then
+        {
+            git -C "$source" rev-parse HEAD
+            git -C "$source" diff HEAD --no-ext-diff --binary
+            git -C "$source" ls-files --others --exclude-standard |
+                while IFS= read -r source_file; do
+                    sha256sum "$source/$source_file"
+                done
+        } | sha256sum | awk '{print $1}'
+    else
+        find "$source" -type f -not -path "$source/.git/*" \
+            -exec sha256sum {} + | sort | sha256sum | awk '{print $1}'
+    fi
+)
+bootstrap_revision=
+if [ ! -x "$source/configure" ]; then
+    if [ -z "$gnulib_source" ]; then
+        echo "nano: source has no generated configure script" >&2
+        echo "run toolchain/init-userspace.sh to initialize gnulib at $gnulib_revision" >&2
+        exit 1
+    fi
+    if [ ! -d "$gnulib_source" ]; then
+        echo "nano: gnulib source directory does not exist: $gnulib_source" >&2
+        exit 1
+    fi
+    gnulib_source=$(CDPATH= cd -- "$gnulib_source" && pwd)
+    bootstrap_commit=$(git -C "$gnulib_source" rev-parse HEAD 2>/dev/null || true)
+    if [ "$bootstrap_commit" != "$gnulib_revision" ]; then
+        echo "nano: gnulib source is not pinned to $gnulib_revision" >&2
+        exit 1
+    fi
+    bootstrap_revision=$(
+        {
+            printf '%s\n' "$bootstrap_commit"
+            git -C "$gnulib_source" diff HEAD --no-ext-diff --binary
+            git -C "$gnulib_source" ls-files --others --exclude-standard |
+                while IFS= read -r source_file; do
+                    sha256sum "$gnulib_source/$source_file"
+                done
+        } | sha256sum | awk '{print $1}'
+    )
+fi
+patch_revision=$(sha256sum "$root/toolchain/nano-astia/gnulib.patch" |
+    awk '{print $1}')
+toolchain_revision=$(
+    {
+        sha256sum "$root/toolchain/build-nano.sh" \
+            "$root/toolchain/build-init-libc.sh" "$clang_path"
+        find "$root/toolchain/nano-astia" -type f -exec sha256sum {} +
+        "$clang" --version
+    } | sha256sum | awk '{print $1}'
+)
+source_stamp="$build/source/.astia-source-revision"
+source_stamp_key="$source_revision:$bootstrap_revision:$patch_revision:$toolchain_revision"
+if [ ! -f "$source_stamp" ] || [ "$(cat "$source_stamp")" != "$source_stamp_key" ] ||
+    [ ! -x "$build/source/configure" ]; then
     rm -rf "$build/source"
     mkdir -p "$build/source"
     cp -R "$source"/. "$build/source"/
-else
-    archive=$build/nano-$version.tar.xz
-    if [ ! -f "$archive" ]; then
-        if command -v curl >/dev/null 2>&1; then
-            curl -fsSL "$url" -o "$archive"
-        elif command -v wget >/dev/null 2>&1; then
-            wget -q "$url" -O "$archive"
-        else
-            echo "nano: curl or wget is required to fetch $url" >&2
-            exit 1
-        fi
+    if [ ! -x "$build/source/configure" ]; then
+        ln -s "$gnulib_source" "$build/source/gnulib"
+        (cd "$build/source" && ./autogen.sh)
     fi
-    actual=$(sha256sum "$archive" | awk '{print $1}')
-    if [ "$actual" != "$sha256" ]; then
-        echo "nano: checksum mismatch for $archive" >&2
-        exit 1
-    fi
-    rm -rf "$build/source"
-    mkdir -p "$build/source"
-    tar -xf "$archive" -C "$build/source" --strip-components=1
+    patch -d "$build/source" -p1 < "$root/toolchain/nano-astia/gnulib.patch"
+    find "$build/source" -type f \( -name 'Makefile.in' -o -name 'aclocal.m4' \
+        -o -name 'config.h.in' -o -name 'configure' \) -exec touch {} +
+    printf '%s\n' "$source_stamp_key" >"$source_stamp"
 fi
-
 if [ ! -x "$build/source/configure" ]; then
     echo "nano: source has no generated configure script" >&2
     exit 1
 fi
-patch -d "$build/source" -p1 < "$root/toolchain/nano-astia/gnulib.patch"
+
 if [ ! -f "$sysroot/lib/libastia_libc.a" ]; then
     ASTIA_CROSS_BUILD="$build/astia" ASTIA_SYSROOT="$sysroot" CLANG="$clang" \
         "$root/toolchain/build-init-libc.sh"
@@ -71,13 +118,27 @@ exec $clang --target=$target -U__linux__ -ffreestanding -fno-builtin -fno-pic -f
 EOF
 chmod +x "$build/astia-cc"
 
-$clang --target="$target" -ffreestanding -fno-builtin -fno-pic -fno-pie \
-    -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc \
-    -isystem "$resource_dir/include" -isystem "$sysroot/include" \
-    -I"$root/toolchain/nano-astia" -c "$root/toolchain/nano-astia/curses.c" \
-    -o "$build/astia/curses.o"
-rm -f "$build/astia/libncurses.a"
-ar rcs "$build/astia/libncurses.a" "$build/astia/curses.o"
+curses_key=$(
+    {
+        sha256sum "$root/toolchain/nano-astia/curses.c" \
+            "$root/toolchain/nano-astia/curses.h" "$sysroot/lib/libastia_libc.a" \
+            "$clang_path"
+        "$clang" --version
+        printf '%s\n' "$target" "$resource_dir" "$sysroot"
+    } | sha256sum | awk '{print $1}'
+)
+if [ ! -f "$build/astia/curses.o" ] ||
+    [ ! -f "$build/astia/libncurses.a" ] ||
+    [ ! -f "$build/astia/curses.key" ] ||
+    [ "$(cat "$build/astia/curses.key")" != "$curses_key" ]; then
+    $clang --target="$target" -ffreestanding -fno-builtin -fno-pic -fno-pie \
+        -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc \
+        -isystem "$resource_dir/include" -isystem "$sysroot/include" \
+        -I"$root/toolchain/nano-astia" -c "$root/toolchain/nano-astia/curses.c" \
+        -o "$build/astia/curses.o"
+    ar rcs "$build/astia/libncurses.a" "$build/astia/curses.o"
+    printf '%s\n' "$curses_key" >"$build/astia/curses.key"
+fi
 
 cat > "$build/config.site" <<'EOF'
 ac_cv_header_ncurses_h=no
@@ -100,15 +161,24 @@ gl_cv_func_stat_file_slash=yes
 EOF
 
 cd "$build"
-CONFIG_SITE="$build/config.site" PKG_CONFIG=/bin/false NCURSESW_CONFIG=no \
-    "$build/source/configure" --host="$target" --build=x86_64-pc-linux-gnu \
+config_key=$(printf '%s\n' "$build/source" "$source_revision" \
+    "$bootstrap_revision" "$patch_revision" "$toolchain_revision" \
+    "$sysroot" "$crt0" "$builtins" | sha256sum | awk '{print $1}')
+if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
+    [ "$(cat "$build/.astia-config-key")" != "$config_key" ]; then
+    CONFIG_SITE="$build/config.site" PKG_CONFIG=/bin/false NCURSESW_CONFIG=no \
+        "$build/source/configure" --host="$target" --build=x86_64-pc-linux-gnu \
     --disable-nls --disable-utf8 --disable-color --disable-mouse \
     --disable-browser --disable-multibuffer --disable-libmagic --enable-tiny \
     CC="$build/astia-cc" CPPFLAGS="-I$root/toolchain/nano-astia -include $root/toolchain/nano-astia/force-assert.h" CFLAGS='-O0' \
     LDFLAGS="-nostdlib -static -Wl,-no-pie -Wl,-Ttext-segment=0x40000000 -L$build/astia" \
-    LIBS="$crt0 $builtins -lncurses $sysroot/lib/libastia_libc.a"
+        LIBS="$crt0 $builtins -lncurses $sysroot/lib/libastia_libc.a"
+    printf '%s\n' "$config_key" >"$build/.astia-config-key"
+fi
 
 make -j "$jobs"
 mkdir -p "$build/output"
-cp "$build/src/nano" "$build/output/nano"
+if [ ! -e "$build/output/nano" ] || ! cmp -s "$build/src/nano" "$build/output/nano"; then
+    cp "$build/src/nano" "$build/output/nano"
+fi
 file "$build/output/nano"

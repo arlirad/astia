@@ -1,0 +1,9 @@
+[submodule "user/zsh"]
+	path = user/zsh
+	url = https://github.com/zsh-users/zsh.git
+[submodule "user/nano"]
+	path = user/nano
+	url = https://github.com/madnight/nano.git
+[submodule "user/gnulib"]
+	path = user/gnulib
+	url = https://github.com/coreutils/gnulib.git

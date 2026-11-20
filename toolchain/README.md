@@ -33,22 +33,42 @@ existing libc integration image:
 toolchain/build-init-libc.sh
 ```
 
-## Build zsh
+## Initialize pinned userspace sources
 
-With a zsh checkout outside this repository:
+The repository keeps clean upstream zsh and GNU nano checkouts as pinned
+submodules. Initialize them after cloning:
 
 ```sh
-ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build \
+toolchain/init-userspace.sh
+```
+
+The current pins are zsh `zsh-5.9.2`
+(`ddee3e7a751a4f03d5a1041fd44bb7af7bc0cebb`), nano `v8.6`
+(`326e4146b2267d8683a8eb3333aa49c9023d0dbf`), and gnulib
+(`f05b5a23f6cef8833402a298d1576a0118912ac8`). To change a pin, check out a
+reviewed upstream tag or commit in the submodule and record the gitlink in the
+parent; never replace it with an unreviewed branch tip. Upstream source and
+license files remain in the submodules and are not copied into Astia. If the
+pinned nano git endpoint is unavailable, the initializer verifies the official
+GNU nano 8.6 archive with SHA-256
+`f7abfbf0eed5f573ab51bd77a458f32d82f9859c55e9689f819d96fe1437a619`.
+
+## Build zsh
+
+With the pinned checkout:
+
+```sh
+ZSH_SOURCE="$PWD/user/zsh" ZSH_BUILD="$PWD/build/user/zsh" \
   toolchain/build-zsh.sh
 ```
 
-The ELF is written to `/tmp/astia-zsh-build/output/zsh`.  To add it to an
+The ELF is written to `build/user/zsh/output/zsh`. To add it to an
 existing initrd:
 
 ```sh
 toolchain/package-zsh-initrd.sh \
   kernel/build-tests/tests/fixtures/boot_initrd.cpio \
-  /tmp/astia-zsh-build/output/zsh \
+  build/user/zsh/output/zsh \
   /tmp/astia-zsh-initrd.cpio
 ```
 
@@ -62,28 +82,30 @@ process-group, and signal-restorer ABI directly.
 
 ## Launch zsh in QEMU
 
-From a fresh checkout, the complete flow is one command:
+From a fresh checkout, initialize the pinned sources, then launch:
 
 ```sh
+toolchain/init-userspace.sh
 ./toolchain/run-zsh-qemu.sh
 ```
 
 Every normal launch runs the incremental kernel preflight before building the
 userspace image, so source changes cannot leave the default runtime stale.  It
-then clones a clean upstream zsh checkout into `/tmp/astia-zsh-build/source`,
-builds the Astia libc/sysroot and native coreutils, and starts QEMU.
-`ZSH_SOURCE` may name an existing complete zsh checkout and `ZSH_BUILD` selects
-the reusable build directory:
+builds the Astia libc/sysroot and native coreutils, and starts QEMU. The
+default source is `user/zsh` and the default generated build cache is
+`build/user/zsh`; both are outside the submodule. `ZSH_SOURCE` may name an
+existing complete zsh checkout and `ZSH_BUILD` selects the reusable build
+directory:
 
 ```sh
 ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build \
   ./toolchain/run-zsh-qemu.sh
 ```
 
-The launcher never patches the zsh checkout.  A source tree without generated
+The launcher never patches the zsh checkout. A source tree without generated
 `configure` is copied to a private build staging directory before zsh's
-bootstrap step.  It checks only the source files required by the build and
-does not require a generated or patched tree.
+bootstrap step. Configure results and compiler outputs are reused when inputs
+are unchanged.
 
 This is an interactive TTY launcher: run it directly from a terminal.  It
 executes QEMU with `-serial stdio`, so stdin, stdout, and terminal signals are
@@ -158,9 +180,9 @@ The launcher also builds the native Astia coreutils from `coreutils/` and
 places them in `/bin` (`cat`, `echo`, `env`, `false`, `head`, `pwd`, `true`,
 `uname`, and `wc`).
 
-Nano packaging is opt-in so normal zsh launches do not download or rebuild it.
-Set `ASTIA_NANO=1` to build the pinned port automatically in the reusable
-`/tmp/astia-nano-build` cache and package it as `/bin/nano`:
+Nano packaging is opt-in so normal zsh launches do not build it. Set
+`ASTIA_NANO=1` to build the pinned port automatically in the reusable
+`build/user/nano` cache and package it as `/bin/nano`:
 
 ```sh
 ASTIA_NANO=1 ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
@@ -176,10 +198,20 @@ ASTIA_NANO_BINARY=/tmp/astia-nano-build/output/nano \
 ```
 
 The launcher invokes `toolchain/build-nano.sh` with the Astia sysroot and
-startup object; `ASTIA_NANO_BUILD` overrides the default cache directory. The
-script verifies the pinned archive checksum and stages upstream nano privately.
-If the archive is not cached and cannot be fetched, the launcher reports the
-failure and suggests a verified binary override.
+startup object; `ASTIA_NANO_BUILD` overrides the default cache directory and
+`NANO_SOURCE` overrides the pinned checkout. The default generated source and
+build trees are outside `user/nano`. The pinned git checkout contains
+`autogen.sh` but not generated `configure`; the pinned `user/gnulib`
+submodule supplies the exact bootstrap revision
+`f05b5a23f6cef8833402a298d1576a0118912ac8`:
+
+```sh
+ASTIA_NANO=1 ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
+```
+
+Astia never clones or pulls bootstrap dependencies and never follows an
+unpinned branch. A release tree with generated `configure` can instead be
+supplied with `NANO_SOURCE`.
 
 The launcher also provides a repeated nano/zsh terminal regression harness. It
 runs `true`, then `nano passwd` and no-argument `nano`, exits each editor,
@@ -211,8 +243,8 @@ repository, then build Astia libc and an unpatched zsh checkout:
 ```sh
 git clone --depth=1 https://github.com/linux-test-project/ltp.git /tmp/ltp
 toolchain/build-init-libc.sh
-git clone --depth=1 https://github.com/zsh-users/zsh.git /tmp/zsh
-ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build toolchain/build-zsh.sh
+ZSH_SOURCE="$PWD/user/zsh" ZSH_BUILD="$PWD/build/user/zsh" \
+  toolchain/build-zsh.sh
 ```
 
 Run the initial process/signal batch under the Astia kernel and QEMU:
@@ -284,10 +316,10 @@ The regression runner does not require a TTY.  Build its inputs, then run it
 with the explicit initrd path (the runner's QEMU stdin is never interactive):
 
 ```sh
-git clone --depth=1 https://github.com/zsh-users/zsh.git /tmp/zsh
 kernel/scripts/test.sh kernel/build-tests
-ZSH_SOURCE=/tmp/zsh ZSH_BUILD=/tmp/astia-zsh-build toolchain/build-zsh.sh
+ZSH_SOURCE="$PWD/user/zsh" ZSH_BUILD="$PWD/build/user/zsh" \
+  toolchain/build-zsh.sh
 ASTIA_KERNEL="$PWD/kernel/build-tests/src/astiakrn_runtime" \
 ASTIA_INITRD="$PWD/kernel/build-tests/tests/fixtures/boot_initrd.cpio" \
-ZSH_BUILD=/tmp/astia-zsh-build toolchain/run-zsh-regression.sh
+ZSH_BUILD="$PWD/build/user/zsh" toolchain/run-zsh-regression.sh
 ```

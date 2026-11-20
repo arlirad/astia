@@ -18,10 +18,14 @@ add_test(NAME astia_license_metadata
 add_test(NAME astia_vga_launcher_defaults
         COMMAND ${CMAKE_COMMAND} -P
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/vga_launcher_defaults_check.cmake)
+add_test(NAME astia_userspace_workflow
+        COMMAND ${CMAKE_COMMAND} -P
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/userspace_workflow_check.cmake)
 add_test(NAME astia_direct_vga_gdb_smoke
         COMMAND ${CMAKE_COMMAND} -P
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/direct_vga_gdb_smoke.cmake)
 set_tests_properties(astia_license_metadata astia_vga_launcher_defaults
+        astia_userspace_workflow
         astia_direct_vga_gdb_smoke
         PROPERTIES LABELS "repository;deterministic" TIMEOUT 30)
 
@@ -35,6 +39,10 @@ option(ASTIA_CROSS_USERSPACE
         "Build the Clang cross libc image used by userspace CTest suites" ON)
 set(ASTIA_ZSH_SOURCE "$ENV{ZSH_SOURCE}" CACHE PATH
         "Clean upstream zsh source tree for external CTest suites")
+if(ASTIA_ZSH_SOURCE STREQUAL "")
+    set(ASTIA_ZSH_SOURCE "${CMAKE_SOURCE_DIR}/user/zsh" CACHE PATH
+            "Clean upstream zsh source tree for external CTest suites" FORCE)
+endif()
 set(ASTIA_POSIX_TEST_SOURCE "$ENV{POSIX_TEST_SOURCE}" CACHE PATH
         "Clean LTP Open POSIX source tree for external CTest suites")
 
@@ -63,10 +71,16 @@ if(ASTIA_VGA_NANO STREQUAL "")
         "Build and include nano in the Astia VGA launcher image" FORCE)
 endif()
 set(ASTIA_VGA_ZSH_BUILD "$ENV{ZSH_BUILD}" CACHE PATH
-    "Reusable zsh build directory for the Astia VGA launcher")
+        "Reusable zsh build directory for the Astia VGA launcher")
 if(ASTIA_VGA_ZSH_BUILD STREQUAL "")
     set(ASTIA_VGA_ZSH_BUILD "${CMAKE_BINARY_DIR}/zsh" CACHE PATH
         "Reusable zsh build directory for the Astia VGA launcher" FORCE)
+endif()
+set(ASTIA_VGA_ZSH_SOURCE "$ENV{ZSH_SOURCE}" CACHE PATH
+        "Clean upstream zsh source tree for the Astia VGA launcher")
+if(ASTIA_VGA_ZSH_SOURCE STREQUAL "")
+    set(ASTIA_VGA_ZSH_SOURCE "${CMAKE_SOURCE_DIR}/user/zsh" CACHE PATH
+            "Clean upstream zsh source tree for the Astia VGA launcher" FORCE)
 endif()
 set(ASTIA_VGA_KERNEL_BUILD "$ENV{ASTIA_KERNEL_BUILD}" CACHE PATH
     "Kernel build directory for the Astia VGA launcher")
@@ -138,6 +152,7 @@ add_custom_target(astia_vga_qemu
         "ASTIA_VGA_CPUS=${ASTIA_VGA_CPUS}"
         "ASTIA_NANO=${_astia_vga_nano}"
         "ASTIA_NANO_BUILD=${ASTIA_VGA_NANO_BUILD}"
+        "ZSH_SOURCE=${ASTIA_VGA_ZSH_SOURCE}"
         "ZSH_BUILD=${ASTIA_VGA_ZSH_BUILD}"
         "ASTIA_KERNEL_BUILD=${ASTIA_VGA_KERNEL_BUILD}"
         "ASTIA_ZSH_VGA_RUN=${ASTIA_VGA_RUN}"
@@ -373,9 +388,7 @@ if(ASTIA_BUILD_TESTS)
             RESOURCE_LOCK astia-qemu SKIP_RETURN_CODE 77)
 
     set(_astia_zsh_env)
-    if(ASTIA_ZSH_SOURCE)
-        list(APPEND _astia_zsh_env ZSH_SOURCE=${ASTIA_ZSH_SOURCE})
-    endif()
+    list(APPEND _astia_zsh_env ZSH_SOURCE=${ASTIA_ZSH_SOURCE})
     astia_register_script_test(astia_zsh_pty_regression
             "zsh;pty;qemu;external;deterministic"
             ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/run-zsh-qemu.sh
@@ -428,9 +441,7 @@ if(ASTIA_BUILD_TESTS)
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
 
     set(_astia_vga_env)
-    if(ASTIA_ZSH_SOURCE)
-        list(APPEND _astia_vga_env ZSH_SOURCE=${ASTIA_ZSH_SOURCE})
-    endif()
+    list(APPEND _astia_vga_env ZSH_SOURCE=${ASTIA_ZSH_SOURCE})
     astia_register_script_test(astia_vga_graphical
             "vga;graphical;qemu;ttv0;external;manual"
             ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/run-zsh-vga-qemu.sh
