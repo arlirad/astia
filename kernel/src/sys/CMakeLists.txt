@@ -1,6 +1,7 @@
 add_library(sys STATIC
         aio.cpp
         syscall.cpp
+        handler_registry.cpp
         time.cpp
         init_sys.cpp
 )
