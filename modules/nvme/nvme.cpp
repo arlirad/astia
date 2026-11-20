@@ -921,6 +921,12 @@ namespace {
         }
 
         bool probe(const astia::hw::device_info& info) override {
+            astia::u32 teardown = __atomic_load_n(&_teardown_state, __ATOMIC_ACQUIRE);
+            if (teardown == 4)
+                __atomic_compare_exchange_n(&_teardown_state, &teardown, 0, false,
+                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+            else if (teardown != 0)
+                return {};
             const auto* pci = astia::hw::pci_device_info::get(info);
             if (pci == nullptr)
                 return {};
