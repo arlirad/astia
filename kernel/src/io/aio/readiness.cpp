@@ -1,14 +1,14 @@
-#include "aio_readiness.hpp"
+#include "readiness.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/io.hpp>
 
-#include "aio_dispatch.hpp"
-#include "user_mem.hpp"
+#include "dispatch.hpp"
+#include "memory.hpp"
 
-namespace astia::sys::aio_readiness {
+namespace astia::io::aio::readiness {
 
-    using namespace aio_ring;
+    using namespace ring;
 
     namespace {
 
@@ -40,8 +40,8 @@ namespace astia::sys::aio_readiness {
             p->poll_events          = s.aux;
             p->fd                   = s.fd;
             p->object               = object;
-            p->operation =
-                new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
+            p->operation = new ::astia::io::operation(nullptr, 0, 0, s.user_data,
+                                                      ::astia::io::direction::input);
             if (p->operation == nullptr) {
                 p->type = parked_op::kind::oom_completion;
                 if (cq_post_guarded(ring, s.user_data, -ENOMEM))
@@ -56,7 +56,7 @@ namespace astia::sys::aio_readiness {
             p->operation->heap_owned(true);
             publish_waiter_hint(slot, park_index, object->node().get());
             if (ready_generation() != generation)
-                aio_dispatch::resume_parked(proc::current_process(), ring, *p);
+                dispatch::resume_parked(proc::current_process(), ring, *p);
             return true;
         }
 
@@ -66,12 +66,12 @@ namespace astia::sys::aio_readiness {
                 (s.op_flags & ~SLEEP_ABSOLUTE) != 0 || s.aux != 0)
                 return cq_post_guarded(ring, s.user_data, -EINVAL);
             if (s.address != 0 &&
-                !sys::user_span_ok(span<u8>::bytes(s.address, sizeof(u64))))
+                !memory::user_span_ok_for(span<u8>::bytes(s.address, sizeof(u64))))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             if (arch::timer_hz() == 0)
                 return cq_post_guarded(ring, s.user_data, -EIO);
             const bool absolute = (s.op_flags & SLEEP_ABSOLUTE) != 0;
-            const u64  now      = aio_dispatch::poll_now_ns();
+            const u64  now      = dispatch::poll_now_ns();
             if ((!absolute && s.offset == 0) || (absolute && s.offset <= now))
                 return cq_post_guarded(ring, s.user_data, 0);
 
@@ -98,8 +98,8 @@ namespace astia::sys::aio_readiness {
                          : (UINT64_MAX - now < s.offset ? UINT64_MAX : now + s.offset);
             p->sleep_remaining_user = absolute ? 0 : s.address;
             p->fd                   = -1;
-            p->operation =
-                new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
+            p->operation = new ::astia::io::operation(nullptr, 0, 0, s.user_data,
+                                                      ::astia::io::direction::input);
             if (p->operation == nullptr) {
                 p->type = parked_op::kind::oom_completion;
                 if (cq_post_guarded(ring, s.user_data, -ENOMEM))
@@ -129,4 +129,4 @@ namespace astia::sys::aio_readiness {
         }
     }
 
-} // namespace astia::sys::aio_readiness
+} // namespace astia::io::aio::readiness
