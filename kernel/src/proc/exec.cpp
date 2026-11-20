@@ -118,12 +118,28 @@ namespace astia::proc {
             for (u32 i = 0; i < image.count; ++i) {
                 const auto& seg = image.segs[i];
                 if (address < seg.virt ||
-                    address + source.size() > seg.virt + seg.pages * elf::page_size)
+                    address - seg.virt > seg.pages * elf::page_size ||
+                    source.size() > seg.pages * elf::page_size - (address - seg.virt))
                     continue;
                 auto* destination =
                     static_cast<u8*>(mm::kernel_frames().to_virt(seg.frames));
                 __builtin_memcpy(destination + (address - seg.virt), source.data(),
                                  source.size());
+                return true;
+            }
+            return false;
+        }
+
+        bool stream_destination(image_map& image, u64 address, usize length,
+                                u8*& destination) {
+            for (u32 i = 0; i < image.count; ++i) {
+                const auto& seg  = image.segs[i];
+                const u64   span = seg.pages * elf::page_size;
+                if (address < seg.virt || address - seg.virt > span ||
+                    length > span - (address - seg.virt))
+                    continue;
+                destination = static_cast<u8*>(mm::kernel_frames().to_virt(seg.frames)) +
+                              (address - seg.virt);
                 return true;
             }
             return false;
@@ -384,6 +400,21 @@ namespace astia::proc {
             co_return result.value;
         }
 
+        core::task<i64> read_stream_to_async(void* opaque, u64 address, usize length,
+                                             u64 offset) {
+            auto* context = static_cast<stream_context*>(opaque);
+            if (context == nullptr || !context->file)
+                co_return error_t::ebadf;
+            u8* destination = nullptr;
+            if (!stream_destination(context->map, address, length, destination))
+                co_return error_t::efault;
+            auto result = co_await fs::read_exact(context->file,
+                                                  span<u8>(destination, length), offset);
+            if (!result)
+                co_return result.error;
+            co_return result.value;
+        }
+
         void unmap_user_stream(void* opaque, void* address, usize size) {
             auto* context = static_cast<stream_context*>(opaque);
             if (context == nullptr || context->map.map == nullptr)
@@ -457,10 +488,10 @@ namespace astia::proc {
             co_return false;
 
         stream_context stream{{&map, user_image_base}, file};
-        auto loaded = co_await elf::load_executable_stream(
-            elf::async_env{&stream, map_user_stream, nullptr, read_stream_async,
-                           copy_image, unmap_user_stream},
-            length);
+        elf::async_env environment{&stream,           map_user_stream, nullptr,
+                                   read_stream_async, copy_image,      unmap_user_stream};
+        environment.read_to = read_stream_to_async;
+        auto loaded         = co_await elf::load_executable_stream(environment, length);
         if (!loaded) {
             cleanup_pending(stream.map, map);
             co_return false;

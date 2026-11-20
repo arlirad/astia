@@ -69,6 +69,10 @@ namespace astia::elf {
     using unmap_fn      = void (*)(void* ctx, void* address, usize size);
     using async_read_fn = core::task<i64> (*)(void* ctx, span<u8> destination,
                                               u64 offset);
+    /// Read file bytes into the final mapped image backing at `destination`.
+    /// Completion must not be reported while the destination is still in use.
+    using async_read_to_fn = core::task<i64> (*)(void* ctx, u64 destination, usize length,
+                                                 u64 offset);
 
     /// Caller-supplied environment: where memory comes from and how symbols
     /// are resolved.
@@ -87,6 +91,8 @@ namespace astia::elf {
         async_read_fn read    = nullptr;
         copy_fn       copy    = nullptr;
         unmap_fn      unmap   = nullptr;
+        /// Optional direct PT_LOAD reader; falls back to `read` plus `copy`.
+        async_read_to_fn read_to = nullptr;
     };
 
     /// One loaded PT_LOAD segment of an executable (relocatable images leave
