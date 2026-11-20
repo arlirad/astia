@@ -858,7 +858,8 @@ namespace astia::sys::aio_dispatch {
             const u64 target = s.offset;
             for (u32 i = 0; i < parked_operation_slots; ++i) {
                 parked_op& p = slot.park[i];
-                if (p.used && !p.done && p.operation->request().user_data() == target) {
+                if (p.used && !p.done && p.operation != nullptr &&
+                    p.operation->request().user_data() == target) {
                     // Cancellation needs two CQ slots.  Do not consume the
                     // SQE if either completion could be lost.
                     astia_cq_ring* cq   = astia_rings_cq(ring);
@@ -871,6 +872,11 @@ namespace astia::sys::aio_dispatch {
                     p.operation->request().cancel_device(false);
                     p.operation->request().acknowledge();
                     p.done = true;
+                    return cq_post(ring, s.user_data, 0);
+                }
+                if (p.used && !p.done && p.pending_cqe && p.pending_user_data == target) {
+                    if (!publish_pending(ring, p))
+                        return false;
                     return cq_post(ring, s.user_data, 0);
                 }
             }
