@@ -140,7 +140,7 @@ libc/sysroot, coreutils, and the pinned zsh submodule before launching QEMU.
 Initialize the upstream submodules after cloning:
 
 ```sh
-git submodule update --init --recursive
+toolchain/init-userspace.sh
 ./toolchain/run-zsh-qemu.sh
 ```
 
@@ -163,7 +163,9 @@ uses `/dev/ttv0` for shell I/O. See [`docs/zsh-vga.md`](docs/zsh-vga.md) for
 the graphical smoke harness and explicit UART fallback.
 
 GNU nano is opt-in. The launcher builds the pinned nano submodule in the
-reusable cache and adds it to the initrd as `/bin/nano`:
+reusable cache and adds it to the initrd as `/bin/nano`. If the Savannah git
+endpoint is unavailable, `toolchain/init-userspace.sh` verifies and extracts
+the pinned GNU nano 8.6 archive instead:
 
 ```sh
 ASTIA_NANO=1 ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh

@@ -4,7 +4,7 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 build=${NANO_BUILD:-$root/build/userspace/nano}
 source=${NANO_SOURCE:-$root/userspace/nano}
-gnulib_source=${NANO_GNULIB_SOURCE:-}
+gnulib_source=${NANO_GNULIB_SOURCE:-$root/userspace/gnulib}
 gnulib_revision=f05b5a23f6cef8833402a298d1576a0118912ac8
 sysroot=${ASTIA_SYSROOT:-$build/sysroot}
 crt0=${ASTIA_CRT0:-$build/astia/image/crt0.o}
@@ -37,7 +37,7 @@ bootstrap_revision=
 if [ ! -x "$source/configure" ]; then
     if [ -z "$gnulib_source" ]; then
         echo "nano: source has no generated configure script" >&2
-        echo "set NANO_GNULIB_SOURCE to a clean gnulib checkout at $gnulib_revision" >&2
+        echo "run toolchain/init-userspace.sh to initialize gnulib at $gnulib_revision" >&2
         exit 1
     fi
     if [ ! -d "$gnulib_source" ]; then

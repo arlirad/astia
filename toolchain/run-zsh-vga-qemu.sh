@@ -150,7 +150,7 @@ if [ ! -d "$zsh_source" ]; then
         exit 1
     fi
     echo "zsh submodule is missing: $zsh_source" >&2
-    echo "run: git submodule update --init --recursive" >&2
+    echo "run: toolchain/init-userspace.sh" >&2
     exit 1
 fi
 
@@ -200,7 +200,7 @@ if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
             NANO_BUILD="$nano_build" NANO_SOURCE="${NANO_SOURCE:-$root/userspace/nano}" \
             "$root/toolchain/build-nano.sh"; then
             echo "Astia nano build failed in $nano_build." >&2
-            echo "Initialize userspace/nano or set NANO_SOURCE to a complete checkout." >&2
+            echo "Initialize userspace sources with toolchain/init-userspace.sh or set NANO_SOURCE to a complete checkout." >&2
             exit 1
         fi
         nano_binary=$nano_build/output/nano

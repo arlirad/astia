@@ -28,7 +28,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          submodules: recursive
+          submodules: false
+
+      - name: Initialize pinned userspace sources
+        run: toolchain/init-userspace.sh
 
       - name: Install build and test dependencies
         run: |

@@ -8,7 +8,9 @@ foreach(_astia_submodule
         "path = userspace/zsh"
         "url = https://github.com/zsh-users/zsh.git"
         "path = userspace/nano"
-        "url = https://git.savannah.gnu.org/git/nano.git")
+        "url = https://git.savannah.gnu.org/git/nano.git"
+        "path = userspace/gnulib"
+        "url = https://github.com/coreutils/gnulib.git")
     if(NOT _astia_gitmodules MATCHES "${_astia_submodule}")
         message(FATAL_ERROR ".gitmodules is missing: ${_astia_submodule}")
     endif()
@@ -18,7 +20,7 @@ if(NOT EXISTS "${_astia_root}/userspace/nano/autogen.sh")
 endif()
 
 execute_process(
-    COMMAND git -C "${_astia_root}" ls-files --stage -- userspace/zsh userspace/nano
+    COMMAND git -C "${_astia_root}" ls-files --stage -- userspace/zsh userspace/nano userspace/gnulib
     OUTPUT_VARIABLE _astia_gitlinks
     OUTPUT_STRIP_TRAILING_WHITESPACE
     RESULT_VARIABLE _astia_gitlinks_status)
@@ -28,6 +30,10 @@ if(_astia_gitlinks_status OR
    NOT _astia_gitlinks MATCHES
        "160000 326e4146b2267d8683a8eb3333aa49c9023d0dbf 0[ \t]+userspace/nano")
     message(FATAL_ERROR "userspace submodules are not pinned to the reviewed revisions")
+endif()
+if(NOT _astia_gitlinks MATCHES
+       "160000 f05b5a23f6cef8833402a298d1576a0118912ac8 0[ \t]+userspace/gnulib")
+    message(FATAL_ERROR "gnulib is not pinned to the reviewed revision")
 endif()
 
 foreach(_astia_launcher
@@ -47,18 +53,27 @@ endforeach()
 
 file(READ "${_astia_root}/toolchain/build-zsh.sh" _astia_zsh_build)
 file(READ "${_astia_root}/toolchain/build-nano.sh" _astia_nano_build)
+file(READ "${_astia_root}/toolchain/init-userspace.sh" _astia_userspace_init)
 file(READ "${_astia_root}/coreutils/build.sh" _astia_coreutils_build)
 foreach(_astia_text _astia_zsh_build _astia_nano_build _astia_coreutils_build)
     if(NOT "${${_astia_text}}" MATCHES "astia")
         message(FATAL_ERROR "workflow source unexpectedly empty")
     endif()
 endforeach()
+if(NOT _astia_userspace_init MATCHES "userspace/nano")
+    message(FATAL_ERROR "userspace initializer unexpectedly empty")
+endif()
 if(NOT _astia_zsh_build MATCHES "astia-config-key" OR
    NOT _astia_nano_build MATCHES "astia-config-key" OR
    NOT _astia_zsh_build MATCHES "source_revision" OR
    NOT _astia_nano_build MATCHES "source_revision" OR
+   NOT _astia_nano_build MATCHES "userspace/gnulib" OR
    _astia_nano_build MATCHES "git clone" OR
    _astia_nano_build MATCHES "git pull" OR
-   _astia_coreutils_build MATCHES "rm -rf \\\"\\$out\\\"")
+   _astia_coreutils_build MATCHES "rm -rf \\\"\\$out\\\"" OR
+   NOT _astia_userspace_init MATCHES
+       "https://ftp\\.gnu\\.org/gnu/nano/nano-8\\.6\\.tar\\.xz" OR
+   NOT _astia_userspace_init MATCHES
+       "f7abfbf0eed5f573ab51bd77a458f32d82f9859c55e9689f819d96fe1437a619")
     message(FATAL_ERROR "userspace build caches are not incremental")
 endif()

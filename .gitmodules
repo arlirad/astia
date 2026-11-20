@@ -4,3 +4,6 @@
 [submodule "userspace/nano"]
 	path = userspace/nano
 	url = https://git.savannah.gnu.org/git/nano.git
+[submodule "userspace/gnulib"]
+	path = userspace/gnulib
+	url = https://github.com/coreutils/gnulib.git

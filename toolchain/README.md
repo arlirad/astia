@@ -39,15 +39,19 @@ The repository keeps clean upstream zsh and GNU nano checkouts as pinned
 submodules. Initialize them after cloning:
 
 ```sh
-git submodule update --init --recursive
+toolchain/init-userspace.sh
 ```
 
 The current pins are zsh `zsh-5.9.2`
-(`ddee3e7a751a4f03d5a1041fd44bb7af7bc0cebb`) and nano `v8.6`
-(`326e4146b2267d8683a8eb3333aa49c9023d0dbf`). To change a pin, check out a
-reviewed upstream tag in the submodule and record the gitlink in the parent;
-never replace it with an unreviewed branch tip. Upstream source and license
-files remain in the submodules and are not copied into Astia.
+(`ddee3e7a751a4f03d5a1041fd44bb7af7bc0cebb`), nano `v8.6`
+(`326e4146b2267d8683a8eb3333aa49c9023d0dbf`), and gnulib
+(`f05b5a23f6cef8833402a298d1576a0118912ac8`). To change a pin, check out a
+reviewed upstream tag or commit in the submodule and record the gitlink in the
+parent; never replace it with an unreviewed branch tip. Upstream source and
+license files remain in the submodules and are not copied into Astia. If the
+Savannah nano git endpoint is unavailable, the initializer verifies the
+official GNU nano 8.6 archive with SHA-256
+`f7abfbf0eed5f573ab51bd77a458f32d82f9859c55e9689f819d96fe1437a619`.
 
 ## Build zsh
 
@@ -196,19 +200,17 @@ The launcher invokes `toolchain/build-nano.sh` with the Astia sysroot and
 startup object; `ASTIA_NANO_BUILD` overrides the default cache directory and
 `NANO_SOURCE` overrides the pinned checkout. The default generated source and
 build trees are outside `userspace/nano`. The pinned git checkout contains
-`autogen.sh` but not generated `configure`; bootstrap it only with an
-already-available gnulib checkout at
+`autogen.sh` but not generated `configure`; the pinned `userspace/gnulib`
+submodule supplies the exact bootstrap revision
 `f05b5a23f6cef8833402a298d1576a0118912ac8`:
 
 ```sh
-NANO_GNULIB_SOURCE=/path/to/gnulib \
-  ASTIA_NANO=1 ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
+ASTIA_NANO=1 ASTIA_ZSH_HARNESS=1 ./toolchain/run-zsh-qemu.sh
 ```
 
-The bootstrap source must be obtained separately from official Savannah
-(`https://git.savannah.gnu.org/git/gnulib.git`). Astia never clones or pulls
-bootstrap dependencies and never follows an unpinned branch. A release tree
-with generated `configure` can instead be supplied with `NANO_SOURCE`.
+Astia never clones or pulls bootstrap dependencies and never follows an
+unpinned branch. A release tree with generated `configure` can instead be
+supplied with `NANO_SOURCE`.
 
 The launcher also provides a repeated nano/zsh terminal regression harness. It
 runs `true`, then `nano passwd` and no-argument `nano`, exits each editor,
