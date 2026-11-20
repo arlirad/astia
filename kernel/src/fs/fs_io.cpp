@@ -33,6 +33,12 @@ namespace astia::fs {
                 co_return 0;
             }
             auto result = co_await *pending_completion;
+            // The completion means the backend has quiesced its use of the
+            // buffer.  A completion-first backend may still leave the
+            // request in its active state; acknowledge it before the packet
+            // releases its owner reference so the request/frame lifetime
+            // extends through the terminal device transition.
+            packet.request().acknowledge();
             if (!result)
                 co_return result.error;
             co_return result.value;

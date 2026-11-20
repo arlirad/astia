@@ -40,7 +40,6 @@ namespace astia::elf {
             elf64_phdr ph[max_program_headers]{};
             u8         buffer[stream_read_chunk_size]{};
             u8         zero[stream_read_chunk_size]{};
-            u8         segment_buffer[stream_read_chunk_size]{};
             u8         rela_buffer[stream_rela_chunk_size]{};
         };
 
@@ -619,23 +618,36 @@ namespace astia::elf {
             const u64 destination = mapped_addr + (ph[i].p_vaddr - span_start);
             u64       copied      = 0;
             while (copied < ph[i].p_filesz) {
-                const u64   remaining = ph[i].p_filesz - copied;
-                const usize length    = remaining < stream_read_chunk_size
-                                            ? static_cast<usize>(remaining)
-                                            : stream_read_chunk_size;
-                u8*         destination_buffer =
-                    e.copy != nullptr ? scratch.value->segment_buffer
-                                              : reinterpret_cast<u8*>(destination + copied);
-                auto read = co_await e.read(e.ctx, span<u8>(destination_buffer, length),
-                                            ph[i].p_offset + copied);
-                if (!read)
-                    co_return fail(read.error == error_t::enone ? error_t::eio
-                                                                : read.error);
-                if (read.value != static_cast<i64>(length))
+                const u64   remaining  = ph[i].p_filesz - copied;
+                const usize length     = remaining < stream_read_chunk_size
+                                             ? static_cast<usize>(remaining)
+                                             : stream_read_chunk_size;
+                i64         read_value = 0;
+                if (e.read_to != nullptr) {
+                    auto read = co_await e.read_to(e.ctx, destination + copied, length,
+                                                   ph[i].p_offset + copied);
+                    if (!read)
+                        co_return fail(read.error == error_t::enone ? error_t::eio
+                                                                    : read.error);
+                    read_value = read.value;
+                }
+                else {
+                    u8* destination_buffer =
+                        e.copy != nullptr ? scratch.value->buffer
+                                          : reinterpret_cast<u8*>(destination + copied);
+                    auto read =
+                        co_await e.read(e.ctx, span<u8>(destination_buffer, length),
+                                        ph[i].p_offset + copied);
+                    if (!read)
+                        co_return fail(read.error == error_t::enone ? error_t::eio
+                                                                    : read.error);
+                    read_value = read.value;
+                }
+                if (read_value != static_cast<i64>(length))
                     co_return fail(error_t::eio);
-                if (e.copy != nullptr &&
+                if (e.read_to == nullptr && e.copy != nullptr &&
                     !e.copy(e.ctx, destination + copied,
-                            span<const u8>(scratch.value->segment_buffer, length)))
+                            span<const u8>(scratch.value->buffer, length)))
                     co_return fail(error_t::eio);
                 copied += length;
             }
