@@ -879,10 +879,10 @@ namespace {
             if (_file) {
                 _file->detach();
                 (void) astia::fs::unregister_device("/dev/vblk0", _file);
-                _file = {};
             }
-            _product = {};
-            device.stop();
+            _removing = true;
+            if (!_file || _file->arm_quiescence_handler(quiescence_callback, this))
+                finish_remove();
         }
         bool selftest() override {
             char      sector[512]{};
@@ -933,9 +933,23 @@ namespace {
         }
 
         private:
+        static void quiescence_callback(void* context) {
+            static_cast<virtio_driver*>(context)->finish_remove();
+        }
+
+        void finish_remove() {
+            if (!_removing || (_file && !_file->quiescent()))
+                return;
+            device.stop();
+            _file     = {};
+            _product  = {};
+            _removing = false;
+        }
+
         controller                                device;
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _file;
+        bool                                      _removing = false;
     };
 
     virtio_driver driver;

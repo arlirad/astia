@@ -960,9 +960,15 @@ namespace {
         }
 
         void remove(const astia::hw::device_info&) override {
+            _removing = true;
             unregister_nodes();
-            device.stop();
-            _product = {};
+            bool ready = true;
+            for (astia::u32 i = 0; i < _file_count; ++i)
+                if (_files[i] &&
+                    !_files[i]->arm_quiescence_handler(quiescence_callback, this))
+                    ready = false;
+            if (ready)
+                finish_remove();
         }
 
         bool selftest() override {
@@ -1032,15 +1038,35 @@ namespace {
         }
 
         private:
+        static void quiescence_callback(void* context) {
+            static_cast<nvme_driver*>(context)->finish_remove();
+        }
+
+        bool all_files_quiescent() const {
+            for (astia::u32 i = 0; i < _file_count; ++i)
+                if (_files[i] && !_files[i]->quiescent())
+                    return false;
+            return true;
+        }
+
+        void finish_remove() {
+            if (!_removing || !all_files_quiescent())
+                return;
+            device.stop();
+            for (astia::u32 i = 0; i < _file_count; ++i)
+                _files[i] = {};
+            _file_count = 0;
+            _product    = {};
+            _removing   = false;
+        }
+
         void unregister_nodes() {
             for (astia::u32 i = 0; i < _file_count; ++i)
                 if (_files[i]) {
                     _files[i]->detach();
                     (void) astia::fs::unregister_device(device.namespaces[i].path,
                                                         _files[i]);
-                    _files[i] = {};
                 }
-            _file_count = 0;
         }
 
         void rollback_probe() {
@@ -1051,6 +1077,7 @@ namespace {
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _files[max_namespaces]{};
         astia::u32                                _file_count = 0;
+        bool                                      _removing   = false;
     };
 
     nvme_driver driver;
