@@ -47,6 +47,7 @@ $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
 cp "$out/bin/"* "$out/root/bin/"
 for key in "$out/.keys/"*; do
     [ -f "$key" ] || continue
+    [ "$(basename "$key")" = sources ] && continue
     cp "$key" "$out/root/bin/$(basename "$key").key"
 done
 cp "$root/daemond/passwd" "$out/root/etc/passwd"
