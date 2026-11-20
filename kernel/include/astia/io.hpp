@@ -33,6 +33,12 @@
 // resumes at the right step instead of re-deriving its position from
 // whatever the signature happens to expose.
 //
+// A backend must not complete the associated completion until its DMA or
+// other access to request.buffer() has quiesced. It may publish completion
+// before request.acknowledge(), but must still finish the request's device
+// transition; the owner reference keeps the request storage alive until
+// both sides release it.
+//
 // Nothing here blocks.  A device that parks is resumed from IRQ context; a
 // device whose work depends on something else (a filesystem waiting on a
 // block layer) blocks a *thread*, never the device.

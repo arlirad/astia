@@ -415,17 +415,17 @@ namespace {
         const unsigned char* source;
         size_t               source_size;
         exec_arena           arena;
-        size_t               read_calls      = 0;
-        size_t               read_bytes      = 0;
-        size_t               max_read        = 0;
-        size_t               fail_read_after = ~size_t{0};
+        size_t               read_calls             = 0;
+        size_t               read_bytes             = 0;
+        size_t               max_read               = 0;
+        size_t               fail_read_after        = ~size_t{0};
         size_t               direct_reads           = 0;
-        size_t               copy_calls      = 0;
-        size_t               fail_copy_after = ~size_t{0};
-        bool                 pause_next_read = false;
+        size_t               copy_calls             = 0;
+        size_t               fail_copy_after        = ~size_t{0};
+        bool                 pause_next_read        = false;
         bool                 pause_next_direct_read = false;
         bool                 direct_paused          = false;
-        bool                 paused          = false;
+        bool                 paused                 = false;
     };
 
     void* congruent_stream_map(void* ctx, astia::u64 hint, astia::usize size,
@@ -1306,6 +1306,51 @@ ASTIA_TEST(elf_stream_unaligned_relative_relocation_is_safe) {
     ASTIA_CHECK(task.value() != nullptr);
     ASTIA_CHECK(context.arena.mapped == 1);
     ASTIA_CHECK(context.arena.unmapped == 0);
+    if (context.arena.base != nullptr)
+        munmap(context.arena.base, context.arena.span);
+}
+
+ASTIA_TEST(elf_stream_direct_read_applies_relative_relocations) {
+    stream_exec_context   context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
+    astia::elf::async_env environment{};
+    environment.ctx     = &context;
+    environment.map     = stream_map;
+    environment.read    = stream_read;
+    environment.read_to = stream_read_to;
+    environment.copy    = stream_copy;
+    environment.unmap   = stream_unmap;
+
+    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    while (!task.done())
+        task.resume();
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(context.direct_reads > 0);
+    ASTIA_CHECK(context.copy_calls > 0);
+    if (!task.failed() && task.value() != nullptr) {
+        auto entry = reinterpret_cast<int (*)()>(task.value()->entry);
+        ASTIA_CHECK(entry() == 42);
+        ASTIA_CHECK(entry() == 44);
+    }
+    if (context.arena.base != nullptr)
+        munmap(context.arena.base, context.arena.span);
+}
+
+ASTIA_TEST(elf_stream_fallback_read_copies_when_direct_reader_is_absent) {
+    blob_copy             blob = make_stream_boundary_executable();
+    stream_exec_context   context{blob.data, blob.len, {}};
+    astia::elf::async_env environment{};
+    environment.ctx   = &context;
+    environment.map   = stream_map;
+    environment.read  = stream_read;
+    environment.copy  = stream_copy;
+    environment.unmap = stream_unmap;
+
+    auto task = astia::elf::load_executable_stream(environment, blob.len);
+    while (!task.done())
+        task.resume();
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(context.direct_reads == 0);
+    ASTIA_CHECK(context.copy_calls == 6);
     if (context.arena.base != nullptr)
         munmap(context.arena.base, context.arena.span);
 }
