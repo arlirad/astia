@@ -1,3 +1,4 @@
+#include <astia/arch/cpu.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/init.hpp>
 #include <astia/memory.hpp>
@@ -94,7 +95,7 @@ namespace astia::mm::heap {
     } // namespace
 
     void configure(void* base, usize bytes, map_fn map) {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         if (_initializing) {
             return;
         }
@@ -107,7 +108,7 @@ namespace astia::mm::heap {
     }
 
     bool init() {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         if (_base == nullptr || _mapper == nullptr || _bytes < sizeof(block) + 16) {
             return false;
         }
@@ -126,7 +127,7 @@ namespace astia::mm::heap {
 
         const bool mapped = map_backing(base, bytes, mapper);
 
-        core::spinlock_guard publish(_lock);
+        arch::interrupt_spinlock_guard publish(_lock);
         _initializing = false;
         if (!mapped) {
             return false;
@@ -143,7 +144,7 @@ namespace astia::mm::heap {
     }
 
     bool ready() {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         return _ready && !_initializing;
     }
 
@@ -153,7 +154,7 @@ namespace astia::mm::heap {
         }
         const usize need = align_up(bytes, 16);
 
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         if (!_ready || _initializing) {
             // Not configured/initialised yet: nothing to hand out.
             return error_t::enomem;
@@ -182,7 +183,7 @@ namespace astia::mm::heap {
             return;
         }
 
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         if (!_ready || _initializing) {
             return; // foreign pointer: ignore rather than corrupt
         }
@@ -207,12 +208,12 @@ namespace astia::mm::heap {
     }
 
     usize used() {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         return _used;
     }
 
     usize capacity() {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         return _bytes >= sizeof(block) + 16 ? _bytes - sizeof(block) : 0;
     }
 
