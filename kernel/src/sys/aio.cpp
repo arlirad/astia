@@ -106,7 +106,8 @@ namespace astia::sys {
                 ring_guard ring_lock_guard(slot.lock);
                 pool_guard.release_lock();
                 parked_op& op = slot.park[p];
-                if (op.used && !op.done && op.object && op.object->node().get() == dev &&
+                if (op.used && op.type == parked_op::kind::operation && !op.done &&
+                    op.object && op.object->node().get() == dev &&
                     op.operation->request().user_data() != excluded_user_data)
                     op.device_ready = true;
             }
@@ -127,7 +128,7 @@ namespace astia::sys {
                 pool_guard.release_lock();
                 parked_op&     op    = slot.park[p];
                 proc::process* owner = slot.owner.get();
-                if (op.used && !op.done &&
+                if (op.used && op.type == parked_op::kind::operation && !op.done &&
                     (op.device_ready || op.sleep_ready ||
                      op.operation->request().timeout_expired() ||
                      op.operation->request().poll_wakeup())) {
@@ -159,7 +160,8 @@ namespace astia::sys {
             astia_rings* ring = rings_of(slot);
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 parked_op& op = slot.park[p];
-                if (op.used && !op.done && op.signal_interruptible)
+                if (op.used && op.type == parked_op::kind::operation && !op.done &&
+                    op.signal_interruptible)
                     aio_dispatch::complete_control(owner, ring, op, result);
             }
             cq_retrigger(slot, ring);
@@ -180,14 +182,17 @@ namespace astia::sys {
             pool_guard.release_lock();
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 parked_op& op = slot.park[p];
-                if (op.used && !op.done && op.sleeping && now >= op.sleep_deadline) {
+                if (op.used && op.type == parked_op::kind::operation && !op.done &&
+                    op.sleeping && now >= op.sleep_deadline) {
                     op.sleep_ready = true;
                 }
-                if (op.used && !op.done && op.timed && now >= op.timeout_deadline) {
+                if (op.used && op.type == parked_op::kind::operation && !op.done &&
+                    op.timed && now >= op.timeout_deadline) {
                     op.timed = false;
                     op.operation->request().timeout_expired(true);
                 }
-                if (op.used && !op.done && op.poll_timed && now >= op.poll_deadline) {
+                if (op.used && op.type == parked_op::kind::operation && !op.done &&
+                    op.poll_timed && now >= op.poll_deadline) {
                     op.poll_timed = false;
                     op.operation->request().poll_wakeup(true);
                 }

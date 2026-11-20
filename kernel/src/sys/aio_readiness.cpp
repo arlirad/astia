@@ -31,6 +31,7 @@ namespace astia::sys::aio_readiness {
             if (p == nullptr)
                 return cq_post_guarded(ring, s.user_data, -EBUSY);
             p->used                 = true;
+            p->type                 = parked_op::kind::operation;
             p->done                 = false;
             p->resuming             = false;
             p->control              = true;
@@ -42,6 +43,7 @@ namespace astia::sys::aio_readiness {
             p->operation =
                 new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
             if (p->operation == nullptr) {
+                p->type = parked_op::kind::oom_completion;
                 if (cq_post_guarded(ring, s.user_data, -ENOMEM))
                     p->done = true;
                 else {
@@ -84,6 +86,7 @@ namespace astia::sys::aio_readiness {
                 return cq_post_guarded(ring, s.user_data, -EBUSY);
 
             p->used                 = true;
+            p->type                 = parked_op::kind::operation;
             p->done                 = false;
             p->resuming             = false;
             p->control              = true;
@@ -98,6 +101,7 @@ namespace astia::sys::aio_readiness {
             p->operation =
                 new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
             if (p->operation == nullptr) {
+                p->type = parked_op::kind::oom_completion;
                 if (cq_post_guarded(ring, s.user_data, -ENOMEM))
                     p->done = true;
                 else {

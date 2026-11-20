@@ -189,6 +189,8 @@ namespace astia::sys::aio_dispatch {
 
         void complete_control(proc::process* owner, astia_rings* ring, parked_op& op,
                               i32 result) {
+            if (op.type != parked_op::kind::operation || op.operation == nullptr)
+                return;
             if (op.done || op.pending_cqe)
                 return;
             if (result == -EINTR && op.sleeping && !op.sleep_absolute &&
@@ -394,6 +396,7 @@ namespace astia::sys::aio_dispatch {
                 return cq_post(ring, s.user_data, -EBUSY);
             }
             p->used                  = true;
+            p->type                  = parked_op::kind::operation;
             p->done                  = false;
             p->resuming              = false;
             p->fd                    = s.fd;
@@ -444,6 +447,7 @@ namespace astia::sys::aio_dispatch {
                                              static_cast<u32>(p->entries.chunk()),
                                              s.offset, s.user_data, direction);
             if (p->operation == nullptr) {
+                p->type = parked_op::kind::oom_completion;
                 if (cq_post(ring, s.user_data, -ENOMEM))
                     p->done = true;
                 else {
@@ -855,17 +859,21 @@ namespace astia::sys::aio_dispatch {
         }
 
         bool handle_cancel(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            const u64 target = s.offset;
+            const u64 target       = s.offset;
+            auto      has_capacity = [ring](u32 count) {
+                const astia_cq_ring* cq = astia_rings_cq(ring);
+                const u32            head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
+                const u32            tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+                return tail - head <= cq->entries - count;
+            };
             for (u32 i = 0; i < parked_operation_slots; ++i) {
                 parked_op& p = slot.park[i];
-                if (p.used && !p.done && p.operation != nullptr &&
+                if (p.used && p.type == parked_op::kind::operation && !p.done &&
+                    p.operation != nullptr &&
                     p.operation->request().user_data() == target) {
                     // Cancellation needs two CQ slots.  Do not consume the
                     // SQE if either completion could be lost.
-                    astia_cq_ring* cq   = astia_rings_cq(ring);
-                    const u32      head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
-                    const u32      tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
-                    if (tail - head > cq->entries - 2)
+                    if (!has_capacity(2))
                         return false;
                     if (!cq_post(ring, target, -ECANCELED))
                         return false;
@@ -874,7 +882,10 @@ namespace astia::sys::aio_dispatch {
                     p.done = true;
                     return cq_post(ring, s.user_data, 0);
                 }
-                if (p.used && !p.done && p.pending_cqe && p.pending_user_data == target) {
+                if (p.used && p.type == parked_op::kind::oom_completion && !p.done &&
+                    p.pending_cqe && p.pending_user_data == target) {
+                    if (!has_capacity(2))
+                        return false;
                     if (!publish_pending(ring, p))
                         return false;
                     return cq_post(ring, s.user_data, 0);
