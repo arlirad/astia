@@ -22,7 +22,25 @@ if [ ! -f "$crt0" ]; then
 fi
 
 mkdir -p "$out/obj" "$out/bin" "$out/.keys"
-find "$out/bin" -type f -name '*.key' -delete
+source_manifest=$out/.keys/sources
+next_source_manifest=$source_manifest.$$
+for source in "$root"/coreutils/src/*.c; do
+    basename "$source" .c
+done | sort -u >"$next_source_manifest"
+if [ -f "$source_manifest" ]; then
+    while IFS= read -r managed_name; do
+        if ! grep -Fqx "$managed_name" "$next_source_manifest"; then
+            rm -f "$out/bin/$managed_name" "$out/obj/$managed_name.o" \
+                "$out/obj/$managed_name.o.key" "$out/.keys/$managed_name" \
+                "$out/bin/$managed_name.key"
+        fi
+        rm -f "$out/bin/$managed_name.key"
+    done <"$source_manifest"
+fi
+while IFS= read -r managed_name; do
+    rm -f "$out/bin/$managed_name.key"
+done <"$next_source_manifest"
+mv "$next_source_manifest" "$source_manifest"
 common="--target=$target -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc -isystem $resource_dir/include -isystem $sysroot/include"
 toolchain_revision=$(
     {

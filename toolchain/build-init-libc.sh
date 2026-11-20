@@ -3,6 +3,22 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 build=${ASTIA_CROSS_BUILD:-/tmp/astia-clang-init-libc}
+canonical_path() {
+    case "$1" in
+        /*) path=$1 ;;
+        *) path=$PWD/$1 ;;
+    esac
+    if [ -d "$path" ]; then
+        CDPATH= cd -- "$path" && pwd
+        return
+    else
+        mkdir -p "$(dirname -- "$path")"
+    fi
+    path_dir=$(CDPATH= cd -- "$(dirname -- "$path")" && pwd)
+    printf '%s/%s\n' "$path_dir" "$(basename -- "$path")"
+}
+mkdir -p "$build"
+build=$(canonical_path "$build")
 if [ "${ASTIA_SYSROOT+x}" = x ]; then
     sysroot=$ASTIA_SYSROOT
     external_sysroot=1
@@ -10,6 +26,8 @@ else
     sysroot=$build/sysroot
     external_sysroot=0
 fi
+mkdir -p "$sysroot"
+sysroot=$(canonical_path "$sysroot")
 target=${ASTIA_TARGET:-x86_64-unknown-elf}
 clang=${CLANG:-clang}
 clang_path=$(command -v "$clang")
@@ -41,6 +59,7 @@ libc_revision=$(
         sha256sum "$root/toolchain/build-init-libc.sh" \
             "$root/toolchain/astia-x86_64-clang.cmake" "$clang_path"
         "$clang" --version
+        printf '%s\n' "$sysroot" "$target" "$external_sysroot"
     } | sort | sha256sum | awk '{print $1}'
 )
 if [ ! -f "$cache" ] || [ ! -f "$libc_build/.astia-config-key" ] ||

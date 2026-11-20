@@ -54,6 +54,7 @@ endforeach()
 
 file(READ "${_astia_root}/toolchain/build-zsh.sh" _astia_zsh_build)
 file(READ "${_astia_root}/toolchain/build-nano.sh" _astia_nano_build)
+file(READ "${_astia_root}/toolchain/build-init-libc.sh" _astia_init_libc_build)
 file(READ "${_astia_root}/toolchain/init-userspace.sh" _astia_userspace_init)
 file(READ "${_astia_root}/coreutils/build.sh" _astia_coreutils_build)
 foreach(_astia_text _astia_zsh_build _astia_nano_build _astia_coreutils_build)
@@ -66,11 +67,15 @@ if(NOT _astia_userspace_init MATCHES "user/nano")
 endif()
 if(NOT _astia_zsh_build MATCHES "astia-config-key" OR
    NOT _astia_nano_build MATCHES "astia-config-key" OR
+   NOT _astia_init_libc_build MATCHES "astia-config-key" OR
+   NOT _astia_init_libc_build MATCHES "sysroot" OR
    NOT _astia_zsh_build MATCHES "source_revision" OR
    NOT _astia_nano_build MATCHES "source_revision" OR
    NOT _astia_nano_build MATCHES "user/gnulib" OR
    _astia_nano_build MATCHES "git clone" OR
    _astia_nano_build MATCHES "git pull" OR
+   NOT _astia_coreutils_build MATCHES "source_manifest" OR
+   NOT _astia_coreutils_build MATCHES "managed_name" OR
    _astia_coreutils_build MATCHES "rm -rf \\\"\\$out\\\"" OR
    NOT _astia_userspace_init MATCHES
        "https://ftp\\.gnu\\.org/gnu/nano/nano-8\\.6\\.tar\\.xz" OR
