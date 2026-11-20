@@ -71,8 +71,9 @@ The repository follows a layered kernel/userspace layout:
 
 Prerequisites include Git, CMake 3.20+, a C/C++ toolchain, Clang for
 userspace, QEMU, Python 3 for helper scripts, and the archive tools used by
-the test suite (`cpio`, `xxd`, `gzip`, and `zstd`). The repository currently
-has no Git submodules, so no submodule initialization step is required.
+the test suite (`cpio`, `xxd`, `gzip`, and `zstd`). The repository contains
+pinned zsh, nano, and gnulib submodules. Initialize them with
+`toolchain/init-userspace.sh` before running userspace workflows.
 
 Build the supported kernel directly:
 

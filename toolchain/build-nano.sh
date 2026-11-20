@@ -118,13 +118,27 @@ exec $clang --target=$target -U__linux__ -ffreestanding -fno-builtin -fno-pic -f
 EOF
 chmod +x "$build/astia-cc"
 
-$clang --target="$target" -ffreestanding -fno-builtin -fno-pic -fno-pie \
-    -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc \
-    -isystem "$resource_dir/include" -isystem "$sysroot/include" \
-    -I"$root/toolchain/nano-astia" -c "$root/toolchain/nano-astia/curses.c" \
-    -o "$build/astia/curses.o"
-rm -f "$build/astia/libncurses.a"
-ar rcs "$build/astia/libncurses.a" "$build/astia/curses.o"
+curses_key=$(
+    {
+        sha256sum "$root/toolchain/nano-astia/curses.c" \
+            "$root/toolchain/nano-astia/curses.h" "$sysroot/lib/libastia_libc.a" \
+            "$clang_path"
+        "$clang" --version
+        printf '%s\n' "$target" "$resource_dir" "$sysroot"
+    } | sha256sum | awk '{print $1}'
+)
+if [ ! -f "$build/astia/curses.o" ] ||
+    [ ! -f "$build/astia/libncurses.a" ] ||
+    [ ! -f "$build/astia/curses.key" ] ||
+    [ "$(cat "$build/astia/curses.key")" != "$curses_key" ]; then
+    $clang --target="$target" -ffreestanding -fno-builtin -fno-pic -fno-pie \
+        -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc \
+        -isystem "$resource_dir/include" -isystem "$sysroot/include" \
+        -I"$root/toolchain/nano-astia" -c "$root/toolchain/nano-astia/curses.c" \
+        -o "$build/astia/curses.o"
+    ar rcs "$build/astia/libncurses.a" "$build/astia/curses.o"
+    printf '%s\n' "$curses_key" >"$build/astia/curses.key"
+fi
 
 cat > "$build/config.site" <<'EOF'
 ac_cv_header_ncurses_h=no

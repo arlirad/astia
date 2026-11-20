@@ -49,8 +49,8 @@ The current pins are zsh `zsh-5.9.2`
 reviewed upstream tag or commit in the submodule and record the gitlink in the
 parent; never replace it with an unreviewed branch tip. Upstream source and
 license files remain in the submodules and are not copied into Astia. If the
-Savannah nano git endpoint is unavailable, the initializer verifies the
-official GNU nano 8.6 archive with SHA-256
+pinned nano git endpoint is unavailable, the initializer verifies the official
+GNU nano 8.6 archive with SHA-256
 `f7abfbf0eed5f573ab51bd77a458f32d82f9859c55e9689f819d96fe1437a619`.
 
 ## Build zsh
@@ -82,9 +82,10 @@ process-group, and signal-restorer ABI directly.
 
 ## Launch zsh in QEMU
 
-From a fresh checkout, the complete flow is one command:
+From a fresh checkout, initialize the pinned sources, then launch:
 
 ```sh
+toolchain/init-userspace.sh
 ./toolchain/run-zsh-qemu.sh
 ```
 

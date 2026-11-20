@@ -46,5 +46,4 @@ mkdir -p "$staging"
 tar -xf "$archive" -C "$staging" --strip-components=1
 mkdir -p "$(dirname -- "$nano_path")"
 mv "$staging" "$nano_path"
-test -f "$nano_path/autogen.sh"
 test -x "$nano_path/configure"

@@ -15,8 +15,9 @@ foreach(_astia_submodule
         message(FATAL_ERROR ".gitmodules is missing: ${_astia_submodule}")
     endif()
 endforeach()
-if(NOT EXISTS "${_astia_root}/user/nano/autogen.sh")
-    message(FATAL_ERROR "the pinned nano source is missing autogen.sh")
+if(NOT EXISTS "${_astia_root}/user/nano/autogen.sh" AND
+   NOT EXISTS "${_astia_root}/user/nano/configure")
+    message(FATAL_ERROR "the pinned nano source is missing bootstrap files")
 endif()
 
 execute_process(

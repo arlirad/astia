@@ -21,7 +21,8 @@ if [ ! -f "$crt0" ]; then
     exit 1
 fi
 
-mkdir -p "$out/obj" "$out/bin"
+mkdir -p "$out/obj" "$out/bin" "$out/.keys"
+find "$out/bin" -type f -name '*.key' -delete
 common="--target=$target -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc -isystem $resource_dir/include -isystem $sysroot/include"
 toolchain_revision=$(
     {
@@ -54,13 +55,13 @@ for source in "$root"/coreutils/src/*.c; do
         } | sha256sum | awk '{print $1}'
     )
     if [ ! -f "$out/bin/$name" ] ||
-        [ ! -f "$out/bin/$name.key" ] ||
-        [ "$(cat "$out/bin/$name.key")" != "$link_key" ]; then
+        [ ! -f "$out/.keys/$name" ] ||
+        [ "$(cat "$out/.keys/$name")" != "$link_key" ]; then
         $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
             -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
             -o "$out/bin/$name" "$crt0" "$out/obj/$name.o" \
             "$sysroot/lib/libastia_libc.a" "$builtins"
-        printf '%s\n' "$link_key" >"$out/bin/$name.key"
+        printf '%s\n' "$link_key" >"$out/.keys/$name"
     fi
 done
 
