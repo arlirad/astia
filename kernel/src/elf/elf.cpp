@@ -5,6 +5,8 @@
 // locally so the kernel build stays freestanding and the host test does not
 // depend on a system header.
 
+#include <astia/strings.hpp>
+
 #include "elf_internal.hpp"
 
 namespace astia::elf {
@@ -21,14 +23,11 @@ namespace astia::elf {
             if (sym.st_name >= v.strsize)
                 return false;
             const char* name = v.str + sym.st_name;
-            const usize max  = v.strsize - sym.st_name;
-            for (usize i = 0; i < max; ++i) {
-                if (name[i] == '\0') {
-                    out = name;
-                    return true;
-                }
-            }
-            return false;
+            string_view name_view;
+            if (!string_before_nul({name, v.strsize - sym.st_name}, name_view))
+                return false;
+            out = name_view.data;
+            return true;
         }
 
         bool section_name(const view& v, u16 index, const char*& out, usize& out_size) {
@@ -38,14 +37,12 @@ namespace astia::elf {
             if (offset >= v.shstrsize)
                 return false;
             const char* name = v.shstr + offset;
-            for (usize i = 0; i < v.shstrsize - offset; ++i) {
-                if (name[i] == '\0') {
-                    out      = name;
-                    out_size = i;
-                    return true;
-                }
-            }
-            return false;
+            string_view name_view;
+            if (!string_before_nul({name, v.shstrsize - offset}, name_view))
+                return false;
+            out      = name_view.data;
+            out_size = name_view.size;
+            return true;
         }
 
         // Validate the section table, then locate the symbol table and its
