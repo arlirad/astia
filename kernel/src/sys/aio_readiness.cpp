@@ -42,8 +42,9 @@ namespace astia::sys::aio_readiness {
             p->operation =
                 new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
             if (p->operation == nullptr) {
-                p->done = true;
-                if (!cq_post_guarded(ring, s.user_data, -ENOMEM)) {
+                if (cq_post_guarded(ring, s.user_data, -ENOMEM))
+                    p->done = true;
+                else {
                     p->pending_cqe       = true;
                     p->pending_user_data = s.user_data;
                     p->pending_result    = -ENOMEM;
@@ -97,8 +98,9 @@ namespace astia::sys::aio_readiness {
             p->operation =
                 new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
             if (p->operation == nullptr) {
-                p->done = true;
-                if (!cq_post_guarded(ring, s.user_data, -ENOMEM)) {
+                if (cq_post_guarded(ring, s.user_data, -ENOMEM))
+                    p->done = true;
+                else {
                     p->pending_cqe       = true;
                     p->pending_user_data = s.user_data;
                     p->pending_result    = -ENOMEM;
