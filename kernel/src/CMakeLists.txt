@@ -1,6 +1,7 @@
 # Core source directories
 add_subdirectory(lib)
 add_subdirectory(net)
+add_subdirectory(io)
 add_subdirectory(ipc)
 add_subdirectory(dbg)
 add_subdirectory(core)
@@ -24,6 +25,7 @@ set(_astia_kernel_libs
         -Wl,--whole-archive
         init
         net
+        io
         fs
         core
         proc

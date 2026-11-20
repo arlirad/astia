@@ -1,19 +1,19 @@
-#include "aio_filesystem.hpp"
+#include "filesystem.hpp"
 
-#include "../fs/mapping.hpp"
-#include "../proc/mapping.hpp"
-#include "aio_dispatch.hpp"
-#include "proc.hpp"
-#include "time.hpp"
-#include "user_mem.hpp"
 #include <astia/api/errno.h>
 
-namespace astia::sys::aio_filesystem {
+#include "../../fs/mapping.hpp"
+#include "../../proc/mapping.hpp"
+#include "../../proc/proc.hpp"
+#include "dispatch.hpp"
+#include "memory.hpp"
 
-    using namespace aio_ring;
-    using aio_dispatch::file_for;
-    using aio_dispatch::parent_writable;
-    using aio_dispatch::resolve_at;
+namespace astia::io::aio::filesystem {
+
+    using namespace ring;
+    using dispatch::file_for;
+    using dispatch::parent_writable;
+    using dispatch::resolve_at;
 
     namespace {
 
@@ -21,8 +21,8 @@ namespace astia::sys::aio_filesystem {
             // The pathname is user memory: copy it into the kernel rather
             // than letting the VFS walk a raw user pointer.
             char path[256];
-            if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(s.address)))
+            if (!memory::copy_in_string(span<char>(path, sizeof path),
+                                        memory::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
             char  resolved[256];
@@ -91,8 +91,8 @@ namespace astia::sys::aio_filesystem {
 
         bool handle_mkdirat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
             char path[256];
-            if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(s.address)))
+            if (!memory::copy_in_string(span<char>(path, sizeof path),
+                                        memory::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
             char  resolved[256];
@@ -116,8 +116,8 @@ namespace astia::sys::aio_filesystem {
 
         bool handle_unlinkat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
             char path[256];
-            if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(s.address)))
+            if (!memory::copy_in_string(span<char>(path, sizeof path),
+                                        memory::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
             char  resolved[256];
@@ -135,10 +135,10 @@ namespace astia::sys::aio_filesystem {
 
         bool handle_renameat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
             char old_path[256], new_path[256];
-            if (!sys::copy_in_string(span<char>(old_path, sizeof old_path),
-                                     sys::user_ptr<char>(s.address)) ||
-                !sys::copy_in_string(span<char>(new_path, sizeof new_path),
-                                     sys::user_ptr<char>(s.offset)))
+            if (!memory::copy_in_string(span<char>(old_path, sizeof old_path),
+                                        memory::user_ptr<char>(s.address)) ||
+                !memory::copy_in_string(span<char>(new_path, sizeof new_path),
+                                        memory::user_ptr<char>(s.offset)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
             char  old_resolved[256], new_resolved[256];
@@ -163,10 +163,10 @@ namespace astia::sys::aio_filesystem {
 
         bool handle_linkat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
             char old_path[256], new_path[256];
-            if (!sys::copy_in_string(span<char>(old_path, sizeof old_path),
-                                     sys::user_ptr<char>(s.address)) ||
-                !sys::copy_in_string(span<char>(new_path, sizeof new_path),
-                                     sys::user_ptr<char>(s.offset)))
+            if (!memory::copy_in_string(span<char>(old_path, sizeof old_path),
+                                        memory::user_ptr<char>(s.address)) ||
+                !memory::copy_in_string(span<char>(new_path, sizeof new_path),
+                                        memory::user_ptr<char>(s.offset)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
             if (current == nullptr)
@@ -202,11 +202,11 @@ namespace astia::sys::aio_filesystem {
             // the stat target (fstat), otherwise address is a pathname
             // and fd is the dirfd. The VFS still has one exact-path
             // namespace, so the dirfd is accepted and ignored.
-            const auto out = sys::user_ptr<astia_stat>(s.offset).validate();
+            const auto out = memory::user_ptr<astia_stat>(s.offset).validate();
             if (!out) {
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             }
-            if (!sys::user_span_writable_ok_for(
+            if (!memory::user_span_writable_ok_for(
                     proc::current_process(),
                     span<u8>::bytes(s.offset, sizeof(astia_stat)))) {
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
@@ -218,8 +218,8 @@ namespace astia::sys::aio_filesystem {
             mm::shptr<fs::open_file> object;
             if (s.address != 0) {
                 char path[256];
-                if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                         sys::user_ptr<char>(s.address))) {
+                if (!memory::copy_in_string(span<char>(path, sizeof path),
+                                            memory::user_ptr<char>(s.address))) {
                     return cq_post_guarded(ring, s.user_data, -EFAULT);
                 }
                 auto* current = proc::current_process();
@@ -334,8 +334,8 @@ namespace astia::sys::aio_filesystem {
                                        static_cast<i32>(object->chmod(requested.value)));
             }
             char path[256];
-            if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(s.address)))
+            if (!memory::copy_in_string(span<char>(path, sizeof path),
+                                        memory::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             char resolved[256];
             if (current == nullptr ||
@@ -374,8 +374,8 @@ namespace astia::sys::aio_filesystem {
                     static_cast<i32>(object->node()->chown(owner.value, group.value)));
             }
             char path[256];
-            if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(s.address)))
+            if (!memory::copy_in_string(span<char>(path, sizeof path),
+                                        memory::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             char       resolved[256];
             const bool follow_final = (s.op_flags & STATX_NOFOLLOW) == 0;
@@ -398,8 +398,8 @@ namespace astia::sys::aio_filesystem {
 
         bool handle_utimensat(astia_rings* ring, const astia_sqe& s) {
             char path[256];
-            if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(s.address)))
+            if (!memory::copy_in_string(span<char>(path, sizeof path),
+                                        memory::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
             char  resolved[256];
@@ -412,7 +412,7 @@ namespace astia::sys::aio_filesystem {
                 return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
             u64 sec  = 0;
             u64 nsec = 0;
-            if (!sys::realtime_now(sec, nsec))
+            if (!memory::realtime_now(sec, nsec))
                 return cq_post_guarded(ring, s.user_data, -EIO);
             return cq_post_guarded(ring, s.user_data,
                                    static_cast<i32>(fs::touch_path(resolved, sec, nsec)));
@@ -420,10 +420,10 @@ namespace astia::sys::aio_filesystem {
 
         bool handle_symlinkat(astia_rings* ring, const astia_sqe& s) {
             char target[256], path[256];
-            if (!sys::copy_in_string(span<char>(target, sizeof target),
-                                     sys::user_ptr<char>(s.address)) ||
-                !sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(s.offset)))
+            if (!memory::copy_in_string(span<char>(target, sizeof target),
+                                        memory::user_ptr<char>(s.address)) ||
+                !memory::copy_in_string(span<char>(path, sizeof path),
+                                        memory::user_ptr<char>(s.offset)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
             char  resolved[256];
@@ -444,8 +444,8 @@ namespace astia::sys::aio_filesystem {
 
         bool handle_readlinkat(astia_rings* ring, const astia_sqe& s) {
             char path[256];
-            if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(s.address)))
+            if (!memory::copy_in_string(span<char>(path, sizeof path),
+                                        memory::user_ptr<char>(s.address)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
             char  resolved[256];
@@ -458,7 +458,7 @@ namespace astia::sys::aio_filesystem {
             if (resolve_rc < 0)
                 return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
             auto out = span<u8>::bytes(s.offset, s.length);
-            if (!sys::user_span_ok(out))
+            if (!memory::user_span_ok_for(out))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             // read_symlink is a kernel/VFS API; never give it a raw
             // caller address.  The fixed path limit is also the VFS's
@@ -469,16 +469,16 @@ namespace astia::sys::aio_filesystem {
             const long n        = fs::read_symlink(resolved, target, capacity);
             if (n < 0)
                 return cq_post_guarded(ring, s.user_data, (i32) n);
-            if (n != 0 &&
-                !sys::copy_out(span<u8>::bytes(s.offset, static_cast<usize>(n)), target))
+            if (n != 0 && !memory::copy_out(
+                              span<u8>::bytes(s.offset, static_cast<usize>(n)), target))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             return cq_post_guarded(ring, s.user_data, (i32) n);
         }
 
         bool handle_readdir(astia_rings* ring, const astia_sqe& s) {
             char path[256];
-            if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(s.offset)))
+            if (!memory::copy_in_string(span<char>(path, sizeof path),
+                                        memory::user_ptr<char>(s.offset)))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             auto* current = proc::current_process();
             char  resolved[256];
@@ -489,7 +489,7 @@ namespace astia::sys::aio_filesystem {
                 resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
             if (resolve_rc < 0)
                 return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
-            const auto out = sys::user_ptr<astia_dirent>(s.address).validate();
+            const auto out = memory::user_ptr<astia_dirent>(s.address).validate();
             if (!out)
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             astia_dirent  result{};
@@ -503,7 +503,7 @@ namespace astia::sys::aio_filesystem {
                     ++length;
                 result.namelen = length;
             }
-            if (!sys::copy_out(out.value.bytes(), &result))
+            if (!memory::copy_out(out.value.bytes(), &result))
                 return cq_post_guarded(ring, s.user_data, -EFAULT);
             return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
         }
@@ -577,4 +577,4 @@ namespace astia::sys::aio_filesystem {
         }
     }
 
-} // namespace astia::sys::aio_filesystem
+} // namespace astia::io::aio::filesystem

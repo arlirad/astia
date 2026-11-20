@@ -9,10 +9,11 @@
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/share.hpp>
 
+#include "../../proc/proc.hpp"
 #include "aio.hpp"
-#include "proc.hpp"
+#include "memory.hpp"
 
-namespace astia::sys::aio_ring {
+namespace astia::io::aio::ring {
 
     inline constexpr u32 slot_count = resource_limits::queue::aio_ring_slots;
     inline constexpr u32 parked_slot_count =
@@ -86,7 +87,7 @@ namespace astia::sys::aio_ring {
         i32                      fd;
         mm::shptr<fs::open_file> object;
         mm::iovec                entries;
-        io::operation*           operation  = nullptr;
+        ::astia::io::operation*  operation  = nullptr;
         u64                      generation = 0;
         usize                    moved      = 0;
 
@@ -178,4 +179,4 @@ namespace astia::sys::aio_ring {
     long setup(u32 entries, u32 flags, astia_rings** out);
     long destroy(astia_rings* ring);
 
-} // namespace astia::sys::aio_ring
+} // namespace astia::io::aio::ring
