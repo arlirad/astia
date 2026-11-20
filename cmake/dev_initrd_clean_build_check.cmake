@@ -69,6 +69,17 @@ if(NOT build_result EQUAL 0)
         "Clean dev_initrd build failed; see ${_clean_binary_dir}/build*.log")
 endif()
 
+set(_nano_config_log "${_clean_binary_dir}/nano build/config.log")
+if(NOT EXISTS "${_nano_config_log}")
+    message(FATAL_ERROR "Clean dev_initrd build did not create ${_nano_config_log}")
+endif()
+file(READ "${_nano_config_log}" _nano_config)
+if(NOT _nano_config MATCHES "libclang_rt\\.builtins\\.a" OR
+   _nano_config MATCHES "libclang_rt_builtins\\.a")
+    message(FATAL_ERROR
+        "Nano configure linker configuration does not use the generated builtins alias")
+endif()
+
 foreach(_artifact
         "${_clean_binary_dir}/kernel/src/astiakrn_runtime"
         "${_clean_binary_dir}/kernel/tests/fixtures/boot_initrd.cpio"

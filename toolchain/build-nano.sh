@@ -188,7 +188,7 @@ if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     CPPFLAGS="-I$config_compat_dir/nano-astia -include $config_compat_dir/nano-astia/force-assert.h" \
     CFLAGS='-O0' \
     LDFLAGS="-nostdlib -static -Wl,-no-pie -Wl,-Ttext-segment=0x40000000 -L$config_compat_dir/astia" \
-        LIBS="$config_compat_dir/crt0.o $config_compat_dir/libclang_rt_builtins.a -lncurses $config_compat_dir/libastia_libc.a"
+        LIBS="$config_compat_dir/crt0.o $config_compat_dir/libclang_rt.builtins.a -lncurses $config_compat_dir/libastia_libc.a"
     printf '%s\n' "$config_key" >"$build/.astia-config-key"
 fi
 
