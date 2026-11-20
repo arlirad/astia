@@ -876,13 +876,18 @@ namespace {
             return _product;
         }
         void remove(const astia::hw::device_info&) override {
+            astia::u32 expected = 0;
+            if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 1, false,
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return;
             if (_file) {
                 _file->detach();
                 (void) astia::fs::unregister_device("/dev/vblk0", _file);
             }
-            _removing = true;
-            if (!_file || _file->arm_quiescence_handler(quiescence_callback, this))
-                finish_remove();
+            if (_file)
+                (void) _file->arm_quiescence_handler(quiescence_callback, this);
+            __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
+            finish_remove();
         }
         bool selftest() override {
             char      sector[512]{};
@@ -938,18 +943,24 @@ namespace {
         }
 
         void finish_remove() {
-            if (!_removing || (_file && !_file->quiescent()))
+            astia::u32 expected = 2;
+            if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 3, false,
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
                 return;
+            if (_file && !_file->quiescent()) {
+                __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
+                return;
+            }
             device.stop();
-            _file     = {};
-            _product  = {};
-            _removing = false;
+            _file    = {};
+            _product = {};
+            __atomic_store_n(&_teardown_state, 4, __ATOMIC_RELEASE);
         }
 
         controller                                device;
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _file;
-        bool                                      _removing = false;
+        volatile astia::u32                       _teardown_state = 0;
     };
 
     virtio_driver driver;

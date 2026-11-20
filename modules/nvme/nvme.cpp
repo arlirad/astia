@@ -960,15 +960,16 @@ namespace {
         }
 
         void remove(const astia::hw::device_info&) override {
-            _removing = true;
+            astia::u32 expected = 0;
+            if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 1, false,
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return;
             unregister_nodes();
-            bool ready = true;
             for (astia::u32 i = 0; i < _file_count; ++i)
-                if (_files[i] &&
-                    !_files[i]->arm_quiescence_handler(quiescence_callback, this))
-                    ready = false;
-            if (ready)
-                finish_remove();
+                if (_files[i])
+                    (void) _files[i]->arm_quiescence_handler(quiescence_callback, this);
+            __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
+            finish_remove();
         }
 
         bool selftest() override {
@@ -1050,14 +1051,20 @@ namespace {
         }
 
         void finish_remove() {
-            if (!_removing || !all_files_quiescent())
+            astia::u32 expected = 2;
+            if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 3, false,
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
                 return;
+            if (!all_files_quiescent()) {
+                __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
+                return;
+            }
             device.stop();
             for (astia::u32 i = 0; i < _file_count; ++i)
                 _files[i] = {};
             _file_count = 0;
             _product    = {};
-            _removing   = false;
+            __atomic_store_n(&_teardown_state, 4, __ATOMIC_RELEASE);
         }
 
         void unregister_nodes() {
@@ -1076,8 +1083,8 @@ namespace {
 
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _files[max_namespaces]{};
-        astia::u32                                _file_count = 0;
-        bool                                      _removing   = false;
+        astia::u32                                _file_count     = 0;
+        volatile astia::u32                       _teardown_state = 0;
     };
 
     nvme_driver driver;
