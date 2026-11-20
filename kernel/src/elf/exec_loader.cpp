@@ -1,5 +1,7 @@
 #include "elf_internal.hpp"
 
+#include <new>
+
 namespace astia::elf {
 
     using namespace detail;
@@ -28,6 +30,25 @@ namespace astia::elf {
 
             ~async_mapping() {
                 reset();
+            }
+        };
+
+        constexpr usize stream_read_chunk_size = 4096;
+        constexpr usize stream_rela_chunk_size = sizeof(elf64_rela) * 170;
+
+        struct loader_scratch {
+            elf64_phdr ph[max_program_headers]{};
+            u8         buffer[stream_read_chunk_size]{};
+            u8         zero[stream_read_chunk_size]{};
+            u8         segment_buffer[stream_read_chunk_size]{};
+            u8         rela_buffer[stream_rela_chunk_size]{};
+        };
+
+        struct loader_scratch_owner {
+            loader_scratch* value = nullptr;
+
+            ~loader_scratch_owner() {
+                delete value;
             }
         };
 
@@ -416,13 +437,16 @@ namespace astia::elf {
     }
 
     core::task<image> load_executable_stream(async_env e, usize file_size) {
-        image           result{};
-        constexpr usize read_chunk_size = 4096;
-        constexpr usize rela_chunk_size = sizeof(elf64_rela) * 170;
+        image                result{};
+        loader_scratch_owner scratch{new (std::nothrow) loader_scratch{}};
 
         if (e.map == nullptr || e.unmap == nullptr || e.read == nullptr ||
             file_size < sizeof(elf64_ehdr))
             co_return error_t::einval;
+        if (scratch.value == nullptr)
+            co_return error_t::enomem;
+
+        auto& ph = scratch.value->ph;
 
         elf64_ehdr header{};
         auto       header_read = co_await e.read(
@@ -445,7 +469,6 @@ namespace astia::elf {
                        static_cast<u64>(header.e_phnum) * sizeof(elf64_phdr), file_size))
             co_return error_t::einval;
 
-        elf64_phdr  ph[max_program_headers]{};
         const usize ph_bytes = static_cast<usize>(header.e_phnum) * sizeof(elf64_phdr);
         auto        ph_read  = co_await e.read(
             e.ctx, span<u8>(reinterpret_cast<u8*>(ph), ph_bytes), header.e_phoff);
@@ -492,23 +515,23 @@ namespace astia::elf {
                 !in_bounds(ph[i].p_offset, ph[i].p_filesz, file_size))
                 co_return error_t::einval;
 
-            alignas(elf64_dyn) u8 buffer[read_chunk_size];
-            u64                   offset     = 0;
-            bool                  terminated = false;
+            u64  offset     = 0;
+            bool terminated = false;
             while (offset < ph[i].p_filesz) {
                 const u64   remaining = ph[i].p_filesz - offset;
-                const usize length    = remaining < read_chunk_size
+                const usize length    = remaining < stream_read_chunk_size
                                             ? static_cast<usize>(remaining)
-                                            : read_chunk_size;
-                auto        read      = co_await e.read(e.ctx, span<u8>(buffer, length),
-                                                        ph[i].p_offset + offset);
+                                            : stream_read_chunk_size;
+                auto        read =
+                    co_await e.read(e.ctx, span<u8>(scratch.value->buffer, length),
+                                    ph[i].p_offset + offset);
                 if (!read)
                     co_return read.error == error_t::enone ? error_t::eio : read.error;
                 if (read.value != static_cast<i64>(length))
                     co_return error_t::eio;
                 const usize count = length / sizeof(elf64_dyn);
                 for (usize k = 0; k < count; ++k) {
-                    const u8* entry = buffer + k * sizeof(elf64_dyn);
+                    const u8* entry = scratch.value->buffer + k * sizeof(elf64_dyn);
                     const i64 tag   = static_cast<i64>(read_u64_bytes(entry));
                     const u64 value = read_u64_bytes(entry + 8);
                     if (tag == dt_null) {
@@ -573,20 +596,19 @@ namespace astia::elf {
                 zero[i] = 0;
         }
         else {
-            u8  zero[read_chunk_size] = {};
-            u64 cleared               = 0;
+            u64 cleared = 0;
             while (cleared < image_span) {
                 const u64   remaining = image_span - cleared;
-                const usize length    = remaining < read_chunk_size
+                const usize length    = remaining < stream_read_chunk_size
                                             ? static_cast<usize>(remaining)
-                                            : read_chunk_size;
-                if (!e.copy(e.ctx, mapped_addr + cleared, span<const u8>(zero, length)))
+                                            : stream_read_chunk_size;
+                if (!e.copy(e.ctx, mapped_addr + cleared,
+                            span<const u8>(scratch.value->zero, length)))
                     co_return fail(error_t::eio);
                 cleared += length;
             }
         }
 
-        u8    segment_buffer[read_chunk_size];
         usize segment_count = 0;
         for (u16 i = 0; i < header.e_phnum; ++i) {
             if (ph[i].p_type != pt_load)
@@ -598,11 +620,11 @@ namespace astia::elf {
             u64       copied      = 0;
             while (copied < ph[i].p_filesz) {
                 const u64   remaining = ph[i].p_filesz - copied;
-                const usize length    = remaining < read_chunk_size
+                const usize length    = remaining < stream_read_chunk_size
                                             ? static_cast<usize>(remaining)
-                                            : read_chunk_size;
+                                            : stream_read_chunk_size;
                 u8*         destination_buffer =
-                    e.copy != nullptr ? segment_buffer
+                    e.copy != nullptr ? scratch.value->segment_buffer
                                               : reinterpret_cast<u8*>(destination + copied);
                 auto read = co_await e.read(e.ctx, span<u8>(destination_buffer, length),
                                             ph[i].p_offset + copied);
@@ -611,8 +633,9 @@ namespace astia::elf {
                                                                 : read.error);
                 if (read.value != static_cast<i64>(length))
                     co_return fail(error_t::eio);
-                if (e.copy != nullptr && !e.copy(e.ctx, destination + copied,
-                                                 span<const u8>(segment_buffer, length)))
+                if (e.copy != nullptr &&
+                    !e.copy(e.ctx, destination + copied,
+                            span<const u8>(scratch.value->segment_buffer, length)))
                     co_return fail(error_t::eio);
                 copied += length;
             }
@@ -622,15 +645,15 @@ namespace astia::elf {
         }
 
         if (rela_vaddr != 0 && rela_size != 0) {
-            alignas(elf64_rela) u8 rela_buffer[rela_chunk_size];
-            u64                    offset = 0;
+            u64 offset = 0;
             while (offset < rela_size) {
                 const u64   remaining = rela_size - offset;
-                const usize length    = remaining < rela_chunk_size
+                const usize length    = remaining < stream_rela_chunk_size
                                             ? static_cast<usize>(remaining)
-                                            : rela_chunk_size;
-                auto        read = co_await e.read(e.ctx, span<u8>(rela_buffer, length),
-                                                   rela_offset + offset);
+                                            : stream_rela_chunk_size;
+                auto        read =
+                    co_await e.read(e.ctx, span<u8>(scratch.value->rela_buffer, length),
+                                    rela_offset + offset);
                 if (!read)
                     co_return fail(read.error == error_t::enone ? error_t::eio
                                                                 : read.error);
@@ -638,7 +661,7 @@ namespace astia::elf {
                     co_return fail(error_t::eio);
                 const usize count = length / sizeof(elf64_rela);
                 for (usize k = 0; k < count; ++k) {
-                    const u8* entry           = rela_buffer + k * sizeof(elf64_rela);
+                    const u8* entry = scratch.value->rela_buffer + k * sizeof(elf64_rela);
                     const u64 r_info          = read_u64_bytes(entry + 8);
                     const u32 relocation_type = r_type(r_info);
                     if (relocation_type == r_x86_64_none)
