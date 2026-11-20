@@ -9,9 +9,22 @@ import tempfile
 from pathlib import Path
 
 
+def check_production_layout(repository: Path) -> None:
+    source = repository / "kernel" / "src"
+    handler_files = []
+    for path in source.glob("*/syscalls/**/*.hpp"):
+        if "sys::syscall_handler<" in path.read_text():
+            handler_files.append(path)
+    assert len(handler_files) == 82
+    assert sum(path.parts[path.parts.index("src") + 1] == "net" for path in handler_files) == 12
+    assert all(path.parent.name == "syscalls" for path in handler_files)
+    assert not any("aio" in path.parts or "operation" in path.name for path in handler_files)
+
+
 def main() -> int:
     repository = Path(__file__).resolve().parents[2]
     generator = repository / "tools/man/generate.py"
+    check_production_layout(repository)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         source = root / "kernel" / "src"
