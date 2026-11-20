@@ -7,12 +7,16 @@
 
 namespace astia::dev {
 
-    class device_file : public fs::file {
+    class device_file : public fs::file, private io::cancellation_observer {
         public:
         constexpr explicit device_file(device* device) : borrowed_(device) {}
         explicit device_file(const mm::shptr<device>& device) : owner_(device) {}
 
-        void          detach();
+        void detach();
+        using quiescence_handler = void (*)(void*, u64);
+        bool          arm_quiescence_handler(quiescence_handler handler, void* context,
+                                             u64 generation);
+        bool          quiescent() const;
         long          read(void* buf, u32 len, u64 offset) override;
         long          write(const void* buf, u32 len, u64 offset) override;
         long          submit(io::request& request) override;
@@ -34,24 +38,29 @@ namespace astia::dev {
         }
 
         private:
-        device*                borrowed_ = nullptr;
-        mm::shptr<device>      owner_;
-        static constexpr u32   max_pending_requests = 64;
-        mutable core::spinlock pending_lock_;
-        mutable u32            active_        = 0;
-        mutable u32            pending_count_ = 0;
-        mutable io::request*   pending_[max_pending_requests]{};
-        bool                   detached_ = false;
+        device*                    borrowed_ = nullptr;
+        mm::shptr<device>          owner_;
+        static constexpr u32       max_pending_requests = 64;
+        mutable core::spinlock     pending_lock_;
+        mutable u32                active_        = 0;
+        mutable volatile u32       pending_count_ = 0;
+        mutable io::request*       pending_[max_pending_requests]{};
+        mutable bool               pending_owned_[max_pending_requests]{};
+        mutable quiescence_handler quiescence_handler_    = nullptr;
+        mutable void*              quiescence_context_    = nullptr;
+        mutable u64                quiescence_generation_ = 0;
+        bool                       detached_              = false;
 
         device* device_instance() const {
             return owner_ ? owner_.get() : borrowed_;
         }
-        device*     begin_operation(const io::request* request = nullptr) const;
-        void        end_operation() const;
-        bool        track_request(io::request& request) const;
-        bool        tracked_request(const io::request& request) const;
-        void        untrack_request(io::request& request) const;
-        static void observe_cancellation(io::request& request, void* context);
+        device* begin_operation(const io::request* request = nullptr) const;
+        void    end_operation() const;
+        void    notify_quiescent() const;
+        bool    track_request(io::request& request) const;
+        bool    tracked_request(const io::request& request) const;
+        void    untrack_request(io::request& request) const;
+        void    cancellation_acknowledged(io::request& request) override;
     };
 
 } // namespace astia::dev
