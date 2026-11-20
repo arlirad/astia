@@ -1,9 +1,10 @@
 #include "aio_ring.hpp"
 
-#include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/memory.hpp>
 #include <astia/proc/user_layout.hpp>
+
+#include "user_mem.hpp"
 
 namespace astia::sys::aio_ring {
 
@@ -181,19 +182,16 @@ namespace astia::sys::aio_ring {
             clear_waiter_hint(slot, i);
             cleanup.entries[i] = static_cast<mm::iovec&&>(op.entries);
             cleanup.objects[i] = static_cast<mm::shptr<fs::open_file>&&>(op.object);
-            if (op.flight != nullptr) {
-                op.flight->release_owner();
-                op.flight = nullptr;
-            }
-            op = parked_op{};
+            op.clear();
         }
     }
 
     void clear_slot(ring_slot& slot, parked_cleanup& cleanup) {
         for (u32 i = 0; i < parked_slot_count; ++i)
             if (slot.park[i].used && !slot.park[i].done) {
-                slot.park[i].request.cancel_device(false);
-                slot.park[i].request.acknowledge();
+                slot.park[i].operation->request().cancel_device(
+                    false, core::cancel_reason::shutdown);
+                slot.park[i].operation->request().acknowledge();
             }
         detach_parked(slot, cleanup);
         __builtin_memset(slot.map, 0, sizeof slot.map);

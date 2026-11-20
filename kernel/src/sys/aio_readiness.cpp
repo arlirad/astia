@@ -1,9 +1,10 @@
 #include "aio_readiness.hpp"
 
-#include "aio_dispatch.hpp"
-#include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/io.hpp>
+
+#include "aio_dispatch.hpp"
+#include "user_mem.hpp"
 
 namespace astia::sys::aio_readiness {
 
@@ -38,7 +39,11 @@ namespace astia::sys::aio_readiness {
             p->poll_events          = s.aux;
             p->fd                   = s.fd;
             p->object               = object;
-            p->request = io::request(nullptr, 0, 0, s.user_data, io::direction::input);
+            p->operation =
+                new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
+            if (p->operation == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ENOMEM);
+            p->operation->heap_owned(true);
             publish_waiter_hint(slot, park_index, object->node().get());
             if (ready_generation() != generation)
                 aio_dispatch::resume_parked(proc::current_process(), ring, *p);
@@ -82,7 +87,11 @@ namespace astia::sys::aio_readiness {
                          : (UINT64_MAX - now < s.offset ? UINT64_MAX : now + s.offset);
             p->sleep_remaining_user = absolute ? 0 : s.address;
             p->fd                   = -1;
-            p->request = io::request(nullptr, 0, 0, s.user_data, io::direction::input);
+            p->operation =
+                new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
+            if (p->operation == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ENOMEM);
+            p->operation->heap_owned(true);
             return true;
         }
 
