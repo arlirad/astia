@@ -148,6 +148,34 @@ configure `ASTIA_VGA_QEMU`, `ASTIA_VGA_MEMORY`,
 paths as needed. The target invokes this launcher directly and does not
 duplicate its QEMU command line.
 
+To incrementally build the development initrd with zsh, nano, libc, and
+coreutils without starting QEMU, build the `dev_initrd` CMake target. It
+initializes the pinned zsh/nano/gnulib sources when needed, reuses the
+existing userspace build caches, and writes the archive to
+`<CMake binary dir>/dev-initrd/initrd.cpio` (by default). The expanded
+manifest is in `<CMake binary dir>/dev-initrd/root`; the archive contains
+`/sbin/init`, `/bin/zsh`, `/bin/nano`, coreutils, and `/etc/zshenv`.
+The target depends only on the existing `astiakrn_runtime` and
+`astia_boot_initrd` artifacts when those targets are available, not the full
+kernel test-artifact aggregate.
+
+For a CLion debug session, build `astiakrn_runtime` and `dev_initrd`, then run
+QEMU with the kernel at `<CMake binary dir>/kernel/src/astiakrn_runtime` and
+the initrd at `<CMake binary dir>/dev-initrd/initrd.cpio`. QEMU's built-in
+debug stub and interactive serial console can be enabled with:
+
+```sh
+qemu-system-x86_64 -m 128M \
+  -kernel cmake-build-debug/kernel/src/astiakrn_runtime \
+  -initrd cmake-build-debug/dev-initrd/initrd.cpio \
+  -serial stdio -display none -monitor none -no-reboot \
+  -gdb tcp:127.0.0.1:1234 -S
+```
+
+In CLion, use a Remote Debug configuration with target `127.0.0.1:1234` and
+the matching unstripped `astiakrn_runtime` as the symbol file. `-S` leaves
+the guest stopped until the debugger connects; omit it to boot immediately.
+
 Set `ASTIA_VGA_STRICT=1` with the harness to require the real 800x600 24-bit
 BGR Multiboot2 descriptor and matching screenshot evidence.
 

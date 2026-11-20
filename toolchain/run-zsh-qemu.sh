@@ -15,6 +15,7 @@ nano_binary=${ASTIA_NANO_BINARY:-}
 nano_enabled=${ASTIA_NANO:-0}
 nano_harness=${ASTIA_NANO_HARNESS:-0}
 nano_iterations=${ASTIA_NANO_ITERATIONS:-3}
+build_only=${ASTIA_ZSH_BUILD_ONLY:-0}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 cpio=${ASTIA_CPIO:-cpio}
@@ -65,6 +66,14 @@ esac
 case "$nano_iterations" in
     ''|*[!0-9]*|0)
         echo "ASTIA_NANO_ITERATIONS must be a positive integer" >&2
+        exit 2
+        ;;
+esac
+
+case "$build_only" in
+    0|1) ;;
+    *)
+        echo "ASTIA_ZSH_BUILD_ONLY must be 0 or 1" >&2
         exit 2
         ;;
 esac
@@ -213,6 +222,11 @@ test -x "$work/root/bin/zsh"
 test -f "$work/root/etc/zshenv"
 (cd "$work/root" && find hello_initrd.o sbin bin etc -print |
     "$cpio" -o --format=newc --quiet) >"$work/initrd.cpio"
+
+if [ "$build_only" = 1 ]; then
+    printf 'Astia zsh/nano initrd: %s\n' "$work/initrd.cpio"
+    exit 0
+fi
 
 if [ "$harness" = 1 ]; then
     command -v python3 >/dev/null 2>&1 || {
