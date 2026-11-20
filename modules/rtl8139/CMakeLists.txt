@@ -27,9 +27,11 @@ add_custom_target(rtl8139_module ALL DEPENDS ${ASTIA_RTL8139_OBJECT})
 add_custom_command(
         OUTPUT ${ASTIA_RTL8139_UNIT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/rtl8139_protocol_test.cpp
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_RTL8139_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/rtl8139_protocol_test.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139_protocol.hpp
@@ -41,6 +43,7 @@ add_custom_target(rtl8139_unit_target ALL DEPENDS ${ASTIA_RTL8139_UNIT})
 
 if(ASTIA_BUILD_TESTS)
     add_test(NAME rtl8139_protocol_unit COMMAND ${ASTIA_RTL8139_UNIT})
+    astia_add_test_label(rtl8139_protocol_unit "sanitizer-host")
 endif()
 
 add_custom_target(rtl8139_qemu_probe_smoke

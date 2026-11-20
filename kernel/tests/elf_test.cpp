@@ -212,19 +212,21 @@ namespace {
             ++arena->mapped;
             return p;
         }
-        const astia::u64 residues[] = {0x500000000000ull, 0x600000000000ull,
-                                       0x700000000000ull};
-        void*            p          = MAP_FAILED;
-        for (const auto envelope : residues) {
-            const astia::u64 candidate = envelope + (hint & (align - 1));
-            p                          = mmap(reinterpret_cast<void*>(candidate), size,
-                                              PROT_READ | PROT_WRITE | PROT_EXEC,
-                                              MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
-            if (p != MAP_FAILED)
-                break;
-        }
-        if (p == MAP_FAILED)
+        const size_t reserve_size = size + align - 1;
+        void*        reservation =
+            mmap(nullptr, reserve_size, PROT_READ | PROT_WRITE | PROT_EXEC,
+                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (reservation == MAP_FAILED)
             return nullptr;
+        const auto raw       = reinterpret_cast<astia::u64>(reservation);
+        const auto candidate = raw + ((hint - raw) & (align - 1));
+        const auto prefix    = candidate - raw;
+        const auto suffix    = reserve_size - prefix - size;
+        if (prefix != 0)
+            munmap(reservation, prefix);
+        if (suffix != 0)
+            munmap(reinterpret_cast<void*>(candidate + size), suffix);
+        void* p     = reinterpret_cast<void*>(candidate);
         arena->base = p;
         arena->span = size;
         ++arena->mapped;
@@ -445,7 +447,7 @@ namespace {
         blob.data[16] = fixed ? 2 : 3;
         blob.data[18] = 62;
         blob_put_u32(blob, 20, 1);
-        const astia::u64 vaddr = fixed ? 0x700000003000ull : 0x3000ull;
+        const astia::u64 vaddr = fixed ? 0x10003000ull : 0x3000ull;
         blob_put_u64(blob, 24, vaddr);
         blob_put_u64(blob, 32, 64);
         blob_put_u64(blob, 40, 0);
