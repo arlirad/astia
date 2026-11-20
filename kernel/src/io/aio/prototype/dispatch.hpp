@@ -11,25 +11,26 @@
 namespace astia::io::aio::prototype {
 
     enum class opcode : std::uint32_t {
-        read   = OP_READ,
-        cancel = OP_CANCEL,
+        read       = OP_READ,
+        cancel     = OP_CANCEL,
+        socket     = OP_SOCKET,
+        bind       = OP_BIND,
+        connect    = OP_CONNECT,
+        listen     = OP_LISTEN,
+        accept     = OP_ACCEPT,
+        sendto     = OP_SENDTO,
+        recvfrom   = OP_RECVFROM,
+        socketpair = OP_SOCKETPAIR,
+        shutdown   = OP_SHUTDOWN,
+        getsockopt = OP_GETSOCKOPT,
     };
-
-    struct operation_id {
-        std::uint32_t slot;
-        std::uint64_t generation;
-    };
-
-    struct user_data {
-        std::uint64_t value;
-    };
-
-    enum class syscall_number : std::uint64_t {};
 
     enum class dispatch_result : std::uint8_t {
         handled,
+        pending,
         cancelled,
         unknown_opcode,
+        duplicate_opcode,
     };
 
     template <typename Impl>
@@ -48,37 +49,31 @@ namespace astia::io::aio::prototype {
         static constexpr opcode opcode_value = Opcode;
 
         static dispatch_result dispatch(void* context, const astia_sqe& sqe) noexcept {
-            static_assert(
-                handler_implementation<Impl>,
-                "AIO handler must implement the required static handle function");
-            static_assert(std::is_empty_v<Impl>,
-                          "AIO handlers must not carry per-instance state");
+            static_assert(handler_implementation<Impl>);
+            static_assert(std::is_empty_v<Impl>);
             return Impl::handle(*static_cast<typename Impl::context_type*>(context), sqe);
         }
 
         static constexpr descriptor describe() noexcept {
-            static_assert(
-                handler_implementation<Impl>,
-                "AIO handler must implement the required static handle function");
-            static_assert(std::is_empty_v<Impl>,
-                          "AIO handlers must not carry per-instance state");
+            static_assert(handler_implementation<Impl>);
+            static_assert(std::is_empty_v<Impl>);
             return {Opcode, &handler::dispatch};
         }
     };
 
     inline dispatch_result dispatch(std::span<const descriptor> handlers, void* context,
                                     const astia_sqe& sqe) noexcept {
-        const auto operation = static_cast<opcode>(sqe.op);
+        const auto        operation = static_cast<opcode>(sqe.op);
+        const descriptor* match     = nullptr;
         for (const descriptor& candidate : handlers) {
-            if (candidate.operation == operation)
-                return candidate.invoke(context, sqe);
+            if (candidate.operation != operation)
+                continue;
+            if (match != nullptr)
+                return dispatch_result::duplicate_opcode;
+            match = &candidate;
         }
-        return dispatch_result::unknown_opcode;
+        return match == nullptr ? dispatch_result::unknown_opcode
+                                : match->invoke(context, sqe);
     }
-
-    static_assert(!std::is_same_v<opcode, syscall_number>);
-    static_assert(!std::is_same_v<opcode, operation_id>);
-    static_assert(!std::is_same_v<opcode, user_data>);
-    static_assert(std::is_trivially_copyable_v<descriptor>);
 
 } // namespace astia::io::aio::prototype
