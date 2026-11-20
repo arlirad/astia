@@ -40,6 +40,10 @@ namespace astia::io::aio::prototype {
             return acknowledged_;
         }
 
+        constexpr bool device_acknowledged() const {
+            return device_acknowledged_;
+        }
+
         constexpr bool quiescent() const {
             return quiescent_;
         }
@@ -64,8 +68,15 @@ namespace astia::io::aio::prototype {
             return result_;
         }
 
+        constexpr bool acknowledge_device() {
+            if (state_ != operation_state::terminal || device_acknowledged_)
+                return false;
+            device_acknowledged_ = true;
+            return true;
+        }
+
         constexpr bool mark_quiescent() {
-            if (state_ != operation_state::terminal || quiescent_)
+            if (!device_acknowledged_ || quiescent_)
                 return false;
             quiescent_ = true;
             return true;
@@ -84,6 +95,7 @@ namespace astia::io::aio::prototype {
         std::int32_t    result_                 = 0;
         bool            cancellation_requested_ = false;
         bool            completed_              = false;
+        bool            device_acknowledged_    = false;
         bool            quiescent_              = false;
         bool            acknowledged_           = false;
     };

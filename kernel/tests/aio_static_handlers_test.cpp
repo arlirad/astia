@@ -158,6 +158,10 @@ ASTIA_TEST(aio_operation_completion_cancel_and_acknowledgement_are_once_only) {
     ASTIA_CHECK(operation.completed());
     ASTIA_CHECK(operation.result() == -125);
     ASTIA_CHECK(!operation.acknowledge());
+    ASTIA_CHECK(!operation.mark_quiescent());
+    ASTIA_CHECK(operation.acknowledge_device());
+    ASTIA_CHECK(operation.device_acknowledged());
+    ASTIA_CHECK(!operation.acknowledge_device());
     ASTIA_CHECK(operation.mark_quiescent());
     ASTIA_CHECK(!operation.mark_quiescent());
     ASTIA_CHECK(operation.acknowledge());
