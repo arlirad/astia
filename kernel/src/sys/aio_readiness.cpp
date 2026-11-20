@@ -41,8 +41,15 @@ namespace astia::sys::aio_readiness {
             p->object               = object;
             p->operation =
                 new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
-            if (p->operation == nullptr)
-                return cq_post_guarded(ring, s.user_data, -ENOMEM);
+            if (p->operation == nullptr) {
+                p->done = true;
+                if (!cq_post_guarded(ring, s.user_data, -ENOMEM)) {
+                    p->pending_cqe       = true;
+                    p->pending_user_data = s.user_data;
+                    p->pending_result    = -ENOMEM;
+                }
+                return true;
+            }
             p->operation->heap_owned(true);
             publish_waiter_hint(slot, park_index, object->node().get());
             if (ready_generation() != generation)
@@ -89,8 +96,15 @@ namespace astia::sys::aio_readiness {
             p->fd                   = -1;
             p->operation =
                 new io::operation(nullptr, 0, 0, s.user_data, io::direction::input);
-            if (p->operation == nullptr)
-                return cq_post_guarded(ring, s.user_data, -ENOMEM);
+            if (p->operation == nullptr) {
+                p->done = true;
+                if (!cq_post_guarded(ring, s.user_data, -ENOMEM)) {
+                    p->pending_cqe       = true;
+                    p->pending_user_data = s.user_data;
+                    p->pending_result    = -ENOMEM;
+                }
+                return true;
+            }
             p->operation->heap_owned(true);
             return true;
         }

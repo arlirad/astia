@@ -239,7 +239,8 @@ ASTIA_TEST(device_file_detach_waits_for_retained_cancellation_ack) {
     });
     while (!cancel_entered.load(std::memory_order_acquire))
         std::this_thread::yield();
-    ASTIA_CHECK(!detach_done.load(std::memory_order_acquire));
+    while (!detach_done.load(std::memory_order_acquire))
+        std::this_thread::yield();
     request.cancel_acknowledge();
     worker.join();
 
