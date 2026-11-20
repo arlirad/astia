@@ -28,16 +28,6 @@ namespace astia::dev {
             if (retained[i])
                 requests[i]->release_for_device();
         }
-        for (;;) {
-            bool pending = false;
-            {
-                core::spinlock_guard guard(pending_lock_);
-                pending = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE) != 0;
-            }
-            if (!pending && __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0)
-                break;
-            ASTIA_CPU_RELAX();
-        }
     }
 
     bool device_file::tracked_request(const io::request& request) const {
