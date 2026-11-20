@@ -189,9 +189,11 @@ namespace astia::sys::aio_ring {
     void clear_slot(ring_slot& slot, parked_cleanup& cleanup) {
         for (u32 i = 0; i < parked_slot_count; ++i)
             if (slot.park[i].used && !slot.park[i].done) {
-                slot.park[i].operation->request().cancel_device(
-                    false, core::cancel_reason::shutdown);
-                slot.park[i].operation->request().acknowledge();
+                if (slot.park[i].operation != nullptr) {
+                    slot.park[i].operation->request().cancel_device(
+                        false, core::cancel_reason::shutdown);
+                    slot.park[i].operation->request().acknowledge();
+                }
             }
         detach_parked(slot, cleanup);
         __builtin_memset(slot.map, 0, sizeof slot.map);

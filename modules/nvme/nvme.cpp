@@ -1053,10 +1053,15 @@ namespace {
         void finish_remove() {
             astia::u32 expected = 2;
             if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 3, false,
-                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                if (expected == 3)
+                    __atomic_store_n(&_teardown_retry, true, __ATOMIC_RELEASE);
                 return;
+            }
             if (!all_files_quiescent()) {
                 __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
+                if (__atomic_exchange_n(&_teardown_retry, false, __ATOMIC_ACQ_REL))
+                    finish_remove();
                 return;
             }
             device.stop();
@@ -1085,6 +1090,7 @@ namespace {
         astia::mm::shptr<astia::dev::device_file> _files[max_namespaces]{};
         astia::u32                                _file_count     = 0;
         volatile astia::u32                       _teardown_state = 0;
+        volatile bool                             _teardown_retry = false;
     };
 
     nvme_driver driver;
