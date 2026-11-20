@@ -168,4 +168,4 @@ target_link_libraries(libc_semaphore_test PRIVATE astia_libc_host)
 add_test(NAME libc_semaphore_test COMMAND libc_semaphore_test)
 
 astia_append_test_label("libc;host;deterministic")
-astia_append_test_label("sanitizer-host")
+astia_append_test_label("sanitizer-unsupported-libc")

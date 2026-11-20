@@ -42,6 +42,7 @@ jobs:
             clang-${LLVM_VERSION} \
             cmake \
             cpio \
+            e2fsprogs \
             g++-aarch64-linux-gnu \
             grub-common \
             grub-pc-bin \
@@ -92,8 +93,16 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1
         run: |
           set -o pipefail
+          echo "Fully instrumented executable tests:"
+          ctest --test-dir build-asan-ubsan -N -L '^sanitizer-host$'
+          echo "Partially instrumented executable tests:"
+          ctest --test-dir build-asan-ubsan -N -L '^sanitizer-host-partial$'
+          echo "Support checks:"
+          ctest --test-dir build-asan-ubsan -N -L '^sanitizer-host-support$'
+          echo "Staged libc sanitizer gap (normal CTest only):"
+          ctest --test-dir build-asan-ubsan -N -L '^sanitizer-unsupported-libc$'
           ctest --test-dir build-asan-ubsan \
-            -L '^sanitizer-host$' \
+            -L '^(sanitizer-host|sanitizer-host-partial|sanitizer-host-support)$' \
             --output-on-failure \
             --output-log build-asan-ubsan/ctest.log \
             --test-timeout 120 \
@@ -141,6 +150,7 @@ jobs:
             build-essential \
             cmake \
             cpio \
+            e2fsprogs \
             g++-${GCC_VERSION} \
             g++-aarch64-linux-gnu \
             gcc-${GCC_VERSION} \
@@ -189,8 +199,16 @@ jobs:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         run: |
           set -o pipefail
+          echo "Fully instrumented executable tests:"
+          ctest --test-dir build-tsan -N -L '^sanitizer-host$'
+          echo "Partially instrumented executable tests:"
+          ctest --test-dir build-tsan -N -L '^sanitizer-host-partial$'
+          echo "Support checks:"
+          ctest --test-dir build-tsan -N -L '^sanitizer-host-support$'
+          echo "Staged libc sanitizer gap (normal CTest only):"
+          ctest --test-dir build-tsan -N -L '^sanitizer-unsupported-libc$'
           ctest --test-dir build-tsan \
-            -L '^sanitizer-host$' \
+            -L '^(sanitizer-host|sanitizer-host-partial|sanitizer-host-support)$' \
             --output-on-failure \
             --output-log build-tsan/ctest.log \
             --test-timeout 120 \
