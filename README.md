@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 Arlirad -->
 
-<p style="text-align: center;">
+<p align="center">
   <img src="img/banner.svg" alt="Astia banner" width="320px">
 </p>
 
