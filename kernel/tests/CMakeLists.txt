@@ -10,17 +10,6 @@ include(${ASTIA_KERNEL_SOURCE_DIR}/../cmake/AstiaCTest.cmake)
 find_package(Threads REQUIRED)
 find_program(ASTIA_OBJDUMP NAMES llvm-objdump objdump REQUIRED)
 
-function(astia_apply_host_sanitizers target)
-    if(ASTIA_HOST_SANITIZER_COMPILE_OPTIONS)
-        target_compile_options(${target} PRIVATE
-                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS})
-    endif()
-    if(ASTIA_HOST_SANITIZER_LINK_OPTIONS)
-        target_link_options(${target} PRIVATE
-                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS})
-    endif()
-endfunction()
-
 # Fail at configure time with an actionable diagnostic instead of registering
 # ELF tests that cannot be built later.
 find_program(ASTIA_XXD xxd REQUIRED)
@@ -72,6 +61,7 @@ function(astia_add_host_test name)
     target_compile_options(${name} PRIVATE -fno-threadsafe-statics)
     astia_apply_host_sanitizers(${name})
     add_test(NAME ${name} COMMAND ${name})
+    astia_add_test_label(${name} "sanitizer-host")
 endfunction()
 
 # --- Pure logic: no hardware, no fake memory needed. ------------------------

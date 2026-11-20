@@ -24,6 +24,17 @@ function(astia_add_test_label name label)
     set_tests_properties(${name} PROPERTIES LABELS "${_astia_labels}")
 endfunction()
 
+function(astia_apply_host_sanitizers target)
+    if(ASTIA_HOST_SANITIZER_COMPILE_OPTIONS)
+        target_compile_options(${target} PRIVATE
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS})
+    endif()
+    if(ASTIA_HOST_SANITIZER_LINK_OPTIONS)
+        target_link_options(${target} PRIVATE
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS})
+    endif()
+endfunction()
+
 function(astia_register_script_test name label script)
     set(options EXTERNAL MANUAL)
     set(one_value_args TIMEOUT WORKING_DIRECTORY)
