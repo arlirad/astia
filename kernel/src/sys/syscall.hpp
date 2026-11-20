@@ -224,6 +224,51 @@ namespace astia::sys {
         return detail::register_abi(id, &detail::widened<handler>::call);
     }
 
+    template <typename Derived, syscall_id Id>
+    struct handler {
+        static constexpr syscall_id id = Id;
+
+        static i64 dispatch(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
+                            const arch::syscall_frame& frame) {
+            return detail::widened<&Derived::invoke>::call(a0, a1, a2, a3, a4, a5, frame);
+        }
+    };
+
+    namespace detail {
+
+        template <typename... Descriptors>
+        consteval bool valid_descriptor_ids() {
+            constexpr syscall_id
+                ids[sizeof...(Descriptors) == 0 ? 1 : sizeof...(Descriptors)] = {
+                    Descriptors::id...};
+            for (u32 i = 0; i < sizeof...(Descriptors); ++i) {
+                if (static_cast<u32>(ids[i]) >= syscall_table_capacity) {
+                    return false;
+                }
+                for (u32 j = i + 1; j < sizeof...(Descriptors); ++j) {
+                    if (ids[i] == ids[j]) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        template <typename... Descriptors>
+        bool register_descriptor_set() {
+            return (register_abi(Descriptors::id, &Descriptors::dispatch) && ...);
+        }
+
+    } // namespace detail
+
+    template <typename... Descriptors>
+    bool register_syscall_set() {
+        static_assert(
+            detail::valid_descriptor_ids<Descriptors...>(),
+            "syscall descriptor IDs must be unique and within ABI table capacity");
+        return detail::register_descriptor_set<Descriptors...>();
+    }
+
     /// Dispatch a system call: the number the caller trapped with, the six
     /// registers it passed, and the image the entry packed them into.  The
     /// registers travel as registers, as they did into the entry; the
