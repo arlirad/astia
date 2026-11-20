@@ -1937,6 +1937,16 @@ def main() -> int:
         for name, body in comments(path.read_text()):
             pages[(name, 2)] = (body, subsystem)
             page_sources[(name, 2)] = path
+    for path in sorted(args.source.rglob("*_handler.cpp")):
+        if "syscalls" not in path.parts:
+            continue
+        syscall_index = path.parts.index("syscalls")
+        subsystem = path.parts[syscall_index - 1]
+        if path.parent != Path(*path.parts[:syscall_index + 1]):
+            subsystem = f"{subsystem}/{path.parent.name}"
+        for name, body in comments(path.read_text()):
+            pages[(name, 2)] = (body, subsystem)
+            page_sources[(name, 2)] = path
     for path in sorted(args.source.rglob("*.cpp")):
         if path.name != "syscalls.cpp":
             continue

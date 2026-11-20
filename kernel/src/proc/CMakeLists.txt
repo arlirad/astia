@@ -1,4 +1,6 @@
+file(GLOB_RECURSE ASTIA_PROC_SYSCALL_SOURCES CONFIGURE_DEPENDS *syscalls*/*_handler.cpp)
 add_library(proc STATIC
+        ${ASTIA_PROC_SYSCALL_SOURCES}
         cwd_context.cpp
         proc.cpp
         process.cpp
