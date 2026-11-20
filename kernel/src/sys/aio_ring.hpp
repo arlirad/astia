@@ -54,7 +54,13 @@ namespace astia::sys::aio_ring {
     };
 
     struct parked_op {
+        enum class kind : u8 {
+            operation,
+            oom_completion,
+        };
+
         bool                     used;
+        kind                     type                  = kind::operation;
         bool                     done                  = false;
         bool                     resuming              = false;
         bool                     control               = false;
@@ -89,6 +95,7 @@ namespace astia::sys::aio_ring {
                 operation->release_owner();
             operation             = nullptr;
             used                  = false;
+            type                  = kind::operation;
             done                  = false;
             resuming              = false;
             control               = false;

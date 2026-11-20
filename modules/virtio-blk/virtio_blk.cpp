@@ -886,14 +886,19 @@ namespace {
             if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 1, false,
                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
                 return;
+            __atomic_store_n(&_teardown_retry, false, __ATOMIC_RELEASE);
+            ++_generation;
+            _teardown_context = new teardown_context{this, _generation};
             if (_file) {
                 _file->detach();
                 (void) astia::fs::unregister_device("/dev/vblk0", _file);
             }
             if (_file)
-                (void) _file->arm_quiescence_handler(quiescence_callback, this);
+                (void) _file->arm_quiescence_handler(quiescence_callback,
+                                                     _teardown_context);
             __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
-            finish_remove();
+            if (_teardown_context != nullptr)
+                finish_remove(_teardown_context);
         }
         bool selftest() override {
             char      sector[512]{};
@@ -944,11 +949,19 @@ namespace {
         }
 
         private:
+        struct teardown_context {
+            virtio_driver* owner;
+            astia::u64     generation;
+        };
+
         static void quiescence_callback(void* context) {
-            static_cast<virtio_driver*>(context)->finish_remove();
+            auto* teardown = static_cast<teardown_context*>(context);
+            teardown->owner->finish_remove(teardown);
         }
 
-        void finish_remove() {
+        void finish_remove(teardown_context* teardown) {
+            if (teardown != _teardown_context || teardown->generation != _generation)
+                return;
             astia::u32 expected = 2;
             if (!__atomic_compare_exchange_n(&_teardown_state, &expected, 3, false,
                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
@@ -959,20 +972,23 @@ namespace {
             if (_file && !_file->quiescent()) {
                 __atomic_store_n(&_teardown_state, 2, __ATOMIC_RELEASE);
                 if (__atomic_exchange_n(&_teardown_retry, false, __ATOMIC_ACQ_REL))
-                    finish_remove();
+                    finish_remove(teardown);
                 return;
             }
             device.stop();
-            _file    = {};
-            _product = {};
+            _file             = {};
+            _product          = {};
+            _teardown_context = nullptr;
             __atomic_store_n(&_teardown_state, 4, __ATOMIC_RELEASE);
         }
 
         controller                                device;
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _file;
-        volatile astia::u32                       _teardown_state = 0;
-        volatile bool                             _teardown_retry = false;
+        volatile astia::u32                       _teardown_state   = 0;
+        volatile bool                             _teardown_retry   = false;
+        astia::u64                                _generation       = 0;
+        teardown_context*                         _teardown_context = nullptr;
     };
 
     virtio_driver driver;
