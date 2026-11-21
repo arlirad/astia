@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
@@ -819,25 +820,43 @@ class GenerateTest(unittest.TestCase):
                         [],
                     )
 
-    def test_transaction_ignores_post_activation_cleanup_failure(self):
+    def test_transaction_reports_post_activation_cleanup_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output = self._old_man_generation(root)
-            with patch.object(
-                generate,
-                "remove_tree",
-                side_effect=OSError("deferred cleanup"),
-            ):
-                with generate.TransactionalDirectory.begin(
-                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
-                ) as transaction:
-                    transaction.output.write_atomic("index.html", "new index")
-                    generate.write_man_manifest(transaction.output, {"index.html"})
-                    transaction.commit()
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                with patch.object(
+                    generate,
+                    "remove_tree",
+                    side_effect=OSError("deferred cleanup"),
+                ):
+                    with generate.TransactionalDirectory.begin(
+                        output,
+                        root,
+                        generate.MAN7_MANIFEST,
+                        generate.read_owned_files,
+                    ) as transaction:
+                        transaction.output.write_atomic("index.html", "new index")
+                        generate.write_man_manifest(
+                            transaction.output, {"index.html"}
+                        )
+                        transaction.commit()
             self.assertEqual((output / "index.html").read_text(), "new index")
-            for path in root.iterdir():
-                if path.name.startswith(".astia-stage-"):
-                    shutil.rmtree(path)
+            retained = [
+                path for path in root.iterdir() if path.name.startswith(".astia-stage-")
+            ]
+            self.assertEqual(len(retained), 1)
+            messages = [str(item.message) for item in caught]
+            self.assertTrue(
+                any(
+                    "deferred cleanup" in message
+                    and retained[0].name in message
+                    and "deferred cleanup" in message
+                    for message in messages
+                )
+            )
+            shutil.rmtree(retained[0])
 
     def test_transaction_closes_directory_descriptors(self):
         fd_root = Path("/proc/self/fd")
@@ -907,7 +926,7 @@ class GenerateTest(unittest.TestCase):
                 [],
             )
 
-    def test_copy_preserves_xattrs_and_acl_for_fallback_and_directories(self):
+    def test_copy_preserves_xattrs_for_fallback_and_directories(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output = self._old_man_generation(root)
@@ -918,16 +937,6 @@ class GenerateTest(unittest.TestCase):
             private.mkdir()
             os.setxattr(private, "user.astia", b"dir-xattr")
             os.setxattr(output, "user.astia", b"root-xattr")
-            acl_value = None
-            if shutil.which("setfacl"):
-                result = subprocess.run(
-                    ["setfacl", "-m", "u:root:r", str(payload)],
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode == 0:
-                    acl_value = os.getxattr(payload, "system.posix_acl_access")
-
             with patch.object(generate.os, "link", side_effect=OSError("no link")):
                 with generate.TransactionalDirectory.begin(
                     output, root, generate.MAN7_MANIFEST, generate.read_owned_files
@@ -943,13 +952,173 @@ class GenerateTest(unittest.TestCase):
                 os.getxattr(output / "private", "user.astia"), b"dir-xattr"
             )
             self.assertEqual(os.getxattr(output, "user.astia"), b"root-xattr")
-            if acl_value is not None:
-                self.assertEqual(
-                    os.getxattr(
-                        output / "payload.bin", "system.posix_acl_access"
-                    ),
-                    acl_value,
+    def test_transaction_aborts_if_xattr_changes_at_activation_boundary(self):
+        for kind in ("directory", "root"):
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    output = self._old_man_generation(root)
+                    watched = output / "watched"
+                    watched.mkdir()
+                    os.setxattr(watched, "user.astia", b"old")
+                    os.setxattr(output, "user.astia", b"old")
+                    before = {
+                        path.name: path.read_bytes()
+                        for path in output.iterdir()
+                        if path.is_file()
+                    }
+
+                    def mutate():
+                        target = watched if kind == "directory" else output
+                        os.setxattr(target, "user.astia", b"new")
+
+                    with self.assertRaises(RuntimeError):
+                        with generate.TransactionalDirectory.begin(
+                            output,
+                            root,
+                            generate.MAN7_MANIFEST,
+                            generate.read_owned_files,
+                        ) as transaction:
+                            transaction.output.write_atomic("index.html", "new index")
+                            generate.write_man_manifest(
+                                transaction.output, {"index.html"}
+                            )
+                            transaction.commit(before_activation=mutate)
+
+                    self.assertEqual(
+                        {
+                            path.name: path.read_bytes()
+                            for path in output.iterdir()
+                            if path.is_file()
+                        },
+                        before,
+                    )
+                    self.assertEqual(
+                        os.getxattr(
+                            watched if kind == "directory" else output,
+                            "user.astia",
+                        ),
+                        b"new",
+                    )
+                    self.assertEqual(
+                        [
+                            path
+                            for path in root.iterdir()
+                            if path.name.startswith(".astia-stage-")
+                            or path.name.startswith(".astia-retired-")
+                        ],
+                        [],
+                    )
+
+    def test_replace_xattrs_removes_destination_only_user_xattr(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            destination = root / "destination"
+            source.mkdir()
+            destination.mkdir()
+            os.setxattr(destination, "user.inherited", b"inherited")
+            source_fd = os.open(source, os.O_RDONLY | os.O_DIRECTORY)
+            destination_fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                generate.replace_xattrs(source_fd, destination_fd, None, ".")
+            finally:
+                os.close(source_fd)
+                os.close(destination_fd)
+            self.assertEqual(os.listxattr(destination), [])
+
+    def test_copy_preserves_posix_acl(self):
+        setfacl = shutil.which("setfacl")
+        if setfacl is None:
+            self.skipTest("setfacl is unavailable; ACL integration test skipped")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            payload = output / "payload.bin"
+            payload.write_bytes(b"payload")
+            result = subprocess.run(
+                [setfacl, "-m", "u:root:r", str(payload)],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                self.skipTest(
+                    f"setfacl failed; ACL integration test skipped: {result.stderr.strip()}"
                 )
+            acl_value = os.getxattr(payload, "system.posix_acl_access")
+
+            with patch.object(generate.os, "link", side_effect=OSError("no link")):
+                with generate.TransactionalDirectory.begin(
+                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                ) as transaction:
+                    transaction.output.write_atomic("index.html", "new index")
+                    generate.write_man_manifest(transaction.output, {"index.html"})
+                    transaction.commit()
+
+            self.assertEqual(
+                os.getxattr(output / "payload.bin", "system.posix_acl_access"),
+                acl_value,
+            )
+
+    def test_copy_removes_inherited_default_acl_when_absent_from_source(self):
+        setfacl = shutil.which("setfacl")
+        if setfacl is None:
+            self.skipTest("setfacl is unavailable; default ACL test skipped")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            plain = output / "plain"
+            plain.mkdir()
+            result = subprocess.run(
+                [setfacl, "-d", "-m", "u:root:r", str(output)],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                self.skipTest(
+                    f"setfacl failed; default ACL test skipped: {result.stderr.strip()}"
+                )
+            self.assertFalse(
+                "system.posix_acl_default" in os.listxattr(plain),
+                "fixture plain directory must predate the root default ACL",
+            )
+
+            with generate.TransactionalDirectory.begin(
+                output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+            ) as transaction:
+                transaction.output.write_atomic("index.html", "new index")
+                generate.write_man_manifest(transaction.output, {"index.html"})
+                transaction.commit()
+
+            attributes = os.listxattr(output / "plain")
+            self.assertNotIn("system.posix_acl_default", attributes)
+            self.assertNotIn("system.posix_acl_access", attributes)
+
+    def test_transaction_requires_proc_fd(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            before = {
+                path.name: path.read_bytes()
+                for path in output.iterdir()
+                if path.is_file()
+            }
+            with patch.object(generate, "PROC_FD_ROOT", root / "missing-proc"):
+                with self.assertRaises(ValueError):
+                    generate.TransactionalDirectory.begin(
+                        output,
+                        root,
+                        generate.MAN7_MANIFEST,
+                        generate.read_owned_files,
+                    )
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in output.iterdir()
+                    if path.is_file()
+                },
+                before,
+            )
 
     def test_transaction_aborts_if_xattr_cannot_be_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1025,17 +1194,21 @@ class GenerateTest(unittest.TestCase):
                 (output / "late.txt").write_text("late")
                 return original_exchange(parent, first, second)
 
-            with patch.object(
-                generate,
-                "exchange_directories",
-                side_effect=mutate_then_exchange,
-            ):
-                with generate.TransactionalDirectory.begin(
-                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
-                ) as transaction:
-                    transaction.output.write_atomic("index.html", "new index")
-                    generate.write_man_manifest(transaction.output, {"index.html"})
-                    transaction.commit()
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                with patch.object(
+                    generate,
+                    "exchange_directories",
+                    side_effect=mutate_then_exchange,
+                ):
+                    with generate.TransactionalDirectory.begin(
+                        output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                    ) as transaction:
+                        transaction.output.write_atomic("index.html", "new index")
+                        generate.write_man_manifest(
+                            transaction.output, {"index.html"}
+                        )
+                        transaction.commit()
 
             self.assertEqual((output / "index.html").read_text(), "new index")
             self.assertFalse((output / "late.txt").exists())
@@ -1051,6 +1224,13 @@ class GenerateTest(unittest.TestCase):
             self.assertEqual((retired[0] / "late.txt").read_text(), "late")
             self.assertEqual(
                 (retired[0] / "old-unrelated").read_text(), "old unrelated"
+            )
+            self.assertTrue(
+                any(
+                    "retired generation retained" in str(item.message)
+                    and retired[0].name in str(item.message)
+                    for item in caught
+                )
             )
             shutil.rmtree(retired[0])
 

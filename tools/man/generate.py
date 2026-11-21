@@ -12,11 +12,13 @@ import json
 import os
 import re
 import stat
+import warnings
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CSS = ROOT / "nodivia.css"
+PROC_FD_ROOT = Path("/proc/self/fd")
 
 
 def sentence(text: str) -> str:
@@ -939,18 +941,61 @@ def _unsupported_xattrs(error: OSError) -> bool:
     }
 
 
+def fd_path(descriptor: int, name: str | None = None) -> str:
+    base = PROC_FD_ROOT / str(descriptor)
+    return str(base if name is None else base / name)
+
+
+def read_xattrs(descriptor: int, name: str | None) -> tuple[tuple[str, bytes], ...]:
+    path = fd_path(descriptor, name)
+    follow = name is None
+    try:
+        attributes = os.listxattr(path, follow_symlinks=follow)
+    except OSError as error:
+        if _unsupported_xattrs(error):
+            return ()
+        raise
+    values = []
+    for attribute in sorted(attributes):
+        values.append(
+            (
+                attribute,
+                os.getxattr(path, attribute, follow_symlinks=follow),
+            )
+        )
+    return tuple(values)
+
+
+def clear_xattrs(descriptor: int, name: str | None, relative: str) -> None:
+    path = fd_path(descriptor, name)
+    follow = name is None
+    try:
+        attributes = os.listxattr(path, follow_symlinks=follow)
+    except OSError as error:
+        if _unsupported_xattrs(error):
+            return
+        raise ValueError(
+            f"cannot read destination extended attributes: {relative}"
+        ) from error
+    for attribute in attributes:
+        try:
+            os.removexattr(path, attribute, follow_symlinks=follow)
+        except OSError as error:
+            if error.errno == errno.ENODATA:
+                continue
+            raise ValueError(
+                f"cannot remove destination extended attribute {attribute}: {relative}"
+            ) from error
+
+
 def copy_xattrs(
     source: int,
     destination: int,
     name: str | None,
     relative: str,
 ) -> None:
-    source_path = f"/proc/self/fd/{source}" if name is None else f"/proc/self/fd/{source}/{name}"
-    destination_path = (
-        f"/proc/self/fd/{destination}"
-        if name is None
-        else f"/proc/self/fd/{destination}/{name}"
-    )
+    source_path = fd_path(source, name)
+    destination_path = fd_path(destination, name)
     follow_source = name is None
     try:
         attributes = os.listxattr(source_path, follow_symlinks=follow_source)
@@ -993,6 +1038,16 @@ def copy_xattrs(
             ) from error
 
 
+def replace_xattrs(
+    source: int,
+    destination: int,
+    name: str | None,
+    relative: str,
+) -> None:
+    clear_xattrs(destination, name, relative)
+    copy_xattrs(source, destination, name, relative)
+
+
 def copy_unowned_entries(
     source: int,
     destination: int,
@@ -1020,7 +1075,7 @@ def copy_unowned_entries(
                     f"cannot preserve directory ownership: {relative}"
                 ) from error
             os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
-            copy_xattrs(source, destination, name, relative)
+            replace_xattrs(source, destination, name, relative)
             with ExitStack() as stack:
                 child_source = os.open(
                     name,
@@ -1090,7 +1145,7 @@ def copy_unowned_entries(
                             f"cannot preserve file ownership: {relative}"
                         ) from error
                     os.fchmod(destination_fd, stat.S_IMODE(info.st_mode))
-                    copy_xattrs(source, destination, name, relative)
+                    replace_xattrs(source, destination, name, relative)
                     os.fsync(destination_fd)
         elif stat.S_ISFIFO(info.st_mode):
             os.mkfifo(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
@@ -1107,7 +1162,7 @@ def copy_unowned_entries(
                     f"cannot preserve FIFO ownership: {relative}"
                 ) from error
             os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
-            copy_xattrs(source, destination, name, relative)
+            replace_xattrs(source, destination, name, relative)
         elif stat.S_ISCHR(info.st_mode) or stat.S_ISBLK(info.st_mode):
             try:
                 os.link(
@@ -1189,20 +1244,35 @@ def rename_noreplace(parent: int, first: str, second: str) -> None:
     renameat2(parent, first, second, RENAME_NOREPLACE)
 
 
+def _entry_metadata(
+    descriptor: int, name: str | None
+) -> tuple[int, int, int, int, int, int, tuple[tuple[str, bytes], ...]]:
+    if name is None:
+        info = os.fstat(descriptor)
+        xattrs = read_xattrs(descriptor, None)
+    else:
+        info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+        xattrs = read_xattrs(descriptor, name)
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_uid,
+        info.st_gid,
+        info.st_size,
+        info.st_mtime_ns,
+        xattrs,
+    )
+
+
 def directory_snapshot(directory: int, prefix: str = "") -> dict[str, tuple]:
     snapshot: dict[str, tuple] = {}
+    if not prefix:
+        snapshot["."] = _entry_metadata(directory, None)
     for name in os.listdir(directory):
         relative = f"{prefix}/{name}" if prefix else name
         info = os.stat(name, dir_fd=directory, follow_symlinks=False)
-        snapshot[relative] = (
-            info.st_dev,
-            info.st_ino,
-            info.st_mode,
-            info.st_uid,
-            info.st_gid,
-            info.st_size,
-            info.st_mtime_ns,
-        )
+        snapshot[relative] = _entry_metadata(directory, name)
         if stat.S_ISDIR(info.st_mode):
             child = os.open(
                 name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
@@ -1245,6 +1315,10 @@ class TransactionalDirectory:
         manifest_name: str,
         owned_reader,
     ) -> "TransactionalDirectory":
+        if not PROC_FD_ROOT.is_dir():
+            raise ValueError(
+                "transactional output requires /proc/self/fd metadata access"
+            )
         path = Path(os.path.abspath(output_dir))
         validated_output_name(path.name)
         parent = open_directory_chain(path.parent, trusted_root)
@@ -1311,7 +1385,7 @@ class TransactionalDirectory:
                 dir_fd=parent,
             )
             if active >= 0:
-                copy_xattrs(active, staging, None, ".")
+                replace_xattrs(active, staging, None, ".")
                 current = OutputDirectory(path, active, owns_descriptor=False)
                 owned = owned_reader(current)
                 copy_unowned_entries(active, staging, owned, manifest_name)
@@ -1371,12 +1445,18 @@ class TransactionalDirectory:
             os.close(self._active)
             self._active = -1
 
-    def _preserve_retired(self) -> None:
+    def _preserve_retired(self) -> str:
         retired_name = f".astia-retired-{os.urandom(8).hex()}"
         try:
             rename_noreplace(self._parent, self._staging_name, retired_name)
-        except OSError:
-            pass
+            return retired_name
+        except OSError as error:
+            warnings.warn(
+                f"deferred cleanup: could not rename retired generation "
+                f"{self._staging_name}: {error}",
+                RuntimeWarning,
+            )
+            return self._staging_name
 
     def _assert_active_unchanged(self) -> None:
         if not self._active_matches():
@@ -1413,11 +1493,12 @@ class TransactionalDirectory:
             )
             self._committed = True
             retired_unchanged = False
+            retired_error = None
             try:
                 retired_snapshot = directory_snapshot(self._active)
                 retired_unchanged = retired_snapshot == self._active_snapshot
-            except OSError:
-                retired_unchanged = False
+            except OSError as error:
+                retired_error = error
             try:
                 self._close_active()
             except OSError:
@@ -1431,10 +1512,24 @@ class TransactionalDirectory:
                     )
                     if old_info is not None and same_inode(old_info, self._active_info):
                         remove_tree(self._parent, self._staging_name)
-                except OSError:
-                    pass
+                except OSError as error:
+                    warnings.warn(
+                        f"deferred cleanup: retired generation at "
+                        f"{self._staging_name}: {error}",
+                        RuntimeWarning,
+                    )
             else:
-                self._preserve_retired()
+                retained = self._preserve_retired()
+                if retired_error is not None:
+                    warnings.warn(
+                        f"deferred cleanup: could not verify retired generation "
+                        f"{self._staging_name}: {retired_error}",
+                        RuntimeWarning,
+                    )
+                warnings.warn(
+                    f"retired generation retained at {retained}",
+                    RuntimeWarning,
+                )
         try:
             os.fsync(self._parent)
         except OSError:
