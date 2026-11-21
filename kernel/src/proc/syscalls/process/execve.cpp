@@ -145,10 +145,10 @@ namespace astia::proc::syscalls {
     ///
     /// Notes:
     ///     Relative paths are resolved against the caller's working directory.
-    struct execve : sys::syscall_handler<execve, sys::syscall_id::execve,
-                                         sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::execve>(context);
+    struct execve
+        : sys::syscall_handler<execve, sys::syscall_id::execve, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::execve>(context);
         }
     };
 

@@ -45,9 +45,13 @@ def check_production_layout(repository: Path) -> None:
         syscall_id = int(numeric_id) if numeric_id else ids[id_name]
         seen_ids.append(syscall_id)
         handler_files.append(path)
+        handler = text.split("struct " + name, 1)[1].split("};", 1)[0]
         assert "/// ABI ID:" not in text
         assert "/// Sync/async mode:" not in text
-        assert f"syscall_mode::{mode}" in text
+        assert mode == "sync", f"production wrapper is fake async: {path}"
+        assert "static i64 invoke(" in handler
+        assert "syscall_mode::sync" in handler
+        assert "co_return sys::invoke_sync" not in handler
     assert len(handler_files) == 82
     assert sorted(seen_ids) == list(range(82))
     assert sum(path.parts[path.parts.index("src") + 1] == "net" for path in handler_files) == 12

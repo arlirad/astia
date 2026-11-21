@@ -16,10 +16,10 @@ namespace astia::proc::syscalls {
     ///
     /// Synopsis:
     ///     long gettid(void);
-    struct gettid : sys::syscall_handler<gettid, sys::syscall_id::gettid,
-                                         sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::gettid>(context);
+    struct gettid
+        : sys::syscall_handler<gettid, sys::syscall_id::gettid, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::gettid>(context);
         }
     };
 

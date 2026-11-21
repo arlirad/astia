@@ -4,9 +4,9 @@
 
 namespace astia::proc::syscalls {
     struct setregid : sys::syscall_handler<setregid, sys::syscall_id::setregid,
-                                           sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::setregid>(context);
+                                           sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::setregid>(context);
         }
     };
 

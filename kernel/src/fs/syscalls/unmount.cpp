@@ -29,9 +29,9 @@ namespace astia::fs::syscalls {
     /// The root mount, a mount with open descriptions, and a mount containing
     /// another mount return -EBUSY.  This only changes the in-memory namespace.
     struct unmount : sys::syscall_handler<unmount, sys::syscall_id::unmount,
-                                          sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::fs::syscall::unmount>(context);
+                                          sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::fs::syscall::unmount>(context);
         }
     };
 

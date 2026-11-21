@@ -22,9 +22,9 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
     struct lseek
-        : sys::syscall_handler<lseek, sys::syscall_id::lseek, sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::lseek>(context);
+        : sys::syscall_handler<lseek, sys::syscall_id::lseek, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::lseek>(context);
         }
     };
 

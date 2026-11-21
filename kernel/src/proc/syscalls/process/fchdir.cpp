@@ -24,10 +24,10 @@ namespace astia::proc::syscall {
 }
 
 namespace astia::proc::syscalls {
-    struct fchdir : sys::syscall_handler<fchdir, sys::syscall_id::fchdir,
-                                         sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::fchdir>(context);
+    struct fchdir
+        : sys::syscall_handler<fchdir, sys::syscall_id::fchdir, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::fchdir>(context);
         }
     };
 

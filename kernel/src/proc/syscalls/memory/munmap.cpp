@@ -50,10 +50,10 @@ namespace astia::proc::syscalls {
     /// Errors:
     ///     -EINVAL: The length is not positive or the range is invalid.
     ///     -ESRCH: There is no current process.
-    struct munmap : sys::syscall_handler<munmap, sys::syscall_id::munmap,
-                                         sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::munmap>(context);
+    struct munmap
+        : sys::syscall_handler<munmap, sys::syscall_id::munmap, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::munmap>(context);
         }
     };
 

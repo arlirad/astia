@@ -37,9 +37,9 @@ namespace astia::fs::syscalls {
     /// All names are copied before authorization.  The operation is root-only;
     /// it changes only the in-memory VFS namespace and never opens a host path.
     struct mount
-        : sys::syscall_handler<mount, sys::syscall_id::mount, sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::fs::syscall::mount>(context);
+        : sys::syscall_handler<mount, sys::syscall_id::mount, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::fs::syscall::mount>(context);
         }
     };
 

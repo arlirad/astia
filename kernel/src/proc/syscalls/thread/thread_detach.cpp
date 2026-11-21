@@ -45,9 +45,9 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: The thread does not exist.
     struct thread_detach
         : sys::syscall_handler<thread_detach, sys::syscall_id::thread_detach,
-                               sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::thread_detach>(context);
+                               sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::thread_detach>(context);
         }
     };
 

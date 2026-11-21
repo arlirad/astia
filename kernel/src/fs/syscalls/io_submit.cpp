@@ -21,9 +21,9 @@ namespace astia::fs::syscalls {
     /// Return Value:
     ///     Returns zero or a negative errno.
     struct io_submit : sys::syscall_handler<io_submit, sys::syscall_id::io_submit,
-                                            sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::fs::syscall::io_submit>(context);
+                                            sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::fs::syscall::io_submit>(context);
         }
     };
 

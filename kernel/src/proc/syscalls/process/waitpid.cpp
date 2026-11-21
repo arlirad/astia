@@ -52,9 +52,9 @@ namespace astia::proc::syscalls {
     ///     -EINVAL: The PID or option mask is invalid.
     ///     -ESRCH: There is no current process or thread.
     struct waitpid : sys::syscall_handler<waitpid, sys::syscall_id::waitpid,
-                                          sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::waitpid>(context);
+                                          sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::waitpid>(context);
         }
     };
 

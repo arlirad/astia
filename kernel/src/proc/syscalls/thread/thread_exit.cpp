@@ -40,9 +40,9 @@ namespace astia::proc::syscalls {
     /// Return Value:
     ///     Does not return.
     struct thread_exit : sys::syscall_handler<thread_exit, sys::syscall_id::thread_exit,
-                                              sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::thread_exit>(context);
+                                              sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::thread_exit>(context);
         }
     };
 

@@ -36,9 +36,9 @@ namespace astia::proc::syscall {
 namespace astia::proc::syscalls {
     struct thread_getattr
         : sys::syscall_handler<thread_getattr, sys::syscall_id::thread_getattr,
-                               sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::thread_getattr>(context);
+                               sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::thread_getattr>(context);
         }
     };
 

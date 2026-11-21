@@ -124,9 +124,9 @@ namespace astia::proc::syscalls {
     ///     -ENOMEM: The image or process cannot be allocated.
     ///     -EAGAIN: The process or thread registry is full.
     struct spawnve : sys::syscall_handler<spawnve, sys::syscall_id::spawnve,
-                                          sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::spawnve>(context);
+                                          sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::spawnve>(context);
         }
     };
 

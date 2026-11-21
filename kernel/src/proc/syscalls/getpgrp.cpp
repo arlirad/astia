@@ -14,9 +14,9 @@ namespace astia::proc::syscalls {
     /// Synopsis:
     ///     long getpgrp(void);
     struct getpgrp : sys::syscall_handler<getpgrp, sys::syscall_id::getpgrp,
-                                          sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::getpgrp>(context);
+                                          sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::getpgrp>(context);
         }
     };
 
