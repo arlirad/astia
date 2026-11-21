@@ -1,4 +1,6 @@
 import json
+import os
+import signal
 import sys
 import tempfile
 import unittest
@@ -260,44 +262,82 @@ class GenerateTest(unittest.TestCase):
             self.assertEqual((original / "nodivia.css").read_text(), "pinned")
             self.assertFalse((outside / "nodivia.css").exists())
 
-    def test_man_cleanup_uses_manifest_ownership(self):
+    def test_man_transaction_preserves_unrelated_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "man7"
+            with generate.TransactionalDirectory.begin(
+                output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+            ) as transaction:
+                transaction.output.write_atomic("nodivia.css", "old css")
+                transaction.output.write_atomic("index.html", "old index")
+                transaction.output.write_atomic("old.2.html", "old page")
+                transaction.output.write_atomic("keep.2.html", "old keep")
+                generate.write_man_manifest(
+                    transaction.output,
+                    {"nodivia.css", "index.html", "old.2.html", "keep.2.html"},
+                )
+                transaction.commit()
+
+            (output / "custom.2.html").write_text("custom")
+            (output / "architecture-custom.html").write_text("custom")
+            (output / "pl").mkdir()
+            (output / "pl" / "my-notes.7.html").write_text("notes")
+            snapshot = {path.name: path.read_bytes() for path in output.iterdir() if path.is_file()}
+
+            with generate.TransactionalDirectory.begin(
+                output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+            ) as transaction:
+                transaction.output.write_atomic("nodivia.css", "new css")
+                transaction.output.write_atomic("index.html", "new index")
+                transaction.output.write_atomic("keep.2.html", "new keep")
+                generate.write_man_manifest(
+                    transaction.output,
+                    {"nodivia.css", "index.html", "keep.2.html"},
+                )
+                transaction.commit()
+
+            self.assertEqual((output / "nodivia.css").read_text(), "new css")
+            self.assertEqual((output / "index.html").read_text(), "new index")
+            self.assertEqual((output / "keep.2.html").read_text(), "new keep")
+            self.assertFalse((output / "old.2.html").exists())
+            self.assertEqual((output / "custom.2.html").read_text(), "custom")
+            self.assertEqual((output / "architecture-custom.html").read_text(), "custom")
+            self.assertEqual((output / "pl" / "my-notes.7.html").read_text(), "notes")
+            self.assertEqual(
+                json.loads((output / generate.MAN7_MANIFEST).read_text()),
+                {"files": ["index.html", "keep.2.html", "nodivia.css"]},
+            )
+
+    def test_man_transaction_does_not_traverse_symlink_directories(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output = root / "man7"
             outside = root / "outside"
-            output.mkdir()
             outside.mkdir()
-            (output / "custom.2.html").write_text("custom")
-            (output / "architecture-custom.html").write_text("custom")
-            (output / "keep.2.html").write_text("keep")
-            (output / "old.2.html").write_text("old")
-            (output / "architecture-old.html").write_text("old")
-            (output / "pl").mkdir()
-            (output / "pl" / "old.7.html").write_text("old")
-            (output / "pl" / "my-notes.7.html").write_text("notes")
-
-            with generate.OutputDirectory.open(output, root) as directory:
+            (outside / "old.7.html").write_text("outside old")
+            (outside / "my-notes.7.html").write_text("outside notes")
+            with generate.TransactionalDirectory.begin(
+                output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+            ) as transaction:
+                transaction.output.write_atomic("index.html", "old index")
                 generate.write_man_manifest(
-                    directory,
-                    {
-                        "old.2.html",
-                        "architecture-old.html",
-                        "pl/old.7.html",
-                        "keep.2.html",
-                        "../outside/escape.html",
-                    },
+                    transaction.output,
+                    {"index.html", "pl/old.7.html", "pl/my-notes.7.html"},
                 )
-                previous = generate.read_owned_files(directory)
-                generate.clean_owned_output(directory, previous, {"keep.2.html"})
+                transaction.commit()
+            (output / "pl").symlink_to(outside)
 
-            self.assertFalse((output / "old.2.html").exists())
-            self.assertFalse((output / "architecture-old.html").exists())
-            self.assertFalse((output / "pl" / "old.7.html").exists())
-            self.assertTrue((output / "keep.2.html").exists())
-            self.assertTrue((output / "custom.2.html").exists())
-            self.assertTrue((output / "architecture-custom.html").exists())
-            self.assertTrue((output / "pl" / "my-notes.7.html").exists())
-            self.assertFalse((outside / "escape.html").exists())
+            with generate.TransactionalDirectory.begin(
+                output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+            ) as transaction:
+                transaction.output.write_atomic("index.html", "new index")
+                generate.write_man_manifest(transaction.output, {"index.html"})
+                transaction.commit()
+
+            self.assertTrue((output / "pl").is_symlink())
+            self.assertEqual((outside / "old.7.html").read_text(), "outside old")
+            self.assertEqual((outside / "my-notes.7.html").read_text(), "outside notes")
 
     def test_man_manifest_ignores_missing_malformed_and_unsafe_entries(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -342,27 +382,77 @@ class GenerateTest(unittest.TestCase):
                 {"files": ["safe.2.html"]},
             )
 
-    def test_man_cleanup_does_not_traverse_symlink_directories(self):
+    def test_transaction_rejects_active_directory_swap(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "man7"
+            outside = root / "outside"
+            outside.mkdir()
+            with generate.TransactionalDirectory.begin(
+                output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+            ) as transaction:
+                transaction.output.write_atomic("index.html", "old index")
+                generate.write_man_manifest(transaction.output, {"index.html"})
+                transaction.commit()
+            before = (output / "index.html").read_text()
+
+            with self.assertRaises(RuntimeError):
+                with generate.TransactionalDirectory.begin(
+                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                ) as transaction:
+                    transaction.output.write_atomic("index.html", "new index")
+                    generate.write_man_manifest(transaction.output, {"index.html"})
+                    backup = root / "man7-original"
+                    output.rename(backup)
+                    output.symlink_to(outside)
+                    transaction.commit()
+
+            self.assertEqual((root / "man7-original" / "index.html").read_text(), before)
+            self.assertTrue(output.is_symlink())
+            self.assertFalse((outside / "index.html").exists())
+            self.assertEqual(
+                [path for path in root.iterdir() if path.name.startswith(".astia-stage-")],
+                [],
+            )
+
+    def test_manifest_reader_rejects_non_regular_entries_without_blocking(self):
+        def timeout(_signum, _frame):
+            raise TimeoutError("manifest read blocked")
+
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output = root / "man7"
             outside = root / "outside"
             output.mkdir()
             outside.mkdir()
-            (outside / "old.7.html").write_text("outside old")
-            (outside / "my-notes.7.html").write_text("outside notes")
-            (output / "pl").symlink_to(outside)
+            sentinel = outside / "sentinel.json"
+            sentinel.write_text("sentinel")
 
             with generate.OutputDirectory.open(output, root) as directory:
-                generate.write_man_manifest(
-                    directory, {"pl/old.7.html", "pl/my-notes.7.html"}
-                )
-                previous = generate.read_owned_files(directory)
-                generate.clean_owned_output(directory, previous, set())
+                manifest = output / "manifest.json"
+                manifest.symlink_to(sentinel)
+                self.assertIsNone(directory.read_text("manifest.json"))
 
-            self.assertTrue((output / "pl").is_symlink())
-            self.assertEqual((outside / "old.7.html").read_text(), "outside old")
-            self.assertEqual((outside / "my-notes.7.html").read_text(), "outside notes")
+                manifest.unlink()
+                manifest.mkdir()
+                self.assertIsNone(directory.read_text("manifest.json"))
+                manifest.rmdir()
+
+                os.mkfifo(manifest)
+                previous_handler = signal.signal(signal.SIGALRM, timeout)
+                signal.setitimer(signal.ITIMER_REAL, 1)
+                try:
+                    self.assertIsNone(directory.read_text("manifest.json"))
+                finally:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    signal.signal(signal.SIGALRM, previous_handler)
+                manifest.unlink()
+
+                device = os.open("/dev/null", os.O_RDONLY)
+                with patch.object(generate.os, "open", return_value=device):
+                    self.assertIsNone(directory.read_text("manifest.json"))
+
+            self.assertEqual(sentinel.read_text(), "sentinel")
 
     def test_export_cleanup_uses_manifest_ownership(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -455,12 +545,11 @@ class GenerateTest(unittest.TestCase):
                     self.assertTrue((export_dir / "notes.md").exists())
                     self.assertTrue((export_dir / "syscall-9-custom.md").exists())
 
-    def test_export_publication_failure_preserves_prior_page_and_manifest(self):
+    def test_export_publication_failure_matrix_preserves_active_generation(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             export_dir = root / "section2"
-            export_dir.mkdir()
-            canonical, pages, sources = self._export_pages(count=2, version="old")
+            canonical, pages, sources = self._export_pages(count=70, version="old")
             generate.export_section2(
                 export_dir,
                 canonical,
@@ -470,22 +559,53 @@ class GenerateTest(unittest.TestCase):
                 ABI_HEADER,
                 trusted_root=root,
             )
-            first = export_dir / "syscall-0-fake-0.md"
-            manifest = export_dir / "manifest.json"
-            before_page = first.read_text()
-            before_manifest = manifest.read_text()
-
-            _, updated, _ = self._export_pages(count=2, version="new")
+            snapshot = {
+                path.name: path.read_bytes()
+                for path in export_dir.iterdir()
+                if path.is_file()
+            }
+            generated = [f"syscall-{index}-fake-{index}.md" for index in range(70)]
+            _, updated, _ = self._export_pages(count=70, version="new")
             original_replace = generate.os.replace
 
-            def fail_replace(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
-                if dst == "syscall-0-fake-0.md":
-                    raise OSError("injected replacement failure")
-                return original_replace(
-                    src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd
-                )
+            for target in (generated[0], generated[1], generated[35], generated[-1], "manifest.json"):
+                with self.subTest(target=target):
+                    def fail_replace(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
+                        if dst == target:
+                            raise OSError("injected replacement failure")
+                        return original_replace(
+                            src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd
+                        )
 
-            with patch.object(generate.os, "replace", side_effect=fail_replace):
+                    with patch.object(generate.os, "replace", side_effect=fail_replace):
+                        with self.assertRaises(OSError):
+                            generate.export_section2(
+                                export_dir,
+                                canonical,
+                                updated,
+                                sources,
+                                REPO_ROOT / "kernel/src",
+                                ABI_HEADER,
+                                trusted_root=root,
+                            )
+                    self.assertEqual(
+                        {
+                            path.name: path.read_bytes()
+                            for path in export_dir.iterdir()
+                            if path.is_file()
+                        },
+                        snapshot,
+                    )
+                    self.assertEqual(
+                        [path for path in root.iterdir() if path.name.startswith(".astia-stage-")],
+                        [],
+                    )
+
+            with patch.object(
+                generate,
+                "exchange_directories",
+                side_effect=OSError("injected activation failure"),
+            ):
                 with self.assertRaises(OSError):
                     generate.export_section2(
                         export_dir,
@@ -496,10 +616,137 @@ class GenerateTest(unittest.TestCase):
                         ABI_HEADER,
                         trusted_root=root,
                     )
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in export_dir.iterdir()
+                    if path.is_file()
+                },
+                snapshot,
+            )
 
-            self.assertEqual(first.read_text(), before_page)
-            self.assertEqual(manifest.read_text(), before_manifest)
-            self.assertEqual([path for path in export_dir.iterdir() if path.name.endswith(".tmp")], [])
+            generate.export_section2(
+                export_dir,
+                canonical,
+                updated,
+                sources,
+                REPO_ROOT / "kernel/src",
+                ABI_HEADER,
+                trusted_root=root,
+            )
+            current = json.loads((export_dir / "manifest.json").read_text())
+            self.assertEqual(current["count"], 70)
+            self.assertEqual(len(list(export_dir.glob("syscall-*.md"))), 70)
+
+    def test_man_publication_failure_matrix_preserves_active_generation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "man7"
+            old_files = {
+                "nodivia.css": "old css",
+                "index.html": "old index",
+                "io_setup.2.html": "old page",
+                "old.2.html": "old stale",
+            }
+            new_files = {
+                "nodivia.css": "new css",
+                "index.html": "new index",
+                "io_setup.2.html": "new page",
+            }
+
+            with generate.TransactionalDirectory.begin(
+                output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+            ) as transaction:
+                for name, content in old_files.items():
+                    transaction.output.write_atomic(name, content)
+                generate.write_man_manifest(transaction.output, set(old_files))
+                transaction.commit()
+
+            (output / "custom.2.html").write_text("custom")
+            (output / "architecture-custom.html").write_text("custom")
+            (output / "pl").mkdir()
+            (output / "pl" / "my-notes.7.html").write_text("notes")
+            snapshot = {
+                path.name: path.read_bytes()
+                for path in output.iterdir()
+                if path.is_file()
+            }
+
+            original_replace = generate.os.replace
+
+            def publish(target: str | None = None, activation: bool = False):
+                def fail_replace(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
+                    if dst == target:
+                        raise OSError("injected replacement failure")
+                    return original_replace(
+                        src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd
+                    )
+
+                if activation:
+                    context = patch.object(
+                        generate,
+                        "exchange_directories",
+                        side_effect=OSError("injected activation failure"),
+                    )
+                else:
+                    context = patch.object(
+                        generate.os, "replace", side_effect=fail_replace
+                    )
+                with context:
+                    with generate.TransactionalDirectory.begin(
+                        output,
+                        root,
+                        generate.MAN7_MANIFEST,
+                        generate.read_owned_files,
+                    ) as transaction:
+                        for name, content in new_files.items():
+                            transaction.output.write_atomic(name, content)
+                        generate.write_man_manifest(transaction.output, set(new_files))
+                        transaction.commit()
+
+            for target in ("nodivia.css", "index.html", "io_setup.2.html", generate.MAN7_MANIFEST):
+                with self.subTest(target=target):
+                    with self.assertRaises(OSError):
+                        publish(target=target)
+                    self.assertEqual(
+                        {
+                            path.name: path.read_bytes()
+                            for path in output.iterdir()
+                            if path.is_file()
+                        },
+                        snapshot,
+                    )
+                    self.assertEqual(
+                        [path for path in root.iterdir() if path.name.startswith(".astia-stage-")],
+                        [],
+                    )
+
+            with self.assertRaises(OSError):
+                publish(activation=True)
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in output.iterdir()
+                    if path.is_file()
+                },
+                snapshot,
+            )
+
+            with generate.TransactionalDirectory.begin(
+                output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+            ) as transaction:
+                for name, content in new_files.items():
+                    transaction.output.write_atomic(name, content)
+                generate.write_man_manifest(transaction.output, set(new_files))
+                transaction.commit()
+
+            self.assertEqual((output / "nodivia.css").read_text(), "new css")
+            self.assertEqual((output / "index.html").read_text(), "new index")
+            self.assertEqual((output / "io_setup.2.html").read_text(), "new page")
+            self.assertFalse((output / "old.2.html").exists())
+            self.assertEqual((output / "custom.2.html").read_text(), "custom")
+            self.assertEqual((output / "architecture-custom.html").read_text(), "custom")
+            self.assertEqual((output / "pl" / "my-notes.7.html").read_text(), "notes")
 
 
 if __name__ == "__main__":

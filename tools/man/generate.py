@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import html
 import json
 import os
@@ -773,53 +775,71 @@ def validated_relative_path(name: str) -> tuple[str, ...]:
     return path.parts
 
 
+def open_directory_chain(path: Path, trusted_root: Path) -> int:
+    root = Path(os.path.abspath(trusted_root))
+    target = Path(os.path.abspath(path))
+    try:
+        relative = target.relative_to(root)
+    except ValueError as error:
+        raise ValueError(f"path escapes trusted root: {path}") from error
+    try:
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as error:
+        raise ValueError(f"trusted root is not a directory: {trusted_root}") from error
+    try:
+        for part in relative.parts:
+            try:
+                os.mkdir(part, 0o755, dir_fd=descriptor)
+            except FileExistsError:
+                pass
+            try:
+                child = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=descriptor,
+                )
+            except OSError as error:
+                raise ValueError(
+                    f"path has a symlink or non-directory component: {part}"
+                ) from error
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def same_inode(first: os.stat_result, second: os.stat_result) -> bool:
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+
 class OutputDirectory:
-    def __init__(self, path: Path, descriptor: int):
+    def __init__(self, path: Path, descriptor: int, owns_descriptor: bool = True):
         self.path = path
         self._descriptor = descriptor
+        self._owns_descriptor = owns_descriptor
 
     @classmethod
     def open(cls, output_dir: Path, trusted_root: Path) -> "OutputDirectory":
-        root = Path(os.path.abspath(trusted_root))
-        target = Path(os.path.abspath(output_dir))
-        try:
-            relative = target.relative_to(root)
-        except ValueError as error:
-            raise ValueError(
-                f"output directory escapes trusted root: {output_dir}"
-            ) from error
-        try:
-            descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-        except OSError as error:
-            raise ValueError(f"trusted root is not a directory: {trusted_root}") from error
-        try:
-            for part in relative.parts:
-                try:
-                    os.mkdir(part, 0o755, dir_fd=descriptor)
-                except FileExistsError:
-                    pass
-                try:
-                    child = os.open(
-                        part,
-                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                        dir_fd=descriptor,
-                    )
-                except OSError as error:
-                    raise ValueError(
-                        f"output directory has a symlink or non-directory component: {part}"
-                    ) from error
-                os.close(descriptor)
-                descriptor = child
-            return cls(target, descriptor)
-        except BaseException:
-            os.close(descriptor)
-            raise
+        return cls(
+            Path(os.path.abspath(output_dir)),
+            open_directory_chain(output_dir, trusted_root),
+        )
 
     def __enter__(self) -> "OutputDirectory":
         return self
 
     def __exit__(self, *_: object) -> None:
-        os.close(self._descriptor)
+        self.close()
+
+    def close(self) -> None:
+        if self._descriptor >= 0 and self._owns_descriptor:
+            os.close(self._descriptor)
+            self._descriptor = -1
+
+    def sync(self) -> None:
+        os.fsync(self._descriptor)
 
     def write_atomic(self, name: str, content: str) -> None:
         validated_output_name(name)
@@ -841,6 +861,7 @@ class OutputDirectory:
             with os.fdopen(descriptor, "w", encoding="utf-8") as output:
                 output.write(content)
                 output.flush()
+                os.fsync(output.fileno())
                 os.fchmod(output.fileno(), 0o644)
             os.replace(
                 temporary,
@@ -859,7 +880,9 @@ class OutputDirectory:
         validated_output_name(name)
         try:
             descriptor = os.open(
-                name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self._descriptor
+                name,
+                os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
+                dir_fd=self._descriptor,
             )
         except OSError:
             return None
@@ -877,37 +900,272 @@ class OutputDirectory:
             if descriptor >= 0:
                 os.close(descriptor)
 
-    def remove_relative(self, relative: str) -> None:
-        parts = validated_relative_path(relative)
-        descriptor = self._descriptor
-        opened: list[int] = []
-        try:
-            for part in parts[:-1]:
-                try:
-                    child = os.open(
-                        part,
-                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                        dir_fd=descriptor,
-                    )
-                except OSError:
-                    return
-                opened.append(child)
-                descriptor = child
-            name = parts[-1]
+
+def copy_unowned_entries(
+    source: int,
+    destination: int,
+    owned: set[str],
+    manifest_name: str,
+    prefix: str = "",
+) -> None:
+    for name in os.listdir(source):
+        relative = f"{prefix}/{name}" if prefix else name
+        if not prefix and name == manifest_name:
+            continue
+        info = os.stat(name, dir_fd=source, follow_symlinks=False)
+        if stat.S_ISDIR(info.st_mode):
+            os.mkdir(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            child_source = os.open(
+                name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=source
+            )
+            child_destination = os.open(
+                name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=destination
+            )
             try:
-                info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
-            except FileNotFoundError:
-                return
-            if stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+                copy_unowned_entries(
+                    child_source,
+                    child_destination,
+                    owned,
+                    manifest_name,
+                    relative,
+                )
+            finally:
+                os.close(child_source)
+                os.close(child_destination)
+        elif relative in owned:
+            continue
+        elif stat.S_ISLNK(info.st_mode):
+            os.symlink(os.readlink(name, dir_fd=source), name, dir_fd=destination)
+        elif stat.S_ISREG(info.st_mode):
+            try:
+                os.link(
+                    name,
+                    name,
+                    src_dir_fd=source,
+                    dst_dir_fd=destination,
+                    follow_symlinks=False,
+                )
+            except OSError:
+                source_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=source)
+                destination_fd = os.open(
+                    name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    stat.S_IMODE(info.st_mode),
+                    dir_fd=destination,
+                )
                 try:
-                    os.unlink(name, dir_fd=descriptor)
-                except FileNotFoundError:
+                    while True:
+                        block = os.read(source_fd, 65536)
+                        if not block:
+                            break
+                        os.write(destination_fd, block)
+                    os.fsync(destination_fd)
+                finally:
+                    os.close(source_fd)
+                    os.close(destination_fd)
+        elif stat.S_ISFIFO(info.st_mode):
+            os.mkfifo(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+
+
+def remove_tree(parent: int, name: str) -> None:
+    info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if not stat.S_ISDIR(info.st_mode):
+        os.unlink(name, dir_fd=parent)
+        return
+    descriptor = os.open(
+        name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent
+    )
+    try:
+        for child in os.listdir(descriptor):
+            remove_tree(descriptor, child)
+    finally:
+        os.close(descriptor)
+    os.rmdir(name, dir_fd=parent)
+
+
+RENAME_NOREPLACE = 1
+RENAME_EXCHANGE = 2
+_LIBC = ctypes.CDLL(None, use_errno=True)
+_RENAMEAT2 = getattr(_LIBC, "renameat2", None)
+if _RENAMEAT2 is not None:
+    _RENAMEAT2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    _RENAMEAT2.restype = ctypes.c_int
+
+
+def renameat2(parent: int, first: str, second: str, flags: int) -> None:
+    if _RENAMEAT2 is None:
+        raise OSError(errno.ENOSYS, "renameat2 is unavailable")
+    result = _RENAMEAT2(
+        parent,
+        os.fsencode(first),
+        parent,
+        os.fsencode(second),
+        flags,
+    )
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def exchange_directories(parent: int, first: str, second: str) -> None:
+    renameat2(parent, first, second, RENAME_EXCHANGE)
+
+
+def rename_noreplace(parent: int, first: str, second: str) -> None:
+    renameat2(parent, first, second, RENAME_NOREPLACE)
+
+
+class TransactionalDirectory:
+    def __init__(
+        self,
+        path: Path,
+        parent: int,
+        active_name: str,
+        active_info: os.stat_result | None,
+        staging_name: str,
+        staging: int,
+    ):
+        self.path = path
+        self._parent = parent
+        self._active_name = active_name
+        self._active_info = active_info
+        self._staging_name = staging_name
+        self._staging = staging
+        self._committed = False
+        self.output = OutputDirectory(path, staging, owns_descriptor=False)
+
+    @classmethod
+    def begin(
+        cls,
+        output_dir: Path,
+        trusted_root: Path,
+        manifest_name: str,
+        owned_reader,
+    ) -> "TransactionalDirectory":
+        path = Path(os.path.abspath(output_dir))
+        validated_output_name(path.name)
+        parent = open_directory_chain(path.parent, trusted_root)
+        active: int | None = None
+        staging: int | None = None
+        staging_name = ""
+        try:
+            active_info = None
+            try:
+                active = os.open(
+                    path.name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=parent,
+                )
+                active_info = os.fstat(active)
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                raise ValueError(
+                    f"output directory is a symlink or not a directory: {output_dir}"
+                ) from error
+            for _ in range(100):
+                staging_name = f".astia-stage-{os.urandom(8).hex()}"
+                try:
+                    os.mkdir(staging_name, 0o755, dir_fd=parent)
+                    break
+                except FileExistsError:
+                    continue
+            else:
+                raise OSError("cannot allocate a staging directory")
+            staging = os.open(
+                staging_name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=parent,
+            )
+            if active is not None:
+                current = OutputDirectory(path, active, owns_descriptor=False)
+                owned = owned_reader(current)
+                copy_unowned_entries(active, staging, owned, manifest_name)
+            return cls(
+                path,
+                parent,
+                path.name,
+                active_info,
+                staging_name,
+                staging,
+            )
+        except BaseException:
+            if staging is not None:
+                os.close(staging)
+            if active is not None:
+                os.close(active)
+            if staging_name:
+                try:
+                    remove_tree(parent, staging_name)
+                except OSError:
                     pass
-                except IsADirectoryError:
+            os.close(parent)
+            raise
+
+    def __enter__(self) -> "TransactionalDirectory":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        if self._staging >= 0:
+            os.close(self._staging)
+            self._staging = -1
+        if not self._committed and self._staging_name:
+            try:
+                remove_tree(self._parent, self._staging_name)
+            except OSError:
+                pass
+        os.close(self._parent)
+
+    def _active_matches(self) -> bool:
+        try:
+            info = os.stat(
+                self._active_name,
+                dir_fd=self._parent,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return self._active_info is None
+        return self._active_info is not None and same_inode(info, self._active_info)
+
+    def commit(self) -> None:
+        self.output.sync()
+        os.close(self._staging)
+        self._staging = -1
+        if not self._active_matches():
+            raise RuntimeError("output directory changed during publication")
+        if self._active_info is None:
+            rename_noreplace(self._parent, self._staging_name, self._active_name)
+            self._committed = True
+        else:
+            exchange_directories(
+                self._parent,
+                self._staging_name,
+                self._active_name,
+            )
+            self._committed = True
+            try:
+                old_info = os.stat(
+                    self._staging_name,
+                    dir_fd=self._parent,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                old_info = None
+            if old_info is not None and same_inode(old_info, self._active_info):
+                try:
+                    remove_tree(self._parent, self._staging_name)
+                except OSError:
                     pass
-        finally:
-            for descriptor in opened:
-                os.close(descriptor)
+        try:
+            os.fsync(self._parent)
+        except OSError:
+            pass
 
 
 def stale_generated_assets(manifest_text: str | None) -> set[str]:
@@ -942,16 +1200,19 @@ def export_section2(
     raw_synopses = raw_synopses or set()
     repo_root = ROOT.parent.parent
     root = trusted_root if trusted_root is not None else repo_root
-    with OutputDirectory.open(export_dir, root) as output:
-        previous = stale_generated_assets(output.read_text("manifest.json"))
+    with TransactionalDirectory.begin(
+        export_dir,
+        root,
+        "manifest.json",
+        lambda output: stale_generated_assets(output.read_text("manifest.json")),
+    ) as transaction:
+        output = transaction.output
         records = []
-        current: set[str] = set()
         for syscall_id, name in canonical:
             body, _ = pages[(name, 2)]
             source = sources.get((name, 2), abi_header)
             slug = f"syscall-{syscall_id}-{name.replace('_', '-')}"
             markdown_name = f"{slug}.md"
-            current.add(markdown_name)
             output.write_atomic(
                 markdown_name,
                 render_syscall_markdown(name, body, 2, name in raw_synopses),
@@ -974,10 +1235,9 @@ def export_section2(
                     "synopsis_kind": "raw" if name in raw_synopses else "public",
                 }
             )
-        for name in sorted(previous - current):
-            output.remove_relative(name)
         manifest = {"section": 2, "count": len(records), "pages": records}
         output.write_atomic("manifest.json", json.dumps(manifest, indent=2) + "\n")
+        transaction.commit()
 
 
 def render(name: str, body: str, section: int) -> str:
@@ -1051,15 +1311,6 @@ def read_owned_files(output: OutputDirectory) -> set[str]:
             continue
         owned.add(name)
     return owned
-
-
-def clean_owned_output(
-    output: OutputDirectory,
-    previous: set[str],
-    current: set[str],
-) -> None:
-    for name in sorted(previous - current):
-        output.remove_relative(name)
 
 
 def write_man_manifest(output: OutputDirectory, files: set[str]) -> None:
@@ -1227,8 +1478,13 @@ def main() -> int:
             + "</ul></section>"
         )
     grouped = "".join(grouped_parts)
-    with OutputDirectory.open(args.output, repo_root) as output:
-        clean_owned_output(output, read_owned_files(output), current_owned)
+    with TransactionalDirectory.begin(
+        args.output,
+        repo_root,
+        MAN7_MANIFEST,
+        read_owned_files,
+    ) as transaction:
+        output = transaction.output
         output.write_atomic("nodivia.css", args.css.read_text())
         for (name, section), (body, _) in sorted(pages.items()):
             output.write_atomic(
@@ -1247,6 +1503,7 @@ def main() -> int:
             "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n",
         )
         write_man_manifest(output, current_owned)
+        transaction.commit()
     if args.export_section2 is not None:
         export_section2(
             args.export_section2,
