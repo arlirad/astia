@@ -39,20 +39,7 @@ namespace astia::io::aio::registry {
 namespace astia::io::aio {
 
     bool validate_descriptors(const descriptor* entries, usize count) {
-        if (entries == nullptr || count != opcode_count)
-            return false;
-        bool seen[opcode_count]{};
-        for (usize i = 0; i < count; ++i) {
-            const u32 value = static_cast<u32>(entries[i].operation);
-            if (!valid_opcode(entries[i].operation) || entries[i].invoke == nullptr ||
-                seen[value])
-                return false;
-            seen[value] = true;
-        }
-        for (bool present : seen)
-            if (!present)
-                return false;
-        return true;
+        return validate_manifest(entries, count);
     }
 
 } // namespace astia::io::aio
