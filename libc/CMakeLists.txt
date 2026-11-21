@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 
+if(NOT DEFINED ASTIA_VERSION)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AstiaVersion.cmake)
+endif()
+
 project(astia_libc
-  VERSION 0.1.0
+  VERSION ${ASTIA_VERSION_major}.${ASTIA_VERSION_minor}.${ASTIA_VERSION_patch}
   DESCRIPTION "astia C standard library"
   LANGUAGES C)
 
@@ -90,10 +94,12 @@ endif()
 target_include_directories(astia_libc PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
+  ${ASTIA_VERSION_INCLUDE_DIR}
 )
 target_include_directories(astia_libc_objects PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
+  ${ASTIA_VERSION_INCLUDE_DIR}
 )
 
 # This archive always links *into* an executable (host tests, future
@@ -111,6 +117,7 @@ if(ASTIA_BUILD_TESTS)
   target_include_directories(astia_libc_host PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
+    ${ASTIA_VERSION_INCLUDE_DIR}
   )
 endif()
 

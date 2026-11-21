@@ -51,6 +51,7 @@ function(astia_configure_kernel target)
     target_include_directories(${target} PRIVATE
             ${ASTIA_KERNEL_SOURCE_DIR}/include
             ${ASTIA_KERNEL_SOURCE_DIR}/src/test
+            ${ASTIA_VERSION_INCLUDE_DIR}
     )
     target_link_libraries(${target} PRIVATE ${_astia_kernel_libs})
     target_link_options(${target} PRIVATE
