@@ -182,6 +182,14 @@ def compile_db(build, root):
     return result, normalized_build
 
 
+def line_filter_entries(root, path, lines):
+    absolute = str((pathlib.Path(root) / path).resolve())
+    return [
+        {"name": path, "lines": lines},
+        {"name": absolute, "lines": lines},
+    ]
+
+
 def analyze(args, source, line_filter):
     command = [
         args.clang_tidy,
@@ -299,7 +307,9 @@ def main():
         lines = len(pathlib.Path(smoke).read_text(encoding="utf-8").splitlines())
         print("clang-tidy: empty diff; running smoke analysis")
         return run_units(
-            args, [smoke], [{"name": smoke, "lines": [[1, max(lines, 1)]]}]
+            args,
+            [smoke],
+            line_filter_entries(args.root, "kernel/src/kmain.cpp", [[1, max(lines, 1)]]),
         )
     sources = []
     missing_sources = []
@@ -323,7 +333,11 @@ def main():
         return 1
     failed = 0
     if sources:
-        filt = [{"name": source, "lines": ranges[path]} for path, source in sources]
+        filt = [
+            entry
+            for path, _ in sources
+            for entry in line_filter_entries(args.root, path, ranges[path])
+        ]
         failed |= run_units(args, [source for _, source in sources], filt)
     if headers:
         if not db:
@@ -332,11 +346,9 @@ def main():
             )
             return 1
         filt = [
-            {
-                "name": str((pathlib.Path(args.root) / path).resolve()),
-                "lines": ranges[path],
-            }
+            entry
             for path in headers
+            for entry in line_filter_entries(args.root, path, ranges[path])
         ]
         print(f"clang-tidy: checking {len(db)} translation units for changed headers")
         failed |= run_units(args, list(db.values()), filt)
