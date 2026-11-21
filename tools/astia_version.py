@@ -139,11 +139,12 @@ def main():
     parser.add_argument("--reject-dirty", action="store_true")
     args = parser.parse_args()
     try:
-        metadata = (
-            json.loads(Path(args.metadata_json).read_text())
-            if args.metadata_json
-            else git_metadata(args.root)
-        )
+        if args.metadata_json:
+            metadata = json.loads(Path(args.metadata_json).read_text())
+        elif args.override:
+            metadata = {}
+        else:
+            metadata = git_metadata(args.root)
         result = derive(metadata, args.override)
         if args.reject_dirty and (result["dirty"] or not result["release"]):
             raise VersionError("release builds require a clean exact release tag")

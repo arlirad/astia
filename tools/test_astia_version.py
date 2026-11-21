@@ -63,6 +63,25 @@ class VersionTests(unittest.TestCase):
         self.assertTrue(result["override"])
         with self.assertRaises(VersionError):
             derive({}, "v7.8")
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "version.json"
+            import sys
+
+            old = sys.argv
+            try:
+                sys.argv = [
+                    "astia_version.py",
+                    "--root",
+                    str(Path(directory) / "not-a-git-repository"),
+                    "--output",
+                    str(output),
+                    "--override",
+                    "7.8.9",
+                ]
+                self.assertEqual(main(), 0)
+                self.assertEqual(json.loads(output.read_text())["version"], "7.8.9")
+            finally:
+                sys.argv = old
 
     def test_malformed_release_tag(self):
         with self.assertRaisesRegex(VersionError, "malformed release tag"):
