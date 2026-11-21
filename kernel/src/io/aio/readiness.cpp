@@ -129,4 +129,10 @@ namespace astia::io::aio::readiness {
         }
     }
 
+    bool dispatch_registered(ring_slot& slot, astia_rings* ring, const astia_sqe& sqe) {
+        if (sqe.op == OP_POLL_ADD)
+            return dispatch(slot, ring, sqe, dispatch::file_for(sqe.fd));
+        return dispatch(slot, ring, sqe, {});
+    }
+
 } // namespace astia::io::aio::readiness
