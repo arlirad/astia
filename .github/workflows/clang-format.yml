@@ -5,7 +5,7 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches:
-      - "**"
+      - main
   workflow_dispatch:
     inputs:
       full_tree:
@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   clang-format:
+    name: ${{ github.event_name == 'pull_request' && 'clang-format-pr' || 'clang-format-baseline' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -51,6 +52,9 @@ jobs:
             printf 'Expected %s, got %s\n' "$expected" "$actual" >&2
             exit 1
           fi
+
+      - name: Check workflow triggers and check contexts
+        run: python3 .github/scripts/test-clang-format-workflow.py
 
       - name: Check include category fixtures
         run: .github/scripts/test-format-fixtures.sh
