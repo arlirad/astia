@@ -41,6 +41,7 @@ set(_astia_test_includes
         ${ASTIA_KERNEL_SOURCE_DIR}/src/proc
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio
+        ${ASTIA_KERNEL_SOURCE_DIR}/src
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt
@@ -127,9 +128,26 @@ astia_add_host_test(astia_ownership_test ownership_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 target_compile_definitions(astia_signal_test PRIVATE ASTIA_SIGNAL_HOST_TEST=1)
 astia_add_host_test(astia_aio_test aio_test.cpp)
-astia_add_host_test(astia_aio_filesystem_test aio_filesystem_test.cpp)
-astia_add_host_test(astia_aio_readiness_test aio_readiness_test.cpp)
-astia_add_host_test(astia_aio_socket_test aio_socket_test.cpp)
+file(GLOB ASTIA_AIO_OPERATION_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/operations/*.cpp)
+set(ASTIA_AIO_REGISTRY_TEST_SOURCES
+        aio_registry_test_support.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
+        ${ASTIA_AIO_OPERATION_TEST_SOURCES})
+astia_add_host_test(astia_aio_static_handlers_test
+        aio_static_handlers_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+astia_add_host_test(astia_aio_filesystem_test
+        aio_filesystem_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+astia_add_host_test(astia_aio_readiness_test
+        aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+astia_add_host_test(astia_aio_socket_test
+        aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+add_test(NAME astia_aio_registration_macros
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/aio_registration_macros_test.cmake)
+set_tests_properties(astia_aio_registration_macros
+        PROPERTIES LABELS "kernel;deterministic")
 astia_add_host_test(astia_socket_abi_test socket_abi_test.cpp)
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_cwd_context_test

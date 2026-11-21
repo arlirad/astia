@@ -16,6 +16,7 @@ namespace astia::io::aio::dispatch {
                                ::astia::io::direction direction, bool control = false,
                                bool socket_accept = false);
 
+    bool dispatch_core(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
     bool dispatch_one(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
     void retry_pending(ring::ring_slot& slot, astia_rings* ring);
     void resume_parked(proc::process* owner, astia_rings* ring, ring::parked_op& op);
