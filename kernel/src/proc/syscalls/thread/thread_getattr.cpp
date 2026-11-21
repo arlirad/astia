@@ -7,38 +7,33 @@
 
 #include <syscall.hpp>
 
-namespace astia::proc::syscall {
-
-    i64 thread_getattr(u32 tid, u64 output) {
-        auto* owner = current_process();
-        if (owner == nullptr)
-            return -ESRCH;
-
-        const auto validated = sys::user_ptr<astia_thread_stack_info>(output).validate();
-        if (!validated)
-            return -EFAULT;
-
-        process::thread_stack_snapshot snapshot{};
-        auto                           target = owner->thread_stack_info(tid, snapshot);
-        if (!target)
-            return -ESRCH;
-        if (!snapshot.supported)
-            return -ENOTSUP;
-
-        astia_thread_stack_info info{snapshot.stack_base,
-                                     static_cast<u64>(snapshot.stack_size),
-                                     snapshot.detached ? 1u : 0u, 0u};
-        return sys::copy_out(validated.value.bytes(), &info) ? 0 : -EFAULT;
-    }
-
-}
-
 namespace astia::proc::syscalls {
     struct thread_getattr
         : sys::syscall_handler<thread_getattr, sys::syscall_id::thread_getattr,
                                sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::thread_getattr>(context);
+            u32   tid    = static_cast<u32>(context.arguments[0]);
+            u64   output = static_cast<u64>(context.arguments[1]);
+            auto* owner  = current_process();
+            if (owner == nullptr)
+                return -ESRCH;
+
+            const auto validated =
+                sys::user_ptr<astia_thread_stack_info>(output).validate();
+            if (!validated)
+                return -EFAULT;
+
+            process::thread_stack_snapshot snapshot{};
+            auto target = owner->thread_stack_info(tid, snapshot);
+            if (!target)
+                return -ESRCH;
+            if (!snapshot.supported)
+                return -ENOTSUP;
+
+            astia_thread_stack_info info{snapshot.stack_base,
+                                         static_cast<u64>(snapshot.stack_size),
+                                         snapshot.detached ? 1u : 0u, 0u};
+            return sys::copy_out(validated.value.bytes(), &info) ? 0 : -EFAULT;
         }
     };
 

@@ -5,22 +5,6 @@
 
 #include <syscall.hpp>
 
-namespace astia::proc::syscall {
-
-    i64 alarm(i64 seconds) {
-        if (seconds < 0 || static_cast<u64>(seconds) > UINT32_MAX)
-            return -EINVAL;
-        auto* owner = current_process();
-        if (owner == nullptr)
-            return -ESRCH;
-        const u32 hz = arch::timer_hz();
-        if (hz == 0)
-            return -EIO;
-        return owner->alarm(static_cast<u32>(seconds), arch::timer_ticks(), hz);
-    }
-
-} // namespace astia::proc::syscall
-
 namespace astia::proc::syscalls {
 
     /// alarm - Schedule delivery of a process alarm.
@@ -33,7 +17,16 @@ namespace astia::proc::syscalls {
     struct alarm
         : sys::syscall_handler<alarm, sys::syscall_id::alarm, sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::alarm>(context);
+            i64 seconds = static_cast<i64>(context.arguments[0]);
+            if (seconds < 0 || static_cast<u64>(seconds) > UINT32_MAX)
+                return -EINVAL;
+            auto* owner = current_process();
+            if (owner == nullptr)
+                return -ESRCH;
+            const u32 hz = arch::timer_hz();
+            if (hz == 0)
+                return -EIO;
+            return owner->alarm(static_cast<u32>(seconds), arch::timer_ticks(), hz);
         }
     };
 

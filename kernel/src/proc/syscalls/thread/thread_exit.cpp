@@ -14,18 +14,8 @@
 #include "../../scheduler.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-namespace astia::proc::syscall {
 
-    i64 thread_exit(i64 result) {
-        auto* self = current_thread();
-        if (self == nullptr) {
-            return -ESRCH;
-        }
-        self->exit(reinterpret_cast<void*>(static_cast<usize>(result)));
-        __builtin_unreachable();
-    }
-}
-
+#include <syscall.hpp>
 namespace astia::proc::syscalls {
 
     /// thread_exit - Terminate the calling user thread.
@@ -42,7 +32,13 @@ namespace astia::proc::syscalls {
     struct thread_exit : sys::syscall_handler<thread_exit, sys::syscall_id::thread_exit,
                                               sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::thread_exit>(context);
+            i64   result = static_cast<i64>(context.arguments[0]);
+            auto* self   = current_thread();
+            if (self == nullptr) {
+                return -ESRCH;
+            }
+            self->exit(reinterpret_cast<void*>(static_cast<usize>(result)));
+            __builtin_unreachable();
         }
     };
 

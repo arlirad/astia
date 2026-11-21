@@ -1,11 +1,6 @@
 #include "../proc.hpp"
 
 #include <syscall.hpp>
-namespace astia::proc::syscall {
-    i64 setsid() {
-        return proc::setsid();
-    }
-}
 
 namespace astia::proc::syscalls {
 
@@ -19,8 +14,8 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct setsid
         : sys::syscall_handler<setsid, sys::syscall_id::setsid, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::setsid>(context);
+        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+            return proc::setsid();
         }
     };
 

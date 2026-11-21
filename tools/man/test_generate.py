@@ -63,14 +63,24 @@ def check_production_layout(repository: Path) -> None:
         for path in source.glob("*/syscalls/**/*.hpp")
     }
     assert shared_headers == {
-        "proc/syscalls/ipc/futex.hpp",
-        "proc/syscalls/ipc/shm.hpp",
+        "proc/syscalls/ipc/shm_common.hpp",
         "proc/syscalls/process/argv.hpp",
-        "proc/syscalls/process/credentials.hpp",
-        "proc/syscalls/process/rlimit.hpp",
         "proc/syscalls/syscall_continuation.hpp",
         "proc/syscalls/thread/thread_create_common.hpp",
     }
+    invoke_sync_files = {
+        path.relative_to(source).as_posix()
+        for path in source.rglob("*.cpp")
+        if "invoke_sync<" in path.read_text()
+    }
+    assert invoke_sync_files == {
+        "fs/syscalls/io_destroy.cpp",
+        "fs/syscalls/io_register.cpp",
+        "fs/syscalls/io_setup.cpp",
+        "fs/syscalls/io_submit.cpp",
+    }
+    direct_handler = (source / "proc/syscalls/getpid.cpp").read_text()
+    assert "raw_id(process->pid())" in direct_handler
     for path in source.rglob("*.cpp"):
         assert "register_syscall" not in path.read_text()
         assert "register_syscalls" not in path.read_text()

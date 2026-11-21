@@ -4,14 +4,6 @@
 
 #include <syscall.hpp>
 
-namespace astia::proc::syscall {
-    i64 getppid() {
-        auto* process = current_process();
-        return process == nullptr ? -ESRCH
-                                  : static_cast<i64>(raw_id(process->parent_pid()));
-    }
-}
-
 namespace astia::proc::syscalls {
 
     /// getppid - Return the parent process identifier.
@@ -23,8 +15,10 @@ namespace astia::proc::syscalls {
     ///     Returns the parent process identifier or a negative errno.
     struct getppid : sys::syscall_handler<getppid, sys::syscall_id::getppid,
                                           sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::getppid>(context);
+        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+            auto* process = current_process();
+            return process == nullptr ? -ESRCH
+                                      : static_cast<i64>(raw_id(process->parent_pid()));
         }
     };
 

@@ -6,21 +6,6 @@
 
 #include <syscall.hpp>
 
-namespace astia::fs::syscall {
-    long unmount(u64 target_address) {
-        auto* current = proc::current_process();
-        if (current == nullptr)
-            return -ESRCH;
-        if (current->euid() != 0)
-            return -EPERM;
-        char path[path_max]{};
-        if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                 sys::user_ptr<char>(target_address)))
-            return -EFAULT;
-        return unmount_type(path);
-    }
-}
-
 namespace astia::fs::syscalls {
 
     /// unmount - root-only teardown of a native VFS mount.
@@ -31,7 +16,17 @@ namespace astia::fs::syscalls {
     struct unmount : sys::syscall_handler<unmount, sys::syscall_id::unmount,
                                           sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::fs::syscall::unmount>(context);
+            auto* current = proc::current_process();
+            if (current == nullptr)
+                return -ESRCH;
+            if (current->euid() != 0)
+                return -EPERM;
+            char path[path_max]{};
+            if (!sys::copy_in_string(
+                    span<char>(path, sizeof path),
+                    sys::user_ptr<char>(static_cast<u64>(context.arguments[0]))))
+                return -EFAULT;
+            return unmount_type(path);
         }
     };
 

@@ -14,36 +14,8 @@
 #include "../../scheduler.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-namespace astia::proc::syscall {
 
-    i64 thread_join(u32 tid, u64 result_ptr) {
-        auto* owner = current_process();
-        if (owner == nullptr) {
-            return -ESRCH;
-        }
-        const sys::user_ptr<void*> output(result_ptr);
-        const auto validated_output = output.null()
-                                          ? optional<sys::validated_user_ptr<void*>>{}
-                                          : output.validate();
-        if (!output.null() && !validated_output) {
-            return -EFAULT;
-        }
-        auto target = owner->thread_by_tid(tid);
-        if (!target) {
-            return -ESRCH;
-        }
-        void*      result = nullptr;
-        const long rc     = target->join(output.null() ? nullptr : &result);
-        if (rc < 0) {
-            return rc;
-        }
-        if (!output.null() && !sys::copy_out(validated_output.value.bytes(), &result)) {
-            return -EFAULT;
-        }
-        return 0;
-    }
-}
-
+#include <syscall.hpp>
 namespace astia::proc::syscalls {
 
     /// thread_join - Wait for and reap a user thread.
@@ -65,7 +37,33 @@ namespace astia::proc::syscalls {
     struct thread_join : sys::syscall_handler<thread_join, sys::syscall_id::thread_join,
                                               sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::thread_join>(context);
+            u32   tid        = static_cast<u32>(context.arguments[0]);
+            u64   result_ptr = static_cast<u64>(context.arguments[1]);
+            auto* owner      = current_process();
+            if (owner == nullptr) {
+                return -ESRCH;
+            }
+            const sys::user_ptr<void*> output(result_ptr);
+            const auto validated_output = output.null()
+                                              ? optional<sys::validated_user_ptr<void*>>{}
+                                              : output.validate();
+            if (!output.null() && !validated_output) {
+                return -EFAULT;
+            }
+            auto target = owner->thread_by_tid(tid);
+            if (!target) {
+                return -ESRCH;
+            }
+            void*      result = nullptr;
+            const long rc     = target->join(output.null() ? nullptr : &result);
+            if (rc < 0) {
+                return rc;
+            }
+            if (!output.null() &&
+                !sys::copy_out(validated_output.value.bytes(), &result)) {
+                return -EFAULT;
+            }
+            return 0;
         }
     };
 

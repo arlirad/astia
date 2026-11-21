@@ -14,14 +14,8 @@
 #include "../../scheduler.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-namespace astia::proc::syscall {
 
-    i64 yield() {
-        scheduler::yield();
-        return 0;
-    }
-}
-
+#include <syscall.hpp>
 namespace astia::proc::syscalls {
 
     /// yield - Yield the current scheduling turn.
@@ -37,8 +31,9 @@ namespace astia::proc::syscalls {
     ///     Returns zero.
     struct yield
         : sys::syscall_handler<yield, sys::syscall_id::yield, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::yield>(context);
+        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+            scheduler::yield();
+            return 0;
         }
     };
 

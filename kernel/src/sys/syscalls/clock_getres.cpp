@@ -1,4 +1,9 @@
+#include <astia/api/errno.h>
+#include <astia/api/syscalls.h>
+#include <astia/arch/interrupts.hpp>
+
 #include "../time.hpp"
+#include "user_mem.hpp"
 
 #include <syscall.hpp>
 
@@ -7,7 +12,21 @@ namespace astia::sys::syscalls {
         : sys::syscall_handler<clock_getres, sys::syscall_id::clock_getres,
                                sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::sys::sys_clock_getres>(context);
+            const i32 clock_id = static_cast<i32>(context.arguments[0]);
+            const u64 out      = static_cast<u64>(context.arguments[1]);
+            if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
+                return -EINVAL;
+            const u32 hz = arch::timer_hz();
+            if (hz == 0)
+                return -EIO;
+            if (out == 0)
+                return 0;
+            const auto ts_out = sys::user_ptr<astia_timespec>(out).validate();
+            if (!ts_out)
+                return -EFAULT;
+            const u64            nsec = (nanoseconds_per_second + hz - 1) / hz;
+            const astia_timespec resolution{0, static_cast<i64>(nsec)};
+            return sys::copy_out(ts_out.value.bytes(), &resolution) ? 0 : -EFAULT;
         }
     };
 

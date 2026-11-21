@@ -1,4 +1,4 @@
-#include "futex.hpp"
+#include "../../../ipc/futex.hpp"
 
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
@@ -9,39 +9,18 @@
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
 
-#include "../../../ipc/futex.hpp"
 #include "../../../ipc/mapping.hpp"
 #include "../../mapping.hpp"
 #include "../../proc.hpp"
 #include "../../scheduler.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
+
+#include <syscall.hpp>
 namespace astia::proc {
     i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point,
                    bool shared);
     i64 futex_wake(u64 address, u32 count, bool shared);
-}
-
-namespace astia::proc::syscall {
-
-    i64 futex(u64 address, u32 op, u32 expected, u64 timeout) {
-        const bool cancellation_point = (op & ipc::futex_cancelable_bit) != 0;
-        auto       operation          = mapper<ipc::futex_operation>::from(
-            op & ~(ipc::futex_private_bit | ipc::futex_cancelable_bit));
-        if (!operation)
-            return -EINVAL;
-        const bool shared = (op & ipc::futex_private_bit) == 0;
-        if (operation.value == ipc::futex_operation::wait) {
-            return proc::futex_wait(address, expected, timeout, cancellation_point,
-                                    shared);
-        }
-        if (operation.value == ipc::futex_operation::wake) {
-            if (timeout != 0)
-                return -EINVAL;
-            return proc::futex_wake(address, expected, shared);
-        }
-        return -EINVAL;
-    }
 }
 
 namespace astia::proc::syscalls {
@@ -68,7 +47,26 @@ namespace astia::proc::syscalls {
     struct futex
         : sys::syscall_handler<futex, sys::syscall_id::futex, sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::futex>(context);
+            u64        address            = static_cast<u64>(context.arguments[0]);
+            u32        op                 = static_cast<u32>(context.arguments[1]);
+            u32        expected           = static_cast<u32>(context.arguments[2]);
+            u64        timeout            = static_cast<u64>(context.arguments[3]);
+            const bool cancellation_point = (op & ipc::futex_cancelable_bit) != 0;
+            auto       operation          = mapper<ipc::futex_operation>::from(
+                op & ~(ipc::futex_private_bit | ipc::futex_cancelable_bit));
+            if (!operation)
+                return -EINVAL;
+            const bool shared = (op & ipc::futex_private_bit) == 0;
+            if (operation.value == ipc::futex_operation::wait) {
+                return proc::futex_wait(address, expected, timeout, cancellation_point,
+                                        shared);
+            }
+            if (operation.value == ipc::futex_operation::wake) {
+                if (timeout != 0)
+                    return -EINVAL;
+                return proc::futex_wake(address, expected, shared);
+            }
+            return -EINVAL;
         }
     };
 

@@ -32,6 +32,19 @@ directly; syscall dispatch does not use subsystem registration tables. Tests
 audit complete ID coverage and exercise the sync/async adapters, completion
 semantics, and unknown-ID handling.
 
+Synchronous syscall logic lives in its canonical handler source. Reused
+subsystem operations are called directly, and syscall-only wrappers have been
+removed. The only production `invoke_sync` sites left are the four AIO syscall
+adapters, which are unchanged by this non-AIO refactor:
+
+- `kernel/src/fs/syscalls/io_destroy.cpp`
+- `kernel/src/fs/syscalls/io_register.cpp`
+- `kernel/src/fs/syscalls/io_setup.cpp`
+- `kernel/src/fs/syscalls/io_submit.cpp`
+
+They retain the generic argument-to-implementation adapter at the existing
+AIO boundary; no AIO behavior or implementation was changed.
+
 Socket operation handlers live under `kernel/src/net/syscalls/`, with private
 prototype-only descriptors 70–81. They model socket AIO opcodes; they do not
 add public syscall numbers or change the public ABI. Socket semantics belong

@@ -3,12 +3,6 @@
 #include "../proc.hpp"
 
 #include <syscall.hpp>
-namespace astia::proc::syscall {
-    i64 getpid() {
-        auto* process = current_process();
-        return process == nullptr ? -ESRCH : static_cast<i64>(raw_id(process->pid()));
-    }
-}
 
 namespace astia::proc::syscalls {
 
@@ -21,8 +15,9 @@ namespace astia::proc::syscalls {
     ///     The calling process ID.
     struct getpid
         : sys::syscall_handler<getpid, sys::syscall_id::getpid, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::getpid>(context);
+        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+            auto* process = current_process();
+            return process == nullptr ? -ESRCH : static_cast<i64>(raw_id(process->pid()));
         }
     };
 
