@@ -70,6 +70,8 @@ astia_add_host_test(astia_memory_map_test memory_map_test.cpp)
 astia_add_host_test(astia_pvh_test pvh_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/pvh.cpp)
 astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/multiboot2.cpp)
+astia_add_host_test(astia_boot_init_test boot_init_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/init.cpp)
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
