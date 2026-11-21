@@ -297,6 +297,13 @@ add_custom_target(astia_direct_vga_gdb
 add_subdirectory(kernel)
 if(ASTIA_BUILD_TESTS)
     add_subdirectory(libc)
+    astia_register_script_test(astia_production_init_launch_failure
+            "boot;init;qemu;deterministic"
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernel/tests/integration/run_init_launch_failure.sh
+            TIMEOUT 15
+            ENV
+                QEMU=${ASTIA_VGA_QEMU}
+                ASTIA_KERNEL=${CMAKE_BINARY_DIR}/kernel/src/astiakrn)
 endif()
 add_subdirectory(modules EXCLUDE_FROM_ALL)
 add_subdirectory(pkg)
@@ -324,6 +331,7 @@ endif()
 if(ASTIA_BUILD_TESTS)
     add_custom_target(astia_qemu_test_artifacts)
     foreach(_astia_qemu_target
+            astiakrn
             astiakrn_runtime
             astiakrn_module_runtime
             astiakrn_test
