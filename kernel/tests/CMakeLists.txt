@@ -133,12 +133,15 @@ astia_add_host_test(astia_ownership_test ownership_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 target_compile_definitions(astia_signal_test PRIVATE ASTIA_SIGNAL_HOST_TEST=1)
 astia_add_host_test(astia_aio_test aio_test.cpp)
-file(GLOB ASTIA_AIO_OPERATION_TEST_SOURCES CONFIGURE_DEPENDS
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/operations/*.cpp)
+set(ASTIA_AIO_HANDLER_TEST_SOURCES
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/core_handlers.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio_handlers.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio_handlers.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/readiness_handlers.cpp)
 set(ASTIA_AIO_REGISTRY_TEST_SOURCES
         aio_registry_test_support.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
-        ${ASTIA_AIO_OPERATION_TEST_SOURCES})
+        ${ASTIA_AIO_HANDLER_TEST_SOURCES})
 astia_add_host_test(astia_aio_static_handlers_test
         aio_static_handlers_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 astia_add_host_test(astia_aio_filesystem_test
@@ -147,11 +150,11 @@ astia_add_host_test(astia_aio_readiness_test
         aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 astia_add_host_test(astia_aio_socket_test
         aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
-add_test(NAME astia_aio_registration_macros
+add_test(NAME astia_aio_handler_ownership
         COMMAND ${CMAKE_COMMAND}
         -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/aio_registration_macros_test.cmake)
-set_tests_properties(astia_aio_registration_macros
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/aio_handler_ownership_test.cmake)
+set_tests_properties(astia_aio_handler_ownership
         PROPERTIES LABELS "kernel;deterministic")
 astia_add_host_test(astia_socket_abi_test socket_abi_test.cpp)
 astia_add_host_test(astia_process_group_test process_group_test.cpp)

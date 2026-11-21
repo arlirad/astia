@@ -1,10 +1,10 @@
 #include "aio_registry_test_support.hpp"
 
+#include "../src/fs/aio_dispatch.hpp"
 #include "../src/io/aio/dispatch.hpp"
-#include "../src/io/aio/filesystem.hpp"
-#include "../src/io/aio/readiness.hpp"
 #include "../src/io/aio/registry.hpp"
-#include "../src/io/aio/socket.hpp"
+#include "../src/io/readiness.hpp"
+#include "../src/net/aio_dispatch.hpp"
 
 namespace astia::io::aio::test_support {
 
