@@ -147,6 +147,11 @@ def test_special_paths_and_hunk_content():
         for invocation in invocations
     ]
     assert any(
+        item["name"] == "kernel/src/λ.cpp"
+        and item["lines"] == [[2, 3]]
+        for item in filters[0]
+    ), filters
+    assert any(
         item["name"] == str((repo / "kernel/src/λ.cpp").resolve())
         and item["lines"] == [[2, 3]]
         for item in filters[0]
@@ -239,9 +244,10 @@ def test_relative_compile_database_directory():
             if value.startswith("-line-filter=")
         )
     )
-    assert line_filter == [{"name": str(source.resolve()), "lines": [[2, 2]]}], (
-        line_filter
-    )
+    assert line_filter == [
+        {"name": "kernel/src/main.cpp", "lines": [[2, 2]]},
+        {"name": str(source.resolve()), "lines": [[2, 2]]},
+    ], line_filter
 
 
 def test_type_change_analyzed_and_rename_fails_closed():
