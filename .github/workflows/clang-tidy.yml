@@ -82,6 +82,8 @@ jobs:
             > "$trusted/.github/scripts/test-check-clang-tidy.py"
           git show "${BASE_SHA}:.github/scripts/test-clang-tidy-workflow.py" \
             > "$trusted/.github/scripts/test-clang-tidy-workflow.py"
+          git show "${BASE_SHA}:.github/scripts/clang-tidy-config.yml" \
+            > "$trusted/.github/scripts/clang-tidy-config.yml"
           git show "${HEAD_SHA}:.github/scripts/check-clang-tidy.py" \
             > "$trusted/.github/scripts/check-clang-tidy.py"
           git show "${HEAD_SHA}:.github/workflows/clang-tidy.yml" \
