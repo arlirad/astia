@@ -62,7 +62,7 @@ namespace astia::io::aio {
         return static_cast<u32>(value) < opcode_count;
     }
 
-    struct descriptor {
+    struct operation_descriptor {
         opcode operation;
         bool (*invoke)(ring::ring_slot&, astia_rings*, const astia_sqe&) noexcept;
     };
@@ -71,26 +71,23 @@ namespace astia::io::aio {
     struct handler {
         static constexpr opcode opcode_value = Opcode;
 
-        static bool invoke(ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static bool thunk(ring::ring_slot& slot, astia_rings* ring,
+                          const astia_sqe& sqe) noexcept {
             static_assert(Derived::opcode_value == Opcode);
             static_assert(valid_opcode(Opcode));
-            return Derived::handle(slot, ring, sqe);
+            return Derived::invoke(slot, ring, sqe);
         }
 
-        static constexpr descriptor describe() noexcept {
-            static_assert(valid_opcode(Opcode));
-            return {Opcode, &handler::invoke};
-        }
+        static constexpr operation_descriptor descriptor{Opcode, &handler::thunk};
     };
 
-    constexpr bool validate_manifest(const descriptor* entries, usize count) {
+    constexpr bool validate_manifest(const operation_descriptor* entries, usize count) {
         if (entries == nullptr || count != opcode_count)
             return false;
         bool seen[opcode_count]{};
         for (usize i = 0; i < count; ++i) {
-            const descriptor& entry = entries[i];
-            const u32         value = static_cast<u32>(entry.operation);
+            const operation_descriptor& entry = entries[i];
+            const u32                   value = static_cast<u32>(entry.operation);
             if (!valid_opcode(entry.operation) || entry.invoke == nullptr || seen[value])
                 return false;
             seen[value] = true;
@@ -101,10 +98,10 @@ namespace astia::io::aio {
         return true;
     }
 
-    bool validate_descriptors(const descriptor* entries, usize count);
+    bool validate_descriptors(const operation_descriptor* entries, usize count);
 
     template <usize N>
-    consteval bool valid_descriptors(const descriptor (&entries)[N]) {
+    consteval bool valid_descriptors(const operation_descriptor (&entries)[N]) {
         return validate_manifest(entries, N);
     }
 

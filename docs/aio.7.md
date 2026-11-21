@@ -63,11 +63,20 @@ caller can route the result without a side table.
 
 ## OPERATION REGISTRY
 
-Every `OP_*` the kernel implements has one static handler in
-`kernel/src/io/aio/operations/`. A handler names its ABI opcode and the
-subsystem dispatcher that owns it: core fd/ioctl/eventfd work, filesystem
-paths and descriptors, readiness parking, or sockets. The link collects the
-handlers' descriptors in the `astia_aio_handlers` set, and
+Every `OP_*` the kernel implements has one explicit handler type in
+`kernel/src/io/aio/operations/`:
+
+```cpp
+struct read : handler<read, opcode::read> {
+    static bool invoke(ring::ring_slot&, astia_rings*, const astia_sqe&) noexcept;
+};
+extern const operation_descriptor read_descriptor = read::descriptor;
+```
+
+The handler names its ABI opcode and the subsystem dispatcher that owns it:
+core fd/ioctl/eventfd work, filesystem paths and descriptors, readiness
+parking, or sockets. There is no registration macro. The link collects the
+descriptors in the `astia_aio_handlers` set, and
 `astia::io::aio::registry` enumerates that set instead of a hand-maintained
 table. Registration must cover the ABI opcode range exactly once; a missing,
 duplicate, out-of-range, or null handler fails registry validation. Opcodes

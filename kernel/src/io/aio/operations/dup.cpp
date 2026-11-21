@@ -1,2 +1,16 @@
-#include "../operation_registration.hpp"
-ASTIA_AIO_REGISTER_CORE(dup, dup)
+#include "../dispatch.hpp"
+#include "../handler.hpp"
+
+namespace astia::io::aio::operations {
+
+    struct dup : handler<dup, opcode::dup> {
+        static bool invoke(ring::ring_slot& slot, astia_rings* ring,
+                           const astia_sqe& sqe) noexcept {
+            return dispatch::dispatch_core(slot, ring, sqe);
+        }
+    };
+
+    [[gnu::used, gnu::section("astia_aio_handlers")]]
+    extern const operation_descriptor dup_descriptor = dup::descriptor;
+
+} // namespace astia::io::aio::operations
