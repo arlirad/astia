@@ -89,6 +89,16 @@ SECTIONS
         *(.eh_frame.*)
     }
 
+    /* Handler descriptors are link-time data with function-pointer
+     * relocations. Keep them in a named, mapped read-only section so lld
+     * cannot place the orphan input section at an unmapped low address. */
+    . = ALIGN(8);
+    .aio_handlers : AT(ADDR(.aio_handlers) - kernel_image_base) {
+        __start_astia_aio_handlers = .;
+        KEEP(*(astia_aio_handlers))
+        __stop_astia_aio_handlers = .;
+    }
+
     /* Filled after the final link from this image's own ELF symtab. The
      * reserved bytes keep the linked addresses stable while the build tool
      * writes the exact names and addresses into the loadable image. */
