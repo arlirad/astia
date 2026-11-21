@@ -142,7 +142,9 @@ export const COMMANDS: readonly CommandStep[] = [
   {
     label: 'Configure and build the kernel',
     code: `cmake -S kernel -B kernel/build \\
-  -DARCH=x86_64 -DPLATFORM=virt -DBOOT=virt
+  -DARCH=x86_64 \\
+  -DPLATFORM=virt \\
+  -DBOOT=virt
 cmake --build kernel/build`,
     note: 'Requires CMake 3.20+ and a C/C++ toolchain.',
   },
