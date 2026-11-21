@@ -237,10 +237,12 @@ int eventfd(unsigned int initial_value, int flags) {
 }
 int isatty(int fd) {
     int process_group;
-    if (fd < 0 || ioctl(fd, TIOCGPGRP, &process_group) < 0) {
-        errno = ENOTTY;
+    if (fd < 0) {
+        errno = EBADF;
         return 0;
     }
+    if (ioctl(fd, TIOCGPGRP, &process_group) < 0)
+        return 0;
     return 1;
 }
 long read(int fd, void* buffer, unsigned long length) {

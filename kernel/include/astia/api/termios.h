@@ -114,6 +114,10 @@ struct winsize {
 #define TCSETS 0x5402
 #define TCSETSW 0x5403
 #define TCSETSF 0x5404
+#define TCFLSH 0x540b
+#define TCIFLUSH 0
+#define TCOFLUSH 1
+#define TCIOFLUSH 2
 #define TIOCSPGRP 0x5410
 #define TIOCGPGRP 0x540f
 #define TIOCSCTTY 0x540e

@@ -368,13 +368,14 @@ namespace astia::dev {
         tty_ready();
     }
 
-    void tty::tty_discard_input() {
+    long tty::tty_discard_input() {
         arch::interrupt_spinlock_guard guard(_state_lock);
         const u32 head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
         __atomic_store_n(&_rx_tail, head, __ATOMIC_RELEASE);
         _line_length   = 0;
         _line_overflow = false;
         _eof_pending   = false;
+        return 0;
     }
 
     void tty::tty_commit_line(bool eof) {
@@ -464,9 +465,22 @@ namespace astia::dev {
                 arch::interrupt_spinlock_guard guard(_state_lock);
                 _termios = next;
             }
-            if (request == TCSETSF)
-                tty_discard_input();
+            if (request == TCSETSF) {
+                const long flush_result = tty_discard_input();
+                if (flush_result < 0)
+                    return flush_result;
+            }
             return 0;
+        }
+        if (request == TCFLSH) {
+            if (argp == nullptr || size != sizeof(int))
+                return -EINVAL;
+            const int selector = *static_cast<const int*>(argp);
+            if (selector == TCIFLUSH)
+                return tty_discard_input();
+            if (selector == TCOFLUSH || selector == TCIOFLUSH)
+                return -ENOSYS;
+            return -EINVAL;
         }
         if (request == TIOCGWINSZ) {
             if (argp == nullptr || size != sizeof(struct winsize))

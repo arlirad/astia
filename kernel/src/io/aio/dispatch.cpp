@@ -816,6 +816,10 @@ namespace astia::io::aio::dispatch {
                 input    = s.offset != TCGETS;
                 output   = s.offset == TCGETS;
             }
+            else if (s.offset == TCFLSH) {
+                expected = sizeof(int);
+                input    = true;
+            }
             else if (s.offset == TIOCGWINSZ || s.offset == TIOCSWINSZ) {
                 expected = sizeof(struct winsize);
                 input    = s.offset == TIOCSWINSZ;

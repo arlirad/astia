@@ -98,6 +98,7 @@ namespace astia::dev {
         // constructor having run, which is what a kernel without
         // .init_array needs.  constinit enforces static initialization
         // while retaining writable RX state and cursors.
+#ifndef ASTIA_UART16550_HOST_TEST
         constinit uart16550 com1{"tts0", uart16550_platform_pio, uart16550_platform_irq,
                                   uart16550_base};
         constinit device_file com1_file{&com1};
@@ -115,7 +116,9 @@ namespace astia::dev {
                 console_putc(*s++);
             }
         }
+#endif
 
+#ifndef ASTIA_UART16550_HOST_TEST
         // The selftest body.  Returns null on success, else a reason —
         // the caller reports it only after loopback is off, because
         // while the loop is closed every console byte goes back into
@@ -429,6 +432,7 @@ namespace astia::dev {
             astia_cq_consume(ring, 1);
             return nullptr;
         }
+#endif
 
     } // namespace
 
@@ -455,8 +459,9 @@ namespace astia::dev {
     }
 
     void uart16550::rx_drain() {
-        // The tty owns buffering; the UART only drains its hardware FIFO.
-        bool ready = false;
+        arch::interrupt_guard gate;
+        core::spinlock_guard  lock(_rx_lock);
+        bool                  ready = false;
         for (;;) {
             const auto status = _ports.read8(reg_lsr);
             if (!status || (status.value & lsr_data_ready) == 0)
@@ -472,15 +477,22 @@ namespace astia::dev {
     }
 
     void uart16550::drain_rx() {
+        (void) tty_discard_input();
+    }
+
+    long uart16550::tty_discard_input() {
         arch::interrupt_guard gate;
+        core::spinlock_guard  lock(_rx_lock);
         for (;;) {
             const auto status = _ports.read8(reg_lsr);
-            if (!status || (status.value & lsr_data_ready) == 0)
+            if (!status)
+                return -EIO;
+            if ((status.value & lsr_data_ready) == 0)
                 break;
             if (!_ports.read8(reg_data))
-                break;
+                return -EIO;
         }
-        tty_discard_input();
+        return tty::tty_discard_input();
     }
 
     // Read and write are implemented by tty; this class only owns the UART.
@@ -491,8 +503,8 @@ namespace astia::dev {
         const bool tx_ready = ier && lsr && (ier.value & ier_tx_empty) != 0 &&
                               (lsr.value & lsr_thre) != 0;
         rx_drain();
-        if (tx_ready)
-            sys::io_device_ready_context(&com1_file);
+        if (tx_ready && _ready_file != nullptr)
+            sys::io_device_ready_context(_ready_file);
     }
 
     bool uart16550::loopback(bool on) {
@@ -509,7 +521,8 @@ namespace astia::dev {
     }
 
     void uart16550::tty_ready() {
-        sys::io_device_ready_context(&com1_file);
+        if (_ready_file != nullptr)
+            sys::io_device_ready_context(_ready_file);
     }
 
     long uart16550::tty_speed(speed_t speed) {
@@ -574,6 +587,7 @@ namespace astia::dev {
                _ports.write8(reg_mcr, mcr_dtr | mcr_rts | mcr_out2);
     }
 
+#ifndef ASTIA_UART16550_HOST_TEST
     bool uart16550::init_irq() {
         if (!_irq.claim(uart16550_irq_handler)) {
             return false;
@@ -585,6 +599,7 @@ namespace astia::dev {
         if (fs::register_device(console_path, mm::shptr<fs::file>::borrowed(&com1_file)) <
             0)
             return false;
+        _ready_file = &com1_file;
         if (!register_console(console_path, &com1))
             return false;
         if (!_ports.write8(reg_ier, ier_rx_ready))  // data-ready interrupts on
@@ -659,5 +674,6 @@ namespace astia::dev {
             com1.polled_putc(*text++);
         }
     }
+#endif
 
 } // namespace astia::dev

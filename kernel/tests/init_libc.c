@@ -776,6 +776,65 @@ static void* libc_rwlock_foreign_unlock_worker(void* opaque) {
     return (void*) (unsigned long) pthread_rwlock_unlock(lock);
 }
 
+static int libc_tcflush_contract(void) {
+    int            master;
+    int            slave;
+    char           slave_name[64];
+    char           result[8];
+    struct termios raw;
+
+    master = posix_openpt(O_RDWR | O_NOCTTY);
+    if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0 ||
+        ptsname_r(master, slave_name, sizeof slave_name) != 0)
+        return 28;
+    slave = open(slave_name, O_RDWR | O_NOCTTY);
+    if (slave < 0)
+        return 28;
+    if (tcgetattr(slave, &raw) != 0)
+        return 28;
+    raw.c_iflag     = 0;
+    raw.c_oflag     = 0;
+    raw.c_lflag     = 0;
+    raw.c_cc[VMIN]  = 0;
+    raw.c_cc[VTIME] = 0;
+    if (tcsetattr(slave, TCSANOW, &raw) != 0)
+        return 28;
+    if (write(master, "old", 3) != 3 || tcflush(slave, TCIFLUSH) != 0)
+        return 28;
+    if (read(slave, result, sizeof result) != 0)
+        return 28;
+    if (write(master, "ok", 2) != 2 || read(slave, result, sizeof result) != 2 ||
+        result[0] != 'o' || result[1] != 'k')
+        return 28;
+    errno = 0;
+    if (tcflush(slave, TCOFLUSH) != -1 || errno != ENOSYS)
+        return 28;
+    errno = 0;
+    if (tcflush(slave, TCIOFLUSH) != -1 || errno != ENOSYS)
+        return 28;
+    errno = 0;
+    if (tcflush(slave, 99) != -1 || errno != EINVAL)
+        return 28;
+    if (!isatty(slave))
+        return 28;
+    {
+        int pipe_fds[2];
+        if (pipe(pipe_fds) != 0)
+            return 28;
+        errno = 0;
+        if (tcflush(pipe_fds[0], TCIFLUSH) != -1 || errno != ENOTTY)
+            return 28;
+        errno = 0;
+        if (tcflush(-1, TCIFLUSH) != -1 || errno != EBADF)
+            return 28;
+        if (close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
+            return 28;
+    }
+    if (close(slave) != 0 || close(master) != 0)
+        return 28;
+    return 0;
+}
+
 static int libc_zsh_io_contract(void) {
     char           tty_path[32];
     struct termios saved;
@@ -806,6 +865,12 @@ static int libc_zsh_io_contract(void) {
         return 2;
     errno = 0;
     if (ioctl(-1, TCGETS, &saved) != -1 || errno != EBADF)
+        return 2;
+    errno = 0;
+    if (isatty(pipe_fds[0]) != 0 || errno != ENOTTY)
+        return 2;
+    errno = 0;
+    if (isatty(-1) != 0 || errno != EBADF)
         return 2;
     if (close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
         return 2;
@@ -869,6 +934,18 @@ static int libc_zsh_io_contract(void) {
         return 10;
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != 0 ||
         tcsetattr(STDIN_FILENO, TCSANOW, &saved) != 0)
+        return 11;
+    errno = 0;
+    if (tcflush(STDIN_FILENO, TCIFLUSH) != 0)
+        return 11;
+    errno = 0;
+    if (tcsendbreak(STDIN_FILENO, 0) != -1 || errno != ENOSYS)
+        return 11;
+    errno = 0;
+    if (tcdrain(STDIN_FILENO) != -1 || errno != ENOSYS)
+        return 11;
+    errno = 0;
+    if (tcflow(STDIN_FILENO, 0) != -1 || errno != ENOSYS)
         return 11;
 
     if (pipe(pipe_fds) != 0)
@@ -944,6 +1021,8 @@ int main(int argc, char** argv) {
     }
     if (libc_zsh_io_contract() != 0)
         return 27;
+    if (libc_tcflush_contract() != 0)
+        return 28;
     /* 1: TLS.  errno is _Thread_local, reached at a negative %fs
        offset — only correct if the kernel loaded the thread pointer
        from the image's PT_TLS block. */

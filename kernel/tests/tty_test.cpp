@@ -506,6 +506,103 @@ ASTIA_TEST(tty_tcsetsf_flushes_pending_input) {
     ASTIA_CHECK(result[0] == '\n');
 }
 
+ASTIA_TEST(tty_tcflsh_discards_pending_input) {
+    test_tty tty;
+    set_termios(tty, 0, 0, 0);
+    tty.tty_receive('x');
+    int selector = TCIFLUSH;
+    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+    char result[8]{};
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 0);
+
+    tty.tty_receive('o');
+    tty.tty_receive('k');
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 2);
+    ASTIA_CHECK(result[0] == 'o' && result[1] == 'k');
+}
+
+ASTIA_TEST(tty_tcflsh_discards_partial_canonical_line_and_eof_state) {
+    test_tty tty;
+    set_termios(tty, 0, 0, ICANON);
+    tty.tty_receive('a');
+    tty.tty_receive('b');
+    int selector = TCIFLUSH;
+    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+    char result[8]{};
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 0);
+
+    tty.tty_receive('o');
+    tty.tty_receive('k');
+    tty.tty_receive('\n');
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 3);
+    ASTIA_CHECK(result[0] == 'o' && result[1] == 'k' && result[2] == '\n');
+
+    tty.tty_receive(astia::dev::tty_defaults::ctrl_d);
+    ASTIA_CHECK((tty.poll(POLLIN, 0) & POLLIN) != 0);
+    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+    ASTIA_CHECK((tty.poll(POLLIN, 0) & POLLIN) == 0);
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 0);
+}
+
+ASTIA_TEST(tty_termios_round_trip_and_validation) {
+    test_tty       tty;
+    struct termios next {};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &next, sizeof(next)) == 0);
+    next.c_iflag      = ICRNL | IXON | IGNCR;
+    next.c_oflag      = OPOST;
+    next.c_cflag      = CS7 | CREAD | PARENB;
+    next.c_lflag      = ISIG | ICANON | ECHO | ECHOE;
+    next.c_cc[VERASE] = 8;
+    next.c_cc[VKILL]  = 21;
+    next.c_cc[VMIN]   = 4;
+    next.c_cc[VTIME]  = 2;
+    next.c_ispeed = next.c_ospeed = B9600;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &next, sizeof(next)) == 0);
+
+    struct termios got {};
+    ASTIA_CHECK(tty.ioctl(TCGETS, &got, sizeof(got)) == 0);
+    ASTIA_CHECK(got.c_iflag == next.c_iflag && got.c_oflag == next.c_oflag &&
+                got.c_cflag == next.c_cflag && got.c_lflag == next.c_lflag);
+    ASTIA_CHECK(got.c_line == next.c_line && got.c_ispeed == next.c_ispeed &&
+                got.c_ospeed == next.c_ospeed);
+    for (astia::u32 i = 0; i < NCCS; ++i)
+        ASTIA_CHECK(got.c_cc[i] == next.c_cc[i]);
+
+    struct termios bad = next;
+    bad.c_line         = 1;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &bad, sizeof(bad)) == -EINVAL);
+    bad          = next;
+    bad.c_ospeed = B115200;
+    ASTIA_CHECK(tty.ioctl(TCSETS, &bad, sizeof(bad)) == -EINVAL);
+    ASTIA_CHECK(tty.ioctl(TCGETS, &got, sizeof(got)) == 0);
+    ASTIA_CHECK(got.c_line == next.c_line && got.c_ispeed == next.c_ispeed &&
+                got.c_ospeed == next.c_ospeed);
+}
+
+ASTIA_TEST(tty_rejects_invalid_ioctl_arguments_and_unknown_requests) {
+    test_tty       tty;
+    struct termios value {};
+    ASTIA_CHECK(tty.ioctl(TCGETS, nullptr, sizeof(value)) == -EINVAL);
+    ASTIA_CHECK(tty.ioctl(TCGETS, &value, sizeof(value) - 1) == -EINVAL);
+    ASTIA_CHECK(tty.ioctl(TCSETS, nullptr, sizeof(value)) == -EINVAL);
+    ASTIA_CHECK(tty.ioctl(TCSETSW, &value, sizeof(value) - 1) == -EINVAL);
+    ASTIA_CHECK(tty.ioctl(TCSETSF, nullptr, sizeof(value)) == -EINVAL);
+    ASTIA_CHECK(tty.ioctl(TIOCGWINSZ, nullptr, sizeof(struct winsize)) == -EINVAL);
+    ASTIA_CHECK(tty.ioctl(0x1234, nullptr, 0) == -ENOTTY);
+}
+
+ASTIA_TEST(tty_tcflsh_rejects_unsupported_and_invalid_requests) {
+    test_tty tty;
+    int      selector = TCOFLUSH;
+    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == -ENOSYS);
+    selector = TCIOFLUSH;
+    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == -ENOSYS);
+    selector = 99;
+    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == -EINVAL);
+    ASTIA_CHECK(tty.ioctl(TCFLSH, nullptr, sizeof(selector)) == -EINVAL);
+    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector) - 1) == -EINVAL);
+}
+
 ASTIA_TEST(tty_process_group_round_trip) {
     test_tty   tty;
     astia::i32 group = 42;

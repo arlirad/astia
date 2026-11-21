@@ -60,6 +60,8 @@ struct host_timespec {
    reads the host's TLS through __errno_location above, never ours. */
 #include "../src/file_port.h"
 
+#include <termios.h>
+
 #define O_RDONLY 0
 #define O_WRONLY 1
 #define O_RDWR 2
@@ -387,11 +389,44 @@ long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
     (void) out;
     return -ENOSYS;
 }
+static int host_is_tty(int fd) {
+    unsigned char storage[256];
+    return syscall(SYS_ioctl, fd, TCGETS, storage) == 0;
+}
+
 long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
-    (void) fd;
-    (void) request;
-    (void) arg;
     (void) length;
+    if (fd < 0)
+        return -EBADF;
+    if (request == TIOCGPGRP) {
+        if (arg == NULL)
+            return -EFAULT;
+        if (host_is_tty(fd)) {
+            *(int*) arg = 0;
+            return 0;
+        }
+        unsigned char storage[256];
+        return syscall(SYS_ioctl, fd, TCGETS, storage) < 0 ? -HOST_ERRNO : -ENOTTY;
+    }
+    if (request == TIOCGPTN || request == TIOCSPTLCK) {
+        if (arg == NULL)
+            return -EFAULT;
+        return syscall(SYS_ioctl, fd, request, arg) < 0 ? -HOST_ERRNO : 0;
+    }
+    if (request == TCFLSH) {
+        if (arg == NULL)
+            return -EFAULT;
+        const int selector = *(int*) arg;
+        if (!host_is_tty(fd)) {
+            unsigned char storage[256];
+            return syscall(SYS_ioctl, fd, TCGETS, storage) < 0 ? -HOST_ERRNO : -ENOTTY;
+        }
+        if (selector == TCIFLUSH)
+            return 0;
+        if (selector == TCOFLUSH || selector == TCIOFLUSH)
+            return -ENOSYS;
+        return -EINVAL;
+    }
     return -ENOSYS;
 }
 long __astia_fio_pipe(int fds[2]) {
