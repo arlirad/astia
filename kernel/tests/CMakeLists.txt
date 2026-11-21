@@ -62,7 +62,12 @@ function(astia_add_host_test name)
     target_include_directories(${name} PRIVATE ${_astia_test_includes})
     target_compile_options(${name} PRIVATE -fno-threadsafe-statics)
     astia_apply_host_sanitizers(${name})
-    add_test(NAME ${name} COMMAND ${name})
+    if (ASTIA_HOST_TEST_LAUNCHER)
+        add_test(NAME ${name} COMMAND ${ASTIA_HOST_TEST_LAUNCHER}
+                $<TARGET_FILE:${name}>)
+    else ()
+        add_test(NAME ${name} COMMAND ${name})
+    endif ()
     astia_add_test_label(${name} "sanitizer-host")
 endfunction()
 
@@ -663,8 +668,25 @@ set_source_files_properties(${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp
 # as pointers. Back a fixed mmap'd window with real memory (support/arena.cpp)
 # and inject symbols the allocator reserves. The addresses must match
 # astia_test::arena_base / kernel_image_size in support/arena.hpp.
+find_program(ASTIA_SETARCH setarch)
+if (NOT ASTIA_SETARCH)
+    message(FATAL_ERROR
+            "setarch is required to run fixed-arena host tests with ASLR disabled")
+endif ()
+execute_process(
+        COMMAND ${ASTIA_SETARCH} -R ${CMAKE_COMMAND} -E true
+        RESULT_VARIABLE ASTIA_SETARCH_RESULT
+        OUTPUT_QUIET ERROR_QUIET)
+if (NOT ASTIA_SETARCH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+            "setarch -R is unavailable; fixed-arena host tests require ASLR disabled")
+endif ()
+set(ASTIA_ARENA_TEST_LAUNCHER ${ASTIA_SETARCH} -R)
+
 function(astia_add_arena_test name)
+    set(ASTIA_HOST_TEST_LAUNCHER ${ASTIA_ARENA_TEST_LAUNCHER})
     astia_add_host_test(${name} ${ARGN})
+    unset(ASTIA_HOST_TEST_LAUNCHER)
     # The __kernel_* values are absolute; build non-PIE so the dynamic loader
     # does not add the load bias to them (which would move the bitmap far away).
     target_compile_options(${name} PRIVATE -fno-pie)
