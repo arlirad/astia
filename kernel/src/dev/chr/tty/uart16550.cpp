@@ -1,16 +1,17 @@
 #include "uart16550.hpp"
 
-#include "../../console.hpp"
-#include "../../device_file.hpp"
-#include "virtual_tty.hpp"
-#include "aio.hpp"
-#include "proc.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/memory.hpp>
+
+#include "../../console.hpp"
+#include "../../device_file.hpp"
+#include "aio.hpp"
+#include "proc.hpp"
+#include "virtual_tty.hpp"
 
 /*
  * COM1 (the classic 0x3F8 port pair), driven two ways — as a device
@@ -69,15 +70,15 @@ namespace astia::dev {
 
         // Tags are private to this boot selftest; completion order is not fixed.
         enum : u64 {
-            ring_tag_open           = 0xC0DE00,
-            ring_tag_read           = 0xC0DE01,
-            ring_tag_write          = 0xC0DE02,
-            ring_tag_collect        = 0xC0DE03,
-            ring_tag_close          = 0xC0DE04,
-            ring_tag_dup            = 0xC0DE05,
-            ring_tag_dup2           = 0xC0DE06,
-            ring_tag_alias_close    = 0xC0DE07,
-            ring_tag_repeated_read  = 0xC0DE08,
+            ring_tag_open            = 0xC0DE00,
+            ring_tag_read            = 0xC0DE01,
+            ring_tag_write           = 0xC0DE02,
+            ring_tag_collect         = 0xC0DE03,
+            ring_tag_close           = 0xC0DE04,
+            ring_tag_dup             = 0xC0DE05,
+            ring_tag_dup2            = 0xC0DE06,
+            ring_tag_alias_close     = 0xC0DE07,
+            ring_tag_repeated_read   = 0xC0DE08,
             ring_tag_canonical_read  = 0xC0DE09,
             ring_tag_canonical_write = 0xC0DE0A,
         };
@@ -99,8 +100,8 @@ namespace astia::dev {
         // .init_array needs.  constinit enforces static initialization
         // while retaining writable RX state and cursors.
 #ifndef ASTIA_UART16550_HOST_TEST
-        constinit uart16550 com1{"tts0", uart16550_platform_pio, uart16550_platform_irq,
-                                  uart16550_base};
+        constinit uart16550   com1{"tts0", uart16550_platform_pio, uart16550_platform_irq,
+                                 uart16550_base};
         constinit device_file com1_file{&com1};
 
         void uart16550_irq_handler() {
@@ -257,8 +258,8 @@ namespace astia::dev {
             // Reap by tag: completion order is not an ABI promise.
             long first_read_count  = -1;
             long first_write_count = -1;
-            for (u32 wait = 0; wait < 100000 &&
-                                (first_read_count < 0 || first_write_count < 0);
+            for (u32 wait = 0;
+                 wait < 100000 && (first_read_count < 0 || first_write_count < 0);
                  ++wait) {
                 while (astia_cqe* c = astia_cq_peek(ring)) {
                     if (c->user_data == ring_tag_read)
@@ -368,16 +369,16 @@ namespace astia::dev {
                 return "canonical mismatch";
 
             termios raw_repeated_termios{};
-            if (com1.ioctl(TCGETS, &raw_repeated_termios,
-                           sizeof(raw_repeated_termios)) < 0)
+            if (com1.ioctl(TCGETS, &raw_repeated_termios, sizeof(raw_repeated_termios)) <
+                0)
                 return "termios setup failed";
-            raw_repeated_termios.c_iflag = 0;
-            raw_repeated_termios.c_oflag = 0;
-            raw_repeated_termios.c_lflag = 0;
-            raw_repeated_termios.c_cc[VMIN] = 1;
+            raw_repeated_termios.c_iflag     = 0;
+            raw_repeated_termios.c_oflag     = 0;
+            raw_repeated_termios.c_lflag     = 0;
+            raw_repeated_termios.c_cc[VMIN]  = 1;
             raw_repeated_termios.c_cc[VTIME] = 0;
-            if (com1.ioctl(TCSETS, &raw_repeated_termios,
-                           sizeof(raw_repeated_termios)) < 0)
+            if (com1.ioctl(TCSETS, &raw_repeated_termios, sizeof(raw_repeated_termios)) <
+                0)
                 return "termios setup failed";
             com1.drain_rx();
             char repeated_bytes[repeated_payload_len]{};
@@ -500,15 +501,15 @@ namespace astia::dev {
     void uart16550::irq() {
         const auto ier = _ports.read8(reg_ier);
         const auto lsr = _ports.read8(reg_lsr);
-        const bool tx_ready = ier && lsr && (ier.value & ier_tx_empty) != 0 &&
-                              (lsr.value & lsr_thre) != 0;
+        const bool tx_ready =
+            ier && lsr && (ier.value & ier_tx_empty) != 0 && (lsr.value & lsr_thre) != 0;
         rx_drain();
         if (tx_ready && _ready_file != nullptr)
             sys::io_device_ready_context(_ready_file);
     }
 
     bool uart16550::loopback(bool on) {
-        const u8 mcr    = mcr_dtr | mcr_rts | mcr_out2;
+        const u8 mcr = mcr_dtr | mcr_rts | mcr_out2;
         return _ports.write8(reg_mcr, on ? static_cast<u8>(mcr | mcr_loopback) : mcr);
     }
 
@@ -580,9 +581,9 @@ namespace astia::dev {
     bool uart16550::init_uart() {
         return _ports.write8(reg_ier, 0x00) &&     // interrupts off during bring-up
                _ports.write8(reg_lcr, lcr_dlab) && // divisor latch on
-               _ports.write8(reg_data, 0x01) &&     // divisor low byte: 1 -> 115200
-               _ports.write8(reg_ier, 0x00) &&     // divisor high byte (IER shares the latch)
-               _ports.write8(reg_lcr, lcr_8n1) &&  // 8N1, latch off
+               _ports.write8(reg_data, 0x01) &&    // divisor low byte: 1 -> 115200
+               _ports.write8(reg_ier, 0x00) && // divisor high byte (IER shares the latch)
+               _ports.write8(reg_lcr, lcr_8n1) && // 8N1, latch off
                _ports.write8(reg_fcr, fcr_enable) &&
                _ports.write8(reg_mcr, mcr_dtr | mcr_rts | mcr_out2);
     }
@@ -602,7 +603,7 @@ namespace astia::dev {
         _ready_file = &com1_file;
         if (!register_console(console_path, &com1))
             return false;
-        if (!_ports.write8(reg_ier, ier_rx_ready))  // data-ready interrupts on
+        if (!_ports.write8(reg_ier, ier_rx_ready)) // data-ready interrupts on
             return false;
         return _irq.unmask();
     }
@@ -618,7 +619,7 @@ namespace astia::dev {
     bool uart16550_ring_selftest() {
         console_puts("astia: uart16550 ring: start\n");
 
-        struct termios saved_termios{};
+        struct termios saved_termios {};
         if (com1.ioctl(TCGETS, &saved_termios, sizeof(saved_termios)) < 0)
             return false;
         struct termios raw_termios = saved_termios;

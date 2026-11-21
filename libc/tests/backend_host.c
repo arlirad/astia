@@ -216,21 +216,21 @@ long __astia_fio_stat(const char* path, void* out, uint32_t length) {
     rc = syscall(SYS_newfstatat, -100, path, &hs, 0);
     if (rc < 0)
         return -HOST_ERRNO;
-    *st = (astia_stat) {(uint64_t) hs.dev,
-                        (uint64_t) hs.ino,
-                        (uint64_t) hs.size,
-                        (uint64_t) hs.blocks,
-                        (uint32_t) hs.mode,
-                        (uint32_t) hs.nlink,
-                        hs.uid,
-                        hs.gid,
-                        hs.atime,
-                        hs.atime_nsec,
-                        hs.mtime,
-                        hs.mtime_nsec,
-                        hs.ctime,
-                        hs.ctime_nsec,
-                        {0, 0, 0, 0}};
+    *st = (astia_stat){(uint64_t) hs.dev,
+                       (uint64_t) hs.ino,
+                       (uint64_t) hs.size,
+                       (uint64_t) hs.blocks,
+                       (uint32_t) hs.mode,
+                       (uint32_t) hs.nlink,
+                       hs.uid,
+                       hs.gid,
+                       hs.atime,
+                       hs.atime_nsec,
+                       hs.mtime,
+                       hs.mtime_nsec,
+                       hs.ctime,
+                       hs.ctime_nsec,
+                       {0, 0, 0, 0}};
     return 0;
 }
 long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length,
@@ -241,21 +241,21 @@ long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length,
         return -EINVAL;
     if (syscall(SYS_newfstatat, dirfd, path, &hs, flags) < 0)
         return -HOST_ERRNO;
-    *st = (astia_stat) {(uint64_t) hs.dev,
-                        (uint64_t) hs.ino,
-                        (uint64_t) hs.size,
-                        (uint64_t) hs.blocks,
-                        (uint32_t) hs.mode,
-                        (uint32_t) hs.nlink,
-                        hs.uid,
-                        hs.gid,
-                        hs.atime,
-                        hs.atime_nsec,
-                        hs.mtime,
-                        hs.mtime_nsec,
-                        hs.ctime,
-                        hs.ctime_nsec,
-                        {0, 0, 0, 0}};
+    *st = (astia_stat){(uint64_t) hs.dev,
+                       (uint64_t) hs.ino,
+                       (uint64_t) hs.size,
+                       (uint64_t) hs.blocks,
+                       (uint32_t) hs.mode,
+                       (uint32_t) hs.nlink,
+                       hs.uid,
+                       hs.gid,
+                       hs.atime,
+                       hs.atime_nsec,
+                       hs.mtime,
+                       hs.mtime_nsec,
+                       hs.ctime,
+                       hs.ctime_nsec,
+                       {0, 0, 0, 0}};
     return 0;
 }
 long __astia_fio_lstat(const char* path, void* out, uint32_t length) {
@@ -265,21 +265,21 @@ long __astia_fio_lstat(const char* path, void* out, uint32_t length) {
         return -EINVAL;
     if (syscall(SYS_newfstatat, -100, path, &hs, 0x100) < 0)
         return -HOST_ERRNO;
-    *st = (astia_stat) {(uint64_t) hs.dev,
-                        (uint64_t) hs.ino,
-                        (uint64_t) hs.size,
-                        (uint64_t) hs.blocks,
-                        (uint32_t) hs.mode,
-                        (uint32_t) hs.nlink,
-                        hs.uid,
-                        hs.gid,
-                        hs.atime,
-                        hs.atime_nsec,
-                        hs.mtime,
-                        hs.mtime_nsec,
-                        hs.ctime,
-                        hs.ctime_nsec,
-                        {0, 0, 0, 0}};
+    *st = (astia_stat){(uint64_t) hs.dev,
+                       (uint64_t) hs.ino,
+                       (uint64_t) hs.size,
+                       (uint64_t) hs.blocks,
+                       (uint32_t) hs.mode,
+                       (uint32_t) hs.nlink,
+                       hs.uid,
+                       hs.gid,
+                       hs.atime,
+                       hs.atime_nsec,
+                       hs.mtime,
+                       hs.mtime_nsec,
+                       hs.ctime,
+                       hs.ctime_nsec,
+                       {0, 0, 0, 0}};
     return 0;
 }
 
@@ -290,21 +290,21 @@ long __astia_fio_fstat(int fd, void* out, uint32_t length) {
         return -EINVAL;
     if (syscall(SYS_fstat, fd, &hs) < 0)
         return -HOST_ERRNO;
-    *st = (astia_stat) {(uint64_t) hs.dev,
-                        (uint64_t) hs.ino,
-                        (uint64_t) hs.size,
-                        (uint64_t) hs.blocks,
-                        (uint32_t) hs.mode,
-                        (uint32_t) hs.nlink,
-                        hs.uid,
-                        hs.gid,
-                        hs.atime,
-                        hs.atime_nsec,
-                        hs.mtime,
-                        hs.mtime_nsec,
-                        hs.ctime,
-                        hs.ctime_nsec,
-                        {0, 0, 0, 0}};
+    *st = (astia_stat){(uint64_t) hs.dev,
+                       (uint64_t) hs.ino,
+                       (uint64_t) hs.size,
+                       (uint64_t) hs.blocks,
+                       (uint32_t) hs.mode,
+                       (uint32_t) hs.nlink,
+                       hs.uid,
+                       hs.gid,
+                       hs.atime,
+                       hs.atime_nsec,
+                       hs.mtime,
+                       hs.mtime_nsec,
+                       hs.ctime,
+                       hs.ctime_nsec,
+                       {0, 0, 0, 0}};
     return 0;
 }
 
@@ -449,8 +449,8 @@ long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
 long __astia_fio_sleep(uint64_t nanoseconds, uint64_t* remaining_nanoseconds) {
     struct host_timespec requested = {(long) (nanoseconds / 1000000000ull),
                                       (long) (nanoseconds % 1000000000ull)},
-                              remaining = {0, 0};
-    long rc = syscall(SYS_nanosleep, &requested, &remaining);
+                         remaining = {0, 0};
+    long rc                        = syscall(SYS_nanosleep, &requested, &remaining);
     if (rc < 0) {
         if (remaining_nanoseconds != NULL)
             *remaining_nanoseconds = (uint64_t) remaining.tv_sec * 1000000000ull +

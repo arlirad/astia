@@ -1,7 +1,8 @@
+#include <astia/arch/cpu.hpp>
+
 #include "../src/proc/proc.hpp"
 #include "chr/tty.hpp"
 #include "support/test.hpp"
-#include <astia/arch/cpu.hpp>
 
 #include <poll.h>
 #include <string>

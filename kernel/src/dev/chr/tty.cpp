@@ -1,8 +1,9 @@
 #include "tty.hpp"
 
-#include "../../proc/proc.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+
+#include "../../proc/proc.hpp"
 
 // Host-side tty unit tests link this device in isolation.  The real kernel
 // supplies these from proc.cpp; weak declarations preserve that small test
