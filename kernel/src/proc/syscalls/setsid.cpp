@@ -17,10 +17,10 @@ namespace astia::proc::syscalls {
     /// Errors:
     ///     -EPERM: The caller is already a process-group leader.
     ///     -ESRCH: There is no current process.
-    struct setsid : sys::syscall_handler<setsid, sys::syscall_id::setsid,
-                                         sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::setsid>(context);
+    struct setsid
+        : sys::syscall_handler<setsid, sys::syscall_id::setsid, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::setsid>(context);
         }
     };
 

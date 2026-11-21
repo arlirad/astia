@@ -3,10 +3,10 @@
 #include <syscall.hpp>
 
 namespace astia::proc::syscalls {
-    struct setuid : sys::syscall_handler<setuid, sys::syscall_id::setuid,
-                                         sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::setuid>(context);
+    struct setuid
+        : sys::syscall_handler<setuid, sys::syscall_id::setuid, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::setuid>(context);
         }
     };
 

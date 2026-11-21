@@ -38,9 +38,9 @@ namespace astia::proc::syscalls {
     ///     -EAGAIN: A process, thread, mapping, or registry slot cannot be allocated.
     ///     -ESRCH: There is no current user process.
     struct fork
-        : sys::syscall_handler<fork, sys::syscall_id::fork, sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::fork>(context);
+        : sys::syscall_handler<fork, sys::syscall_id::fork, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::fork>(context);
         }
     };
 

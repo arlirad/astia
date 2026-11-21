@@ -4,9 +4,9 @@
 
 namespace astia::proc::syscalls {
     struct setrlimit : sys::syscall_handler<setrlimit, sys::syscall_id::setrlimit,
-                                            sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::setrlimit>(context);
+                                            sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::setrlimit>(context);
         }
     };
 

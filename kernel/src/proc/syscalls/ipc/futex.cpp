@@ -66,9 +66,9 @@ namespace astia::proc::syscalls {
     ///     -EINVAL: The operation is unknown.
     ///     -ETIMEDOUT: The absolute CLOCK_MONOTONIC timeout elapsed.
     struct futex
-        : sys::syscall_handler<futex, sys::syscall_id::futex, sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::futex>(context);
+        : sys::syscall_handler<futex, sys::syscall_id::futex, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::futex>(context);
         }
     };
 

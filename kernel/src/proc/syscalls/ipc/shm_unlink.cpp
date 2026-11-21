@@ -4,9 +4,9 @@
 
 namespace astia::proc::syscalls {
     struct shm_unlink : sys::syscall_handler<shm_unlink, sys::syscall_id::shm_unlink,
-                                             sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::shm_unlink>(context);
+                                             sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::shm_unlink>(context);
         }
     };
 

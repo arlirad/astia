@@ -62,9 +62,9 @@ namespace astia::proc::syscalls {
     ///     -EINTR: A signal interrupted the suspended thread.
     ///     -ESRCH: There is no current process or thread.
     struct sigsuspend : sys::syscall_handler<sigsuspend, sys::syscall_id::sigsuspend,
-                                             sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::sigsuspend>(context);
+                                             sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::sigsuspend>(context);
         }
     };
 

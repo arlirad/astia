@@ -74,9 +74,9 @@ namespace astia::proc::syscalls {
     /// Errors:
     ///     -EFAULT: The saved context or its registers are invalid.
     struct sigreturn : sys::syscall_handler<sigreturn, sys::syscall_id::sigreturn,
-                                            sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::sigreturn>(context);
+                                            sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::sigreturn>(context);
         }
     };
 

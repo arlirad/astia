@@ -17,10 +17,9 @@ namespace astia::proc::syscall {
 namespace astia::proc::syscalls {
     struct process_snapshot
         : sys::syscall_handler<process_snapshot, sys::syscall_id::process_snapshot,
-                               sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::process_snapshot>(
-                context);
+                               sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::process_snapshot>(context);
         }
     };
 

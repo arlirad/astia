@@ -63,9 +63,9 @@ namespace astia::proc::syscalls {
     ///     -EINVAL: The thread is detached, already joined, or is the caller.
     ///     -ESRCH: The thread does not exist.
     struct thread_join : sys::syscall_handler<thread_join, sys::syscall_id::thread_join,
-                                              sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::thread_join>(context);
+                                              sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::thread_join>(context);
         }
     };
 

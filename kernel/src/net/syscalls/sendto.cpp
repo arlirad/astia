@@ -2,9 +2,9 @@
 
 namespace astia::net::syscalls {
     struct sendto : sys::syscall_handler<sendto, static_cast<sys::syscall_id>(78),
-                                         sys::syscall_mode::async> {
-        static core::task<i64> invoke([[maybe_unused]] sys::syscall_context& context) {
-            co_return -ENOSYS;
+                                         sys::syscall_mode::sync> {
+        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+            return -ENOSYS;
         }
     };
 

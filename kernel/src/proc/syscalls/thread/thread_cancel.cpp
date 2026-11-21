@@ -26,9 +26,9 @@ namespace astia::proc::syscall {
 namespace astia::proc::syscalls {
     struct thread_cancel
         : sys::syscall_handler<thread_cancel, sys::syscall_id::thread_cancel,
-                               sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::thread_cancel>(context);
+                               sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::thread_cancel>(context);
         }
     };
 

@@ -4,9 +4,9 @@
 
 namespace astia::proc::syscalls {
     struct getegid : sys::syscall_handler<getegid, sys::syscall_id::getegid,
-                                          sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::getegid>(context);
+                                          sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::getegid>(context);
         }
     };
 

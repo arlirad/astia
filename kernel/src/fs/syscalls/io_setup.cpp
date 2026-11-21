@@ -50,9 +50,9 @@ namespace astia::fs::syscalls {
     ///     and SETUP_IOPOLL are not accepted.
     ///
     struct io_setup : sys::syscall_handler<io_setup, sys::syscall_id::io_setup,
-                                           sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::fs::syscall::io_setup>(context);
+                                           sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::fs::syscall::io_setup>(context);
         }
     };
 

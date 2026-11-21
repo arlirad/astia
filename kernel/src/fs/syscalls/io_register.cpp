@@ -36,9 +36,9 @@ namespace astia::fs::syscalls {
     ///     No registration opcode, pointer, count, or ring is currently
     ///     validated because the handler returns -ENOSYS before using them.
     struct io_register : sys::syscall_handler<io_register, sys::syscall_id::io_register,
-                                              sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::fs::syscall::io_register>(context);
+                                              sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::fs::syscall::io_register>(context);
         }
     };
 

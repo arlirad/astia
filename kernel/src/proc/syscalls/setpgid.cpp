@@ -38,9 +38,9 @@ namespace astia::proc::syscalls {
     ///     -EPERM: The target is a session leader.
     ///     -ESRCH: The target process does not exist.
     struct setpgid : sys::syscall_handler<setpgid, sys::syscall_id::setpgid,
-                                          sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::setpgid>(context);
+                                          sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::setpgid>(context);
         }
     };
 

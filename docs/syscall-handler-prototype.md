@@ -6,7 +6,11 @@ architecture-independent dispatcher. A handler derives from the mode-last
 template `sys::syscall_handler<Impl, syscall_id, syscall_mode>`. `sync`
 implementations return `i64`; `async` implementations return
 `core::task<i64>`. Separate CRTP specializations enforce these contracts at
-compile time, so dispatch contains no runtime mode branch. Descriptor sets
+compile time, so dispatch contains no runtime mode branch. The production
+handlers use sync mode: their syscall entry points return `i64`, including
+operations that wait through the established syscall-continuation mechanism.
+No production task wrapper is labeled async unless its handler actually
+implements the task contract. Descriptor sets
 reject duplicate and out-of-range IDs at compile time; unhandled numbers
 return `-ENOSYS`.
 
@@ -17,8 +21,8 @@ ABI syscall number. Files are grouped under their owning subsystem (`fs`, `mm`,
 ```cpp
 struct getpid
     : sys::syscall_handler<getpid, sys::syscall_id::getpid,
-                           sys::syscall_mode::async> {
-    static core::task<i64> invoke(sys::syscall_context& context);
+                           sys::syscall_mode::sync> {
+    static i64 invoke(sys::syscall_context& context);
 };
 ```
 

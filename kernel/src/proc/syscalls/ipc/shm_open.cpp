@@ -4,9 +4,9 @@
 
 namespace astia::proc::syscalls {
     struct shm_open : sys::syscall_handler<shm_open, sys::syscall_id::shm_open,
-                                           sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::shm_open>(context);
+                                           sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::shm_open>(context);
         }
     };
 

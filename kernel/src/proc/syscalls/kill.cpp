@@ -92,9 +92,9 @@ namespace astia::proc::syscalls {
     ///     -EINVAL: signal or target identifier is malformed.
     ///     -ESRCH: no matching live process or process group exists.
     struct kill
-        : sys::syscall_handler<kill, sys::syscall_id::kill, sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::kill>(context);
+        : sys::syscall_handler<kill, sys::syscall_id::kill, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::kill>(context);
         }
     };
 

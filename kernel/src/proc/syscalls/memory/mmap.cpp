@@ -88,9 +88,9 @@ namespace astia::proc::syscalls {
     ///     invalid. -ENOMEM: The address space or physical backing cannot be allocated.
     ///     -ENOSYS: The requested mapping mode is not implemented.
     struct mmap
-        : sys::syscall_handler<mmap, sys::syscall_id::mmap, sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::mmap>(context);
+        : sys::syscall_handler<mmap, sys::syscall_id::mmap, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::mmap>(context);
         }
     };
 

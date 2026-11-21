@@ -47,9 +47,9 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct thread_create
         : sys::syscall_handler<thread_create, sys::syscall_id::thread_create,
-                               sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::thread_create>(context);
+                               sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::thread_create>(context);
         }
     };
 

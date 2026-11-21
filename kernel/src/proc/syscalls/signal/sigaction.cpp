@@ -97,9 +97,9 @@ namespace astia::proc::syscalls {
     ///     -EINVAL: The signal is invalid or cannot be caught.
     ///     -ESRCH: There is no current process.
     struct sigaction : sys::syscall_handler<sigaction, sys::syscall_id::sigaction,
-                                            sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::sigaction>(context);
+                                            sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::sigaction>(context);
         }
     };
 

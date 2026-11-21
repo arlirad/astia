@@ -19,10 +19,10 @@ namespace astia::proc::syscalls {
     ///
     /// Return Value:
     ///     The calling process ID.
-    struct getpid : sys::syscall_handler<getpid, sys::syscall_id::getpid,
-                                         sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::proc::syscall::getpid>(context);
+    struct getpid
+        : sys::syscall_handler<getpid, sys::syscall_id::getpid, sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::proc::syscall::getpid>(context);
         }
     };
 

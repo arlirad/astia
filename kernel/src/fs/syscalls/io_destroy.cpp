@@ -36,9 +36,9 @@ namespace astia::fs::syscalls {
     ///     operations retain their pinned buffers and descriptor references
     ///     until they complete, so they prevent destruction.
     struct io_destroy : sys::syscall_handler<io_destroy, sys::syscall_id::io_destroy,
-                                             sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::invoke_sync<&::astia::fs::syscall::io_destroy>(context);
+                                             sys::syscall_mode::sync> {
+        static i64 invoke(sys::syscall_context& context) {
+            return sys::invoke_sync<&::astia::fs::syscall::io_destroy>(context);
         }
     };
 
