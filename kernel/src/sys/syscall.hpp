@@ -176,13 +176,33 @@ namespace astia::sys {
         struct has_frame_prefix<First, Rest...>
             : is_frame_argument<std::remove_cvref_t<First>> {};
 
+        template <typename First, typename... Rest>
+        inline constexpr usize abi_argument_count =
+            sizeof...(Rest) +
+            (is_frame_argument<std::remove_cvref_t<First>>::value ? 0 : 1);
+
+        template <typename... Args>
+        struct valid_typed_arguments : std::false_type {};
+
+        template <>
+        struct valid_typed_arguments<> : std::true_type {};
+
+        template <typename First, typename... Rest>
+        struct valid_typed_arguments<First, Rest...>
+            : std::bool_constant<
+                  !std::is_same_v<std::remove_cvref_t<First>, syscall_context> &&
+                  (!is_frame_argument<std::remove_cvref_t<First>>::value ||
+                   std::is_same_v<First, const arch::syscall_frame&>) &&
+                  ((!std::is_same_v<std::remove_cvref_t<Rest>, syscall_context> &&
+                    !is_frame_argument<std::remove_cvref_t<Rest>>::value) &&
+                   ...) &&
+                  (abi_argument_count<First, Rest...> <= syscall_argument_count)> {};
+
         template <typename Fn>
         struct typed_sync_handler : std::false_type {};
 
         template <typename... Args>
-        struct typed_sync_handler<i64 (*)(Args...)>
-            : std::bool_constant<(
-                  !std::is_same_v<std::remove_cvref_t<Args>, syscall_context> && ...)> {};
+        struct typed_sync_handler<i64 (*)(Args...)> : valid_typed_arguments<Args...> {};
 
         template <typename... Args, usize... I>
         bool valid_arguments(const syscall_context& context, index_sequence<I...>) {

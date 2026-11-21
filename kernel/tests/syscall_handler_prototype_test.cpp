@@ -57,6 +57,24 @@ namespace {
         }
     };
 
+    struct string_probe
+        : astia::sys::syscall_handler<string_probe,
+                                      static_cast<astia::sys::syscall_id>(117),
+                                      astia::sys::syscall_mode::sync> {
+        static astia::i64 invoke(astia::sys::user_ptr<char> value) {
+            return value.null() ? -EFAULT : static_cast<astia::i64>(value.address());
+        }
+    };
+
+    struct array_probe
+        : astia::sys::syscall_handler<array_probe,
+                                      static_cast<astia::sys::syscall_id>(118),
+                                      astia::sys::syscall_mode::sync> {
+        static astia::i64 invoke(astia::sys::user_ptr<const astia::u32> values) {
+            return values.null() ? -EFAULT : static_cast<astia::i64>(values.address());
+        }
+    };
+
     struct wide_probe
         : astia::sys::syscall_handler<wide_probe,
                                       static_cast<astia::sys::syscall_id>(123),
@@ -95,6 +113,35 @@ namespace {
             co_return -EINTR;
         }
     };
+
+    using context_signature         = astia::i64 (*)(astia::sys::syscall_context&);
+    using misplaced_frame_signature = astia::i64 (*)(astia::i32,
+                                                     const astia::arch::syscall_frame&);
+    using frame_by_value_signature  = astia::i64 (*)(astia::arch::syscall_frame);
+    using over_arity_signature      = astia::i64 (*)(astia::i64, astia::i64, astia::i64,
+                                                astia::i64, astia::i64, astia::i64,
+                                                astia::i64);
+
+    static_assert(
+        astia::sys::detail::typed_sync_handler<decltype(&zero_probe::invoke)>::value);
+    static_assert(
+        astia::sys::detail::typed_sync_handler<decltype(&scalar_probe::invoke)>::value);
+    static_assert(
+        astia::sys::detail::typed_sync_handler<decltype(&wide_probe::invoke)>::value);
+    static_assert(
+        astia::sys::detail::typed_sync_handler<decltype(&pointer_probe::invoke)>::value);
+    static_assert(
+        astia::sys::detail::typed_sync_handler<decltype(&string_probe::invoke)>::value);
+    static_assert(
+        astia::sys::detail::typed_sync_handler<decltype(&array_probe::invoke)>::value);
+    static_assert(
+        astia::sys::detail::typed_sync_handler<decltype(&frame_probe::invoke)>::value);
+    static_assert(!astia::sys::detail::typed_sync_handler<context_signature>::value);
+    static_assert(
+        !astia::sys::detail::typed_sync_handler<misplaced_frame_signature>::value);
+    static_assert(
+        !astia::sys::detail::typed_sync_handler<frame_by_value_signature>::value);
+    static_assert(!astia::sys::detail::typed_sync_handler<over_arity_signature>::value);
 }
 
 ASTIA_TEST(syscall_mode_specializations_dispatch_sync_and_async_handlers) {
