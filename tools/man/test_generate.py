@@ -57,38 +57,45 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(
             synopses["sigsuspend"], "int sigsuspend(const sigset_t* mask);"
         )
+        self.assertEqual(
+            synopses["waitpid"],
+            "long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);",
+        )
+        self.assertEqual(generate.SOURCE_OVERRIDES["execve"], "libc/src/unistd.c")
+        self.assertEqual(
+            generate.SOURCE_OVERRIDES["waitpid"],
+            "kernel/include/astia/api/syscalls.h",
+        )
+        self.assertEqual(generate.CATEGORY_OVERRIDES["execve"], "proc/process")
+        self.assertEqual(generate.CATEGORY_OVERRIDES["waitpid"], "proc/process")
 
-    def test_normalize_synopsis_replaces_kernel_handler_signature(self):
+    def test_public_body_overrides_rewrite_execve_semantics(self):
+        sections = generate.body_sections(generate.PUBLIC_BODY_OVERRIDES["execve"])
+        returns = "\n".join(sections["RETURN VALUE"])
+        errors = "\n".join(sections["ERRORS"])
+        notes = "\n".join(sections["NOTES"])
+
+        self.assertIn("-1 and sets errno", returns)
+        self.assertNotIn("negative errno", returns)
+        self.assertTrue(any(line.strip().startswith("E2BIG:") for line in sections["ERRORS"]))
+        self.assertNotIn("-E2BIG", errors)
+        self.assertIn("libc/src/unistd.c", notes)
+        self.assertEqual(generate.error_entries("E2BIG: Too big.")[0][0], "E2BIG")
+
+    def test_waitpid_notes_identify_options_wrapper(self):
         body = (
             "Synopsis:\n"
-            "    long io_setup(uint32_t entries, uint32_t flags, astia_rings **out);\n\n"
-            "Description:\n"
-            "    Allocates a ring.\n"
+            "    long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);\n\n"
+            "Description:\n    Waits for a child.\n\n"
+            "Return Value:\n    Negative errno.\n\n"
+            "Notes:\n    Old notes."
         )
-        public = generate.normalize_synopsis(
-            body,
-            "long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);",
-            False,
-        )
+        notes = generate.PUBLIC_SECTION_OVERRIDES["waitpid"]["NOTES"]
+        body = generate.replace_section(body, "NOTES", notes)
+        sections = generate.body_sections(body)
 
-        self.assertIn("long astia_io_setup(", public)
-        self.assertNotIn("long io_setup(uint32_t entries", public)
-
-        raw = generate.normalize_synopsis(body, None, True)
-        self.assertIn("Raw kernel ABI", raw)
-        self.assertNotIn("long io_setup(", raw)
-
-        mount_body = (
-            "install a registered native filesystem at an existing directory.\n\n"
-            "All names are copied before authorization."
-        )
-        mount = generate.normalize_synopsis(
-            mount_body, "long astia_mount(const char* type, const char* target, const char* source);", False
-        )
-        sections = generate.body_sections(mount)
-        self.assertIn("astia_mount", "\n".join(sections["SYNOPSIS"]))
-        self.assertNotIn("install a registered", "\n".join(sections["SYNOPSIS"]))
-        self.assertIn("install a registered", "\n".join(sections["DESCRIPTION"]))
+        self.assertIn("astia_waitpid_options", "\n".join(sections["NOTES"]))
+        self.assertIn("translates that result to -1", "\n".join(sections["NOTES"]))
 
     def test_fallback_body_uses_public_synopsis_and_missing_detail_label(self):
         body = generate.fallback_body(

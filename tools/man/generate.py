@@ -21,6 +21,56 @@ def sentence(text: str) -> str:
             return text[:index] + char.upper() + text[index + 1:] + "."
     return text + "."
 
+PUBLIC_SYNOPSIS_OVERRIDES = {
+    "waitpid": "long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);",
+}
+
+SOURCE_OVERRIDES = {
+    "execve": "libc/src/unistd.c",
+    "waitpid": "kernel/include/astia/api/syscalls.h",
+}
+
+CATEGORY_OVERRIDES = {
+    "execve": "proc/process",
+    "waitpid": "proc/process",
+}
+
+PUBLIC_BODY_OVERRIDES = {
+    "execve": (
+        "Synopsis:\n"
+        "    int execve(const char* path, char* const argv[], char* const envp[]);\n\n"
+        "Description:\n"
+        "    Replaces the calling process image with the executable at path. The process ID, "
+        "process group, open descriptors, and working directory remain associated with the "
+        "process. The argument and environment vectors are copied before the image is "
+        "replaced.\n\n"
+        "Return Value:\n"
+        "    Does not return on success. On failure, returns -1 and sets errno.\n\n"
+        "Errors:\n"
+        "    E2BIG: The argument or environment vector exceeds its limit.\n"
+        "    EFAULT: A path, vector, or string pointer is invalid.\n"
+        "    ENOENT: The executable path does not exist.\n"
+        "    ENOEXEC: The file is not a loadable executable image.\n"
+        "    ENOMEM: The replacement image cannot be allocated.\n\n"
+        "Notes:\n"
+        "    Relative paths are resolved against the caller's working directory. The public "
+        "wrapper is implemented in libc/src/unistd.c; kernel failures are translated to -1 "
+        "and errno."
+    ),
+}
+
+PUBLIC_SECTION_OVERRIDES = {
+    "waitpid": {
+        "NOTES": (
+            "This page documents the public ABI wrapper astia_waitpid_options. It returns a "
+            "negative errno on failure. The libc waitpid() wrapper translates that result to -1 "
+            "and errno. A successful exit event is reaped. Stop and continuation notifications "
+            "are consumed but do not reap the child."
+        ),
+    },
+}
+
+
 ERROR_FALLBACKS = {
     "E2BIG": "the argument or environment list exceeds the supported limit",
     "EAGAIN": "a required resource is temporarily unavailable",
@@ -387,7 +437,7 @@ def body_sections(body: str) -> dict[str, list[str]]:
 
 
 def error_entries(content: str) -> list[tuple[str, str]] | None:
-    matches = list(re.finditer(r"(?<!\w)(-E[A-Z0-9]+)\s*:\s*", content))
+    matches = list(re.finditer(r"(?<!\w)(-?E[A-Z0-9]+)\s*:\s*", content))
     if not matches:
         return None
     entries = []
@@ -395,7 +445,7 @@ def error_entries(content: str) -> list[tuple[str, str]] | None:
         code = match.group(1)
         end = matches[index + 1].start() if index + 1 < len(matches) else len(content)
         reason = " ".join(content[match.end():end].split()).strip().rstrip(" .;")
-        reason = reason or ERROR_FALLBACKS.get(code[1:], "the operation failed")
+        reason = reason or ERROR_FALLBACKS.get(code.lstrip("-"), "the operation failed")
         entries.append((code, sentence(reason)))
     return entries
 
@@ -497,6 +547,7 @@ def libc_public_prototypes(libc_root: Path | None) -> dict[str, str]:
 def public_user_synopses(abi_header: Path, libc_root: Path | None) -> dict[str, str]:
     synopses = libc_public_prototypes(libc_root)
     synopses.update(public_abi_prototypes(abi_header))
+    synopses.update(PUBLIC_SYNOPSIS_OVERRIDES)
     return synopses
 
 
@@ -583,6 +634,36 @@ def normalize_synopsis(body: str, synopsis: str | None, raw_abi: bool) -> str:
     return "\n".join(output)
 
 
+def replace_section(body: str, heading: str, content: str) -> str:
+    display = {
+        "DESCRIPTION": "Description",
+        "RETURN VALUE": "Return Value",
+        "ERRORS": "Errors",
+        "NOTES": "Notes",
+    }.get(heading, heading.title())
+    lines = body.splitlines()
+    output = []
+    skipping = False
+    found = False
+    for line in lines:
+        if re.match(rf"^{re.escape(display)}:\s*", line):
+            output.append(f"{display}:")
+            output.extend(content.splitlines())
+            skipping = True
+            found = True
+            continue
+        if skipping:
+            if re.match(r"^(Synopsis|Description|Return Value|Errors|Notes|ABI):", line):
+                skipping = False
+            else:
+                continue
+        output.append(line)
+    if not found:
+        output.append(f"{display}:")
+        output.extend(content.splitlines())
+    return "\n".join(output)
+
+
 def fallback_body(name: str, synopsis: str | None) -> str:
     synopsis_block = f"Synopsis:\n    {synopsis}\n\n" if synopsis else ""
     synopsis_note = (
@@ -652,7 +733,9 @@ def export_section2(
                 "name": name,
                 "slug": slug,
                 "title": f"{name}(2)",
-                "category": group_for_source(source, source_root),
+                "category": CATEGORY_OVERRIDES.get(
+                    name, group_for_source(source, source_root)
+                ),
                 "source": source_path,
                 "markdown": markdown_name,
                 "synopsis_kind": "raw" if name in raw_synopses else "public",
@@ -790,6 +873,24 @@ def main() -> int:
             raw_synopses.add(name)
         body, group = pages[key]
         pages[key] = (normalize_synopsis(body, synopsis, synopsis is None), group)
+
+    repo_root = ROOT.parent.parent
+    for name, source_path in SOURCE_OVERRIDES.items():
+        key = (name, 2)
+        if key in pages:
+            page_sources[key] = repo_root / source_path
+    for name, overrides in PUBLIC_SECTION_OVERRIDES.items():
+        key = (name, 2)
+        if key not in pages:
+            continue
+        body, group = pages[key]
+        for heading, content in overrides.items():
+            body = replace_section(body, heading, content)
+        pages[key] = (body, group)
+    for name, body in PUBLIC_BODY_OVERRIDES.items():
+        key = (name, 2)
+        if key in pages:
+            pages[key] = (body, pages[key][1])
 
     docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
     overviews = overview_pages(docs_root)

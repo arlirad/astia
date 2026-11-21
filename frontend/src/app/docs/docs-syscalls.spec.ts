@@ -66,10 +66,26 @@ describe('Generated section-2 syscall docs', () => {
     expect(clockGetRes?.content).toContain('astia_clock_getres');
     expect(clockGetRes?.content).toContain('Detailed manual text has not been added');
 
+    const execve = SYSCALL_PAGES.find((page) => page.syscallId === 24);
+    expect(execve?.category).toBe('proc/process');
+    expect(execve?.source).toContain('libc/src/unistd.c');
+    expect(execve?.content).toContain('returns -1 and sets errno');
+    expect(execve?.content).not.toContain('negative errno');
+    expect(execve?.content).toContain('`E2BIG`');
+    expect(execve?.content).not.toContain('`-E2BIG`');
+
+    const waitpid = SYSCALL_PAGES.find((page) => page.syscallId === 13);
+    expect(waitpid?.category).toBe('proc/process');
+    expect(waitpid?.source).toContain('kernel/include/astia/api/syscalls.h');
+    expect(waitpid?.content).toContain(
+      'long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);',
+    );
+    expect(waitpid?.content).toContain('The libc waitpid() wrapper translates that result to -1');
+
     for (const page of SYSCALL_PAGES) {
       expect(page.category).toBeTruthy();
       expect(page.source).toMatch(
-        /^https:\/\/github\.com\/arlirad\/astia\/blob\/main\/(kernel\/src|kernel\/include)\//,
+        /^https:\/\/github\.com\/arlirad\/astia\/blob\/main\/(kernel\/src|kernel\/include|libc)\//,
       );
       expect(page.content).toContain('## DESCRIPTION');
       if (page.content.includes('Detailed manual text has not been added')) {
@@ -122,6 +138,9 @@ describe('Generated section-2 syscall docs', () => {
       'int execve(const char* path, char* const argv[], char* const envp[]);',
     );
     expect(exact(25)).toBe('int sigsuspend(const sigset_t* mask);');
+    expect(exact(13)).toBe(
+      'long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);',
+    );
   });
 
   it('renders a syscall page through the existing Markdown parser', async () => {
