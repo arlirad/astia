@@ -1,6 +1,9 @@
 import json
 import os
+import shutil
 import signal
+import socket
+import stat
 import sys
 import tempfile
 import unittest
@@ -372,7 +375,8 @@ class GenerateTest(unittest.TestCase):
 
                 (output / generate.MAN7_MANIFEST).unlink()
                 (output / generate.MAN7_MANIFEST).symlink_to(sentinel)
-                self.assertEqual(generate.read_owned_files(directory), set())
+                with self.assertRaises(ValueError):
+                    generate.read_owned_files(directory)
                 generate.write_man_manifest(directory, {"safe.2.html"})
 
             self.assertEqual(sentinel.read_text(), "sentinel")
@@ -429,20 +433,24 @@ class GenerateTest(unittest.TestCase):
             sentinel.write_text("sentinel")
 
             with generate.OutputDirectory.open(output, root) as directory:
+                self.assertIsNone(directory.read_manifest("manifest.json"))
                 manifest = output / "manifest.json"
                 manifest.symlink_to(sentinel)
-                self.assertIsNone(directory.read_text("manifest.json"))
+                with self.assertRaises(ValueError):
+                    directory.read_manifest("manifest.json")
 
                 manifest.unlink()
                 manifest.mkdir()
-                self.assertIsNone(directory.read_text("manifest.json"))
+                with self.assertRaises(ValueError):
+                    directory.read_manifest("manifest.json")
                 manifest.rmdir()
 
                 os.mkfifo(manifest)
                 previous_handler = signal.signal(signal.SIGALRM, timeout)
                 signal.setitimer(signal.ITIMER_REAL, 1)
                 try:
-                    self.assertIsNone(directory.read_text("manifest.json"))
+                    with self.assertRaises(ValueError):
+                        directory.read_manifest("manifest.json")
                 finally:
                     signal.setitimer(signal.ITIMER_REAL, 0)
                     signal.signal(signal.SIGALRM, previous_handler)
@@ -450,9 +458,242 @@ class GenerateTest(unittest.TestCase):
 
                 device = os.open("/dev/null", os.O_RDONLY)
                 with patch.object(generate.os, "open", return_value=device):
-                    self.assertIsNone(directory.read_text("manifest.json"))
+                    with self.assertRaises(ValueError):
+                        directory.read_manifest("manifest.json")
 
             self.assertEqual(sentinel.read_text(), "sentinel")
+
+    def _old_man_generation(self, root: Path) -> Path:
+        output = root / "man7"
+        with generate.TransactionalDirectory.begin(
+            output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+        ) as transaction:
+            transaction.output.write_atomic("index.html", "old index")
+            generate.write_man_manifest(transaction.output, {"index.html"})
+            transaction.commit()
+        return output
+
+    def test_transaction_rejects_special_manifest_entries(self):
+        cases = ("symlink", "directory", "fifo", "socket")
+        for kind in cases:
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    output = self._old_man_generation(root)
+                    outside = root / "outside"
+                    outside.mkdir()
+                    sentinel = outside / "sentinel.json"
+                    sentinel.write_text("sentinel")
+                    manifest = output / generate.MAN7_MANIFEST
+                    manifest.unlink()
+                    connection = None
+                    if kind == "symlink":
+                        manifest.symlink_to(sentinel)
+                    elif kind == "directory":
+                        manifest.mkdir()
+                    elif kind == "fifo":
+                        os.mkfifo(manifest)
+                    else:
+                        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        connection.bind(str(manifest))
+                    try:
+                        with self.assertRaises(ValueError):
+                            generate.TransactionalDirectory.begin(
+                                output,
+                                root,
+                                generate.MAN7_MANIFEST,
+                                generate.read_owned_files,
+                            )
+                        self.assertEqual((output / "index.html").read_text(), "old index")
+                        self.assertEqual(sentinel.read_text(), "sentinel")
+                        self.assertTrue((output / generate.MAN7_MANIFEST).exists())
+                        self.assertEqual(
+                            [path for path in root.iterdir() if path.name.startswith(".astia-stage-")],
+                            [],
+                        )
+                    finally:
+                        if connection is not None:
+                            connection.close()
+
+    def test_transaction_rejects_unpreservable_unowned_entries(self):
+        cases = ("socket", "device")
+        for kind in cases:
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    output = self._old_man_generation(root)
+                    connection = None
+                    if kind == "socket":
+                        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        connection.bind(str(output / "entry"))
+                        context = None
+                    else:
+                        (output / "entry").write_text("device placeholder")
+                        original_stat = generate.os.stat
+
+                        def fake_stat(path, *, dir_fd=None, follow_symlinks=True):
+                            if path == "entry":
+                                return os.stat_result(
+                                    (stat.S_IFCHR | 0o600, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                                )
+                            return original_stat(
+                                path, dir_fd=dir_fd, follow_symlinks=follow_symlinks
+                            )
+
+                        context = patch.object(generate.os, "stat", side_effect=fake_stat)
+                    try:
+                        if context is not None:
+                            with context, patch.object(
+                                generate.os, "link", side_effect=OSError("no device link")
+                            ):
+                                with self.assertRaises(ValueError):
+                                    generate.TransactionalDirectory.begin(
+                                        output,
+                                        root,
+                                        generate.MAN7_MANIFEST,
+                                        generate.read_owned_files,
+                                    )
+                        else:
+                            with self.assertRaises(ValueError):
+                                generate.TransactionalDirectory.begin(
+                                    output,
+                                    root,
+                                    generate.MAN7_MANIFEST,
+                                    generate.read_owned_files,
+                                )
+                        self.assertEqual((output / "index.html").read_text(), "old index")
+                        self.assertTrue((output / "entry").exists())
+                        self.assertEqual(
+                            [path for path in root.iterdir() if path.name.startswith(".astia-stage-")],
+                            [],
+                        )
+                    finally:
+                        if connection is not None:
+                            connection.close()
+
+    def test_transaction_preserves_active_directory_mode(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            previous_umask = os.umask(0o022)
+            try:
+                os.chmod(output, 0o700)
+                with generate.TransactionalDirectory.begin(
+                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                ) as transaction:
+                    transaction.output.write_atomic("index.html", "new index")
+                    generate.write_man_manifest(transaction.output, {"index.html"})
+                    transaction.commit()
+                self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
+            finally:
+                os.umask(previous_umask)
+
+    def test_copy_fallback_handles_short_writes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            payload = bytes(range(256)) * 4
+            (output / "payload.bin").write_bytes(payload)
+            writes = []
+            original_write = generate.os.write
+
+            def short_write(descriptor, data):
+                writes.append(len(data))
+                return original_write(descriptor, data[:3])
+
+            with patch.object(generate.os, "link", side_effect=OSError("no link")):
+                with patch.object(generate.os, "write", side_effect=short_write):
+                    with generate.TransactionalDirectory.begin(
+                        output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                    ) as transaction:
+                        transaction.output.write_atomic("index.html", "new index")
+                        generate.write_man_manifest(transaction.output, {"index.html"})
+                        transaction.commit()
+
+            self.assertGreater(len(writes), 1)
+            self.assertEqual((output / "payload.bin").read_bytes(), payload)
+            self.assertEqual((output / "index.html").read_text(), "new index")
+
+    def test_transaction_aborts_when_active_content_changes(self):
+        cases = ("added", "replaced")
+        for kind in cases:
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    output = self._old_man_generation(root)
+                    with self.assertRaises(RuntimeError):
+                        with generate.TransactionalDirectory.begin(
+                            output,
+                            root,
+                            generate.MAN7_MANIFEST,
+                            generate.read_owned_files,
+                        ) as transaction:
+                            transaction.output.write_atomic("index.html", "new index")
+                            generate.write_man_manifest(transaction.output, {"index.html"})
+                            if kind == "added":
+                                (output / "late.txt").write_text("late")
+                            else:
+                                (output / "index.html").write_text("externally changed")
+                            transaction.commit()
+                    if kind == "added":
+                        self.assertEqual((output / "late.txt").read_text(), "late")
+                        self.assertEqual((output / "index.html").read_text(), "old index")
+                    else:
+                        self.assertEqual(
+                            (output / "index.html").read_text(), "externally changed"
+                        )
+                    self.assertEqual(
+                        [path for path in root.iterdir() if path.name.startswith(".astia-stage-")],
+                        [],
+                    )
+
+    def test_transaction_ignores_post_activation_cleanup_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            with patch.object(
+                generate,
+                "remove_tree",
+                side_effect=OSError("deferred cleanup"),
+            ):
+                with generate.TransactionalDirectory.begin(
+                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                ) as transaction:
+                    transaction.output.write_atomic("index.html", "new index")
+                    generate.write_man_manifest(transaction.output, {"index.html"})
+                    transaction.commit()
+            self.assertEqual((output / "index.html").read_text(), "new index")
+            for path in root.iterdir():
+                if path.name.startswith(".astia-stage-"):
+                    shutil.rmtree(path)
+
+    def test_transaction_closes_directory_descriptors(self):
+        fd_root = Path("/proc/self/fd")
+        if not fd_root.is_dir():
+            self.skipTest("procfs is unavailable")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            before = len(list(fd_root.iterdir()))
+            for _ in range(3):
+                with generate.TransactionalDirectory.begin(
+                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                ) as transaction:
+                    transaction.output.write_atomic("index.html", "new index")
+                    generate.write_man_manifest(transaction.output, {"index.html"})
+                    transaction.commit()
+            manifest = output / generate.MAN7_MANIFEST
+            manifest.unlink()
+            manifest.symlink_to(root / "outside-fd")
+            with self.assertRaises(ValueError):
+                generate.TransactionalDirectory.begin(
+                    output,
+                    root,
+                    generate.MAN7_MANIFEST,
+                    generate.read_owned_files,
+                )
+            after = len(list(fd_root.iterdir()))
+            self.assertEqual(after, before)
 
     def test_export_cleanup_uses_manifest_ownership(self):
         with tempfile.TemporaryDirectory() as temporary:

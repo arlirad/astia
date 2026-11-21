@@ -901,6 +901,35 @@ class OutputDirectory:
                 os.close(descriptor)
 
 
+    def read_manifest(self, name: str) -> str | None:
+        validated_output_name(name)
+        try:
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
+                dir_fd=self._descriptor,
+            )
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise ValueError(
+                f"manifest is not a readable regular file: {name}"
+            ) from error
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError(f"manifest is not a regular file: {name}")
+            source = os.fdopen(descriptor, "r", encoding="utf-8")
+            descriptor = -1
+            with source:
+                return source.read()
+        except UnicodeDecodeError as error:
+            raise ValueError(f"manifest is not valid UTF-8: {name}") from error
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+
 def copy_unowned_entries(
     source: int,
     destination: int,
@@ -915,6 +944,7 @@ def copy_unowned_entries(
         info = os.stat(name, dir_fd=source, follow_symlinks=False)
         if stat.S_ISDIR(info.st_mode):
             os.mkdir(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
             child_source = os.open(
                 name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=source
             )
@@ -933,6 +963,10 @@ def copy_unowned_entries(
                 os.close(child_source)
                 os.close(child_destination)
         elif relative in owned:
+            if not (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
+                raise ValueError(
+                    f"owned output entry has an unsupported type: {relative}"
+                )
             continue
         elif stat.S_ISLNK(info.st_mode):
             os.symlink(os.readlink(name, dir_fd=source), name, dir_fd=destination)
@@ -958,20 +992,52 @@ def copy_unowned_entries(
                         block = os.read(source_fd, 65536)
                         if not block:
                             break
-                        os.write(destination_fd, block)
+                        offset = 0
+                        while offset < len(block):
+                            written = os.write(destination_fd, block[offset:])
+                            if written <= 0:
+                                raise OSError("short write while copying output")
+                            offset += written
+                    os.fchmod(destination_fd, stat.S_IMODE(info.st_mode))
                     os.fsync(destination_fd)
                 finally:
                     os.close(source_fd)
                     os.close(destination_fd)
         elif stat.S_ISFIFO(info.st_mode):
             os.mkfifo(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+        elif stat.S_ISCHR(info.st_mode) or stat.S_ISBLK(info.st_mode):
+            try:
+                os.link(
+                    name,
+                    name,
+                    src_dir_fd=source,
+                    dst_dir_fd=destination,
+                    follow_symlinks=False,
+                )
+            except OSError as error:
+                raise ValueError(
+                    f"cannot preserve device node: {relative}"
+                ) from error
+        else:
+            raise ValueError(
+                f"cannot preserve unsupported filesystem entry: {relative}"
+            )
 
 
 def remove_tree(parent: int, name: str) -> None:
     info = os.stat(name, dir_fd=parent, follow_symlinks=False)
     if not stat.S_ISDIR(info.st_mode):
-        os.unlink(name, dir_fd=parent)
-        return
+        if (
+            stat.S_ISREG(info.st_mode)
+            or stat.S_ISLNK(info.st_mode)
+            or stat.S_ISFIFO(info.st_mode)
+            or stat.S_ISCHR(info.st_mode)
+            or stat.S_ISBLK(info.st_mode)
+        ):
+            os.unlink(name, dir_fd=parent)
+            return
+        raise OSError(errno.EPERM, f"refusing to remove unsupported entry: {name}")
     descriptor = os.open(
         name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent
     )
@@ -1021,20 +1087,47 @@ def rename_noreplace(parent: int, first: str, second: str) -> None:
     renameat2(parent, first, second, RENAME_NOREPLACE)
 
 
+def directory_snapshot(directory: int, prefix: str = "") -> dict[str, tuple]:
+    snapshot: dict[str, tuple] = {}
+    for name in os.listdir(directory):
+        relative = f"{prefix}/{name}" if prefix else name
+        info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        snapshot[relative] = (
+            info.st_dev,
+            info.st_ino,
+            info.st_mode,
+            info.st_size,
+            info.st_mtime_ns,
+        )
+        if stat.S_ISDIR(info.st_mode):
+            child = os.open(
+                name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+            )
+            try:
+                snapshot.update(directory_snapshot(child, relative))
+            finally:
+                os.close(child)
+    return snapshot
+
+
 class TransactionalDirectory:
     def __init__(
         self,
         path: Path,
         parent: int,
         active_name: str,
+        active: int,
         active_info: os.stat_result | None,
+        active_snapshot: dict[str, tuple],
         staging_name: str,
         staging: int,
     ):
         self.path = path
         self._parent = parent
         self._active_name = active_name
+        self._active = active
         self._active_info = active_info
+        self._active_snapshot = active_snapshot
         self._staging_name = staging_name
         self._staging = staging
         self._committed = False
@@ -1051,11 +1144,12 @@ class TransactionalDirectory:
         path = Path(os.path.abspath(output_dir))
         validated_output_name(path.name)
         parent = open_directory_chain(path.parent, trusted_root)
-        active: int | None = None
-        staging: int | None = None
+        active = -1
+        staging = -1
         staging_name = ""
         try:
             active_info = None
+            active_snapshot: dict[str, tuple] = {}
             try:
                 active = os.open(
                     path.name,
@@ -1063,8 +1157,9 @@ class TransactionalDirectory:
                     dir_fd=parent,
                 )
                 active_info = os.fstat(active)
+                active_snapshot = directory_snapshot(active)
             except FileNotFoundError:
-                pass
+                active = -1
             except OSError as error:
                 raise ValueError(
                     f"output directory is a symlink or not a directory: {output_dir}"
@@ -1078,12 +1173,18 @@ class TransactionalDirectory:
                     continue
             else:
                 raise OSError("cannot allocate a staging directory")
+            if active_info is not None:
+                os.chmod(
+                    staging_name,
+                    stat.S_IMODE(active_info.st_mode),
+                    dir_fd=parent,
+                )
             staging = os.open(
                 staging_name,
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                 dir_fd=parent,
             )
-            if active is not None:
+            if active >= 0:
                 current = OutputDirectory(path, active, owns_descriptor=False)
                 owned = owned_reader(current)
                 copy_unowned_entries(active, staging, owned, manifest_name)
@@ -1091,14 +1192,16 @@ class TransactionalDirectory:
                 path,
                 parent,
                 path.name,
+                active,
                 active_info,
+                active_snapshot,
                 staging_name,
                 staging,
             )
         except BaseException:
-            if staging is not None:
+            if staging >= 0:
                 os.close(staging)
-            if active is not None:
+            if active >= 0:
                 os.close(active)
             if staging_name:
                 try:
@@ -1115,6 +1218,9 @@ class TransactionalDirectory:
         if self._staging >= 0:
             os.close(self._staging)
             self._staging = -1
+        if self._active >= 0:
+            os.close(self._active)
+            self._active = -1
         if not self._committed and self._staging_name:
             try:
                 remove_tree(self._parent, self._staging_name)
@@ -1133,12 +1239,28 @@ class TransactionalDirectory:
             return self._active_info is None
         return self._active_info is not None and same_inode(info, self._active_info)
 
+    def _close_active(self) -> None:
+        if self._active >= 0:
+            os.close(self._active)
+            self._active = -1
+
     def commit(self) -> None:
         self.output.sync()
         os.close(self._staging)
         self._staging = -1
         if not self._active_matches():
             raise RuntimeError("output directory changed during publication")
+        if self._active >= 0:
+            try:
+                current_snapshot = directory_snapshot(self._active)
+            except OSError as error:
+                raise RuntimeError(
+                    "output directory content changed during publication"
+                ) from error
+            if current_snapshot != self._active_snapshot:
+                raise RuntimeError(
+                    "output directory content changed during publication"
+                )
         if self._active_info is None:
             rename_noreplace(self._parent, self._staging_name, self._active_name)
             self._committed = True
@@ -1150,18 +1272,19 @@ class TransactionalDirectory:
             )
             self._committed = True
             try:
+                self._close_active()
+            except OSError:
+                pass
+            try:
                 old_info = os.stat(
                     self._staging_name,
                     dir_fd=self._parent,
                     follow_symlinks=False,
                 )
-            except FileNotFoundError:
-                old_info = None
-            if old_info is not None and same_inode(old_info, self._active_info):
-                try:
+                if old_info is not None and same_inode(old_info, self._active_info):
                     remove_tree(self._parent, self._staging_name)
-                except OSError:
-                    pass
+            except OSError:
+                pass
         try:
             os.fsync(self._parent)
         except OSError:
@@ -1204,7 +1327,7 @@ def export_section2(
         export_dir,
         root,
         "manifest.json",
-        lambda output: stale_generated_assets(output.read_text("manifest.json")),
+        lambda output: stale_generated_assets(output.read_manifest("manifest.json")),
     ) as transaction:
         output = transaction.output
         records = []
@@ -1291,7 +1414,7 @@ MAN7_MANIFEST = ".astia-man7-manifest.json"
 
 
 def read_owned_files(output: OutputDirectory) -> set[str]:
-    text = output.read_text(MAN7_MANIFEST)
+    text = output.read_manifest(MAN7_MANIFEST)
     if text is None:
         return set()
     try:

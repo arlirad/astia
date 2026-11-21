@@ -131,6 +131,32 @@ level-one heading is the page title. Inline backtick code is escaped and
 rendered as `<code>`; other inline Markdown is not interpreted. Use `--docs
 PATH` to generate from another overview-document directory.
 
+## Publication safety
+
+The generator validates that its output directory is lexically inside the
+repository root and opens every path component with directory-relative,
+no-follow operations. It stages a complete generation in a private sibling
+directory, fsyncs the staged files and manifest, then activates the tree with
+one Linux `renameat2` operation:
+
+- existing generation: `RENAME_EXCHANGE`
+- first generation: `RENAME_NOREPLACE`
+
+The active generation is not modified before activation. If staging or
+activation fails, the previous manifest and pages remain active. The retired
+generation is removed only after activation succeeds; cleanup errors are
+deferred and do not turn a successful activation into a failure.
+
+The man7 tree and the section-2 export tree are separate per-tree
+transactions, not one invocation-wide atomic transaction. The frontend reads
+the section-2 export only after the generator process exits successfully.
+
+`renameat2` directory exchange requires Linux and a filesystem that supports
+it for sibling directories on the same filesystem, such as ext4, XFS, Btrfs,
+or tmpfs. The output directory, including its staging sibling, must remain
+inside the repository root.
+
+
 The index must never mix section 2 and section 3 links in a top-level manual
 section or subsystem group. Every section 2 page links as `<name>.2.html` and
 is titled `<name>(2)`; every section 3 page links as `<name>.3.html` and is
@@ -177,10 +203,10 @@ The Arbiter site configuration is:
 After changing documentation, verify:
 
 ```bash
-python3 tools/man/generate.py kernel/src /tmp/astia-man7 --docs docs
-grep -R "<h2>" /tmp/astia-man7/index.html
-find /tmp/astia-man7 -name '*.7.html' -print
-test "$(find /tmp/astia-man7 -maxdepth 1 -name '*.7.html' | wc -l)" -eq 7
+python3 tools/man/generate.py kernel/src dist/man7 --docs docs
+grep -R "<h2>" dist/man7/index.html
+find dist/man7 -name '*.7.html' -print
+test "$(find dist/man7 -maxdepth 1 -name '*.7.html' | wc -l)" -eq 7
 curl -fsS https://arlia.nodivia.pl/kill.html
 ```
 
