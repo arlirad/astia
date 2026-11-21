@@ -4,6 +4,13 @@ import { DocsBrowser } from './docs-browser';
 
 const SYSCALL_PAGES = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
 
+const synopsisOf = (page: (typeof SYSCALL_PAGES)[number]): string => {
+  const match = page.content.match(
+    /## SYNOPSIS\s+(?:```c\n([\s\S]*?)\n```|([^\n]+))/,
+  );
+  return (match?.[1] ?? match?.[2] ?? '').trim();
+};
+
 describe('Generated section-2 syscall docs', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -74,6 +81,49 @@ describe('Generated section-2 syscall docs', () => {
     }
   });
 
+  it('uses public ABI or explicitly raw synopses for all 70 pages', () => {
+    for (const page of SYSCALL_PAGES) {
+      expect(page.synopsisKind).toBeTruthy();
+      const synopsis = synopsisOf(page);
+      if (page.synopsisKind === 'raw') {
+        expect(synopsis).toContain('Raw kernel ABI');
+        expect(synopsis).not.toContain('astia_');
+        expect(synopsis).not.toContain('long ');
+      } else {
+        expect(synopsis).toMatch(/^(long astia_|int |void astia_)/);
+        expect(synopsis.endsWith(';')).toBeTrue();
+        expect(synopsis).not.toMatch(/\b(?:i64|u64|u32|i32)\b/);
+      }
+    }
+
+    expect(
+      SYSCALL_PAGES.filter((page) => page.synopsisKind === 'raw').map(
+        (page) => page.title,
+      ),
+    ).toEqual(['sigreturn(2)']);
+
+    const exact = (id: number) =>
+      synopsisOf(SYSCALL_PAGES.find((page) => page.syscallId === id)!);
+
+    expect(exact(0)).toBe(
+      'long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);',
+    );
+    expect(exact(46)).toBe('long astia_unmount(const char* target);');
+    expect(exact(7)).toBe(
+      'long astia_clock_gettime(uint32_t clock_id, astia_timespec* out);',
+    );
+    expect(exact(62)).toBe(
+      'long astia_clock_getres(uint32_t clock_id, astia_timespec* out);',
+    );
+    expect(exact(50)).toBe(
+      'long astia_sigwait(const uint32_t* set, int32_t* signal);',
+    );
+    expect(exact(24)).toBe(
+      'int execve(const char* path, char* const argv[], char* const envp[]);',
+    );
+    expect(exact(25)).toBe('int sigsuspend(const sigset_t* mask);');
+  });
+
   it('renders a syscall page through the existing Markdown parser', async () => {
     const fixture = TestBed.createComponent(DocsBrowser);
     fixture.componentRef.setInput('pages', DOC_PAGES);
@@ -89,7 +139,7 @@ describe('Generated section-2 syscall docs', () => {
     expect(element.querySelector('.docs-page-title')?.textContent).toContain('io_setup(2)');
     expect(headings).toContain('SYNOPSIS');
     expect(element.querySelector('.doc-markdown pre code')?.textContent).toContain(
-      'long io_setup',
+      'long astia_io_setup',
     );
     expect(element.querySelector('.docs-source')?.getAttribute('href')).toContain(
       'kernel/src/fs/syscalls/io_setup.hpp',

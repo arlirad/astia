@@ -5,6 +5,14 @@
   gap: 1rem;
 }
 
+.docs-browser:not(.has-page) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.docs-browser:not(.has-page) .docs-main {
+  display: none;
+}
+
 .docs-index {
   position: sticky;
   top: 80px;
@@ -125,41 +133,6 @@
   background: var(--surface-2);
 }
 
-.docs-welcome h3 {
-  margin: 0.5rem 0;
-  font-size: 1.5rem;
-  font-weight: 300;
-}
-
-.docs-welcome p {
-  max-width: 60ch;
-  margin: 0;
-  color: #ccc;
-  font-size: 0.9375rem;
-}
-
-.docs-welcome-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  margin: 1.5rem 0 0;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
-}
-
-.docs-welcome-stats dt {
-  color: #999;
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.docs-welcome-stats dd {
-  margin: 0.25rem 0 0;
-  color: var(--text);
-  font-size: 1rem;
-}
-
 .docs-page-title {
   margin: 1rem 0;
   font-size: 1.75rem;
@@ -266,10 +239,6 @@
 }
 
 @media (max-width: 560px) {
-  .docs-welcome-stats {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .docs-pager {
     flex-direction: column;
   }

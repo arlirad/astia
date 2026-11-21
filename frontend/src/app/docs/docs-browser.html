@@ -57,6 +57,9 @@
           @if (page.syscallId !== undefined) {
             <span class="tag">ID {{ page.syscallId }}</span>
           }
+          @if (page.synopsisKind === 'raw') {
+            <span class="tag tag-experimental">Raw ABI</span>
+          }
           <a
             class="docs-source"
             [href]="page.source"
@@ -96,23 +99,6 @@
           }
         </nav>
       </article>
-    } @else {
-      <div class="docs-welcome">
-        <p class="eyebrow">Repository docs</p>
-        <h3>Browse the Astia documentation.</h3>
-        <p>
-          Select a page from the index. The bundled text comes from the repository Markdown
-          sources, and each page links to its GitHub source.
-        </p>
-        <dl class="docs-welcome-stats">
-          @for (group of filteredGroups(); track group.name) {
-            <div>
-              <dt>{{ group.name }}</dt>
-              <dd>{{ group.pages.length }} pages</dd>
-            </div>
-          }
-        </dl>
-      </div>
     }
   </div>
 </div>

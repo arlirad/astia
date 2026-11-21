@@ -405,7 +405,9 @@ def markdown_content(content: str) -> str:
     return "\n".join(line[4:] if line.startswith("    ") else line for line in lines).strip()
 
 
-def render_syscall_markdown(name: str, body: str, section: int) -> str:
+def render_syscall_markdown(
+    name: str, body: str, section: int, raw_abi: bool = False
+) -> str:
     values = body_sections(body)
 
     def content_for(key: str) -> str:
@@ -413,7 +415,14 @@ def render_syscall_markdown(name: str, body: str, section: int) -> str:
 
     parts = [f"# {name}({section})"]
     synopsis = content_for("SYNOPSIS")
-    if synopsis:
+    if raw_abi:
+        parts.extend(
+            [
+                "## SYNOPSIS",
+                "Raw kernel ABI. No public C wrapper declaration is provided for this syscall.",
+            ]
+        )
+    elif synopsis:
         parts.extend(["## SYNOPSIS", f"```c\n{synopsis}\n```"])
     description = content_for("DESCRIPTION")
     if description:
@@ -467,6 +476,30 @@ def public_abi_prototypes(abi_header: Path) -> dict[str, str]:
     return prototypes
 
 
+def libc_public_prototypes(libc_root: Path | None) -> dict[str, str]:
+    if libc_root is None:
+        return {}
+    include_root = libc_root / "include"
+    if not include_root.is_dir():
+        return {}
+    prototypes: dict[str, str] = {}
+    pattern = re.compile(
+        r"^\s*((?:int|long|ssize_t|pid_t|uid_t|gid_t|void)\s+[^;{}]*?"
+        r"\b([a-z_][a-z0-9_]*)\s*\([^;{}]*\))\s*;",
+        re.M | re.S,
+    )
+    for path in sorted(include_root.rglob("*.h")):
+        for match in pattern.finditer(path.read_text(errors="ignore")):
+            prototypes[match.group(2)] = " ".join(match.group(1).split()) + ";"
+    return prototypes
+
+
+def public_user_synopses(abi_header: Path, libc_root: Path | None) -> dict[str, str]:
+    synopses = libc_public_prototypes(libc_root)
+    synopses.update(public_abi_prototypes(abi_header))
+    return synopses
+
+
 def build_source_index(source_root: Path) -> dict[str, list[Path]]:
     index: dict[str, list[Path]] = {}
     pattern = re.compile(r"\b(?:i64|long|int)\s+([a-z_][a-z0-9_]*)\s*\(")
@@ -509,6 +542,47 @@ def group_for_source(source: Path | None, source_root: Path) -> str:
     return root
 
 
+def normalize_synopsis(body: str, synopsis: str | None, raw_abi: bool) -> str:
+    lines = body.splitlines()
+    output = []
+    skipping = False
+    replaced = False
+    for line in lines:
+        if re.match(r"^Synopsis:\s*", line):
+            output.append("Synopsis:")
+            if synopsis:
+                output.append(f"    {synopsis}")
+            elif raw_abi:
+                output.append(
+                    "    Raw kernel ABI. No public C wrapper declaration is provided for this syscall."
+                )
+            skipping = True
+            replaced = True
+            continue
+        if skipping:
+            if re.match(r"^(Description|Return Value|Errors|Notes|ABI):", line):
+                skipping = False
+            else:
+                continue
+        output.append(line)
+    if not replaced:
+        prefix = ["Synopsis:"]
+        if synopsis:
+            prefix.append(f"    {synopsis}")
+        elif raw_abi:
+            prefix.append(
+                "    Raw kernel ABI. No public C wrapper declaration is provided for this syscall."
+            )
+        prefix.append("")
+        if not any(
+            re.match(r"^(Description|Return Value|Errors|Notes|ABI):", line)
+            for line in lines
+        ):
+            prefix.append("Description:")
+        output = prefix + output
+    return "\n".join(output)
+
+
 def fallback_body(name: str, synopsis: str | None) -> str:
     synopsis_block = f"Synopsis:\n    {synopsis}\n\n" if synopsis else ""
     synopsis_note = (
@@ -535,11 +609,27 @@ def export_section2(
     sources: dict[tuple[str, int], Path],
     source_root: Path,
     abi_header: Path,
+    raw_synopses: set[str] | None = None,
 ) -> None:
+    raw_synopses = raw_synopses or set()
     export_dir.mkdir(parents=True, exist_ok=True)
-    for old_markdown in export_dir.glob("*.md"):
-        old_markdown.unlink()
     manifest_path = export_dir / "manifest.json"
+    stale_assets: set[str] = set()
+    if manifest_path.exists():
+        try:
+            previous = json.loads(manifest_path.read_text())
+            for page in previous.get("pages", []):
+                name = page.get("markdown")
+                if (
+                    isinstance(name, str)
+                    and name.endswith(".md")
+                    and Path(name).name == name
+                ):
+                    stale_assets.add(name)
+        except (OSError, json.JSONDecodeError):
+            pass
+    for name in stale_assets:
+        (export_dir / name).unlink(missing_ok=True)
     if manifest_path.exists():
         manifest_path.unlink()
     repo_root = ROOT.parent.parent
@@ -549,7 +639,9 @@ def export_section2(
         source = sources.get((name, 2), abi_header)
         slug = f"syscall-{syscall_id}-{name.replace('_', '-')}"
         markdown_name = f"{slug}.md"
-        (export_dir / markdown_name).write_text(render_syscall_markdown(name, body, 2))
+        (export_dir / markdown_name).write_text(
+            render_syscall_markdown(name, body, 2, name in raw_synopses)
+        )
         try:
             source_path = source.resolve().relative_to(repo_root).as_posix()
         except ValueError:
@@ -563,6 +655,7 @@ def export_section2(
                 "category": group_for_source(source, source_root),
                 "source": source_path,
                 "markdown": markdown_name,
+                "synopsis_kind": "raw" if name in raw_synopses else "public",
             }
         )
     manifest = {"section": 2, "count": len(records), "pages": records}
@@ -670,14 +763,14 @@ def main() -> int:
         raise SystemExit(f"missing section-2 ABI header: {abi_header}")
     canonical = syscall_abi(abi_header)
     source_index = build_source_index(args.source)
-    abi_prototypes = public_abi_prototypes(abi_header)
+    public_synopses = public_user_synopses(abi_header, libc_root)
     for _, name in canonical:
         key = (name, 2)
         source = source_for(name, source_index)
         if key not in pages:
             effective_source = source or abi_header
             pages[key] = (
-                fallback_body(name, abi_prototypes.get(name)),
+                fallback_body(name, public_synopses.get(name)),
                 group_for_source(effective_source, args.source),
             )
             page_sources[key] = effective_source
@@ -685,9 +778,18 @@ def main() -> int:
             page_sources.setdefault(key, source or abi_header)
             if "System call handler for" in pages[key][0]:
                 pages[key] = (
-                    fallback_body(name, abi_prototypes.get(name)),
+                    fallback_body(name, public_synopses.get(name)),
                     pages[key][1],
                 )
+
+    raw_synopses: set[str] = set()
+    for _, name in canonical:
+        key = (name, 2)
+        synopsis = public_synopses.get(name)
+        if synopsis is None:
+            raw_synopses.add(name)
+        body, group = pages[key]
+        pages[key] = (normalize_synopsis(body, synopsis, synopsis is None), group)
 
     docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
     overviews = overview_pages(docs_root)
@@ -784,6 +886,7 @@ def main() -> int:
             page_sources,
             args.source,
             abi_header,
+            raw_synopses,
         )
     return 0
 

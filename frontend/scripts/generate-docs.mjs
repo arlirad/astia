@@ -188,6 +188,7 @@ const syscallPages = manifest.pages.map((entry) => {
     content,
     category: entry.category,
     syscallId: entry.id,
+    synopsisKind: entry.synopsis_kind,
   };
 });
 
@@ -206,6 +207,9 @@ const body = pages
     }
     if (page.syscallId !== undefined) {
       fields.push(`syscallId: ${page.syscallId}`);
+    }
+    if (page.synopsisKind) {
+      fields.push(`synopsisKind: ${JSON.stringify(page.synopsisKind)}`);
     }
     fields.push(`content: ${JSON.stringify(page.content)}`);
     return `  {

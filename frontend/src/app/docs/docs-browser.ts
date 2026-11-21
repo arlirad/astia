@@ -81,7 +81,7 @@ export class DocsBrowser {
     for (const page of this.pages()) {
       const searchable =
         `${page.title} ${page.group} ${page.category ?? ''} ${page.syscallId ?? ''} ` +
-        page.summary;
+        `${page.synopsisKind ?? ''} ${page.summary}`;
       if (query && !searchable.toLowerCase().includes(query)) {
         continue;
       }

@@ -9,4 +9,5 @@ export interface DocPage {
   readonly content: string;
   readonly category?: string;
   readonly syscallId?: number;
+  readonly synopsisKind?: 'public' | 'raw';
 }

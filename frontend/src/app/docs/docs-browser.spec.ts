@@ -53,6 +53,8 @@ describe('DocsBrowser', () => {
     expect(element.querySelectorAll('.docs-group').length).toBe(3);
     expect(element.querySelectorAll('.docs-index-link').length).toBe(PAGES.length);
     expect(element.querySelector('.docs-count')?.textContent).toContain('3 pages');
+    expect(element.querySelector('.docs-index')).toBeTruthy();
+    expect(element.querySelector('.docs-welcome')).toBeNull();
   });
 
   it('renders a deep-linked page from the selected slug input', () => {

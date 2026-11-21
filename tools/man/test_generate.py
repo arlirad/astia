@@ -6,6 +6,8 @@ from pathlib import Path
 
 TOOLS_MAN = Path(__file__).resolve().parent
 REPO_ROOT = TOOLS_MAN.parents[1]
+ABI_HEADER = REPO_ROOT / "kernel/include/astia/api/syscalls.h"
+LIBC_ROOT = REPO_ROOT / "libc"
 sys.path.insert(0, str(TOOLS_MAN))
 
 import generate
@@ -13,9 +15,7 @@ import generate
 
 class GenerateTest(unittest.TestCase):
     def test_public_abi_prototypes_are_c_syntax(self):
-        prototypes = generate.public_abi_prototypes(
-            REPO_ROOT / "kernel/include/astia/api/syscalls.h"
-        )
+        prototypes = generate.public_abi_prototypes(ABI_HEADER)
 
         self.assertEqual(
             prototypes["sigwait"],
@@ -28,6 +28,67 @@ class GenerateTest(unittest.TestCase):
         )
         for prototype in prototypes.values():
             self.assertTrue(prototype.endswith(";"))
+
+    def test_public_user_synopses_cover_all_canonical_ids(self):
+        canonical = generate.syscall_abi(ABI_HEADER)
+        synopses = generate.public_user_synopses(ABI_HEADER, LIBC_ROOT)
+        missing = [name for _, name in canonical if name not in synopses]
+
+        self.assertEqual(missing, ["sigreturn"])
+        self.assertEqual(
+            synopses["io_setup"],
+            "long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);",
+        )
+        self.assertEqual(
+            synopses["unmount"], "long astia_unmount(const char* target);"
+        )
+        self.assertEqual(
+            synopses["clock_gettime"],
+            "long astia_clock_gettime(uint32_t clock_id, astia_timespec* out);",
+        )
+        self.assertEqual(
+            synopses["clock_getres"],
+            "long astia_clock_getres(uint32_t clock_id, astia_timespec* out);",
+        )
+        self.assertEqual(
+            synopses["execve"],
+            "int execve(const char* path, char* const argv[], char* const envp[]);",
+        )
+        self.assertEqual(
+            synopses["sigsuspend"], "int sigsuspend(const sigset_t* mask);"
+        )
+
+    def test_normalize_synopsis_replaces_kernel_handler_signature(self):
+        body = (
+            "Synopsis:\n"
+            "    long io_setup(uint32_t entries, uint32_t flags, astia_rings **out);\n\n"
+            "Description:\n"
+            "    Allocates a ring.\n"
+        )
+        public = generate.normalize_synopsis(
+            body,
+            "long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);",
+            False,
+        )
+
+        self.assertIn("long astia_io_setup(", public)
+        self.assertNotIn("long io_setup(uint32_t entries", public)
+
+        raw = generate.normalize_synopsis(body, None, True)
+        self.assertIn("Raw kernel ABI", raw)
+        self.assertNotIn("long io_setup(", raw)
+
+        mount_body = (
+            "install a registered native filesystem at an existing directory.\n\n"
+            "All names are copied before authorization."
+        )
+        mount = generate.normalize_synopsis(
+            mount_body, "long astia_mount(const char* type, const char* target, const char* source);", False
+        )
+        sections = generate.body_sections(mount)
+        self.assertIn("astia_mount", "\n".join(sections["SYNOPSIS"]))
+        self.assertNotIn("install a registered", "\n".join(sections["SYNOPSIS"]))
+        self.assertIn("install a registered", "\n".join(sections["DESCRIPTION"]))
 
     def test_fallback_body_uses_public_synopsis_and_missing_detail_label(self):
         body = generate.fallback_body(
@@ -43,44 +104,51 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("Detailed manual text has not been added", body)
         self.assertNotIn("u64 set_ptr", body)
 
-    def test_export_removes_only_stale_generated_markdown(self):
+    def test_export_removes_only_previously_generated_markdown(self):
         with tempfile.TemporaryDirectory() as temporary:
             export_dir = Path(temporary) / "section2"
             export_dir.mkdir()
-            (export_dir / "stale.md").write_text("stale")
+            (export_dir / "notes.md").write_text("unrelated notes")
             (export_dir / "keep.txt").write_text("keep")
-            (export_dir / "manifest.json").write_text("{}")
-
-            pages = {
-                ("sigwait", 2): (
-                    generate.fallback_body(
-                        "sigwait",
-                        "long astia_sigwait(const uint32_t* set, int32_t* signal);",
-                    ),
-                    "proc/signal",
+            (export_dir / "syscall-0-old.md").write_text("stale generated")
+            (export_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "section": 2,
+                        "count": 1,
+                        "pages": [{"markdown": "syscall-0-old.md"}],
+                    }
                 )
+            )
+
+            canonical = [(index, f"fake_{index}") for index in range(70)]
+            pages = {
+                (name, 2): (
+                    generate.fallback_body(name, f"long astia_{name}(void);"),
+                    "proc",
+                )
+                for _, name in canonical
             }
-            sources = {
-                ("sigwait", 2): REPO_ROOT
-                / "kernel/src/proc/syscalls/signal/sigwait.cpp"
-            }
+            sources = {(name, 2): ABI_HEADER for _, name in canonical}
 
             generate.export_section2(
                 export_dir,
-                [(50, "sigwait")],
+                canonical,
                 pages,
                 sources,
                 REPO_ROOT / "kernel/src",
-                REPO_ROOT / "kernel/include/astia/api/syscalls.h",
+                ABI_HEADER,
             )
 
-            markdown = sorted(path.name for path in export_dir.glob("*.md"))
-            self.assertEqual(markdown, ["syscall-50-sigwait.md"])
-            self.assertFalse((export_dir / "stale.md").exists())
-            self.assertTrue((export_dir / "keep.txt").exists())
             manifest = json.loads((export_dir / "manifest.json").read_text())
-            self.assertEqual(manifest["count"], 1)
-            self.assertEqual(manifest["pages"][0]["source"], "kernel/src/proc/syscalls/signal/sigwait.cpp")
+            generated = {page["markdown"] for page in manifest["pages"]}
+            self.assertEqual(manifest["count"], 70)
+            self.assertEqual(len(generated), 70)
+            self.assertEqual(len(list(export_dir.glob("syscall-*.md"))), 70)
+            self.assertTrue(all((export_dir / name).exists() for name in generated))
+            self.assertTrue((export_dir / "notes.md").exists())
+            self.assertTrue((export_dir / "keep.txt").exists())
+            self.assertFalse((export_dir / "syscall-0-old.md").exists())
 
 
 if __name__ == "__main__":

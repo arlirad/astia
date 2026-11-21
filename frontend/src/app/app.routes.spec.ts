@@ -38,6 +38,14 @@ describe('Application routes', () => {
     expect(element.textContent).not.toContain(
       'Bundled from the repository Markdown sources.',
     );
+
+    const shell = element.querySelector('#documentation .shell');
+    const sectionHead = shell?.querySelector('.section-head');
+    const docsBrowser = shell?.querySelector('app-docs-browser');
+    expect(sectionHead?.nextElementSibling).toBe(docsBrowser);
+    expect(docsBrowser?.querySelector('.docs-index')).toBeTruthy();
+    expect(docsBrowser?.querySelector('.docs-welcome')).toBeNull();
+    expect(element.textContent).not.toContain('Browse the Astia documentation.');
   });
 
   it('renders a deep-linked documentation page', async () => {

@@ -225,7 +225,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_setup.hpp",
     category: "fs",
     syscallId: 0,
-    content: "# io_setup(2)\n\n## SYNOPSIS\n\n```c\nlong io_setup(uint32_t entries, uint32_t flags, astia_rings **out);\n```\n\n## DESCRIPTION\n\nCreate an asynchronous I/O ring.\n\nAllocates a ring owned by the calling process and stores its userspace\naddress in out. The requested submission capacity is rounded up to a\npower of two. The current implementation accepts 1 through 64\nentries and requires flags to be zero. The completion ring has\nmax(64, 2 * sq_entries) entries.\n\n## RETURN VALUE\n\nReturns zero and initializes *out on success. The returned ring\ncontains one shared submission and completion mapping. The SQ is\nsubmitted by publishing its tail and calling io_submit; CQEs are\nreaped by userspace by advancing the CQ head, without a syscall.\n\n## ERRORS\n\n- `-EFAULT`: The out pointer does not reference writable userspace memory.\n- `-EINVAL`: Entries is zero, entries is greater than 64, or flags contains a bit other than zero.\n- `-ENOMEM`: The kernel cannot create the userspace alias for the ring mapping.\n- `-ESRCH`: The caller has no address space in which the ring alias can be mapped.\n- `-ENFILE`: All four kernel ring slots are already in use.\n\n## NOTES\n\nUserspace owns the SQ tail and CQ head; the kernel owns the SQ head\nand CQ tail. One SQ producer and one CQ consumer are supported per\nring, so callers must serialize additional threads externally. The\ncurrent implementation reports FEAT_SINGLE_MMAP only; SETUP_SQPOLL\nand SETUP_IOPOLL are not accepted.\n",
+    synopsisKind: "public",
+    content: "# io_setup(2)\n\n## SYNOPSIS\n\n```c\nlong astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);\n```\n\n## DESCRIPTION\n\nCreate an asynchronous I/O ring.\n\nAllocates a ring owned by the calling process and stores its userspace\naddress in out. The requested submission capacity is rounded up to a\npower of two. The current implementation accepts 1 through 64\nentries and requires flags to be zero. The completion ring has\nmax(64, 2 * sq_entries) entries.\n\n## RETURN VALUE\n\nReturns zero and initializes *out on success. The returned ring\ncontains one shared submission and completion mapping. The SQ is\nsubmitted by publishing its tail and calling io_submit; CQEs are\nreaped by userspace by advancing the CQ head, without a syscall.\n\n## ERRORS\n\n- `-EFAULT`: The out pointer does not reference writable userspace memory.\n- `-EINVAL`: Entries is zero, entries is greater than 64, or flags contains a bit other than zero.\n- `-ENOMEM`: The kernel cannot create the userspace alias for the ring mapping.\n- `-ESRCH`: The caller has no address space in which the ring alias can be mapped.\n- `-ENFILE`: All four kernel ring slots are already in use.\n\n## NOTES\n\nUserspace owns the SQ tail and CQ head; the kernel owns the SQ head\nand CQ tail. One SQ producer and one CQ consumer are supported per\nring, so callers must serialize additional threads externally. The\ncurrent implementation reports FEAT_SINGLE_MMAP only; SETUP_SQPOLL\nand SETUP_IOPOLL are not accepted.\n",
   },
   {
     slug: "syscall-1-io-destroy",
@@ -235,7 +236,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_destroy.hpp",
     category: "fs",
     syscallId: 1,
-    content: "# io_destroy(2)\n\n## SYNOPSIS\n\n```c\nlong io_destroy(astia_rings *ring);\n```\n\n## DESCRIPTION\n\nDestroy an asynchronous I/O ring.\n\nReleases a ring owned by the calling process and removes its\nuserspace mapping. Completed parked operations are reclaimed before\nthe ring is checked for work still in flight.\n\n## RETURN VALUE\n\nReturns zero after the ring and its mapping are released. It does\nnot wait for operations that are still parked.\n\n## ERRORS\n\n- `-EINVAL`: Ring is null, is not a live ring, or is not the caller's ring.\n- `-EBUSY`: At least one operation is still parked and could later post a completion.\n\n## NOTES\n\nThe caller must stop submitting SQEs before destruction. CQEs already\nreaped by userspace have no further kernel-side ownership; parked\noperations retain their pinned buffers and descriptor references\nuntil they complete, so they prevent destruction.\n",
+    synopsisKind: "public",
+    content: "# io_destroy(2)\n\n## SYNOPSIS\n\n```c\nlong astia_io_destroy(astia_rings* ring);\n```\n\n## DESCRIPTION\n\nDestroy an asynchronous I/O ring.\n\nReleases a ring owned by the calling process and removes its\nuserspace mapping. Completed parked operations are reclaimed before\nthe ring is checked for work still in flight.\n\n## RETURN VALUE\n\nReturns zero after the ring and its mapping are released. It does\nnot wait for operations that are still parked.\n\n## ERRORS\n\n- `-EINVAL`: Ring is null, is not a live ring, or is not the caller's ring.\n- `-EBUSY`: At least one operation is still parked and could later post a completion.\n\n## NOTES\n\nThe caller must stop submitting SQEs before destruction. CQEs already\nreaped by userspace have no further kernel-side ownership; parked\noperations retain their pinned buffers and descriptor references\nuntil they complete, so they prevent destruction.\n",
   },
   {
     slug: "syscall-2-io-submit",
@@ -245,6 +247,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_submit.cpp",
     category: "fs",
     syscallId: 2,
+    synopsisKind: "public",
     content: "# io_submit(2)\n\n## SYNOPSIS\n\n```c\nlong astia_io_submit(astia_rings* ring, uint32_t to_submit);\n```\n\n## DESCRIPTION\n\nSystem call handler for `io_submit`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -255,7 +258,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_register.hpp",
     category: "fs",
     syscallId: 3,
-    content: "# io_register(2)\n\n## SYNOPSIS\n\n```c\nlong io_register(astia_rings *ring, uint32_t opcode,\n                 const void *ptr, uint32_t nr);\n```\n\n## DESCRIPTION\n\nRegister asynchronous I/O resources.\n\nRequests registration of resources for a ring. The ABI defines\nREG_FILES and REG_BUFFERS, with UNREG_FILES and UNREG_BUFFERS for\nremoval. REG_FILES takes an array of int32_t file descriptors;\nREG_BUFFERS takes an array of astia_reg_buf records containing an\naddress and byte length. Registered resources would be selected by\nSQF_FIXED_FILE and SQF_FIXED_BUF in SQEs.\n\n## RETURN VALUE\n\nThis syscall always fails because resource registration is not\nimplemented. It does not pin files or buffers and does not change\nthe ring.\n\n## ERRORS\n\n- `-ENOSYS`: The requested registration or unregistration operation is unsupported by the current kernel.\n\n## NOTES\n\nNo registration opcode, pointer, count, or ring is currently\nvalidated because the handler returns -ENOSYS before using them.\n",
+    synopsisKind: "public",
+    content: "# io_register(2)\n\n## SYNOPSIS\n\n```c\nlong astia_io_register(astia_rings* ring, uint32_t opcode, const void* ptr, uint32_t nr);\n```\n\n## DESCRIPTION\n\nRegister asynchronous I/O resources.\n\nRequests registration of resources for a ring. The ABI defines\nREG_FILES and REG_BUFFERS, with UNREG_FILES and UNREG_BUFFERS for\nremoval. REG_FILES takes an array of int32_t file descriptors;\nREG_BUFFERS takes an array of astia_reg_buf records containing an\naddress and byte length. Registered resources would be selected by\nSQF_FIXED_FILE and SQF_FIXED_BUF in SQEs.\n\n## RETURN VALUE\n\nThis syscall always fails because resource registration is not\nimplemented. It does not pin files or buffers and does not change\nthe ring.\n\n## ERRORS\n\n- `-ENOSYS`: The requested registration or unregistration operation is unsupported by the current kernel.\n\n## NOTES\n\nNo registration opcode, pointer, count, or ring is currently\nvalidated because the handler returns -ENOSYS before using them.\n",
   },
   {
     slug: "syscall-4-mmap",
@@ -265,7 +269,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/memory/mmap.hpp",
     category: "proc/memory",
     syscallId: 4,
-    content: "# mmap(2)\n\n## SYNOPSIS\n\n```c\nlong mmap(void *addr, long length, uint32_t prot, uint32_t flags, int fd, long\noffset);\n```\n\n## DESCRIPTION\n\nMap anonymous or file-backed memory.\n\nMaps a positive-length range into the calling process. Anonymous\nmappings require fd -1 and offset 0; file mappings require a valid\ndescriptor and non-negative offset.\n\n## RETURN VALUE\n\nReturns the mapped base address, or a negative errno.\n\n## ERRORS\n\n- `-EBADF`: The file descriptor is invalid for a file mapping.\n- `-EINVAL`: The length, offset, protection, flags, or anonymous sentinel is invalid.\n- `-ENOMEM`: The address space or physical backing cannot be allocated.\n- `-ENOSYS`: The requested mapping mode is not implemented.\n",
+    synopsisKind: "public",
+    content: "# mmap(2)\n\n## SYNOPSIS\n\n```c\nlong astia_mmap(void* addr, uint64_t len, uint32_t prot, uint32_t flags, int32_t fd, int64_t off);\n```\n\n## DESCRIPTION\n\nMap anonymous or file-backed memory.\n\nMaps a positive-length range into the calling process. Anonymous\nmappings require fd -1 and offset 0; file mappings require a valid\ndescriptor and non-negative offset.\n\n## RETURN VALUE\n\nReturns the mapped base address, or a negative errno.\n\n## ERRORS\n\n- `-EBADF`: The file descriptor is invalid for a file mapping.\n- `-EINVAL`: The length, offset, protection, flags, or anonymous sentinel is invalid.\n- `-ENOMEM`: The address space or physical backing cannot be allocated.\n- `-ENOSYS`: The requested mapping mode is not implemented.\n",
   },
   {
     slug: "syscall-5-munmap",
@@ -275,7 +280,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/memory/munmap.hpp",
     category: "proc/memory",
     syscallId: 5,
-    content: "# munmap(2)\n\n## SYNOPSIS\n\n```c\nlong munmap(void *addr, long length);\n```\n\n## DESCRIPTION\n\nRemove a mapped virtual range.\n\nRemoves mappings overlapping a positive-length virtual range. The\naddress space may split a mapping when only part is removed.\n\n## RETURN VALUE\n\nReturns zero on success or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: The length is not positive or the range is invalid.\n- `-ESRCH`: There is no current process.\n",
+    synopsisKind: "public",
+    content: "# munmap(2)\n\n## SYNOPSIS\n\n```c\nlong astia_munmap(void* addr, uint64_t len);\n```\n\n## DESCRIPTION\n\nRemove a mapped virtual range.\n\nRemoves mappings overlapping a positive-length virtual range. The\naddress space may split a mapping when only part is removed.\n\n## RETURN VALUE\n\nReturns zero on success or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: The length is not positive or the range is invalid.\n- `-ESRCH`: There is no current process.\n",
   },
   {
     slug: "syscall-6-mprotect",
@@ -285,7 +291,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/memory/mprotect.cpp",
     category: "proc/memory",
     syscallId: 6,
-    content: "# mprotect(2)\n\n## SYNOPSIS\n\n```c\nlong mprotect(void *addr, long length, uint32_t prot);\n```\n\n## DESCRIPTION\n\nValidates a requested protection change for a mapped virtual range. Astia does not currently implement page-permission changes.\n\n## RETURN VALUE\n\nReturns a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: The address, length, or protection value is invalid.\n- `-ENOSYS`: Protection changes are not implemented.\n\n## NOTES\n\nThe syscall number is reserved in the public ABI; mappings retain their creation-time permissions.\n",
+    synopsisKind: "public",
+    content: "# mprotect(2)\n\n## SYNOPSIS\n\n```c\nlong astia_mprotect(void* addr, uint64_t len, uint32_t prot);\n```\n\n## DESCRIPTION\n\nValidates a requested protection change for a mapped virtual range. Astia does not currently implement page-permission changes.\n\n## RETURN VALUE\n\nReturns a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: The address, length, or protection value is invalid.\n- `-ENOSYS`: Protection changes are not implemented.\n\n## NOTES\n\nThe syscall number is reserved in the public ABI; mappings retain their creation-time permissions.\n",
   },
   {
     slug: "syscall-7-clock-gettime",
@@ -295,7 +302,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/sys/time.cpp",
     category: "sys",
     syscallId: 7,
-    content: "# clock_gettime(2)\n\n## SYNOPSIS\n\n```c\nlong clock_gettime(int clock_id, timespec *out);\n```\n\n## DESCRIPTION\n\nReads a kernel clock into a userspace timespec.\n\n## RETURN VALUE\n\nReturns a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\n- `-EFAULT`: The output timespec pointer is not writable userspace memory.\n- `-EINVAL`: The clock ID is unsupported.\n\n## NOTES\n\nArguments enter through the direct syscall ABI; validation is performed before entering the owning subsystem.\n",
+    synopsisKind: "public",
+    content: "# clock_gettime(2)\n\n## SYNOPSIS\n\n```c\nlong astia_clock_gettime(uint32_t clock_id, astia_timespec* out);\n```\n\n## DESCRIPTION\n\nReads a kernel clock into a userspace timespec.\n\n## RETURN VALUE\n\nReturns a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\n- `-EFAULT`: The output timespec pointer is not writable userspace memory.\n- `-EINVAL`: The clock ID is unsupported.\n\n## NOTES\n\nArguments enter through the direct syscall ABI; validation is performed before entering the owning subsystem.\n",
   },
   {
     slug: "syscall-8-exit",
@@ -305,7 +313,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/exit.hpp",
     category: "proc/process",
     syscallId: 8,
-    content: "# exit(2)\n\n## SYNOPSIS\n\n```c\nlong exit(long status);\n```\n\n## DESCRIPTION\n\nterminate the calling thread.\n\n## RETURN VALUE\n\nDoes not return to the caller.\n",
+    synopsisKind: "public",
+    content: "# exit(2)\n\n## SYNOPSIS\n\n```c\nvoid astia_exit(int32_t status);\n```\n\n## DESCRIPTION\n\nterminate the calling thread.\n\n## RETURN VALUE\n\nDoes not return to the caller.\n",
   },
   {
     slug: "syscall-9-yield",
@@ -315,7 +324,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/yield.hpp",
     category: "proc/thread",
     syscallId: 9,
-    content: "# yield(2)\n\n## SYNOPSIS\n\n```c\nlong yield(void);\n```\n\n## DESCRIPTION\n\nYield the current scheduling turn.\n\nGives another runnable thread an opportunity to run. The caller\nremains runnable and may be selected again immediately.\n\n## RETURN VALUE\n\nReturns zero.\n",
+    synopsisKind: "public",
+    content: "# yield(2)\n\n## SYNOPSIS\n\n```c\nlong astia_yield(void);\n```\n\n## DESCRIPTION\n\nYield the current scheduling turn.\n\nGives another runnable thread an opportunity to run. The caller\nremains runnable and may be selected again immediately.\n\n## RETURN VALUE\n\nReturns zero.\n",
   },
   {
     slug: "syscall-10-getpid",
@@ -325,7 +335,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/getpid.hpp",
     category: "proc",
     syscallId: 10,
-    content: "# getpid(2)\n\n## SYNOPSIS\n\n```c\nlong getpid(void);\n```\n\n## DESCRIPTION\n\nreturn the calling process ID.\n\n## RETURN VALUE\n\nThe calling process ID.\n",
+    synopsisKind: "public",
+    content: "# getpid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getpid(void);\n```\n\n## DESCRIPTION\n\nreturn the calling process ID.\n\n## RETURN VALUE\n\nThe calling process ID.\n",
   },
   {
     slug: "syscall-11-gettid",
@@ -335,7 +346,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/gettid.hpp",
     category: "proc",
     syscallId: 11,
-    content: "# gettid(2)\n\n## SYNOPSIS\n\n```c\nlong gettid(void);\n```\n\n## DESCRIPTION\n\nreturn the calling thread ID.\n",
+    synopsisKind: "public",
+    content: "# gettid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_gettid(void);\n```\n\n## DESCRIPTION\n\nreturn the calling thread ID.\n",
   },
   {
     slug: "syscall-12-futex",
@@ -345,7 +357,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/ipc/futex.hpp",
     category: "proc/ipc",
     syscallId: 12,
-    content: "# futex(2)\n\n## SYNOPSIS\n\n```c\nlong futex(uint32_t *address, uint32_t operation, uint32_t value, const\ntimespec *timeout);\n```\n\n## DESCRIPTION\n\nWait on or wake a shared user word.\n\nFUTEX_WAIT blocks while the word equals value. FUTEX_WAKE wakes up\nup to value waiters. The private flag selects an address key owned\nby the calling process; without it, a MAP_SHARED backing key is used.\n\n## RETURN VALUE\n\nWait returns zero; wake returns the number of woken waiters.\n\n## ERRORS\n\n- `-EAGAIN`: The word no longer equals the expected value.\n- `-EFAULT`: The futex word is not accessible userspace memory.\n- `-EINVAL`: The operation is unknown.\n- `-ETIMEDOUT`: The absolute CLOCK_MONOTONIC timeout elapsed.\n",
+    synopsisKind: "public",
+    content: "# futex(2)\n\n## SYNOPSIS\n\n```c\nlong astia_futex(uint64_t* addr, uint32_t op, uint32_t val, const astia_timespec* timeout, uint32_t val2, void* addr2);\n```\n\n## DESCRIPTION\n\nWait on or wake a shared user word.\n\nFUTEX_WAIT blocks while the word equals value. FUTEX_WAKE wakes up\nup to value waiters. The private flag selects an address key owned\nby the calling process; without it, a MAP_SHARED backing key is used.\n\n## RETURN VALUE\n\nWait returns zero; wake returns the number of woken waiters.\n\n## ERRORS\n\n- `-EAGAIN`: The word no longer equals the expected value.\n- `-EFAULT`: The futex word is not accessible userspace memory.\n- `-EINVAL`: The operation is unknown.\n- `-ETIMEDOUT`: The absolute CLOCK_MONOTONIC timeout elapsed.\n",
   },
   {
     slug: "syscall-13-waitpid",
@@ -355,7 +368,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/waitpid.hpp",
     category: "proc/process",
     syscallId: 13,
-    content: "# waitpid(2)\n\n## SYNOPSIS\n\n```c\nlong waitpid(int pid, int *status, uint32_t options);\n```\n\n## DESCRIPTION\n\nSelects a child by positive PID, any child with −1, the caller's process group with zero, or a specified process group with a negative PID. It blocks until a selected child exits, stops when WUNTRACED is set, or reports a pending continuation when WCONTINUED is set. WNOHANG returns zero when no selected event is ready.\n\n## RETURN VALUE\n\nReturns the selected child PID, zero only for WNOHANG with no ready event, or a negative errno. On exit, status uses the traditional layout: signal termination is signal & 0177, normal exit is (exit_status & 0377) << 8, stopped status is (stop_signal << 8) | 0177, and continuation is 0xffff.\n\n## ERRORS\n\n- `-EFAULT`: Status is non‑null but not writable userspace memory.\n- `-ECHILD`: The caller has no matching child.\n- `-EINVAL`: Pid selects an invalid process or group identifier, or options contains an unknown bit.\n- `-ESRCH`: There is no current process or thread.\n\n## NOTES\n\nA successful exit event is reaped. Stop and continuation notifications are consumed but do not reap the child.\n",
+    synopsisKind: "public",
+    content: "# waitpid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_waitpid(int32_t pid, int32_t* status);\n```\n\n## DESCRIPTION\n\nSelects a child by positive PID, any child with −1, the caller's process group with zero, or a specified process group with a negative PID. It blocks until a selected child exits, stops when WUNTRACED is set, or reports a pending continuation when WCONTINUED is set. WNOHANG returns zero when no selected event is ready.\n\n## RETURN VALUE\n\nReturns the selected child PID, zero only for WNOHANG with no ready event, or a negative errno. On exit, status uses the traditional layout: signal termination is signal & 0177, normal exit is (exit_status & 0377) << 8, stopped status is (stop_signal << 8) | 0177, and continuation is 0xffff.\n\n## ERRORS\n\n- `-EFAULT`: Status is non‑null but not writable userspace memory.\n- `-ECHILD`: The caller has no matching child.\n- `-EINVAL`: Pid selects an invalid process or group identifier, or options contains an unknown bit.\n- `-ESRCH`: There is no current process or thread.\n\n## NOTES\n\nA successful exit event is reaped. Stop and continuation notifications are consumed but do not reap the child.\n",
   },
   {
     slug: "syscall-14-spawnve",
@@ -365,7 +379,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/spawnve.hpp",
     category: "proc/process",
     syscallId: 14,
-    content: "# spawnve(2)\n\n## SYNOPSIS\n\n```c\nlong spawnve(const char *path, char *const argv[], char *const envp[]);\n```\n\n## DESCRIPTION\n\nCreate a process using asynchronous streamed ELF loading.\n\nCopies the vectors, creates a child process, and builds its initial\nuser stack. The child inherits the caller's descriptors and cwd.\n\n## RETURN VALUE\n\nReturns the child PID, or a negative errno.\n\n## ERRORS\n\n- `-E2BIG`: The argument or environment vector exceeds its limit.\n- `-EFAULT`: A path, vector, or string pointer is invalid.\n- `-ENOENT`: The executable path does not exist.\n- `-EINVAL`: The file is malformed or truncated.\n- `-ENOMEM`: The image or process cannot be allocated.\n- `-EAGAIN`: The process or thread registry is full.\n",
+    synopsisKind: "public",
+    content: "# spawnve(2)\n\n## SYNOPSIS\n\n```c\nlong astia_spawnve(const char* path, char* const argv[], char* const envp[]);\n```\n\n## DESCRIPTION\n\nCreate a process using asynchronous streamed ELF loading.\n\nCopies the vectors, creates a child process, and builds its initial\nuser stack. The child inherits the caller's descriptors and cwd.\n\n## RETURN VALUE\n\nReturns the child PID, or a negative errno.\n\n## ERRORS\n\n- `-E2BIG`: The argument or environment vector exceeds its limit.\n- `-EFAULT`: A path, vector, or string pointer is invalid.\n- `-ENOENT`: The executable path does not exist.\n- `-EINVAL`: The file is malformed or truncated.\n- `-ENOMEM`: The image or process cannot be allocated.\n- `-EAGAIN`: The process or thread registry is full.\n",
   },
   {
     slug: "syscall-15-fork",
@@ -375,7 +390,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/fork.hpp",
     category: "proc/process",
     syscallId: 15,
-    content: "# fork(2)\n\n## SYNOPSIS\n\n```c\nlong fork(void);\n```\n\n## DESCRIPTION\n\nCreate a copy-on-write child process.\n\nCreates a child sharing copy-on-write mappings with the parent.\nDescriptors and the current working directory are inherited.\n\n## RETURN VALUE\n\nReturns the child PID in the parent and zero in the child.\n\n## ERRORS\n\n- `-EAGAIN`: A process, thread, mapping, or registry slot cannot be allocated.\n- `-ESRCH`: There is no current user process.\n",
+    synopsisKind: "public",
+    content: "# fork(2)\n\n## SYNOPSIS\n\n```c\nlong astia_fork(void);\n```\n\n## DESCRIPTION\n\nCreate a copy-on-write child process.\n\nCreates a child sharing copy-on-write mappings with the parent.\nDescriptors and the current working directory are inherited.\n\n## RETURN VALUE\n\nReturns the child PID in the parent and zero in the child.\n\n## ERRORS\n\n- `-EAGAIN`: A process, thread, mapping, or registry slot cannot be allocated.\n- `-ESRCH`: There is no current user process.\n",
   },
   {
     slug: "syscall-16-thread-create",
@@ -385,7 +401,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_create.hpp",
     category: "proc/thread",
     syscallId: 16,
-    content: "# thread_create(2)\n\n## SYNOPSIS\n\n```c\nlong thread_create(void (*entry)(void *), void *stack_top, void *argument);\n```\n\n## DESCRIPTION\n\nCreate a user thread.\n\nCreates a thread in the current process and starts entry with\nargument on the supplied aligned user stack.\n\n## RETURN VALUE\n\nReturns the new thread ID or a negative errno.\n\n## ERRORS\n\n- `-EAGAIN`: The thread limit or memory limit was reached.\n- `-EFAULT`: The entry point or user stack is invalid.\n- `-ESRCH`: There is no current process.\n",
+    synopsisKind: "public",
+    content: "# thread_create(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_create(void (*entry)(void*), void* stack_top, void* argument);\n```\n\n## DESCRIPTION\n\nCreate a user thread.\n\nCreates a thread in the current process and starts entry with\nargument on the supplied aligned user stack.\n\n## RETURN VALUE\n\nReturns the new thread ID or a negative errno.\n\n## ERRORS\n\n- `-EAGAIN`: The thread limit or memory limit was reached.\n- `-EFAULT`: The entry point or user stack is invalid.\n- `-ESRCH`: There is no current process.\n",
   },
   {
     slug: "syscall-17-thread-exit",
@@ -395,7 +412,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_exit.hpp",
     category: "proc/thread",
     syscallId: 17,
-    content: "# thread_exit(2)\n\n## SYNOPSIS\n\n```c\nlong thread_exit(long result);\n```\n\n## DESCRIPTION\n\nTerminate the calling user thread.\n\nTerminates the calling thread and records result for a joining\nthread. A process becomes waitable after its last thread exits.\n\n## RETURN VALUE\n\nDoes not return.\n",
+    synopsisKind: "public",
+    content: "# thread_exit(2)\n\n## SYNOPSIS\n\n```c\nvoid astia_thread_exit(void* result);\n```\n\n## DESCRIPTION\n\nTerminate the calling user thread.\n\nTerminates the calling thread and records result for a joining\nthread. A process becomes waitable after its last thread exits.\n\n## RETURN VALUE\n\nDoes not return.\n",
   },
   {
     slug: "syscall-18-thread-join",
@@ -405,7 +423,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_join.hpp",
     category: "proc/thread",
     syscallId: 18,
-    content: "# thread_join(2)\n\n## SYNOPSIS\n\n```c\nlong thread_join(uint32_t tid, void **result);\n```\n\n## DESCRIPTION\n\nWait for and reap a user thread.\n\nWaits for tid to terminate and optionally copies its result pointer\nto result. Only one joiner is allowed.\n\n## RETURN VALUE\n\nReturns zero after reaping the thread or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: The result pointer is not writable userspace memory.\n- `-EINVAL`: The thread is detached, already joined, or is the caller.\n- `-ESRCH`: The thread does not exist.\n",
+    synopsisKind: "public",
+    content: "# thread_join(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_join(uint32_t tid, void** result);\n```\n\n## DESCRIPTION\n\nWait for and reap a user thread.\n\nWaits for tid to terminate and optionally copies its result pointer\nto result. Only one joiner is allowed.\n\n## RETURN VALUE\n\nReturns zero after reaping the thread or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: The result pointer is not writable userspace memory.\n- `-EINVAL`: The thread is detached, already joined, or is the caller.\n- `-ESRCH`: The thread does not exist.\n",
   },
   {
     slug: "syscall-19-thread-detach",
@@ -415,7 +434,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_detach.hpp",
     category: "proc/thread",
     syscallId: 19,
-    content: "# thread_detach(2)\n\n## SYNOPSIS\n\n```c\nlong thread_detach(uint32_t tid);\n```\n\n## DESCRIPTION\n\nDetach a user thread.\n\nMarks tid detached so its resources are reclaimed after exit and it\ncannot later be joined.\n\n## RETURN VALUE\n\nReturns zero or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: The thread already has a joiner.\n- `-ESRCH`: The thread does not exist.\n",
+    synopsisKind: "public",
+    content: "# thread_detach(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_detach(uint32_t tid);\n```\n\n## DESCRIPTION\n\nDetach a user thread.\n\nMarks tid detached so its resources are reclaimed after exit and it\ncannot later be joined.\n\n## RETURN VALUE\n\nReturns zero or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: The thread already has a joiner.\n- `-ESRCH`: The thread does not exist.\n",
   },
   {
     slug: "syscall-20-kill",
@@ -425,7 +445,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/kill.hpp",
     category: "proc",
     syscallId: 20,
-    content: "# kill(2)\n\n## SYNOPSIS\n\n```c\nlong kill(int pid, int signal);\n```\n\n## DESCRIPTION\n\nsend a signal to a process or process group\n\npid > 0 targets one process, pid == 0 targets the caller's\nprocess group, and pid < 0 targets process group -pid. Signal\nzero performs an existence check without enqueuing a signal.\n\n## RETURN VALUE\n\nReturns zero on success.\n\n## ERRORS\n\n- `-EINVAL`: Signal or target identifier is malformed.\n- `-ESRCH`: No matching live process or process group exists.\n",
+    synopsisKind: "public",
+    content: "# kill(2)\n\n## SYNOPSIS\n\n```c\nlong astia_kill(int32_t pid, int32_t signal);\n```\n\n## DESCRIPTION\n\nsend a signal to a process or process group\n\npid > 0 targets one process, pid == 0 targets the caller's\nprocess group, and pid < 0 targets process group -pid. Signal\nzero performs an existence check without enqueuing a signal.\n\n## RETURN VALUE\n\nReturns zero on success.\n\n## ERRORS\n\n- `-EINVAL`: Signal or target identifier is malformed.\n- `-ESRCH`: No matching live process or process group exists.\n",
   },
   {
     slug: "syscall-21-sigaction",
@@ -435,7 +456,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigaction.hpp",
     category: "proc/signal",
     syscallId: 21,
-    content: "# sigaction(2)\n\n## SYNOPSIS\n\n```c\nlong sigaction(int signal, const action *next, action *old);\n```\n\n## DESCRIPTION\n\nget or change a signal disposition.\n\n## ERRORS\n\n- `-EFAULT`: An action pointer or signal restorer is inaccessible.\n- `-EINVAL`: The signal is invalid or cannot be caught.\n- `-ESRCH`: There is no current process.\n",
+    synopsisKind: "public",
+    content: "# sigaction(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigaction(int32_t signal, const astia_sigaction_t* next, astia_sigaction_t* old);\n```\n\n## DESCRIPTION\n\nget or change a signal disposition.\n\n## ERRORS\n\n- `-EFAULT`: An action pointer or signal restorer is inaccessible.\n- `-EINVAL`: The signal is invalid or cannot be caught.\n- `-ESRCH`: There is no current process.\n",
   },
   {
     slug: "syscall-22-sigprocmask",
@@ -445,7 +467,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigprocmask.hpp",
     category: "proc/signal",
     syscallId: 22,
-    content: "# sigprocmask(2)\n\n## SYNOPSIS\n\n```c\nlong sigprocmask(int how, uint32_t set, uint32_t *old);\n```\n\n## DESCRIPTION\n\nblock, unblock, or replace the signal mask.\n\n## ERRORS\n\n- `-EFAULT`: The old mask pointer is inaccessible.\n- `-EINVAL`: The mask operation is unknown.\n- `-ESRCH`: There is no current process.\n",
+    synopsisKind: "public",
+    content: "# sigprocmask(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigprocmask(int32_t how, uint32_t set, uint32_t* old);\n```\n\n## DESCRIPTION\n\nblock, unblock, or replace the signal mask.\n\n## ERRORS\n\n- `-EFAULT`: The old mask pointer is inaccessible.\n- `-EINVAL`: The mask operation is unknown.\n- `-ESRCH`: There is no current process.\n",
   },
   {
     slug: "syscall-23-thread-create2",
@@ -455,7 +478,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_create2.hpp",
     category: "proc/thread",
     syscallId: 23,
-    content: "# thread_create2(2)\n\n## SYNOPSIS\n\n```c\nlong thread_create2(void (*entry)(void *, void *), void *stack_top, void\n*argument0, void *argument1);\n```\n\n## DESCRIPTION\n\nCreate a user thread with two arguments.\n\nCreates a thread and passes both arguments directly to entry on the\nsupplied aligned user stack.\n\n## RETURN VALUE\n\nReturns the new thread ID or a negative errno.\n\n## ERRORS\n\n- `-EAGAIN`: The thread limit or memory limit was reached.\n- `-EFAULT`: The entry point, stack, or argument pointer is invalid.\n- `-ESRCH`: There is no current process.\n",
+    synopsisKind: "public",
+    content: "# thread_create2(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_create2(void (*entry)(void*, void*), void* stack_top, void* argument0, void* argument1, void* stack_addr, uint64_t stack_size);\n```\n\n## DESCRIPTION\n\nCreate a user thread with two arguments.\n\nCreates a thread and passes both arguments directly to entry on the\nsupplied aligned user stack.\n\n## RETURN VALUE\n\nReturns the new thread ID or a negative errno.\n\n## ERRORS\n\n- `-EAGAIN`: The thread limit or memory limit was reached.\n- `-EFAULT`: The entry point, stack, or argument pointer is invalid.\n- `-ESRCH`: There is no current process.\n",
   },
   {
     slug: "syscall-24-execve",
@@ -465,7 +489,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/execve.hpp",
     category: "proc/process",
     syscallId: 24,
-    content: "# execve(2)\n\n## SYNOPSIS\n\n```c\nlong execve(const char *path, char *const argv[], char *const envp[]);\n```\n\n## DESCRIPTION\n\nReplace the calling process image.\n\nCopies the argument and environment vectors, loads the executable,\nand resumes the current process at its entry point. The process ID,\ndescriptor table, process group, and working directory remain.\n\n## RETURN VALUE\n\nDoes not return on success. Returns a negative errno on failure.\n\n## ERRORS\n\n- `-E2BIG`: The argument or environment vector exceeds its limit.\n- `-EFAULT`: A path, vector, or string pointer is invalid.\n- `-ENOENT`: The executable path does not exist.\n- `-ENOEXEC`: The file is not a loadable executable image.\n- `-ENOMEM`: The replacement image cannot be allocated.\n\n## NOTES\n\nRelative paths are resolved against the caller's working directory.\n",
+    synopsisKind: "public",
+    content: "# execve(2)\n\n## SYNOPSIS\n\n```c\nint execve(const char* path, char* const argv[], char* const envp[]);\n```\n\n## DESCRIPTION\n\nReplace the calling process image.\n\nCopies the argument and environment vectors, loads the executable,\nand resumes the current process at its entry point. The process ID,\ndescriptor table, process group, and working directory remain.\n\n## RETURN VALUE\n\nDoes not return on success. Returns a negative errno on failure.\n\n## ERRORS\n\n- `-E2BIG`: The argument or environment vector exceeds its limit.\n- `-EFAULT`: A path, vector, or string pointer is invalid.\n- `-ENOENT`: The executable path does not exist.\n- `-ENOEXEC`: The file is not a loadable executable image.\n- `-ENOMEM`: The replacement image cannot be allocated.\n\n## NOTES\n\nRelative paths are resolved against the caller's working directory.\n",
   },
   {
     slug: "syscall-25-sigsuspend",
@@ -475,7 +500,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigsuspend.hpp",
     category: "proc/signal",
     syscallId: 25,
-    content: "# sigsuspend(2)\n\n## SYNOPSIS\n\n```c\nlong sigsuspend(const uint32_t *mask);\n```\n\n## DESCRIPTION\n\nwait for a signal with a temporary mask.\n\n## ERRORS\n\n- `-EFAULT`: The mask pointer is inaccessible.\n- `-EINTR`: A signal interrupted the suspended thread.\n- `-ESRCH`: There is no current process or thread.\n",
+    synopsisKind: "public",
+    content: "# sigsuspend(2)\n\n## SYNOPSIS\n\n```c\nint sigsuspend(const sigset_t* mask);\n```\n\n## DESCRIPTION\n\nwait for a signal with a temporary mask.\n\n## ERRORS\n\n- `-EFAULT`: The mask pointer is inaccessible.\n- `-EINTR`: A signal interrupted the suspended thread.\n- `-ESRCH`: There is no current process or thread.\n",
   },
   {
     slug: "syscall-26-getpgrp",
@@ -485,7 +511,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/getpgrp.hpp",
     category: "proc",
     syscallId: 26,
-    content: "# getpgrp(2)\n\n## SYNOPSIS\n\n```c\nlong getpgrp(void);\n```\n\n## DESCRIPTION\n\nreturn the calling process group ID.\n",
+    synopsisKind: "public",
+    content: "# getpgrp(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getpgrp(void);\n```\n\n## DESCRIPTION\n\nreturn the calling process group ID.\n",
   },
   {
     slug: "syscall-27-setpgid",
@@ -495,7 +522,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/setpgid.hpp",
     category: "proc",
     syscallId: 27,
-    content: "# setpgid(2)\n\n## SYNOPSIS\n\n```c\nlong setpgid(int pid, int pgid);\n```\n\n## DESCRIPTION\n\nmove a process into a process group.\n\n## ERRORS\n\n- `-EINVAL`: Pid or pgid is invalid after special-value handling.\n- `-EPERM`: The target is not the caller's child.\n- `-EPERM`: The target belongs to another session.\n- `-EPERM`: The target is a session leader.\n- `-ESRCH`: The target process does not exist.\n",
+    synopsisKind: "public",
+    content: "# setpgid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_setpgid(int32_t pid, int32_t pgid);\n```\n\n## DESCRIPTION\n\nmove a process into a process group.\n\n## ERRORS\n\n- `-EINVAL`: Pid or pgid is invalid after special-value handling.\n- `-EPERM`: The target is not the caller's child.\n- `-EPERM`: The target belongs to another session.\n- `-EPERM`: The target is a session leader.\n- `-ESRCH`: The target process does not exist.\n",
   },
   {
     slug: "syscall-28-setsid",
@@ -505,17 +533,19 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/setsid.hpp",
     category: "proc",
     syscallId: 28,
-    content: "# setsid(2)\n\n## SYNOPSIS\n\n```c\nlong setsid(void);\n```\n\n## DESCRIPTION\n\ncreate a new session for the caller.\n\n## ERRORS\n\n- `-EPERM`: The caller is already a process-group leader.\n- `-ESRCH`: There is no current process.\n",
+    synopsisKind: "public",
+    content: "# setsid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_setsid(void);\n```\n\n## DESCRIPTION\n\ncreate a new session for the caller.\n\n## ERRORS\n\n- `-EPERM`: The caller is already a process-group leader.\n- `-ESRCH`: There is no current process.\n",
   },
   {
     slug: "syscall-29-sigreturn",
     title: "sigreturn(2)",
     group: "Syscall (2)",
-    summary: "restore a saved signal execution context. - -EFAULT: The saved context or its registers are invalid.",
+    summary: "Raw kernel ABI. No public C wrapper declaration is provided for this syscall. restore a saved signal execution context. - -EFAULT: The saved context or its registers are invalid.",
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigreturn.hpp",
     category: "proc/signal",
     syscallId: 29,
-    content: "# sigreturn(2)\n\n## SYNOPSIS\n\n```c\nlong sigreturn(const signal_context *context);\n```\n\n## DESCRIPTION\n\nrestore a saved signal execution context.\n\n## ERRORS\n\n- `-EFAULT`: The saved context or its registers are invalid.\n",
+    synopsisKind: "raw",
+    content: "# sigreturn(2)\n\n## SYNOPSIS\n\nRaw kernel ABI. No public C wrapper declaration is provided for this syscall.\n\n## DESCRIPTION\n\nrestore a saved signal execution context.\n\n## ERRORS\n\n- `-EFAULT`: The saved context or its registers are invalid.\n",
   },
   {
     slug: "syscall-30-chdir",
@@ -525,7 +555,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/chdir.hpp",
     category: "proc/process",
     syscallId: 30,
-    content: "# chdir(2)\n\n## SYNOPSIS\n\n```c\nlong chdir(const char *path);\n```\n\n## DESCRIPTION\n\nchange the caller's working directory.\n\n## ERRORS\n\n- `-EFAULT`: The path pointer is inaccessible.\n- `-ENOTDIR`: The path does not identify a directory.\n- `-ENOENT`: The directory does not exist.\n- `-ESRCH`: There is no current process.\n",
+    synopsisKind: "public",
+    content: "# chdir(2)\n\n## SYNOPSIS\n\n```c\nlong astia_chdir(const char* path);\n```\n\n## DESCRIPTION\n\nchange the caller's working directory.\n\n## ERRORS\n\n- `-EFAULT`: The path pointer is inaccessible.\n- `-ENOTDIR`: The path does not identify a directory.\n- `-ENOENT`: The directory does not exist.\n- `-ESRCH`: There is no current process.\n",
   },
   {
     slug: "syscall-31-getcwd",
@@ -535,7 +566,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/getcwd.hpp",
     category: "proc/process",
     syscallId: 31,
-    content: "# getcwd(2)\n\n## SYNOPSIS\n\n```c\nlong getcwd(char *buffer, size_t length);\n```\n\n## DESCRIPTION\n\ncopy the caller's working directory.\n\n## ERRORS\n\n- `-EFAULT`: The output buffer is inaccessible.\n- `-ERANGE`: The buffer is too small.\n- `-ESRCH`: There is no current process.\n",
+    synopsisKind: "public",
+    content: "# getcwd(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getcwd(char* buffer, uint64_t length);\n```\n\n## DESCRIPTION\n\ncopy the caller's working directory.\n\n## ERRORS\n\n- `-EFAULT`: The output buffer is inaccessible.\n- `-ERANGE`: The buffer is too small.\n- `-ESRCH`: There is no current process.\n",
   },
   {
     slug: "syscall-32-getuid",
@@ -545,7 +577,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 32,
-    content: "# getuid(2)\n\n## SYNOPSIS\n\n```c\nlong getuid(void);\n```\n\n## DESCRIPTION\n\nReturns the calling process's real user ID.\n\n## RETURN VALUE\n\nReturns the real UID, or -ESRCH when no current process exists.\n\n## ERRORS\n\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe value is the process credential inherited across fork and spawn.\n",
+    synopsisKind: "public",
+    content: "# getuid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getuid(void);\n```\n\n## DESCRIPTION\n\nReturns the calling process's real user ID.\n\n## RETURN VALUE\n\nReturns the real UID, or -ESRCH when no current process exists.\n\n## ERRORS\n\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe value is the process credential inherited across fork and spawn.\n",
   },
   {
     slug: "syscall-33-geteuid",
@@ -555,7 +588,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 33,
-    content: "# geteuid(2)\n\n## SYNOPSIS\n\n```c\nlong geteuid(void);\n```\n\n## DESCRIPTION\n\nReturns the calling process's effective user ID.\n\n## RETURN VALUE\n\nReturns the effective UID, or -ESRCH when no current process exists.\n\n## ERRORS\n\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe effective UID selects owner permission checks.\n",
+    synopsisKind: "public",
+    content: "# geteuid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_geteuid(void);\n```\n\n## DESCRIPTION\n\nReturns the calling process's effective user ID.\n\n## RETURN VALUE\n\nReturns the effective UID, or -ESRCH when no current process exists.\n\n## ERRORS\n\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe effective UID selects owner permission checks.\n",
   },
   {
     slug: "syscall-34-getgid",
@@ -565,7 +599,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 34,
-    content: "# getgid(2)\n\n## SYNOPSIS\n\n```c\nlong getgid(void);\n```\n\n## DESCRIPTION\n\nReturns the calling process's real group ID.\n\n## RETURN VALUE\n\nReturns the real GID, or -ESRCH when no current process exists.\n\n## ERRORS\n\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe value is inherited across fork and spawn.\n",
+    synopsisKind: "public",
+    content: "# getgid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getgid(void);\n```\n\n## DESCRIPTION\n\nReturns the calling process's real group ID.\n\n## RETURN VALUE\n\nReturns the real GID, or -ESRCH when no current process exists.\n\n## ERRORS\n\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe value is inherited across fork and spawn.\n",
   },
   {
     slug: "syscall-35-getegid",
@@ -575,7 +610,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 35,
-    content: "# getegid(2)\n\n## SYNOPSIS\n\n```c\nlong getegid(void);\n```\n\n## DESCRIPTION\n\nReturns the calling process's effective group ID.\n\n## RETURN VALUE\n\nReturns the effective GID, or -ESRCH when no current process exists.\n\n## ERRORS\n\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe effective GID selects group permission checks.\n",
+    synopsisKind: "public",
+    content: "# getegid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getegid(void);\n```\n\n## DESCRIPTION\n\nReturns the calling process's effective group ID.\n\n## RETURN VALUE\n\nReturns the effective GID, or -ESRCH when no current process exists.\n\n## ERRORS\n\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe effective GID selects group permission checks.\n",
   },
   {
     slug: "syscall-36-setuid",
@@ -585,7 +621,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 36,
-    content: "# setuid(2)\n\n## SYNOPSIS\n\n```c\nlong setuid(uint32_t uid);\n```\n\n## DESCRIPTION\n\nSets the real and effective user IDs to uid. A non‑root caller may select only its current real or effective UID.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Uid is outside the unsigned 32‑bit range.\n- `-EPERM`: The current effective UID is nonzero and uid is neither the real nor effective UID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe kernel stores credentials per process.\n",
+    synopsisKind: "public",
+    content: "# setuid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_setuid(uint32_t v);\n```\n\n## DESCRIPTION\n\nSets the real and effective user IDs to uid. A non‑root caller may select only its current real or effective UID.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Uid is outside the unsigned 32‑bit range.\n- `-EPERM`: The current effective UID is nonzero and uid is neither the real nor effective UID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe kernel stores credentials per process.\n",
   },
   {
     slug: "syscall-37-seteuid",
@@ -595,7 +632,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 37,
-    content: "# seteuid(2)\n\n## SYNOPSIS\n\n```c\nlong seteuid(uint32_t uid);\n```\n\n## DESCRIPTION\n\nSets the effective user ID to uid. A non‑root caller may select only its current real or effective UID.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Uid is outside the unsigned 32‑bit range.\n- `-EPERM`: The current effective UID is nonzero and uid is neither the real nor effective UID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nChanging the effective UID does not change the real UID.\n",
+    synopsisKind: "public",
+    content: "# seteuid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_seteuid(uint32_t v);\n```\n\n## DESCRIPTION\n\nSets the effective user ID to uid. A non‑root caller may select only its current real or effective UID.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Uid is outside the unsigned 32‑bit range.\n- `-EPERM`: The current effective UID is nonzero and uid is neither the real nor effective UID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nChanging the effective UID does not change the real UID.\n",
   },
   {
     slug: "syscall-38-setgid",
@@ -605,7 +643,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 38,
-    content: "# setgid(2)\n\n## SYNOPSIS\n\n```c\nlong setgid(uint32_t gid);\n```\n\n## DESCRIPTION\n\nSets the real and effective group IDs to gid. A non‑root caller may select only its current real or effective GID.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Gid is outside the unsigned 32‑bit range.\n- `-EPERM`: The current effective GID is nonzero and gid is neither the real nor effective GID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nSupplementary groups are unchanged.\n",
+    synopsisKind: "public",
+    content: "# setgid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_setgid(uint32_t v);\n```\n\n## DESCRIPTION\n\nSets the real and effective group IDs to gid. A non‑root caller may select only its current real or effective GID.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Gid is outside the unsigned 32‑bit range.\n- `-EPERM`: The current effective GID is nonzero and gid is neither the real nor effective GID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nSupplementary groups are unchanged.\n",
   },
   {
     slug: "syscall-39-setegid",
@@ -615,7 +654,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 39,
-    content: "# setegid(2)\n\n## SYNOPSIS\n\n```c\nlong setegid(uint32_t gid);\n```\n\n## DESCRIPTION\n\nSets the effective group ID to gid. A non‑root caller may select only its current real or effective GID.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Gid is outside the unsigned 32‑bit range.\n- `-EPERM`: The current effective GID is nonzero and gid is neither the real nor effective GID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nChanging the effective GID does not change the real GID.\n",
+    synopsisKind: "public",
+    content: "# setegid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_setegid(uint32_t v);\n```\n\n## DESCRIPTION\n\nSets the effective group ID to gid. A non‑root caller may select only its current real or effective GID.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Gid is outside the unsigned 32‑bit range.\n- `-EPERM`: The current effective GID is nonzero and gid is neither the real nor effective GID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nChanging the effective GID does not change the real GID.\n",
   },
   {
     slug: "syscall-40-setreuid",
@@ -625,7 +665,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 40,
-    content: "# setreuid(2)\n\n## SYNOPSIS\n\n```c\nlong setreuid(uint32_t real_uid, uint32_t effective_uid);\n```\n\n## DESCRIPTION\n\nSets the real and effective UIDs. The raw ABI represents the libc sentinel value −1 as the unsigned all‑ones value.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Either argument is below the sentinel or outside the unsigned 32‑bit range.\n- `-EPERM`: The requested UID transition is not allowed for the current effective UID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe process implementation accepts the current real or effective UID, and root may select any 32‑bit UID.\n",
+    synopsisKind: "public",
+    content: "# setreuid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_setreuid(uint32_t r, uint32_t e);\n```\n\n## DESCRIPTION\n\nSets the real and effective UIDs. The raw ABI represents the libc sentinel value −1 as the unsigned all‑ones value.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Either argument is below the sentinel or outside the unsigned 32‑bit range.\n- `-EPERM`: The requested UID transition is not allowed for the current effective UID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe process implementation accepts the current real or effective UID, and root may select any 32‑bit UID.\n",
   },
   {
     slug: "syscall-41-setregid",
@@ -635,7 +676,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 41,
-    content: "# setregid(2)\n\n## SYNOPSIS\n\n```c\nlong setregid(uint32_t real_gid, uint32_t effective_gid);\n```\n\n## DESCRIPTION\n\nSets the real and effective GIDs. The raw ABI represents the libc sentinel value −1 as the unsigned all‑ones value.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Either argument is below the sentinel or outside the unsigned 32‑bit range.\n- `-EPERM`: The requested GID transition is not allowed for the current effective GID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe process implementation accepts the current real or effective GID, and root may select any 32‑bit GID.\n",
+    synopsisKind: "public",
+    content: "# setregid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_setregid(uint32_t r, uint32_t e);\n```\n\n## DESCRIPTION\n\nSets the real and effective GIDs. The raw ABI represents the libc sentinel value −1 as the unsigned all‑ones value.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Either argument is below the sentinel or outside the unsigned 32‑bit range.\n- `-EPERM`: The requested GID transition is not allowed for the current effective GID.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe process implementation accepts the current real or effective GID, and root may select any 32‑bit GID.\n",
   },
   {
     slug: "syscall-42-getgroups",
@@ -645,7 +687,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 42,
-    content: "# getgroups(2)\n\n## SYNOPSIS\n\n```c\nlong getgroups(int32_t count, uint32_t *groups);\n```\n\n## DESCRIPTION\n\nCopies up to 16 supplementary group IDs into groups. A count of zero returns the number of groups without writing groups.\n\n## RETURN VALUE\n\nReturns the group count, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Count is negative or greater than 16.\n- `-EFAULT`: Groups is not writable for the returned IDs.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe count and groups pointer are interpreted independently when count is zero.\n",
+    synopsisKind: "public",
+    content: "# getgroups(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getgroups(int32_t n, uint32_t* g);\n```\n\n## DESCRIPTION\n\nCopies up to 16 supplementary group IDs into groups. A count of zero returns the number of groups without writing groups.\n\n## RETURN VALUE\n\nReturns the group count, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Count is negative or greater than 16.\n- `-EFAULT`: Groups is not writable for the returned IDs.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe count and groups pointer are interpreted independently when count is zero.\n",
   },
   {
     slug: "syscall-43-setgroups",
@@ -655,7 +698,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/credentials.cpp",
     category: "proc/process",
     syscallId: 43,
-    content: "# setgroups(2)\n\n## SYNOPSIS\n\n```c\nlong setgroups(int32_t count, const uint32_t *groups);\n```\n\n## DESCRIPTION\n\nReplaces the supplementary group list with count IDs copied from groups.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Count is negative or greater than 16.\n- `-EFAULT`: Groups is not readable for count IDs.\n- `-EPERM`: The current effective GID is nonzero.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nA zero count is valid and does not dereference groups.\n",
+    synopsisKind: "public",
+    content: "# setgroups(2)\n\n## SYNOPSIS\n\n```c\nlong astia_setgroups(int32_t n, const uint32_t* g);\n```\n\n## DESCRIPTION\n\nReplaces the supplementary group list with count IDs copied from groups.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Count is negative or greater than 16.\n- `-EFAULT`: Groups is not readable for count IDs.\n- `-EPERM`: The current effective GID is nonzero.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nA zero count is valid and does not dereference groups.\n",
   },
   {
     slug: "syscall-44-process-snapshot",
@@ -665,7 +709,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/proc.cpp",
     category: "proc",
     syscallId: 44,
-    content: "# process_snapshot(2)\n\n## SYNOPSIS\n\n```c\nlong process_snapshot(astia_process_info *output, uint32_t capacity);\n```\n\n## DESCRIPTION\n\nCopies a bounded snapshot of registered processes into output. Each record contains process IDs, credentials, state, controlling-terminal presence, and bounded names.\n\n## RETURN VALUE\n\nReturns the number of records copied, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Capacity exceeds ASTIA_PROCESS_SNAPSHOT_MAX, or output is null with a non-zero capacity.\n- `-EFAULT`: The output range is not writable userspace memory.\n\n## NOTES\n\nA zero capacity returns zero without writing output. The snapshot is point-in-time and records are not handles.\n",
+    synopsisKind: "public",
+    content: "# process_snapshot(2)\n\n## SYNOPSIS\n\n```c\nlong astia_process_snapshot(astia_process_info* out, uint32_t capacity);\n```\n\n## DESCRIPTION\n\nCopies a bounded snapshot of registered processes into output. Each record contains process IDs, credentials, state, controlling-terminal presence, and bounded names.\n\n## RETURN VALUE\n\nReturns the number of records copied, or a negative errno.\n\n## ERRORS\n\n- `-EINVAL`: Capacity exceeds ASTIA_PROCESS_SNAPSHOT_MAX, or output is null with a non-zero capacity.\n- `-EFAULT`: The output range is not writable userspace memory.\n\n## NOTES\n\nA zero capacity returns zero without writing output. The snapshot is point-in-time and records are not handles.\n",
   },
   {
     slug: "syscall-45-getsid",
@@ -675,7 +720,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/proc.cpp",
     category: "proc",
     syscallId: 45,
-    content: "# getsid(2)\n\n## SYNOPSIS\n\n```c\nlong getsid(int64_t pid);\n```\n\n## DESCRIPTION\n\nReturns the session ID of the selected process. Zero selects the caller; a positive PID selects that process.\n\n## RETURN VALUE\n\nReturns the session ID, or a negative errno.\n\n## ERRORS\n\n- `-ESRCH`: The selector is negative, overflows the PID domain, names no registered process, or there is no current process.\n\n## NOTES\n\nZombie processes remain selectable until reaped. The native query does not impose an additional permission check.\n",
+    synopsisKind: "public",
+    content: "# getsid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getsid(int32_t pid);\n```\n\n## DESCRIPTION\n\nReturns the session ID of the selected process. Zero selects the caller; a positive PID selects that process.\n\n## RETURN VALUE\n\nReturns the session ID, or a negative errno.\n\n## ERRORS\n\n- `-ESRCH`: The selector is negative, overflows the PID domain, names no registered process, or there is no current process.\n\n## NOTES\n\nZombie processes remain selectable until reaped. The native query does not impose an additional permission check.\n",
   },
   {
     slug: "syscall-46-unmount",
@@ -685,7 +731,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/unmount.hpp",
     category: "fs",
     syscallId: 46,
-    content: "# unmount(2)\n\n## SYNOPSIS\n\n```c\nlong unmount(uintptr_t target);\n```\n\n## DESCRIPTION\n\nRemoves the native in-memory filesystem mount at target. Only a process with effective UID zero may request teardown. The root mount is permanent; a mount with open file descriptions or child mounts remains busy.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: Target is not a readable userspace string.\n- `-EPERM`: The caller's effective UID is not zero.\n- `-ENOENT`: Target is not a mounted target.\n- `-EBUSY`: Target is the root mount, has open handles, or contains another mount.\n\n## NOTES\n\nThe kernel copies target before authorization and lookup. Unmounting does not flush, persist, or access a host filesystem. The filesystem type remains registered so kernel code may mount another native instance.\n",
+    synopsisKind: "public",
+    content: "# unmount(2)\n\n## SYNOPSIS\n\n```c\nlong astia_unmount(const char* target);\n```\n\n## DESCRIPTION\n\nRemoves the native in-memory filesystem mount at target. Only a process with effective UID zero may request teardown. The root mount is permanent; a mount with open file descriptions or child mounts remains busy.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: Target is not a readable userspace string.\n- `-EPERM`: The caller's effective UID is not zero.\n- `-ENOENT`: Target is not a mounted target.\n- `-EBUSY`: Target is the root mount, has open handles, or contains another mount.\n\n## NOTES\n\nThe kernel copies target before authorization and lookup. Unmounting does not flush, persist, or access a host filesystem. The filesystem type remains registered so kernel code may mount another native instance.\n",
   },
   {
     slug: "syscall-47-mount",
@@ -695,7 +742,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/mount.hpp",
     category: "fs",
     syscallId: 47,
-    content: "# mount(2)\n\n## DESCRIPTION\n\ninstall a registered native filesystem at an existing directory.\n\nAll names are copied before authorization.  The operation is root-only;\nit changes only the in-memory VFS namespace and never opens a host path.\n",
+    synopsisKind: "public",
+    content: "# mount(2)\n\n## SYNOPSIS\n\n```c\nlong astia_mount(const char* type, const char* target, const char* source);\n```\n\n## DESCRIPTION\n\ninstall a registered native filesystem at an existing directory.\n\nAll names are copied before authorization.  The operation is root-only;\nit changes only the in-memory VFS namespace and never opens a host path.\n",
   },
   {
     slug: "syscall-48-getrlimit",
@@ -705,7 +753,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/rlimit.cpp",
     category: "proc/process",
     syscallId: 48,
-    content: "# getrlimit(2)\n\n## SYNOPSIS\n\n```c\nlong getrlimit(int resource, astia_rlimit *output);\n```\n\n## DESCRIPTION\n\nReads the calling process's native resource limit into output. Astia supports RLIMIT_NOFILE and RLIMIT_AS.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: Output is null or not writable userspace memory.\n- `-EINVAL`: Resource is not supported.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe limits are process-local and are inherited by fork.\n",
+    synopsisKind: "public",
+    content: "# getrlimit(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getrlimit(int32_t resource, astia_rlimit* limit);\n```\n\n## DESCRIPTION\n\nReads the calling process's native resource limit into output. Astia supports RLIMIT_NOFILE and RLIMIT_AS.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: Output is null or not writable userspace memory.\n- `-EINVAL`: Resource is not supported.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nThe limits are process-local and are inherited by fork.\n",
   },
   {
     slug: "syscall-49-setrlimit",
@@ -715,7 +764,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/rlimit.cpp",
     category: "proc/process",
     syscallId: 49,
-    content: "# setrlimit(2)\n\n## SYNOPSIS\n\n```c\nlong setrlimit(int resource, const astia_rlimit *input);\n```\n\n## DESCRIPTION\n\nChanges a supported native resource limit from input. Astia supports RLIMIT_NOFILE and RLIMIT_AS.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: Input is null or not readable userspace memory.\n- `-EINVAL`: Resource or the requested limit is invalid.\n- `-EPERM`: The requested hard-limit change is not permitted.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nA process may lower its limits but cannot raise a hard limit.\n",
+    synopsisKind: "public",
+    content: "# setrlimit(2)\n\n## SYNOPSIS\n\n```c\nlong astia_setrlimit(int32_t resource, const astia_rlimit* limit);\n```\n\n## DESCRIPTION\n\nChanges a supported native resource limit from input. Astia supports RLIMIT_NOFILE and RLIMIT_AS.\n\n## RETURN VALUE\n\nReturns zero, or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: Input is null or not readable userspace memory.\n- `-EINVAL`: Resource or the requested limit is invalid.\n- `-EPERM`: The requested hard-limit change is not permitted.\n- `-ESRCH`: There is no current process.\n\n## NOTES\n\nA process may lower its limits but cannot raise a hard limit.\n",
   },
   {
     slug: "syscall-50-sigwait",
@@ -725,6 +775,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigwait.cpp",
     category: "proc/signal",
     syscallId: 50,
+    synopsisKind: "public",
     content: "# sigwait(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigwait(const uint32_t* set, int32_t* signal);\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigwait`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -735,6 +786,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigaltstack.cpp",
     category: "proc/signal",
     syscallId: 51,
+    synopsisKind: "public",
     content: "# sigaltstack(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigaltstack(const astia_stack_t* stack, astia_stack_t* old_stack);\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigaltstack`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -745,6 +797,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/getpgid.cpp",
     category: "proc",
     syscallId: 52,
+    synopsisKind: "public",
     content: "# getpgid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getpgid(int32_t pid);\n```\n\n## DESCRIPTION\n\nSystem call handler for `getpgid`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -755,6 +808,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/getppid.cpp",
     category: "proc",
     syscallId: 53,
+    synopsisKind: "public",
     content: "# getppid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getppid(void);\n```\n\n## DESCRIPTION\n\nSystem call handler for `getppid`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -765,6 +819,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_cancel.cpp",
     category: "proc/thread",
     syscallId: 54,
+    synopsisKind: "public",
     content: "# thread_cancel(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_cancel(uint32_t tid);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_cancel`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -775,6 +830,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/alarm.cpp",
     category: "proc",
     syscallId: 55,
+    synopsisKind: "public",
     content: "# alarm(2)\n\n## SYNOPSIS\n\n```c\nlong astia_alarm(uint32_t seconds);\n```\n\n## DESCRIPTION\n\nSystem call handler for `alarm`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -785,6 +841,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_create_owned.cpp",
     category: "proc/thread",
     syscallId: 56,
+    synopsisKind: "public",
     content: "# thread_create_owned(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_create_owned(void (*entry)(void*, void*), void* stack_top, void* argument0, void* argument1, void* stack_addr, uint64_t stack_size);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_create_owned`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -795,6 +852,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_cancel_pending.cpp",
     category: "proc/thread",
     syscallId: 57,
+    synopsisKind: "public",
     content: "# thread_cancel_pending(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_cancel_pending(void);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_cancel_pending`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -805,6 +863,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_exists.cpp",
     category: "proc/thread",
     syscallId: 58,
+    synopsisKind: "public",
     content: "# thread_exists(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_exists(uint32_t tid);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_exists`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -815,6 +874,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_kill.cpp",
     category: "proc/thread",
     syscallId: 59,
+    synopsisKind: "public",
     content: "# thread_kill(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_kill(uint32_t tid, int32_t signal);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_kill`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -825,6 +885,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigpending.cpp",
     category: "proc/signal",
     syscallId: 60,
+    synopsisKind: "public",
     content: "# sigpending(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigpending(uint32_t* set);\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigpending`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -835,6 +896,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigtimedwait.cpp",
     category: "proc/signal",
     syscallId: 61,
+    synopsisKind: "public",
     content: "# sigtimedwait(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigtimedwait(const uint32_t* set, astia_siginfo_t* info, const astia_timespec* timeout);\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigtimedwait`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -845,6 +907,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/sys/time.cpp",
     category: "sys",
     syscallId: 62,
+    synopsisKind: "public",
     content: "# clock_getres(2)\n\n## SYNOPSIS\n\n```c\nlong astia_clock_getres(uint32_t clock_id, astia_timespec* out);\n```\n\n## DESCRIPTION\n\nSystem call handler for `clock_getres`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -855,6 +918,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_getattr.cpp",
     category: "proc/thread",
     syscallId: 63,
+    synopsisKind: "public",
     content: "# thread_getattr(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_getattr(uint32_t tid, astia_thread_stack_info* output);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_getattr`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -865,6 +929,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/memory/msync.cpp",
     category: "proc/memory",
     syscallId: 64,
+    synopsisKind: "public",
     content: "# msync(2)\n\n## SYNOPSIS\n\n```c\nlong astia_msync(void* addr, uint64_t len, uint32_t flags);\n```\n\n## DESCRIPTION\n\nSystem call handler for `msync`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -875,6 +940,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/lseek.cpp",
     category: "proc",
     syscallId: 65,
+    synopsisKind: "public",
     content: "# lseek(2)\n\n## SYNOPSIS\n\n```c\nlong astia_lseek(int32_t fd, int64_t offset, int32_t whence);\n```\n\n## DESCRIPTION\n\nSystem call handler for `lseek`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -885,6 +951,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/ipc/shm.cpp",
     category: "proc/ipc",
     syscallId: 66,
+    synopsisKind: "public",
     content: "# umask(2)\n\n## SYNOPSIS\n\n```c\nlong astia_umask(uint32_t mode);\n```\n\n## DESCRIPTION\n\nSystem call handler for `umask`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -895,6 +962,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/ipc/shm.cpp",
     category: "proc/ipc",
     syscallId: 67,
+    synopsisKind: "public",
     content: "# shm_open(2)\n\n## SYNOPSIS\n\n```c\nlong astia_shm_open(const char* name, int flags, uint32_t mode);\n```\n\n## DESCRIPTION\n\nSystem call handler for `shm_open`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -905,6 +973,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/ipc/shm.cpp",
     category: "proc/ipc",
     syscallId: 68,
+    synopsisKind: "public",
     content: "# shm_unlink(2)\n\n## SYNOPSIS\n\n```c\nlong astia_shm_unlink(const char* name);\n```\n\n## DESCRIPTION\n\nSystem call handler for `shm_unlink`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
@@ -915,6 +984,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/fchdir.cpp",
     category: "proc/process",
     syscallId: 69,
+    synopsisKind: "public",
     content: "# fchdir(2)\n\n## SYNOPSIS\n\n```c\nlong astia_fchdir(int fd);\n```\n\n## DESCRIPTION\n\nSystem call handler for `fchdir`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   }
 ];
