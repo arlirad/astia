@@ -454,6 +454,19 @@ def syscall_abi(path: Path) -> list[tuple[int, str]]:
     return entries
 
 
+def public_abi_prototypes(abi_header: Path) -> dict[str, str]:
+    prototypes: dict[str, str] = {}
+    pattern = re.compile(
+        r"static inline\s+([^;{}]*?\bastia_([a-z0-9_]+)\s*\([^;{}]*\))\s*\{",
+        re.S,
+    )
+    for path in sorted(abi_header.parent.glob("*.h")):
+        for match in pattern.finditer(path.read_text(errors="ignore")):
+            prototype = " ".join(match.group(1).split())
+            prototypes[match.group(2)] = prototype + ";"
+    return prototypes
+
+
 def build_source_index(source_root: Path) -> dict[str, list[Path]]:
     index: dict[str, list[Path]] = {}
     pattern = re.compile(r"\b(?:i64|long|int)\s+([a-z_][a-z0-9_]*)\s*\(")
@@ -496,30 +509,22 @@ def group_for_source(source: Path | None, source_root: Path) -> str:
     return root
 
 
-def prototype_from_source(source: Path | None, name: str) -> str:
-    if source is None:
-        return f"long {name}(...);"
-    match = re.search(
-        rf"\b(?:i64|long|int)\s+{re.escape(name)}\s*\([^;{{]*\)",
-        source.read_text(errors="ignore"),
-        re.S,
+def fallback_body(name: str, synopsis: str | None) -> str:
+    synopsis_block = f"Synopsis:\n    {synopsis}\n\n" if synopsis else ""
+    synopsis_note = (
+        "The synopsis uses the public ABI declaration."
+        if synopsis
+        else "See the public ABI header for the declaration."
     )
-    if not match:
-        return f"long {name}(...);"
-    prototype = " ".join(match.group(0).split())
-    return re.sub(r"^i64\b", "long", prototype)
-
-
-def fallback_body(name: str, synopsis: str) -> str:
     return (
-        f"Synopsis:\n    {synopsis}\n\n"
-        f"Description:\n    System call handler for `{name}`. "
+        synopsis_block
+        + f"Description:\n    System call handler for `{name}`. "
         "See the implementation source for validation and ownership details.\n\n"
         "Return Value:\n    Returns zero or a non-negative result on success. "
         "Negative values are ABI errno codes.\n\n"
         "Errors:\n    See the kernel error ABI and the implementation source.\n\n"
         "Notes:\n    Generated from the canonical section-2 ABI. "
-        "Detailed manual text has not been added for this syscall yet."
+        f"{synopsis_note} Detailed manual text has not been added for this syscall yet."
     )
 
 
@@ -532,6 +537,11 @@ def export_section2(
     abi_header: Path,
 ) -> None:
     export_dir.mkdir(parents=True, exist_ok=True)
+    for old_markdown in export_dir.glob("*.md"):
+        old_markdown.unlink()
+    manifest_path = export_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest_path.unlink()
     repo_root = ROOT.parent.parent
     records = []
     for syscall_id, name in canonical:
@@ -556,7 +566,7 @@ def export_section2(
             }
         )
     manifest = {"section": 2, "count": len(records), "pages": records}
-    (export_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 def render(name: str, body: str, section: int) -> str:
@@ -644,6 +654,7 @@ def main() -> int:
     for path in sorted(args.source.glob("sys/time.cpp")):
         for name, body, group in legacy_pages(path.read_text(), "sys"):
             pages.setdefault((name, 2), (body, group))
+            page_sources[(name, 2)] = path
     libc_root = args.libc_source
     if libc_root is None:
         candidate = args.source.resolve().parents[1] / "libc"
@@ -659,18 +670,24 @@ def main() -> int:
         raise SystemExit(f"missing section-2 ABI header: {abi_header}")
     canonical = syscall_abi(abi_header)
     source_index = build_source_index(args.source)
+    abi_prototypes = public_abi_prototypes(abi_header)
     for _, name in canonical:
         key = (name, 2)
         source = source_for(name, source_index)
         if key not in pages:
             effective_source = source or abi_header
             pages[key] = (
-                fallback_body(name, prototype_from_source(effective_source, name)),
+                fallback_body(name, abi_prototypes.get(name)),
                 group_for_source(effective_source, args.source),
             )
             page_sources[key] = effective_source
         else:
             page_sources.setdefault(key, source or abi_header)
+            if "System call handler for" in pages[key][0]:
+                pages[key] = (
+                    fallback_body(name, abi_prototypes.get(name)),
+                    pages[key][1],
+                )
 
     docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
     overviews = overview_pages(docs_root)

@@ -46,12 +46,31 @@ describe('Generated section-2 syscall docs', () => {
     expect(fchdir?.title).toBe('fchdir(2)');
     expect(fchdir?.source).toContain('kernel/src/proc/syscalls/process/fchdir.cpp');
 
+    const sigwait = SYSCALL_PAGES.find((page) => page.syscallId === 50);
+    expect(sigwait?.content).toContain(
+      'long astia_sigwait(const uint32_t* set, int32_t* signal);',
+    );
+    expect(sigwait?.content).not.toContain('long sigwait(u64');
+
+    const clockGetTime = SYSCALL_PAGES.find((page) => page.syscallId === 7);
+    const clockGetRes = SYSCALL_PAGES.find((page) => page.syscallId === 62);
+    expect(clockGetTime?.source).toContain('kernel/src/sys/time.cpp');
+    expect(clockGetRes?.source).toContain('kernel/src/sys/time.cpp');
+    expect(clockGetRes?.content).toContain('astia_clock_getres');
+    expect(clockGetRes?.content).toContain('Detailed manual text has not been added');
+
     for (const page of SYSCALL_PAGES) {
       expect(page.category).toBeTruthy();
       expect(page.source).toMatch(
         /^https:\/\/github\.com\/arlirad\/astia\/blob\/main\/(kernel\/src|kernel\/include)\//,
       );
       expect(page.content).toContain('## DESCRIPTION');
+      if (page.content.includes('Detailed manual text has not been added')) {
+        const synopsis = page.content.match(/## SYNOPSIS\s+```c\n([\s\S]*?)\n```/)?.[1] ?? '';
+        expect(synopsis).toContain('astia_');
+        expect(synopsis.trimEnd().endsWith(';')).toBeTrue();
+        expect(synopsis).not.toMatch(/\b(?:i64|u64|u32|i32)\b/);
+      }
     }
   });
 

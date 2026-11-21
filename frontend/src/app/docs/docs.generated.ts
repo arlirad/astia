@@ -245,7 +245,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_submit.cpp",
     category: "fs",
     syscallId: 2,
-    content: "# io_submit(2)\n\n## SYNOPSIS\n\n```c\nlong io_submit(u64 ring, u32 submit)\n```\n\n## DESCRIPTION\n\nSystem call handler for `io_submit`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# io_submit(2)\n\n## SYNOPSIS\n\n```c\nlong astia_io_submit(astia_rings* ring, uint32_t to_submit);\n```\n\n## DESCRIPTION\n\nSystem call handler for `io_submit`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-3-io-register",
@@ -292,8 +292,8 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     title: "clock_gettime(2)",
     group: "Syscall (2)",
     summary: "Reads a kernel clock into a userspace timespec. Returns a non-negative result on success. Negative values are ABI errno codes. - -EFAULT: The output timespec pointer is not writ...",
-    source: "https://github.com/arlirad/astia/blob/main/kernel/include/astia/api/syscalls.h",
-    category: "abi",
+    source: "https://github.com/arlirad/astia/blob/main/kernel/src/sys/time.cpp",
+    category: "sys",
     syscallId: 7,
     content: "# clock_gettime(2)\n\n## SYNOPSIS\n\n```c\nlong clock_gettime(int clock_id, timespec *out);\n```\n\n## DESCRIPTION\n\nReads a kernel clock into a userspace timespec.\n\n## RETURN VALUE\n\nReturns a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\n- `-EFAULT`: The output timespec pointer is not writable userspace memory.\n- `-EINVAL`: The clock ID is unsupported.\n\n## NOTES\n\nArguments enter through the direct syscall ABI; validation is performed before entering the owning subsystem.\n",
   },
@@ -725,7 +725,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigwait.cpp",
     category: "proc/signal",
     syscallId: 50,
-    content: "# sigwait(2)\n\n## SYNOPSIS\n\n```c\nlong sigwait(u64 set_ptr, u64 signal_ptr)\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigwait`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# sigwait(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigwait(const uint32_t* set, int32_t* signal);\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigwait`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-51-sigaltstack",
@@ -735,7 +735,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigaltstack.cpp",
     category: "proc/signal",
     syscallId: 51,
-    content: "# sigaltstack(2)\n\n## SYNOPSIS\n\n```c\nlong sigaltstack(u64 stack_ptr, u64 old_stack_ptr)\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigaltstack`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# sigaltstack(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigaltstack(const astia_stack_t* stack, astia_stack_t* old_stack);\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigaltstack`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-52-getpgid",
@@ -745,7 +745,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/getpgid.cpp",
     category: "proc",
     syscallId: 52,
-    content: "# getpgid(2)\n\n## SYNOPSIS\n\n```c\nlong getpgid(i64 raw_target)\n```\n\n## DESCRIPTION\n\nSystem call handler for `getpgid`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# getpgid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getpgid(int32_t pid);\n```\n\n## DESCRIPTION\n\nSystem call handler for `getpgid`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-53-getppid",
@@ -755,7 +755,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/getppid.cpp",
     category: "proc",
     syscallId: 53,
-    content: "# getppid(2)\n\n## SYNOPSIS\n\n```c\nlong getppid()\n```\n\n## DESCRIPTION\n\nSystem call handler for `getppid`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# getppid(2)\n\n## SYNOPSIS\n\n```c\nlong astia_getppid(void);\n```\n\n## DESCRIPTION\n\nSystem call handler for `getppid`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-54-thread-cancel",
@@ -765,7 +765,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_cancel.cpp",
     category: "proc/thread",
     syscallId: 54,
-    content: "# thread_cancel(2)\n\n## SYNOPSIS\n\n```c\nlong thread_cancel(u32 tid)\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_cancel`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# thread_cancel(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_cancel(uint32_t tid);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_cancel`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-55-alarm",
@@ -775,7 +775,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/alarm.cpp",
     category: "proc",
     syscallId: 55,
-    content: "# alarm(2)\n\n## SYNOPSIS\n\n```c\nlong alarm(i64 seconds)\n```\n\n## DESCRIPTION\n\nSystem call handler for `alarm`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# alarm(2)\n\n## SYNOPSIS\n\n```c\nlong astia_alarm(uint32_t seconds);\n```\n\n## DESCRIPTION\n\nSystem call handler for `alarm`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-56-thread-create-owned",
@@ -785,7 +785,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_create_owned.cpp",
     category: "proc/thread",
     syscallId: 56,
-    content: "# thread_create_owned(2)\n\n## SYNOPSIS\n\n```c\nlong thread_create_owned(u64 entry, u64 stack_top, u64 argument0, u64 argument1, u64 stack_base, u64 stack_size)\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_create_owned`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# thread_create_owned(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_create_owned(void (*entry)(void*, void*), void* stack_top, void* argument0, void* argument1, void* stack_addr, uint64_t stack_size);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_create_owned`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-57-thread-cancel-pending",
@@ -795,7 +795,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_cancel_pending.cpp",
     category: "proc/thread",
     syscallId: 57,
-    content: "# thread_cancel_pending(2)\n\n## SYNOPSIS\n\n```c\nlong thread_cancel_pending()\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_cancel_pending`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# thread_cancel_pending(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_cancel_pending(void);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_cancel_pending`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-58-thread-exists",
@@ -805,7 +805,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_exists.cpp",
     category: "proc/thread",
     syscallId: 58,
-    content: "# thread_exists(2)\n\n## SYNOPSIS\n\n```c\nlong thread_exists(u32 tid)\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_exists`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# thread_exists(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_exists(uint32_t tid);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_exists`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-59-thread-kill",
@@ -815,7 +815,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_kill.cpp",
     category: "proc/thread",
     syscallId: 59,
-    content: "# thread_kill(2)\n\n## SYNOPSIS\n\n```c\nlong thread_kill(u32 tid, i32 raw_signal)\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_kill`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# thread_kill(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_kill(uint32_t tid, int32_t signal);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_kill`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-60-sigpending",
@@ -825,7 +825,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigpending.cpp",
     category: "proc/signal",
     syscallId: 60,
-    content: "# sigpending(2)\n\n## SYNOPSIS\n\n```c\nlong sigpending(u64 set_ptr)\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigpending`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# sigpending(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigpending(uint32_t* set);\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigpending`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-61-sigtimedwait",
@@ -835,17 +835,17 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigtimedwait.cpp",
     category: "proc/signal",
     syscallId: 61,
-    content: "# sigtimedwait(2)\n\n## SYNOPSIS\n\n```c\nlong sigtimedwait(u64 set_ptr, u64 info_ptr, u64 timeout_ptr)\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigtimedwait`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# sigtimedwait(2)\n\n## SYNOPSIS\n\n```c\nlong astia_sigtimedwait(const uint32_t* set, astia_siginfo_t* info, const astia_timespec* timeout);\n```\n\n## DESCRIPTION\n\nSystem call handler for `sigtimedwait`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-62-clock-getres",
     title: "clock_getres(2)",
     group: "Syscall (2)",
-    summary: "System call handler for clock_getres. Returns a non-negative result on success. Negative values are ABI errno codes. See the kernel error ABI. Arguments enter through the direct...",
-    source: "https://github.com/arlirad/astia/blob/main/kernel/include/astia/api/syscalls.h",
-    category: "abi",
+    summary: "System call handler for clock_getres. See the implementation source for validation and ownership details. Returns zero or a non-negative result on success. Negative values are A...",
+    source: "https://github.com/arlirad/astia/blob/main/kernel/src/sys/time.cpp",
+    category: "sys",
     syscallId: 62,
-    content: "# clock_getres(2)\n\n## SYNOPSIS\n\n```c\nlong clock_getres(...);\n```\n\n## DESCRIPTION\n\nSystem call handler for `clock_getres`.\n\n## RETURN VALUE\n\nReturns a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI.\n\n## NOTES\n\nArguments enter through the direct syscall ABI; validation is performed before entering the owning subsystem.\n",
+    content: "# clock_getres(2)\n\n## SYNOPSIS\n\n```c\nlong astia_clock_getres(uint32_t clock_id, astia_timespec* out);\n```\n\n## DESCRIPTION\n\nSystem call handler for `clock_getres`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-63-thread-getattr",
@@ -855,7 +855,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/thread/thread_getattr.cpp",
     category: "proc/thread",
     syscallId: 63,
-    content: "# thread_getattr(2)\n\n## SYNOPSIS\n\n```c\nlong thread_getattr(u32 tid, u64 output)\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_getattr`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# thread_getattr(2)\n\n## SYNOPSIS\n\n```c\nlong astia_thread_getattr(uint32_t tid, astia_thread_stack_info* output);\n```\n\n## DESCRIPTION\n\nSystem call handler for `thread_getattr`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-64-msync",
@@ -865,7 +865,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/memory/msync.cpp",
     category: "proc/memory",
     syscallId: 64,
-    content: "# msync(2)\n\n## SYNOPSIS\n\n```c\nlong msync(u64 addr, i64 len, u32 flags)\n```\n\n## DESCRIPTION\n\nSystem call handler for `msync`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# msync(2)\n\n## SYNOPSIS\n\n```c\nlong astia_msync(void* addr, uint64_t len, uint32_t flags);\n```\n\n## DESCRIPTION\n\nSystem call handler for `msync`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-65-lseek",
@@ -875,7 +875,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/lseek.cpp",
     category: "proc",
     syscallId: 65,
-    content: "# lseek(2)\n\n## SYNOPSIS\n\n```c\nlong lseek(i64 raw_fd, i64 offset, i64 raw_whence)\n```\n\n## DESCRIPTION\n\nSystem call handler for `lseek`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# lseek(2)\n\n## SYNOPSIS\n\n```c\nlong astia_lseek(int32_t fd, int64_t offset, int32_t whence);\n```\n\n## DESCRIPTION\n\nSystem call handler for `lseek`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-66-umask",
@@ -885,7 +885,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/ipc/shm.cpp",
     category: "proc/ipc",
     syscallId: 66,
-    content: "# umask(2)\n\n## SYNOPSIS\n\n```c\nlong umask(int mode)\n```\n\n## DESCRIPTION\n\nSystem call handler for `umask`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# umask(2)\n\n## SYNOPSIS\n\n```c\nlong astia_umask(uint32_t mode);\n```\n\n## DESCRIPTION\n\nSystem call handler for `umask`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-67-shm-open",
@@ -895,7 +895,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/ipc/shm.cpp",
     category: "proc/ipc",
     syscallId: 67,
-    content: "# shm_open(2)\n\n## SYNOPSIS\n\n```c\nlong shm_open(unsigned long address, int flags, unsigned int mode)\n```\n\n## DESCRIPTION\n\nSystem call handler for `shm_open`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# shm_open(2)\n\n## SYNOPSIS\n\n```c\nlong astia_shm_open(const char* name, int flags, uint32_t mode);\n```\n\n## DESCRIPTION\n\nSystem call handler for `shm_open`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-68-shm-unlink",
@@ -905,7 +905,7 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/ipc/shm.cpp",
     category: "proc/ipc",
     syscallId: 68,
-    content: "# shm_unlink(2)\n\n## SYNOPSIS\n\n```c\nlong shm_unlink(unsigned long address)\n```\n\n## DESCRIPTION\n\nSystem call handler for `shm_unlink`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# shm_unlink(2)\n\n## SYNOPSIS\n\n```c\nlong astia_shm_unlink(const char* name);\n```\n\n## DESCRIPTION\n\nSystem call handler for `shm_unlink`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   },
   {
     slug: "syscall-69-fchdir",
@@ -915,6 +915,6 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     source: "https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/fchdir.cpp",
     category: "proc/process",
     syscallId: 69,
-    content: "# fchdir(2)\n\n## SYNOPSIS\n\n```c\nlong fchdir(i64 raw_fd)\n```\n\n## DESCRIPTION\n\nSystem call handler for `fchdir`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. Detailed manual text has not been added for this syscall yet.\n",
+    content: "# fchdir(2)\n\n## SYNOPSIS\n\n```c\nlong astia_fchdir(int fd);\n```\n\n## DESCRIPTION\n\nSystem call handler for `fchdir`. See the implementation source for validation and ownership details.\n\n## RETURN VALUE\n\nReturns zero or a non-negative result on success. Negative values are ABI errno codes.\n\n## ERRORS\n\nSee the kernel error ABI and the implementation source.\n\n## NOTES\n\nGenerated from the canonical section-2 ABI. The synopsis uses the public ABI declaration. Detailed manual text has not been added for this syscall yet.\n",
   }
 ];
