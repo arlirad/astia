@@ -1342,6 +1342,7 @@ class TransactionalDirectory:
         active_info: os.stat_result | None,
         active_snapshot: dict[str, tuple],
         staging_name: str,
+        staging_info: os.stat_result,
         staging: int,
     ):
         self.path = path
@@ -1351,6 +1352,7 @@ class TransactionalDirectory:
         self._active_info = active_info
         self._active_snapshot = active_snapshot
         self._staging_name = staging_name
+        self._staging_info = staging_info
         self._staging = staging
         self._committed = False
         self.output = OutputDirectory(path, staging, owns_descriptor=False)
@@ -1373,6 +1375,8 @@ class TransactionalDirectory:
         active = -1
         staging = -1
         staging_name = ""
+        staging_created = False
+        staging_info = None
         try:
             active_info = None
             active_snapshot: dict[str, tuple] = {}
@@ -1400,15 +1404,36 @@ class TransactionalDirectory:
                     raise RuntimeError(
                         "cannot snapshot the active output directory"
                     ) from error
-            for _ in range(100):
-                staging_name = f".astia-stage-{os.urandom(8).hex()}"
-                try:
-                    os.mkdir(staging_name, 0o755, dir_fd=parent)
+            collisions: list[str] = []
+            try:
+                for _ in range(100):
+                    candidate = f".astia-stage-{os.urandom(8).hex()}"
+                    try:
+                        os.mkdir(candidate, 0o755, dir_fd=parent)
+                    except FileExistsError:
+                        collisions.append(candidate)
+                        continue
+                    staging_name = candidate
+                    staging_created = True
                     break
-                except FileExistsError:
-                    continue
-            else:
-                raise OSError("cannot allocate a staging directory")
+                else:
+                    raise OSError("cannot allocate a staging directory")
+            except BaseException as error:
+                if collisions:
+                    preserved = ", ".join(
+                        str((path.parent / name).resolve())
+                        for name in collisions
+                    )
+                    cls._report_deferred(
+                        f"staging allocation failed; preserved pre-existing "
+                        f"paths: {preserved}: {error}"
+                    )
+                raise
+            staging_info = os.stat(
+                staging_name, dir_fd=parent, follow_symlinks=False
+            )
+            if not stat.S_ISDIR(staging_info.st_mode):
+                raise RuntimeError("staging path is not a directory")
             if active_info is not None:
                 try:
                     os.chown(
@@ -1432,6 +1457,12 @@ class TransactionalDirectory:
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                 dir_fd=parent,
             )
+            opened_info = os.fstat(staging)
+            if not same_inode(opened_info, staging_info):
+                os.close(staging)
+                staging = -1
+                raise RuntimeError("staging directory changed during creation")
+            staging_info = opened_info
             if active >= 0:
                 replace_xattrs(active, staging, None, ".")
                 current = OutputDirectory(path, active, owns_descriptor=False)
@@ -1445,6 +1476,7 @@ class TransactionalDirectory:
                 active_info,
                 active_snapshot,
                 staging_name,
+                staging_info,
                 staging,
             )
         except BaseException:
@@ -1452,9 +1484,15 @@ class TransactionalDirectory:
                 os.close(staging)
             if active >= 0:
                 os.close(active)
-            if staging_name:
+            if staging_created and staging_info is not None and staging_name:
                 try:
-                    remove_tree(parent, staging_name)
+                    current = os.stat(
+                        staging_name, dir_fd=parent, follow_symlinks=False
+                    )
+                    if stat.S_ISDIR(current.st_mode) and same_inode(
+                        current, staging_info
+                    ):
+                        remove_tree(parent, staging_name)
                 except OSError:
                     pass
             os.close(parent)
@@ -1470,12 +1508,21 @@ class TransactionalDirectory:
         if self._active >= 0:
             os.close(self._active)
             self._active = -1
-        if not self._committed and self._staging_name:
-            try:
-                remove_tree(self._parent, self._staging_name)
-            except OSError:
-                pass
+        if not self._committed:
+            self._remove_staging_if_owned()
         os.close(self._parent)
+
+    def _remove_staging_if_owned(self) -> None:
+        try:
+            current = os.stat(
+                self._staging_name, dir_fd=self._parent, follow_symlinks=False
+            )
+            if stat.S_ISDIR(current.st_mode) and same_inode(
+                current, self._staging_info
+            ):
+                remove_tree(self._parent, self._staging_name)
+        except OSError:
+            pass
 
     def _active_matches(self) -> bool:
         try:
@@ -1504,6 +1551,9 @@ class TransactionalDirectory:
             print(f"warning: {message}", file=sys.stderr)
         except Exception:
             pass
+
+    def _full_path(self, name: str) -> str:
+        return str((self.path.parent / name).resolve())
 
     def _preserve_retired(self) -> tuple[str | None, Exception | None]:
         try:
@@ -1575,13 +1625,14 @@ class TransactionalDirectory:
                 except Exception as error:
                     self._report_deferred(
                         f"deferred cleanup: retired generation at "
-                        f"{self._staging_name}: {error}"
+                        f"{self._full_path(self._staging_name)}: {error}"
                     )
             else:
                 retained, preserve_error = self._preserve_retired()
-                retained_path = (
+                retained_name = (
                     retained if retained is not None else self._staging_name
                 )
+                retained_path = self._full_path(retained_name)
                 causes = []
                 if retired_error is not None:
                     causes.append(str(retired_error))

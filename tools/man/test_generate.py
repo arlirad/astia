@@ -1166,9 +1166,7 @@ class GenerateTest(unittest.TestCase):
                 nonlocal calls
                 calls += 1
                 if calls == 4:
-                    raise RuntimeError(
-                        "cannot read active output file for hashing: index.html: EIO"
-                    )
+                    raise RuntimeError("snapshot-read-EIO")
                 return real_snapshot(directory, prefix)
 
             with warnings.catch_warnings():
@@ -1201,9 +1199,74 @@ class GenerateTest(unittest.TestCase):
             self.assertEqual((retired[0] / "index.html").read_text(), "old index")
             diagnostic = stderr.getvalue()
             self.assertIn("deferred cleanup", diagnostic)
-            self.assertIn(retired[0].name, diagnostic)
-            self.assertIn("EIO", diagnostic)
+            self.assertIn(str(retired[0].resolve()), diagnostic)
+            self.assertIn("snapshot-read-EIO", diagnostic)
             shutil.rmtree(retired[0])
+
+    def test_staging_collision_is_never_deleted_after_urandom_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            collision_name = ".astia-stage-0101010101010101"
+            collision = root / collision_name
+            collision.mkdir()
+            (collision / "unrelated.bin").write_bytes(b"unrelated")
+            before = {
+                path.name: path.read_bytes()
+                for path in output.iterdir()
+                if path.is_file()
+            }
+            calls = 0
+
+            def urandom(size):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return b"\x01" * size
+                raise OSError("urandom-ENOSPC")
+
+            stderr = io.StringIO()
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                with redirect_stderr(stderr):
+                    with patch.object(generate.os, "urandom", side_effect=urandom):
+                        with self.assertRaises(OSError):
+                            generate.TransactionalDirectory.begin(
+                                output,
+                                root,
+                                generate.MAN7_MANIFEST,
+                                generate.read_owned_files,
+                            )
+
+            self.assertEqual(calls, 2)
+            diagnostic = stderr.getvalue()
+            self.assertIn(str(collision.resolve()), diagnostic)
+            self.assertIn("preserved pre-existing", diagnostic)
+            self.assertIn("urandom-ENOSPC", diagnostic)
+            self.assertTrue(collision.is_dir())
+            self.assertEqual((collision / "unrelated.bin").read_bytes(), b"unrelated")
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in output.iterdir()
+                    if path.is_file()
+                },
+                before,
+            )
+            stages = {
+                path.name
+                for path in root.iterdir()
+                if path.name.startswith(".astia-stage-")
+            }
+            self.assertEqual(stages, {collision_name})
+            self.assertEqual(
+                [
+                    path
+                    for path in root.iterdir()
+                    if path.name.startswith(".astia-retired-")
+                ],
+                [],
+            )
 
     def test_post_exchange_urandom_failure_reports_staging_path(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1219,14 +1282,12 @@ class GenerateTest(unittest.TestCase):
                 nonlocal calls
                 calls += 1
                 if calls == 4:
-                    raise RuntimeError(
-                        "cannot read active output file for hashing: index.html: EIO"
-                    )
+                    raise RuntimeError("snapshot-read-EIO")
                 return real_snapshot(directory, prefix)
 
             def fail_urandom(size):
                 if failing:
-                    raise OSError("urandom EIO")
+                    raise OSError("urandom-ENOSPC")
                 return real_urandom(size)
 
             def start_failing():
@@ -1266,9 +1327,9 @@ class GenerateTest(unittest.TestCase):
             self.assertEqual(retired, [])
             self.assertEqual((staged[0] / "index.html").read_text(), "old index")
             diagnostic = stderr.getvalue()
-            self.assertIn(staged[0].name, diagnostic)
-            self.assertIn("EIO", diagnostic)
-            self.assertIn("urandom EIO", diagnostic)
+            self.assertIn(str(staged[0].resolve()), diagnostic)
+            self.assertIn("snapshot-read-EIO", diagnostic)
+            self.assertIn("urandom-ENOSPC", diagnostic)
             shutil.rmtree(staged[0])
 
     def test_urandom_failure_alone_reports_staging_path(self):
@@ -1281,7 +1342,7 @@ class GenerateTest(unittest.TestCase):
 
             def fail_urandom(size):
                 if failing:
-                    raise OSError("urandom EIO")
+                    raise OSError("urandom-ENOSPC")
                 return real_urandom(size)
 
             def start_failing():
@@ -1321,8 +1382,8 @@ class GenerateTest(unittest.TestCase):
             self.assertEqual(retired, [])
             self.assertEqual((staged[0] / "index.html").read_text(), "old index")
             diagnostic = stderr.getvalue()
-            self.assertIn(staged[0].name, diagnostic)
-            self.assertIn("urandom EIO", diagnostic)
+            self.assertIn(str(staged[0].resolve()), diagnostic)
+            self.assertIn("urandom-ENOSPC", diagnostic)
             shutil.rmtree(staged[0])
 
     def test_transaction_succeeds_when_warnings_are_errors(self):

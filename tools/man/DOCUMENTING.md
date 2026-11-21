@@ -156,7 +156,9 @@ unexpected files for recovery.
 The retired generation is removed only after activation succeeds and its
 post-exchange snapshot still matches the snapshot taken before staging.
 Cleanup errors are deferred and do not turn a successful activation into a
-failure. Cooperating generators should run one at a time.
+failure. Cooperating generators should run one at a time. Staging collisions
+are never removed; if allocation fails after a collision, the pre-existing
+paths are reported and left untouched.
 
 Regular files are copied with owner, group, mode, ACLs, and extended
 attributes preserved. Recreated directories, FIFOs, and the staging root
