@@ -165,6 +165,7 @@ This builds the kernel and boots it with QEMU's `-kernel` loader:
 
 ```bash
 qemu-system-x86_64 -kernel build/src/astiakrn \
+    -initrd /path/to/initrd.cpio \
     -serial stdio -display none -monitor none -no-reboot
 ```
 
@@ -176,8 +177,21 @@ kernel.) QEMU enters `_start` in 32-bit protected mode; `src/boot/virt/boot.S`
 sets up identity and higher-half page tables, switches to long mode and
 calls `kmain()` in the linked-high image.
 
-On success the kernel writes `OK` to COM1 (0x3F8), which QEMU routes to
-stdio. The kernel then idles; press `Ctrl-C` to stop QEMU.
+The initrd must contain `/sbin/init` unless an alternate path is selected.
+After the filesystem and scheduler are ready, the production kernel launches
+that executable as its first userspace process. Override the default with one
+absolute path in the bootloader command line:
+
+```text
+--init /bin/zsh
+```
+
+`--init` takes exactly one path token; duplicate, missing, relative, traversal,
+and overlong paths fail boot. The kernel does not interpret shell quoting and
+does not pass other command-line tokens to init. Init receives `argv[0]` equal
+to its selected path and the established `HOME=/` environment. If it cannot be
+launched, or exits for any reason, the kernel reports the failure and panics
+rather than silently halting.
 
 ## Direct VGA/GDB developer target
 
