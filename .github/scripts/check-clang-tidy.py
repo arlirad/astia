@@ -7,6 +7,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 
 SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"}
@@ -36,7 +37,8 @@ UNSUPPORTED_FILES = {
 CONFIG = pathlib.Path(__file__).with_name("clang-tidy-config.yml").resolve()
 HEADER_FILTER = r"(^|/)kernel/(include|src|tests)/"
 SKIPPED_COMPILE_COMMAND = re.compile(
-    r"(?ms)^Skipping .*?: Compile command not found\.$"
+    r"(?ims)^Skipping\s+.+?(?:\s*[:.]\s*|\s+)"
+    r"Compile\s+command\s+not\s+found\s*\.\s*$"
 )
 
 
@@ -49,8 +51,17 @@ def decode_path(raw):
     if not (text.startswith('"') and text.endswith('"')):
         return text
     data = bytearray()
-    escapes = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12,
-               "r": 13, "\\": 92, '"': 34}
+    escapes = {
+        "a": 7,
+        "b": 8,
+        "t": 9,
+        "n": 10,
+        "v": 11,
+        "f": 12,
+        "r": 13,
+        "\\": 92,
+        '"': 34,
+    }
     i = 1
     while i < len(text) - 1:
         char = text[i]
@@ -136,25 +147,47 @@ def changed_ranges(diff):
 
 
 def compile_db(build, root):
-    with (pathlib.Path(build) / "compile_commands.json").open(encoding="utf-8") as stream:
+    with (pathlib.Path(build) / "compile_commands.json").open(
+        encoding="utf-8"
+    ) as stream:
         entries = json.load(stream)
     root = pathlib.Path(root).resolve()
     kernel = (pathlib.Path(root) / "kernel").resolve()
     result = {}
+    normalized = []
     for entry in entries:
-        file = pathlib.Path(entry["file"])
         directory = pathlib.Path(entry.get("directory", root))
         if not directory.is_absolute():
             directory = root / directory
-        file = (directory / file).resolve() if not file.is_absolute() else file.resolve()
+        directory = directory.resolve()
+        file = pathlib.Path(entry["file"])
+        file = (
+            (directory / file).resolve() if not file.is_absolute() else file.resolve()
+        )
         if file.suffix.lower() not in COMPILE_SUFFIXES or not file.is_file():
             continue
         try:
             file.relative_to(kernel)
         except ValueError:
             continue
+        normalized_entry = dict(entry)
+        normalized_entry["directory"] = str(directory)
+        normalized_entry["file"] = str(file)
+        normalized.append(normalized_entry)
         result[str(file)] = str(file)
-    return result
+    normalized_build = tempfile.TemporaryDirectory(prefix="clang-tidy-db-")
+    (pathlib.Path(normalized_build.name) / "compile_commands.json").write_text(
+        json.dumps(normalized), encoding="utf-8"
+    )
+    return result, normalized_build
+
+
+def line_filter_entries(root, path, lines):
+    absolute = str((pathlib.Path(root) / path).resolve())
+    return [
+        {"name": path, "lines": lines},
+        {"name": absolute, "lines": lines},
+    ]
 
 
 def analyze(args, source, line_filter):
@@ -167,9 +200,15 @@ def analyze(args, source, line_filter):
         source,
     ]
     try:
-        result = subprocess.run(command, cwd=args.root, capture_output=True,
-                                text=True, encoding="utf-8", errors="strict",
-                                timeout=args.timeout)
+        result = subprocess.run(
+            command,
+            cwd=args.root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+            timeout=args.timeout,
+        )
     except (OSError, UnicodeError, subprocess.TimeoutExpired) as error:
         return source, 1, f"clang-tidy invocation failed for {source}: {error}\n"
     output = result.stdout + result.stderr
@@ -206,21 +245,53 @@ def main():
     if args.jobs < 1 or args.timeout < 1 or not CONFIG.is_file():
         print("clang-tidy: invalid settings or missing trusted config", file=sys.stderr)
         return 1
+    normalized_build = None
     try:
-        status = status_paths(git([
-            "diff", "--name-status", "-z", "--diff-filter=ACMRT",
-            args.base, args.head, "--", "kernel"], args.root))
-        diff = git([
-            "diff", "--unified=0", "--no-color", "--no-ext-diff",
-            args.base, args.head, "--", "kernel"], args.root).decode("utf-8", "strict")
+        status = status_paths(
+            git(
+                [
+                    "diff",
+                    "--name-status",
+                    "-z",
+                    "--diff-filter=ACMRT",
+                    args.base,
+                    args.head,
+                    "--",
+                    "kernel",
+                ],
+                args.root,
+            )
+        )
+        diff = git(
+            [
+                "diff",
+                "--unified=0",
+                "--no-color",
+                "--no-ext-diff",
+                args.base,
+                args.head,
+                "--",
+                "kernel",
+            ],
+            args.root,
+        ).decode("utf-8", "strict")
         ranges = changed_ranges(diff)
-        db = compile_db(args.build, args.root)
-    except (OSError, UnicodeError, ValueError, TypeError, KeyError,
-            json.JSONDecodeError,
-            subprocess.CalledProcessError) as error:
+        db, normalized_build = compile_db(args.build, args.root)
+        args.build = normalized_build.name
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        TypeError,
+        KeyError,
+        json.JSONDecodeError,
+        subprocess.CalledProcessError,
+    ) as error:
         print(f"clang-tidy: failed to prepare analysis: {error}", file=sys.stderr)
         return 1
-    relevant = [p for p in status if pathlib.PurePosixPath(p).suffix.lower() in SOURCE_SUFFIXES]
+    relevant = [
+        p for p in status if pathlib.PurePosixPath(p).suffix.lower() in SOURCE_SUFFIXES
+    ]
     missing = [p for p in relevant if p not in ranges or not ranges[p]]
     if missing:
         print(f"clang-tidy: no changed ranges for {missing!r}", file=sys.stderr)
@@ -228,11 +299,18 @@ def main():
     if not relevant:
         smoke = str((pathlib.Path(args.root) / "kernel/src/kmain.cpp").resolve())
         if smoke not in db:
-            print("clang-tidy: smoke source missing from compilation database", file=sys.stderr)
+            print(
+                "clang-tidy: smoke source missing from compilation database",
+                file=sys.stderr,
+            )
             return 1
         lines = len(pathlib.Path(smoke).read_text(encoding="utf-8").splitlines())
         print("clang-tidy: empty diff; running smoke analysis")
-        return run_units(args, [smoke], [{"name": "kernel/src/kmain.cpp", "lines": [[1, max(lines, 1)]]}])
+        return run_units(
+            args,
+            [smoke],
+            line_filter_entries(args.root, "kernel/src/kmain.cpp", [[1, max(lines, 1)]]),
+        )
     sources = []
     missing_sources = []
     headers = []
@@ -248,17 +326,30 @@ def main():
         else:
             missing_sources.append(path)
     if missing_sources:
-        print(f"clang-tidy: missing compile database entries: {missing_sources!r}", file=sys.stderr)
+        print(
+            f"clang-tidy: missing compile database entries: {missing_sources!r}",
+            file=sys.stderr,
+        )
         return 1
     failed = 0
     if sources:
-        filt = [{"name": path, "lines": ranges[path]} for path, _ in sources]
+        filt = [
+            entry
+            for path, _ in sources
+            for entry in line_filter_entries(args.root, path, ranges[path])
+        ]
         failed |= run_units(args, [source for _, source in sources], filt)
     if headers:
         if not db:
-            print("clang-tidy: no translation units for changed headers", file=sys.stderr)
+            print(
+                "clang-tidy: no translation units for changed headers", file=sys.stderr
+            )
             return 1
-        filt = [{"name": path, "lines": ranges[path]} for path in headers]
+        filt = [
+            entry
+            for path in headers
+            for entry in line_filter_entries(args.root, path, ranges[path])
+        ]
         print(f"clang-tidy: checking {len(db)} translation units for changed headers")
         failed |= run_units(args, list(db.values()), filt)
     return int(failed)

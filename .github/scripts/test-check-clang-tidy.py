@@ -3,6 +3,7 @@
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,9 +13,15 @@ SCRIPTS = pathlib.Path(__file__).resolve().parent
 
 
 def run(command, cwd, env=None, check=True):
-    return subprocess.run(command, cwd=cwd, env=env, text=True,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          check=check)
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=check,
+    )
 
 
 def git(repo, *args):
@@ -42,11 +49,13 @@ def database(repo, files):
     build.mkdir(exist_ok=True)
     entries = []
     for name in files:
-        entries.append({
-            "directory": str(repo / "kernel/src"),
-            "file": pathlib.Path(name).name,
-            "command": f"cc -c {pathlib.Path(name).name}",
-        })
+        entries.append(
+            {
+                "directory": str(repo / "kernel/src"),
+                "file": pathlib.Path(name).name,
+                "command": f"cc -c {pathlib.Path(name).name}",
+            }
+        )
     (build / "compile_commands.json").write_text(json.dumps(entries), encoding="utf-8")
     return build
 
@@ -66,8 +75,10 @@ if os.environ.get("FAIL_HEADER") == "1" and "header.hpp" in line_filter:
 if os.environ.get("INVALID_OUTPUT") == "1":
     sys.stdout.buffer.write(b"\\xff")
 if os.environ.get("SKIP_OUTPUT") == "1":
-    print("Skipping source\\nfile.cpp: Compile command not found.")
-""", encoding="utf-8")
+    print("Skipping /path/file.cpp. Compile command not found.")
+""",
+        encoding="utf-8",
+    )
     path.chmod(0o755)
     return path
 
@@ -76,18 +87,41 @@ def check(repo, build, base, head, tidy, flags=None, cwd=None):
     env = os.environ.copy()
     env["TIDY_RECORD"] = str(repo / "record")
     env.update(flags or {})
-    return run([
-        sys.executable, str(SCRIPTS / "check-clang-tidy.py"),
-        "--root", str(repo), "--build", str(build),
-        "--base", base, "--head", head, "--clang-tidy", str(tidy),
-        "--jobs", "2", "--timeout", "10",
-    ], cwd or repo, env=env, check=False)
+    return run(
+        [
+            sys.executable,
+            str(SCRIPTS / "check-clang-tidy.py"),
+            "--root",
+            str(repo),
+            "--build",
+            str(build),
+            "--base",
+            base,
+            "--head",
+            head,
+            "--clang-tidy",
+            str(tidy),
+            "--jobs",
+            "2",
+            "--timeout",
+            "10",
+        ],
+        cwd or repo,
+        env=env,
+        check=False,
+    )
 
 
 def test_special_paths_and_hunk_content():
     repo = repo_fixture()
-    names = ["λ.cpp", "space name.cpp", "tab\tfile.cpp", "line\nbreak.cpp",
-             "back\\slash.cpp", 'quote".cpp']
+    names = [
+        "λ.cpp",
+        "space name.cpp",
+        "tab\tfile.cpp",
+        "line\nbreak.cpp",
+        "back\\slash.cpp",
+        'quote".cpp',
+    ]
     for index, name in enumerate(names):
         (repo / "kernel/src" / name).write_text(f"int old_{index};\n", encoding="utf-8")
     base = commit(repo, "base")
@@ -100,12 +134,28 @@ def test_special_paths_and_hunk_content():
     build = database(repo, [f"kernel/src/{name}" for name in names])
     result = check(repo, build, base, head, fake_tidy(repo))
     assert result.returncode == 0, result.stdout
-    invocations = [json.loads(line) for line in (repo / "record").read_text().splitlines()]
+    invocations = [
+        json.loads(line) for line in (repo / "record").read_text().splitlines()
+    ]
     assert len(invocations) == len(names), invocations
-    filters = [json.loads(next(x.split("=", 1)[1] for x in invocation
-                               if x.startswith("-line-filter="))) for invocation in invocations]
-    assert any(item["name"] == "kernel/src/λ.cpp" and item["lines"] == [[2, 3]]
-               for item in filters[0]), filters
+    filters = [
+        json.loads(
+            next(
+                x.split("=", 1)[1] for x in invocation if x.startswith("-line-filter=")
+            )
+        )
+        for invocation in invocations
+    ]
+    assert any(
+        item["name"] == "kernel/src/λ.cpp"
+        and item["lines"] == [[2, 3]]
+        for item in filters[0]
+    ), filters
+    assert any(
+        item["name"] == str((repo / "kernel/src/λ.cpp").resolve())
+        and item["lines"] == [[2, 3]]
+        for item in filters[0]
+    ), filters
 
 
 def test_mixed_header_source_fails_on_header():
@@ -121,9 +171,31 @@ def test_mixed_header_source_fails_on_header():
     other.write_text("int y;\nint unrelated;\n", encoding="utf-8")
     header.write_text("#define VALUE 2\n", encoding="utf-8")
     head = commit(repo, "mixed")
-    result = check(repo, database(repo, ["kernel/src/main.cpp", "kernel/src/other.cpp"]),
-                   base, head, fake_tidy(repo), {"FAIL_HEADER": "1"})
-    assert result.returncode == 1 and "injected header finding" in result.stdout, result.stdout
+    result = check(
+        repo,
+        database(repo, ["kernel/src/main.cpp", "kernel/src/other.cpp"]),
+        base,
+        head,
+        fake_tidy(repo),
+        {"FAIL_HEADER": "1"},
+    )
+    assert result.returncode == 1 and "injected header finding" in result.stdout, (
+        result.stdout
+    )
+    invocations = [
+        json.loads(line) for line in (repo / "record").read_text().splitlines()
+    ]
+    assert any(
+        item["name"] == str(header.resolve())
+        for invocation in invocations
+        for item in json.loads(
+            next(
+                value.split("=", 1)[1]
+                for value in invocation
+                if value.startswith("-line-filter=")
+            )
+        )
+    ), invocations
 
 
 def test_missing_compile_entry_fails():
@@ -134,7 +206,9 @@ def test_missing_compile_entry_fails():
     src.write_text("int x;\nint y;\n", encoding="utf-8")
     head = commit(repo, "change")
     result = check(repo, database(repo, []), base, head, fake_tidy(repo))
-    assert result.returncode == 1 and "missing compile database" in result.stdout, result.stdout
+    assert result.returncode == 1 and "missing compile database" in result.stdout, (
+        result.stdout
+    )
 
 
 def test_relative_compile_database_directory():
@@ -146,13 +220,34 @@ def test_relative_compile_database_directory():
     head = commit(repo, "change")
     build = repo / "build"
     build.mkdir()
-    (build / "compile_commands.json").write_text(json.dumps([{
-        "directory": "kernel",
-        "file": "src/main.cpp",
-        "command": "cc -c src/main.cpp",
-    }]), encoding="utf-8")
-    result = check(repo, build, base, head, fake_tidy(repo), cwd=repo.parent)
+    (build / "compile_commands.json").write_text(
+        json.dumps(
+            [
+                {
+                    "directory": "kernel",
+                    "file": "src/main.cpp",
+                    "command": "cc -c src/main.cpp",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    tidy = fake_tidy(repo)
+    result = check(repo, build, base, head, tidy, cwd=repo.parent)
     assert result.returncode == 0, result.stdout
+    invocation = json.loads((repo / "record").read_text().splitlines()[0])
+    assert str(source.resolve()) in invocation, invocation
+    line_filter = json.loads(
+        next(
+            value.split("=", 1)[1]
+            for value in invocation
+            if value.startswith("-line-filter=")
+        )
+    )
+    assert line_filter == [
+        {"name": "kernel/src/main.cpp", "lines": [[2, 2]]},
+        {"name": str(source.resolve()), "lines": [[2, 2]]},
+    ], line_filter
 
 
 def test_type_change_analyzed_and_rename_fails_closed():
@@ -166,7 +261,9 @@ def test_type_change_analyzed_and_rename_fails_closed():
     source.write_text("int regular;\nint added;\n", encoding="utf-8")
     head = commit(repo, "regular")
     assert git(repo, "diff", "--name-status", base, head).startswith("T\t")
-    result = check(repo, database(repo, ["kernel/src/type.cpp"]), base, head, fake_tidy(repo))
+    result = check(
+        repo, database(repo, ["kernel/src/type.cpp"]), base, head, fake_tidy(repo)
+    )
     assert result.returncode == 0, result.stdout
 
     old = repo / "kernel/src/type.cpp"
@@ -174,8 +271,12 @@ def test_type_change_analyzed_and_rename_fails_closed():
     run(["git", "mv", str(old), str(new)], repo)
     renamed = commit(repo, "rename only")
     assert git(repo, "diff", "--name-status", head, renamed)
-    result = check(repo, database(repo, ["kernel/src/renamed.cpp"]), head, renamed, fake_tidy(repo))
-    assert result.returncode == 1 and "no changed ranges" in result.stdout, result.stdout
+    result = check(
+        repo, database(repo, ["kernel/src/renamed.cpp"]), head, renamed, fake_tidy(repo)
+    )
+    assert result.returncode == 1 and "no changed ranges" in result.stdout, (
+        result.stdout
+    )
 
 
 def test_empty_diff_smoke_and_errors():
@@ -195,6 +296,45 @@ def test_empty_diff_smoke_and_errors():
     assert result.returncode == 1, result.stdout
 
 
+def test_real_clang_tidy_finding_with_relative_database():
+    tidy = shutil.which(os.environ.get("CLANG_TIDY", "clang-tidy"))
+    if not tidy:
+        print("real clang-tidy integration test: skipped")
+        return
+    repo = repo_fixture()
+    source = repo / "kernel/src/main.cpp"
+    source.write_text(
+        "int divide(int value) {\n    return value ? value : 1;\n}\n",
+        encoding="utf-8",
+    )
+    base = commit(repo, "base")
+    source.write_text(
+        "int divide(int value) {\n"
+        "    int divisor = value - value;\n"
+        "    return value / divisor;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    head = commit(repo, "division finding")
+    build = repo / "build"
+    build.mkdir()
+    (build / "compile_commands.json").write_text(
+        json.dumps(
+            [
+                {
+                    "directory": "kernel",
+                    "file": "src/main.cpp",
+                    "command": f"clang++ -std=c++20 -c {source}",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = check(repo, build, base, head, tidy)
+    assert result.returncode == 1, result.stdout
+    assert "Division by zero" in result.stdout, result.stdout
+
+
 def test_base_trusted_config_ignores_pr_config():
     repo = repo_fixture()
     source = repo / "kernel/src/kmain.cpp"
@@ -202,10 +342,14 @@ def test_base_trusted_config_ignores_pr_config():
     base = commit(repo, "base")
     (repo / ".clang-tidy").write_text("Checks: '-*'\n", encoding="utf-8")
     head = commit(repo, "malicious config")
-    result = check(repo, database(repo, ["kernel/src/kmain.cpp"]), base, head, fake_tidy(repo))
+    result = check(
+        repo, database(repo, ["kernel/src/kmain.cpp"]), base, head, fake_tidy(repo)
+    )
     args = json.loads((repo / "record").read_text().splitlines()[0])
     config = next(x for x in args if x.startswith("-config-file="))
-    assert result.returncode == 0 and config.endswith("clang-tidy-config.yml"), result.stdout
+    assert result.returncode == 0 and config.endswith("clang-tidy-config.yml"), (
+        result.stdout
+    )
     assert ".clang-tidy" not in config
 
 
@@ -216,6 +360,7 @@ def main():
     test_relative_compile_database_directory()
     test_type_change_analyzed_and_rename_fails_closed()
     test_empty_diff_smoke_and_errors()
+    test_real_clang_tidy_finding_with_relative_database()
     test_base_trusted_config_ignores_pr_config()
     print("clang-tidy checker tests: passed")
 
