@@ -15,15 +15,14 @@ namespace astia::fs::syscalls {
     /// another mount return -EBUSY.  This only changes the in-memory namespace.
     struct unmount : sys::syscall_handler<unmount, sys::syscall_id::unmount,
                                           sys::syscall_mode::sync> {
-        static i64 invoke(u64 target) {
+        static i64 invoke(sys::user_ptr<char> target) {
             auto* current = proc::current_process();
             if (current == nullptr)
                 return -ESRCH;
             if (current->euid() != 0)
                 return -EPERM;
             char path[path_max]{};
-            if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                     sys::user_ptr<char>(target)))
+            if (!sys::copy_in_string(span<char>(path, sizeof path), target))
                 return -EFAULT;
             return unmount_type(path);
         }

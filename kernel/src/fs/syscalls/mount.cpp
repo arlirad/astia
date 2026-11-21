@@ -14,18 +14,17 @@ namespace astia::fs::syscalls {
     /// it changes only the in-memory VFS namespace and never opens a host path.
     struct mount
         : sys::syscall_handler<mount, sys::syscall_id::mount, sys::syscall_mode::sync> {
-        static i64 invoke(u64 type_address, u64 target_address, u64 source_address) {
+        static i64 invoke(sys::user_ptr<char> type_address,
+                          sys::user_ptr<char> target_address,
+                          sys::user_ptr<char> source_address) {
             char type[path_max]{};
             char target[path_max]{};
             char source[path_max]{};
-            if (!sys::copy_in_string(span<char>(type, sizeof type),
-                                     sys::user_ptr<char>(type_address)) ||
-                !sys::copy_in_string(span<char>(target, sizeof target),
-                                     sys::user_ptr<char>(target_address)))
+            if (!sys::copy_in_string(span<char>(type, sizeof type), type_address) ||
+                !sys::copy_in_string(span<char>(target, sizeof target), target_address))
                 return -EFAULT;
-            if (source_address != 0 &&
-                !sys::copy_in_string(span<char>(source, sizeof source),
-                                     sys::user_ptr<char>(source_address)))
+            if (!source_address.null() &&
+                !sys::copy_in_string(span<char>(source, sizeof source), source_address))
                 return -EFAULT;
 
             auto* current = proc::current_process();
@@ -33,7 +32,7 @@ namespace astia::fs::syscalls {
                 return -ESRCH;
             if (current->euid() != 0)
                 return -EPERM;
-            return mount_type(type, target, source_address == 0 ? nullptr : source);
+            return mount_type(type, target, source_address.null() ? nullptr : source);
         }
     };
 

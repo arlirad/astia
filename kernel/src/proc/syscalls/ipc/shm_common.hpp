@@ -6,11 +6,10 @@
 #include "user_mem.hpp"
 
 namespace astia::proc::syscalls::detail {
-    inline i64 copy_shared_memory_name(unsigned long address, char* name) {
-        if (!sys::copy_in_string(span<char>(name, fs::path_max),
-                                 sys::user_ptr<char>(address))) {
+    inline i64 copy_shared_memory_name(sys::user_ptr<char> address, char* name) {
+        if (!sys::copy_in_string(span<char>(name, fs::path_max), address)) {
             const auto validated =
-                sys::user_span<const char>(address, fs::path_max).validate();
+                sys::user_span<const char>(address.address(), fs::path_max).validate();
             return validated ? -ENAMETOOLONG : -EFAULT;
         }
         if (name[0] != '/' || name[1] == '\0')

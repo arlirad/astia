@@ -42,13 +42,16 @@ namespace astia::fs::syscalls {
     ///
     struct io_setup : sys::syscall_handler<io_setup, sys::syscall_id::io_setup,
                                            sys::syscall_mode::sync> {
-        static i64 invoke(u32 entries, u32 flags, u64 out) {
-            const auto ring_out = sys::user_ptr<astia_rings*>(out).validate();
+        static i64 invoke(u32 entries, u32 flags, sys::user_ptr<astia_rings*> out) {
+            const auto ring_out = out.validate();
             if (!ring_out)
                 return -EFAULT;
             return sys::io_setup(entries, flags, ring_out.value.get());
         }
     };
+
+    static_assert(std::is_same_v<decltype(&io_setup::invoke),
+                                 i64 (*)(u32, u32, sys::user_ptr<astia_rings*>)>);
 
     extern const sys::syscall_descriptor io_setup_descriptor = io_setup::descriptor;
 

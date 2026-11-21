@@ -11,13 +11,11 @@ namespace astia::proc::syscalls {
     struct thread_getattr
         : sys::syscall_handler<thread_getattr, sys::syscall_id::thread_getattr,
                                sys::syscall_mode::sync> {
-        static i64 invoke(u32 tid, u64 output) {
+        static i64 invoke(u32 tid, sys::user_ptr<astia_thread_stack_info> output) {
             auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
-
-            const auto validated =
-                sys::user_ptr<astia_thread_stack_info>(output).validate();
+            const auto validated = output.validate();
             if (!validated)
                 return -EFAULT;
 

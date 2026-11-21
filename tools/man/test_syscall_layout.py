@@ -49,7 +49,7 @@ def check_production_layout(repository: Path) -> None:
         assert "/// ABI ID:" not in text
         assert "/// Sync/async mode:" not in text
         assert mode == "sync", f"production wrapper is fake async: {path}"
-        assert "static i64 invoke(" in handler
+        assert re.search(r"static\s+i64\s+invoke\s*\(", handler)
         assert "sys::syscall_context" not in handler
         assert "syscall_mode::sync" in handler
         assert "co_return sys::invoke_sync" not in handler
@@ -82,6 +82,8 @@ def check_production_layout(repository: Path) -> None:
     )
     direct_handler = (source / "proc/syscalls/getpid.cpp").read_text()
     assert "raw_id(process->pid())" in direct_handler
+    io_setup = (source / "fs/syscalls/io_setup.cpp").read_text()
+    assert re.search(r"user_ptr<astia_rings\*>\s+out", io_setup)
     for path in source.rglob("*.cpp"):
         assert "register_syscall" not in path.read_text()
         assert "register_syscalls" not in path.read_text()

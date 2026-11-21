@@ -57,14 +57,11 @@ namespace astia::proc::syscalls::detail {
         }
     }
 
-    i64 execve(const arch::syscall_frame& frame) {
+    i64 execve(const arch::syscall_frame& frame, sys::user_ptr<char> path_ptr,
+               sys::user_ptr<const u64> argv_ptr, sys::user_ptr<const u64> envp_ptr) {
         const arch::syscall_frame saved_frame = frame;
-        const u64                 path_ptr    = saved_frame.a0;
-        const u64                 argv_ptr    = saved_frame.a1;
-        const u64                 envp_ptr    = saved_frame.a2;
         char                      path[path_cap];
-        if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                 sys::user_ptr<char>(path_ptr)))
+        if (!sys::copy_in_string(span<char>(path, sizeof path), path_ptr))
             return -EFAULT;
         auto staging =
             mm::share<exec_continuation>(saved_frame, mm::shptr<process>{},
@@ -73,7 +70,7 @@ namespace astia::proc::syscalls::detail {
             return -ENOMEM;
         if (!staging->staging.allocate())
             return -ENOMEM;
-        i64 result = staging->staging.copy(argv_ptr, envp_ptr);
+        i64 result = staging->staging.copy(argv_ptr.address(), envp_ptr.address());
         if (result != 0)
             return result;
 
@@ -146,8 +143,11 @@ namespace astia::proc::syscalls {
     ///     Relative paths are resolved against the caller's working directory.
     struct execve
         : sys::syscall_handler<execve, sys::syscall_id::execve, sys::syscall_mode::sync> {
-        static i64 invoke(const arch::syscall_frame& frame) {
-            return ::astia::proc::syscalls::detail::execve(frame);
+        static i64 invoke(const arch::syscall_frame& frame, sys::user_ptr<char> path_ptr,
+                          sys::user_ptr<const u64> argv_ptr,
+                          sys::user_ptr<const u64> envp_ptr) {
+            return ::astia::proc::syscalls::detail::execve(frame, path_ptr, argv_ptr,
+                                                           envp_ptr);
         }
     };
 

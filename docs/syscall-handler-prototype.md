@@ -30,12 +30,22 @@ struct lseek_example
                            sys::syscall_mode::sync> {
     static i64 invoke(i64 fd, i64 offset, i64 whence);
 };
+
+struct io_setup_example
+    : sys::syscall_handler<io_setup_example, sys::syscall_id::io_setup,
+                           sys::syscall_mode::sync> {
+    static i64 invoke(u32 entries, u32 flags,
+                      sys::user_ptr<astia_rings*> out);
+};
 ```
 
 Handlers take syscall arguments as direct typed parameters in ABI order; the
-generic dispatcher performs the register-to-parameter conversion. Frame-aware
-handlers (`fork`, `execve`, and `sigreturn`) take `const arch::syscall_frame&`
-instead. `syscall_context`, including its internal `operation_id` and
+generic dispatcher performs the register-to-parameter conversion. Pointer,
+array, and string ABI arguments use `sys::user_ptr<T>` so handlers never
+reinterpret raw registers; handlers perform their own `validate()` and
+copy-in/copy-out with their original null and `-EFAULT` semantics. Frame-aware handlers (`fork`,
+`execve`, and `sigreturn`) take `const arch::syscall_frame&` instead.
+`syscall_context`, including its internal `operation_id` and
 `syscall_user_data` fields, remains dispatcher machinery and is not passed to
 canonical handlers.
 

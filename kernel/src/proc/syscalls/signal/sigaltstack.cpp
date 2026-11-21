@@ -10,7 +10,8 @@
 namespace astia::proc::syscalls {
     struct sigaltstack : sys::syscall_handler<sigaltstack, sys::syscall_id::sigaltstack,
                                               sys::syscall_mode::sync> {
-        static i64 invoke(u64 stack_ptr, u64 old_stack_ptr) {
+        static i64 invoke(sys::user_ptr<astia_stack_t> stack_ptr,
+                          sys::user_ptr<astia_stack_t> old_stack_ptr) {
             auto* self = current_thread();
             if (self == nullptr)
                 return -ESRCH;
@@ -18,8 +19,8 @@ namespace astia::proc::syscalls {
             optional<sys::validated_user_ptr<astia_stack_t>> old_range;
             astia_stack_t                                    next{};
             astia_stack_t                                    old{};
-            if (stack_ptr != 0) {
-                auto validated = sys::user_ptr<astia_stack_t>(stack_ptr).validate();
+            if (!stack_ptr.null()) {
+                auto validated = stack_ptr.validate();
                 if (!validated || !sys::copy_in(&next, validated.value.bytes()))
                     return -EFAULT;
                 if (next.flags != 0 && next.flags != ASTIA_SS_DISABLE)
@@ -31,8 +32,8 @@ namespace astia::proc::syscalls {
                         return -EFAULT;
                 }
             }
-            if (old_stack_ptr != 0) {
-                auto validated = sys::user_ptr<astia_stack_t>(old_stack_ptr).validate();
+            if (!old_stack_ptr.null()) {
+                auto validated = old_stack_ptr.validate();
                 if (!validated)
                     return -EFAULT;
                 old_range = validated.value;
@@ -42,7 +43,7 @@ namespace astia::proc::syscalls {
             old.flags    = self->signal_stack_on_alt() ? ASTIA_SS_ONSTACK
                                                        : self->signal_stack_flags();
             old.reserved = 0;
-            if (stack_ptr != 0) {
+            if (!stack_ptr.null()) {
                 if (self->signal_stack_on_alt())
                     return -EPERM;
                 if (next.flags == ASTIA_SS_DISABLE)

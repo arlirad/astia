@@ -42,15 +42,15 @@ namespace astia::proc::syscalls::detail {
         }
     }
 
-    i64 spawnve(u64 path_ptr, u64 argv_ptr, u64 envp_ptr) {
+    i64 spawnve(sys::user_ptr<char> path_ptr, sys::user_ptr<const u64> argv_ptr,
+                sys::user_ptr<const u64> envp_ptr) {
         auto* owner = current_process();
         auto* self  = current_thread();
         if (owner == nullptr || self == nullptr)
             return -ESRCH;
 
         char path[path_cap];
-        if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                 sys::user_ptr<char>(path_ptr))) {
+        if (!sys::copy_in_string(span<char>(path, sizeof path), path_ptr)) {
             return -EFAULT;
         }
 
@@ -61,7 +61,7 @@ namespace astia::proc::syscalls::detail {
             return -ENOMEM;
         if (!staging->staging.allocate())
             return -ENOMEM;
-        i64 result = staging->staging.copy(argv_ptr, envp_ptr);
+        i64 result = staging->staging.copy(argv_ptr.address(), envp_ptr.address());
         if (result != 0)
             return result;
 
@@ -124,7 +124,8 @@ namespace astia::proc::syscalls {
     ///     -EAGAIN: The process or thread registry is full.
     struct spawnve : sys::syscall_handler<spawnve, sys::syscall_id::spawnve,
                                           sys::syscall_mode::sync> {
-        static i64 invoke(u64 path_ptr, u64 argv_ptr, u64 envp_ptr) {
+        static i64 invoke(sys::user_ptr<char> path_ptr, sys::user_ptr<const u64> argv_ptr,
+                          sys::user_ptr<const u64> envp_ptr) {
             return ::astia::proc::syscalls::detail::spawnve(path_ptr, argv_ptr, envp_ptr);
         }
     };

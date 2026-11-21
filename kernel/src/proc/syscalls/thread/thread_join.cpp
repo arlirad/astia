@@ -36,15 +36,14 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: The thread does not exist.
     struct thread_join : sys::syscall_handler<thread_join, sys::syscall_id::thread_join,
                                               sys::syscall_mode::sync> {
-        static i64 invoke(u32 tid, u64 result_ptr) {
+        static i64 invoke(u32 tid, sys::user_ptr<void*> output) {
             auto* owner = current_process();
             if (owner == nullptr) {
                 return -ESRCH;
             }
-            const sys::user_ptr<void*> output(result_ptr);
-            const auto                 validated_output = output.null()
-                                                              ? optional<sys::validated_user_ptr<void*>>{}
-                                                              : output.validate();
+            const auto validated_output = output.null()
+                                              ? optional<sys::validated_user_ptr<void*>>{}
+                                              : output.validate();
             if (!output.null() && !validated_output) {
                 return -EFAULT;
             }
