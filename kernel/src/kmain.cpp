@@ -13,8 +13,6 @@
 #include "proc/scheduler.hpp"
 
 namespace {
-    volatile astia::u32 init_status = 0;
-
     astia::core::task<astia::mm::shptr<astia::proc::process>>
     spawn_init(const char* path) {
         auto file = astia::fs::open_path(path);
@@ -31,37 +29,6 @@ namespace {
         if (!result)
             co_return result.error;
         co_return static_cast<astia::mm::shptr<astia::proc::process>&&>(result.value);
-    }
-
-    void supervise_init(void* opaque) {
-        const char* path   = static_cast<const char*>(opaque);
-        auto        runner = spawn_init(path);
-        runner.resume();
-        while (!runner.done())
-            astia::proc::scheduler::yield();
-
-        astia::mm::shptr<astia::proc::process> process;
-        if (runner.value() != nullptr)
-            process = *runner.value();
-        if (!process) {
-            astia::arch::cpu::nointerrupts();
-            runner.reset();
-            astia::log::error("unable to launch init path=%s", path);
-            __atomic_store_n(&init_status, 1u, __ATOMIC_RELEASE);
-            astia::proc::current_thread()->exit();
-        }
-
-        const astia::i32 child_pid =
-            static_cast<astia::i32>(static_cast<astia::u32>(process->pid()));
-        astia::i32       exit_status = -1;
-        const astia::i64 reaped      = astia::proc::waitpid(child_pid, &exit_status);
-        astia::arch::cpu::nointerrupts();
-        astia::log::error("init exited pid=%d status=%d wait=%ld", child_pid, exit_status,
-                          static_cast<long>(reaped));
-        process = {};
-        runner.reset();
-        __atomic_store_n(&init_status, 2u, __ATOMIC_RELEASE);
-        astia::proc::current_thread()->exit();
     }
 
 } // namespace
@@ -88,13 +55,34 @@ extern "C" void kmain(void* start_info) {
         astia::core::kpanic("init failed");
     }
 
-    init_status = 0;
-    auto worker = astia::proc::scheduler::create_kernel(supervise_init,
-                                                        const_cast<char*>(selected.path));
-    if (!worker)
-        astia::core::kpanic("unable to create init supervisor");
     astia::arch::cpu::interrupts();
-    if (worker->join() != 0 || __atomic_load_n(&init_status, __ATOMIC_ACQUIRE) != 2)
+
+    auto runner = spawn_init(selected.path);
+    runner.resume();
+    while (!runner.done())
+        astia::proc::scheduler::yield();
+
+    astia::mm::shptr<astia::proc::process> init_process;
+    if (runner.value() != nullptr)
+        init_process = *runner.value();
+    if (!init_process) {
+        astia::arch::cpu::nointerrupts();
+        runner.reset();
+        astia::log::error("unable to launch init path=%s", selected.path);
         astia::core::kpanic("init launch failed");
+    }
+
+    const astia::i32 init_pid =
+        static_cast<astia::i32>(static_cast<astia::u32>(init_process->pid()));
+    astia::log::info("init launched pid=%d", init_pid);
+
+    astia::i32       exit_status = -1;
+    const astia::i64 reaped      = astia::proc::waitpid(init_pid, &exit_status);
+
+    astia::arch::cpu::nointerrupts();
+    astia::log::error("init exited pid=%d status=%d wait=%ld", init_pid, exit_status,
+                      static_cast<long>(reaped));
+    init_process = {};
+    runner.reset();
     astia::core::kpanic("init terminated");
 }
