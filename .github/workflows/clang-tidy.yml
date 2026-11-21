@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Install pinned Clang tooling
@@ -73,7 +73,7 @@ jobs:
       - name: Test PR checker with trusted fixtures
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
-          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           trusted="$RUNNER_TEMP/clang-tidy-tests"
@@ -117,7 +117,7 @@ jobs:
       - name: Analyze changed source lines
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before || github.sha }}
-          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.event.after || github.sha }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after || github.sha }}
         run: |
           set -euo pipefail
           python3 "$RUNNER_TEMP/clang-tidy-trusted/check-clang-tidy.py" \
