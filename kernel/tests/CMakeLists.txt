@@ -683,8 +683,19 @@ if (NOT ASTIA_SETARCH_RESULT EQUAL 0)
 endif ()
 set(ASTIA_ARENA_TEST_LAUNCHER ${ASTIA_SETARCH} -R)
 
+set(ASTIA_ARENA_ASLR_TEST_NAMES
+        astia_exec_rollback_test
+        astia_rcu_hashmap_test
+        astia_frame_allocator_test
+        astia_page_map_test
+        astia_address_space_test
+        astia_heap_test
+        astia_phys_region_test)
+
 function(astia_add_arena_test name)
-    set(ASTIA_HOST_TEST_LAUNCHER ${ASTIA_ARENA_TEST_LAUNCHER})
+    if (name IN_LIST ASTIA_ARENA_ASLR_TEST_NAMES)
+        set(ASTIA_HOST_TEST_LAUNCHER ${ASTIA_ARENA_TEST_LAUNCHER})
+    endif ()
     astia_add_host_test(${name} ${ARGN})
     unset(ASTIA_HOST_TEST_LAUNCHER)
     # The __kernel_* values are absolute; build non-PIE so the dynamic loader
@@ -1038,6 +1049,7 @@ if (ARCH STREQUAL "x86_64")
                 QEMU=${ASTIA_QEMU}
                 ASTIA_KERNEL=$<TARGET_FILE:astiakrn>
                 ASTIA_INITRD=${_fix_dir}/production_exit_initrd.cpio
+                PYTHON=${Python3_EXECUTABLE}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_init_exit.sh)
         set_tests_properties(astia_production_init_exit PROPERTIES TIMEOUT 30
                 FIXTURES_REQUIRED astia-qemu-artifacts)
