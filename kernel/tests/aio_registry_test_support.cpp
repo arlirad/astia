@@ -53,6 +53,11 @@ namespace astia::io::aio::readiness {
         return true;
     }
 
+    bool dispatch_registered(ring::ring_slot& slot, astia_rings* ring,
+                             const astia_sqe& sqe) {
+        return dispatch(slot, ring, sqe, {});
+    }
+
 } // namespace astia::io::aio::readiness
 
 namespace astia::io::aio::socket {

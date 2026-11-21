@@ -1,3 +1,6 @@
+file(GLOB ASTIA_AIO_OPERATION_SOURCES CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/aio/operations/*.cpp)
+
 add_library(io STATIC
         aio/aio.cpp
         aio/dispatch.cpp
@@ -6,6 +9,7 @@ add_library(io STATIC
         aio/registry.cpp
         aio/socket.cpp
         aio/ring.cpp
+        ${ASTIA_AIO_OPERATION_SOURCES}
 )
 
 target_include_directories(io PUBLIC
