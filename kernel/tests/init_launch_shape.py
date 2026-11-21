@@ -28,9 +28,14 @@ def main() -> int:
 
     kmain_source = "src/kmain.cpp"
     kmain = read(root, kmain_source)
-    forbid(kmain, "create_kernel(", kmain_source, errors)
-    forbid(kmain, "supervise_init", kmain_source, errors)
-    forbid(kmain, "init_status", kmain_source, errors)
+    for forbidden in (
+        "create_kernel(",
+        "create_kernel_on(",
+        "spawn_kernel(",
+        "supervise_init",
+        "init_status",
+    ):
+        forbid(kmain, forbidden, kmain_source, errors)
     if kmain.count("astia::proc::waitpid(") != 1:
         errors.append(f"{kmain_source}: expected exactly one astia::proc::waitpid call")
     require(kmain, 'astia::log::info("init launched pid=%d"', kmain_source, errors)
@@ -51,8 +56,9 @@ def main() -> int:
 
     test_kmain_source = "src/test_kmain.cpp"
     test_kmain = read(root, test_kmain_source)
-    forbid(test_kmain, "create_kernel(", test_kmain_source, errors)
-    forbid(test_kmain, "spawn_init_worker", test_kmain_source, errors)
+    for forbidden in ("create_kernel(", "create_kernel_on(", "spawn_kernel(",
+                      "spawn_init_worker"):
+        forbid(test_kmain, forbidden, test_kmain_source, errors)
 
     if errors:
         for error in errors:

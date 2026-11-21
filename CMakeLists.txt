@@ -336,6 +336,7 @@ if(ASTIA_BUILD_TESTS)
             astiakrn_module_runtime
             astiakrn_test
             astia_boot_initrd
+            astia_production_exit_initrd
             astia_cross_libc
             astia_native_boot_initrd
             astia_native_service_boot_initrd

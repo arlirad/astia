@@ -992,7 +992,8 @@ if (ARCH STREQUAL "x86_64")
                 ASTIA_KERNEL=$<TARGET_FILE:astiakrn>
                 ASTIA_INITRD=${_fix_dir}/production_exit_initrd.cpio
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_init_exit.sh)
-        set_tests_properties(astia_production_init_exit PROPERTIES TIMEOUT 30)
+        set_tests_properties(astia_production_init_exit PROPERTIES TIMEOUT 30
+                FIXTURES_REQUIRED astia-qemu-artifacts)
 
         # Native PID-1 split: init only bootstraps/waits for daemond; daemond owns
         # the fixed-capacity, non-shell rc file.  Keep this as a separate image
