@@ -250,7 +250,24 @@ namespace astia::net::syscalls {
 }
 
 namespace astia::sys {
+    template <usize Count>
+    consteval bool valid_syscall_id_manifest(const u32 (&ids)[Count], u32 first,
+                                             u32 last) {
+        if (Count != static_cast<usize>(last - first + 1))
+            return false;
+        for (usize i = 0; i < Count; ++i) {
+            if (ids[i] != first + i)
+                return false;
+        }
+        return true;
+    }
     namespace production {
+        inline constexpr u32 descriptor_ids[] = {
+            0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16, 17,
+            18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+            36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
+            54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69};
+        static_assert(valid_syscall_id_manifest(descriptor_ids, 0, 69));
         inline const syscall_descriptor descriptors[] = {
             ::astia::fs::syscalls::io_setup_descriptor,
             ::astia::fs::syscalls::io_destroy_descriptor,
@@ -322,8 +339,12 @@ namespace astia::sys {
             ::astia::proc::syscalls::shm_open_descriptor,
             ::astia::proc::syscalls::shm_unlink_descriptor,
             ::astia::proc::syscalls::fchdir_descriptor};
+        static_assert(sizeof(descriptors) / sizeof(descriptors[0]) == 70);
     } // namespace production
     namespace net {
+        inline constexpr u32 descriptor_ids[] = {70, 71, 72, 73, 74, 75,
+                                                 76, 77, 78, 79, 80, 81};
+        static_assert(valid_syscall_id_manifest(descriptor_ids, 70, 81));
         inline const syscall_descriptor descriptors[] = {
             ::astia::net::syscalls::accept_descriptor,
             ::astia::net::syscalls::bind_descriptor,
@@ -337,5 +358,6 @@ namespace astia::sys {
             ::astia::net::syscalls::shutdown_descriptor,
             ::astia::net::syscalls::socket_descriptor,
             ::astia::net::syscalls::socketpair_descriptor};
+        static_assert(sizeof(descriptors) / sizeof(descriptors[0]) == 12);
     } // namespace net
 } // namespace astia::sys

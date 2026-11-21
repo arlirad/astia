@@ -93,23 +93,16 @@ namespace astia::sys {
     /// arguments any handler can be given.
     inline constexpr u32 syscall_argument_count = 6;
 
-    /// What the table stores: the six argument registers the ABI passes,
-    /// then the trap image those registers came from.  A handler names the
-    /// registers it uses — the adapter picks that prefix out of the six —
-    /// and one handler takes the image instead: fork, which resumes the
-    /// child in the caller's own state and so needs more of the caller
-    /// than the arguments say.  Nothing else pays for it: the registers
-    /// stay registers for the other nineteen calls.
-    using legacy_syscall_handler = i64 (*)(i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
-                                           const arch::syscall_frame& frame);
-
     /// The shape that one handler has: the image itself, no registers.
     using syscall_image_handler = i64 (*)(const arch::syscall_frame& frame);
     using syscall_exit_hook     = void (*)(arch::syscall_frame& frame, i64 result);
+
+    /// Identity of a kernel-owned syscall operation; not the public syscall ID.
     struct operation_id {
         u64 value;
     };
 
+    /// Opaque metadata carried with a syscall operation; not an ABI argument.
     struct syscall_user_data {
         u64 value;
     };
@@ -118,8 +111,10 @@ namespace astia::sys {
         syscall_id                 id;
         i64                        arguments[syscall_argument_count];
         const arch::syscall_frame& frame;
-        operation_id               operation;
-        syscall_user_data          user_data;
+        /// Internal continuation identity, separate from `id`.
+        operation_id operation;
+        /// Internal continuation metadata, separate from ABI arguments.
+        syscall_user_data user_data;
     };
 
     using async_syscall_handler = void (*)(syscall_context&       context,
@@ -130,6 +125,8 @@ namespace astia::sys {
         syscall_id            id;
         async_syscall_handler invoke;
     };
+
+    bool register_exit_hook(syscall_exit_hook hook);
 
     namespace detail {
 
@@ -231,20 +228,14 @@ namespace astia::sys {
             adapter<Fn, decltype(Fn),
                     typename make_index_sequence<arity<decltype(Fn)>::value>::type>;
 
-        /// The table door: store a handler already in the table's form.
-        /// register_syscall() is what callers use; this is what it hands
-        /// the table.
-        bool register_abi(syscall_id id, legacy_syscall_handler handler);
-
     } // namespace detail
 
-    bool register_exit_hook(syscall_exit_hook hook);
-
-    template <auto function>
-    bool register_syscall(syscall_id id) {
-        static_assert(detail::arity<decltype(function)>::value <= syscall_argument_count,
-                      "a syscall handler must use no more than the six ABI arguments");
-        return detail::register_abi(id, &detail::widened<function>::call);
+    template <auto Function>
+    i64 invoke_sync(syscall_context& context) {
+        return detail::widened<Function>::call(context.arguments[0], context.arguments[1],
+                                               context.arguments[2], context.arguments[3],
+                                               context.arguments[4], context.arguments[5],
+                                               context.frame);
     }
 
     enum class syscall_mode : u8 {
@@ -294,42 +285,6 @@ namespace astia::sys {
                 return;
             }
             completion.complete(*operation.value());
-        }
-
-        static constexpr syscall_descriptor descriptor{Id, &thunk};
-    };
-
-    template <typename Impl, syscall_id Id>
-    struct handler {
-        using syscall_descriptor_marker = void;
-
-        static constexpr syscall_id id = Id;
-
-        static void thunk(syscall_context& context, core::completion<i64>& completion) {
-            if constexpr (detail::is_async_handler<decltype(&Impl::invoke)>::value) {
-                Impl::invoke(context, completion);
-            }
-            else {
-                static_assert(
-                    std::is_same_v<decltype(&Impl::invoke), task_syscall_handler>,
-                    "syscall handlers must return core::task<i64> or accept "
-                    "context and completion");
-                auto operation = Impl::invoke(context);
-                if (!operation.valid()) {
-                    completion.fail(operation.error());
-                    return;
-                }
-                operation.resume();
-                if (!operation.done()) {
-                    completion.cancel();
-                    return;
-                }
-                if (operation.failed()) {
-                    completion.fail(operation.error());
-                    return;
-                }
-                completion.complete(*operation.value());
-            }
         }
 
         static constexpr syscall_descriptor descriptor{Id, &thunk};
@@ -419,6 +374,5 @@ namespace astia::sys {
                  const arch::syscall_frame& frame);
 
     bool production_dispatch(syscall_context& context, i64& result);
-    i64  legacy_dispatch(const syscall_context& context);
 
 } // namespace astia::sys

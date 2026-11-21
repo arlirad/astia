@@ -1,5 +1,3 @@
-#include "exit.hpp"
-
 #include <astia/api/errno.h>
 #include <astia/log.hpp>
 
@@ -31,18 +29,10 @@ namespace astia::proc::syscalls {
     ///
     /// Return Value:
     ///     Does not return to the caller.
-
-    /// ABI ID: exit.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct exit
         : sys::syscall_handler<exit, sys::syscall_id::exit, sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::exit>(context);
         }
     };
 

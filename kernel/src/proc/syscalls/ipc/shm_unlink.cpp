@@ -1,24 +1,15 @@
+#include "shm.hpp"
+
 #include <syscall.hpp>
 
 namespace astia::proc::syscalls {
-
-
-    /// ABI ID: shm_unlink.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's negative errno.
-    struct shm_unlink
-        : sys::syscall_handler<shm_unlink, sys::syscall_id::shm_unlink,
-                               sys::syscall_mode::async> {
+    struct shm_unlink : sys::syscall_handler<shm_unlink, sys::syscall_id::shm_unlink,
+                                             sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::shm_unlink>(context);
         }
     };
 
-    extern const sys::syscall_descriptor shm_unlink_descriptor =
-        shm_unlink::descriptor;
-
+    extern const sys::syscall_descriptor shm_unlink_descriptor = shm_unlink::descriptor;
 
 } // namespace astia::proc::syscalls

@@ -1,5 +1,3 @@
-#include "io_destroy.hpp"
-
 #include <astia/api/aio.h>
 
 #include "../../sys/aio.hpp"
@@ -37,17 +35,10 @@ namespace astia::fs::syscalls {
     ///     reaped by userspace have no further kernel-side ownership; parked
     ///     operations retain their pinned buffers and descriptor references
     ///     until they complete, so they prevent destruction.
-    /// ABI ID: io_destroy.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: fs subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct io_destroy : sys::syscall_handler<io_destroy, sys::syscall_id::io_destroy,
                                              sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::fs::syscall::io_destroy>(context);
         }
     };
 

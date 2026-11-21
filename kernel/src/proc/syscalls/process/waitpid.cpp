@@ -1,5 +1,3 @@
-#include "waitpid.hpp"
-
 #include <astia/api/errno.h>
 
 #include "../../mapping.hpp"
@@ -53,18 +51,10 @@ namespace astia::proc::syscalls {
     ///     -ECHILD: The caller has no matching child process.
     ///     -EINVAL: The PID or option mask is invalid.
     ///     -ESRCH: There is no current process or thread.
-
-    /// ABI ID: waitpid.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct waitpid : sys::syscall_handler<waitpid, sys::syscall_id::waitpid,
                                           sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::waitpid>(context);
         }
     };
 

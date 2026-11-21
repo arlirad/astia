@@ -1,5 +1,3 @@
-#include "sigpending.hpp"
-
 #include <astia/api/errno.h>
 
 #include "../../proc.hpp"
@@ -27,18 +25,10 @@ namespace astia::proc::syscall {
 }
 
 namespace astia::proc::syscalls {
-
-    /// ABI ID: sigpending.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct sigpending : sys::syscall_handler<sigpending, sys::syscall_id::sigpending,
                                              sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::sigpending>(context);
         }
     };
 

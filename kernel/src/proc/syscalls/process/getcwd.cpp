@@ -1,5 +1,3 @@
-#include "getcwd.hpp"
-
 #include <astia/api/errno.h>
 
 #include "../../proc.hpp"
@@ -37,18 +35,10 @@ namespace astia::proc::syscalls {
     ///     -EFAULT: The output buffer is inaccessible.
     ///     -ERANGE: The buffer is too small.
     ///     -ESRCH: There is no current process.
-
-    /// ABI ID: getcwd.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct getcwd : sys::syscall_handler<getcwd, sys::syscall_id::getcwd,
                                          sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::getcwd>(context);
         }
     };
 

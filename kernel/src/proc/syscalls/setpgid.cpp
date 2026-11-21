@@ -1,5 +1,3 @@
-#include "setpgid.hpp"
-
 #include <astia/api/errno.h>
 
 #include "../mapping.hpp"
@@ -39,18 +37,10 @@ namespace astia::proc::syscalls {
     ///     -EPERM: The target belongs to another session.
     ///     -EPERM: The target is a session leader.
     ///     -ESRCH: The target process does not exist.
-
-    /// ABI ID: setpgid.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct setpgid : sys::syscall_handler<setpgid, sys::syscall_id::setpgid,
                                           sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::setpgid>(context);
         }
     };
 

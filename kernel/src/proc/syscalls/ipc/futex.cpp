@@ -65,18 +65,10 @@ namespace astia::proc::syscalls {
     ///     -EFAULT: The futex word is not accessible userspace memory.
     ///     -EINVAL: The operation is unknown.
     ///     -ETIMEDOUT: The absolute CLOCK_MONOTONIC timeout elapsed.
-
-    /// ABI ID: futex.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct futex
         : sys::syscall_handler<futex, sys::syscall_id::futex, sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::futex>(context);
         }
     };
 

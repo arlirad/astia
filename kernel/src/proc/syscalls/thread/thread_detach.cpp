@@ -1,5 +1,3 @@
-#include "thread_detach.hpp"
-
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -45,19 +43,11 @@ namespace astia::proc::syscalls {
     /// Errors:
     ///     -EINVAL: The thread already has a joiner.
     ///     -ESRCH: The thread does not exist.
-
-    /// ABI ID: thread_detach.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct thread_detach
         : sys::syscall_handler<thread_detach, sys::syscall_id::thread_detach,
                                sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::thread_detach>(context);
         }
     };
 
