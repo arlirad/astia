@@ -67,10 +67,6 @@ namespace astia::proc::syscalls {
         }
     };
 
-    static_assert(
-        std::is_same_v<decltype(&futex::invoke), i64 (*)(sys::user_ptr<u32>, u32, u32,
-                                                         sys::user_ptr<astia_timespec>)>);
-
     extern const sys::syscall_descriptor futex_descriptor = futex::descriptor;
 
 } // namespace astia::proc::syscalls

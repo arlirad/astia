@@ -50,9 +50,6 @@ namespace astia::fs::syscalls {
         }
     };
 
-    static_assert(std::is_same_v<decltype(&io_setup::invoke),
-                                 i64 (*)(u32, u32, sys::user_ptr<astia_rings*>)>);
-
     extern const sys::syscall_descriptor io_setup_descriptor = io_setup::descriptor;
 
 } // namespace astia::fs::syscalls
