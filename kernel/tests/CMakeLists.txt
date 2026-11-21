@@ -72,6 +72,11 @@ astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/multiboot2.cpp)
 astia_add_host_test(astia_boot_init_test boot_init_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/init.cpp)
+add_test(NAME astia_init_launch_shape
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/init_launch_shape.py
+                ${ASTIA_KERNEL_SOURCE_DIR})
+astia_add_test_label(astia_init_launch_shape "init;deterministic")
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
@@ -727,6 +732,13 @@ if (ARCH STREQUAL "x86_64")
     find_program(GRUB_FILE grub-file)
     find_program(GRUB_MKRESCUE grub-mkrescue)
     find_program(XORRISO xorriso)
+    add_library(astia_production_exit_init OBJECT
+            ${CMAKE_CURRENT_SOURCE_DIR}/init_exit.c)
+    target_include_directories(astia_production_exit_init PRIVATE
+            ${ASTIA_KERNEL_SOURCE_DIR}/include)
+    target_compile_options(astia_production_exit_init PRIVATE
+            -ffreestanding -fno-pic -fno-pie -fno-builtin -fno-stack-protector
+            -fno-asynchronous-unwind-tables -mno-red-zone)
     if (ASTIA_QEMU)
         add_test(NAME astia_kernel_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
@@ -945,6 +957,27 @@ if (ARCH STREQUAL "x86_64")
         # part of the default build to guarantee they exist before ctest runs.
         add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.cpio)
 
+        add_custom_command(
+                OUTPUT ${_fix_dir}/production_exit_initrd.cpio
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_fix_dir}/production_exit_stage/sbin
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
+                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                -o ${_fix_dir}/init_exit
+                $<TARGET_OBJECTS:astia_production_exit_init>
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/init_exit
+                ${_fix_dir}/production_exit_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/production_exit_stage
+                ${_fix_dir}/production_exit_initrd.cpio
+                sbin/init
+                DEPENDS astia_production_exit_init
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                COMMENT "Packing production init exit initrd")
+        add_custom_target(astia_production_exit_initrd ALL
+                DEPENDS ${_fix_dir}/production_exit_initrd.cpio)
+
         add_test(NAME astia_initrd_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
@@ -956,6 +989,15 @@ if (ARCH STREQUAL "x86_64")
                 "astia: libc ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
+
+        add_test(NAME astia_production_init_exit
+                COMMAND ${CMAKE_COMMAND} -E env
+                QEMU=${ASTIA_QEMU}
+                ASTIA_KERNEL=$<TARGET_FILE:astiakrn>
+                ASTIA_INITRD=${_fix_dir}/production_exit_initrd.cpio
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_init_exit.sh)
+        set_tests_properties(astia_production_init_exit PROPERTIES TIMEOUT 30
+                FIXTURES_REQUIRED astia-qemu-artifacts)
 
         # Native PID-1 split: init only bootstraps/waits for daemond; daemond owns
         # the fixed-capacity, non-shell rc file.  Keep this as a separate image
@@ -1134,6 +1176,7 @@ astia_append_test_label("kernel;deterministic")
 foreach (_astia_boot_test IN ITEMS
         astia_kernel_boot astia_fs_registry_boot astia_kernel_lifecycle_smp2
         astia_kernel_smp_boot astia_kernel_scheduler_smp2 astia_initrd_boot
+        astia_production_init_exit
         astia_native_daemond_boot astia_native_daemond_service
         astia_native_daemond_failure)
     if(TEST ${_astia_boot_test})

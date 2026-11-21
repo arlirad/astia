@@ -1,10 +1,3 @@
-#include "debug_exit.hpp"
-#include "dev/chr/tty/uart16550.hpp"
-#include "mod/module_driver.hpp"
-#include "panic.hpp"
-#include "proc.hpp"
-#include "scheduler.hpp"
-#include "selftest.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/platform.hpp>
 #include <astia/boot.hpp>
@@ -12,6 +5,14 @@
 #include <astia/fs.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
+
+#include "debug_exit.hpp"
+#include "dev/chr/tty/uart16550.hpp"
+#include "mod/module_driver.hpp"
+#include "panic.hpp"
+#include "proc.hpp"
+#include "scheduler.hpp"
+#include "selftest.hpp"
 
 #ifndef ASTIA_RUN_SELFTEST
 #define ASTIA_RUN_SELFTEST 1
@@ -22,12 +23,6 @@
 #endif
 
 namespace {
-
-    // The lifecycle worker runs after the scheduler switches away from the
-    // bootstrap page table.  Keep its completion word in kernel image storage
-    // rather than passing it a pointer into kmain's low boot stack, which is
-    // not mapped by the normal kernel page map.
-    volatile astia::u32 lifecycle_status = 0;
 
     astia::core::task<astia::mm::shptr<astia::proc::process>>
     spawn_image(astia::proc::process* parent, const char* path, char* const argv[],
@@ -77,37 +72,6 @@ namespace {
         return ok;
     }
 
-    void spawn_init_worker(void* opaque) {
-        auto* ok = static_cast<volatile astia::u32*>(opaque);
-        {
-            // Two userspace images, each judged by its exit status: the
-            // raw-ABI fixture, then the same tree's libc as a real C
-            // program (CRT0, TLS, stdio over the rings).
-            char*      init_argv[] = {const_cast<char*>("/sbin/init"),
-                                      const_cast<char*>("--flag"), nullptr};
-            char*      init_envp[] = {const_cast<char*>("HOME=/"), nullptr};
-            char*      libc_argv[] = {const_cast<char*>("/bin/init_libc"), nullptr};
-            char*      libc_envp[] = {const_cast<char*>("HOME=/"), nullptr};
-            bool       spawned     = false;
-            const bool init_ok = run_image("/sbin/init", init_argv, init_envp, spawned);
-            if (!spawned) {
-                __atomic_store_n(ok, 2u, __ATOMIC_RELEASE);
-            }
-            else if (!init_ok) {
-                __atomic_store_n(ok, 3u, __ATOMIC_RELEASE);
-            }
-            else {
-                const bool libc_ok =
-                    run_image("/bin/init_libc", libc_argv, libc_envp, spawned);
-                __atomic_store_n(ok, (init_ok && libc_ok) ? 1u : 3u, __ATOMIC_RELEASE);
-            }
-            // Process references were released inside run_image before
-            // exit(): exit never returns, so an unwound frame (and its
-            // shptrs) would otherwise leak.
-        }
-        astia::proc::current_thread()->exit();
-    }
-
 }
 
 namespace {
@@ -140,18 +104,27 @@ extern "C" void kmain(void* start_info) {
     }
 
     if (ASTIA_RUN_LIFECYCLE && ctx.info != nullptr && ctx.info->initrd.paddr != 0) {
-        lifecycle_status = 0;
-        auto worker      = astia::proc::scheduler::create_kernel(
-            spawn_init_worker, const_cast<astia::u32*>(&lifecycle_status));
-        // The worker blocks in waitpid until user init exits, and this
-        // bootstrap thread blocks in join() until the worker exits;
-        // timer preemption drives the whole chain.
+        // Two userspace images, each judged by its exit status: the raw-ABI
+        // fixture as PID 1, then the same tree's libc as a real C program
+        // (CRT0, TLS, stdio over the rings).  The bootstrap thread owns both
+        // waits; no intermediate kernel task sits above PID 1.
+        char* init_argv[] = {const_cast<char*>("/sbin/init"), const_cast<char*>("--flag"),
+                             nullptr};
+        char* init_envp[] = {const_cast<char*>("HOME=/"), nullptr};
+        char* libc_argv[] = {const_cast<char*>("/bin/init_libc"), nullptr};
+        char* libc_envp[] = {const_cast<char*>("HOME=/"), nullptr};
         astia::arch::cpu::interrupts();
-        if (!worker || worker->join() != 0 ||
-            __atomic_load_n(&lifecycle_status, __ATOMIC_ACQUIRE) != 1) {
-            astia::core::kpanic("unable to spawn/reap userspace images");
+        bool       spawned      = false;
+        const bool init_ok      = run_image("/sbin/init", init_argv, init_envp, spawned);
+        bool       lifecycle_ok = spawned && init_ok;
+        if (lifecycle_ok) {
+            const bool libc_ok =
+                run_image("/bin/init_libc", libc_argv, libc_envp, spawned);
+            lifecycle_ok = spawned && libc_ok;
         }
         astia::arch::cpu::nointerrupts();
+        if (!lifecycle_ok)
+            astia::core::kpanic("unable to spawn/reap userspace images");
         astia::log::info("init lifecycle ok");
     }
 
