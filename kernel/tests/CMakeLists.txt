@@ -950,17 +950,22 @@ if (ARCH STREQUAL "x86_64")
         # part of the default build to guarantee they exist before ctest runs.
         add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.cpio)
 
+        add_library(astia_production_exit_init OBJECT
+                ${CMAKE_CURRENT_SOURCE_DIR}/init_exit.c)
+        target_include_directories(astia_production_exit_init PRIVATE
+                ${ASTIA_KERNEL_SOURCE_DIR}/include)
+        target_compile_options(astia_production_exit_init PRIVATE
+                -ffreestanding -fno-pic -fno-pie -fno-builtin -fno-stack-protector
+                -fno-asynchronous-unwind-tables -mno-red-zone)
+
         add_custom_command(
                 OUTPUT ${_fix_dir}/production_exit_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory
                 ${_fix_dir}/production_exit_stage/sbin
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
-                -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables
-                -mno-red-zone -I${ASTIA_KERNEL_SOURCE_DIR}/include
-                -o ${_fix_dir}/init_exit.o ${CMAKE_CURRENT_SOURCE_DIR}/init_exit.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
-                -o ${_fix_dir}/init_exit ${_fix_dir}/init_exit.o
+                -o ${_fix_dir}/init_exit
+                $<TARGET_OBJECTS:astia_production_exit_init>
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/init_exit
                 ${_fix_dir}/production_exit_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
@@ -968,7 +973,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/production_exit_stage
                 ${_fix_dir}/production_exit_initrd.cpio
                 sbin/init
-                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/init_exit.c
+                DEPENDS astia_production_exit_init
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing production init exit initrd")
         add_custom_target(astia_production_exit_initrd ALL
