@@ -164,6 +164,89 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("Detailed manual text has not been added", body)
         self.assertNotIn("u64 set_ptr", body)
 
+    def test_atomic_output_replaces_symlinks_without_touching_targets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "man7"
+            outside = Path(temporary) / "outside"
+            output.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("sentinel")
+            target = outside / "dangling.txt"
+
+            for name in ("nodivia.css", "io_setup.2.html", "index.html"):
+                with self.subTest(name=name):
+                    output_file = output / name
+                    if output_file.exists() or output_file.is_symlink():
+                        output_file.unlink()
+                    output_file.symlink_to(sentinel)
+                    generate.write_atomic_file(output, name, "generated")
+                    self.assertEqual(sentinel.read_text(), "sentinel")
+                    self.assertFalse(output_file.is_symlink())
+                    self.assertEqual(output_file.read_text(), "generated")
+
+            css = output / "nodivia.css"
+            if css.exists() or css.is_symlink():
+                css.unlink()
+            css.symlink_to(target)
+            generate.write_atomic_file(output, "nodivia.css", "generated")
+            self.assertFalse(target.exists())
+            self.assertFalse(css.is_symlink())
+            self.assertEqual(css.read_text(), "generated")
+
+            for name in ("../escape.html", "..", "."):
+                with self.subTest(name=name):
+                    with self.assertRaises(ValueError):
+                        generate.write_atomic_file(output, name, "escape")
+            self.assertFalse((Path(temporary) / "escape.html").exists())
+
+    def test_output_directories_must_not_be_symlinks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            real = Path(temporary) / "real"
+            real.mkdir()
+            linked = Path(temporary) / "linked"
+            linked.symlink_to(real)
+            dangling = Path(temporary) / "dangling"
+            dangling.symlink_to(Path(temporary) / "missing")
+
+            with self.assertRaises(ValueError):
+                generate.prepare_output_directory(linked)
+            with self.assertRaises(ValueError):
+                generate.prepare_output_directory(dangling)
+            with self.assertRaises(ValueError):
+                generate.export_section2(
+                    linked,
+                    [],
+                    {},
+                    {},
+                    REPO_ROOT / "kernel/src",
+                    ABI_HEADER,
+                )
+
+    def test_clean_man_output_does_not_follow_symlink_entries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "man7"
+            outside = Path(temporary) / "outside"
+            output.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.html"
+            sentinel.write_text("sentinel")
+            stale = outside / "stale.7.html"
+            stale.write_text("outside stale")
+            (output / "old.2.html").symlink_to(sentinel)
+            (output / "architecture-old.html").symlink_to(sentinel)
+            (output / "pl").symlink_to(outside)
+
+            generate.clean_man_output(output, set(), set())
+
+            self.assertFalse((output / "old.2.html").is_symlink())
+            self.assertFalse((output / "architecture-old.html").is_symlink())
+            self.assertFalse((output / "old.2.html").exists())
+            self.assertFalse((output / "architecture-old.html").exists())
+            self.assertEqual(sentinel.read_text(), "sentinel")
+            self.assertTrue((output / "pl").is_symlink())
+            self.assertEqual(stale.read_text(), "outside stale")
+
     def _export_fixture(self, temporary: str, manifest: object | None) -> tuple[Path, dict]:
         export_dir = Path(temporary) / "section2"
         export_dir.mkdir()

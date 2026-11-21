@@ -8,6 +8,7 @@ import html
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 
 
@@ -757,19 +758,35 @@ def generated_syscall_asset(name: str) -> bool:
     return bool(match and int(match.group(1)) <= 69)
 
 
-def write_export_file(export_dir: Path, name: str, content: str) -> None:
-    if Path(name).name != name:
-        raise ValueError(f"unsafe export name: {name!r}")
-    target = export_dir / name
-    if target.is_symlink() or target.exists():
-        if target.is_dir() and not target.is_symlink():
-            raise IsADirectoryError(target)
-        target.unlink()
-    descriptor = os.open(
-        target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644
+def prepare_output_directory(output_dir: Path) -> None:
+    if output_dir.is_symlink():
+        raise ValueError(f"output directory must be a real directory: {output_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not output_dir.is_dir():
+        raise ValueError(f"output directory must be a real directory: {output_dir}")
+
+
+def write_atomic_file(output_dir: Path, name: str, content: str) -> None:
+    if not name or name in {".", ".."} or Path(name).name != name:
+        raise ValueError(f"unsafe output name: {name!r}")
+    descriptor, temporary = tempfile.mkstemp(
+        dir=output_dir, prefix=f".{name}.", suffix=".tmp"
     )
-    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-        output.write(content)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write(content)
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, output_dir / name)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def write_export_file(export_dir: Path, name: str, content: str) -> None:
+    write_atomic_file(export_dir, name, content)
 
 
 def stale_generated_assets(export_dir: Path, manifest_path: Path) -> set[str]:
@@ -803,9 +820,7 @@ def export_section2(
     raw_synopses: set[str] | None = None,
 ) -> None:
     raw_synopses = raw_synopses or set()
-    export_dir.mkdir(parents=True, exist_ok=True)
-    if export_dir.is_symlink() or not export_dir.is_dir():
-        raise ValueError(f"export directory must be a real directory: {export_dir}")
+    prepare_output_directory(export_dir)
     manifest_path = export_dir / "manifest.json"
     for name in stale_generated_assets(export_dir, manifest_path):
         (export_dir / name).unlink(missing_ok=True)
@@ -890,6 +905,33 @@ def render(name: str, body: str, section: int) -> str:
 <nav><a href=\"index.html\">Astia manual index</a></nav>
 {''.join(sections)}
 </article></main></body></html>\n"""
+
+
+def clean_man_output(
+    output_dir: Path,
+    expected_pages: set[str],
+    expected_overviews: set[str],
+) -> None:
+    def remove_entry(path: Path) -> None:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+
+    for old_page in output_dir.glob("*.[23].html"):
+        if old_page.name not in expected_pages:
+            remove_entry(old_page)
+    for old_page in output_dir.glob("*.7.html"):
+        if old_page.name not in expected_pages and old_page.name not in expected_overviews:
+            remove_entry(old_page)
+    localized_output = output_dir / "pl"
+    if not localized_output.is_symlink() and localized_output.is_dir():
+        for old_page in localized_output.glob("*.7.html"):
+            remove_entry(old_page)
+        try:
+            localized_output.rmdir()
+        except OSError:
+            pass
+    for old_page in output_dir.glob("architecture-*.html"):
+        remove_entry(old_page)
 
 
 def main() -> int:
@@ -995,33 +1037,24 @@ def main() -> int:
     docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
     overviews = overview_pages(docs_root)
 
-    args.output.mkdir(parents=True, exist_ok=True)
+    prepare_output_directory(args.output)
     # A deployment directory is commonly reused.  Remove only generated
     # section pages so a renamed or removed syscall cannot remain stale.
     expected_pages = {f"{name}.{section}.html" for name, section in pages}
-    for old_page in args.output.glob("*.[23].html"):
-        if old_page.name not in expected_pages:
-            old_page.unlink()
     expected_overviews = {f"{name}.7.html" for name, _, _ in overviews}
-    for old_page in args.output.glob("*.7.html"):
-        if old_page.name not in expected_pages and old_page.name not in expected_overviews:
-            old_page.unlink()
-    localized_output = args.output / "pl"
-    for old_page in localized_output.glob("*.7.html"):
-        if old_page.is_file():
-            old_page.unlink()
-    try:
-        localized_output.rmdir()
-    except OSError:
-        pass
-    for old_page in args.output.glob("architecture-*.html"):
-        old_page.unlink()
-    (args.output / "nodivia.css").write_text(args.css.read_text())
+    clean_man_output(args.output, expected_pages, expected_overviews)
+    write_atomic_file(args.output, "nodivia.css", args.css.read_text())
     for (name, section), (body, _) in sorted(pages.items()):
-        (args.output / f"{name}.{section}.html").write_text(render(name, body, section))
+        write_atomic_file(
+            args.output,
+            f"{name}.{section}.html",
+            render(name, body, section),
+        )
     for name, title, body in overviews:
-        (args.output / f"{name}.7.html").write_text(
-            render_overview(name, title, body)
+        write_atomic_file(
+            args.output,
+            f"{name}.7.html",
+            render_overview(name, title, body),
         )
     groups_by_section: dict[int, dict[str, dict[str, list[tuple[str, int]]]]] = {}
     for (name, section), (_, group) in pages.items():
@@ -1074,10 +1107,12 @@ def main() -> int:
             + "</ul></section>"
         )
     grouped = "".join(grouped_parts)
-    (args.output / "index.html").write_text(
+    write_atomic_file(
+        args.output,
+        "index.html",
         "<!doctype html><html><head><meta charset='utf-8'><title>Astia manual</title>"
         "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
-        "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n"
+        "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n",
     )
     if args.export_section2 is not None:
         export_section2(
