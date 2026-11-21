@@ -63,8 +63,13 @@ caller can route the result without a side table.
 
 ## OPERATION REGISTRY
 
-Every `OP_*` the kernel implements has one explicit handler type in
-`kernel/src/io/aio/operations/`:
+Every `OP_*` the kernel implements has one explicit handler type in the
+module that owns the operation:
+
+- `kernel/src/fs/aio_handlers.cpp` — filesystem paths, descriptors, and metadata
+- `kernel/src/net/aio_handlers.cpp` — pipes and sockets
+- `kernel/src/io/readiness_handlers.cpp` — polling and sleeping
+- `kernel/src/io/aio/core_handlers.cpp` — AIO core fd/ioctl/eventfd work
 
 ```cpp
 struct read : handler<read, opcode::read> {
@@ -73,12 +78,12 @@ struct read : handler<read, opcode::read> {
 extern const operation_descriptor read_descriptor = read::descriptor;
 ```
 
-The handler names its ABI opcode and the subsystem dispatcher that owns it:
-core fd/ioctl/eventfd work, filesystem paths and descriptors, readiness
-parking, or sockets. There is no registration macro. The link collects the
-descriptors in the `astia_aio_handlers` set, and
-`astia::io::aio::registry` enumerates that set instead of a hand-maintained
-table. Registration must cover the ABI opcode range exactly once; a missing,
+The handler names its ABI opcode and the subsystem dispatcher that owns it.
+There is no registration macro. The generic AIO layer retains only the
+operation contract, descriptor/linker-set mechanism, dispatch, and
+validation; `astia::io::aio::registry` imports no concrete owner headers and
+enumerates the `astia_aio_handlers` set instead of a hand-maintained table.
+Registration must cover the ABI opcode range exactly once; a missing,
 duplicate, out-of-range, or null handler fails registry validation. Opcodes
 reserved by the ABI without an implementation complete with `-ENOSYS`.
 

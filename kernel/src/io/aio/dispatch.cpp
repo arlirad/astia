@@ -15,11 +15,8 @@
 #include "../../ipc/unix_socket.hpp"
 #include "../../proc/mapping.hpp"
 #include "../../proc/proc.hpp"
-#include "filesystem.hpp"
 #include "memory.hpp"
-#include "readiness.hpp"
 #include "registry.hpp"
-#include "socket.hpp"
 
 void* operator new(astia::usize size, void* where) noexcept;
 
@@ -267,9 +264,9 @@ namespace astia::io::aio::dispatch {
                 }
                 if (op.socket_accept) {
                     const auto* socket = op.object->node()->unix_socket_capability();
-                    n = socket == nullptr
-                            ? -EOPNOTSUPP
-                            : socket->accept(*op.object, op.operation->request());
+                    n                  = socket == nullptr
+                                             ? -EOPNOTSUPP
+                                             : socket->accept(*op.object, op.operation->request());
                 }
                 else {
                     n = op.object->submit(op.operation->request());
@@ -830,7 +827,7 @@ namespace astia::io::aio::dispatch {
                 expected = sizeof(i32);
                 input    = s.offset == TIOCSPGRP || s.offset == TIOCSPTLCK;
                 output   = s.offset == TIOCGPGRP || s.offset == TIOCGPTN ||
-                           s.offset == TIOCGPTLCK;
+                         s.offset == TIOCGPTLCK;
             }
             else if (s.offset == TIOCSCTTY) {
                 expected = 0;
@@ -863,7 +860,7 @@ namespace astia::io::aio::dispatch {
         bool handle_cancel(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
             const u64 target       = s.offset;
             auto      has_capacity = [ring](u32 count) {
-                const astia_cq_ring* cq   = astia_rings_cq(ring);
+                const astia_cq_ring* cq = astia_rings_cq(ring);
                 const u32            head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
                 const u32            tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
                 return tail - head <= cq->entries - count;

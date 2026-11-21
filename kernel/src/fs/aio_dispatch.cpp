@@ -1,12 +1,12 @@
-#include "filesystem.hpp"
+#include "aio_dispatch.hpp"
 
 #include <astia/api/errno.h>
 
-#include "../../fs/mapping.hpp"
-#include "../../proc/mapping.hpp"
-#include "../../proc/proc.hpp"
-#include "dispatch.hpp"
-#include "memory.hpp"
+#include "../io/aio/dispatch.hpp"
+#include "../io/aio/memory.hpp"
+#include "../proc/mapping.hpp"
+#include "../proc/proc.hpp"
+#include "mapping.hpp"
 
 namespace astia::io::aio::filesystem {
 

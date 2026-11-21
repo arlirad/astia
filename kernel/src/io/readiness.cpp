@@ -3,8 +3,8 @@
 #include <astia/api/errno.h>
 #include <astia/io.hpp>
 
-#include "dispatch.hpp"
-#include "memory.hpp"
+#include "aio/dispatch.hpp"
+#include "aio/memory.hpp"
 
 namespace astia::io::aio::readiness {
 
