@@ -61,6 +61,18 @@ Userspace AIO represents every operation that can block with an `OP_*` SQE.
 The kernel publishes a CQE, and the SQE `user_data` is copied to it so the
 caller can route the result without a side table.
 
+## OPERATION REGISTRY
+
+Every `OP_*` the kernel implements has one static handler in
+`kernel/src/io/aio/operations/`. A handler names its ABI opcode and the
+subsystem dispatcher that owns it: core fd/ioctl/eventfd work, filesystem
+paths and descriptors, readiness parking, or sockets. The link collects the
+handlers' descriptors in the `astia_aio_handlers` set, and
+`astia::io::aio::registry` enumerates that set instead of a hand-maintained
+table. Registration must cover the ABI opcode range exactly once; a missing,
+duplicate, out-of-range, or null handler fails registry validation. Opcodes
+reserved by the ABI without an implementation complete with `-ENOSYS`.
+
 ## LIFETIME/OWNERSHIP
 
 The caller must keep the file reference, buffer, and returned task valid until

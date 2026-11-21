@@ -3,6 +3,7 @@
 #include "../src/io/aio/dispatch.hpp"
 #include "../src/io/aio/filesystem.hpp"
 #include "../src/io/aio/readiness.hpp"
+#include "../src/io/aio/registry.hpp"
 #include "../src/io/aio/socket.hpp"
 
 namespace astia::io::aio::test_support {
@@ -19,6 +20,23 @@ namespace astia::io::aio::test_support {
         readiness_dispatches  = 0;
         socket_dispatches     = 0;
         unknown_completions   = 0;
+    }
+
+    bool routes_to(owner expected, unsigned operation) {
+        ring::ring_slot slot{};
+        astia_rings     ring{};
+        astia_sqe       sqe{};
+        sqe.op = operation;
+        reset_registry_counters();
+        if (!registry::dispatch(slot, &ring, sqe))
+            return false;
+        const unsigned counts[]       = {core_dispatches, filesystem_dispatches,
+                                         readiness_dispatches, socket_dispatches};
+        const unsigned expected_index = static_cast<unsigned>(expected);
+        for (unsigned i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i)
+            if (counts[i] != (i == expected_index ? 1u : 0u))
+                return false;
+        return unknown_completions == (expected == owner::unknown ? 1u : 0u);
     }
 
 } // namespace astia::io::aio::test_support
