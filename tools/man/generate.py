@@ -1558,11 +1558,11 @@ class TransactionalDirectory:
                 retired_unchanged = retirement_snapshots_match(
                     retired_snapshot, self._active_snapshot
                 )
-            except OSError as error:
+            except Exception as error:
                 retired_error = error
             try:
                 self._close_active()
-            except OSError:
+            except Exception:
                 pass
             if retired_unchanged:
                 try:
@@ -1573,7 +1573,7 @@ class TransactionalDirectory:
                     )
                     if old_info is not None and same_inode(old_info, self._active_info):
                         remove_tree(self._parent, self._staging_name)
-                except OSError as error:
+                except Exception as error:
                     self._report_deferred(
                         f"deferred cleanup: retired generation at "
                         f"{self._staging_name}: {error}"
@@ -1590,7 +1590,7 @@ class TransactionalDirectory:
                 )
         try:
             os.fsync(self._parent)
-        except OSError:
+        except Exception:
             pass
 
 

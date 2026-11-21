@@ -167,9 +167,9 @@ metadata cannot be read or applied.
 
 Metadata copying depends on `/proc/self/fd`. If procfs is unavailable, the
 transaction fails closed before activation. Symlink metadata is not cloned.
-Cleanup failures after activation emit a RuntimeWarning with the retired path
-and error, falling back to stderr when warnings are configured as errors; the
-activation itself remains successful.
+Post-exchange verification or cleanup failures after activation emit a
+RuntimeWarning with the retired path and cause, falling back to stderr when
+warnings are configured as errors; the activation itself remains successful.
 
 The man7 tree and the section-2 export tree are separate per-tree
 transactions, not one invocation-wide atomic transaction. The frontend reads

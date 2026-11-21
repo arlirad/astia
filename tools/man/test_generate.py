@@ -1154,6 +1154,57 @@ class GenerateTest(unittest.TestCase):
                 [],
             )
 
+    def test_post_exchange_snapshot_error_does_not_fail_activation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            real_snapshot = generate.directory_snapshot
+            calls = 0
+            stderr = io.StringIO()
+
+            def fail_retirement_snapshot(directory, prefix=""):
+                nonlocal calls
+                calls += 1
+                if calls == 4:
+                    raise RuntimeError(
+                        "cannot read active output file for hashing: index.html: EIO"
+                    )
+                return real_snapshot(directory, prefix)
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                with redirect_stderr(stderr):
+                    with patch.object(
+                        generate,
+                        "directory_snapshot",
+                        side_effect=fail_retirement_snapshot,
+                    ):
+                        with generate.TransactionalDirectory.begin(
+                            output,
+                            root,
+                            generate.MAN7_MANIFEST,
+                            generate.read_owned_files,
+                        ) as transaction:
+                            transaction.output.write_atomic("index.html", "new index")
+                            generate.write_man_manifest(
+                                transaction.output, {"index.html"}
+                            )
+                            transaction.commit()
+
+            self.assertEqual((output / "index.html").read_text(), "new index")
+            retired = [
+                path
+                for path in root.iterdir()
+                if path.name.startswith(".astia-retired-")
+            ]
+            self.assertEqual(len(retired), 1)
+            self.assertEqual((retired[0] / "index.html").read_text(), "old index")
+            diagnostic = stderr.getvalue()
+            self.assertIn("deferred cleanup", diagnostic)
+            self.assertIn(retired[0].name, diagnostic)
+            self.assertIn("EIO", diagnostic)
+            shutil.rmtree(retired[0])
+
     def test_transaction_succeeds_when_warnings_are_errors(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
