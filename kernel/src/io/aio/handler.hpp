@@ -84,18 +84,28 @@ namespace astia::io::aio {
         }
     };
 
+    constexpr bool validate_manifest(const descriptor* entries, usize count) {
+        if (entries == nullptr || count != opcode_count)
+            return false;
+        bool seen[opcode_count]{};
+        for (usize i = 0; i < count; ++i) {
+            const descriptor& entry = entries[i];
+            const u32         value = static_cast<u32>(entry.operation);
+            if (!valid_opcode(entry.operation) || entry.invoke == nullptr || seen[value])
+                return false;
+            seen[value] = true;
+        }
+        for (bool present : seen)
+            if (!present)
+                return false;
+        return true;
+    }
+
     bool validate_descriptors(const descriptor* entries, usize count);
 
     template <usize N>
     consteval bool valid_descriptors(const descriptor (&entries)[N]) {
-        bool seen[opcode_count]{};
-        for (const descriptor& entry : entries) {
-            const u32 value = static_cast<u32>(entry.operation);
-            if (!valid_opcode(entry.operation) || seen[value])
-                return false;
-            seen[value] = true;
-        }
-        return true;
+        return validate_manifest(entries, N);
     }
 
 } // namespace astia::io::aio
