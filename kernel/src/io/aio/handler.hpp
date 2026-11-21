@@ -84,10 +84,10 @@ namespace astia::io::aio {
         }
     };
 
+    bool validate_descriptors(const descriptor* entries, usize count);
+
     template <usize N>
-    consteval bool valid_manifest(const descriptor (&entries)[N]) {
-        if (N != opcode_count)
-            return false;
+    consteval bool valid_descriptors(const descriptor (&entries)[N]) {
         bool seen[opcode_count]{};
         for (const descriptor& entry : entries) {
             const u32 value = static_cast<u32>(entry.operation);
@@ -95,9 +95,6 @@ namespace astia::io::aio {
                 return false;
             seen[value] = true;
         }
-        for (bool value : seen)
-            if (!value)
-                return false;
         return true;
     }
 
