@@ -1,13 +1,14 @@
+#include <astia/init.hpp>
+
 #include "proc.hpp"
 #include "scheduler.hpp"
-#include <astia/init.hpp>
 
 namespace astia::proc {
 
-    bool register_syscalls();
+    bool register_proc_hooks();
 
     static bool step_proc(init::context&) {
-        return proc::init() && scheduler::init() && register_syscalls();
+        return proc::init() && scheduler::init() && register_proc_hooks();
     }
 
 } // namespace astia::proc

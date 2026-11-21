@@ -1,11 +1,12 @@
 #pragma once
 
-#include "../proc.hpp"
-#include "../scheduler.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/context.hpp>
 
-namespace astia::proc::syscall {
+#include "../proc.hpp"
+#include "../scheduler.hpp"
+
+namespace astia::proc::syscalls::detail {
 
     class syscall_continuation {
         enum class phase : u8 {
@@ -140,4 +141,4 @@ namespace astia::proc::syscall {
         }
     };
 
-} // namespace astia::proc::syscall
+} // namespace astia::proc::syscalls::detail

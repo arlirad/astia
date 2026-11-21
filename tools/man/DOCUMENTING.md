@@ -14,12 +14,18 @@ kernel/src/proc/syscalls/<name>.hpp
 kernel/src/fs/syscalls/<name>.cpp
 kernel/src/fs/syscalls/<name>.hpp
 kernel/src/ipc/syscalls/<name>.cpp
+kernel/src/mm/syscalls/<name>.hpp
+kernel/src/net/syscalls/<name>.hpp
 kernel/src/sys/syscalls/<name>.cpp
+kernel/src/sys/syscalls/<name>.hpp
 ```
 
 The implementation file owns the behavior. The header owns the public
-kernel-side prototype and the man-page comment. The dispatcher only registers
-the handler; it must not duplicate the documentation.
+kernel-side prototype, CRTP handler, and man-page comment. Handler-only headers
+are valid when behavior is implemented in an existing subsystem source; they
+retain the same subsystem `syscalls/` path so documentation grouping and links
+remain stable. The dispatcher only registers the handler; it must not duplicate
+the documentation.
 
 ## Required man-page sections
 
@@ -111,13 +117,11 @@ python3 tools/man/generate.py kernel/src dist/man7 --docs docs
 The generator:
 
 - reads documented subsystem syscall headers;
-- discovers legacy handlers in `syscalls.cpp` files;
 - groups the index first by manual section (`MAN 2 - SYSTEM CALLS`,
   `MAN 3 - LIBC APIs`, and `MAN 7 - OVERVIEWS`), then by subsystem and
   optional subgroup;
 - emits one HTML page per syscall;
 - copies the Nodivia-derived theme CSS;
-- supplies fallback return/error metadata for legacy handlers.
 - adds the native filesystem/descriptor APIs from the libc source root as
   section 3 pages, grouped separately from section 2 syscall pages;
 - links each generated page back to the combined manual index.

@@ -1,7 +1,7 @@
 #pragma once
 #include <astia/common.hpp>
 #include <astia/span.hpp>
-namespace astia::proc::syscall::detail {
+namespace astia::proc::syscalls::detail {
     inline constexpr usize path_cap = 256;
     inline constexpr usize arg_cap  = 256;
     inline constexpr usize vec_max  = 32;
