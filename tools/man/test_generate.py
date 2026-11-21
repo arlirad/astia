@@ -1,3 +1,4 @@
+import errno
 import io
 import json
 import os
@@ -954,6 +955,164 @@ class GenerateTest(unittest.TestCase):
                 os.getxattr(output / "private", "user.astia"), b"dir-xattr"
             )
             self.assertEqual(os.getxattr(output, "user.astia"), b"root-xattr")
+    def test_transaction_aborts_when_active_hash_read_fails(self):
+        for error_number in (errno.EACCES, errno.EIO):
+            with self.subTest(error_number=error_number):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    output = self._old_man_generation(root)
+                    before = {
+                        path.name: path.read_bytes()
+                        for path in output.iterdir()
+                        if path.is_file()
+                    }
+                    real_open = generate.os.open
+
+                    def fail_hash_open(path, flags, mode=0o777, *, dir_fd=None):
+                        if path == "index.html" and (flags & os.O_ACCMODE) == os.O_RDONLY:
+                            raise OSError(
+                                error_number, os.strerror(error_number)
+                            )
+                        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+                    with patch.object(
+                        generate.os, "open", side_effect=fail_hash_open
+                    ):
+                        with self.assertRaises(RuntimeError):
+                            generate.TransactionalDirectory.begin(
+                                output,
+                                root,
+                                generate.MAN7_MANIFEST,
+                                generate.read_owned_files,
+                            )
+
+                    self.assertEqual(
+                        {
+                            path.name: path.read_bytes()
+                            for path in output.iterdir()
+                            if path.is_file()
+                        },
+                        before,
+                    )
+                    self.assertEqual(
+                        [
+                            path
+                            for path in root.iterdir()
+                            if path.name.startswith(".astia-stage-")
+                            or path.name.startswith(".astia-retired-")
+                        ],
+                        [],
+                    )
+
+    def test_content_digest_alone_aborts_in_place_edit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            page = output / "index.html"
+            original_stat = page.stat()
+            original_manifest = (output / generate.MAN7_MANIFEST).read_bytes()
+            real_metadata = generate._entry_metadata
+
+            def coarsened_metadata(descriptor, name):
+                metadata = real_metadata(descriptor, name)
+                return metadata[:7] + (0,) + metadata[8:]
+
+            def edit_in_place():
+                current = page.read_bytes()
+                replacement = b"N" + current[1:]
+                self.assertEqual(len(current), len(replacement))
+                with page.open("r+b") as handle:
+                    handle.write(replacement)
+                os.utime(
+                    page,
+                    ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+                )
+
+            with patch.object(
+                generate, "_entry_metadata", side_effect=coarsened_metadata
+            ):
+                with self.assertRaises(RuntimeError):
+                    with generate.TransactionalDirectory.begin(
+                        output,
+                        root,
+                        generate.MAN7_MANIFEST,
+                        generate.read_owned_files,
+                    ) as transaction:
+                        transaction.output.write_atomic("index.html", "new index")
+                        generate.write_man_manifest(
+                            transaction.output, {"index.html"}
+                        )
+                        transaction.commit(before_activation=edit_in_place)
+
+            self.assertTrue(page.read_bytes().startswith(b"N"))
+            self.assertEqual(
+                (output / generate.MAN7_MANIFEST).read_bytes(), original_manifest
+            )
+            self.assertEqual(
+                [
+                    path
+                    for path in root.iterdir()
+                    if path.name.startswith(".astia-stage-")
+                    or path.name.startswith(".astia-retired-")
+                ],
+                [],
+            )
+
+    def test_copy_aborts_if_regular_file_becomes_fifo_at_open(self):
+        def timeout(_signum, _frame):
+            raise TimeoutError("copy open blocked")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            payload = output / "payload.bin"
+            payload.write_bytes(b"payload")
+            original_index = (output / "index.html").read_bytes()
+            original_manifest = (output / generate.MAN7_MANIFEST).read_bytes()
+            real_open = generate.os.open
+            calls = 0
+
+            def replace_at_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal calls
+                if path == "payload.bin":
+                    calls += 1
+                    if calls == 2:
+                        payload.unlink()
+                        os.mkfifo(payload)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            previous_handler = signal.signal(signal.SIGALRM, timeout)
+            signal.setitimer(signal.ITIMER_REAL, 2)
+            try:
+                with patch.object(
+                    generate.os, "open", side_effect=replace_at_open
+                ):
+                    with self.assertRaises(ValueError):
+                        generate.TransactionalDirectory.begin(
+                            output,
+                            root,
+                            generate.MAN7_MANIFEST,
+                            generate.read_owned_files,
+                        )
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, previous_handler)
+
+            self.assertTrue(stat.S_ISFIFO(os.lstat(payload).st_mode))
+            self.assertEqual((output / "index.html").read_bytes(), original_index)
+            self.assertEqual(
+                (output / generate.MAN7_MANIFEST).read_bytes(), original_manifest
+            )
+            self.assertEqual(
+                [
+                    path
+                    for path in root.iterdir()
+                    if path.name.startswith(".astia-stage-")
+                    or path.name.startswith(".astia-retired-")
+                ],
+                [],
+            )
+
     def test_transaction_aborts_if_owned_page_is_edited_in_place(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

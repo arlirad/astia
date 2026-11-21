@@ -1110,10 +1110,20 @@ def copy_unowned_entries(
             with ExitStack() as stack:
                 source_fd = os.open(
                     name,
-                    os.O_RDONLY | os.O_NOFOLLOW,
+                    os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
                     dir_fd=source,
                 )
                 stack.callback(os.close, source_fd)
+                try:
+                    source_info = os.fstat(source_fd)
+                    if not stat.S_ISREG(source_info.st_mode):
+                        raise ValueError(
+                            f"unowned output entry changed type during copy: {relative}"
+                        )
+                except OSError as error:
+                    raise ValueError(
+                        f"cannot inspect unowned output entry: {relative}"
+                    ) from error
                 destination_fd = os.open(
                     name,
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
@@ -1226,25 +1236,35 @@ def rename_noreplace(parent: int, first: str, second: str) -> None:
     renameat2(parent, first, second, RENAME_NOREPLACE)
 
 
-def _content_hash(descriptor: int, name: str) -> bytes | None:
+def _content_hash(descriptor: int, name: str) -> bytes:
     try:
         source = os.open(
             name,
             os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
             dir_fd=descriptor,
         )
-    except OSError:
-        return None
+    except OSError as error:
+        raise RuntimeError(
+            f"cannot open active output file for hashing: {name}: {error}"
+        ) from error
     try:
-        if not stat.S_ISREG(os.fstat(source).st_mode):
-            return None
-        digest = hashlib.sha256()
-        while True:
-            block = os.read(source, 65536)
-            if not block:
-                break
-            digest.update(block)
-        return digest.digest()
+        try:
+            info = os.fstat(source)
+            if not stat.S_ISREG(info.st_mode):
+                raise RuntimeError(
+                    f"active output entry changed type during hashing: {name}"
+                )
+            digest = hashlib.sha256()
+            while True:
+                block = os.read(source, 65536)
+                if not block:
+                    break
+                digest.update(block)
+            return digest.digest()
+        except OSError as error:
+            raise RuntimeError(
+                f"cannot read active output file for hashing: {name}: {error}"
+            ) from error
     finally:
         os.close(source)
 

@@ -145,8 +145,10 @@ one Linux `renameat2` operation:
 The active generation is not modified before activation. If staging or
 activation fails, the previous manifest and pages remain active. A final
 active-tree snapshot is checked immediately before activation. Any entry
-added or changed after staging aborts before the directory exchange. A
-remaining OS-level race between the last snapshot and `renameat2` cannot be
+added or changed after staging aborts before the directory exchange. Hash
+open/read failures and entries that change type during hashing or copying
+fail closed without blocking or activating. A remaining OS-level race between
+the last snapshot and `renameat2` cannot be
 removed without a cooperative lock; if it occurs, the retired tree is
 retained as an `.astia-retired-<id>` sibling rather than deleted, preserving
 unexpected files for recovery.
@@ -158,8 +160,9 @@ failure. Cooperating generators should run one at a time.
 
 Regular files are copied with owner, group, mode, ACLs, and extended
 attributes preserved. Recreated directories, FIFOs, and the staging root
-preserve owner, group, mode, and extended attributes, including POSIX ACLs. Destination-inherited ACLs and xattrs are
-cleared before source metadata is applied. The transaction fails closed if
+preserve owner, group, mode, and extended attributes, including POSIX ACLs.
+Destination-inherited ACLs and xattrs are cleared before source metadata is
+applied. The transaction fails closed if
 metadata cannot be read or applied.
 
 Metadata copying depends on `/proc/self/fd`. If procfs is unavailable, the
