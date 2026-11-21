@@ -30,6 +30,18 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// thread_exit - Terminate the calling user thread.
+    ///
+    /// Synopsis:
+    ///     long thread_exit(long result);
+    ///
+    /// Description:
+    ///     Terminates the calling thread and records result for a joining
+    ///     thread. A process becomes waitable after its last thread exits.
+    ///
+    /// Return Value:
+    ///     Does not return.
+
     /// ABI ID: thread_exit.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

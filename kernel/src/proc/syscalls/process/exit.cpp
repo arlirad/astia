@@ -24,6 +24,14 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// exit - terminate the calling thread.
+    ///
+    /// Synopsis:
+    ///     long exit(long status);
+    ///
+    /// Return Value:
+    ///     Does not return to the caller.
+
     /// ABI ID: exit.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

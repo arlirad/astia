@@ -89,6 +89,16 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// sigaction - get or change a signal disposition.
+    ///
+    /// Synopsis:
+    ///     long sigaction(int signal, const action *next, action *old);
+    ///
+    /// Errors:
+    ///     -EFAULT: An action pointer or signal restorer is inaccessible.
+    ///     -EINVAL: The signal is invalid or cannot be caught.
+    ///     -ESRCH: There is no current process.
+
     /// ABI ID: sigaction.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

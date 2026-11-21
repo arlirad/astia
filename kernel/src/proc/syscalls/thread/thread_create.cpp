@@ -31,6 +31,23 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// thread_create - Create a user thread.
+    ///
+    /// Synopsis:
+    ///     long thread_create(void (*entry)(void *), void *stack_top, void *argument);
+    ///
+    /// Description:
+    ///     Creates a thread in the current process and starts entry with
+    ///     argument on the supplied aligned user stack.
+    ///
+    /// Return Value:
+    ///     Returns the new thread ID or a negative errno.
+    ///
+    /// Errors:
+    ///     -EAGAIN: The thread limit or memory limit was reached.
+    ///     -EFAULT: The entry point or user stack is invalid.
+    ///     -ESRCH: There is no current process.
+
     /// ABI ID: thread_create.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

@@ -46,6 +46,16 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// sigprocmask - block, unblock, or replace the signal mask.
+    ///
+    /// Synopsis:
+    ///     long sigprocmask(int how, uint32_t set, uint32_t *old);
+    ///
+    /// Errors:
+    ///     -EFAULT: The old mask pointer is inaccessible.
+    ///     -EINVAL: The mask operation is unknown.
+    ///     -ESRCH: There is no current process.
+
     /// ABI ID: sigprocmask.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

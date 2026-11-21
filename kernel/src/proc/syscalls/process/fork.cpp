@@ -24,6 +24,22 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// fork - Create a copy-on-write child process.
+    ///
+    /// Synopsis:
+    ///     long fork(void);
+    ///
+    /// Description:
+    ///     Creates a child sharing copy-on-write mappings with the parent.
+    ///     Descriptors and the current working directory are inherited.
+    ///
+    /// Return Value:
+    ///     Returns the child PID in the parent and zero in the child.
+    ///
+    /// Errors:
+    ///     -EAGAIN: A process, thread, mapping, or registry slot cannot be allocated.
+    ///     -ESRCH: There is no current user process.
+
     /// ABI ID: fork.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

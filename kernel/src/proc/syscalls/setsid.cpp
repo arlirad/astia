@@ -19,6 +19,7 @@ namespace astia::proc::syscalls {
     /// Errors:
     ///     -EPERM: The caller is already a process-group leader.
     ///     -ESRCH: There is no current process.
+
     /// ABI ID: setsid.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

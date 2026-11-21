@@ -18,6 +18,7 @@ namespace astia::proc::syscalls {
     ///
     /// Synopsis:
     ///     long gettid(void);
+
     /// ABI ID: gettid.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

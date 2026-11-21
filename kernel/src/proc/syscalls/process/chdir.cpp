@@ -21,6 +21,17 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// chdir - change the caller's working directory.
+    ///
+    /// Synopsis:
+    ///     long chdir(const char *path);
+    ///
+    /// Errors:
+    ///     -EFAULT: The path pointer is inaccessible.
+    ///     -ENOTDIR: The path does not identify a directory.
+    ///     -ENOENT: The directory does not exist.
+    ///     -ESRCH: There is no current process.
+
     /// ABI ID: chdir.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

@@ -32,6 +32,7 @@ namespace astia::proc::syscalls {
     ///
     /// Return Value:
     ///     Returns the previous alarm value or a negative errno.
+
     /// ABI ID: alarm.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.
