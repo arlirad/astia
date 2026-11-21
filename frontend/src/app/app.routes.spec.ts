@@ -33,7 +33,7 @@ describe('Application routes', () => {
     expect(component).toBeInstanceOf(DocumentationPage);
     expect(element.querySelectorAll('.docs-index-link').length).toBe(DOC_PAGES.length);
     expect(element.querySelector('.docs-page-title')).toBeNull();
-    expect(element.querySelector('.eyebrow')?.textContent).toContain('Documentation');
+    expect(element.querySelector('h1.eyebrow')?.textContent).toContain('Documentation');
     expect(element.textContent).not.toContain('Design notes, boundaries, and current limits.');
     expect(element.textContent).not.toContain(
       'Bundled from the repository Markdown sources.',

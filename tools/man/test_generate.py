@@ -67,7 +67,9 @@ class GenerateTest(unittest.TestCase):
             "kernel/include/astia/api/syscalls.h",
         )
         self.assertEqual(generate.CATEGORY_OVERRIDES["execve"], "proc/process")
+        self.assertEqual(generate.CATEGORY_OVERRIDES["sigsuspend"], "proc/signal")
         self.assertEqual(generate.CATEGORY_OVERRIDES["waitpid"], "proc/process")
+        self.assertEqual(generate.SOURCE_OVERRIDES["sigsuspend"], "libc/src/signal.c")
 
     def test_public_body_overrides_rewrite_execve_semantics(self):
         sections = generate.body_sections(generate.PUBLIC_BODY_OVERRIDES["execve"])
@@ -80,6 +82,12 @@ class GenerateTest(unittest.TestCase):
         self.assertTrue(any(line.strip().startswith("E2BIG:") for line in sections["ERRORS"]))
         self.assertNotIn("-E2BIG", errors)
         self.assertIn("libc/src/unistd.c", notes)
+        self.assertIn("FD_CLOEXEC", "\n".join(sections["DESCRIPTION"]))
+        self.assertIn("EINVAL", errors)
+        self.assertIn("ENAMETOOLONG", errors)
+        self.assertIn("ENOEXEC", errors)
+        self.assertIn("execve.cpp", notes)
+        self.assertIn("exec_loader.cpp", notes)
         self.assertEqual(generate.error_entries("E2BIG: Too big.")[0][0], "E2BIG")
 
     def test_waitpid_notes_identify_options_wrapper(self):
@@ -97,6 +105,32 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("astia_waitpid_options", "\n".join(sections["NOTES"]))
         self.assertIn("translates that result to -1", "\n".join(sections["NOTES"]))
 
+    def test_sigsuspend_uses_libc_contract(self):
+        sections = generate.body_sections(generate.PUBLIC_BODY_OVERRIDES["sigsuspend"])
+        returns = "\n".join(sections["RETURN VALUE"])
+        errors = "\n".join(sections["ERRORS"])
+        notes = "\n".join(sections["NOTES"])
+
+        self.assertIn("Never returns 0", returns)
+        self.assertIn("errno to EINTR", returns)
+        self.assertIn("-1", returns)
+        self.assertIn("EINTR", errors)
+        self.assertIn("EAGAIN", errors)
+        self.assertIn("EFAULT", errors)
+        self.assertNotIn("-EINTR", errors)
+        self.assertIn("libc/src/signal.c", notes)
+        self.assertIn("sigsuspend.cpp", notes)
+        self.assertEqual(generate.SOURCE_OVERRIDES["sigsuspend"], "libc/src/signal.c")
+
+    def test_clock_errors_include_missing_timer_source(self):
+        time_errors = generate.PUBLIC_SECTION_OVERRIDES["clock_gettime"]["ERRORS"]
+        res_errors = generate.PUBLIC_SECTION_OVERRIDES["clock_getres"]["ERRORS"]
+
+        self.assertIn("-EIO", time_errors)
+        self.assertIn("timer source", time_errors)
+        self.assertIn("-EIO", res_errors)
+        self.assertIn("timer source", res_errors)
+
     def test_fallback_body_uses_public_synopsis_and_missing_detail_label(self):
         body = generate.fallback_body(
             "sigwait",
@@ -112,50 +146,59 @@ class GenerateTest(unittest.TestCase):
         self.assertNotIn("u64 set_ptr", body)
 
     def test_export_removes_only_previously_generated_markdown(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            export_dir = Path(temporary) / "section2"
-            export_dir.mkdir()
-            (export_dir / "notes.md").write_text("unrelated notes")
-            (export_dir / "keep.txt").write_text("keep")
-            (export_dir / "syscall-0-old.md").write_text("stale generated")
-            (export_dir / "manifest.json").write_text(
-                json.dumps(
-                    {
-                        "section": 2,
-                        "count": 1,
-                        "pages": [{"markdown": "syscall-0-old.md"}],
+        for with_manifest in (True, False):
+            with self.subTest(with_manifest=with_manifest):
+                with tempfile.TemporaryDirectory() as temporary:
+                    export_dir = Path(temporary) / "section2"
+                    export_dir.mkdir()
+                    (export_dir / "notes.md").write_text("unrelated notes")
+                    (export_dir / "keep.txt").write_text("keep")
+                    (export_dir / "syscall-0-old.md").write_text("stale generated")
+                    (Path(temporary) / "escape.md").write_text("outside")
+                    if with_manifest:
+                        (export_dir / "manifest.json").write_text(
+                            json.dumps(
+                                {
+                                    "section": 2,
+                                    "count": 3,
+                                    "pages": [
+                                        {"markdown": "syscall-0-old.md"},
+                                        {"markdown": "notes.md"},
+                                        {"markdown": "../escape.md"},
+                                    ],
+                                }
+                            )
+                        )
+
+                    canonical = [(index, f"fake_{index}") for index in range(70)]
+                    pages = {
+                        (name, 2): (
+                            generate.fallback_body(name, f"long astia_{name}(void);"),
+                            "proc",
+                        )
+                        for _, name in canonical
                     }
-                )
-            )
+                    sources = {(name, 2): ABI_HEADER for _, name in canonical}
 
-            canonical = [(index, f"fake_{index}") for index in range(70)]
-            pages = {
-                (name, 2): (
-                    generate.fallback_body(name, f"long astia_{name}(void);"),
-                    "proc",
-                )
-                for _, name in canonical
-            }
-            sources = {(name, 2): ABI_HEADER for _, name in canonical}
+                    generate.export_section2(
+                        export_dir,
+                        canonical,
+                        pages,
+                        sources,
+                        REPO_ROOT / "kernel/src",
+                        ABI_HEADER,
+                    )
 
-            generate.export_section2(
-                export_dir,
-                canonical,
-                pages,
-                sources,
-                REPO_ROOT / "kernel/src",
-                ABI_HEADER,
-            )
-
-            manifest = json.loads((export_dir / "manifest.json").read_text())
-            generated = {page["markdown"] for page in manifest["pages"]}
-            self.assertEqual(manifest["count"], 70)
-            self.assertEqual(len(generated), 70)
-            self.assertEqual(len(list(export_dir.glob("syscall-*.md"))), 70)
-            self.assertTrue(all((export_dir / name).exists() for name in generated))
-            self.assertTrue((export_dir / "notes.md").exists())
-            self.assertTrue((export_dir / "keep.txt").exists())
-            self.assertFalse((export_dir / "syscall-0-old.md").exists())
+                    manifest = json.loads((export_dir / "manifest.json").read_text())
+                    generated = {page["markdown"] for page in manifest["pages"]}
+                    self.assertEqual(manifest["count"], 70)
+                    self.assertEqual(len(generated), 70)
+                    self.assertEqual(len(list(export_dir.glob("syscall-*.md"))), 70)
+                    self.assertTrue(all((export_dir / name).exists() for name in generated))
+                    self.assertTrue((export_dir / "notes.md").exists())
+                    self.assertTrue((export_dir / "keep.txt").exists())
+                    self.assertFalse((export_dir / "syscall-0-old.md").exists())
+                    self.assertTrue((Path(temporary) / "escape.md").exists())
 
 
 if __name__ == "__main__":

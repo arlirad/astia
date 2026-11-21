@@ -27,11 +27,13 @@ PUBLIC_SYNOPSIS_OVERRIDES = {
 
 SOURCE_OVERRIDES = {
     "execve": "libc/src/unistd.c",
+    "sigsuspend": "libc/src/signal.c",
     "waitpid": "kernel/include/astia/api/syscalls.h",
 }
 
 CATEGORY_OVERRIDES = {
     "execve": "proc/process",
+    "sigsuspend": "proc/signal",
     "waitpid": "proc/process",
 }
 
@@ -41,23 +43,45 @@ PUBLIC_BODY_OVERRIDES = {
         "    int execve(const char* path, char* const argv[], char* const envp[]);\n\n"
         "Description:\n"
         "    Replaces the calling process image with the executable at path. The process ID, "
-        "process group, open descriptors, and working directory remain associated with the "
-        "process. The argument and environment vectors are copied before the image is "
-        "replaced.\n\n"
+        "process group, and working directory remain associated with the process. Descriptors "
+        "without FD_CLOEXEC remain open; descriptors marked FD_CLOEXEC are closed. The argument "
+        "and environment vectors are copied before the image is replaced.\n\n"
         "Return Value:\n"
         "    Does not return on success. On failure, returns -1 and sets errno.\n\n"
         "Errors:\n"
         "    E2BIG: The argument or environment vector exceeds its limit.\n"
         "    EFAULT: A path, vector, or string pointer is invalid.\n"
+        "    EINVAL: The path is null, or the executable metadata is malformed or truncated.\n"
+        "    ENAMETOOLONG: The resolved path exceeds the libc path buffer.\n"
         "    ENOENT: The executable path does not exist.\n"
-        "    ENOEXEC: The file is not a loadable executable image.\n"
+        "    ENOEXEC: The file is empty or is not a supported executable image.\n"
         "    ENOMEM: The replacement image cannot be allocated.\n\n"
         "Notes:\n"
         "    Relative paths are resolved against the caller's working directory. The public "
-        "wrapper is implemented in libc/src/unistd.c; kernel failures are translated to -1 "
-        "and errno."
+        "wrapper is implemented in [libc/src/unistd.c](https://github.com/arlirad/astia/blob/main/libc/src/unistd.c); "
+        "the kernel syscall entry is [kernel/src/proc/syscalls/process/execve.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/execve.cpp), "
+        "and image loading is [kernel/src/elf/exec_loader.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/elf/exec_loader.cpp)."
+    ),
+    "sigsuspend": (
+        "Synopsis:\n"
+        "    int sigsuspend(const sigset_t* mask);\n\n"
+        "Description:\n"
+        "    Temporarily replaces the calling thread's signal mask with mask and waits for a "
+        "signal. The previous mask is restored before the function returns.\n\n"
+        "Return Value:\n"
+        "    Never returns 0. When a signal ends the wait, returns -1 and sets errno to EINTR. "
+        "On failure, returns -1 and sets errno to the reported error.\n\n"
+        "Errors:\n"
+        "    EAGAIN: The signal waiter could not be registered.\n"
+        "    EFAULT: The mask pointer is not readable userspace memory.\n"
+        "    EINTR: A signal ended the wait; this is the normal successful return.\n"
+        "    ESRCH: There is no current process or thread.\n\n"
+        "Notes:\n"
+        "    The libc wrapper is implemented in [libc/src/signal.c](https://github.com/arlirad/astia/blob/main/libc/src/signal.c); "
+        "the kernel wait path is [kernel/src/proc/syscalls/signal/sigsuspend.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigsuspend.cpp)."
     ),
 }
+
 
 PUBLIC_SECTION_OVERRIDES = {
     "waitpid": {
@@ -66,6 +90,24 @@ PUBLIC_SECTION_OVERRIDES = {
             "negative errno on failure. The libc waitpid() wrapper translates that result to -1 "
             "and errno. A successful exit event is reaped. Stop and continuation notifications "
             "are consumed but do not reap the child."
+        ),
+    },
+    "clock_gettime": {
+        "ERRORS": (
+            "-EFAULT: The output timespec pointer is not writable userspace memory.\n"
+            "-EINVAL: The clock ID is unsupported.\n"
+            "-EIO: The platform has no active timer source."
+        ),
+        "NOTES": (
+            "A platform without an active timer source returns -EIO rather than dividing by "
+            "zero. Arguments enter through the direct syscall ABI."
+        ),
+    },
+    "clock_getres": {
+        "ERRORS": (
+            "-EFAULT: The output pointer is not writable when out is non-null.\n"
+            "-EINVAL: The clock ID is unsupported.\n"
+            "-EIO: The platform has no active timer source."
         ),
     },
 }
@@ -683,6 +725,18 @@ def fallback_body(name: str, synopsis: str | None) -> str:
     )
 
 
+GENERATED_SYSCALL_ASSET = re.compile(
+    r"^syscall-(0|[1-9][0-9]?)-[a-z0-9]+(?:-[a-z0-9]+)*\.md$"
+)
+
+
+def generated_syscall_asset(name: str) -> bool:
+    if Path(name).name != name:
+        return False
+    match = GENERATED_SYSCALL_ASSET.fullmatch(name)
+    return bool(match and int(match.group(1)) <= 69)
+
+
 def export_section2(
     export_dir: Path,
     canonical: list[tuple[int, str]],
@@ -701,14 +755,13 @@ def export_section2(
             previous = json.loads(manifest_path.read_text())
             for page in previous.get("pages", []):
                 name = page.get("markdown")
-                if (
-                    isinstance(name, str)
-                    and name.endswith(".md")
-                    and Path(name).name == name
-                ):
+                if isinstance(name, str) and generated_syscall_asset(name):
                     stale_assets.add(name)
         except (OSError, json.JSONDecodeError):
             pass
+    for path in export_dir.iterdir():
+        if path.is_file() and generated_syscall_asset(path.name):
+            stale_assets.add(path.name)
     for name in stale_assets:
         (export_dir / name).unlink(missing_ok=True)
     if manifest_path.exists():

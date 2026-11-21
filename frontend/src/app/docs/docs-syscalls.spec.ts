@@ -65,14 +65,33 @@ describe('Generated section-2 syscall docs', () => {
     expect(clockGetRes?.source).toContain('kernel/src/sys/time.cpp');
     expect(clockGetRes?.content).toContain('astia_clock_getres');
     expect(clockGetRes?.content).toContain('Detailed manual text has not been added');
+    expect(clockGetTime?.content).toContain('`-EIO`');
+    expect(clockGetTime?.content).toContain('active timer source');
+    expect(clockGetRes?.content).toContain('`-EIO`');
+    expect(clockGetRes?.content).toContain('active timer source');
 
     const execve = SYSCALL_PAGES.find((page) => page.syscallId === 24);
     expect(execve?.category).toBe('proc/process');
     expect(execve?.source).toContain('libc/src/unistd.c');
     expect(execve?.content).toContain('returns -1 and sets errno');
     expect(execve?.content).not.toContain('negative errno');
+    expect(execve?.content).toContain('FD_CLOEXEC');
     expect(execve?.content).toContain('`E2BIG`');
     expect(execve?.content).not.toContain('`-E2BIG`');
+    expect(execve?.content).toContain('`EINVAL`');
+    expect(execve?.content).toContain('`ENAMETOOLONG`');
+    expect(execve?.content).toContain('`ENOEXEC`');
+    expect(execve?.content).toContain('kernel/src/proc/syscalls/process/execve.cpp');
+    expect(execve?.content).toContain('kernel/src/elf/exec_loader.cpp');
+
+    const sigsuspend = SYSCALL_PAGES.find((page) => page.syscallId === 25);
+    expect(sigsuspend?.category).toBe('proc/signal');
+    expect(sigsuspend?.source).toContain('libc/src/signal.c');
+    expect(sigsuspend?.content).toContain('Never returns 0');
+    expect(sigsuspend?.content).toContain('errno to EINTR');
+    expect(sigsuspend?.content).toContain('`EINTR`');
+    expect(sigsuspend?.content).not.toContain('`-EINTR`');
+    expect(sigsuspend?.content).toContain('kernel/src/proc/syscalls/signal/sigsuspend.cpp');
 
     const waitpid = SYSCALL_PAGES.find((page) => page.syscallId === 13);
     expect(waitpid?.category).toBe('proc/process');
