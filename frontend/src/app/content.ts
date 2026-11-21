@@ -1,3 +1,6 @@
+import type { DocPage } from './docs/docs.model';
+import { GENERATED_DOCS } from './docs/docs.generated';
+
 export interface NavLink {
   readonly label: string;
   readonly href: string;
@@ -40,10 +43,15 @@ export const README_URL = `${GITHUB_URL}/blob/main/README.md`;
 export const ISSUES_URL = `${GITHUB_URL}/issues`;
 export const LICENSE_URL = `${GITHUB_URL}/blob/main/LICENSE`;
 
+const repoBlob = (path: string): string => `${GITHUB_URL}/blob/main/${path}`;
+
+export const DOC_PAGES: readonly DocPage[] = GENERATED_DOCS;
+
 export const NAV_LINKS: readonly NavLink[] = [
   { label: 'Overview', href: '#overview' },
   { label: 'Capabilities', href: '#capabilities' },
   { label: 'Roadmap', href: '#roadmap' },
+  { label: 'Documentation', href: '#documentation' },
   { label: 'Get started', href: '#get-started' },
 ];
 
@@ -170,22 +178,22 @@ export const RESOURCES: readonly ResourceLink[] = [
   {
     title: 'Kernel guide',
     description: 'Kernel layout, APIs, and test conventions.',
-    href: `${GITHUB_URL}/blob/main/kernel/README.md`,
+    href: repoBlob('kernel/README.md'),
   },
   {
     title: 'Module ABI',
     description: 'Typed module contracts and loader details.',
-    href: `${GITHUB_URL}/blob/main/docs/module-abi.md`,
+    href: repoBlob('docs/module-abi.md'),
   },
   {
     title: 'CTest suites',
     description: 'Deterministic test suites and external opt-ins.',
-    href: `${GITHUB_URL}/blob/main/docs/ctest.md`,
+    href: repoBlob('docs/ctest.md'),
   },
   {
     title: 'Toolchain and userspace',
     description: 'Sysroot, zsh/nano builds, and POSIX harnesses.',
-    href: `${GITHUB_URL}/blob/main/toolchain/README.md`,
+    href: repoBlob('toolchain/README.md'),
   },
   {
     title: 'Issues and contributions',

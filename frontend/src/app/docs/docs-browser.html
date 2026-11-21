@@ -1,0 +1,100 @@
+<div #browser class="docs-browser" [class.has-page]="selectedPage()">
+  <aside class="docs-index" aria-label="Documentation index">
+    <label class="docs-filter">
+      <span>Filter docs</span>
+      <input
+        type="search"
+        [value]="query()"
+        placeholder="Title, group, or summary"
+        autocomplete="off"
+        (input)="setQuery($event)"
+      >
+    </label>
+    <p class="docs-count" aria-live="polite">{{ resultCount() }} pages</p>
+
+    <nav class="docs-groups" aria-label="Documentation pages">
+      @for (group of filteredGroups(); track group.name) {
+        <section class="docs-group">
+          <h3>{{ group.name }}</h3>
+          <ul>
+            @for (page of group.pages; track page.slug) {
+              <li>
+                <button
+                  type="button"
+                  class="docs-index-link"
+                  [class.is-active]="page.slug === selectedSlug()"
+                  (click)="selectPage(page.slug)"
+                >
+                  <span>{{ page.title }}</span>
+                  <small>{{ page.summary }}</small>
+                </button>
+              </li>
+            }
+          </ul>
+        </section>
+      } @empty {
+        <p class="docs-empty">No docs match this filter.</p>
+      }
+    </nav>
+  </aside>
+
+  <div class="docs-main">
+    @if (selectedPage(); as page) {
+      <article class="docs-page">
+        <div class="docs-page-top">
+          <button type="button" class="docs-back" (click)="backToIndex()">All docs</button>
+          <span class="tag tag-core">{{ page.group }}</span>
+          <a
+            class="docs-source"
+            [href]="page.source"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub source <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+
+        <h1 class="docs-page-title">{{ page.title }}</h1>
+        <div class="doc-markdown" [innerHTML]="renderedContent()"></div>
+
+        <nav class="docs-pager" aria-label="Document navigation">
+          @if (previousPage(); as previous) {
+            <button type="button" class="docs-pager-link" (click)="selectPage(previous.slug)">
+              <span>Previous</span>
+              <strong>{{ previous.title }}</strong>
+            </button>
+          } @else {
+            <span></span>
+          }
+          @if (nextPage(); as next) {
+            <button
+              type="button"
+              class="docs-pager-link is-next"
+              (click)="selectPage(next.slug)"
+            >
+              <span>Next</span>
+              <strong>{{ next.title }}</strong>
+            </button>
+          }
+        </nav>
+      </article>
+    } @else {
+      <div class="docs-welcome">
+        <p class="eyebrow">Repository docs</p>
+        <h3>Browse the Astia documentation.</h3>
+        <p>
+          Select a page from the index. The bundled text comes from the repository Markdown
+          sources, and each page links to its GitHub source.
+        </p>
+        <dl class="docs-welcome-stats">
+          @for (group of filteredGroups(); track group.name) {
+            <div>
+              <dt>{{ group.name }}</dt>
+              <dd>{{ group.pages.length }} pages</dd>
+            </div>
+          }
+        </dl>
+      </div>
+    }
+  </div>
+</div>

@@ -22,6 +22,16 @@ npm run test:ci
 
 `npm run build` uses the production configuration. `npm run test:ci` runs the Karma/Jasmine suite in headless Chrome.
 
+## Documentation content
+
+The in-app docs browser reads bundled Markdown from the repository `docs/` directory and the project README files. Regenerate the bundle with:
+
+```sh
+npm run docs:generate
+```
+
+The same generator runs automatically before `npm run build`. Edit the source Markdown in the repository, then rebuild.
+
 ## Assets
 
 Brand assets are copied from the repository `img/` directory into `public/img/`. The banner is used in the overview; the 64px logo is used for the header and favicon.

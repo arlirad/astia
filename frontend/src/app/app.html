@@ -173,6 +173,21 @@
     </div>
   </section>
 
+  <section id="documentation" class="section">
+    <div class="shell">
+      <div class="section-head">
+        <p class="eyebrow">Documentation</p>
+        <h2>Design notes, boundaries, and current limits.</h2>
+        <p>
+          Bundled from the repository Markdown sources. Each page links to its GitHub source,
+          and prototype-only work is labeled in the content.
+        </p>
+      </div>
+
+      <app-docs-browser [pages]="docPages" />
+    </div>
+  </section>
+
   <section id="get-started" class="section">
     <div class="shell">
       <div class="section-head">
@@ -239,6 +254,7 @@
       <p class="footer-copy">© 2026 Arlirad · MIT licensed</p>
     </div>
     <nav class="footer-links" aria-label="Project links">
+      <a href="#documentation">Documentation</a>
       <a [href]="githubUrl" target="_blank" rel="noopener noreferrer">Source</a>
       <a [href]="issuesUrl" target="_blank" rel="noopener noreferrer">Issues</a>
       <a [href]="readmeUrl" target="_blank" rel="noopener noreferrer">README</a>

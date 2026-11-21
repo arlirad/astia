@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { App } from './app';
-import { CAPABILITIES, COMMANDS, NAV_LINKS, RESOURCES, ROADMAP } from './content';
+import { CAPABILITIES, COMMANDS, DOC_PAGES, NAV_LINKS, RESOURCES, ROADMAP } from './content';
 
 describe('App', () => {
   beforeEach(async () => {
@@ -40,6 +40,16 @@ describe('App', () => {
 
     expect(element.querySelectorAll('app-command-block').length).toBe(COMMANDS.length);
     expect(element.querySelectorAll('.resource-link').length).toBe(RESOURCES.length);
+  });
+
+  it('renders the documentation browser without em dashes', () => {
+    const { element } = render();
+
+    expect(element.querySelector('#documentation app-docs-browser')).toBeTruthy();
+    expect(element.querySelectorAll('#documentation .docs-index-link').length).toBe(
+      DOC_PAGES.length,
+    );
+    expect(element.textContent).not.toContain('\u2014');
   });
 
   it('toggles the mobile navigation and closes it from a link', () => {

@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, HostListener, signal } from '@angular/core';
 import { CommandBlock } from './command-block/command-block';
+import { DocsBrowser } from './docs/docs-browser';
 import {
   CAPABILITIES,
   COMMANDS,
+  DOC_PAGES,
   GITHUB_URL,
   ISSUES_URL,
   LICENSE_URL,
@@ -18,7 +20,7 @@ import {
 
 @Component({
   selector: 'app-root',
-  imports: [CommandBlock],
+  imports: [CommandBlock, DocsBrowser],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -30,6 +32,7 @@ export class App {
   protected readonly supported = SUPPORTED;
   protected readonly notGoals = NOT_GOALS;
   protected readonly roadmap = ROADMAP;
+  protected readonly docPages = DOC_PAGES;
   protected readonly commands = COMMANDS;
   protected readonly resources = RESOURCES;
   protected readonly prerequisites = PREREQUISITES;

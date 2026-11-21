@@ -202,3 +202,113 @@ h6 {
     transition-duration: 0.01ms !important;
   }
 }
+
+.doc-markdown {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.doc-markdown > :first-child {
+  margin-top: 0;
+}
+
+.doc-markdown h1,
+.doc-markdown h2,
+.doc-markdown h3 {
+  font-weight: 300;
+}
+
+.doc-markdown h1 {
+  margin: 0 0 1rem;
+  font-size: 1.75rem;
+}
+
+.doc-markdown h2 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1.25rem;
+}
+
+.doc-markdown h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.doc-markdown p,
+.doc-markdown li {
+  color: #ccc;
+  font-size: 0.9375rem;
+}
+
+.doc-markdown ul,
+.doc-markdown ol {
+  padding-left: 1.25rem;
+}
+
+.doc-markdown code {
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-0);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.doc-markdown pre {
+  overflow-x: auto;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-0);
+}
+
+.doc-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  white-space: pre;
+}
+
+.doc-markdown table {
+  width: 100%;
+  margin: 1rem 0;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.doc-markdown th,
+.doc-markdown td {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  text-align: left;
+  vertical-align: top;
+}
+
+.doc-markdown th {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.doc-markdown blockquote {
+  margin: 1rem 0;
+  padding: 0.5rem 1rem;
+  border-left: 2px solid var(--cyan);
+  background: var(--surface-0);
+  color: #ccc;
+}
+
+.doc-markdown a {
+  color: var(--link);
+}
+
+.doc-markdown hr {
+  margin: 1.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.doc-markdown img {
+  max-width: 100%;
+  height: auto;
+}

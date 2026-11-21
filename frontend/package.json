@@ -8,7 +8,9 @@
     "build:dev": "ng build --configuration development",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "test:ci": "ng test --watch=false --browsers=ChromeHeadless"
+    "test:ci": "ng test --watch=false --browsers=ChromeHeadless",
+    "prebuild": "node scripts/generate-docs.mjs",
+    "docs:generate": "node scripts/generate-docs.mjs"
   },
   "prettier": {
     "printWidth": 100,
@@ -30,6 +32,7 @@
     "@angular/forms": "^20.3.0",
     "@angular/platform-browser": "^20.3.0",
     "@angular/router": "^20.3.0",
+    "marked": "^18.2.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.15.0"
