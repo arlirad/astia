@@ -34,9 +34,10 @@ semantics, and unknown-ID handling.
 
 Synchronous syscall logic lives in its canonical handler source. Reused
 subsystem operations are called directly, and syscall-only wrappers have been
-removed. No production `invoke_sync` sites remain: the AIO handlers in
-`kernel/src/fs/syscalls/` validate their user arguments and call the existing
-`sys::io_*` boundary directly. No AIO behavior, registry, lifecycle, or
+removed. The generic `invoke_sync` adapter was removed with its last call
+sites. The AIO syscall handlers in `kernel/src/fs/syscalls/` validate user
+pointers where required or delegate to the existing `sys::io_*` boundary;
+`io_register` returns `-ENOSYS`. No AIO behavior, registry, lifecycle, or
 implementation was changed.
 
 Socket operation handlers live under `kernel/src/net/syscalls/`, with private
