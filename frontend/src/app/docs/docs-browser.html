@@ -12,7 +12,7 @@
     </label>
     <p class="docs-count" aria-live="polite">{{ resultCount() }} pages</p>
 
-    <nav class="docs-groups" aria-label="Documentation pages">
+    <nav class="docs-groups" aria-label="Documentation pages" tabindex="0">
       @for (group of filteredGroups(); track group.name) {
         <section class="docs-group">
           <h3>{{ group.name }}</h3>
@@ -45,7 +45,7 @@
     </nav>
   </aside>
 
-  <div class="docs-main">
+  <div class="docs-main" role="region" aria-label="Documentation content" tabindex="0">
     @if (selectedPage(); as page) {
       <article class="docs-page">
         <div class="docs-page-top">

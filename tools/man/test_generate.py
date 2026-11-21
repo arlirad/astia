@@ -83,9 +83,16 @@ class GenerateTest(unittest.TestCase):
         self.assertNotIn("-E2BIG", errors)
         self.assertIn("libc/src/unistd.c", notes)
         self.assertIn("FD_CLOEXEC", "\n".join(sections["DESCRIPTION"]))
-        self.assertIn("EINVAL", errors)
+        self.assertIn("argv or envp", errors)
+        self.assertNotIn("A path, vector, or string pointer is invalid", errors)
+        self.assertIn("null path returns EINVAL", errors)
+        self.assertIn("not a valid ELF executable image", errors)
         self.assertIn("ENAMETOOLONG", errors)
-        self.assertIn("ENOEXEC", errors)
+        self.assertIn("resolved path", errors)
+        self.assertIn("ENOEXEC: The file is empty", errors)
+        self.assertNotIn("not a supported executable image", errors)
+        self.assertIn("ESRCH", errors)
+        self.assertIn("resolved against the caller's working directory by libc", notes)
         self.assertIn("execve.cpp", notes)
         self.assertIn("exec_loader.cpp", notes)
         self.assertEqual(generate.error_entries("E2BIG: Too big.")[0][0], "E2BIG")
@@ -145,60 +152,83 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("Detailed manual text has not been added", body)
         self.assertNotIn("u64 set_ptr", body)
 
+    def _export_fixture(self, temporary: str, manifest: object | None) -> tuple[Path, dict]:
+        export_dir = Path(temporary) / "section2"
+        export_dir.mkdir()
+        outside = Path(temporary) / "outside"
+        outside.mkdir()
+        (export_dir / "notes.md").write_text("unrelated notes")
+        (export_dir / "keep.txt").write_text("keep")
+        (export_dir / "syscall-0-stale.md").write_text("stale generated")
+        (outside / "escape.md").write_text("outside")
+        (export_dir / "syscall-0-fake-0.md").symlink_to(outside / "output.md")
+        (export_dir / "syscall-0-stale-link.md").symlink_to(outside / "stale.md")
+        if manifest is not None:
+            (export_dir / "manifest.json").write_text(json.dumps(manifest))
+
+        canonical = [(index, f"fake_{index}") for index in range(70)]
+        pages = {
+            (name, 2): (
+                generate.fallback_body(name, f"long astia_{name}(void);"),
+                "proc",
+            )
+            for _, name in canonical
+        }
+        sources = {(name, 2): ABI_HEADER for _, name in canonical}
+
+        generate.export_section2(
+            export_dir,
+            canonical,
+            pages,
+            sources,
+            REPO_ROOT / "kernel/src",
+            ABI_HEADER,
+        )
+        return export_dir, json.loads((export_dir / "manifest.json").read_text())
+
     def test_export_removes_only_previously_generated_markdown(self):
-        for with_manifest in (True, False):
-            with self.subTest(with_manifest=with_manifest):
+        cases = {
+            "missing": None,
+            "valid": {
+                "section": 2,
+                "count": 3,
+                "pages": [
+                    {"markdown": "syscall-0-stale.md"},
+                    {"markdown": "notes.md"},
+                    {"markdown": "../outside/escape.md"},
+                ],
+            },
+            "null-page": {"pages": [None]},
+            "non-list-pages": {"pages": {}},
+        }
+        for label, manifest in cases.items():
+            with self.subTest(label=label):
                 with tempfile.TemporaryDirectory() as temporary:
-                    export_dir = Path(temporary) / "section2"
-                    export_dir.mkdir()
-                    (export_dir / "notes.md").write_text("unrelated notes")
-                    (export_dir / "keep.txt").write_text("keep")
-                    (export_dir / "syscall-0-old.md").write_text("stale generated")
-                    (Path(temporary) / "escape.md").write_text("outside")
-                    if with_manifest:
-                        (export_dir / "manifest.json").write_text(
-                            json.dumps(
-                                {
-                                    "section": 2,
-                                    "count": 3,
-                                    "pages": [
-                                        {"markdown": "syscall-0-old.md"},
-                                        {"markdown": "notes.md"},
-                                        {"markdown": "../escape.md"},
-                                    ],
-                                }
-                            )
-                        )
+                    export_dir, current = self._export_fixture(temporary, manifest)
+                    generated = {page["markdown"] for page in current["pages"]}
 
-                    canonical = [(index, f"fake_{index}") for index in range(70)]
-                    pages = {
-                        (name, 2): (
-                            generate.fallback_body(name, f"long astia_{name}(void);"),
-                            "proc",
-                        )
-                        for _, name in canonical
-                    }
-                    sources = {(name, 2): ABI_HEADER for _, name in canonical}
-
-                    generate.export_section2(
-                        export_dir,
-                        canonical,
-                        pages,
-                        sources,
-                        REPO_ROOT / "kernel/src",
-                        ABI_HEADER,
-                    )
-
-                    manifest = json.loads((export_dir / "manifest.json").read_text())
-                    generated = {page["markdown"] for page in manifest["pages"]}
-                    self.assertEqual(manifest["count"], 70)
+                    self.assertEqual(current["count"], 70)
                     self.assertEqual(len(generated), 70)
                     self.assertEqual(len(list(export_dir.glob("syscall-*.md"))), 70)
-                    self.assertTrue(all((export_dir / name).exists() for name in generated))
+                    self.assertTrue(all((export_dir / name).is_file() for name in generated))
                     self.assertTrue((export_dir / "notes.md").exists())
                     self.assertTrue((export_dir / "keep.txt").exists())
-                    self.assertFalse((export_dir / "syscall-0-old.md").exists())
-                    self.assertTrue((Path(temporary) / "escape.md").exists())
+                    self.assertFalse((export_dir / "syscall-0-stale.md").exists())
+                    self.assertTrue((Path(temporary) / "outside" / "escape.md").exists())
+
+    def test_export_removes_generated_symlinks_without_following(self):
+        for manifest in (None, {"pages": [None]}):
+            with self.subTest(manifest=manifest):
+                with tempfile.TemporaryDirectory() as temporary:
+                    export_dir, _ = self._export_fixture(temporary, manifest)
+                    outside = Path(temporary) / "outside"
+
+                    self.assertFalse((outside / "output.md").exists())
+                    self.assertFalse((outside / "stale.md").exists())
+                    self.assertFalse((export_dir / "syscall-0-fake-0.md").is_symlink())
+                    self.assertFalse((export_dir / "syscall-0-stale-link.md").is_symlink())
+                    self.assertTrue((export_dir / "syscall-0-fake-0.md").is_file())
+                    self.assertEqual(len(list(export_dir.glob("syscall-*.md"))), 70)
 
 
 if __name__ == "__main__":

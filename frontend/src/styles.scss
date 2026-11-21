@@ -47,6 +47,36 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+app-root {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+main > app-home,
+main > app-documentation-page {
+  flex: 1;
+  min-height: 0;
+}
+
+@media (min-width: 821px) {
+  body:has(app-documentation-page) {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  body:has(app-documentation-page) app-root {
+    height: 100vh;
+  }
+}
+
 img {
   display: block;
   max-width: 100%;

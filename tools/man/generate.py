@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 from pathlib import Path
 
@@ -50,14 +51,19 @@ PUBLIC_BODY_OVERRIDES = {
         "    Does not return on success. On failure, returns -1 and sets errno.\n\n"
         "Errors:\n"
         "    E2BIG: The argument or environment vector exceeds its limit.\n"
-        "    EFAULT: A path, vector, or string pointer is invalid.\n"
-        "    EINVAL: The path is null, or the executable metadata is malformed or truncated.\n"
+        "    EFAULT: An argv or envp vector or string pointer is not readable userspace memory. "
+        "libc resolves path before the syscall, so a null path returns EINVAL and an invalid "
+        "non-null path pointer can fault in libc instead of returning EFAULT.\n"
+        "    EINVAL: The path is null, or the file is nonempty but is not a valid ELF executable "
+        "image (malformed header, unsupported executable type, or invalid segment metadata).\n"
         "    ENAMETOOLONG: The resolved path exceeds the libc path buffer.\n"
-        "    ENOENT: The executable path does not exist.\n"
-        "    ENOEXEC: The file is empty or is not a supported executable image.\n"
-        "    ENOMEM: The replacement image cannot be allocated.\n\n"
+        "    ENOENT: The executable path does not exist or cannot be opened.\n"
+        "    ENOEXEC: The file is empty.\n"
+        "    ENOMEM: The replacement image cannot be allocated.\n"
+        "    ESRCH: There is no current process or thread.\n\n"
         "Notes:\n"
-        "    Relative paths are resolved against the caller's working directory. The public "
+        "    Relative paths are resolved against the caller's working directory by libc before "
+        "the syscall. The public "
         "wrapper is implemented in [libc/src/unistd.c](https://github.com/arlirad/astia/blob/main/libc/src/unistd.c); "
         "the kernel syscall entry is [kernel/src/proc/syscalls/process/execve.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/execve.cpp), "
         "and image loading is [kernel/src/elf/exec_loader.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/elf/exec_loader.cpp)."
@@ -737,6 +743,42 @@ def generated_syscall_asset(name: str) -> bool:
     return bool(match and int(match.group(1)) <= 69)
 
 
+def write_export_file(export_dir: Path, name: str, content: str) -> None:
+    if Path(name).name != name:
+        raise ValueError(f"unsafe export name: {name!r}")
+    target = export_dir / name
+    if target.is_symlink() or target.exists():
+        if target.is_dir() and not target.is_symlink():
+            raise IsADirectoryError(target)
+        target.unlink()
+    descriptor = os.open(
+        target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        output.write(content)
+
+
+def stale_generated_assets(export_dir: Path, manifest_path: Path) -> set[str]:
+    stale: set[str] = set()
+    if manifest_path.exists() and not manifest_path.is_symlink():
+        try:
+            previous = json.loads(manifest_path.read_text())
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            previous = None
+        pages = previous.get("pages", []) if isinstance(previous, dict) else []
+        if isinstance(pages, list):
+            for page in pages:
+                if not isinstance(page, dict):
+                    continue
+                name = page.get("markdown")
+                if isinstance(name, str) and generated_syscall_asset(name):
+                    stale.add(name)
+    for path in export_dir.iterdir():
+        if generated_syscall_asset(path.name) and (path.is_symlink() or path.is_file()):
+            stale.add(path.name)
+    return stale
+
+
 def export_section2(
     export_dir: Path,
     canonical: list[tuple[int, str]],
@@ -748,23 +790,12 @@ def export_section2(
 ) -> None:
     raw_synopses = raw_synopses or set()
     export_dir.mkdir(parents=True, exist_ok=True)
+    if export_dir.is_symlink() or not export_dir.is_dir():
+        raise ValueError(f"export directory must be a real directory: {export_dir}")
     manifest_path = export_dir / "manifest.json"
-    stale_assets: set[str] = set()
-    if manifest_path.exists():
-        try:
-            previous = json.loads(manifest_path.read_text())
-            for page in previous.get("pages", []):
-                name = page.get("markdown")
-                if isinstance(name, str) and generated_syscall_asset(name):
-                    stale_assets.add(name)
-        except (OSError, json.JSONDecodeError):
-            pass
-    for path in export_dir.iterdir():
-        if path.is_file() and generated_syscall_asset(path.name):
-            stale_assets.add(path.name)
-    for name in stale_assets:
+    for name in stale_generated_assets(export_dir, manifest_path):
         (export_dir / name).unlink(missing_ok=True)
-    if manifest_path.exists():
+    if manifest_path.is_symlink() or manifest_path.exists():
         manifest_path.unlink()
     repo_root = ROOT.parent.parent
     records = []
@@ -773,8 +804,10 @@ def export_section2(
         source = sources.get((name, 2), abi_header)
         slug = f"syscall-{syscall_id}-{name.replace('_', '-')}"
         markdown_name = f"{slug}.md"
-        (export_dir / markdown_name).write_text(
-            render_syscall_markdown(name, body, 2, name in raw_synopses)
+        write_export_file(
+            export_dir,
+            markdown_name,
+            render_syscall_markdown(name, body, 2, name in raw_synopses),
         )
         try:
             source_path = source.resolve().relative_to(repo_root).as_posix()
@@ -795,7 +828,7 @@ def export_section2(
             }
         )
     manifest = {"section": 2, "count": len(records), "pages": records}
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    write_export_file(export_dir, "manifest.json", json.dumps(manifest, indent=2) + "\n")
 
 
 def render(name: str, body: str, section: int) -> str:

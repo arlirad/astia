@@ -78,9 +78,17 @@ describe('Generated section-2 syscall docs', () => {
     expect(execve?.content).toContain('FD_CLOEXEC');
     expect(execve?.content).toContain('`E2BIG`');
     expect(execve?.content).not.toContain('`-E2BIG`');
+    expect(execve?.content).toContain('argv or envp');
+    expect(execve?.content).not.toContain('A path, vector, or string pointer is invalid');
+    expect(execve?.content).toContain('null path returns EINVAL');
     expect(execve?.content).toContain('`EINVAL`');
+    expect(execve?.content).toContain('not a valid ELF executable image');
     expect(execve?.content).toContain('`ENAMETOOLONG`');
     expect(execve?.content).toContain('`ENOEXEC`');
+    expect(execve?.content).toContain('The file is empty');
+    expect(execve?.content).not.toContain('not a supported executable image');
+    expect(execve?.content).toContain('`ESRCH`');
+    expect(execve?.content).toContain('resolved against the caller');
     expect(execve?.content).toContain('kernel/src/proc/syscalls/process/execve.cpp');
     expect(execve?.content).toContain('kernel/src/elf/exec_loader.cpp');
 

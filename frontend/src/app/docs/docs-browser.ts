@@ -111,9 +111,18 @@ export class DocsBrowser {
         this.firstSelectedChange = false;
         return;
       }
-      queueMicrotask(() =>
-        this.browser()?.nativeElement.scrollIntoView({ block: 'start', behavior: 'smooth' }),
-      );
+      queueMicrotask(() => {
+        const browser = this.browser()?.nativeElement;
+        const panel = browser?.querySelector<HTMLElement>('.docs-main');
+        if (panel) {
+          panel.scrollTop = 0;
+          if (panel.scrollHeight <= panel.clientHeight) {
+            browser?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          }
+          return;
+        }
+        browser?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      });
     });
 
     effect(() => {
