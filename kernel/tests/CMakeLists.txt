@@ -732,6 +732,13 @@ if (ARCH STREQUAL "x86_64")
     find_program(GRUB_FILE grub-file)
     find_program(GRUB_MKRESCUE grub-mkrescue)
     find_program(XORRISO xorriso)
+    add_library(astia_production_exit_init OBJECT
+            ${CMAKE_CURRENT_SOURCE_DIR}/init_exit.c)
+    target_include_directories(astia_production_exit_init PRIVATE
+            ${ASTIA_KERNEL_SOURCE_DIR}/include)
+    target_compile_options(astia_production_exit_init PRIVATE
+            -ffreestanding -fno-pic -fno-pie -fno-builtin -fno-stack-protector
+            -fno-asynchronous-unwind-tables -mno-red-zone)
     if (ASTIA_QEMU)
         add_test(NAME astia_kernel_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
@@ -949,14 +956,6 @@ if (ARCH STREQUAL "x86_64")
         # Cpio images are test inputs, not sources of any target, so build them as
         # part of the default build to guarantee they exist before ctest runs.
         add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.cpio)
-
-        add_library(astia_production_exit_init OBJECT
-                ${CMAKE_CURRENT_SOURCE_DIR}/init_exit.c)
-        target_include_directories(astia_production_exit_init PRIVATE
-                ${ASTIA_KERNEL_SOURCE_DIR}/include)
-        target_compile_options(astia_production_exit_init PRIVATE
-                -ffreestanding -fno-pic -fno-pie -fno-builtin -fno-stack-protector
-                -fno-asynchronous-unwind-tables -mno-red-zone)
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/production_exit_initrd.cpio
