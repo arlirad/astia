@@ -46,11 +46,7 @@ namespace astia::proc::syscalls {
     ///     -ETIMEDOUT: The absolute CLOCK_MONOTONIC timeout elapsed.
     struct futex
         : sys::syscall_handler<futex, sys::syscall_id::futex, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64        address            = static_cast<u64>(context.arguments[0]);
-            u32        op                 = static_cast<u32>(context.arguments[1]);
-            u32        expected           = static_cast<u32>(context.arguments[2]);
-            u64        timeout            = static_cast<u64>(context.arguments[3]);
+        static i64 invoke(u64 address, u32 op, u32 expected, u64 timeout) {
             const bool cancellation_point = (op & ipc::futex_cancelable_bit) != 0;
             auto       operation          = mapper<ipc::futex_operation>::from(
                 op & ~(ipc::futex_private_bit | ipc::futex_cancelable_bit));

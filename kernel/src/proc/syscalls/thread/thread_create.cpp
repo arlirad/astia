@@ -38,11 +38,8 @@ namespace astia::proc::syscalls {
     struct thread_create
         : sys::syscall_handler<thread_create, sys::syscall_id::thread_create,
                                sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   entry     = static_cast<u64>(context.arguments[0]);
-            u64   stack_top = static_cast<u64>(context.arguments[1]);
-            u64   argument  = static_cast<u64>(context.arguments[2]);
-            auto* owner     = current_process();
+        static i64 invoke(u64 entry, u64 stack_top, u64 argument) {
+            auto* owner = current_process();
             if (owner == nullptr || !detail::valid_thread_start(entry, stack_top)) {
                 return -EFAULT;
             }

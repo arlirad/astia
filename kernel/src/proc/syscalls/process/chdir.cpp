@@ -19,8 +19,7 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct chdir
         : sys::syscall_handler<chdir, sys::syscall_id::chdir, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   path  = static_cast<u64>(context.arguments[0]);
+        static i64 invoke(u64 path) {
             auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;

@@ -11,9 +11,7 @@ namespace astia::sys::syscalls {
     struct clock_getres
         : sys::syscall_handler<clock_getres, sys::syscall_id::clock_getres,
                                sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            const i32 clock_id = static_cast<i32>(context.arguments[0]);
-            const u64 out      = static_cast<u64>(context.arguments[1]);
+        static i64 invoke(i32 clock_id, u64 out) {
             if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
                 return -EINVAL;
             const u32 hz = arch::timer_hz();

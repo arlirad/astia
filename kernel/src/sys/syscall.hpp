@@ -138,6 +138,88 @@ namespace astia::sys {
             static constexpr bool value = true;
         };
 
+        template <usize... I>
+        struct index_sequence {};
+
+        template <usize N, usize... I>
+        struct make_index_sequence : make_index_sequence<N - 1, N - 1, I...> {};
+
+        template <usize... I>
+        struct make_index_sequence<0, I...> {
+            using type = index_sequence<I...>;
+        };
+
+        template <typename T>
+        struct is_frame_argument : std::false_type {};
+
+        template <>
+        struct is_frame_argument<arch::syscall_frame> : std::true_type {};
+
+        template <typename... Args>
+        struct has_frame_prefix : std::false_type {};
+
+        template <typename First, typename... Rest>
+        struct has_frame_prefix<First, Rest...>
+            : is_frame_argument<std::remove_cvref_t<First>> {};
+
+        template <typename Fn>
+        struct typed_sync_handler : std::false_type {};
+
+        template <typename... Args>
+        struct typed_sync_handler<i64 (*)(Args...)>
+            : std::bool_constant<(
+                  !std::is_same_v<std::remove_cvref_t<Args>, syscall_context> && ...)> {};
+
+        template <typename Fn>
+        struct frame_invoker;
+
+        template <typename R, typename... Args>
+        struct frame_invoker<R (*)(const arch::syscall_frame&, Args...)> {
+            static i64 call(R (*function)(const arch::syscall_frame&, Args...),
+                            syscall_context& context) {
+                return call_rest(function, context,
+                                 typename make_index_sequence<sizeof...(Args)>::type{});
+            }
+
+            private:
+            template <usize... I>
+            static i64 call_rest(R (*function)(const arch::syscall_frame&, Args...),
+                                 syscall_context& context, index_sequence<I...>) {
+                return static_cast<i64>(
+                    function(context.frame, static_cast<Args>(context.arguments[I])...));
+            }
+        };
+
+        template <typename Fn>
+        struct typed_invoker;
+
+        template <typename R, typename... Args>
+        struct typed_invoker<R (*)(Args...)> {
+            static constexpr usize argument_count =
+                sizeof...(Args) - (has_frame_prefix<Args...>::value ? 1 : 0);
+            static_assert(argument_count <= syscall_argument_count,
+                          "syscall handlers may declare at most six ABI arguments");
+
+            static i64 call(R (*function)(Args...), syscall_context& context) {
+                if constexpr (has_frame_prefix<Args...>::value) {
+                    return frame_invoker<R (*)(Args...)>::call(function, context);
+                }
+                else {
+                    return call_arguments(
+                        function, context,
+                        typename make_index_sequence<sizeof...(Args)>::type{});
+                }
+            }
+
+            private:
+            template <usize... I>
+            static i64 call_arguments(R (*function)(Args...), syscall_context& context,
+                                      index_sequence<I...>) {
+                return static_cast<i64>(
+                    function(static_cast<Args>(context.arguments[I])...));
+            }
+        };
+
     } // namespace detail
 
     enum class syscall_mode : u8 {
@@ -155,9 +237,11 @@ namespace astia::sys {
         static constexpr syscall_id id = Id;
         static void thunk(syscall_context& context, core::completion<i64>& completion) {
             static_assert(
-                std::is_same_v<decltype(&Impl::invoke), i64 (*)(syscall_context&)>,
-                "sync syscall handlers must return i64 from invoke(syscall_context&)");
-            completion.complete(Impl::invoke(context));
+                detail::typed_sync_handler<decltype(&Impl::invoke)>::value,
+                "sync syscall handlers must return i64 from invoke(typed arguments); "
+                "syscall_context belongs to the dispatcher");
+            completion.complete(detail::typed_invoker<decltype(&Impl::invoke)>::call(
+                &Impl::invoke, context));
         }
 
         static constexpr syscall_descriptor descriptor{Id, &thunk};
@@ -226,7 +310,7 @@ namespace astia::sys {
             static constexpr bool value =
                 is_async_handler<decltype(&Descriptor::invoke)>::value ||
                 std::is_same_v<decltype(&Descriptor::invoke), task_syscall_handler> ||
-                std::is_same_v<decltype(&Descriptor::invoke), i64 (*)(syscall_context&)>;
+                typed_sync_handler<decltype(&Descriptor::invoke)>::value;
         };
 
     } // namespace detail

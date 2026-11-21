@@ -15,7 +15,7 @@ namespace astia::proc::syscalls {
     ///     The calling process ID.
     struct getpid
         : sys::syscall_handler<getpid, sys::syscall_id::getpid, sys::syscall_mode::sync> {
-        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+        static i64 invoke() {
             auto* process = current_process();
             return process == nullptr ? -ESRCH : static_cast<i64>(raw_id(process->pid()));
         }

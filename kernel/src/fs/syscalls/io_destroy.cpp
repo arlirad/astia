@@ -32,8 +32,7 @@ namespace astia::fs::syscalls {
     ///     until they complete, so they prevent destruction.
     struct io_destroy : sys::syscall_handler<io_destroy, sys::syscall_id::io_destroy,
                                              sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            const u64 ring = static_cast<u64>(context.arguments[0]);
+        static i64 invoke(u64 ring) {
             return sys::io_destroy(
                 reinterpret_cast<astia_rings*>(static_cast<usize>(ring)));
         }

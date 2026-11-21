@@ -8,9 +8,7 @@
 namespace astia::proc::syscalls {
     struct setregid : sys::syscall_handler<setregid, sys::syscall_id::setregid,
                                            sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i64   r = static_cast<i64>(context.arguments[0]);
-            i64   e = static_cast<i64>(context.arguments[1]);
+        static i64 invoke(i64 r, i64 e) {
             auto* p = current_process();
             if (!p)
                 return -ESRCH;

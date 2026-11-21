@@ -22,15 +22,31 @@ ABI syscall number. Files are grouped under their owning subsystem (`fs`, `mm`,
 struct getpid
     : sys::syscall_handler<getpid, sys::syscall_id::getpid,
                            sys::syscall_mode::sync> {
-    static i64 invoke(sys::syscall_context& context);
+    static i64 invoke();
+};
+
+struct lseek_example
+    : sys::syscall_handler<lseek_example, sys::syscall_id::lseek,
+                           sys::syscall_mode::sync> {
+    static i64 invoke(i64 fd, i64 offset, i64 whence);
 };
 ```
 
+Handlers take syscall arguments as direct typed parameters in ABI order; the
+generic dispatcher performs the register-to-parameter conversion. Frame-aware
+handlers (`fork`, `execve`, and `sigreturn`) take `const arch::syscall_frame&`
+instead. `syscall_context`, including its internal `operation_id` and
+`syscall_user_data` fields, remains dispatcher machinery and is not passed to
+canonical handlers.
+
 `kernel/src/sys/handler_registry.hpp` aggregates all 70 public descriptors
-and 12 private socket descriptors. Handlers call their owning implementation
-directly; syscall dispatch does not use subsystem registration tables. Tests
-audit complete ID coverage and exercise the sync/async adapters, completion
-semantics, and unknown-ID handling.
+and 12 private socket descriptors. The registry stores `constexpr` pointers to
+the per-subsystem descriptor objects rather than value copies, so the table is
+statically initialized in the freestanding kernel, which runs no dynamic
+initializers. Handlers call their owning implementation directly; syscall
+dispatch does not use subsystem registration tables. Tests audit complete ID
+coverage and exercise the sync/async adapters, completion semantics, and
+unknown-ID handling.
 
 Synchronous syscall logic lives in its canonical handler source. Reused
 subsystem operations are called directly, and syscall-only wrappers have been

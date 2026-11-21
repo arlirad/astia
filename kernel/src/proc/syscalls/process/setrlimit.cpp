@@ -9,10 +9,8 @@
 namespace astia::proc::syscalls {
     struct setrlimit : sys::syscall_handler<setrlimit, sys::syscall_id::setrlimit,
                                             sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i32   resource = static_cast<i32>(context.arguments[0]);
-            u64   input    = static_cast<u64>(context.arguments[1]);
-            auto* process  = current_process();
+        static i64 invoke(i32 resource, u64 input) {
+            auto* process = current_process();
             if (process == nullptr)
                 return -ESRCH;
             astia_rlimit                            value{};

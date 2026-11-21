@@ -15,9 +15,7 @@ namespace astia::fs::syscalls {
     ///     Returns zero or a negative errno.
     struct io_submit : sys::syscall_handler<io_submit, sys::syscall_id::io_submit,
                                             sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            const u64 ring   = static_cast<u64>(context.arguments[0]);
-            const u32 submit = static_cast<u32>(context.arguments[1]);
+        static i64 invoke(u64 ring, u32 submit) {
             return sys::io_submit(
                 reinterpret_cast<astia_rings*>(static_cast<usize>(ring)), submit);
         }

@@ -124,11 +124,8 @@ namespace astia::proc::syscalls {
     ///     -EAGAIN: The process or thread registry is full.
     struct spawnve : sys::syscall_handler<spawnve, sys::syscall_id::spawnve,
                                           sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            return ::astia::proc::syscalls::detail::spawnve(
-                static_cast<u64>(context.arguments[0]),
-                static_cast<u64>(context.arguments[1]),
-                static_cast<u64>(context.arguments[2]));
+        static i64 invoke(u64 path_ptr, u64 argv_ptr, u64 envp_ptr) {
+            return ::astia::proc::syscalls::detail::spawnve(path_ptr, argv_ptr, envp_ptr);
         }
     };
 

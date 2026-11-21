@@ -10,10 +10,7 @@
 namespace astia::proc::syscalls {
     struct msync
         : sys::syscall_handler<msync, sys::syscall_id::msync, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   addr    = static_cast<u64>(context.arguments[0]);
-            i64   len     = static_cast<i64>(context.arguments[1]);
-            u32   flags   = static_cast<u32>(context.arguments[2]);
+        static i64 invoke(u64 addr, i64 len, u32 flags) {
             auto* process = current_process();
             if (process == nullptr) {
                 return -ESRCH;

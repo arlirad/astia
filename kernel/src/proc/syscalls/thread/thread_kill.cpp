@@ -10,9 +10,7 @@
 namespace astia::proc::syscalls {
     struct thread_kill : sys::syscall_handler<thread_kill, sys::syscall_id::thread_kill,
                                               sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u32  tid           = static_cast<u32>(context.arguments[0]);
-            i32  raw_signal    = static_cast<i32>(context.arguments[1]);
+        static i64 invoke(u32 tid, i32 raw_signal) {
             auto mapped_signal = raw_signal == 0
                                      ? optional<signal_number>(signal_number{})
                                      : mapper<signal_number>::from(raw_signal);

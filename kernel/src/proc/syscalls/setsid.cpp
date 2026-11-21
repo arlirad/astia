@@ -14,7 +14,7 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct setsid
         : sys::syscall_handler<setsid, sys::syscall_id::setsid, sys::syscall_mode::sync> {
-        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+        static i64 invoke() {
             return proc::setsid();
         }
     };

@@ -33,12 +33,8 @@ namespace astia::proc::syscalls {
 
     struct shm_open : sys::syscall_handler<shm_open, sys::syscall_id::shm_open,
                                            sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            const unsigned long address =
-                static_cast<unsigned long>(context.arguments[0]);
-            const int          flags = static_cast<int>(context.arguments[1]);
-            const unsigned int mode  = static_cast<unsigned int>(context.arguments[2]);
-            auto*              owner = current_process();
+        static i64 invoke(unsigned long address, int flags, unsigned int mode) {
+            auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
             char name[fs::path_max]{};

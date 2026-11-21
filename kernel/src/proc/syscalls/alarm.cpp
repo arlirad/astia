@@ -16,8 +16,7 @@ namespace astia::proc::syscalls {
     ///     Returns the previous alarm value or a negative errno.
     struct alarm
         : sys::syscall_handler<alarm, sys::syscall_id::alarm, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i64 seconds = static_cast<i64>(context.arguments[0]);
+        static i64 invoke(i64 seconds) {
             if (seconds < 0 || static_cast<u64>(seconds) > UINT32_MAX)
                 return -EINVAL;
             auto* owner = current_process();

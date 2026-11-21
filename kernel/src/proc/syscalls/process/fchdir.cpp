@@ -9,9 +9,8 @@
 namespace astia::proc::syscalls {
     struct fchdir
         : sys::syscall_handler<fchdir, sys::syscall_id::fchdir, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i64   raw_fd = static_cast<i64>(context.arguments[0]);
-            auto* owner  = current_process();
+        static i64 invoke(i64 raw_fd) {
+            auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
             auto mapped = mapper<fd_t>::from(raw_fd);

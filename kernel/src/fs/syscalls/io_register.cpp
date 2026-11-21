@@ -32,7 +32,7 @@ namespace astia::fs::syscalls {
     ///     validated because the handler returns -ENOSYS before using them.
     struct io_register : sys::syscall_handler<io_register, sys::syscall_id::io_register,
                                               sys::syscall_mode::sync> {
-        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+        static i64 invoke() {
             return -ENOSYS;
         }
     };
