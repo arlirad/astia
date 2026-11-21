@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from './app.routes';
 import { DocumentationPage } from './documentation/documentation-page';
@@ -70,5 +70,43 @@ describe('Application routes', () => {
       'io_setup(2)',
     );
     expect(element.querySelector('.doc-markdown')?.textContent).toContain('SYNOPSIS');
+  });
+
+  it('keeps the docs filter and category state across result navigation', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/documentation', DocumentationPage);
+    let element = harness.routeNativeElement as HTMLElement;
+    const input = element.querySelector<HTMLInputElement>('.docs-filter input');
+
+    if (input) {
+      input.value = 'manual';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    harness.detectChanges();
+    const filteredCount = element.querySelectorAll('.docs-index-link').length;
+
+    await TestBed.inject(Router).navigateByUrl('/documentation/docs-aio-7');
+    harness.detectChanges();
+    element = harness.routeNativeElement as HTMLElement;
+
+    expect(element.querySelector('.docs-page-title')?.textContent).toContain(
+      'Asynchronous I/O',
+    );
+    expect(element.querySelector<HTMLInputElement>('.docs-filter input')?.value).toBe(
+      'manual',
+    );
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(filteredCount);
+    expect(
+      element.querySelectorAll('.docs-group-toggle[aria-expanded="true"]').length,
+    ).toBeGreaterThan(0);
+
+    await TestBed.inject(Router).navigateByUrl('/documentation');
+    harness.detectChanges();
+    element = harness.routeNativeElement as HTMLElement;
+
+    expect(element.querySelector<HTMLInputElement>('.docs-filter input')?.value).toBe(
+      'manual',
+    );
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(filteredCount);
   });
 });

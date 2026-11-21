@@ -4,6 +4,7 @@
       <span>Filter docs</span>
       <input
         type="search"
+        #filterInput
         [value]="query()"
         placeholder="Title, group, or summary"
         autocomplete="off"
@@ -15,8 +16,22 @@
     <nav class="docs-groups" aria-label="Documentation pages" tabindex="0">
       @for (group of filteredGroups(); track group.name) {
         <section class="docs-group">
-          <h3>{{ group.name }}</h3>
-          <ul>
+          <h3 class="docs-group-heading">
+            <button
+              type="button"
+              class="docs-group-toggle"
+              [attr.aria-expanded]="groupOpen(group.name)"
+              [attr.aria-controls]="groupListId(group.name)"
+              (click)="toggleGroup(group.name)"
+            >
+              <span class="docs-group-mark" aria-hidden="true">
+                {{ groupOpen(group.name) ? '-' : '+' }}
+              </span>
+              <span class="docs-group-title">{{ group.name }}</span>
+              <span class="docs-group-count">{{ group.pages.length }}</span>
+            </button>
+          </h3>
+          <ul [id]="groupListId(group.name)" [hidden]="!groupOpen(group.name)">
             @for (page of group.pages; track page.slug) {
               <li>
                 <button
@@ -70,7 +85,7 @@
           </a>
         </div>
 
-        <h2 class="docs-page-title">{{ page.title }}</h2>
+        <h2 #pageTitle class="docs-page-title" tabindex="-1">{{ page.title }}</h2>
         <div
           #markdown
           class="doc-markdown"

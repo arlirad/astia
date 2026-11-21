@@ -91,26 +91,38 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("resolved path", errors)
         self.assertIn("ENOEXEC: The file is empty", errors)
         self.assertNotIn("not a supported executable image", errors)
-        self.assertIn("ESRCH", errors)
+        self.assertIn("no current process or thread context", errors)
+        self.assertIn("The current process or thread could not be retained", errors)
+        self.assertNotIn("ESRCH: There is no current process", errors)
         self.assertIn("resolved against the caller's working directory by libc", notes)
         self.assertIn("execve.cpp", notes)
         self.assertIn("exec_loader.cpp", notes)
         self.assertEqual(generate.error_entries("E2BIG: Too big.")[0][0], "E2BIG")
 
-    def test_waitpid_notes_identify_options_wrapper(self):
+    def test_waitpid_documents_interruption_and_resource_exhaustion(self):
         body = (
             "Synopsis:\n"
             "    long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);\n\n"
             "Description:\n    Waits for a child.\n\n"
             "Return Value:\n    Negative errno.\n\n"
+            "Errors:\n    Old errors.\n\n"
             "Notes:\n    Old notes."
         )
-        notes = generate.PUBLIC_SECTION_OVERRIDES["waitpid"]["NOTES"]
-        body = generate.replace_section(body, "NOTES", notes)
+        overrides = generate.PUBLIC_SECTION_OVERRIDES["waitpid"]
+        for heading, content in overrides.items():
+            body = generate.replace_section(body, heading, content)
         sections = generate.body_sections(body)
+        errors = "\n".join(sections["ERRORS"])
+        notes = "\n".join(sections["NOTES"])
 
-        self.assertIn("astia_waitpid_options", "\n".join(sections["NOTES"]))
-        self.assertIn("translates that result to -1", "\n".join(sections["NOTES"]))
+        self.assertIn("astia_waitpid_options", notes)
+        self.assertIn("translates that result to -1", notes)
+        self.assertIn("unblocked interrupting signal", notes)
+        self.assertIn("-EINTR", errors)
+        self.assertIn("process waiter table", errors)
+        self.assertIn("-EAGAIN", errors)
+        self.assertIn("without a wake slot", notes)
+        self.assertNotIn("-ESRCH", notes)
 
     def test_sigsuspend_uses_libc_contract(self):
         sections = generate.body_sections(generate.PUBLIC_BODY_OVERRIDES["sigsuspend"])

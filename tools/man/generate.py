@@ -57,10 +57,12 @@ PUBLIC_BODY_OVERRIDES = {
         "    EINVAL: The path is null, or the file is nonempty but is not a valid ELF executable "
         "image (malformed header, unsupported executable type, or invalid segment metadata).\n"
         "    ENAMETOOLONG: The resolved path exceeds the libc path buffer.\n"
-        "    ENOENT: The executable path does not exist or cannot be opened.\n"
+        "    ENOENT: The executable path does not exist or cannot be opened. The kernel "
+        "also returns this when there is no current process or thread context.\n"
         "    ENOEXEC: The file is empty.\n"
         "    ENOMEM: The replacement image cannot be allocated.\n"
-        "    ESRCH: There is no current process or thread.\n\n"
+        "    ESRCH: The current process or thread could not be retained for image "
+        "replacement.\n\n"
         "Notes:\n"
         "    Relative paths are resolved against the caller's working directory by libc before "
         "the syscall. The public "
@@ -91,11 +93,23 @@ PUBLIC_BODY_OVERRIDES = {
 
 PUBLIC_SECTION_OVERRIDES = {
     "waitpid": {
+        "ERRORS": (
+            "-EAGAIN: The process waiter table cannot accept another waiter.\n"
+            "-ECHILD: The caller has no matching child.\n"
+            "-EFAULT: The status pointer is not writable userspace memory.\n"
+            "-EINTR: An unblocked interrupting signal arrived before a child event.\n"
+            "-EINVAL: The PID or option mask is invalid.\n"
+            "-ESRCH: There is no current process or thread."
+        ),
         "NOTES": (
             "This page documents the public ABI wrapper astia_waitpid_options. It returns a "
             "negative errno on failure. The libc waitpid() wrapper translates that result to -1 "
-            "and errno. A successful exit event is reaped. Stop and continuation notifications "
-            "are consumed but do not reap the child."
+            "and errno. Without WNOHANG the call may block until a selected child exits, stops, "
+            "or continues. An unblocked interrupting signal interrupts the wait with -EINTR "
+            "without reaping a child. If the process waiter table cannot accept another waiter, "
+            "the call returns -EAGAIN instead of blocking without a wake slot. A successful exit "
+            "event is reaped. Stop and continuation notifications are consumed but do not reap "
+            "the child."
         ),
     },
     "clock_gettime": {
@@ -166,7 +180,7 @@ LEGACY = {
     "sigsuspend": ("long sigsuspend(const uint32_t *mask);", "Temporarily replaces the mask and waits for a signal.", "-EFAULT, -EINTR, -ESRCH."),
     "yield": ("long yield(void);", "Yields the current kernel scheduling turn.", "Never fails."),
     "exit": ("long exit(long status);", "Terminates the calling thread.", "Does not return."),
-    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Waits for a child process and optionally reaps it.", "-EFAULT, -ECHILD, -EINVAL, -ESRCH."),
+    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Waits for a child process and optionally reaps it. Returns early with -EINTR when an unblocked interrupting signal arrives, or -EAGAIN when no waiter slot is available.", "-EAGAIN, -ECHILD, -EFAULT, -EINTR, -EINVAL, -ESRCH."),
     "spawnve": ("long spawnve(const char *path, char *const argv[], char *const envp[]);", "Creates a process from an executable path using the kernel's asynchronous streaming ELF loader; returns after the child is published and does not wait for child exit.", "-E2BIG, -EAGAIN, -EFAULT, -EIO, -ENOMEM, -ENOENT, -EINVAL."),
     "execve": ("long execve(const char *path, char *const argv[], char *const envp[]);", "Replaces the calling process image with the executable at path. The process ID, process group, open descriptors, and working directory remain associated with the process; the new image receives the supplied argument and environment vectors.", "-E2BIG, -EFAULT, -ENOENT, -ENOEXEC, -ENOMEM."),
     "mmap": ("long mmap(void *addr, long length, uint32_t prot, uint32_t flags, int fd, long offset);", "Maps anonymous or file-backed memory into the calling process. Anonymous mappings require fd -1 and offset 0; file mappings use the supplied descriptor and a non-negative offset. The returned address is page aligned.", "-EBADF, -EINVAL, -ENOMEM, -ENOSYS."),
@@ -192,7 +206,7 @@ ERROR_DETAILS = {
     "sigreturn": "-EFAULT: The saved context is outside userspace.\n-EFAULT: The saved instruction pointer, stack pointer, or flags are invalid.",
     "sigprocmask": "-EFAULT: The old mask pointer is not writable userspace memory.\n-EINVAL: The operation is not BLOCK, UNBLOCK, or SETMASK.\n-ESRCH: There is no current process.",
     "sigsuspend": "-EFAULT: The mask pointer is not readable userspace memory.\n-EINTR: A signal interrupted the suspended thread.\n-ESRCH: There is no current process or thread.",
-    "waitpid": "-EFAULT: The status pointer is not writable userspace memory.\n-ECHILD: The caller has no matching child.\n-EINVAL: The PID or option mask is invalid.\n-ESRCH: There is no current process or thread.",
+    "waitpid": "-EAGAIN: The process waiter table cannot accept another waiter.\n-ECHILD: The caller has no matching child.\n-EFAULT: The status pointer is not writable userspace memory.\n-EINTR: An unblocked interrupting signal arrived before a child event.\n-EINVAL: The PID or option mask is invalid.\n-ESRCH: There is no current process or thread.",
     "spawnve": "-E2BIG: The argument or environment vector exceeds its limit.\n-EFAULT: A path, vector, or string pointer is invalid.\n-EIO: The executable cannot be read completely.\n-EINVAL: The executable is malformed or truncated.\n-ENOMEM: The process or staged mappings cannot be allocated.\n-ENOENT: The executable path does not exist.\n-EAGAIN: The process registry is full.",
     "execve": "-E2BIG: The argument or environment vector exceeds its limit.\n-EFAULT: A path, vector, or string pointer is invalid.\n-ENOENT: The executable path does not exist.\n-ENOEXEC: The file is not a valid executable.\n-ENOMEM: The replacement image cannot be allocated.",
     "mmap": "-EBADF: The file descriptor is invalid for a file mapping.\n-EINVAL: The length, offset, protection, flags, or anonymous sentinel is invalid.\n-ENOMEM: The address space or physical backing cannot be allocated.\n-ENOSYS: The requested fixed or shared mapping mode is not implemented.",
@@ -312,7 +326,7 @@ SYSCALL_PAGES = {
     "setregid": ("long setregid(uint32_t real_gid, uint32_t effective_gid);", "Sets the real and effective GIDs. The raw ABI represents the libc sentinel value −1 as the unsigned all‑ones value.", "Returns zero, or a negative errno.", "-EINVAL: Either argument is below the sentinel or outside the unsigned 32‑bit range.\n-EPERM: The requested GID transition is not allowed for the current effective GID.\n-ESRCH: There is no current process.", "The process implementation accepts the current real or effective GID, and root may select any 32‑bit GID."),
     "getgroups": ("long getgroups(int32_t count, uint32_t *groups);", "Copies up to 16 supplementary group IDs into groups. A count of zero returns the number of groups without writing groups.", "Returns the group count, or a negative errno.", "-EINVAL: count is negative or greater than 16.\n-EFAULT: groups is not writable for the returned IDs.\n-ESRCH: There is no current process.", "The count and groups pointer are interpreted independently when count is zero."),
     "setgroups": ("long setgroups(int32_t count, const uint32_t *groups);", "Replaces the supplementary group list with count IDs copied from groups.", "Returns zero, or a negative errno.", "-EINVAL: count is negative or greater than 16.\n-EFAULT: groups is not readable for count IDs.\n-EPERM: The current effective GID is nonzero.\n-ESRCH: There is no current process.", "A zero count is valid and does not dereference groups."),
-    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Selects a child by positive PID, any child with −1, the caller's process group with zero, or a specified process group with a negative PID. It blocks until a selected child exits, stops when WUNTRACED is set, or reports a pending continuation when WCONTINUED is set. WNOHANG returns zero when no selected event is ready.", "Returns the selected child PID, zero only for WNOHANG with no ready event, or a negative errno. On exit, status uses the traditional layout: signal termination is signal & 0177, normal exit is (exit_status & 0377) << 8, stopped status is (stop_signal << 8) | 0177, and continuation is 0xffff.", "-EFAULT: status is non‑null but not writable userspace memory.\n-ECHILD: The caller has no matching child.\n-EINVAL: pid selects an invalid process or group identifier, or options contains an unknown bit.\n-ESRCH: There is no current process or thread.", "A successful exit event is reaped. Stop and continuation notifications are consumed but do not reap the child."),
+    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Selects a child by positive PID, any child with −1, the caller's process group with zero, or a specified process group with a negative PID. It normally blocks until a selected child exits, stops when WUNTRACED is set, or reports a pending continuation when WCONTINUED is set. WNOHANG returns zero when no selected event is ready. An unblocked interrupting signal ends the wait without reaping a child.", "Returns the selected child PID, zero only for WNOHANG with no ready event, or a negative errno. On exit, status uses the traditional layout: signal termination is signal & 0177, normal exit is (exit_status & 0377) << 8, stopped status is (stop_signal << 8) | 0177, and continuation is 0xffff.", "-EAGAIN: The process waiter table cannot accept another waiter, so the call returns instead of blocking without a wake slot.\n-ECHILD: The caller has no matching child.\n-EFAULT: status is non‑null but not writable userspace memory.\n-EINTR: An unblocked interrupting signal arrived before a child event was available.\n-EINVAL: pid selects an invalid process or group identifier, or options contains an unknown bit.\n-ESRCH: There is no current process or thread.", "A successful exit event is reaped. Stop and continuation notifications are consumed but do not reap the child."),
 }
 
 

@@ -24,18 +24,26 @@ const escapeAttribute = (value: string): string =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-const slugify = (value: string): string => {
-  const slug = value
+const slugify = (value: string): string =>
+  value
     .replace(/<[^>]+>/g, '')
     .replace(/&[^;]+;/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug || 'section';
-};
+    .replace(/^-+|-+$/g, '') || 'section';
 
 const safeHref = (href: string): boolean =>
   href.startsWith('#') || /^(?:https?:|mailto:|tel:)/i.test(href);
+
+const pageMatches = (page: DocPage, query: string): boolean => {
+  if (!query) {
+    return true;
+  }
+  const searchable =
+    `${page.title} ${page.group} ${page.category ?? ''} ${page.syscallId ?? ''} ` +
+    `${page.synopsisKind ?? ''} ${page.summary}`;
+  return searchable.toLowerCase().includes(query);
+};
 
 marked.use({
   gfm: true,
@@ -69,7 +77,9 @@ export class DocsBrowser {
   readonly indexSelected = output<void>();
 
   protected readonly query = signal('');
-  private firstSelectedChange = true;
+  private readonly expandedGroups = signal<ReadonlySet<string>>(new Set());
+  private firstSelectionChange = true;
+  private lastSelectedSlug: string | null = null;
 
   protected readonly selectedPage = computed(() => {
     const slug = this.selectedSlug();
@@ -79,10 +89,7 @@ export class DocsBrowser {
     const query = this.query().trim().toLowerCase();
     const groups = new Map<string, DocPage[]>();
     for (const page of this.pages()) {
-      const searchable =
-        `${page.title} ${page.group} ${page.category ?? ''} ${page.syscallId ?? ''} ` +
-        `${page.synopsisKind ?? ''} ${page.summary}`;
-      if (query && !searchable.toLowerCase().includes(query)) {
+      if (!pageMatches(page, query)) {
         continue;
       }
       const pages = groups.get(page.group) ?? [];
@@ -103,14 +110,34 @@ export class DocsBrowser {
 
   private readonly browser = viewChild<ElementRef<HTMLElement>>('browser');
   private readonly markdown = viewChild<ElementRef<HTMLElement>>('markdown');
+  private readonly pageTitle = viewChild<ElementRef<HTMLElement>>('pageTitle');
+  private readonly filterInput = viewChild<ElementRef<HTMLInputElement>>('filterInput');
 
   constructor() {
     effect(() => {
-      this.selectedSlug();
-      if (this.firstSelectedChange) {
-        this.firstSelectedChange = false;
+      const page = this.selectedPage();
+      if (!page) {
+        this.lastSelectedSlug = null;
         return;
       }
+      if (page.slug === this.lastSelectedSlug) {
+        return;
+      }
+      this.lastSelectedSlug = page.slug;
+      this.expandedGroups.update((groups) => {
+        if (groups.has(page.group)) {
+          return groups;
+        }
+        const next = new Set(groups);
+        next.add(page.group);
+        return next;
+      });
+    });
+
+    effect(() => {
+      const slug = this.selectedSlug();
+      const initial = this.firstSelectionChange;
+      this.firstSelectionChange = false;
       queueMicrotask(() => {
         const browser = this.browser()?.nativeElement;
         const panel = browser?.querySelector<HTMLElement>('.docs-main');
@@ -119,9 +146,14 @@ export class DocsBrowser {
           if (panel.scrollHeight <= panel.clientHeight) {
             browser?.scrollIntoView({ block: 'start', behavior: 'smooth' });
           }
-          return;
+        } else {
+          browser?.scrollIntoView({ block: 'start', behavior: 'smooth' });
         }
-        browser?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        if (slug) {
+          this.pageTitle()?.nativeElement.focus({ preventScroll: true });
+        } else if (!initial) {
+          this.filterInput()?.nativeElement.focus({ preventScroll: true });
+        }
       });
     });
 
@@ -131,8 +163,45 @@ export class DocsBrowser {
     });
   }
 
+  protected groupOpen(name: string): boolean {
+    return this.expandedGroups().has(name);
+  }
+
+  protected groupListId(name: string): string {
+    return `docs-group-${slugify(name)}`;
+  }
+
+  protected toggleGroup(name: string): void {
+    this.expandedGroups.update((groups) => {
+      const next = new Set(groups);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  }
+
   protected setQuery(event: Event): void {
-    this.query.set((event.target as HTMLInputElement).value);
+    const query = (event.target as HTMLInputElement).value;
+    this.query.set(query);
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) {
+      return;
+    }
+    const matching = new Set(
+      this.pages()
+        .filter((page) => pageMatches(page, normalized))
+        .map((page) => page.group),
+    );
+    this.expandedGroups.update((groups) => {
+      const next = new Set(groups);
+      for (const name of matching) {
+        next.add(name);
+      }
+      return next;
+    });
   }
 
   protected selectPage(slug: string): void {

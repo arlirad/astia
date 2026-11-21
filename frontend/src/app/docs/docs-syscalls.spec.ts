@@ -87,7 +87,11 @@ describe('Generated section-2 syscall docs', () => {
     expect(execve?.content).toContain('`ENOEXEC`');
     expect(execve?.content).toContain('The file is empty');
     expect(execve?.content).not.toContain('not a supported executable image');
-    expect(execve?.content).toContain('`ESRCH`');
+    expect(execve?.content).toContain('no current process or thread context');
+    expect(execve?.content).toContain(
+      'The current process or thread could not be retained',
+    );
+    expect(execve?.content).not.toContain('ESRCH: There is no current process');
     expect(execve?.content).toContain('resolved against the caller');
     expect(execve?.content).toContain('kernel/src/proc/syscalls/process/execve.cpp');
     expect(execve?.content).toContain('kernel/src/elf/exec_loader.cpp');
@@ -108,6 +112,10 @@ describe('Generated section-2 syscall docs', () => {
       'long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);',
     );
     expect(waitpid?.content).toContain('The libc waitpid() wrapper translates that result to -1');
+    expect(waitpid?.content).toContain('`-EINTR`');
+    expect(waitpid?.content).toContain('unblocked interrupting signal');
+    expect(waitpid?.content).toContain('`-EAGAIN`');
+    expect(waitpid?.content).toContain('process waiter table');
 
     for (const page of SYSCALL_PAGES) {
       expect(page.category).toBeTruthy();

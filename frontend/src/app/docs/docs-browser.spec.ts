@@ -47,24 +47,61 @@ describe('DocsBrowser', () => {
     return { fixture, element: fixture.nativeElement as HTMLElement };
   }
 
-  it('renders the grouped documentation index', () => {
+  async function settle(fixture: ReturnType<typeof TestBed.createComponent<DocsBrowser>>): Promise<void> {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await Promise.resolve();
+  }
+
+  it('renders foldable documentation categories', () => {
     const { element } = render();
 
     expect(element.querySelectorAll('.docs-group').length).toBe(3);
+    expect(element.querySelectorAll('.docs-group-toggle').length).toBe(3);
     expect(element.querySelectorAll('.docs-index-link').length).toBe(PAGES.length);
     expect(element.querySelector('.docs-count')?.textContent).toContain('3 pages');
-    expect(element.querySelector('.docs-index')).toBeTruthy();
+    expect(element.querySelectorAll('.docs-group-toggle[aria-expanded="true"]').length).toBe(0);
+    expect(element.querySelectorAll('.docs-group ul:not([hidden])').length).toBe(0);
     expect(element.querySelector('.docs-welcome')).toBeNull();
   });
 
-  it('renders a deep-linked page from the selected slug input', () => {
+  it('toggles categories with an accessible button and aria state', () => {
+    const { fixture, element } = render();
+    const toggle = element.querySelector<HTMLButtonElement>('.docs-group-toggle');
+    const list = element.querySelector<HTMLElement>('.docs-group ul');
+
+    expect(toggle?.tagName).toBe('BUTTON');
+    expect(toggle?.tabIndex).toBe(0);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle?.getAttribute('aria-controls')).toBe(list?.id);
+    expect(list?.hidden).toBeTrue();
+
+    toggle?.click();
+    fixture.detectChanges();
+
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(list?.hidden).toBeFalse();
+
+    toggle?.click();
+    fixture.detectChanges();
+
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(list?.hidden).toBeTrue();
+  });
+
+  it('renders a deep-linked page and opens its category', () => {
     const { element } = render('manual');
 
     expect(element.querySelector('.docs-page-title')?.textContent).toContain('Manual');
     expect(element.querySelector('.doc-markdown')?.textContent).toContain('API reference.');
+
+    const groups = [...element.querySelectorAll<HTMLElement>('.docs-group')];
+    const open = groups.filter((group) => !group.querySelector('ul')?.hidden);
+    expect(open.length).toBe(1);
+    expect(open[0].textContent).toContain('Manual page');
   });
 
-  it('filters the index by title, group, or summary', () => {
+  it('reveals matching categories and results when filtering', () => {
     const { fixture, element } = render();
     const input = element.querySelector<HTMLInputElement>('.docs-filter input');
 
@@ -76,6 +113,8 @@ describe('DocsBrowser', () => {
 
     expect(element.querySelectorAll('.docs-index-link').length).toBe(1);
     expect(element.querySelector('.docs-index-link')?.textContent).toContain('Manual');
+    expect(element.querySelectorAll('.docs-group-toggle[aria-expanded="true"]').length).toBe(1);
+    expect(element.querySelectorAll('.docs-group ul:not([hidden])').length).toBe(1);
 
     if (input) {
       input.value = 'no such page';
@@ -85,6 +124,43 @@ describe('DocsBrowser', () => {
 
     expect(element.querySelectorAll('.docs-index-link').length).toBe(0);
     expect(element.querySelector('.docs-empty')?.textContent).toContain('No docs match');
+  });
+
+  it('moves focus to the page heading after selection', async () => {
+    const { fixture, element } = render();
+
+    fixture.componentRef.setInput('selectedSlug', 'manual');
+    await settle(fixture);
+
+    const title = element.querySelector<HTMLElement>('.docs-page-title');
+    expect(document.activeElement).toBe(title);
+    expect(title?.getAttribute('tabindex')).toBe('-1');
+    expect(element.querySelectorAll('.docs-group-toggle[aria-expanded="true"]').length).toBe(1);
+  });
+
+  it('retains the filter while opening a result and returning to the index', async () => {
+    const { fixture, element } = render();
+    const input = element.querySelector<HTMLInputElement>('.docs-filter input');
+
+    if (input) {
+      input.value = 'manual';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    await settle(fixture);
+
+    fixture.componentRef.setInput('selectedSlug', 'manual');
+    await settle(fixture);
+
+    expect(input?.value).toBe('manual');
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(1);
+    expect(element.querySelector('.docs-page-title')?.textContent).toContain('Manual');
+
+    fixture.componentRef.setInput('selectedSlug', null);
+    await settle(fixture);
+
+    expect(input?.value).toBe('manual');
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(1);
+    expect(document.activeElement).toBe(input);
   });
 
   it('emits page selection, page navigation, and index requests', () => {
