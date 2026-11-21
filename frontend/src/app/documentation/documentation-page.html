@@ -1,0 +1,14 @@
+<section id="documentation" class="section">
+  <div class="shell docs-shell">
+    <div class="section-head">
+      <h1 class="eyebrow">Documentation</h1>
+    </div>
+
+    <app-docs-browser
+      [pages]="docPages"
+      [selectedSlug]="selectedSlug()"
+      (pageSelected)="openPage($event)"
+      (indexSelected)="openIndex()"
+    />
+  </div>
+</section>

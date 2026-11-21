@@ -4,13 +4,23 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+from contextlib import ExitStack
+import errno
+import hashlib
 import html
+import json
+import os
 import re
+import stat
+import sys
+import warnings
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CSS = ROOT / "nodivia.css"
+PROC_FD_ROOT = Path("/proc/self/fd")
 
 
 def sentence(text: str) -> str:
@@ -19,6 +29,117 @@ def sentence(text: str) -> str:
         if char.isalpha():
             return text[:index] + char.upper() + text[index + 1:] + "."
     return text + "."
+
+PUBLIC_SYNOPSIS_OVERRIDES = {
+    "waitpid": "long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);",
+}
+
+SOURCE_OVERRIDES = {
+    "execve": "libc/src/unistd.c",
+    "sigsuspend": "libc/src/signal.c",
+    "waitpid": "kernel/include/astia/api/syscalls.h",
+}
+
+CATEGORY_OVERRIDES = {
+    "execve": "proc/process",
+    "sigsuspend": "proc/signal",
+    "waitpid": "proc/process",
+}
+
+PUBLIC_BODY_OVERRIDES = {
+    "execve": (
+        "Synopsis:\n"
+        "    int execve(const char* path, char* const argv[], char* const envp[]);\n\n"
+        "Description:\n"
+        "    Replaces the calling process image with the executable at path. The process ID, "
+        "process group, and working directory remain associated with the process. Descriptors "
+        "without FD_CLOEXEC remain open; descriptors marked FD_CLOEXEC are closed. The argument "
+        "and environment vectors are copied before the image is replaced.\n\n"
+        "Return Value:\n"
+        "    Does not return on success. On failure, returns -1 and sets errno.\n\n"
+        "Errors:\n"
+        "    E2BIG: The argument or environment vector exceeds its limit.\n"
+        "    EFAULT: An argv or envp vector or string pointer is not readable userspace memory. "
+        "libc resolves path before the syscall, so a null path returns EINVAL and an invalid "
+        "non-null path pointer can fault in libc instead of returning EFAULT.\n"
+        "    EINVAL: The path is null, or the file is nonempty but is not a valid ELF executable "
+        "image (malformed header, unsupported executable type, or invalid segment metadata).\n"
+        "    ENAMETOOLONG: The resolved path exceeds the libc path buffer.\n"
+        "    ENOENT: The executable path does not exist or cannot be opened. The kernel "
+        "also returns this when there is no current process or thread context.\n"
+        "    ENOEXEC: The file is empty.\n"
+        "    ENOMEM: The replacement image cannot be allocated.\n"
+        "    ESRCH: The current process or thread could not be retained for image "
+        "replacement.\n\n"
+        "Notes:\n"
+        "    Relative paths are resolved against the caller's working directory by libc before "
+        "the syscall. The public "
+        "wrapper is implemented in [libc/src/unistd.c](https://github.com/arlirad/astia/blob/main/libc/src/unistd.c); "
+        "the kernel syscall entry is [kernel/src/proc/syscalls/process/execve.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/execve.cpp), "
+        "and image loading is [kernel/src/elf/exec_loader.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/elf/exec_loader.cpp)."
+    ),
+    "sigsuspend": (
+        "Synopsis:\n"
+        "    int sigsuspend(const sigset_t* mask);\n\n"
+        "Description:\n"
+        "    Temporarily replaces the calling thread's signal mask with mask and waits for a "
+        "signal. The previous mask is restored before the function returns.\n\n"
+        "Return Value:\n"
+        "    Never returns 0. When a signal ends the wait, returns -1 and sets errno to EINTR. "
+        "On failure, returns -1 and sets errno to the reported error.\n\n"
+        "Errors:\n"
+        "    EAGAIN: The signal waiter could not be registered.\n"
+        "    EFAULT: The mask pointer is not readable userspace memory.\n"
+        "    EINTR: A signal ended the wait; this is the normal successful return.\n"
+        "    ESRCH: There is no current process or thread.\n\n"
+        "Notes:\n"
+        "    The libc wrapper is implemented in [libc/src/signal.c](https://github.com/arlirad/astia/blob/main/libc/src/signal.c); "
+        "the kernel wait path is [kernel/src/proc/syscalls/signal/sigsuspend.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigsuspend.cpp)."
+    ),
+}
+
+
+PUBLIC_SECTION_OVERRIDES = {
+    "waitpid": {
+        "ERRORS": (
+            "-EAGAIN: The process waiter table cannot accept another waiter.\n"
+            "-ECHILD: The caller has no matching child.\n"
+            "-EFAULT: The status pointer is not writable userspace memory.\n"
+            "-EINTR: An unblocked interrupting signal arrived before a child event.\n"
+            "-EINVAL: The PID or option mask is invalid.\n"
+            "-ESRCH: There is no current process or thread."
+        ),
+        "NOTES": (
+            "This page documents the public ABI wrapper astia_waitpid_options. It returns a "
+            "negative errno on failure. The libc waitpid() wrapper translates that result to -1 "
+            "and errno. Without WNOHANG the call may block until a selected child exits, stops, "
+            "or continues. An unblocked interrupting signal interrupts the wait with -EINTR "
+            "without reaping a child. If the process waiter table cannot accept another waiter, "
+            "the call returns -EAGAIN instead of blocking without a wake slot. A successful exit "
+            "event is reaped. Stop and continuation notifications are consumed but do not reap "
+            "the child."
+        ),
+    },
+    "clock_gettime": {
+        "ERRORS": (
+            "-EFAULT: The output timespec pointer is not writable userspace memory.\n"
+            "-EINVAL: The clock ID is unsupported.\n"
+            "-EIO: The platform has no active timer source."
+        ),
+        "NOTES": (
+            "A platform without an active timer source returns -EIO rather than dividing by "
+            "zero. Arguments enter through the direct syscall ABI."
+        ),
+    },
+    "clock_getres": {
+        "ERRORS": (
+            "-EFAULT: The output pointer is not writable when out is non-null.\n"
+            "-EINVAL: The clock ID is unsupported.\n"
+            "-EIO: The platform has no active timer source."
+        ),
+    },
+}
+
 
 ERROR_FALLBACKS = {
     "E2BIG": "the argument or environment list exceeds the supported limit",
@@ -67,7 +188,7 @@ LEGACY = {
     "sigsuspend": ("long sigsuspend(const uint32_t *mask);", "Temporarily replaces the mask and waits for a signal.", "-EFAULT, -EINTR, -ESRCH."),
     "yield": ("long yield(void);", "Yields the current kernel scheduling turn.", "Never fails."),
     "exit": ("long exit(long status);", "Terminates the calling thread.", "Does not return."),
-    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Waits for a child process and optionally reaps it.", "-EFAULT, -ECHILD, -EINVAL, -ESRCH."),
+    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Waits for a child process and optionally reaps it. Returns early with -EINTR when an unblocked interrupting signal arrives, or -EAGAIN when no waiter slot is available.", "-EAGAIN, -ECHILD, -EFAULT, -EINTR, -EINVAL, -ESRCH."),
     "spawnve": ("long spawnve(const char *path, char *const argv[], char *const envp[]);", "Creates a process from an executable path using the kernel's asynchronous streaming ELF loader; returns after the child is published and does not wait for child exit.", "-E2BIG, -EAGAIN, -EFAULT, -EIO, -ENOMEM, -ENOENT, -EINVAL."),
     "execve": ("long execve(const char *path, char *const argv[], char *const envp[]);", "Replaces the calling process image with the executable at path. The process ID, process group, open descriptors, and working directory remain associated with the process; the new image receives the supplied argument and environment vectors.", "-E2BIG, -EFAULT, -ENOENT, -ENOEXEC, -ENOMEM."),
     "mmap": ("long mmap(void *addr, long length, uint32_t prot, uint32_t flags, int fd, long offset);", "Maps anonymous or file-backed memory into the calling process. Anonymous mappings require fd -1 and offset 0; file mappings use the supplied descriptor and a non-negative offset. The returned address is page aligned.", "-EBADF, -EINVAL, -ENOMEM, -ENOSYS."),
@@ -93,7 +214,7 @@ ERROR_DETAILS = {
     "sigreturn": "-EFAULT: The saved context is outside userspace.\n-EFAULT: The saved instruction pointer, stack pointer, or flags are invalid.",
     "sigprocmask": "-EFAULT: The old mask pointer is not writable userspace memory.\n-EINVAL: The operation is not BLOCK, UNBLOCK, or SETMASK.\n-ESRCH: There is no current process.",
     "sigsuspend": "-EFAULT: The mask pointer is not readable userspace memory.\n-EINTR: A signal interrupted the suspended thread.\n-ESRCH: There is no current process or thread.",
-    "waitpid": "-EFAULT: The status pointer is not writable userspace memory.\n-ECHILD: The caller has no matching child.\n-EINVAL: The PID or option mask is invalid.\n-ESRCH: There is no current process or thread.",
+    "waitpid": "-EAGAIN: The process waiter table cannot accept another waiter.\n-ECHILD: The caller has no matching child.\n-EFAULT: The status pointer is not writable userspace memory.\n-EINTR: An unblocked interrupting signal arrived before a child event.\n-EINVAL: The PID or option mask is invalid.\n-ESRCH: There is no current process or thread.",
     "spawnve": "-E2BIG: The argument or environment vector exceeds its limit.\n-EFAULT: A path, vector, or string pointer is invalid.\n-EIO: The executable cannot be read completely.\n-EINVAL: The executable is malformed or truncated.\n-ENOMEM: The process or staged mappings cannot be allocated.\n-ENOENT: The executable path does not exist.\n-EAGAIN: The process registry is full.",
     "execve": "-E2BIG: The argument or environment vector exceeds its limit.\n-EFAULT: A path, vector, or string pointer is invalid.\n-ENOENT: The executable path does not exist.\n-ENOEXEC: The file is not a valid executable.\n-ENOMEM: The replacement image cannot be allocated.",
     "mmap": "-EBADF: The file descriptor is invalid for a file mapping.\n-EINVAL: The length, offset, protection, flags, or anonymous sentinel is invalid.\n-ENOMEM: The address space or physical backing cannot be allocated.\n-ENOSYS: The requested fixed or shared mapping mode is not implemented.",
@@ -213,7 +334,7 @@ SYSCALL_PAGES = {
     "setregid": ("long setregid(uint32_t real_gid, uint32_t effective_gid);", "Sets the real and effective GIDs. The raw ABI represents the libc sentinel value −1 as the unsigned all‑ones value.", "Returns zero, or a negative errno.", "-EINVAL: Either argument is below the sentinel or outside the unsigned 32‑bit range.\n-EPERM: The requested GID transition is not allowed for the current effective GID.\n-ESRCH: There is no current process.", "The process implementation accepts the current real or effective GID, and root may select any 32‑bit GID."),
     "getgroups": ("long getgroups(int32_t count, uint32_t *groups);", "Copies up to 16 supplementary group IDs into groups. A count of zero returns the number of groups without writing groups.", "Returns the group count, or a negative errno.", "-EINVAL: count is negative or greater than 16.\n-EFAULT: groups is not writable for the returned IDs.\n-ESRCH: There is no current process.", "The count and groups pointer are interpreted independently when count is zero."),
     "setgroups": ("long setgroups(int32_t count, const uint32_t *groups);", "Replaces the supplementary group list with count IDs copied from groups.", "Returns zero, or a negative errno.", "-EINVAL: count is negative or greater than 16.\n-EFAULT: groups is not readable for count IDs.\n-EPERM: The current effective GID is nonzero.\n-ESRCH: There is no current process.", "A zero count is valid and does not dereference groups."),
-    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Selects a child by positive PID, any child with −1, the caller's process group with zero, or a specified process group with a negative PID. It blocks until a selected child exits, stops when WUNTRACED is set, or reports a pending continuation when WCONTINUED is set. WNOHANG returns zero when no selected event is ready.", "Returns the selected child PID, zero only for WNOHANG with no ready event, or a negative errno. On exit, status uses the traditional layout: signal termination is signal & 0177, normal exit is (exit_status & 0377) << 8, stopped status is (stop_signal << 8) | 0177, and continuation is 0xffff.", "-EFAULT: status is non‑null but not writable userspace memory.\n-ECHILD: The caller has no matching child.\n-EINVAL: pid selects an invalid process or group identifier, or options contains an unknown bit.\n-ESRCH: There is no current process or thread.", "A successful exit event is reaped. Stop and continuation notifications are consumed but do not reap the child."),
+    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Selects a child by positive PID, any child with −1, the caller's process group with zero, or a specified process group with a negative PID. It normally blocks until a selected child exits, stops when WUNTRACED is set, or reports a pending continuation when WCONTINUED is set. WNOHANG returns zero when no selected event is ready. An unblocked interrupting signal ends the wait without reaping a child.", "Returns the selected child PID, zero only for WNOHANG with no ready event, or a negative errno. On exit, status uses the traditional layout: signal termination is signal & 0177, normal exit is (exit_status & 0377) << 8, stopped status is (stop_signal << 8) | 0177, and continuation is 0xffff.", "-EAGAIN: The process waiter table cannot accept another waiter, so the call returns instead of blocking without a wake slot.\n-ECHILD: The caller has no matching child.\n-EFAULT: status is non‑null but not writable userspace memory.\n-EINTR: An unblocked interrupting signal arrived before a child event was available.\n-EINVAL: pid selects an invalid process or group identifier, or options contains an unknown bit.\n-ESRCH: There is no current process or thread.", "A successful exit event is reaped. Stop and continuation notifications are consumed but do not reap the child."),
 }
 
 
@@ -366,8 +487,7 @@ def render_overview(name: str, title: str, body: str) -> str:
 """
 
 
-def render(name: str, body: str, section: int) -> str:
-    sections = []
+def body_sections(body: str) -> dict[str, list[str]]:
     current = "DESCRIPTION"
     values: dict[str, list[str]] = {current: []}
     headings = {"Synopsis", "Description", "Return Value", "Errors", "Notes", "ABI"}
@@ -383,40 +503,1361 @@ def render(name: str, body: str, section: int) -> str:
                 values[current].append(heading_match.group(2))
         else:
             values[current].append(line)
-    for heading, lines in values.items():
+    return values
+
+
+def error_entries(content: str) -> list[tuple[str, str]] | None:
+    matches = list(re.finditer(r"(?<!\w)(-?E[A-Z0-9]+)\s*:\s*", content))
+    if not matches:
+        return None
+    entries = []
+    for index, match in enumerate(matches):
+        code = match.group(1)
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(content)
+        reason = " ".join(content[match.end():end].split()).strip().rstrip(" .;")
+        reason = reason or ERROR_FALLBACKS.get(code.lstrip("-"), "the operation failed")
+        entries.append((code, sentence(reason)))
+    return entries
+
+
+def markdown_content(content: str) -> str:
+    lines = content.splitlines()
+    return "\n".join(line[4:] if line.startswith("    ") else line for line in lines).strip()
+
+
+def render_syscall_markdown(
+    name: str, body: str, section: int, raw_abi: bool = False
+) -> str:
+    values = body_sections(body)
+
+    def content_for(key: str) -> str:
+        return markdown_content("\n".join(values.get(key, [])))
+
+    parts = [f"# {name}({section})"]
+    synopsis = content_for("SYNOPSIS")
+    if raw_abi:
+        parts.extend(
+            [
+                "## SYNOPSIS",
+                "Raw kernel ABI. No public C wrapper declaration is provided for this syscall.",
+            ]
+        )
+    elif synopsis:
+        parts.extend(["## SYNOPSIS", f"```c\n{synopsis}\n```"])
+    description = content_for("DESCRIPTION")
+    if description:
+        parts.extend(["## DESCRIPTION", description])
+    returns = content_for("RETURN VALUE")
+    if returns:
+        parts.extend(["## RETURN VALUE", returns])
+    errors = content_for("ERRORS")
+    if errors:
+        entries = error_entries(errors)
+        if entries is None:
+            parts.extend(["## ERRORS", errors])
+        else:
+            parts.extend(
+                [
+                    "## ERRORS",
+                    "\n".join(f"- `{code}`: {reason}" for code, reason in entries),
+                ]
+            )
+    notes = content_for("NOTES")
+    if notes:
+        parts.extend(["## NOTES", notes])
+    return "\n\n".join(parts).strip().replace("\u2014", " - ") + "\n"
+
+
+def syscall_abi(path: Path) -> list[tuple[int, str]]:
+    entries = []
+    for line in path.read_text().splitlines():
+        match = re.match(r"\s*SYS_([A-Z0-9_]+)\s*=\s*(\d+)\s*,", line)
+        if match:
+            entries.append((int(match.group(2)), match.group(1).lower()))
+    entries.sort()
+    if len(entries) != 70 or [value for value, _ in entries] != list(range(70)):
+        raise ValueError(
+            f"{path}: expected 70 canonical section-2 syscalls with IDs 0..69, "
+            f"found {len(entries)}"
+        )
+    return entries
+
+
+def public_abi_prototypes(abi_header: Path) -> dict[str, str]:
+    prototypes: dict[str, str] = {}
+    pattern = re.compile(
+        r"static inline\s+([^;{}]*?\bastia_([a-z0-9_]+)\s*\([^;{}]*\))\s*\{",
+        re.S,
+    )
+    for path in sorted(abi_header.parent.glob("*.h")):
+        for match in pattern.finditer(path.read_text(errors="ignore")):
+            prototype = " ".join(match.group(1).split())
+            prototypes[match.group(2)] = prototype + ";"
+    return prototypes
+
+
+def libc_public_prototypes(libc_root: Path | None) -> dict[str, str]:
+    if libc_root is None:
+        return {}
+    include_root = libc_root / "include"
+    if not include_root.is_dir():
+        return {}
+    prototypes: dict[str, str] = {}
+    pattern = re.compile(
+        r"^\s*((?:int|long|ssize_t|pid_t|uid_t|gid_t|void)\s+[^;{}]*?"
+        r"\b([a-z_][a-z0-9_]*)\s*\([^;{}]*\))\s*;",
+        re.M | re.S,
+    )
+    for path in sorted(include_root.rglob("*.h")):
+        for match in pattern.finditer(path.read_text(errors="ignore")):
+            prototypes[match.group(2)] = " ".join(match.group(1).split()) + ";"
+    return prototypes
+
+
+def public_user_synopses(abi_header: Path, libc_root: Path | None) -> dict[str, str]:
+    synopses = libc_public_prototypes(libc_root)
+    synopses.update(public_abi_prototypes(abi_header))
+    synopses.update(PUBLIC_SYNOPSIS_OVERRIDES)
+    return synopses
+
+
+def build_source_index(source_root: Path) -> dict[str, list[Path]]:
+    index: dict[str, list[Path]] = {}
+    pattern = re.compile(r"\b(?:i64|long|int)\s+([a-z_][a-z0-9_]*)\s*\(")
+    for path in sorted(source_root.rglob("*")):
+        if path.suffix not in (".cpp", ".hpp"):
+            continue
+        for match in pattern.finditer(path.read_text(errors="ignore")):
+            index.setdefault(match.group(1), []).append(path)
+    return index
+
+
+def source_for(name: str, index: dict[str, list[Path]]) -> Path | None:
+    candidates = index.get(name, [])
+    if not candidates:
+        return None
+    candidates = sorted(
+        candidates,
+        key=lambda path: (
+            0 if "syscalls" in path.parts else 1,
+            0 if path.suffix == ".cpp" else 1,
+            len(path.parts),
+            str(path),
+        ),
+    )
+    return candidates[0]
+
+
+def group_for_source(source: Path | None, source_root: Path) -> str:
+    if source is None:
+        return "abi"
+    try:
+        parts = source.resolve().relative_to(source_root.resolve()).parts
+    except ValueError:
+        return "abi"
+    if not parts:
+        return "abi"
+    root = parts[0]
+    if len(parts) >= 3 and parts[1] == "syscalls":
+        return f"{root}/{parts[2]}" if len(parts) > 3 else root
+    return root
+
+
+def normalize_synopsis(body: str, synopsis: str | None, raw_abi: bool) -> str:
+    lines = body.splitlines()
+    output = []
+    skipping = False
+    replaced = False
+    for line in lines:
+        if re.match(r"^Synopsis:\s*", line):
+            output.append("Synopsis:")
+            if synopsis:
+                output.append(f"    {synopsis}")
+            elif raw_abi:
+                output.append(
+                    "    Raw kernel ABI. No public C wrapper declaration is provided for this syscall."
+                )
+            skipping = True
+            replaced = True
+            continue
+        if skipping:
+            if re.match(r"^(Description|Return Value|Errors|Notes|ABI):", line):
+                skipping = False
+            else:
+                continue
+        output.append(line)
+    if not replaced:
+        prefix = ["Synopsis:"]
+        if synopsis:
+            prefix.append(f"    {synopsis}")
+        elif raw_abi:
+            prefix.append(
+                "    Raw kernel ABI. No public C wrapper declaration is provided for this syscall."
+            )
+        prefix.append("")
+        if not any(
+            re.match(r"^(Description|Return Value|Errors|Notes|ABI):", line)
+            for line in lines
+        ):
+            prefix.append("Description:")
+        output = prefix + output
+    return "\n".join(output)
+
+
+def replace_section(body: str, heading: str, content: str) -> str:
+    display = {
+        "DESCRIPTION": "Description",
+        "RETURN VALUE": "Return Value",
+        "ERRORS": "Errors",
+        "NOTES": "Notes",
+    }.get(heading, heading.title())
+    lines = body.splitlines()
+    output = []
+    skipping = False
+    found = False
+    for line in lines:
+        if re.match(rf"^{re.escape(display)}:\s*", line):
+            output.append(f"{display}:")
+            output.extend(content.splitlines())
+            skipping = True
+            found = True
+            continue
+        if skipping:
+            if re.match(r"^(Synopsis|Description|Return Value|Errors|Notes|ABI):", line):
+                skipping = False
+            else:
+                continue
+        output.append(line)
+    if not found:
+        output.append(f"{display}:")
+        output.extend(content.splitlines())
+    return "\n".join(output)
+
+
+def fallback_body(name: str, synopsis: str | None) -> str:
+    synopsis_block = f"Synopsis:\n    {synopsis}\n\n" if synopsis else ""
+    synopsis_note = (
+        "The synopsis uses the public ABI declaration."
+        if synopsis
+        else "See the public ABI header for the declaration."
+    )
+    return (
+        synopsis_block
+        + f"Description:\n    System call handler for `{name}`. "
+        "See the implementation source for validation and ownership details.\n\n"
+        "Return Value:\n    Returns zero or a non-negative result on success. "
+        "Negative values are ABI errno codes.\n\n"
+        "Errors:\n    See the kernel error ABI and the implementation source.\n\n"
+        "Notes:\n    Generated from the canonical section-2 ABI. "
+        f"{synopsis_note} Detailed manual text has not been added for this syscall yet."
+    )
+
+
+GENERATED_SYSCALL_ASSET = re.compile(
+    r"^syscall-(0|[1-9][0-9]?)-[a-z0-9]+(?:-[a-z0-9]+)*\.md$"
+)
+
+
+def generated_syscall_asset(name: str) -> bool:
+    if Path(name).name != name:
+        return False
+    match = GENERATED_SYSCALL_ASSET.fullmatch(name)
+    return bool(match and int(match.group(1)) <= 69)
+
+
+def validated_output_name(name: str) -> str:
+    if not name or name in {".", ".."} or Path(name).name != name:
+        raise ValueError(f"unsafe output name: {name!r}")
+    return name
+
+
+def validated_relative_path(name: str) -> tuple[str, ...]:
+    path = Path(name)
+    if path.is_absolute() or not path.parts or any(
+        part in {"", ".", ".."} for part in path.parts
+    ):
+        raise ValueError(f"unsafe output path: {name!r}")
+    return path.parts
+
+
+def open_directory_chain(path: Path, trusted_root: Path) -> int:
+    root = Path(os.path.abspath(trusted_root))
+    target = Path(os.path.abspath(path))
+    try:
+        relative = target.relative_to(root)
+    except ValueError as error:
+        raise ValueError(f"path escapes trusted root: {path}") from error
+    try:
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as error:
+        raise ValueError(f"trusted root is not a directory: {trusted_root}") from error
+    try:
+        for part in relative.parts:
+            try:
+                os.mkdir(part, 0o755, dir_fd=descriptor)
+            except FileExistsError:
+                pass
+            try:
+                child = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=descriptor,
+                )
+            except OSError as error:
+                raise ValueError(
+                    f"path has a symlink or non-directory component: {part}"
+                ) from error
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def same_inode(first: os.stat_result, second: os.stat_result) -> bool:
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+
+class OutputDirectory:
+    def __init__(self, path: Path, descriptor: int, owns_descriptor: bool = True):
+        self.path = path
+        self._descriptor = descriptor
+        self._owns_descriptor = owns_descriptor
+
+    @classmethod
+    def open(cls, output_dir: Path, trusted_root: Path) -> "OutputDirectory":
+        return cls(
+            Path(os.path.abspath(output_dir)),
+            open_directory_chain(output_dir, trusted_root),
+        )
+
+    def __enter__(self) -> "OutputDirectory":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._descriptor >= 0 and self._owns_descriptor:
+            os.close(self._descriptor)
+            self._descriptor = -1
+
+    def sync(self) -> None:
+        os.fsync(self._descriptor)
+
+    def write_atomic(self, name: str, content: str) -> None:
+        validated_output_name(name)
+        for _ in range(100):
+            temporary = f".{name}.{os.urandom(8).hex()}.tmp"
+            try:
+                descriptor = os.open(
+                    temporary,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=self._descriptor,
+                )
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise OSError(f"cannot allocate a temporary output for {name}")
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                output.write(content)
+                output.flush()
+                os.fsync(output.fileno())
+                os.fchmod(output.fileno(), 0o644)
+            os.replace(
+                temporary,
+                name,
+                src_dir_fd=self._descriptor,
+                dst_dir_fd=self._descriptor,
+            )
+        except BaseException:
+            try:
+                os.unlink(temporary, dir_fd=self._descriptor)
+            except FileNotFoundError:
+                pass
+            raise
+
+    def read_text(self, name: str) -> str | None:
+        validated_output_name(name)
+        try:
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
+                dir_fd=self._descriptor,
+            )
+        except OSError:
+            return None
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                return None
+            source = os.fdopen(descriptor, "r", encoding="utf-8")
+            descriptor = -1
+            with source:
+                return source.read()
+        except (OSError, UnicodeDecodeError):
+            return None
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+
+    def read_manifest(self, name: str) -> str | None:
+        validated_output_name(name)
+        try:
+            descriptor = os.open(
+                name,
+                os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
+                dir_fd=self._descriptor,
+            )
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise ValueError(
+                f"manifest is not a readable regular file: {name}"
+            ) from error
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError(f"manifest is not a regular file: {name}")
+            source = os.fdopen(descriptor, "r", encoding="utf-8")
+            descriptor = -1
+            with source:
+                return source.read()
+        except UnicodeDecodeError as error:
+            raise ValueError(f"manifest is not valid UTF-8: {name}") from error
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+
+def _unsupported_xattrs(error: OSError) -> bool:
+    return error.errno in {
+        errno.ENOTSUP,
+        getattr(errno, "EOPNOTSUPP", errno.ENOTSUP),
+        errno.ENOSYS,
+    }
+
+
+def fd_path(descriptor: int, name: str | None = None) -> str:
+    base = PROC_FD_ROOT / str(descriptor)
+    return str(base if name is None else base / name)
+
+
+def read_xattrs(descriptor: int, name: str | None) -> tuple[tuple[str, bytes], ...]:
+    path = fd_path(descriptor, name)
+    follow = name is None
+    try:
+        attributes = os.listxattr(path, follow_symlinks=follow)
+    except OSError as error:
+        if _unsupported_xattrs(error):
+            return ()
+        raise
+    values = []
+    for attribute in sorted(attributes):
+        values.append(
+            (
+                attribute,
+                os.getxattr(path, attribute, follow_symlinks=follow),
+            )
+        )
+    return tuple(values)
+
+
+def clear_xattrs(descriptor: int, name: str | None, relative: str) -> None:
+    path = fd_path(descriptor, name)
+    follow = name is None
+    try:
+        attributes = os.listxattr(path, follow_symlinks=follow)
+    except OSError as error:
+        if _unsupported_xattrs(error):
+            return
+        raise ValueError(
+            f"cannot read destination extended attributes: {relative}"
+        ) from error
+    for attribute in attributes:
+        try:
+            os.removexattr(path, attribute, follow_symlinks=follow)
+        except OSError as error:
+            if error.errno == errno.ENODATA:
+                continue
+            raise ValueError(
+                f"cannot remove destination extended attribute {attribute}: {relative}"
+            ) from error
+
+
+def copy_xattrs(
+    source: int,
+    destination: int,
+    name: str | None,
+    relative: str,
+) -> None:
+    source_path = fd_path(source, name)
+    destination_path = fd_path(destination, name)
+    follow_source = name is None
+    try:
+        attributes = os.listxattr(source_path, follow_symlinks=follow_source)
+    except OSError as error:
+        if not _unsupported_xattrs(error):
+            raise ValueError(
+                f"cannot read extended attributes: {relative}"
+            ) from error
+        try:
+            os.listxattr(destination_path, follow_symlinks=follow_source)
+        except OSError as destination_error:
+            if _unsupported_xattrs(destination_error):
+                return
+            raise ValueError(
+                f"cannot read destination extended attributes: {relative}"
+            ) from destination_error
+        raise ValueError(
+            f"source filesystem does not support extended attributes: {relative}"
+        ) from error
+    for attribute in attributes:
+        try:
+            value = os.getxattr(
+                source_path, attribute, follow_symlinks=follow_source
+            )
+        except OSError as error:
+            raise ValueError(
+                f"cannot read extended attribute {attribute}: {relative}"
+            ) from error
+        try:
+            os.setxattr(
+                destination_path,
+                attribute,
+                value,
+                flags=0,
+                follow_symlinks=follow_source,
+            )
+        except OSError as error:
+            raise ValueError(
+                f"cannot preserve extended attribute {attribute}: {relative}"
+            ) from error
+
+
+def replace_xattrs(
+    source: int,
+    destination: int,
+    name: str | None,
+    relative: str,
+) -> None:
+    clear_xattrs(destination, name, relative)
+    copy_xattrs(source, destination, name, relative)
+
+
+def copy_unowned_entries(
+    source: int,
+    destination: int,
+    owned: set[str],
+    manifest_name: str,
+    prefix: str = "",
+) -> None:
+    for name in os.listdir(source):
+        relative = f"{prefix}/{name}" if prefix else name
+        if not prefix and name == manifest_name:
+            continue
+        info = os.stat(name, dir_fd=source, follow_symlinks=False)
+        if stat.S_ISDIR(info.st_mode):
+            os.mkdir(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            try:
+                os.chown(
+                    name,
+                    info.st_uid,
+                    info.st_gid,
+                    dir_fd=destination,
+                    follow_symlinks=False,
+                )
+            except OSError as error:
+                raise ValueError(
+                    f"cannot preserve directory ownership: {relative}"
+                ) from error
+            os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            replace_xattrs(source, destination, name, relative)
+            with ExitStack() as stack:
+                child_source = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=source,
+                )
+                stack.callback(os.close, child_source)
+                child_destination = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=destination,
+                )
+                stack.callback(os.close, child_destination)
+                copy_unowned_entries(
+                    child_source,
+                    child_destination,
+                    owned,
+                    manifest_name,
+                    relative,
+                )
+        elif relative in owned:
+            if not (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
+                raise ValueError(
+                    f"owned output entry has an unsupported type: {relative}"
+                )
+            continue
+        elif stat.S_ISLNK(info.st_mode):
+            os.symlink(os.readlink(name, dir_fd=source), name, dir_fd=destination)
+        elif stat.S_ISREG(info.st_mode):
+            with ExitStack() as stack:
+                source_fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
+                    dir_fd=source,
+                )
+                stack.callback(os.close, source_fd)
+                try:
+                    source_info = os.fstat(source_fd)
+                    if not stat.S_ISREG(source_info.st_mode):
+                        raise ValueError(
+                            f"unowned output entry changed type during copy: {relative}"
+                        )
+                except OSError as error:
+                    raise ValueError(
+                        f"cannot inspect unowned output entry: {relative}"
+                    ) from error
+                destination_fd = os.open(
+                    name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    stat.S_IMODE(info.st_mode),
+                    dir_fd=destination,
+                )
+                stack.callback(os.close, destination_fd)
+                while True:
+                    block = os.read(source_fd, 65536)
+                    if not block:
+                        break
+                    offset = 0
+                    while offset < len(block):
+                        written = os.write(destination_fd, block[offset:])
+                        if written <= 0:
+                            raise OSError("short write while copying output")
+                        offset += written
+                try:
+                    os.fchown(destination_fd, info.st_uid, info.st_gid)
+                except OSError as error:
+                    raise ValueError(
+                        f"cannot preserve file ownership: {relative}"
+                    ) from error
+                os.fchmod(destination_fd, stat.S_IMODE(info.st_mode))
+                replace_xattrs(source, destination, name, relative)
+                os.fsync(destination_fd)
+        elif stat.S_ISFIFO(info.st_mode):
+            os.mkfifo(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            try:
+                os.chown(
+                    name,
+                    info.st_uid,
+                    info.st_gid,
+                    dir_fd=destination,
+                    follow_symlinks=False,
+                )
+            except OSError as error:
+                raise ValueError(
+                    f"cannot preserve FIFO ownership: {relative}"
+                ) from error
+            os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            replace_xattrs(source, destination, name, relative)
+        elif stat.S_ISCHR(info.st_mode) or stat.S_ISBLK(info.st_mode):
+            raise ValueError(f"cannot preserve device node: {relative}")
+        else:
+            raise ValueError(
+                f"cannot preserve unsupported filesystem entry: {relative}"
+            )
+
+
+def remove_tree(parent: int, name: str) -> None:
+    info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    if not stat.S_ISDIR(info.st_mode):
+        if (
+            stat.S_ISREG(info.st_mode)
+            or stat.S_ISLNK(info.st_mode)
+            or stat.S_ISFIFO(info.st_mode)
+            or stat.S_ISCHR(info.st_mode)
+            or stat.S_ISBLK(info.st_mode)
+        ):
+            os.unlink(name, dir_fd=parent)
+            return
+        raise OSError(errno.EPERM, f"refusing to remove unsupported entry: {name}")
+    descriptor = os.open(
+        name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent
+    )
+    try:
+        for child in os.listdir(descriptor):
+            remove_tree(descriptor, child)
+    finally:
+        os.close(descriptor)
+    os.rmdir(name, dir_fd=parent)
+
+
+RENAME_NOREPLACE = 1
+RENAME_EXCHANGE = 2
+_LIBC = ctypes.CDLL(None, use_errno=True)
+_RENAMEAT2 = getattr(_LIBC, "renameat2", None)
+if _RENAMEAT2 is not None:
+    _RENAMEAT2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    _RENAMEAT2.restype = ctypes.c_int
+
+
+def renameat2(parent: int, first: str, second: str, flags: int) -> None:
+    if _RENAMEAT2 is None:
+        raise OSError(errno.ENOSYS, "renameat2 is unavailable")
+    result = _RENAMEAT2(
+        parent,
+        os.fsencode(first),
+        parent,
+        os.fsencode(second),
+        flags,
+    )
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def exchange_directories(parent: int, first: str, second: str) -> None:
+    renameat2(parent, first, second, RENAME_EXCHANGE)
+
+
+def rename_noreplace(parent: int, first: str, second: str) -> None:
+    renameat2(parent, first, second, RENAME_NOREPLACE)
+
+
+def _content_hash(descriptor: int, name: str) -> bytes:
+    try:
+        source = os.open(
+            name,
+            os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
+            dir_fd=descriptor,
+        )
+    except OSError as error:
+        raise RuntimeError(
+            f"cannot open active output file for hashing: {name}: {error}"
+        ) from error
+    try:
+        try:
+            info = os.fstat(source)
+            if not stat.S_ISREG(info.st_mode):
+                raise RuntimeError(
+                    f"active output entry changed type during hashing: {name}"
+                )
+            digest = hashlib.sha256()
+            while True:
+                block = os.read(source, 65536)
+                if not block:
+                    break
+                digest.update(block)
+            return digest.digest()
+        except OSError as error:
+            raise RuntimeError(
+                f"cannot read active output file for hashing: {name}: {error}"
+            ) from error
+    finally:
+        os.close(source)
+
+
+def _entry_metadata(
+    descriptor: int, name: str | None
+) -> tuple[int, int, int, int, int, int, int, tuple[tuple[str, bytes], ...], bytes | None]:
+    if name is None:
+        info = os.fstat(descriptor)
+        xattrs = read_xattrs(descriptor, None)
+        content_hash = None
+    else:
+        info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+        xattrs = read_xattrs(descriptor, name)
+        content_hash = (
+            _content_hash(descriptor, name)
+            if stat.S_ISREG(info.st_mode)
+            else None
+        )
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_uid,
+        info.st_gid,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+        xattrs,
+        content_hash,
+    )
+
+
+def retirement_snapshots_match(
+    current: dict[str, tuple], original: dict[str, tuple]
+) -> bool:
+    if set(current) != set(original):
+        return False
+    for relative, metadata in current.items():
+        expected = original[relative]
+        if relative == ".":
+            if metadata[:7] + metadata[8:] != expected[:7] + expected[8:]:
+                return False
+        elif metadata != expected:
+            return False
+    return True
+
+
+def directory_snapshot(directory: int, prefix: str = "") -> dict[str, tuple]:
+    snapshot: dict[str, tuple] = {}
+    if not prefix:
+        snapshot["."] = _entry_metadata(directory, None)
+    for name in os.listdir(directory):
+        relative = f"{prefix}/{name}" if prefix else name
+        info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        snapshot[relative] = _entry_metadata(directory, name)
+        if stat.S_ISDIR(info.st_mode):
+            child = os.open(
+                name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+            )
+            try:
+                snapshot.update(directory_snapshot(child, relative))
+            finally:
+                os.close(child)
+    return snapshot
+
+
+def lexical_path(base: Path, name: str) -> str:
+    return os.path.normpath(os.path.join(os.path.abspath(base), name))
+
+
+def clear_directory(descriptor: int) -> None:
+    for child in os.listdir(descriptor):
+        info = os.stat(child, dir_fd=descriptor, follow_symlinks=False)
+        if stat.S_ISDIR(info.st_mode):
+            child_descriptor = os.open(
+                child, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
+            )
+            try:
+                clear_directory(child_descriptor)
+            finally:
+                os.close(child_descriptor)
+            os.rmdir(child, dir_fd=descriptor)
+        elif (
+            stat.S_ISREG(info.st_mode)
+            or stat.S_ISLNK(info.st_mode)
+            or stat.S_ISFIFO(info.st_mode)
+            or stat.S_ISCHR(info.st_mode)
+            or stat.S_ISBLK(info.st_mode)
+        ):
+            os.unlink(child, dir_fd=descriptor)
+        else:
+            raise OSError(
+                errno.EPERM, f"refusing to remove unsupported entry: {child}"
+            )
+
+
+def quarantine_and_remove(
+    parent: int,
+    name: str,
+    expected: os.stat_result,
+    descriptor: int,
+    prefix: str,
+) -> tuple[bool, str, Exception | None]:
+    quarantine_name = ""
+    for _ in range(100):
+        try:
+            candidate = f"{prefix}{os.urandom(8).hex()}"
+        except Exception as error:
+            return False, name, error
+        try:
+            rename_noreplace(parent, name, candidate)
+        except FileExistsError:
+            continue
+        except Exception as error:
+            return False, name, error
+        quarantine_name = candidate
+        break
+    else:
+        return False, name, OSError("cannot allocate a quarantine name")
+    try:
+        info = os.stat(quarantine_name, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISDIR(info.st_mode) or not same_inode(info, expected):
+            return False, quarantine_name, RuntimeError(
+                "quarantine identity changed before cleanup"
+            )
+        clear_directory(descriptor)
+        final = os.stat(quarantine_name, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISDIR(final.st_mode) or not same_inode(final, expected):
+            return False, quarantine_name, RuntimeError(
+                "quarantine identity changed during cleanup"
+            )
+        os.rmdir(quarantine_name, dir_fd=parent)
+        return True, "", None
+    except Exception as error:
+        return False, quarantine_name, error
+
+
+class TransactionalDirectory:
+    def __init__(
+        self,
+        path: Path,
+        parent: int,
+        active_name: str,
+        active: int,
+        active_info: os.stat_result | None,
+        active_snapshot: dict[str, tuple],
+        staging_name: str,
+        staging_info: os.stat_result,
+        staging: int,
+    ):
+        self.path = path
+        self._parent = parent
+        self._active_name = active_name
+        self._active = active
+        self._active_info = active_info
+        self._active_snapshot = active_snapshot
+        self._staging_name = staging_name
+        self._staging_info = staging_info
+        self._staging = staging
+        self._committed = False
+        self.output = OutputDirectory(path, staging, owns_descriptor=False)
+
+    @classmethod
+    def begin(
+        cls,
+        output_dir: Path,
+        trusted_root: Path,
+        manifest_name: str,
+        owned_reader,
+    ) -> "TransactionalDirectory":
+        if not PROC_FD_ROOT.is_dir():
+            raise ValueError(
+                "transactional output requires /proc/self/fd metadata access"
+            )
+        path = Path(os.path.abspath(output_dir))
+        validated_output_name(path.name)
+        parent = open_directory_chain(path.parent, trusted_root)
+        active = -1
+        staging = -1
+        staging_name = ""
+        staging_created = False
+        staging_info = None
+        try:
+            active_info = None
+            active_snapshot: dict[str, tuple] = {}
+            try:
+                active = os.open(
+                    path.name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=parent,
+                )
+            except FileNotFoundError:
+                active = -1
+            except OSError as error:
+                raise ValueError(
+                    f"output directory is a symlink or not a directory: {output_dir}"
+                ) from error
+            if active >= 0:
+                try:
+                    active_info = os.fstat(active)
+                    active_snapshot = directory_snapshot(active)
+                except FileNotFoundError as error:
+                    raise RuntimeError(
+                        "output directory changed during staging setup"
+                    ) from error
+                except OSError as error:
+                    raise RuntimeError(
+                        "cannot snapshot the active output directory"
+                    ) from error
+            collisions: list[str] = []
+            try:
+                for _ in range(100):
+                    candidate = f".astia-stage-{os.urandom(8).hex()}"
+                    try:
+                        os.mkdir(candidate, 0o700, dir_fd=parent)
+                    except FileExistsError:
+                        collisions.append(candidate)
+                        continue
+                    staging_name = candidate
+                    break
+                else:
+                    raise OSError("cannot allocate a staging directory")
+            except BaseException as error:
+                if collisions:
+                    preserved = ", ".join(
+                        lexical_path(path.parent, name)
+                        for name in collisions
+                    )
+                    cls._report_deferred(
+                        f"staging allocation failed; preserved pre-existing "
+                        f"paths: {preserved}: {error}"
+                    )
+                raise
+            try:
+                staging = os.open(
+                    staging_name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=parent,
+                )
+                opened_info = os.fstat(staging)
+                os.fchmod(staging, 0o700)
+                opened_info = os.fstat(staging)
+                if (
+                    not stat.S_ISDIR(opened_info.st_mode)
+                    or opened_info.st_uid != os.geteuid()
+                    or stat.S_IMODE(opened_info.st_mode) != 0o700
+                ):
+                    raise RuntimeError(
+                        "staging directory is not private and owned"
+                    )
+                named_info = os.stat(
+                    staging_name, dir_fd=parent, follow_symlinks=False
+                )
+                if (
+                    not stat.S_ISDIR(named_info.st_mode)
+                    or not same_inode(named_info, opened_info)
+                ):
+                    raise RuntimeError(
+                        "staging directory identity changed during creation"
+                    )
+                staging_info = opened_info
+                staging_created = True
+            except BaseException:
+                if staging >= 0:
+                    os.close(staging)
+                    staging = -1
+                raise
+            if active_info is not None:
+                try:
+                    os.fchown(
+                        staging,
+                        active_info.st_uid,
+                        active_info.st_gid,
+                    )
+                except OSError as error:
+                    raise ValueError(
+                        "cannot preserve output directory ownership"
+                    ) from error
+                os.fchmod(staging, stat.S_IMODE(active_info.st_mode))
+            if active >= 0:
+                replace_xattrs(active, staging, None, ".")
+                current = OutputDirectory(path, active, owns_descriptor=False)
+                owned = owned_reader(current)
+                copy_unowned_entries(active, staging, owned, manifest_name)
+            return cls(
+                path,
+                parent,
+                path.name,
+                active,
+                active_info,
+                active_snapshot,
+                staging_name,
+                staging_info,
+                staging,
+            )
+        except BaseException:
+            if staging_created and staging_info is not None:
+                if staging >= 0:
+                    removed, retained, cleanup_error = quarantine_and_remove(
+                        parent,
+                        staging_name,
+                        staging_info,
+                        staging,
+                        ".astia-clean-",
+                    )
+                    if cleanup_error is not None:
+                        cls._report_deferred(
+                            f"staging cleanup failed; retained at "
+                            f"{lexical_path(path.parent, retained)}: "
+                            f"{cleanup_error}"
+                        )
+                else:
+                    cls._report_deferred(
+                        f"staging cleanup deferred; preserved at "
+                        f"{lexical_path(path.parent, staging_name)}: "
+                        f"directory handle unavailable"
+                    )
+            if staging >= 0:
+                os.close(staging)
+            if active >= 0:
+                os.close(active)
+            os.close(parent)
+            raise
+
+    def __enter__(self) -> "TransactionalDirectory":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        if not self._committed:
+            self._remove_staging_if_owned()
+        if self._staging >= 0:
+            os.close(self._staging)
+            self._staging = -1
+        if self._active >= 0:
+            os.close(self._active)
+            self._active = -1
+        os.close(self._parent)
+
+    def _remove_staging_if_owned(self) -> None:
+        if self._staging < 0 or self._staging_info is None:
+            self._report_deferred(
+                f"staging cleanup deferred; preserved at "
+                f"{self._full_path(self._staging_name)}: "
+                f"directory handle unavailable"
+            )
+            return
+        removed, retained, error = quarantine_and_remove(
+            self._parent,
+            self._staging_name,
+            self._staging_info,
+            self._staging,
+            ".astia-clean-",
+        )
+        if error is not None:
+            self._report_deferred(
+                f"staging cleanup failed; retained at "
+                f"{self._full_path(retained)}: {error}"
+            )
+
+    def _active_matches(self) -> bool:
+        try:
+            info = os.stat(
+                self._active_name,
+                dir_fd=self._parent,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return self._active_info is None
+        return self._active_info is not None and same_inode(info, self._active_info)
+
+    def _close_active(self) -> None:
+        if self._active >= 0:
+            os.close(self._active)
+            self._active = -1
+
+    def _close_staging(self) -> None:
+        if self._staging >= 0:
+            os.close(self._staging)
+            self._staging = -1
+
+    @staticmethod
+    def _report_deferred(message: str) -> None:
+        try:
+            warnings.warn(message, RuntimeWarning)
+            return
+        except Exception:
+            pass
+        try:
+            print(f"warning: {message}", file=sys.stderr)
+        except Exception:
+            pass
+
+    def _full_path(self, name: str) -> str:
+        return lexical_path(self.path.parent, name)
+
+    def _preserve_retired(self) -> tuple[str | None, Exception | None]:
+        try:
+            retired_name = f".astia-retired-{os.urandom(8).hex()}"
+        except Exception as error:
+            return None, error
+        try:
+            rename_noreplace(self._parent, self._staging_name, retired_name)
+            return retired_name, None
+        except Exception as error:
+            return None, error
+
+    def _assert_active_unchanged(self) -> None:
+        if not self._active_matches():
+            raise RuntimeError("output directory changed during publication")
+        if self._active < 0:
+            return
+        try:
+            current_snapshot = directory_snapshot(self._active)
+        except OSError as error:
+            raise RuntimeError(
+                "output directory content changed during publication"
+            ) from error
+        if current_snapshot != self._active_snapshot:
+            raise RuntimeError(
+                "output directory content changed during publication"
+            )
+
+    def commit(self, before_activation=None) -> None:
+        self.output.sync()
+        self._assert_active_unchanged()
+        if before_activation is not None:
+            before_activation()
+        self._assert_active_unchanged()
+        if self._active_info is None:
+            rename_noreplace(self._parent, self._staging_name, self._active_name)
+            self._committed = True
+        else:
+            exchange_directories(
+                self._parent,
+                self._staging_name,
+                self._active_name,
+            )
+            self._committed = True
+            retired_unchanged = False
+            retired_error = None
+            try:
+                retired_snapshot = directory_snapshot(self._active)
+                retired_unchanged = retirement_snapshots_match(
+                    retired_snapshot, self._active_snapshot
+                )
+            except Exception as error:
+                retired_error = error
+            if retired_unchanged:
+                removed, retained, cleanup_error = quarantine_and_remove(
+                    self._parent,
+                    self._staging_name,
+                    self._active_info,
+                    self._active,
+                    ".astia-clean-",
+                )
+                if cleanup_error is not None:
+                    self._report_deferred(
+                        f"deferred cleanup: retired generation at "
+                        f"{self._full_path(retained)}: {cleanup_error}"
+                    )
+            else:
+                retained, preserve_error = self._preserve_retired()
+                retained_name = (
+                    retained if retained is not None else self._staging_name
+                )
+                retained_path = self._full_path(retained_name)
+                causes = []
+                if retired_error is not None:
+                    causes.append(str(retired_error))
+                if preserve_error is not None:
+                    causes.append(str(preserve_error))
+                message = (
+                    f"deferred cleanup: retired generation retained at "
+                    f"{retained_path}"
+                )
+                if causes:
+                    message += ": " + "; ".join(causes)
+                self._report_deferred(message)
+            try:
+                self._close_active()
+            except Exception:
+                pass
+        try:
+            self._close_staging()
+        except Exception:
+            pass
+        try:
+            os.fsync(self._parent)
+        except Exception:
+            pass
+
+
+def stale_generated_assets(manifest_text: str | None) -> set[str]:
+    if manifest_text is None:
+        return set()
+    try:
+        previous = json.loads(manifest_text)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return set()
+    pages = previous.get("pages", []) if isinstance(previous, dict) else []
+    stale: set[str] = set()
+    if isinstance(pages, list):
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            name = page.get("markdown")
+            if isinstance(name, str) and generated_syscall_asset(name):
+                stale.add(name)
+    return stale
+
+
+def export_section2(
+    export_dir: Path,
+    canonical: list[tuple[int, str]],
+    pages: dict[tuple[str, int], tuple[str, str]],
+    sources: dict[tuple[str, int], Path],
+    source_root: Path,
+    abi_header: Path,
+    raw_synopses: set[str] | None = None,
+    trusted_root: Path | None = None,
+) -> None:
+    raw_synopses = raw_synopses or set()
+    repo_root = ROOT.parent.parent
+    root = trusted_root if trusted_root is not None else repo_root
+    with TransactionalDirectory.begin(
+        export_dir,
+        root,
+        "manifest.json",
+        lambda output: stale_generated_assets(output.read_manifest("manifest.json")),
+    ) as transaction:
+        output = transaction.output
+        records = []
+        for syscall_id, name in canonical:
+            body, _ = pages[(name, 2)]
+            source = sources.get((name, 2), abi_header)
+            slug = f"syscall-{syscall_id}-{name.replace('_', '-')}"
+            markdown_name = f"{slug}.md"
+            output.write_atomic(
+                markdown_name,
+                render_syscall_markdown(name, body, 2, name in raw_synopses),
+            )
+            try:
+                source_path = source.resolve().relative_to(repo_root).as_posix()
+            except ValueError:
+                source_path = source.as_posix()
+            records.append(
+                {
+                    "id": syscall_id,
+                    "name": name,
+                    "slug": slug,
+                    "title": f"{name}(2)",
+                    "category": CATEGORY_OVERRIDES.get(
+                        name, group_for_source(source, source_root)
+                    ),
+                    "source": source_path,
+                    "markdown": markdown_name,
+                    "synopsis_kind": "raw" if name in raw_synopses else "public",
+                }
+            )
+        manifest = {"section": 2, "count": len(records), "pages": records}
+        output.write_atomic("manifest.json", json.dumps(manifest, indent=2) + "\n")
+        transaction.commit()
+
+
+def render(name: str, body: str, section: int) -> str:
+    sections = []
+    for heading, lines in body_sections(body).items():
         content = "\n".join(lines).strip()
         if not content:
             continue
         escaped = html.escape(content)
-        if heading in {"ERRORS", "RETURN VALUE"}:
-            items = [item.strip() for item in re.split(
-                r";\s*|\n\s*(?=-E[A-Z])|,\s*(?=-E[A-Z])", content
-            ) if item.strip()]
-            if heading == "ERRORS" and not any(item.startswith("-E") for item in items):
+        if heading == "ERRORS":
+            entries = error_entries(content)
+            if entries is None:
                 html_body = "<p>" + html.escape(sentence(content)) + "</p>"
-                sections.append(f"<section><h2>{html.escape(heading)}</h2>{html_body}</section>")
-                continue
-            if heading == "ERRORS":
-                items = [item.rstrip(".") + "." for item in items]
-            rendered_items = []
-            for item in items:
-                if heading == "ERRORS":
-                    match = re.match(r"(-E[A-Z0-9]+)\s*:\s*(.*)$", item)
-                    if match:
-                        code, reason = match.groups()
-                    else:
-                        code_match = re.match(r"(-E[A-Z0-9]+)\s*(.*)$", item)
-                        code = code_match.group(1) if code_match else ""
-                        reason = code_match.group(2).strip() if code_match else item
-                        reason = reason or ERROR_FALLBACKS.get(code[1:], "the operation failed")
+            else:
+                rendered_items = []
+                for code, reason in entries:
                     rendered_items.append(
                         f"<li><code>{html.escape(code)}</code>"
                         f"<ul class=\"man-list man-list--detail\"><li>"
-                        f"{html.escape(sentence(reason))}</li></ul></li>"
+                        f"{html.escape(reason)}</li></ul></li>"
                     )
-                else:
-                    rendered_items.append(f"<li>{html.escape(item)}</li>")
-            html_body = "<ul class=\"man-list\">" + "".join(rendered_items) + "</ul>"
+                html_body = "<ul class=\"man-list\">" + "".join(rendered_items) + "</ul>"
+        elif heading == "RETURN VALUE":
+            items = [
+                item.strip()
+                for item in re.split(r";\s*|\n\s*(?=-E[A-Z])|,\s*(?=-E[A-Z])", content)
+                if item.strip()
+            ]
+            rendered_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
+            html_body = "<ul class=\"man-list\">" + rendered_items + "</ul>"
         elif content.startswith("    ") or heading == "SYNOPSIS":
             html_body = "<pre>" + escaped + "</pre>"
         else:
@@ -431,9 +1872,42 @@ def render(name: str, body: str, section: int) -> str:
 <body><main class=\"surface surface__flex\">
 <article class=\"surface__level__1 surface__minor\">
 <h1>{html.escape(title)}</h1>
-<nav><a href="index.html">Astia manual index</a></nav>
+<nav><a href=\"index.html\">Astia manual index</a></nav>
 {''.join(sections)}
 </article></main></body></html>\n"""
+
+
+MAN7_MANIFEST = ".astia-man7-manifest.json"
+
+
+def read_owned_files(output: OutputDirectory) -> set[str]:
+    text = output.read_manifest(MAN7_MANIFEST)
+    if text is None:
+        return set()
+    try:
+        previous = json.loads(text)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return set()
+    files = previous.get("files") if isinstance(previous, dict) else None
+    if not isinstance(files, list):
+        return set()
+    owned: set[str] = set()
+    for name in files:
+        if not isinstance(name, str):
+            continue
+        try:
+            validated_relative_path(name)
+        except ValueError:
+            continue
+        owned.add(name)
+    return owned
+
+
+def write_man_manifest(output: OutputDirectory, files: set[str]) -> None:
+    output.write_atomic(
+        MAN7_MANIFEST,
+        json.dumps({"files": sorted(files)}, indent=2) + "\n",
+    )
 
 
 def main() -> int:
@@ -445,9 +1919,14 @@ def main() -> int:
                         help="libc source root (defaults to the repository libc directory)")
     parser.add_argument("--docs", type=Path, default=None,
                         help="architecture Markdown directory (defaults to repository docs)")
+    parser.add_argument("--abi-header", type=Path, default=None,
+                        help="public section-2 syscall ABI header")
+    parser.add_argument("--export-section2", type=Path, default=None,
+                        help="write section-2 Markdown pages and manifest.json here")
     args = parser.parse_args()
 
     pages: dict[tuple[str, int], tuple[str, str]] = {}
+    page_sources: dict[tuple[str, int], Path] = {}
     for path in sorted(args.source.rglob("*.hpp")):
         if "syscalls" not in path.parts:
             continue
@@ -457,15 +1936,19 @@ def main() -> int:
             subsystem = f"{subsystem}/{path.parent.name}"
         for name, body in comments(path.read_text()):
             pages[(name, 2)] = (body, subsystem)
+            page_sources[(name, 2)] = path
     for path in sorted(args.source.rglob("*.cpp")):
         if path.name != "syscalls.cpp":
             continue
         subsystem = path.parent.name
         for name, body, group in legacy_pages(path.read_text(), subsystem):
-            pages.setdefault((name, 2), (body, group))
+            if (name, 2) not in pages:
+                pages[(name, 2)] = (body, group)
+                page_sources[(name, 2)] = path
     for path in sorted(args.source.glob("sys/time.cpp")):
         for name, body, group in legacy_pages(path.read_text(), "sys"):
             pages.setdefault((name, 2), (body, group))
+            page_sources[(name, 2)] = path
     libc_root = args.libc_source
     if libc_root is None:
         candidate = args.source.resolve().parents[1] / "libc"
@@ -476,37 +1959,64 @@ def main() -> int:
     for name, body, group in syscall_pages():
         pages[(name, 2)] = (body, group)
 
+    abi_header = args.abi_header or args.source.parent / "include/astia/api/syscalls.h"
+    if not abi_header.exists():
+        raise SystemExit(f"missing section-2 ABI header: {abi_header}")
+    canonical = syscall_abi(abi_header)
+    source_index = build_source_index(args.source)
+    public_synopses = public_user_synopses(abi_header, libc_root)
+    for _, name in canonical:
+        key = (name, 2)
+        source = source_for(name, source_index)
+        if key not in pages:
+            effective_source = source or abi_header
+            pages[key] = (
+                fallback_body(name, public_synopses.get(name)),
+                group_for_source(effective_source, args.source),
+            )
+            page_sources[key] = effective_source
+        else:
+            page_sources.setdefault(key, source or abi_header)
+            if "System call handler for" in pages[key][0]:
+                pages[key] = (
+                    fallback_body(name, public_synopses.get(name)),
+                    pages[key][1],
+                )
+
+    raw_synopses: set[str] = set()
+    for _, name in canonical:
+        key = (name, 2)
+        synopsis = public_synopses.get(name)
+        if synopsis is None:
+            raw_synopses.add(name)
+        body, group = pages[key]
+        pages[key] = (normalize_synopsis(body, synopsis, synopsis is None), group)
+
+    repo_root = ROOT.parent.parent
+    for name, source_path in SOURCE_OVERRIDES.items():
+        key = (name, 2)
+        if key in pages:
+            page_sources[key] = repo_root / source_path
+    for name, overrides in PUBLIC_SECTION_OVERRIDES.items():
+        key = (name, 2)
+        if key not in pages:
+            continue
+        body, group = pages[key]
+        for heading, content in overrides.items():
+            body = replace_section(body, heading, content)
+        pages[key] = (body, group)
+    for name, body in PUBLIC_BODY_OVERRIDES.items():
+        key = (name, 2)
+        if key in pages:
+            pages[key] = (body, pages[key][1])
+
     docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
     overviews = overview_pages(docs_root)
 
-    args.output.mkdir(parents=True, exist_ok=True)
-    # A deployment directory is commonly reused.  Remove only generated
-    # section pages so a renamed or removed syscall cannot remain stale.
+    repo_root = ROOT.parent.parent
     expected_pages = {f"{name}.{section}.html" for name, section in pages}
-    for old_page in args.output.glob("*.[23].html"):
-        if old_page.name not in expected_pages:
-            old_page.unlink()
     expected_overviews = {f"{name}.7.html" for name, _, _ in overviews}
-    for old_page in args.output.glob("*.7.html"):
-        if old_page.name not in expected_pages and old_page.name not in expected_overviews:
-            old_page.unlink()
-    localized_output = args.output / "pl"
-    for old_page in localized_output.glob("*.7.html"):
-        if old_page.is_file():
-            old_page.unlink()
-    try:
-        localized_output.rmdir()
-    except OSError:
-        pass
-    for old_page in args.output.glob("architecture-*.html"):
-        old_page.unlink()
-    (args.output / "nodivia.css").write_text(args.css.read_text())
-    for (name, section), (body, _) in sorted(pages.items()):
-        (args.output / f"{name}.{section}.html").write_text(render(name, body, section))
-    for name, title, body in overviews:
-        (args.output / f"{name}.7.html").write_text(
-            render_overview(name, title, body)
-        )
+    current_owned = {"nodivia.css", "index.html"} | expected_pages | expected_overviews
     groups_by_section: dict[int, dict[str, dict[str, list[tuple[str, int]]]]] = {}
     for (name, section), (_, group) in pages.items():
         parts = group.split("/", 1)
@@ -558,11 +2068,42 @@ def main() -> int:
             + "</ul></section>"
         )
     grouped = "".join(grouped_parts)
-    (args.output / "index.html").write_text(
-        "<!doctype html><html><head><meta charset='utf-8'><title>Astia manual</title>"
-        "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
-        "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n"
-    )
+    with TransactionalDirectory.begin(
+        args.output,
+        repo_root,
+        MAN7_MANIFEST,
+        read_owned_files,
+    ) as transaction:
+        output = transaction.output
+        output.write_atomic("nodivia.css", args.css.read_text())
+        for (name, section), (body, _) in sorted(pages.items()):
+            output.write_atomic(
+                f"{name}.{section}.html",
+                render(name, body, section),
+            )
+        for name, title, body in overviews:
+            output.write_atomic(
+                f"{name}.7.html",
+                render_overview(name, title, body),
+            )
+        output.write_atomic(
+            "index.html",
+            "<!doctype html><html><head><meta charset='utf-8'><title>Astia manual</title>"
+            "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
+            "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n",
+        )
+        write_man_manifest(output, current_owned)
+        transaction.commit()
+    if args.export_section2 is not None:
+        export_section2(
+            args.export_section2,
+            canonical,
+            pages,
+            page_sources,
+            args.source,
+            abi_header,
+            raw_synopses,
+        )
     return 0
 
 

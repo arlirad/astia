@@ -1,0 +1,86 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.command {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.command-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.command-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.command-copy {
+  min-height: 28px;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #666;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.command-copy:hover {
+  border-color: #777;
+  background: #555;
+}
+
+.command pre {
+  overflow-x: auto;
+  margin: 0;
+  padding: 1rem;
+  background: var(--surface-0);
+}
+
+.command code {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.command-note {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border-strong);
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 560px) {
+  .command code {
+    white-space: pre-wrap;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

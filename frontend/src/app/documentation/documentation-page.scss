@@ -1,0 +1,56 @@
+:host {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+#documentation {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
+.docs-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.docs-shell .section-head {
+  flex: none;
+}
+
+app-docs-browser {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+@media (max-width: 820px) {
+  :host {
+    display: block;
+    flex: none;
+    min-height: 0;
+  }
+
+  #documentation {
+    display: block;
+    padding-bottom: 3rem;
+  }
+
+  .docs-shell {
+    display: block;
+  }
+
+  app-docs-browser {
+    display: block;
+    flex: none;
+    min-height: 0;
+  }
+}

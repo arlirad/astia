@@ -131,6 +131,64 @@ level-one heading is the page title. Inline backtick code is escaped and
 rendered as `<code>`; other inline Markdown is not interpreted. Use `--docs
 PATH` to generate from another overview-document directory.
 
+## Publication safety
+
+The generator validates that its output directory is lexically inside the
+repository root and opens every path component with directory-relative,
+no-follow operations. It stages a complete generation in a private sibling
+directory, fsyncs the staged files and manifest, then activates the tree with
+one Linux `renameat2` operation:
+
+- existing generation: `RENAME_EXCHANGE`
+- first generation: `RENAME_NOREPLACE`
+
+The active generation is not modified before activation. If staging or
+activation fails, the previous manifest and pages remain active. A final
+active-tree snapshot is checked immediately before activation. Any entry
+added or changed after staging aborts before the directory exchange. Hash
+open/read failures and entries that change type during hashing or copying
+fail closed without blocking or activating. A remaining OS-level race between
+the last snapshot and `renameat2` cannot be
+removed without a cooperative lock; if it occurs, the retired tree is
+retained as an `.astia-retired-<id>` sibling rather than deleted, preserving
+unexpected files for recovery.
+
+The retired generation is removed only after activation succeeds and its
+post-exchange snapshot still matches the snapshot taken before staging.
+Cleanup errors are deferred and do not turn a successful activation into a
+failure. Cooperating generators should run one at a time. Staging directories
+are created mode `0700`, opened and pinned immediately, and marked owned only
+after the opened FD identity matches the directory entry. Cleanup uses an
+atomic quarantine rename plus pinned-FD removal; uncertain identity preserves
+the path and reports it. Diagnostics use lexical absolute paths and never
+resolve symlinks. Staging collisions are never removed; if allocation fails
+after a collision, the pre-existing paths are reported and left untouched.
+
+Regular files are copied with owner, group, mode, ACLs, and extended
+attributes preserved. Recreated directories, FIFOs, and the staging root
+preserve owner, group, mode, and extended attributes, including POSIX ACLs.
+Destination-inherited ACLs and xattrs are cleared before source metadata is
+applied. The transaction fails closed if
+metadata cannot be read or applied.
+
+Metadata copying depends on `/proc/self/fd`. If procfs is unavailable, the
+transaction fails closed before activation. Symlink metadata is not cloned.
+Post-exchange verification, retired-name allocation, rename, or cleanup
+failures after activation emit a RuntimeWarning with the actual retained path
+(retired or existing staging) and the original cause or causes, falling back
+to stderr when warnings are configured as errors; the activation itself
+remains successful.
+
+The man7 tree and the section-2 export tree are separate per-tree
+transactions, not one invocation-wide atomic transaction. The frontend reads
+the section-2 export only after the generator process exits successfully.
+
+`renameat2` directory exchange requires Linux and a filesystem that supports
+it for sibling directories on the same filesystem, such as ext4, XFS, Btrfs,
+or tmpfs. The output directory, including its staging sibling, must remain
+inside the repository root.
+
+
 The index must never mix section 2 and section 3 links in a top-level manual
 section or subsystem group. Every section 2 page links as `<name>.2.html` and
 is titled `<name>(2)`; every section 3 page links as `<name>.3.html` and is
@@ -177,10 +235,10 @@ The Arbiter site configuration is:
 After changing documentation, verify:
 
 ```bash
-python3 tools/man/generate.py kernel/src /tmp/astia-man7 --docs docs
-grep -R "<h2>" /tmp/astia-man7/index.html
-find /tmp/astia-man7 -name '*.7.html' -print
-test "$(find /tmp/astia-man7 -maxdepth 1 -name '*.7.html' | wc -l)" -eq 7
+python3 tools/man/generate.py kernel/src dist/man7 --docs docs
+grep -R "<h2>" dist/man7/index.html
+find dist/man7 -name '*.7.html' -print
+test "$(find dist/man7 -maxdepth 1 -name '*.7.html' | wc -l)" -eq 7
 curl -fsS https://arlia.nodivia.pl/kill.html
 ```
 

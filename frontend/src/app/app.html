@@ -1,0 +1,78 @@
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="shell header-inner">
+    <a
+      class="brand"
+      routerLink="/"
+      fragment="overview"
+      aria-label="Astia overview"
+      (click)="closeMenu()"
+    >
+      <img src="img/logo64.png" alt="" width="32" height="32">
+      <span>Astia</span>
+    </a>
+
+    <button
+      type="button"
+      class="nav-toggle"
+      aria-controls="site-nav"
+      [attr.aria-expanded]="menuOpen()"
+      aria-label="Toggle navigation"
+      (click)="toggleMenu()"
+    >
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </button>
+
+    <nav
+      id="site-nav"
+      class="site-nav"
+      [class.is-open]="menuOpen()"
+      aria-label="Primary navigation"
+    >
+      @for (link of navLinks; track link.label) {
+        <a
+          [routerLink]="link.path"
+          [fragment]="link.fragment"
+          (click)="closeMenu()"
+        >
+          {{ link.label }}
+        </a>
+      }
+      <a
+        class="nav-github"
+        [href]="githubUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        (click)="closeMenu()"
+      >
+        GitHub <span aria-hidden="true">↗</span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <router-outlet />
+</main>
+
+<footer class="site-footer">
+  <div class="shell footer-grid">
+    <div>
+      <p class="footer-note">
+        Astia is under active development and is not production-ready. Projects, claims, and
+        limitations are documented in the repository.
+      </p>
+      <p class="footer-copy">© 2026 Arlirad · MIT licensed</p>
+    </div>
+    <nav class="footer-links" aria-label="Project links">
+      <a routerLink="/documentation">Documentation</a>
+      <a [href]="githubUrl" target="_blank" rel="noopener noreferrer">Source</a>
+      <a [href]="issuesUrl" target="_blank" rel="noopener noreferrer">Issues</a>
+      <a [href]="readmeUrl" target="_blank" rel="noopener noreferrer">README</a>
+      <a [href]="licenseUrl" target="_blank" rel="noopener noreferrer">License</a>
+    </nav>
+  </div>
+</footer>

@@ -1,0 +1,374 @@
+:root {
+  color-scheme: dark;
+  --bg: #222;
+  --surface-0: #111;
+  --surface-2: #333;
+  --surface-3: #444;
+  --border: #333;
+  --border-strong: #555;
+  --text: #eee;
+  --muted: #b3b3b3;
+  --heading: #edd9ef;
+  --heading-shadow-magenta: #810c8e;
+  --heading-shadow-cyan: #0c6e8b;
+  --accent: #df09f6;
+  --accent-strong: #b108c3;
+  --accent-soft: rgb(223 9 246 / 12%);
+  --cyan: #0fbcf0;
+  --cyan-strong: #0c96be;
+  --link: #99bbff;
+  --link-glow: rgb(51 119 170 / 70%);
+  --ok: #0fbcf0;
+  --danger: #f8484d;
+  --shell: 1120px;
+  --radius: 3px;
+  --font-sans: 'Noto Sans', 'Liberation Sans', Arial, Helvetica, sans-serif;
+  --font-mono: 'Noto Sans Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 80px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+app-root {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+main > app-home,
+main > app-documentation-page {
+  flex: 1;
+  min-height: 0;
+}
+
+@media (min-width: 821px) {
+  body:has(app-documentation-page) {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  body:has(app-documentation-page) app-root {
+    height: 100vh;
+  }
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: var(--link);
+}
+
+button {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--heading);
+  letter-spacing: 0;
+  text-shadow:
+    1px 1px 0 var(--heading-shadow-magenta),
+    -1px -1px 0 var(--heading-shadow-cyan);
+}
+
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
+.shell {
+  width: min(100% - clamp(2rem, 5vw, 4rem), var(--shell));
+  margin-inline: auto;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--cyan);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-shadow: none;
+  text-transform: uppercase;
+}
+
+.section {
+  padding: clamp(3rem, 6vw, 4.5rem) 0;
+}
+
+.section-alt {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-0);
+}
+
+.section-head {
+  max-width: 64ch;
+  margin-bottom: 2rem;
+}
+
+.section-head h2 {
+  margin: 0.5rem 0 1rem;
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  font-weight: 300;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.section-head p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+
+.button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 400;
+  text-align: center;
+  text-decoration: none;
+  text-shadow: none;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.button-primary {
+  border-color: var(--accent);
+  background: var(--accent-strong);
+}
+
+.button-primary:hover {
+  border-color: #f0a8fa;
+  background: var(--accent);
+}
+
+.button-secondary {
+  border-color: var(--cyan);
+  background: var(--cyan-strong);
+}
+
+.button-secondary:hover {
+  border-color: #7bdcff;
+  background: var(--cyan);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid #666;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  color: #ddd;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tag-core {
+  border-color: rgb(15 188 240 / 55%);
+  background: rgb(15 188 240 / 12%);
+  color: #9bdcff;
+}
+
+.tag-bounded {
+  border-color: #666;
+  background: var(--surface-3);
+  color: #ddd;
+}
+
+.tag-experimental {
+  border-color: rgb(223 9 246 / 55%);
+  background: var(--accent-soft);
+  color: #f0a8fa;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: -4rem;
+  left: 1rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-strong);
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+  text-shadow: none;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.doc-markdown {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.doc-markdown > :first-child {
+  margin-top: 0;
+}
+
+.doc-markdown h1,
+.doc-markdown h2,
+.doc-markdown h3 {
+  font-weight: 300;
+}
+
+.doc-markdown h1 {
+  margin: 0 0 1rem;
+  font-size: 1.75rem;
+}
+
+.doc-markdown h2 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1.25rem;
+}
+
+.doc-markdown h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.doc-markdown p,
+.doc-markdown li {
+  color: #ccc;
+  font-size: 0.9375rem;
+}
+
+.doc-markdown ul,
+.doc-markdown ol {
+  padding-left: 1.25rem;
+}
+
+.doc-markdown code {
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-0);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.doc-markdown pre {
+  overflow-x: auto;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-0);
+}
+
+.doc-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  white-space: pre;
+}
+
+.doc-markdown table {
+  width: 100%;
+  margin: 1rem 0;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.doc-markdown th,
+.doc-markdown td {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  text-align: left;
+  vertical-align: top;
+}
+
+.doc-markdown th {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.doc-markdown blockquote {
+  margin: 1rem 0;
+  padding: 0.5rem 1rem;
+  border-left: 2px solid var(--cyan);
+  background: var(--surface-0);
+  color: #ccc;
+}
+
+.doc-markdown a {
+  color: var(--link);
+}
+
+.doc-markdown hr {
+  margin: 1.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.doc-markdown img {
+  max-width: 100%;
+  height: auto;
+}
