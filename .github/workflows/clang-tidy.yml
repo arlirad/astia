@@ -37,15 +37,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            clang-${LLVM_VERSION} \
-            clang-tidy-${LLVM_VERSION} \
+            "clang-${LLVM_VERSION}" \
+            "clang-tidy-${LLVM_VERSION}" \
             cmake \
             ninja-build \
             python3
           echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
-          clang-${LLVM_VERSION} --version
-          clang-tidy-${LLVM_VERSION} --version
-          test "$(clang-tidy-${LLVM_VERSION} --version | sed -n 's/.*LLVM version \([0-9]*\).*/\1/p')" = "${LLVM_VERSION}"
+          "clang-${LLVM_VERSION}" --version
+          "clang-tidy-${LLVM_VERSION}" --version
+          test "$("clang-tidy-${LLVM_VERSION}" --version | sed -n 's/.*LLVM version \([0-9]*\).*/\1/p')" = "${LLVM_VERSION}"
 
       - name: Load trusted checker and config from base
         env:
@@ -103,8 +103,8 @@ jobs:
             -DASTIA_ENABLE_EXTERNAL_TESTS=OFF \
             -DASTIA_ENABLE_MANUAL_TESTS=OFF \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_COMPILER=clang-${LLVM_VERSION} \
-            -DCMAKE_CXX_COMPILER=clang++-${LLVM_VERSION} \
+            "-DCMAKE_C_COMPILER=clang-${LLVM_VERSION}" \
+            "-DCMAKE_CXX_COMPILER=clang++-${LLVM_VERSION}" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             2>&1 | tee build-clang-tidy/configure.log
 
