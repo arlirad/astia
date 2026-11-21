@@ -7,11 +7,11 @@
 namespace astia::io::aio::registry {
 
     extern "C" {
-    extern const descriptor __start_astia_aio_handlers[];
-    extern const descriptor __stop_astia_aio_handlers[];
+    extern const operation_descriptor __start_astia_aio_handlers[];
+    extern const operation_descriptor __stop_astia_aio_handlers[];
     }
 
-    const descriptor* entries() {
+    const operation_descriptor* entries() {
         return __start_astia_aio_handlers;
     }
 
@@ -27,7 +27,7 @@ namespace astia::io::aio::registry {
         if (sqe.op >= opcode_count)
             return ring::cq_post_guarded(ring, sqe.user_data, -ENOSYS);
         for (usize i = 0; i < size(); ++i) {
-            const descriptor& entry = entries()[i];
+            const operation_descriptor& entry = entries()[i];
             if (static_cast<u32>(entry.operation) == sqe.op)
                 return entry.invoke(slot, ring, sqe);
         }
@@ -38,7 +38,7 @@ namespace astia::io::aio::registry {
 
 namespace astia::io::aio {
 
-    bool validate_descriptors(const descriptor* entries, usize count) {
+    bool validate_descriptors(const operation_descriptor* entries, usize count) {
         return validate_manifest(entries, count);
     }
 
