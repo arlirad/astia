@@ -1205,6 +1205,126 @@ class GenerateTest(unittest.TestCase):
             self.assertIn("EIO", diagnostic)
             shutil.rmtree(retired[0])
 
+    def test_post_exchange_urandom_failure_reports_staging_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            real_snapshot = generate.directory_snapshot
+            real_urandom = generate.os.urandom
+            calls = 0
+            failing = False
+            stderr = io.StringIO()
+
+            def fail_retirement_snapshot(directory, prefix=""):
+                nonlocal calls
+                calls += 1
+                if calls == 4:
+                    raise RuntimeError(
+                        "cannot read active output file for hashing: index.html: EIO"
+                    )
+                return real_snapshot(directory, prefix)
+
+            def fail_urandom(size):
+                if failing:
+                    raise OSError("urandom EIO")
+                return real_urandom(size)
+
+            def start_failing():
+                nonlocal failing
+                failing = True
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                with redirect_stderr(stderr):
+                    with patch.object(
+                        generate,
+                        "directory_snapshot",
+                        side_effect=fail_retirement_snapshot,
+                    ), patch.object(
+                        generate.os, "urandom", side_effect=fail_urandom
+                    ):
+                        with generate.TransactionalDirectory.begin(
+                            output,
+                            root,
+                            generate.MAN7_MANIFEST,
+                            generate.read_owned_files,
+                        ) as transaction:
+                            transaction.output.write_atomic("index.html", "new index")
+                            generate.write_man_manifest(
+                                transaction.output, {"index.html"}
+                            )
+                            transaction.commit(before_activation=start_failing)
+
+            self.assertEqual((output / "index.html").read_text(), "new index")
+            staged = [
+                path for path in root.iterdir() if path.name.startswith(".astia-stage-")
+            ]
+            retired = [
+                path for path in root.iterdir() if path.name.startswith(".astia-retired-")
+            ]
+            self.assertEqual(len(staged), 1)
+            self.assertEqual(retired, [])
+            self.assertEqual((staged[0] / "index.html").read_text(), "old index")
+            diagnostic = stderr.getvalue()
+            self.assertIn(staged[0].name, diagnostic)
+            self.assertIn("EIO", diagnostic)
+            self.assertIn("urandom EIO", diagnostic)
+            shutil.rmtree(staged[0])
+
+    def test_urandom_failure_alone_reports_staging_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            real_urandom = generate.os.urandom
+            failing = False
+            stderr = io.StringIO()
+
+            def fail_urandom(size):
+                if failing:
+                    raise OSError("urandom EIO")
+                return real_urandom(size)
+
+            def start_failing():
+                nonlocal failing
+                failing = True
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                with redirect_stderr(stderr):
+                    with patch.object(
+                        generate,
+                        "retirement_snapshots_match",
+                        return_value=False,
+                    ), patch.object(
+                        generate.os, "urandom", side_effect=fail_urandom
+                    ):
+                        with generate.TransactionalDirectory.begin(
+                            output,
+                            root,
+                            generate.MAN7_MANIFEST,
+                            generate.read_owned_files,
+                        ) as transaction:
+                            transaction.output.write_atomic("index.html", "new index")
+                            generate.write_man_manifest(
+                                transaction.output, {"index.html"}
+                            )
+                            transaction.commit(before_activation=start_failing)
+
+            self.assertEqual((output / "index.html").read_text(), "new index")
+            staged = [
+                path for path in root.iterdir() if path.name.startswith(".astia-stage-")
+            ]
+            retired = [
+                path for path in root.iterdir() if path.name.startswith(".astia-retired-")
+            ]
+            self.assertEqual(len(staged), 1)
+            self.assertEqual(retired, [])
+            self.assertEqual((staged[0] / "index.html").read_text(), "old index")
+            diagnostic = stderr.getvalue()
+            self.assertIn(staged[0].name, diagnostic)
+            self.assertIn("urandom EIO", diagnostic)
+            shutil.rmtree(staged[0])
+
     def test_transaction_succeeds_when_warnings_are_errors(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

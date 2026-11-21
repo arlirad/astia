@@ -1505,17 +1505,16 @@ class TransactionalDirectory:
         except Exception:
             pass
 
-    def _preserve_retired(self) -> str:
-        retired_name = f".astia-retired-{os.urandom(8).hex()}"
+    def _preserve_retired(self) -> tuple[str | None, Exception | None]:
+        try:
+            retired_name = f".astia-retired-{os.urandom(8).hex()}"
+        except Exception as error:
+            return None, error
         try:
             rename_noreplace(self._parent, self._staging_name, retired_name)
-            return retired_name
-        except OSError as error:
-            self._report_deferred(
-                f"deferred cleanup: could not rename retired generation "
-                f"{self._staging_name}: {error}"
-            )
-            return self._staging_name
+            return retired_name, None
+        except Exception as error:
+            return None, error
 
     def _assert_active_unchanged(self) -> None:
         if not self._active_matches():
@@ -1579,15 +1578,22 @@ class TransactionalDirectory:
                         f"{self._staging_name}: {error}"
                     )
             else:
-                retained = self._preserve_retired()
-                if retired_error is not None:
-                    self._report_deferred(
-                        f"deferred cleanup: could not verify retired generation "
-                        f"{self._staging_name}: {retired_error}"
-                    )
-                self._report_deferred(
-                    f"retired generation retained at {retained}"
+                retained, preserve_error = self._preserve_retired()
+                retained_path = (
+                    retained if retained is not None else self._staging_name
                 )
+                causes = []
+                if retired_error is not None:
+                    causes.append(str(retired_error))
+                if preserve_error is not None:
+                    causes.append(str(preserve_error))
+                message = (
+                    f"deferred cleanup: retired generation retained at "
+                    f"{retained_path}"
+                )
+                if causes:
+                    message += ": " + "; ".join(causes)
+                self._report_deferred(message)
         try:
             os.fsync(self._parent)
         except Exception:
