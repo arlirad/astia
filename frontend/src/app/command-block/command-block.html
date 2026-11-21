@@ -1,0 +1,22 @@
+<div class="command">
+  <div class="command-head">
+    <span class="command-label">{{ label() }}</span>
+    <button
+      type="button"
+      class="command-copy"
+      [attr.aria-label]="'Copy command: ' + label()"
+      (click)="copy()"
+    >
+      {{ copied() ? 'Copied' : 'Copy' }}
+    </button>
+  </div>
+  <pre><code>{{ code() }}</code></pre>
+  @if (note()) {
+    <p class="command-note">{{ note() }}</p>
+  }
+  <span class="visually-hidden" aria-live="polite">
+    @if (copied()) {
+      Command copied to clipboard.
+    }
+  </span>
+</div>
