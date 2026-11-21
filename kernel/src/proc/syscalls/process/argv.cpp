@@ -1,9 +1,10 @@
 #include "argv.hpp"
 
-#include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/mm/heap.hpp>
-namespace astia::proc::syscall::detail {
+
+#include "user_mem.hpp"
+namespace astia::proc::syscalls::detail {
     argument_staging::~argument_staging() {
         mm::heap::free(_storage);
     }

@@ -14,18 +14,8 @@
 #include "../../scheduler.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-namespace astia::proc::syscall {
 
-    i64 thread_detach(u32 tid) {
-        auto* owner = current_process();
-        if (owner == nullptr) {
-            return -ESRCH;
-        }
-        auto target = owner->thread_by_tid(tid);
-        return target ? target->detach() : -ESRCH;
-    }
-}
-
+#include <syscall.hpp>
 namespace astia::proc::syscalls {
 
     /// thread_detach - Detach a user thread.
@@ -47,7 +37,13 @@ namespace astia::proc::syscalls {
         : sys::syscall_handler<thread_detach, sys::syscall_id::thread_detach,
                                sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::thread_detach>(context);
+            u32   tid   = static_cast<u32>(context.arguments[0]);
+            auto* owner = current_process();
+            if (owner == nullptr) {
+                return -ESRCH;
+            }
+            auto target = owner->thread_by_tid(tid);
+            return target ? target->detach() : -ESRCH;
         }
     };
 

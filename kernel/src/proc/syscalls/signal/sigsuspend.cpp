@@ -9,46 +9,7 @@
 #include "syscall.hpp"
 #include "user_mem.hpp"
 
-namespace astia::proc::syscall {
-
-    i64 sigsuspend(u64 mask_ptr) {
-        auto* self  = current_thread();
-        auto* owner = current_process();
-        if (owner == nullptr || self == nullptr)
-            return -ESRCH;
-        const auto range = sys::user_ptr<u32>(mask_ptr).validate();
-        if (!range)
-            return -EFAULT;
-        signal_mask mask = 0;
-        if (!sys::copy_in(&mask, range.value.bytes()))
-            return -EFAULT;
-        // Match waitpid's register-before-scan protocol.  Interrupts stay
-        // masked until either a pending signal is observed or this thread
-        // is blocked, so delivery cannot fall between the check and the
-        // waiter registration.
-        arch::cpu::nointerrupts();
-        const signal_mask previous_mask = self->signals().blocked();
-        self->signals().set_blocked(mask);
-        if (!owner->add_signal_waiter(self)) {
-            self->signals().set_blocked(previous_mask);
-            arch::cpu::interrupts();
-            return -EAGAIN;
-        }
-        while (!self->signals().has_unblocked_pending() &&
-               !owner->signals().has_pending_for(~self->signals().blocked())) {
-            if (owner->block_signal_waiter(self))
-                scheduler::yield();
-        }
-        owner->remove_signal_waiter(self);
-        // POSIX sigsuspend changes the mask only for the sleep.  Leaving
-        // the temporary mask installed loses SIGCHLD after zsh returns
-        // from its native signal wait and makes the next job reap hang.
-        self->signal_restore_mask(previous_mask);
-        arch::cpu::interrupts();
-        return -EINTR;
-    }
-
-} // namespace astia::proc::syscall
+#include <syscall.hpp>
 
 namespace astia::proc::syscalls {
 
@@ -64,7 +25,41 @@ namespace astia::proc::syscalls {
     struct sigsuspend : sys::syscall_handler<sigsuspend, sys::syscall_id::sigsuspend,
                                              sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::sigsuspend>(context);
+            u64   mask_ptr = static_cast<u64>(context.arguments[0]);
+            auto* self     = current_thread();
+            auto* owner    = current_process();
+            if (owner == nullptr || self == nullptr)
+                return -ESRCH;
+            const auto range = sys::user_ptr<u32>(mask_ptr).validate();
+            if (!range)
+                return -EFAULT;
+            signal_mask mask = 0;
+            if (!sys::copy_in(&mask, range.value.bytes()))
+                return -EFAULT;
+            // Match waitpid's register-before-scan protocol.  Interrupts stay
+            // masked until either a pending signal is observed or this thread
+            // is blocked, so delivery cannot fall between the check and the
+            // waiter registration.
+            arch::cpu::nointerrupts();
+            const signal_mask previous_mask = self->signals().blocked();
+            self->signals().set_blocked(mask);
+            if (!owner->add_signal_waiter(self)) {
+                self->signals().set_blocked(previous_mask);
+                arch::cpu::interrupts();
+                return -EAGAIN;
+            }
+            while (!self->signals().has_unblocked_pending() &&
+                   !owner->signals().has_pending_for(~self->signals().blocked())) {
+                if (owner->block_signal_waiter(self))
+                    scheduler::yield();
+            }
+            owner->remove_signal_waiter(self);
+            // POSIX sigsuspend changes the mask only for the sleep.  Leaving
+            // the temporary mask installed loses SIGCHLD after zsh returns
+            // from its native signal wait and makes the next job reap hang.
+            self->signal_restore_mask(previous_mask);
+            arch::cpu::interrupts();
+            return -EINTR;
         }
     };
 

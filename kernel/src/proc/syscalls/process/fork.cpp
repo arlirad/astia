@@ -14,12 +14,8 @@
 #include "../../scheduler.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-namespace astia::proc::syscall {
-    i64 fork(const arch::syscall_frame& frame) {
-        return proc::fork(arch::caller_image(frame));
-    }
-}
 
+#include <syscall.hpp>
 namespace astia::proc::syscalls {
 
     /// fork - Create a copy-on-write child process.
@@ -40,7 +36,8 @@ namespace astia::proc::syscalls {
     struct fork
         : sys::syscall_handler<fork, sys::syscall_id::fork, sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::fork>(context);
+            const arch::syscall_frame& frame = context.frame;
+            return proc::fork(arch::caller_image(frame));
         }
     };
 

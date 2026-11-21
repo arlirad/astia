@@ -10,8 +10,7 @@
 #include "argv.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-namespace astia::proc::syscall {
-    using namespace detail;
+namespace astia::proc::syscalls::detail {
 
     namespace {
         struct spawn_continuation {
@@ -126,7 +125,10 @@ namespace astia::proc::syscalls {
     struct spawnve : sys::syscall_handler<spawnve, sys::syscall_id::spawnve,
                                           sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::spawnve>(context);
+            return ::astia::proc::syscalls::detail::spawnve(
+                static_cast<u64>(context.arguments[0]),
+                static_cast<u64>(context.arguments[1]),
+                static_cast<u64>(context.arguments[2]));
         }
     };
 

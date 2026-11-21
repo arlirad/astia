@@ -15,24 +15,8 @@
 #include "syscall.hpp"
 #include "thread_create_common.hpp"
 #include "user_mem.hpp"
-namespace astia::proc::syscall {
 
-    i64 thread_create2(u64 entry, u64 stack_top, u64 argument0, u64 argument1,
-                       u64 stack_base, u64 stack_size) {
-        auto* owner = current_process();
-        if (owner == nullptr || !valid_thread_start(entry, stack_top) ||
-            !sys::user_ptr<u8>(argument0).validate() ||
-            (argument1 != 0 && !sys::user_ptr<u8>(argument1).validate()) ||
-            ((stack_base != 0 || stack_size != 0) &&
-             !valid_thread_stack_metadata(stack_base, stack_size, stack_top))) {
-            return -EFAULT;
-        }
-        auto value = owner->create_thread(entry, stack_top, argument0, argument1, false,
-                                          stack_base, static_cast<usize>(stack_size));
-        return value ? static_cast<i64>(value->tid()) : -EAGAIN;
-    }
-}
-
+#include <syscall.hpp>
 namespace astia::proc::syscalls {
 
     /// thread_create2 - Create a user thread with two arguments.
@@ -56,7 +40,25 @@ namespace astia::proc::syscalls {
         : sys::syscall_handler<thread_create2, sys::syscall_id::thread_create2,
                                sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::thread_create2>(context);
+            u64   entry      = static_cast<u64>(context.arguments[0]);
+            u64   stack_top  = static_cast<u64>(context.arguments[1]);
+            u64   argument0  = static_cast<u64>(context.arguments[2]);
+            u64   argument1  = static_cast<u64>(context.arguments[3]);
+            u64   stack_base = static_cast<u64>(context.arguments[4]);
+            u64   stack_size = static_cast<u64>(context.arguments[5]);
+            auto* owner      = current_process();
+            if (owner == nullptr || !detail::valid_thread_start(entry, stack_top) ||
+                !sys::user_ptr<u8>(argument0).validate() ||
+                (argument1 != 0 && !sys::user_ptr<u8>(argument1).validate()) ||
+                ((stack_base != 0 || stack_size != 0) &&
+                 !detail::valid_thread_stack_metadata(stack_base, stack_size,
+                                                      stack_top))) {
+                return -EFAULT;
+            }
+            auto value =
+                owner->create_thread(entry, stack_top, argument0, argument1, false,
+                                     stack_base, static_cast<usize>(stack_size));
+            return value ? static_cast<i64>(value->tid()) : -EAGAIN;
         }
     };
 

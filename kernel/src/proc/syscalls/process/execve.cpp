@@ -16,8 +16,7 @@
 #include "argv.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-namespace astia::proc::syscall {
-    using namespace detail;
+namespace astia::proc::syscalls::detail {
 
     namespace {
         struct exec_continuation {
@@ -148,7 +147,7 @@ namespace astia::proc::syscalls {
     struct execve
         : sys::syscall_handler<execve, sys::syscall_id::execve, sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::execve>(context);
+            return ::astia::proc::syscalls::detail::execve(context.frame);
         }
     };
 

@@ -1,12 +1,16 @@
-#include "credentials.hpp"
+#include <astia/api/errno.h>
+
+#include "../../proc.hpp"
+#include "user_mem.hpp"
 
 #include <syscall.hpp>
 
 namespace astia::proc::syscalls {
     struct getegid : sys::syscall_handler<getegid, sys::syscall_id::getegid,
                                           sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::getegid>(context);
+        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+            auto* p = current_process();
+            return p ? p->egid() : -ESRCH;
         }
     };
 

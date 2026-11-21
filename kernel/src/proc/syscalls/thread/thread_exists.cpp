@@ -4,24 +4,17 @@
 
 #include <syscall.hpp>
 
-namespace astia::proc::syscall {
-
-    i64 thread_exists(u32 tid) {
-        auto* owner = current_process();
-        if (owner == nullptr)
-            return -ESRCH;
-        auto target = owner->thread_by_tid(tid);
-        return !target || target->state() == thread_state::dead ? -ESRCH : 0;
-    }
-
-}
-
 namespace astia::proc::syscalls {
     struct thread_exists
         : sys::syscall_handler<thread_exists, sys::syscall_id::thread_exists,
                                sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::proc::syscall::thread_exists>(context);
+            u32   tid   = static_cast<u32>(context.arguments[0]);
+            auto* owner = current_process();
+            if (owner == nullptr)
+                return -ESRCH;
+            auto target = owner->thread_by_tid(tid);
+            return !target || target->state() == thread_state::dead ? -ESRCH : 0;
         }
     };
 
