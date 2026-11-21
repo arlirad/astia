@@ -74,6 +74,11 @@ def check_production_layout(repository: Path) -> None:
         if "invoke_sync<" in path.read_text()
     }
     assert invoke_sync_files == set()
+    assert not any(
+        "invoke_sync" in path.read_text()
+        for pattern in ("*.cpp", "*.hpp")
+        for path in source.rglob(pattern)
+    )
     direct_handler = (source / "proc/syscalls/getpid.cpp").read_text()
     assert "raw_id(process->pid())" in direct_handler
     for path in source.rglob("*.cpp"):
