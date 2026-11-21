@@ -133,10 +133,13 @@ astia_add_host_test(astia_ownership_test ownership_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 target_compile_definitions(astia_signal_test PRIVATE ASTIA_SIGNAL_HOST_TEST=1)
 astia_add_host_test(astia_aio_test aio_test.cpp)
+file(GLOB ASTIA_AIO_OPERATION_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/operations/*.cpp)
 astia_add_host_test(astia_aio_static_handlers_test
         aio_static_handlers_test.cpp
         aio_registry_test_support.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
+        ${ASTIA_AIO_OPERATION_TEST_SOURCES})
 astia_add_host_test(astia_aio_filesystem_test aio_filesystem_test.cpp)
 astia_add_host_test(astia_aio_readiness_test aio_readiness_test.cpp)
 astia_add_host_test(astia_aio_socket_test aio_socket_test.cpp)
