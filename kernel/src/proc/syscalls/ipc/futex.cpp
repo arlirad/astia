@@ -46,7 +46,7 @@ namespace astia::proc::syscalls {
     ///     -ETIMEDOUT: The absolute CLOCK_MONOTONIC timeout elapsed.
     struct futex
         : sys::syscall_handler<futex, sys::syscall_id::futex, sys::syscall_mode::sync> {
-        static i64 invoke(u64 address, u32 op, u32 expected, u64 timeout) {
+        static i64 invoke(sys::user_ptr<u32> address, u32 op, u32 expected, u64 timeout) {
             const bool cancellation_point = (op & ipc::futex_cancelable_bit) != 0;
             auto       operation          = mapper<ipc::futex_operation>::from(
                 op & ~(ipc::futex_private_bit | ipc::futex_cancelable_bit));
@@ -54,13 +54,13 @@ namespace astia::proc::syscalls {
                 return -EINVAL;
             const bool shared = (op & ipc::futex_private_bit) == 0;
             if (operation.value == ipc::futex_operation::wait) {
-                return proc::futex_wait(address, expected, timeout, cancellation_point,
-                                        shared);
+                return proc::futex_wait(address.address(), expected, timeout,
+                                        cancellation_point, shared);
             }
             if (operation.value == ipc::futex_operation::wake) {
                 if (timeout != 0)
                     return -EINVAL;
-                return proc::futex_wake(address, expected, shared);
+                return proc::futex_wake(address.address(), expected, shared);
             }
             return -EINVAL;
         }

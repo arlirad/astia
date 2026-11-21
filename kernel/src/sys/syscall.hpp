@@ -149,6 +149,20 @@ namespace astia::sys {
             using type = index_sequence<I...>;
         };
 
+        /// Decode one ABI register into a handler parameter.  The primary
+        /// template covers scalar widths; semantic argument types specialize
+        /// it (see user_mem.hpp for validated user pointers).
+        template <typename T>
+        struct argument_decoder {
+            static bool valid([[maybe_unused]] i64 raw) {
+                return true;
+            }
+
+            static T decode(i64 raw) {
+                return static_cast<T>(raw);
+            }
+        };
+
         template <typename T>
         struct is_frame_argument : std::false_type {};
 
@@ -170,6 +184,11 @@ namespace astia::sys {
             : std::bool_constant<(
                   !std::is_same_v<std::remove_cvref_t<Args>, syscall_context> && ...)> {};
 
+        template <typename... Args, usize... I>
+        bool valid_arguments(const syscall_context& context, index_sequence<I...>) {
+            return (argument_decoder<Args>::valid(context.arguments[I]) && ...);
+        }
+
         template <typename Fn>
         struct frame_invoker;
 
@@ -177,8 +196,11 @@ namespace astia::sys {
         struct frame_invoker<R (*)(const arch::syscall_frame&, Args...)> {
             static i64 call(R (*function)(const arch::syscall_frame&, Args...),
                             syscall_context& context) {
-                return call_rest(function, context,
-                                 typename make_index_sequence<sizeof...(Args)>::type{});
+                const auto indices =
+                    typename make_index_sequence<sizeof...(Args)>::type{};
+                if (!valid_arguments<Args...>(context, indices))
+                    return -EFAULT;
+                return call_rest(function, context, indices);
             }
 
             private:
@@ -186,7 +208,8 @@ namespace astia::sys {
             static i64 call_rest(R (*function)(const arch::syscall_frame&, Args...),
                                  syscall_context& context, index_sequence<I...>) {
                 return static_cast<i64>(
-                    function(context.frame, static_cast<Args>(context.arguments[I])...));
+                    function(context.frame,
+                             argument_decoder<Args>::decode(context.arguments[I])...));
             }
         };
 
@@ -205,9 +228,11 @@ namespace astia::sys {
                     return frame_invoker<R (*)(Args...)>::call(function, context);
                 }
                 else {
-                    return call_arguments(
-                        function, context,
-                        typename make_index_sequence<sizeof...(Args)>::type{});
+                    const auto indices =
+                        typename make_index_sequence<sizeof...(Args)>::type{};
+                    if (!valid_arguments<Args...>(context, indices))
+                        return -EFAULT;
+                    return call_arguments(function, context, indices);
                 }
             }
 
@@ -216,7 +241,7 @@ namespace astia::sys {
             static i64 call_arguments(R (*function)(Args...), syscall_context& context,
                                       index_sequence<I...>) {
                 return static_cast<i64>(
-                    function(static_cast<Args>(context.arguments[I])...));
+                    function(argument_decoder<Args>::decode(context.arguments[I])...));
             }
         };
 

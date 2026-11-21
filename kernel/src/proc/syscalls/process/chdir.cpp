@@ -19,13 +19,12 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct chdir
         : sys::syscall_handler<chdir, sys::syscall_id::chdir, sys::syscall_mode::sync> {
-        static i64 invoke(u64 path) {
+        static i64 invoke(sys::user_ptr<char> path) {
             auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
             char copy[fs::path_max]{};
-            if (!sys::copy_in_string(span<char>(copy, sizeof copy),
-                                     sys::user_ptr<char>(path)))
+            if (!sys::copy_in_string(span<char>(copy, sizeof copy), path))
                 return -EFAULT;
             return owner->change_directory(copy);
         }

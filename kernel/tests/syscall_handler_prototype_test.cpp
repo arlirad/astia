@@ -2,7 +2,17 @@
 #include <astia/core/completion.hpp>
 
 #include "support/test.hpp"
-#include "syscall.hpp"
+
+#ifdef RENAME_NOREPLACE
+#undef RENAME_NOREPLACE
+#endif
+#ifdef RENAME_EXCHANGE
+#undef RENAME_EXCHANGE
+#endif
+
+#include "user_mem.hpp"
+
+#include <syscall.hpp>
 
 namespace astia::net::syscalls {
     extern const astia::sys::syscall_descriptor accept_descriptor;
@@ -42,8 +52,8 @@ namespace {
         : astia::sys::syscall_handler<pointer_probe,
                                       static_cast<astia::sys::syscall_id>(122),
                                       astia::sys::syscall_mode::sync> {
-        static astia::i64 invoke(astia::u64 address) {
-            return static_cast<astia::i64>(address);
+        static astia::i64 invoke(astia::sys::user_ptr<astia::u8> address) {
+            return address.null() ? -EFAULT : static_cast<astia::i64>(address.address());
         }
     };
 
@@ -111,7 +121,8 @@ ASTIA_TEST(syscall_mode_specializations_dispatch_sync_and_async_handlers) {
 ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi) {
     ASTIA_CHECK(zero_probe::invoke() == 7);
     ASTIA_CHECK(scalar_probe::invoke(-7, 1) == -6);
-    ASTIA_CHECK(pointer_probe::invoke(0x00007fff12345678ull) == 0x00007fff12345678ll);
+    ASTIA_CHECK(pointer_probe::invoke(astia::sys::user_ptr<astia::u8>(
+                    0x00007fff12345678ull)) == 0x00007fff12345678ll);
     ASTIA_CHECK(wide_probe::invoke(0x8000000000001234ull) ==
                 static_cast<astia::i64>(0x8000000000001234ull));
 
@@ -143,6 +154,13 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
     ASTIA_CHECK(astia::sys::dispatch_async<pointer_probe>(
         pointer_context.id, pointer_context, pointer_result));
     ASTIA_CHECK(pointer_result.await_resume().value == 0x00007fff12345678ll);
+
+    astia::sys::syscall_context null_pointer_context{
+        static_cast<astia::sys::syscall_id>(122), {0, 0, 0, 0, 0, 0}, frame, {}, {}};
+    astia::core::completion<astia::i64> null_pointer_result;
+    ASTIA_CHECK(astia::sys::dispatch_async<pointer_probe>(
+        null_pointer_context.id, null_pointer_context, null_pointer_result));
+    ASTIA_CHECK(null_pointer_result.await_resume().value == -EFAULT);
 
     astia::sys::syscall_context wide_context{
         static_cast<astia::sys::syscall_id>(123),

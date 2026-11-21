@@ -11,15 +11,15 @@ namespace astia::sys::syscalls {
     struct clock_getres
         : sys::syscall_handler<clock_getres, sys::syscall_id::clock_getres,
                                sys::syscall_mode::sync> {
-        static i64 invoke(i32 clock_id, u64 out) {
+        static i64 invoke(i32 clock_id, sys::user_ptr<astia_timespec> out) {
             if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
                 return -EINVAL;
             const u32 hz = arch::timer_hz();
             if (hz == 0)
                 return -EIO;
-            if (out == 0)
+            if (out.null())
                 return 0;
-            const auto ts_out = sys::user_ptr<astia_timespec>(out).validate();
+            const auto ts_out = out.validate();
             if (!ts_out)
                 return -EFAULT;
             const u64            nsec = (nanoseconds_per_second + hz - 1) / hz;

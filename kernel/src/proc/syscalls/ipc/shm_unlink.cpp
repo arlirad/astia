@@ -9,7 +9,7 @@
 namespace astia::proc::syscalls {
     struct shm_unlink : sys::syscall_handler<shm_unlink, sys::syscall_id::shm_unlink,
                                              sys::syscall_mode::sync> {
-        static i64 invoke(unsigned long address) {
+        static i64 invoke(sys::user_ptr<char> address) {
             auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;

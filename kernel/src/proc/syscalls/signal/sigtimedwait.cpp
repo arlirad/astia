@@ -35,13 +35,15 @@ namespace astia::proc::syscalls {
     struct sigtimedwait
         : sys::syscall_handler<sigtimedwait, sys::syscall_id::sigtimedwait,
                                sys::syscall_mode::sync> {
-        static i64 invoke(u64 set_ptr, u64 info_ptr, u64 timeout_ptr) {
+        static i64 invoke(sys::user_ptr<u32>             set_ptr,
+                          sys::user_ptr<astia_siginfo_t> info_ptr,
+                          sys::user_ptr<astia_timespec>  timeout_ptr) {
             auto* owner = current_process();
             auto* self  = current_thread();
             if (owner == nullptr || self == nullptr)
                 return -ESRCH;
 
-            const auto set_range = sys::user_ptr<u32>(set_ptr).validate();
+            const auto set_range = set_ptr.validate();
             if (!set_range)
                 return -EFAULT;
             signal_mask mask = 0;
@@ -49,18 +51,17 @@ namespace astia::proc::syscalls {
                 return -EFAULT;
 
             optional<sys::validated_user_ptr<astia_siginfo_t>> info_range;
-            if (info_ptr != 0) {
-                info_range = sys::user_ptr<astia_siginfo_t>(info_ptr).validate();
+            if (!info_ptr.null()) {
+                info_range = info_ptr.validate();
                 if (!info_range)
                     return -EFAULT;
             }
 
-            const bool     timed = timeout_ptr != 0;
+            const bool     timed = !timeout_ptr.null();
             astia_timespec timeout{};
             u64            deadline = 0;
             if (timed) {
-                const auto timeout_range =
-                    sys::user_ptr<astia_timespec>(timeout_ptr).validate();
+                const auto timeout_range = timeout_ptr.validate();
                 if (!timeout_range ||
                     !sys::copy_in(&timeout, timeout_range.value.bytes()))
                     return -EFAULT;

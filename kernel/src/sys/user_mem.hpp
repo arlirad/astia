@@ -1,6 +1,5 @@
 #pragma once
 
-#include "proc.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/layout.hpp>
 #include <astia/common.hpp>
@@ -9,6 +8,9 @@
 #include <astia/mm/iovec.hpp>
 #include <astia/optional.hpp>
 #include <astia/span.hpp>
+
+#include "proc.hpp"
+#include "syscall.hpp"
 
 /*
  * User-pointer hygiene for the syscall boundary.
@@ -120,6 +122,9 @@ namespace astia::sys {
 
         public:
         constexpr validated_user_ptr() = default;
+        constexpr u64 address() const {
+            return address_;
+        }
         T* get() const {
             return reinterpret_cast<T*>(address_);
         }
@@ -277,6 +282,20 @@ namespace astia::sys {
             return error_t::efault;
         return validated_user_ptr<T>(address_);
     }
+
+    namespace detail {
+        template <typename T>
+        struct argument_decoder<user_ptr<T>> {
+            static bool valid([[maybe_unused]] i64 raw) {
+                return true;
+            }
+
+            static user_ptr<T> decode(i64 raw) {
+                return user_ptr<T>(static_cast<u64>(raw));
+            }
+        };
+
+    } // namespace detail
 
     template <typename T>
     optional<validated_user_span<T>> user_span<T>::validate() const {
@@ -458,6 +477,10 @@ namespace astia::sys {
 
     inline bool copy_in_string(span<char> destination, user_ptr<char> source) {
         return copy_in_string(destination, source.string());
+    }
+
+    inline bool copy_in_string(span<char> destination, validated_user_ptr<char> source) {
+        return copy_in_string(destination, user_ptr<char>(source.address()));
     }
 
 } // namespace astia::sys

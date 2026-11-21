@@ -39,20 +39,21 @@ namespace astia::proc::syscalls {
     struct thread_create2
         : sys::syscall_handler<thread_create2, sys::syscall_id::thread_create2,
                                sys::syscall_mode::sync> {
-        static i64 invoke(u64 entry, u64 stack_top, u64 argument0, u64 argument1,
-                          u64 stack_base, u64 stack_size) {
+        static i64 invoke(sys::user_ptr<u8> entry, u64 stack_top,
+                          sys::user_ptr<u8> argument0, sys::user_ptr<u8> argument1,
+                          sys::user_ptr<u8> stack_base, u64 stack_size) {
             auto* owner = current_process();
-            if (owner == nullptr || !detail::valid_thread_start(entry, stack_top) ||
-                !sys::user_ptr<u8>(argument0).validate() ||
-                (argument1 != 0 && !sys::user_ptr<u8>(argument1).validate()) ||
-                ((stack_base != 0 || stack_size != 0) &&
-                 !detail::valid_thread_stack_metadata(stack_base, stack_size,
+            if (owner == nullptr ||
+                !detail::valid_thread_start(entry.address(), stack_top) ||
+                !argument0.validate() || (!argument1.null() && !argument1.validate()) ||
+                ((!stack_base.null() || stack_size != 0) &&
+                 !detail::valid_thread_stack_metadata(stack_base.address(), stack_size,
                                                       stack_top))) {
                 return -EFAULT;
             }
-            auto value =
-                owner->create_thread(entry, stack_top, argument0, argument1, false,
-                                     stack_base, static_cast<usize>(stack_size));
+            auto value = owner->create_thread(
+                entry.address(), stack_top, argument0.address(), argument1.address(),
+                false, stack_base.address(), static_cast<usize>(stack_size));
             return value ? static_cast<i64>(value->tid()) : -EAGAIN;
         }
     };

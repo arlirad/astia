@@ -38,7 +38,8 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct sigaction : sys::syscall_handler<sigaction, sys::syscall_id::sigaction,
                                             sys::syscall_mode::sync> {
-        static i64 invoke(i32 value, u64 next_ptr, u64 old_ptr) {
+        static i64 invoke(i32 value, sys::user_ptr<struct astia_sigaction> next_ptr,
+                          sys::user_ptr<struct astia_sigaction> old_ptr) {
             auto mapped_signal = mapper<signal_number>::from(value);
             if (!mapped_signal || !valid_signal(mapped_signal.value))
                 return -EINVAL;
@@ -53,9 +54,8 @@ namespace astia::proc::syscalls {
             // a bad old pointer, this keeps a failed change from having any
             // observable output or state effect.
             signal_disposition next_disposition{};
-            if (next_ptr != 0) {
-                const auto next_range =
-                    sys::user_ptr<struct astia_sigaction>(next_ptr).validate();
+            if (!next_ptr.null()) {
+                const auto             next_range = next_ptr.validate();
                 struct astia_sigaction next {};
                 if (!next_range || !sys::copy_in(&next, next_range.value.bytes())) {
                     return -EFAULT;
@@ -79,9 +79,8 @@ namespace astia::proc::syscalls {
             }
 
             const auto old = owner->signals().disposition(signal);
-            if (old_ptr != 0) {
-                const auto old_range =
-                    sys::user_ptr<struct astia_sigaction>(old_ptr).validate();
+            if (!old_ptr.null()) {
+                const auto             old_range = old_ptr.validate();
                 struct astia_sigaction out {};
                 out.handler  = user_handler_value(old);
                 out.mask     = old.mask;
@@ -91,7 +90,7 @@ namespace astia::proc::syscalls {
                     return -EFAULT;
                 }
             }
-            if (next_ptr != 0 &&
+            if (!next_ptr.null() &&
                 !owner->signals().change_disposition(signal, next_disposition))
                 return -EINVAL;
             return 0;
