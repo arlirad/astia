@@ -30,7 +30,7 @@ The in-app docs browser reads bundled Markdown from the repository `docs/` direc
 npm run docs:generate
 ```
 
-The same generator runs automatically before `npm run build`. Repository-relative Markdown links are rewritten to GitHub blob or tree URLs at generation time, while external URLs, anchors, and mailto links are preserved. Edit the source Markdown in the repository, then rebuild.
+The same generator runs automatically before `npm run build` and before the test runners. It also invokes `tools/man/generate.py` with `--export-section2`, which writes the section-2 Markdown pages and manifest for all 70 canonical syscall IDs into the ignored `frontend/.cache` directory. Repository-relative Markdown links are rewritten to GitHub blob or tree URLs at generation time, while external URLs, anchors, and mailto links are preserved. Edit the source Markdown or syscall documentation in the repository, then rebuild.
 
 ## Assets
 

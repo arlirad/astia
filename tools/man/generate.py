@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import re
 from pathlib import Path
 
@@ -366,8 +367,7 @@ def render_overview(name: str, title: str, body: str) -> str:
 """
 
 
-def render(name: str, body: str, section: int) -> str:
-    sections = []
+def body_sections(body: str) -> dict[str, list[str]]:
     current = "DESCRIPTION"
     values: dict[str, list[str]] = {current: []}
     headings = {"Synopsis", "Description", "Return Value", "Errors", "Notes", "ABI"}
@@ -383,40 +383,210 @@ def render(name: str, body: str, section: int) -> str:
                 values[current].append(heading_match.group(2))
         else:
             values[current].append(line)
-    for heading, lines in values.items():
+    return values
+
+
+def error_entries(content: str) -> list[tuple[str, str]] | None:
+    matches = list(re.finditer(r"(?<!\w)(-E[A-Z0-9]+)\s*:\s*", content))
+    if not matches:
+        return None
+    entries = []
+    for index, match in enumerate(matches):
+        code = match.group(1)
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(content)
+        reason = " ".join(content[match.end():end].split()).strip().rstrip(" .;")
+        reason = reason or ERROR_FALLBACKS.get(code[1:], "the operation failed")
+        entries.append((code, sentence(reason)))
+    return entries
+
+
+def markdown_content(content: str) -> str:
+    lines = content.splitlines()
+    return "\n".join(line[4:] if line.startswith("    ") else line for line in lines).strip()
+
+
+def render_syscall_markdown(name: str, body: str, section: int) -> str:
+    values = body_sections(body)
+
+    def content_for(key: str) -> str:
+        return markdown_content("\n".join(values.get(key, [])))
+
+    parts = [f"# {name}({section})"]
+    synopsis = content_for("SYNOPSIS")
+    if synopsis:
+        parts.extend(["## SYNOPSIS", f"```c\n{synopsis}\n```"])
+    description = content_for("DESCRIPTION")
+    if description:
+        parts.extend(["## DESCRIPTION", description])
+    returns = content_for("RETURN VALUE")
+    if returns:
+        parts.extend(["## RETURN VALUE", returns])
+    errors = content_for("ERRORS")
+    if errors:
+        entries = error_entries(errors)
+        if entries is None:
+            parts.extend(["## ERRORS", errors])
+        else:
+            parts.extend(
+                [
+                    "## ERRORS",
+                    "\n".join(f"- `{code}`: {reason}" for code, reason in entries),
+                ]
+            )
+    notes = content_for("NOTES")
+    if notes:
+        parts.extend(["## NOTES", notes])
+    return "\n\n".join(parts).strip().replace("\u2014", " - ") + "\n"
+
+
+def syscall_abi(path: Path) -> list[tuple[int, str]]:
+    entries = []
+    for line in path.read_text().splitlines():
+        match = re.match(r"\s*SYS_([A-Z0-9_]+)\s*=\s*(\d+)\s*,", line)
+        if match:
+            entries.append((int(match.group(2)), match.group(1).lower()))
+    entries.sort()
+    if len(entries) != 70 or [value for value, _ in entries] != list(range(70)):
+        raise ValueError(
+            f"{path}: expected 70 canonical section-2 syscalls with IDs 0..69, "
+            f"found {len(entries)}"
+        )
+    return entries
+
+
+def build_source_index(source_root: Path) -> dict[str, list[Path]]:
+    index: dict[str, list[Path]] = {}
+    pattern = re.compile(r"\b(?:i64|long|int)\s+([a-z_][a-z0-9_]*)\s*\(")
+    for path in sorted(source_root.rglob("*")):
+        if path.suffix not in (".cpp", ".hpp"):
+            continue
+        for match in pattern.finditer(path.read_text(errors="ignore")):
+            index.setdefault(match.group(1), []).append(path)
+    return index
+
+
+def source_for(name: str, index: dict[str, list[Path]]) -> Path | None:
+    candidates = index.get(name, [])
+    if not candidates:
+        return None
+    candidates = sorted(
+        candidates,
+        key=lambda path: (
+            0 if "syscalls" in path.parts else 1,
+            0 if path.suffix == ".cpp" else 1,
+            len(path.parts),
+            str(path),
+        ),
+    )
+    return candidates[0]
+
+
+def group_for_source(source: Path | None, source_root: Path) -> str:
+    if source is None:
+        return "abi"
+    try:
+        parts = source.resolve().relative_to(source_root.resolve()).parts
+    except ValueError:
+        return "abi"
+    if not parts:
+        return "abi"
+    root = parts[0]
+    if len(parts) >= 3 and parts[1] == "syscalls":
+        return f"{root}/{parts[2]}" if len(parts) > 3 else root
+    return root
+
+
+def prototype_from_source(source: Path | None, name: str) -> str:
+    if source is None:
+        return f"long {name}(...);"
+    match = re.search(
+        rf"\b(?:i64|long|int)\s+{re.escape(name)}\s*\([^;{{]*\)",
+        source.read_text(errors="ignore"),
+        re.S,
+    )
+    if not match:
+        return f"long {name}(...);"
+    prototype = " ".join(match.group(0).split())
+    return re.sub(r"^i64\b", "long", prototype)
+
+
+def fallback_body(name: str, synopsis: str) -> str:
+    return (
+        f"Synopsis:\n    {synopsis}\n\n"
+        f"Description:\n    System call handler for `{name}`. "
+        "See the implementation source for validation and ownership details.\n\n"
+        "Return Value:\n    Returns zero or a non-negative result on success. "
+        "Negative values are ABI errno codes.\n\n"
+        "Errors:\n    See the kernel error ABI and the implementation source.\n\n"
+        "Notes:\n    Generated from the canonical section-2 ABI. "
+        "Detailed manual text has not been added for this syscall yet."
+    )
+
+
+def export_section2(
+    export_dir: Path,
+    canonical: list[tuple[int, str]],
+    pages: dict[tuple[str, int], tuple[str, str]],
+    sources: dict[tuple[str, int], Path],
+    source_root: Path,
+    abi_header: Path,
+) -> None:
+    export_dir.mkdir(parents=True, exist_ok=True)
+    repo_root = ROOT.parent.parent
+    records = []
+    for syscall_id, name in canonical:
+        body, _ = pages[(name, 2)]
+        source = sources.get((name, 2), abi_header)
+        slug = f"syscall-{syscall_id}-{name.replace('_', '-')}"
+        markdown_name = f"{slug}.md"
+        (export_dir / markdown_name).write_text(render_syscall_markdown(name, body, 2))
+        try:
+            source_path = source.resolve().relative_to(repo_root).as_posix()
+        except ValueError:
+            source_path = source.as_posix()
+        records.append(
+            {
+                "id": syscall_id,
+                "name": name,
+                "slug": slug,
+                "title": f"{name}(2)",
+                "category": group_for_source(source, source_root),
+                "source": source_path,
+                "markdown": markdown_name,
+            }
+        )
+    manifest = {"section": 2, "count": len(records), "pages": records}
+    (export_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+def render(name: str, body: str, section: int) -> str:
+    sections = []
+    for heading, lines in body_sections(body).items():
         content = "\n".join(lines).strip()
         if not content:
             continue
         escaped = html.escape(content)
-        if heading in {"ERRORS", "RETURN VALUE"}:
-            items = [item.strip() for item in re.split(
-                r";\s*|\n\s*(?=-E[A-Z])|,\s*(?=-E[A-Z])", content
-            ) if item.strip()]
-            if heading == "ERRORS" and not any(item.startswith("-E") for item in items):
+        if heading == "ERRORS":
+            entries = error_entries(content)
+            if entries is None:
                 html_body = "<p>" + html.escape(sentence(content)) + "</p>"
-                sections.append(f"<section><h2>{html.escape(heading)}</h2>{html_body}</section>")
-                continue
-            if heading == "ERRORS":
-                items = [item.rstrip(".") + "." for item in items]
-            rendered_items = []
-            for item in items:
-                if heading == "ERRORS":
-                    match = re.match(r"(-E[A-Z0-9]+)\s*:\s*(.*)$", item)
-                    if match:
-                        code, reason = match.groups()
-                    else:
-                        code_match = re.match(r"(-E[A-Z0-9]+)\s*(.*)$", item)
-                        code = code_match.group(1) if code_match else ""
-                        reason = code_match.group(2).strip() if code_match else item
-                        reason = reason or ERROR_FALLBACKS.get(code[1:], "the operation failed")
+            else:
+                rendered_items = []
+                for code, reason in entries:
                     rendered_items.append(
                         f"<li><code>{html.escape(code)}</code>"
                         f"<ul class=\"man-list man-list--detail\"><li>"
-                        f"{html.escape(sentence(reason))}</li></ul></li>"
+                        f"{html.escape(reason)}</li></ul></li>"
                     )
-                else:
-                    rendered_items.append(f"<li>{html.escape(item)}</li>")
-            html_body = "<ul class=\"man-list\">" + "".join(rendered_items) + "</ul>"
+                html_body = "<ul class=\"man-list\">" + "".join(rendered_items) + "</ul>"
+        elif heading == "RETURN VALUE":
+            items = [
+                item.strip()
+                for item in re.split(r";\s*|\n\s*(?=-E[A-Z])|,\s*(?=-E[A-Z])", content)
+                if item.strip()
+            ]
+            rendered_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
+            html_body = "<ul class=\"man-list\">" + rendered_items + "</ul>"
         elif content.startswith("    ") or heading == "SYNOPSIS":
             html_body = "<pre>" + escaped + "</pre>"
         else:
@@ -431,7 +601,7 @@ def render(name: str, body: str, section: int) -> str:
 <body><main class=\"surface surface__flex\">
 <article class=\"surface__level__1 surface__minor\">
 <h1>{html.escape(title)}</h1>
-<nav><a href="index.html">Astia manual index</a></nav>
+<nav><a href=\"index.html\">Astia manual index</a></nav>
 {''.join(sections)}
 </article></main></body></html>\n"""
 
@@ -445,9 +615,14 @@ def main() -> int:
                         help="libc source root (defaults to the repository libc directory)")
     parser.add_argument("--docs", type=Path, default=None,
                         help="architecture Markdown directory (defaults to repository docs)")
+    parser.add_argument("--abi-header", type=Path, default=None,
+                        help="public section-2 syscall ABI header")
+    parser.add_argument("--export-section2", type=Path, default=None,
+                        help="write section-2 Markdown pages and manifest.json here")
     args = parser.parse_args()
 
     pages: dict[tuple[str, int], tuple[str, str]] = {}
+    page_sources: dict[tuple[str, int], Path] = {}
     for path in sorted(args.source.rglob("*.hpp")):
         if "syscalls" not in path.parts:
             continue
@@ -457,12 +632,15 @@ def main() -> int:
             subsystem = f"{subsystem}/{path.parent.name}"
         for name, body in comments(path.read_text()):
             pages[(name, 2)] = (body, subsystem)
+            page_sources[(name, 2)] = path
     for path in sorted(args.source.rglob("*.cpp")):
         if path.name != "syscalls.cpp":
             continue
         subsystem = path.parent.name
         for name, body, group in legacy_pages(path.read_text(), subsystem):
-            pages.setdefault((name, 2), (body, group))
+            if (name, 2) not in pages:
+                pages[(name, 2)] = (body, group)
+                page_sources[(name, 2)] = path
     for path in sorted(args.source.glob("sys/time.cpp")):
         for name, body, group in legacy_pages(path.read_text(), "sys"):
             pages.setdefault((name, 2), (body, group))
@@ -475,6 +653,24 @@ def main() -> int:
             pages.setdefault((name, section), (body, group))
     for name, body, group in syscall_pages():
         pages[(name, 2)] = (body, group)
+
+    abi_header = args.abi_header or args.source.parent / "include/astia/api/syscalls.h"
+    if not abi_header.exists():
+        raise SystemExit(f"missing section-2 ABI header: {abi_header}")
+    canonical = syscall_abi(abi_header)
+    source_index = build_source_index(args.source)
+    for _, name in canonical:
+        key = (name, 2)
+        source = source_for(name, source_index)
+        if key not in pages:
+            effective_source = source or abi_header
+            pages[key] = (
+                fallback_body(name, prototype_from_source(effective_source, name)),
+                group_for_source(effective_source, args.source),
+            )
+            page_sources[key] = effective_source
+        else:
+            page_sources.setdefault(key, source or abi_header)
 
     docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
     overviews = overview_pages(docs_root)
@@ -563,6 +759,15 @@ def main() -> int:
         "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
         "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n"
     )
+    if args.export_section2 is not None:
+        export_section2(
+            args.export_section2,
+            canonical,
+            pages,
+            page_sources,
+            args.source,
+            abi_header,
+        )
     return 0
 
 

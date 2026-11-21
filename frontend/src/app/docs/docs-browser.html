@@ -23,10 +23,17 @@
                   type="button"
                   class="docs-index-link"
                   [class.is-active]="page.slug === selectedSlug()"
+                  [attr.data-slug]="page.slug"
+                  [attr.data-syscall-id]="page.syscallId ?? null"
                   (click)="selectPage(page.slug)"
                 >
                   <span>{{ page.title }}</span>
-                  <small>{{ page.summary }}</small>
+                  <small>
+                    @if (page.category) {
+                      {{ page.category }} ·
+                    }
+                    {{ page.summary }}
+                  </small>
                 </button>
               </li>
             }
@@ -44,6 +51,12 @@
         <div class="docs-page-top">
           <button type="button" class="docs-back" (click)="backToIndex()">All docs</button>
           <span class="tag tag-core">{{ page.group }}</span>
+          @if (page.category) {
+            <span class="tag">{{ page.category }}</span>
+          }
+          @if (page.syscallId !== undefined) {
+            <span class="tag">ID {{ page.syscallId }}</span>
+          }
           <a
             class="docs-source"
             [href]="page.source"

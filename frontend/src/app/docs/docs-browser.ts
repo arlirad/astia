@@ -79,7 +79,10 @@ export class DocsBrowser {
     const query = this.query().trim().toLowerCase();
     const groups = new Map<string, DocPage[]>();
     for (const page of this.pages()) {
-      if (query && !`${page.title} ${page.group} ${page.summary}`.toLowerCase().includes(query)) {
+      const searchable =
+        `${page.title} ${page.group} ${page.category ?? ''} ${page.syscallId ?? ''} ` +
+        page.summary;
+      if (query && !searchable.toLowerCase().includes(query)) {
         continue;
       }
       const pages = groups.get(page.group) ?? [];

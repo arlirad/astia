@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   readFileSync,
@@ -11,6 +12,9 @@ import { fileURLToPath } from 'node:url';
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(frontendRoot, '..');
 const docsDir = join(repoRoot, 'docs');
+const generatorPath = join(repoRoot, 'tools/man/generate.py');
+const syscallExportDir = join(frontendRoot, '.cache/syscall-docs');
+const manOutputDir = join(frontendRoot, '.cache/man7');
 const outputPath = join(frontendRoot, 'src/app/docs/docs.generated.ts');
 const guides = [
   'README.md',
@@ -25,6 +29,20 @@ if (!existsSync(docsDir)) {
   console.log('Documentation sources are unavailable; keeping the existing generated docs file.');
   process.exit(0);
 }
+
+execFileSync(
+  process.env.PYTHON ?? 'python3',
+  [
+    generatorPath,
+    join(repoRoot, 'kernel/src'),
+    manOutputDir,
+    '--docs',
+    docsDir,
+    '--export-section2',
+    syscallExportDir,
+  ],
+  { stdio: 'inherit' },
+);
 
 const githubRepo = 'https://github.com/arlirad/astia';
 let rewrittenLinks = 0;
@@ -125,7 +143,7 @@ const entries = [
     })),
 ];
 
-const pages = entries.map(({ path, group }) => {
+const basePages = entries.map(({ path, group }) => {
   const content = rewriteLinks(
     normalize(readFileSync(join(repoRoot, path), 'utf8')),
     path,
@@ -140,17 +158,60 @@ const pages = entries.map(({ path, group }) => {
   };
 });
 
+const manifestPath = join(syscallExportDir, 'manifest.json');
+if (!existsSync(manifestPath)) {
+  throw new Error(`missing section-2 manifest: ${manifestPath}`);
+}
+const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+if (manifest.section !== 2 || manifest.count !== 70 || manifest.pages.length !== 70) {
+  throw new Error('section-2 manifest must contain exactly 70 pages');
+}
+const syscallIds = manifest.pages.map((page) => page.id);
+if (
+  new Set(syscallIds).size !== 70 ||
+  syscallIds.some((id, index) => id !== index)
+) {
+  throw new Error('section-2 manifest must contain stable IDs 0 through 69');
+}
+
+const syscallPages = manifest.pages.map((entry) => {
+  const content = rewriteLinks(
+    normalize(readFileSync(join(syscallExportDir, entry.markdown), 'utf8')),
+    entry.source,
+  );
+  return {
+    slug: entry.slug,
+    title: entry.title,
+    group: 'Syscall (2)',
+    summary: summaryOf(content),
+    source: `https://github.com/arlirad/astia/blob/main/${entry.source}`,
+    content,
+    category: entry.category,
+    syscallId: entry.id,
+  };
+});
+
+const pages = [...basePages, ...syscallPages];
 const body = pages
-  .map(
-    (page) => `  {
-    slug: ${JSON.stringify(page.slug)},
-    title: ${JSON.stringify(page.title)},
-    group: ${JSON.stringify(page.group)},
-    summary: ${JSON.stringify(page.summary)},
-    source: ${JSON.stringify(page.source)},
-    content: ${JSON.stringify(page.content)},
-  }`,
-  )
+  .map((page) => {
+    const fields = [
+      `slug: ${JSON.stringify(page.slug)}`,
+      `title: ${JSON.stringify(page.title)}`,
+      `group: ${JSON.stringify(page.group)}`,
+      `summary: ${JSON.stringify(page.summary)}`,
+      `source: ${JSON.stringify(page.source)}`,
+    ];
+    if (page.category) {
+      fields.push(`category: ${JSON.stringify(page.category)}`);
+    }
+    if (page.syscallId !== undefined) {
+      fields.push(`syscallId: ${page.syscallId}`);
+    }
+    fields.push(`content: ${JSON.stringify(page.content)}`);
+    return `  {
+    ${fields.join(',\n    ')},
+  }`;
+  })
   .join(',\n');
 
 writeFileSync(
@@ -158,5 +219,5 @@ writeFileSync(
   `import type { DocPage } from './docs.model';\n\nexport const GENERATED_DOCS: readonly DocPage[] = [\n${body}\n];\n`,
 );
 console.log(
-  `Generated ${pages.length} documentation pages from repository Markdown sources (${rewrittenLinks} links rewritten).`,
+  `Generated ${basePages.length} repository pages and ${syscallPages.length} section-2 syscall pages (${rewrittenLinks} links rewritten).`,
 );

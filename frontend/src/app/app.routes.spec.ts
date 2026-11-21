@@ -33,6 +33,11 @@ describe('Application routes', () => {
     expect(component).toBeInstanceOf(DocumentationPage);
     expect(element.querySelectorAll('.docs-index-link').length).toBe(DOC_PAGES.length);
     expect(element.querySelector('.docs-page-title')).toBeNull();
+    expect(element.querySelector('.eyebrow')?.textContent).toContain('Documentation');
+    expect(element.textContent).not.toContain('Design notes, boundaries, and current limits.');
+    expect(element.textContent).not.toContain(
+      'Bundled from the repository Markdown sources.',
+    );
   });
 
   it('renders a deep-linked documentation page', async () => {
@@ -45,5 +50,17 @@ describe('Application routes', () => {
       'Asynchronous I/O',
     );
     expect(element.textContent).not.toContain('\u2014');
+  });
+
+  it('renders a deep-linked section-2 syscall page', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/documentation/syscall-0-io-setup', DocumentationPage);
+    harness.detectChanges();
+    const element = harness.routeNativeElement as HTMLElement;
+
+    expect(element.querySelector('.docs-page-title')?.textContent).toContain(
+      'io_setup(2)',
+    );
+    expect(element.querySelector('.doc-markdown')?.textContent).toContain('SYNOPSIS');
   });
 });

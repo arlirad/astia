@@ -8,7 +8,9 @@
     "build:dev": "ng build --configuration development",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
+    "pretest": "node scripts/generate-docs.mjs",
     "test:ci": "ng test --watch=false --browsers=ChromeHeadless",
+    "pretest:ci": "node scripts/generate-docs.mjs",
     "prebuild": "node scripts/generate-docs.mjs",
     "docs:generate": "node scripts/generate-docs.mjs"
   },
