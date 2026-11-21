@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import shutil
@@ -10,6 +11,7 @@ import tempfile
 import unittest
 import warnings
 from pathlib import Path
+from contextlib import redirect_stderr
 from unittest.mock import patch
 
 TOOLS_MAN = Path(__file__).resolve().parent
@@ -952,6 +954,82 @@ class GenerateTest(unittest.TestCase):
                 os.getxattr(output / "private", "user.astia"), b"dir-xattr"
             )
             self.assertEqual(os.getxattr(output, "user.astia"), b"root-xattr")
+    def test_transaction_aborts_if_owned_page_is_edited_in_place(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            page = output / "index.html"
+            original_stat = page.stat()
+            original_manifest = (output / generate.MAN7_MANIFEST).read_bytes()
+
+            def edit_in_place():
+                current = page.read_bytes()
+                replacement = b"N" + current[1:]
+                self.assertEqual(len(current), len(replacement))
+                with page.open("r+b") as handle:
+                    handle.write(replacement)
+                os.utime(
+                    page,
+                    ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+                )
+
+            with self.assertRaises(RuntimeError):
+                with generate.TransactionalDirectory.begin(
+                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                ) as transaction:
+                    transaction.output.write_atomic("index.html", "new index")
+                    generate.write_man_manifest(transaction.output, {"index.html"})
+                    transaction.commit(before_activation=edit_in_place)
+
+            self.assertTrue(page.read_bytes().startswith(b"N"))
+            self.assertEqual(
+                (output / generate.MAN7_MANIFEST).read_bytes(), original_manifest
+            )
+            self.assertEqual(
+                [
+                    path
+                    for path in root.iterdir()
+                    if path.name.startswith(".astia-stage-")
+                    or path.name.startswith(".astia-retired-")
+                ],
+                [],
+            )
+
+    def test_transaction_succeeds_when_warnings_are_errors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            stderr = io.StringIO()
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                with redirect_stderr(stderr):
+                    with patch.object(
+                        generate,
+                        "remove_tree",
+                        side_effect=OSError("deferred cleanup"),
+                    ):
+                        with generate.TransactionalDirectory.begin(
+                            output,
+                            root,
+                            generate.MAN7_MANIFEST,
+                            generate.read_owned_files,
+                        ) as transaction:
+                            transaction.output.write_atomic("index.html", "new index")
+                            generate.write_man_manifest(
+                                transaction.output, {"index.html"}
+                            )
+                            transaction.commit()
+            self.assertEqual((output / "index.html").read_text(), "new index")
+            retained = [
+                path for path in root.iterdir() if path.name.startswith(".astia-stage-")
+            ]
+            self.assertEqual(len(retained), 1)
+            diagnostic = stderr.getvalue()
+            self.assertIn("deferred cleanup", diagnostic)
+            self.assertIn(retained[0].name, diagnostic)
+            self.assertIn("deferred cleanup", diagnostic)
+            shutil.rmtree(retained[0])
+
     def test_transaction_aborts_if_xattr_changes_at_activation_boundary(self):
         for kind in ("directory", "root"):
             with self.subTest(kind=kind):

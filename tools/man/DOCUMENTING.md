@@ -156,17 +156,17 @@ post-exchange snapshot still matches the snapshot taken before staging.
 Cleanup errors are deferred and do not turn a successful activation into a
 failure. Cooperating generators should run one at a time.
 
-Regular files are hard-linked when possible, preserving inode ownership,
-mode, ACLs, and extended attributes. Fallback copies, recreated directories,
-FIFOs, and the staging root preserve owner, group, mode, and extended
-attributes, including POSIX ACLs. Destination-inherited ACLs and xattrs are
+Regular files are copied with owner, group, mode, ACLs, and extended
+attributes preserved. Recreated directories, FIFOs, and the staging root
+preserve owner, group, mode, and extended attributes, including POSIX ACLs. Destination-inherited ACLs and xattrs are
 cleared before source metadata is applied. The transaction fails closed if
 metadata cannot be read or applied.
 
 Metadata copying depends on `/proc/self/fd`. If procfs is unavailable, the
 transaction fails closed before activation. Symlink metadata is not cloned.
 Cleanup failures after activation emit a RuntimeWarning with the retired path
-and error; the activation itself remains successful.
+and error, falling back to stderr when warnings are configured as errors; the
+activation itself remains successful.
 
 The man7 tree and the section-2 export tree are separate per-tree
 transactions, not one invocation-wide atomic transaction. The frontend reads

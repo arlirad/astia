@@ -7,11 +7,13 @@ import argparse
 import ctypes
 from contextlib import ExitStack
 import errno
+import hashlib
 import html
 import json
 import os
 import re
 import stat
+import sys
 import warnings
 from pathlib import Path
 
@@ -1105,48 +1107,39 @@ def copy_unowned_entries(
         elif stat.S_ISLNK(info.st_mode):
             os.symlink(os.readlink(name, dir_fd=source), name, dir_fd=destination)
         elif stat.S_ISREG(info.st_mode):
-            try:
-                os.link(
+            with ExitStack() as stack:
+                source_fd = os.open(
                     name,
-                    name,
-                    src_dir_fd=source,
-                    dst_dir_fd=destination,
-                    follow_symlinks=False,
+                    os.O_RDONLY | os.O_NOFOLLOW,
+                    dir_fd=source,
                 )
-            except OSError:
-                with ExitStack() as stack:
-                    source_fd = os.open(
-                        name,
-                        os.O_RDONLY | os.O_NOFOLLOW,
-                        dir_fd=source,
-                    )
-                    stack.callback(os.close, source_fd)
-                    destination_fd = os.open(
-                        name,
-                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                        stat.S_IMODE(info.st_mode),
-                        dir_fd=destination,
-                    )
-                    stack.callback(os.close, destination_fd)
-                    while True:
-                        block = os.read(source_fd, 65536)
-                        if not block:
-                            break
-                        offset = 0
-                        while offset < len(block):
-                            written = os.write(destination_fd, block[offset:])
-                            if written <= 0:
-                                raise OSError("short write while copying output")
-                            offset += written
-                    try:
-                        os.fchown(destination_fd, info.st_uid, info.st_gid)
-                    except OSError as error:
-                        raise ValueError(
-                            f"cannot preserve file ownership: {relative}"
-                        ) from error
-                    os.fchmod(destination_fd, stat.S_IMODE(info.st_mode))
-                    replace_xattrs(source, destination, name, relative)
-                    os.fsync(destination_fd)
+                stack.callback(os.close, source_fd)
+                destination_fd = os.open(
+                    name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    stat.S_IMODE(info.st_mode),
+                    dir_fd=destination,
+                )
+                stack.callback(os.close, destination_fd)
+                while True:
+                    block = os.read(source_fd, 65536)
+                    if not block:
+                        break
+                    offset = 0
+                    while offset < len(block):
+                        written = os.write(destination_fd, block[offset:])
+                        if written <= 0:
+                            raise OSError("short write while copying output")
+                        offset += written
+                try:
+                    os.fchown(destination_fd, info.st_uid, info.st_gid)
+                except OSError as error:
+                    raise ValueError(
+                        f"cannot preserve file ownership: {relative}"
+                    ) from error
+                os.fchmod(destination_fd, stat.S_IMODE(info.st_mode))
+                replace_xattrs(source, destination, name, relative)
+                os.fsync(destination_fd)
         elif stat.S_ISFIFO(info.st_mode):
             os.mkfifo(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
             try:
@@ -1164,18 +1157,7 @@ def copy_unowned_entries(
             os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
             replace_xattrs(source, destination, name, relative)
         elif stat.S_ISCHR(info.st_mode) or stat.S_ISBLK(info.st_mode):
-            try:
-                os.link(
-                    name,
-                    name,
-                    src_dir_fd=source,
-                    dst_dir_fd=destination,
-                    follow_symlinks=False,
-                )
-            except OSError as error:
-                raise ValueError(
-                    f"cannot preserve device node: {relative}"
-                ) from error
+            raise ValueError(f"cannot preserve device node: {relative}")
         else:
             raise ValueError(
                 f"cannot preserve unsupported filesystem entry: {relative}"
@@ -1244,15 +1226,44 @@ def rename_noreplace(parent: int, first: str, second: str) -> None:
     renameat2(parent, first, second, RENAME_NOREPLACE)
 
 
+def _content_hash(descriptor: int, name: str) -> bytes | None:
+    try:
+        source = os.open(
+            name,
+            os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW,
+            dir_fd=descriptor,
+        )
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(source).st_mode):
+            return None
+        digest = hashlib.sha256()
+        while True:
+            block = os.read(source, 65536)
+            if not block:
+                break
+            digest.update(block)
+        return digest.digest()
+    finally:
+        os.close(source)
+
+
 def _entry_metadata(
     descriptor: int, name: str | None
-) -> tuple[int, int, int, int, int, int, tuple[tuple[str, bytes], ...]]:
+) -> tuple[int, int, int, int, int, int, int, tuple[tuple[str, bytes], ...], bytes | None]:
     if name is None:
         info = os.fstat(descriptor)
         xattrs = read_xattrs(descriptor, None)
+        content_hash = None
     else:
         info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
         xattrs = read_xattrs(descriptor, name)
+        content_hash = (
+            _content_hash(descriptor, name)
+            if stat.S_ISREG(info.st_mode)
+            else None
+        )
     return (
         info.st_dev,
         info.st_ino,
@@ -1261,8 +1272,25 @@ def _entry_metadata(
         info.st_gid,
         info.st_size,
         info.st_mtime_ns,
+        info.st_ctime_ns,
         xattrs,
+        content_hash,
     )
+
+
+def retirement_snapshots_match(
+    current: dict[str, tuple], original: dict[str, tuple]
+) -> bool:
+    if set(current) != set(original):
+        return False
+    for relative, metadata in current.items():
+        expected = original[relative]
+        if relative == ".":
+            if metadata[:7] + metadata[8:] != expected[:7] + expected[8:]:
+                return False
+        elif metadata != expected:
+            return False
+    return True
 
 
 def directory_snapshot(directory: int, prefix: str = "") -> dict[str, tuple]:
@@ -1445,16 +1473,27 @@ class TransactionalDirectory:
             os.close(self._active)
             self._active = -1
 
+    @staticmethod
+    def _report_deferred(message: str) -> None:
+        try:
+            warnings.warn(message, RuntimeWarning)
+            return
+        except Exception:
+            pass
+        try:
+            print(f"warning: {message}", file=sys.stderr)
+        except Exception:
+            pass
+
     def _preserve_retired(self) -> str:
         retired_name = f".astia-retired-{os.urandom(8).hex()}"
         try:
             rename_noreplace(self._parent, self._staging_name, retired_name)
             return retired_name
         except OSError as error:
-            warnings.warn(
+            self._report_deferred(
                 f"deferred cleanup: could not rename retired generation "
-                f"{self._staging_name}: {error}",
-                RuntimeWarning,
+                f"{self._staging_name}: {error}"
             )
             return self._staging_name
 
@@ -1496,7 +1535,9 @@ class TransactionalDirectory:
             retired_error = None
             try:
                 retired_snapshot = directory_snapshot(self._active)
-                retired_unchanged = retired_snapshot == self._active_snapshot
+                retired_unchanged = retirement_snapshots_match(
+                    retired_snapshot, self._active_snapshot
+                )
             except OSError as error:
                 retired_error = error
             try:
@@ -1513,22 +1554,19 @@ class TransactionalDirectory:
                     if old_info is not None and same_inode(old_info, self._active_info):
                         remove_tree(self._parent, self._staging_name)
                 except OSError as error:
-                    warnings.warn(
+                    self._report_deferred(
                         f"deferred cleanup: retired generation at "
-                        f"{self._staging_name}: {error}",
-                        RuntimeWarning,
+                        f"{self._staging_name}: {error}"
                     )
             else:
                 retained = self._preserve_retired()
                 if retired_error is not None:
-                    warnings.warn(
+                    self._report_deferred(
                         f"deferred cleanup: could not verify retired generation "
-                        f"{self._staging_name}: {retired_error}",
-                        RuntimeWarning,
+                        f"{self._staging_name}: {retired_error}"
                     )
-                warnings.warn(
-                    f"retired generation retained at {retained}",
-                    RuntimeWarning,
+                self._report_deferred(
+                    f"retired generation retained at {retained}"
                 )
         try:
             os.fsync(self._parent)
