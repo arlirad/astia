@@ -117,13 +117,11 @@ python3 tools/man/generate.py kernel/src dist/man7 --docs docs
 The generator:
 
 - reads documented subsystem syscall headers;
-- discovers legacy handlers in `syscalls.cpp` files;
 - groups the index first by manual section (`MAN 2 - SYSTEM CALLS`,
   `MAN 3 - LIBC APIs`, and `MAN 7 - OVERVIEWS`), then by subsystem and
   optional subgroup;
 - emits one HTML page per syscall;
 - copies the Nodivia-derived theme CSS;
-- supplies fallback return/error metadata for legacy handlers.
 - adds the native filesystem/descriptor APIs from the libc source root as
   section 3 pages, grouped separately from section 2 syscall pages;
 - links each generated page back to the combined manual index.

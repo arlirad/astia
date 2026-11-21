@@ -1,67 +1,3 @@
-set(ASTIA_PROC_HANDLER_CPP
-        syscalls/alarm.cpp
-        syscalls/getpgid.cpp
-        syscalls/getpgrp.cpp
-        syscalls/getpid.cpp
-        syscalls/getppid.cpp
-        syscalls/gettid.cpp
-        syscalls/ipc/futex.cpp
-        syscalls/ipc/shm_open.cpp
-        syscalls/ipc/shm_unlink.cpp
-        syscalls/kill.cpp
-        syscalls/lseek.cpp
-        syscalls/memory/mmap.cpp
-        syscalls/memory/mprotect.cpp
-        syscalls/memory/msync.cpp
-        syscalls/memory/munmap.cpp
-        syscalls/process/chdir.cpp
-        syscalls/process/execve.cpp
-        syscalls/process/exit.cpp
-        syscalls/process/fchdir.cpp
-        syscalls/process/fork.cpp
-        syscalls/process/getcwd.cpp
-        syscalls/process/getegid.cpp
-        syscalls/process/geteuid.cpp
-        syscalls/process/getgid.cpp
-        syscalls/process/getgroups.cpp
-        syscalls/process/getrlimit.cpp
-        syscalls/process/getsid.cpp
-        syscalls/process/getuid.cpp
-        syscalls/process/process_snapshot.cpp
-        syscalls/process/setegid.cpp
-        syscalls/process/seteuid.cpp
-        syscalls/process/setgid.cpp
-        syscalls/process/setgroups.cpp
-        syscalls/process/setregid.cpp
-        syscalls/process/setreuid.cpp
-        syscalls/process/setrlimit.cpp
-        syscalls/process/setuid.cpp
-        syscalls/process/spawnve.cpp
-        syscalls/process/waitpid.cpp
-        syscalls/setpgid.cpp
-        syscalls/setsid.cpp
-        syscalls/signal/sigaction.cpp
-        syscalls/signal/sigaltstack.cpp
-        syscalls/signal/sigpending.cpp
-        syscalls/signal/sigprocmask.cpp
-        syscalls/signal/sigreturn.cpp
-        syscalls/signal/sigsuspend.cpp
-        syscalls/signal/sigtimedwait.cpp
-        syscalls/signal/sigwait.cpp
-        syscalls/thread/thread_cancel.cpp
-        syscalls/thread/thread_cancel_pending.cpp
-        syscalls/thread/thread_create.cpp
-        syscalls/thread/thread_create2.cpp
-        syscalls/thread/thread_create_owned.cpp
-        syscalls/thread/thread_detach.cpp
-        syscalls/thread/thread_exists.cpp
-        syscalls/thread/thread_exit.cpp
-        syscalls/thread/thread_getattr.cpp
-        syscalls/thread/thread_join.cpp
-        syscalls/thread/thread_kill.cpp
-        syscalls/thread/yield.cpp
-        syscalls/umask.cpp
-)
 file(GLOB_RECURSE ASTIA_PROC_SYSCALL_SOURCES CONFIGURE_DEPENDS syscalls/*.cpp)
 add_library(proc STATIC
         ${ASTIA_PROC_SYSCALL_SOURCES}
@@ -71,61 +7,13 @@ add_library(proc STATIC
         exec.cpp
         fork.cpp
         mmap.cpp
-        syscalls.cpp
-        syscalls/kill.cpp
-        syscalls/getpid.cpp
-        syscalls/getppid.cpp
-        syscalls/alarm.cpp
-        syscalls/gettid.cpp
-        syscalls/lseek.cpp
-        syscalls/getpgrp.cpp
-        syscalls/getpgid.cpp
-        syscalls/setpgid.cpp
-        syscalls/setsid.cpp
-        syscalls/signal/sigaction.cpp
-        syscalls/signal/sigaltstack.cpp
-        syscalls/signal/sigreturn.cpp
-        syscalls/signal/sigpending.cpp
-        syscalls/signal/sigprocmask.cpp
-        syscalls/signal/sigsuspend.cpp
-        syscalls/signal/sigwait.cpp
-        syscalls/signal/sigtimedwait.cpp
-        syscalls/process/exit.cpp
-        syscalls/process/waitpid.cpp
-        syscalls/process/chdir.cpp
-        syscalls/process/fchdir.cpp
-        syscalls/process/getcwd.cpp
-        syscalls/process/credentials.cpp
-        syscalls/process/argv.cpp
-        syscalls/process/spawnve.cpp
-        syscalls/process/execve.cpp
-        syscalls/process/fork.cpp
-        syscalls/process/rlimit.cpp
-        syscalls/memory/mmap.cpp
-        syscalls/memory/mprotect.cpp
-        syscalls/memory/munmap.cpp
-        syscalls/memory/msync.cpp
-        syscalls/ipc/futex.cpp
-        syscalls/ipc/shm.cpp
-        syscalls/thread/yield.cpp
-        syscalls/thread/thread_create.cpp
-        syscalls/thread/thread_create2.cpp
-        syscalls/thread/thread_create_owned.cpp
-        syscalls/thread/thread_cancel.cpp
-        syscalls/thread/thread_cancel_pending.cpp
-        syscalls/thread/thread_exists.cpp
-        syscalls/thread/thread_getattr.cpp
-        syscalls/thread/thread_kill.cpp
-        syscalls/thread/thread_exit.cpp
-        syscalls/thread/thread_join.cpp
-        syscalls/thread/thread_detach.cpp
+        signal_delivery.cpp
         thread.cpp
         fd_table.cpp
         scheduler.cpp
         init_proc.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/futex.cpp
-
-        ${ASTIA_PROC_HANDLER_CPP})
+)
 
 target_include_directories(proc PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}

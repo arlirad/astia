@@ -1,5 +1,3 @@
-#include "unmount.hpp"
-
 #include <astia/api/errno.h>
 
 #include "../../proc/proc.hpp"
@@ -30,17 +28,10 @@ namespace astia::fs::syscalls {
     /// The target is copied from userspace before authorization and lookup.
     /// The root mount, a mount with open descriptions, and a mount containing
     /// another mount return -EBUSY.  This only changes the in-memory namespace.
-    /// ABI ID: unmount.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: fs subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct unmount : sys::syscall_handler<unmount, sys::syscall_id::unmount,
                                           sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::fs::syscall::unmount>(context);
         }
     };
 

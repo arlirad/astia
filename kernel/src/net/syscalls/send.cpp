@@ -1,23 +1,13 @@
 #include <syscall.hpp>
 
 namespace astia::net::syscalls {
-
-
-    /// ABI ID: 77.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: net subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's negative errno.
-    struct send
-        : sys::syscall_handler<send, static_cast<sys::syscall_id>(77),
-                               sys::syscall_mode::async> {
-        static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+    struct send : sys::syscall_handler<send, static_cast<sys::syscall_id>(77),
+                                       sys::syscall_mode::async> {
+        static core::task<i64> invoke([[maybe_unused]] sys::syscall_context& context) {
+            co_return -ENOSYS;
         }
     };
 
     extern const sys::syscall_descriptor send_descriptor = send::descriptor;
-
 
 } // namespace astia::net::syscalls

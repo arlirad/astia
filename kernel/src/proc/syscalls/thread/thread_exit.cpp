@@ -1,5 +1,3 @@
-#include "thread_exit.hpp"
-
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -41,18 +39,10 @@ namespace astia::proc::syscalls {
     ///
     /// Return Value:
     ///     Does not return.
-
-    /// ABI ID: thread_exit.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct thread_exit : sys::syscall_handler<thread_exit, sys::syscall_id::thread_exit,
                                               sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::thread_exit>(context);
         }
     };
 

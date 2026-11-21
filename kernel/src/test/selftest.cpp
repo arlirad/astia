@@ -275,13 +275,11 @@ namespace astia::test {
             return true;
         }
 
-
-        // SYS_CLOCK_GETTIME, dispatched through the registered table (the
-        // sys_time init step is what put the handler there). The tick is
-        // the resolution, so samples only have to be in range and must not
-        // run backwards.
+        // SYS_CLOCK_GETTIME is dispatched through the production descriptor registry.
+        // The timer tick is the resolution, so samples need only remain in range
+        // and must not run backwards.
         bool clock_checks() {
-            // The table's door takes what the entry would have handed it:
+            // The dispatcher takes what the entry would have handed it:
             // the call number, the six registers, and the image it packed
             // them into. clock_gettime reads registers and never looks at
             // the image, but the image is still the real one a trap for

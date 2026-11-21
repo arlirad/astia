@@ -1,22 +1,15 @@
+#include "credentials.hpp"
+
 #include <syscall.hpp>
 
 namespace astia::proc::syscalls {
-
-
-    /// ABI ID: getuid.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's negative errno.
     struct getuid : sys::syscall_handler<getuid, sys::syscall_id::getuid,
-                                                 sys::syscall_mode::async> {
+                                         sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::getuid>(context);
         }
     };
 
     extern const sys::syscall_descriptor getuid_descriptor = getuid::descriptor;
-
 
 } // namespace astia::proc::syscalls

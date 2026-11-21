@@ -1,5 +1,3 @@
-#include "io_setup.hpp"
-
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 
@@ -51,17 +49,10 @@ namespace astia::fs::syscalls {
     ///     current implementation reports FEAT_SINGLE_MMAP only; SETUP_SQPOLL
     ///     and SETUP_IOPOLL are not accepted.
     ///
-    /// ABI ID: io_setup.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: fs subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct io_setup : sys::syscall_handler<io_setup, sys::syscall_id::io_setup,
                                            sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::fs::syscall::io_setup>(context);
         }
     };
 

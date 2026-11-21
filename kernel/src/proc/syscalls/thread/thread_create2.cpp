@@ -1,5 +1,3 @@
-#include "thread_create2.hpp"
-
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -54,19 +52,11 @@ namespace astia::proc::syscalls {
     ///     -EAGAIN: The thread limit or memory limit was reached.
     ///     -EFAULT: The entry point, stack, or argument pointer is invalid.
     ///     -ESRCH: There is no current process.
-
-    /// ABI ID: thread_create.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct thread_create2
         : sys::syscall_handler<thread_create2, sys::syscall_id::thread_create2,
                                sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::thread_create2>(context);
         }
     };
 

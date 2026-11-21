@@ -1,5 +1,3 @@
-#include "io_register.hpp"
-
 #include <astia/api/errno.h>
 
 #include <syscall.hpp>
@@ -37,17 +35,10 @@ namespace astia::fs::syscalls {
     /// Notes:
     ///     No registration opcode, pointer, count, or ring is currently
     ///     validated because the handler returns -ENOSYS before using them.
-    /// ABI ID: io_register.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: fs subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct io_register : sys::syscall_handler<io_register, sys::syscall_id::io_register,
                                               sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::fs::syscall::io_register>(context);
         }
     };
 

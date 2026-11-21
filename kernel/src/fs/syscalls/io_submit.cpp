@@ -1,5 +1,3 @@
-#include "io_submit.hpp"
-
 #include <astia/api/aio.h>
 
 #include "../../sys/aio.hpp"
@@ -22,17 +20,10 @@ namespace astia::fs::syscalls {
     ///
     /// Return Value:
     ///     Returns zero or a negative errno.
-    /// ABI ID: io_submit.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: fs subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct io_submit : sys::syscall_handler<io_submit, sys::syscall_id::io_submit,
                                             sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::fs::syscall::io_submit>(context);
         }
     };
 

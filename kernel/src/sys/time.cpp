@@ -1,10 +1,11 @@
 #include "time.hpp"
 
-#include "syscall.hpp"
-#include "user_mem.hpp"
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/interrupts.hpp>
+
+#include "syscall.hpp"
+#include "user_mem.hpp"
 
 /*
  * SYS_CLOCK_GETTIME — the one clock read outside the rings.
@@ -24,60 +25,56 @@
 
 namespace astia::sys {
 
-    namespace {
+    /// Assumed wall clock at boot: 2026-01-01T00:00:00Z. See above.
+    constexpr i64 realtime_epoch_sec = 1767225600;
 
-        /// Assumed wall clock at boot: 2026-01-01T00:00:00Z. See above.
-        constexpr i64 realtime_epoch_sec = 1767225600;
+    i64 sys_clock_gettime(i32 clock_id, u64 out) {
+        const auto ts_out = sys::user_ptr<astia_timespec>(out).validate();
+        if (!ts_out) {
+            return -EFAULT;
+        }
+        const u64 hz = arch::timer_hz();
+        if (hz == 0) {
+            return -EIO; // no timer source: refuse instead of dividing by 0
+        }
 
-        i64 sys_clock_gettime(i32 clock_id, u64 out) {
-            const auto ts_out = sys::user_ptr<astia_timespec>(out).validate();
-            if (!ts_out) {
-                return -EFAULT;
-            }
-            const u64 hz = arch::timer_hz();
-            if (hz == 0) {
-                return -EIO; // no timer source: refuse instead of dividing by 0
-            }
+        const u64 ticks = arch::timer_ticks();
+        i64       sec   = static_cast<i64>(ticks / hz);
+        const i64 nsec  = static_cast<i64>((ticks % hz) * nanoseconds_per_second / hz);
 
-            const u64 ticks = arch::timer_ticks();
-            i64       sec   = static_cast<i64>(ticks / hz);
-            const i64 nsec = static_cast<i64>((ticks % hz) * nanoseconds_per_second / hz);
+        switch (clock_id) {
+        case CLOCK_MONOTONIC:
+        case CLOCK_BOOTTIME:
+            break;
+        case CLOCK_REALTIME:
+            sec += realtime_epoch_sec;
+            break;
+        default:
+            return -EINVAL;
+        }
 
-            switch (clock_id) {
-            case CLOCK_MONOTONIC:
-            case CLOCK_BOOTTIME:
-                break;
-            case CLOCK_REALTIME:
-                sec += realtime_epoch_sec;
-                break;
-            default:
-                return -EINVAL;
-            }
+        astia_timespec ts{sec, nsec};
+        if (!sys::copy_out(ts_out.value.bytes(), &ts)) {
+            return -EFAULT;
+        }
+        return 0;
+    }
 
-            astia_timespec ts{sec, nsec};
-            if (!sys::copy_out(ts_out.value.bytes(), &ts)) {
-                return -EFAULT;
-            }
+    i64 sys_clock_getres(i32 clock_id, u64 out) {
+        if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
+            return -EINVAL;
+        const u32 hz = arch::timer_hz();
+        if (hz == 0)
+            return -EIO;
+        if (out == 0)
             return 0;
-        }
-
-        i64 sys_clock_getres(i32 clock_id, u64 out) {
-            if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
-                return -EINVAL;
-            const u32 hz = arch::timer_hz();
-            if (hz == 0)
-                return -EIO;
-            if (out == 0)
-                return 0;
-            const auto ts_out = sys::user_ptr<astia_timespec>(out).validate();
-            if (!ts_out)
-                return -EFAULT;
-            const u64            nsec = (nanoseconds_per_second + hz - 1) / hz;
-            const astia_timespec resolution{0, static_cast<i64>(nsec)};
-            return sys::copy_out(ts_out.value.bytes(), &resolution) ? 0 : -EFAULT;
-        }
-
-    } // namespace
+        const auto ts_out = sys::user_ptr<astia_timespec>(out).validate();
+        if (!ts_out)
+            return -EFAULT;
+        const u64            nsec = (nanoseconds_per_second + hz - 1) / hz;
+        const astia_timespec resolution{0, static_cast<i64>(nsec)};
+        return sys::copy_out(ts_out.value.bytes(), &resolution) ? 0 : -EFAULT;
+    }
 
     bool realtime_now(u64& sec, u64& nsec) {
         const u64 hz = arch::timer_hz();
@@ -87,11 +84,6 @@ namespace astia::sys {
         sec  = static_cast<u64>(realtime_epoch_sec + static_cast<i64>(ticks / hz));
         nsec = (ticks % hz) * nanoseconds_per_second / hz;
         return true;
-    }
-
-    bool register_time_syscalls() {
-        return register_syscall<sys_clock_gettime>(syscall_id::clock_gettime) &&
-               register_syscall<sys_clock_getres>(syscall_id::clock_getres);
     }
 
 } // namespace astia::sys

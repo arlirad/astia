@@ -1,5 +1,3 @@
-#include "mmap.hpp"
-
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -89,18 +87,10 @@ namespace astia::proc::syscalls {
     ///     -EINVAL: The length, offset, protection, flags, or anonymous sentinel is
     ///     invalid. -ENOMEM: The address space or physical backing cannot be allocated.
     ///     -ENOSYS: The requested mapping mode is not implemented.
-
-    /// ABI ID: mmap.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct mmap
         : sys::syscall_handler<mmap, sys::syscall_id::mmap, sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::mmap>(context);
         }
     };
 

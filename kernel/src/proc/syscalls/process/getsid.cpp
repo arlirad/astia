@@ -1,22 +1,25 @@
+#include <astia/mapping.hpp>
+
+#include "../../mapping.hpp"
+#include "../../proc.hpp"
+
 #include <syscall.hpp>
 
+namespace astia::proc::syscall {
+    i64 getsid(i64 raw_target) {
+        const auto target = mapper<proc::getsid_target>::from(raw_target);
+        return target ? proc::getsid(target.value.pid) : -ESRCH;
+    }
+}
+
 namespace astia::proc::syscalls {
-
-
-    /// ABI ID: getsid.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's negative errno.
     struct getsid : sys::syscall_handler<getsid, sys::syscall_id::getsid,
-                                                 sys::syscall_mode::async> {
+                                         sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::getsid>(context);
         }
     };
 
     extern const sys::syscall_descriptor getsid_descriptor = getsid::descriptor;
-
 
 } // namespace astia::proc::syscalls

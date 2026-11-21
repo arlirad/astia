@@ -1,5 +1,3 @@
-#include "gettid.hpp"
-
 #include <astia/api/errno.h>
 
 #include "../proc.hpp"
@@ -18,18 +16,10 @@ namespace astia::proc::syscalls {
     ///
     /// Synopsis:
     ///     long gettid(void);
-
-    /// ABI ID: gettid.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct gettid : sys::syscall_handler<gettid, sys::syscall_id::gettid,
                                          sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::gettid>(context);
         }
     };
 

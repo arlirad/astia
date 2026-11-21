@@ -1,5 +1,3 @@
-#include "sigaction.hpp"
-
 #include <astia/api/errno.h>
 #include <astia/api/signal.h>
 #include <astia/arch/context.hpp>
@@ -98,18 +96,10 @@ namespace astia::proc::syscalls {
     ///     -EFAULT: An action pointer or signal restorer is inaccessible.
     ///     -EINVAL: The signal is invalid or cannot be caught.
     ///     -ESRCH: There is no current process.
-
-    /// ABI ID: sigaction.
-    /// Sync/async mode: async.
-    /// Arguments: six ABI register words are available through syscall_context.
-    /// Result: a signed i64 result or a negative errno.
-    /// Ownership: proc subsystem.
-    /// Errors: invalid or unavailable operations return the owning implementation's
-    /// negative errno.
     struct sigaction : sys::syscall_handler<sigaction, sys::syscall_id::sigaction,
                                             sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::syscall_context& context) {
-            co_return sys::legacy_dispatch(context);
+            co_return sys::invoke_sync<&::astia::proc::syscall::sigaction>(context);
         }
     };
 
