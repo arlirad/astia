@@ -1,12 +1,5 @@
 #include "selftest.hpp"
-#include "selftest_arch.hpp"
 
-#include "../dev/chr/tty/uart16550.hpp"
-#include "../fs/filesystem.hpp"
-#include "aio.hpp"
-#include "proc.hpp"
-#include "scheduler.hpp"
-#include "syscall.hpp"
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
@@ -15,6 +8,14 @@
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
+
+#include "../dev/chr/tty/uart16550.hpp"
+#include "../fs/filesystem.hpp"
+#include "aio.hpp"
+#include "proc.hpp"
+#include "scheduler.hpp"
+#include "selftest_arch.hpp"
+#include "syscall.hpp"
 
 namespace astia::test {
 
@@ -27,9 +28,9 @@ namespace astia::test {
         volatile u32 scheduler_gate_result = 0;
         volatile u32 scheduler_wake_phase  = 0;
         volatile u32 scheduler_wake_result = 0;
-        volatile u32 preempt_started    = 0;
-        volatile u32 preempt_main_seen  = 0;
-        volatile u32 preempt_done       = 0;
+        volatile u32 preempt_started       = 0;
+        volatile u32 preempt_main_seen     = 0;
+        volatile u32 preempt_done          = 0;
 
         class registry_test_mount final : public fs::mount {};
 
@@ -44,14 +45,14 @@ namespace astia::test {
                 return &mount_;
             }
             void observe(fs::filesystem_registration* registration, long* result) {
-                registration_         = registration;
+                registration_           = registration;
                 factory_unregistration_ = result;
             }
 
             private:
-            mutable fs::filesystem_registration* registration_ = nullptr;
-            mutable long* factory_unregistration_               = nullptr;
-            mutable registry_test_mount mount_;
+            mutable fs::filesystem_registration* registration_           = nullptr;
+            mutable long*                        factory_unregistration_ = nullptr;
+            mutable registry_test_mount          mount_;
         };
 
         void scheduler_worker(void* argument) {
@@ -67,8 +68,7 @@ namespace astia::test {
             arch::cpu::nointerrupts();
             proc::scheduler::yield();
             __atomic_store_n(&scheduler_gate_result,
-                             arch::cpu::check_interrupts() ? 2u : 1u,
-                             __ATOMIC_RELEASE);
+                             arch::cpu::check_interrupts() ? 2u : 1u, __ATOMIC_RELEASE);
             arch::cpu::interrupts();
         }
 
@@ -78,8 +78,7 @@ namespace astia::test {
             __atomic_store_n(&scheduler_wake_phase, 1u, __ATOMIC_RELEASE);
             proc::scheduler::yield();
             __atomic_store_n(&scheduler_wake_result,
-                             arch::cpu::check_interrupts() ? 2u : 1u,
-                             __ATOMIC_RELEASE);
+                             arch::cpu::check_interrupts() ? 2u : 1u, __ATOMIC_RELEASE);
             arch::cpu::interrupts();
         }
 
@@ -92,7 +91,6 @@ namespace astia::test {
             }
             proc::current_thread()->exit();
         }
-
 
         bool scheduler_checks() {
             const bool gate_open = arch::cpu::check_interrupts();
@@ -125,10 +123,10 @@ namespace astia::test {
             }
             scheduler_wake_phase  = 0;
             scheduler_wake_result = 0;
-            auto wake_target = proc::scheduler::create_kernel(
+            auto wake_target      = proc::scheduler::create_kernel(
                 scheduler_wake_worker, nullptr, proc::scheduling_class::realtime, 0, 1);
-            if (!wake_target || !proc::scheduler::spawn_kernel(scheduler_waker,
-                                                               wake_target.get())) {
+            if (!wake_target ||
+                !proc::scheduler::spawn_kernel(scheduler_waker, wake_target.get())) {
                 if (!gate_open) {
                     arch::cpu::nointerrupts();
                 }
@@ -326,7 +324,7 @@ namespace astia::test {
         // A VFS node with a real size, so STATX has a success path whether
         // or not an initrd is mounted on this boot.
         struct sized_probe : fs::file {
-            mutable u32 stat_calls = 0;
+            mutable u32 stat_calls   = 0;
             u32         submit_calls = 0;
 
             long size() const override {
@@ -342,7 +340,7 @@ namespace astia::test {
         sized_probe probe_node{};
 
         struct parked_probe : fs::file {
-            bool ready = false;
+            bool ready        = false;
             u32  submit_calls = 0;
 
             long submit(io::request& request) override {
@@ -383,7 +381,7 @@ namespace astia::test {
                 }
 
             struct capacity_probe : fs::file {
-                bool ready = false;
+                bool ready        = false;
                 u32  submit_calls = 0;
 
                 long submit(io::request& request) override {
@@ -402,10 +400,10 @@ namespace astia::test {
                 return false;
             }
 
-            astia_rings* ring = nullptr;
-            auto* current = proc::current_process();
-            fd_t fd{-1};
-            auto cleanup = [&]() {
+            astia_rings* ring    = nullptr;
+            auto*        current = proc::current_process();
+            fd_t         fd{-1};
+            auto         cleanup = [&]() {
                 node.ready = true;
                 if (ring != nullptr) {
                     sys::io_device_ready_context(&node);
@@ -417,7 +415,8 @@ namespace astia::test {
                 if (current != nullptr && fd.value >= 0)
                     current->clear_descriptor(fd);
             };
-            if (current == nullptr || sys::io_setup(ASTIA_AIO_MAX_RING_ENTRIES, 0, &ring) < 0 ||
+            if (current == nullptr ||
+                sys::io_setup(ASTIA_AIO_MAX_RING_ENTRIES, 0, &ring) < 0 ||
                 ring == nullptr) {
                 logs::error("aio capacity fail (park ring)");
                 cleanup();
@@ -514,7 +513,7 @@ namespace astia::test {
                 return false;
             }
             current->clear_descriptor(fd);
-            fd = fd_t{-1};
+            fd   = fd_t{-1};
             file = {};
             if (sys::io_destroy(ring) != 0) {
                 logs::error("aio capacity fail (park teardown)");
@@ -526,8 +525,8 @@ namespace astia::test {
 
         bool aio_dispatch_boundary_checks() {
             struct dispatch_probe : fs::file {
-                bool ready = false;
-                bool error = false;
+                bool ready        = false;
+                bool error        = false;
                 u32  submit_calls = 0;
 
                 long submit(io::request& request) override {
@@ -548,10 +547,10 @@ namespace astia::test {
                 return false;
             }
 
-            astia_rings* ring = nullptr;
-            auto* current = proc::current_process();
-            fd_t fd{-1};
-            auto fail = [&]() {
+            astia_rings* ring    = nullptr;
+            auto*        current = proc::current_process();
+            fd_t         fd{-1};
+            auto         fail = [&]() {
                 if (current != nullptr && fd.value >= 0)
                     current->clear_descriptor(fd);
                 if (ring != nullptr)
@@ -563,7 +562,8 @@ namespace astia::test {
             auto file = fs::open(path);
             if (!file)
                 return fail();
-            for (i32 value = 3; value < static_cast<i32>(proc::max_process_fds); ++value) {
+            for (i32 value = 3; value < static_cast<i32>(proc::max_process_fds);
+                 ++value) {
                 if (current->set_descriptor(fd_t{value}, file)) {
                     fd = fd_t{value};
                     break;
@@ -572,8 +572,8 @@ namespace astia::test {
             if (fd.value < 0)
                 return fail();
 
-            auto completion = [&](u32 op, i32 result, i32 op_fd, u64 address,
-                                  u32 length, u64 user_data) {
+            auto completion = [&](u32 op, i32 result, i32 op_fd, u64 address, u32 length,
+                                  u64 user_data) {
                 astia_sqe* sqe = astia_sqe_slot(ring);
                 if (sqe == nullptr)
                     return false;
@@ -603,8 +603,8 @@ namespace astia::test {
                 node.submit_calls != 0)
                 return fail();
 
-            u8 buffer = 0;
-            astia_sqe* sqe = astia_sqe_slot(ring);
+            u8         buffer = 0;
+            astia_sqe* sqe    = astia_sqe_slot(ring);
             if (sqe == nullptr)
                 return fail();
             *sqe           = astia_sqe{};
@@ -640,7 +640,7 @@ namespace astia::test {
                 return fail();
             node.error = false;
             node.ready = false;
-            sqe = astia_sqe_slot(ring);
+            sqe        = astia_sqe_slot(ring);
             if (sqe == nullptr)
                 return fail();
             *sqe           = astia_sqe{};
@@ -663,8 +663,7 @@ namespace astia::test {
             if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 2)
                 return fail();
             cqe = astia_cq_peek(ring);
-            if (cqe == nullptr || cqe->user_data != 0xc0de87 ||
-                cqe->result != -ECANCELED)
+            if (cqe == nullptr || cqe->user_data != 0xc0de87 || cqe->result != -ECANCELED)
                 return fail();
             astia_cq_consume(ring, 1);
             cqe = astia_cq_peek(ring);
@@ -679,7 +678,7 @@ namespace astia::test {
                 return fail();
 
             current->clear_descriptor(fd);
-            fd = fd_t{-1};
+            fd   = fd_t{-1};
             file = {};
             if (sys::io_destroy(ring) != 0)
                 return false;
@@ -690,10 +689,10 @@ namespace astia::test {
 
         bool cq_full_completion_checks() {
             static const char parked_path[] = "/dev/aio_cq_full_probe";
-            constexpr u64 inline_tag = 0xC0DE60;
-            constexpr u64 parked_tag = 0xC0DE61;
-            if (fs::register_device(
-                    parked_path, mm::shptr<fs::file>::borrowed(&parked_node)) < 0) {
+            constexpr u64     inline_tag    = 0xC0DE60;
+            constexpr u64     parked_tag    = 0xC0DE61;
+            if (fs::register_device(parked_path,
+                                    mm::shptr<fs::file>::borrowed(&parked_node)) < 0) {
                 logs::error("aio CQ fail (probe node)");
                 return false;
             }
@@ -703,8 +702,8 @@ namespace astia::test {
                 logs::error("aio CQ fail (ring)");
                 return false;
             }
-            auto inline_file = fs::open("/dev/statx_probe");
-            auto* current    = proc::current_process();
+            auto  inline_file = fs::open("/dev/statx_probe");
+            auto* current     = proc::current_process();
             fd_t  inline_fd{-1};
             if (!inline_file || current == nullptr) {
                 logs::error("aio CQ fail (inline open)");
@@ -743,9 +742,9 @@ namespace astia::test {
                 (void) sys::io_destroy(ring);
                 return false;
             }
-            probe_node.submit_calls = 0;
-            u8 inline_buffer = 0;
-            astia_sqe* s = astia_sqe_slot(ring);
+            probe_node.submit_calls  = 0;
+            u8         inline_buffer = 0;
+            astia_sqe* s             = astia_sqe_slot(ring);
             if (s == nullptr) {
                 logs::error("aio CQ fail (inline SQ slot)");
                 current->clear_descriptor(inline_fd);
@@ -767,8 +766,8 @@ namespace astia::test {
                 return false;
             }
             astia_cq_consume(ring, 1);
-            if (sys::io_submit(ring, 0) != 0 || astia_cq_ready(ring) !=
-                                                     astia_rings_cq(ring)->entries) {
+            if (sys::io_submit(ring, 0) != 0 ||
+                astia_cq_ready(ring) != astia_rings_cq(ring)->entries) {
                 logs::error("aio CQ fail (inline retry)");
                 current->clear_descriptor(inline_fd);
                 (void) sys::io_destroy(ring);
@@ -816,10 +815,10 @@ namespace astia::test {
                 (void) sys::io_destroy(ring);
                 return false;
             }
-            u8 buffer = 0;
+            u8 buffer                = 0;
             parked_node.ready        = false;
             parked_node.submit_calls = 0;
-            s = astia_sqe_slot(ring);
+            s                        = astia_sqe_slot(ring);
             if (s == nullptr) {
                 current->clear_descriptor(parked_fd);
                 (void) sys::io_destroy(ring);
@@ -857,8 +856,8 @@ namespace astia::test {
                 return false;
             }
             astia_cq_consume(ring, 1);
-            if (sys::io_submit(ring, 0) != 0 || astia_cq_ready(ring) !=
-                                                     astia_rings_cq(ring)->entries ||
+            if (sys::io_submit(ring, 0) != 0 ||
+                astia_cq_ready(ring) != astia_rings_cq(ring)->entries ||
                 parked_node.submit_calls != 2) {
                 logs::error("aio CQ fail (parked retry)");
                 current->clear_descriptor(parked_fd);
@@ -898,22 +897,22 @@ namespace astia::test {
 
                 bool ready = false;
             } node;
-            static const char path[] = "/dev/aio_cancel_probe";
-            constexpr u64 target_tag = 0xC0DE70;
-            constexpr u64 cancel_tag = 0xC0DE71;
+            static const char path[]     = "/dev/aio_cancel_probe";
+            constexpr u64     target_tag = 0xC0DE70;
+            constexpr u64     cancel_tag = 0xC0DE71;
             if (fs::register_device(path, mm::shptr<fs::file>::borrowed(&node)) < 0) {
                 logs::error("aio cancel fail (probe node)");
                 return false;
             }
             astia_rings* ring = nullptr;
-            auto fail = [&]() {
+            auto         fail = [&]() {
                 if (ring != nullptr)
                     (void) sys::io_destroy(ring);
                 return false;
             };
             if (sys::io_setup(8, 0, &ring) < 0 || ring == nullptr)
                 return fail();
-            auto file = fs::open(path);
+            auto  file    = fs::open(path);
             auto* current = proc::current_process();
             if (!file || current == nullptr)
                 return fail();
@@ -925,15 +924,15 @@ namespace astia::test {
                 }
             if (fd.value < 0)
                 return fail();
-            u8 buffer = 0;
-            astia_sqe* sqe = astia_sqe_slot(ring);
+            u8         buffer = 0;
+            astia_sqe* sqe    = astia_sqe_slot(ring);
             if (sqe == nullptr)
                 return fail();
-            *sqe = astia_sqe{};
-            sqe->op = OP_READ;
-            sqe->fd = fd.value;
-            sqe->address = reinterpret_cast<u64>(&buffer);
-            sqe->length = sizeof buffer;
+            *sqe           = astia_sqe{};
+            sqe->op        = OP_READ;
+            sqe->fd        = fd.value;
+            sqe->address   = reinterpret_cast<u64>(&buffer);
+            sqe->length    = sizeof buffer;
             sqe->user_data = target_tag;
             astia_sq_publish(ring, 1);
             if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 0)
@@ -941,9 +940,9 @@ namespace astia::test {
             sqe = astia_sqe_slot(ring);
             if (sqe == nullptr)
                 return fail();
-            *sqe = astia_sqe{};
-            sqe->op = OP_CANCEL;
-            sqe->offset = target_tag;
+            *sqe           = astia_sqe{};
+            sqe->op        = OP_CANCEL;
+            sqe->offset    = target_tag;
             sqe->user_data = cancel_tag;
             astia_sq_publish(ring, 1);
             if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 2)
@@ -954,7 +953,8 @@ namespace astia::test {
                 return fail();
             astia_cq_consume(ring, 1);
             astia_cqe* second = astia_cq_peek(ring);
-            if (second == nullptr || second->user_data != cancel_tag || second->result != 0)
+            if (second == nullptr || second->user_data != cancel_tag ||
+                second->result != 0)
                 return fail();
             astia_cq_consume(ring, 1);
             node.ready = true;
@@ -1031,17 +1031,17 @@ namespace astia::test {
             // is reaped. Repeating the kick without publishing another SQE
             // must therefore produce neither another completion nor effect.
             probe_node.stat_calls = 0;
-            astia_sqe* request = astia_sqe_slot(ring);
+            astia_sqe* request    = astia_sqe_slot(ring);
             if (request == nullptr) {
                 logs::error("io submit once fail (SQ slot)");
                 return false;
             }
-            *request          = astia_sqe{};
-            request->op       = OP_STATX;
-            request->fd       = -1;
-            request->address  = reinterpret_cast<u64>(probe_path);
-            request->offset   = reinterpret_cast<u64>(&st);
-            request->length   = static_cast<u32>(sizeof(astia_stat));
+            *request           = astia_sqe{};
+            request->op        = OP_STATX;
+            request->fd        = -1;
+            request->address   = reinterpret_cast<u64>(probe_path);
+            request->offset    = reinterpret_cast<u64>(&st);
+            request->length    = static_cast<u32>(sizeof(astia_stat));
             request->user_data = 0xC0DE58;
             astia_sq_publish(ring, 1);
             if (sys::io_submit(ring, 1) != 1 || probe_node.stat_calls != 1 ||
@@ -1066,12 +1066,12 @@ namespace astia::test {
                 logs::error("io submit once fail (reuse SQ slot)");
                 return false;
             }
-            *request          = astia_sqe{};
-            request->op       = OP_STATX;
-            request->fd       = -1;
-            request->address  = reinterpret_cast<u64>(probe_path);
-            request->offset   = reinterpret_cast<u64>(&st);
-            request->length   = static_cast<u32>(sizeof(astia_stat));
+            *request           = astia_sqe{};
+            request->op        = OP_STATX;
+            request->fd        = -1;
+            request->address   = reinterpret_cast<u64>(probe_path);
+            request->offset    = reinterpret_cast<u64>(&st);
+            request->length    = static_cast<u32>(sizeof(astia_stat));
             request->user_data = 0xC0DE59;
             astia_sq_publish(ring, 1);
             if (sys::io_submit(ring, 1) != 1 || probe_node.stat_calls != 2 ||
@@ -1156,9 +1156,9 @@ namespace astia::test {
                 return false;
             }
 
-            registry_test_filesystem test_type;
+            registry_test_filesystem    test_type;
             fs::filesystem_registration registration;
-            long factory_unregistration = 0;
+            long                        factory_unregistration = 0;
             test_type.observe(&registration, &factory_unregistration);
             if (fs::register_type(&test_type, registration) != 0 ||
                 !registration.valid()) {
