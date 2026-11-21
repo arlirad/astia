@@ -84,6 +84,8 @@ def check_production_layout(repository: Path) -> None:
     assert "raw_id(process->pid())" in direct_handler
     io_setup = (source / "fs/syscalls/io_setup.cpp").read_text()
     assert re.search(r"user_ptr<astia_rings\*>\s+out", io_setup)
+    futex = (source / "proc/syscalls/ipc/futex.cpp").read_text()
+    assert re.search(r"user_ptr<astia_timespec>\s+timeout", futex)
     for path in source.rglob("*.cpp"):
         assert "register_syscall" not in path.read_text()
         assert "register_syscalls" not in path.read_text()
