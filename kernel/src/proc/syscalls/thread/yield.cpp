@@ -31,7 +31,7 @@ namespace astia::proc::syscalls {
     ///     Returns zero.
     struct yield
         : sys::syscall_handler<yield, sys::syscall_id::yield, sys::syscall_mode::sync> {
-        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+        static i64 invoke() {
             scheduler::yield();
             return 0;
         }

@@ -36,8 +36,7 @@ namespace astia::proc::syscalls {
     struct thread_detach
         : sys::syscall_handler<thread_detach, sys::syscall_id::thread_detach,
                                sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u32   tid   = static_cast<u32>(context.arguments[0]);
+        static i64 invoke(u32 tid) {
             auto* owner = current_process();
             if (owner == nullptr) {
                 return -ESRCH;

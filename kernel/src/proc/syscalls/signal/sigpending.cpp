@@ -8,11 +8,10 @@
 namespace astia::proc::syscalls {
     struct sigpending : sys::syscall_handler<sigpending, sys::syscall_id::sigpending,
                                              sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64        set_ptr = static_cast<u64>(context.arguments[0]);
-            auto*      owner   = current_process();
-            auto*      self    = current_thread();
-            const auto range   = sys::user_ptr<u32>(set_ptr).validate();
+        static i64 invoke(u64 set_ptr) {
+            auto*      owner = current_process();
+            auto*      self  = current_thread();
+            const auto range = sys::user_ptr<u32>(set_ptr).validate();
             if (owner == nullptr || self == nullptr)
                 return -ESRCH;
             if (!range)

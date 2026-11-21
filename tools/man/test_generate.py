@@ -50,6 +50,7 @@ def check_production_layout(repository: Path) -> None:
         assert "/// Sync/async mode:" not in text
         assert mode == "sync", f"production wrapper is fake async: {path}"
         assert "static i64 invoke(" in handler
+        assert "sys::syscall_context" not in handler
         assert "syscall_mode::sync" in handler
         assert "co_return sys::invoke_sync" not in handler
     assert len(handler_files) == 82

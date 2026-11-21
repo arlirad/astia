@@ -12,7 +12,7 @@ namespace astia::proc::syscalls {
     ///     long gettid(void);
     struct gettid
         : sys::syscall_handler<gettid, sys::syscall_id::gettid, sys::syscall_mode::sync> {
-        static i64 invoke([[maybe_unused]] sys::syscall_context& context) {
+        static i64 invoke() {
             auto* thread = current_thread();
             return thread == nullptr ? -ESRCH : static_cast<i64>(thread->tid());
         }

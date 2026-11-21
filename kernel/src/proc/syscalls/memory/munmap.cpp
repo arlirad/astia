@@ -36,9 +36,7 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct munmap
         : sys::syscall_handler<munmap, sys::syscall_id::munmap, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   addr    = static_cast<u64>(context.arguments[0]);
-            i64   len     = static_cast<i64>(context.arguments[1]);
+        static i64 invoke(u64 addr, i64 len) {
             auto* process = current_process();
             if (process == nullptr) {
                 return -ESRCH;

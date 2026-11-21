@@ -38,10 +38,7 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct sigaction : sys::syscall_handler<sigaction, sys::syscall_id::sigaction,
                                             sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i32  value         = static_cast<i32>(context.arguments[0]);
-            u64  next_ptr      = static_cast<u64>(context.arguments[1]);
-            u64  old_ptr       = static_cast<u64>(context.arguments[2]);
+        static i64 invoke(i32 value, u64 next_ptr, u64 old_ptr) {
             auto mapped_signal = mapper<signal_number>::from(value);
             if (!mapped_signal || !valid_signal(mapped_signal.value))
                 return -EINVAL;

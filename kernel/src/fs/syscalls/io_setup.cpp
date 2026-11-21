@@ -42,10 +42,7 @@ namespace astia::fs::syscalls {
     ///
     struct io_setup : sys::syscall_handler<io_setup, sys::syscall_id::io_setup,
                                            sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            const u32  entries  = static_cast<u32>(context.arguments[0]);
-            const u32  flags    = static_cast<u32>(context.arguments[1]);
-            const u64  out      = static_cast<u64>(context.arguments[2]);
+        static i64 invoke(u32 entries, u32 flags, u64 out) {
             const auto ring_out = sys::user_ptr<astia_rings*>(out).validate();
             if (!ring_out)
                 return -EFAULT;

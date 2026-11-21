@@ -8,10 +8,8 @@
 namespace astia::proc::syscalls {
     struct getgroups : sys::syscall_handler<getgroups, sys::syscall_id::getgroups,
                                             sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i64   n   = static_cast<i64>(context.arguments[0]);
-            i64   out = static_cast<i64>(context.arguments[1]);
-            auto* p   = current_process();
+        static i64 invoke(i64 n, i64 out) {
+            auto* p = current_process();
             if (!p)
                 return -ESRCH;
             if (n < 0 || n > static_cast<i64>(max_supplementary_groups))

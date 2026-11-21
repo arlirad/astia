@@ -40,13 +40,7 @@ namespace astia::proc::syscalls {
     ///     -ENOSYS: The requested mapping mode is not implemented.
     struct mmap
         : sys::syscall_handler<mmap, sys::syscall_id::mmap, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   addr    = static_cast<u64>(context.arguments[0]);
-            i64   len     = static_cast<i64>(context.arguments[1]);
-            u32   prot    = static_cast<u32>(context.arguments[2]);
-            u32   flags   = static_cast<u32>(context.arguments[3]);
-            i32   fd      = static_cast<i32>(context.arguments[4]);
-            i64   off     = static_cast<i64>(context.arguments[5]);
+        static i64 invoke(u64 addr, i64 len, u32 prot, u32 flags, i32 fd, i64 off) {
             auto* process = current_process();
             if (process == nullptr) {
                 return -ESRCH;

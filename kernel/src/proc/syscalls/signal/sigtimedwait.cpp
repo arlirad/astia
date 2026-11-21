@@ -35,12 +35,9 @@ namespace astia::proc::syscalls {
     struct sigtimedwait
         : sys::syscall_handler<sigtimedwait, sys::syscall_id::sigtimedwait,
                                sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   set_ptr     = static_cast<u64>(context.arguments[0]);
-            u64   info_ptr    = static_cast<u64>(context.arguments[1]);
-            u64   timeout_ptr = static_cast<u64>(context.arguments[2]);
-            auto* owner       = current_process();
-            auto* self        = current_thread();
+        static i64 invoke(u64 set_ptr, u64 info_ptr, u64 timeout_ptr) {
+            auto* owner = current_process();
+            auto* self  = current_thread();
             if (owner == nullptr || self == nullptr)
                 return -ESRCH;
 

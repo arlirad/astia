@@ -11,10 +11,8 @@ namespace astia::sys::syscalls {
     struct clock_gettime
         : sys::syscall_handler<clock_gettime, sys::syscall_id::clock_gettime,
                                sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            const i32  clock_id = static_cast<i32>(context.arguments[0]);
-            const u64  out      = static_cast<u64>(context.arguments[1]);
-            const auto ts_out   = sys::user_ptr<astia_timespec>(out).validate();
+        static i64 invoke(i32 clock_id, u64 out) {
+            const auto ts_out = sys::user_ptr<astia_timespec>(out).validate();
             if (!ts_out)
                 return -EFAULT;
             const u64 hz = arch::timer_hz();

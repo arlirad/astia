@@ -28,9 +28,7 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: no matching live process or process group exists.
     struct kill
         : sys::syscall_handler<kill, sys::syscall_id::kill, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i32  pid_raw       = static_cast<i32>(context.arguments[0]);
-            i32  signal_raw    = static_cast<i32>(context.arguments[1]);
+        static i64 invoke(i32 pid_raw, i32 signal_raw) {
             auto mapped_signal = signal_raw == 0
                                      ? optional<signal_number>(signal_number{})
                                      : mapper<signal_number>::from(signal_raw);

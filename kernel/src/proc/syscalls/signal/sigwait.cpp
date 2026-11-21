@@ -12,11 +12,9 @@
 namespace astia::proc::syscalls {
     struct sigwait : sys::syscall_handler<sigwait, sys::syscall_id::sigwait,
                                           sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   set_ptr    = static_cast<u64>(context.arguments[0]);
-            u64   signal_ptr = static_cast<u64>(context.arguments[1]);
-            auto* owner      = current_process();
-            auto* self       = current_thread();
+        static i64 invoke(u64 set_ptr, u64 signal_ptr) {
+            auto* owner = current_process();
+            auto* self  = current_thread();
             if (owner == nullptr || self == nullptr)
                 return -ESRCH;
             const auto set_range    = sys::user_ptr<u32>(set_ptr).validate();

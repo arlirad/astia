@@ -16,8 +16,7 @@ namespace astia::proc::syscalls {
     ///     Does not return to the caller.
     struct exit
         : sys::syscall_handler<exit, sys::syscall_id::exit, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i64   status = static_cast<i64>(context.arguments[0]);
+        static i64 invoke(i64 status) {
             auto* thread = current_thread();
             if (thread == nullptr)
                 return -ESRCH;

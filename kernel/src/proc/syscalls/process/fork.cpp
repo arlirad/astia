@@ -35,8 +35,7 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current user process.
     struct fork
         : sys::syscall_handler<fork, sys::syscall_id::fork, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            const arch::syscall_frame& frame = context.frame;
+        static i64 invoke(const arch::syscall_frame& frame) {
             return proc::fork(arch::caller_image(frame));
         }
     };

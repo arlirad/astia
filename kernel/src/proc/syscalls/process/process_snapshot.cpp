@@ -9,9 +9,7 @@ namespace astia::proc::syscalls {
     struct process_snapshot
         : sys::syscall_handler<process_snapshot, sys::syscall_id::process_snapshot,
                                sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i64 output   = static_cast<i64>(context.arguments[0]);
-            i64 capacity = static_cast<i64>(context.arguments[1]);
+        static i64 invoke(i64 output, i64 capacity) {
             if (output < 0 || capacity < 0 || capacity > ASTIA_PROCESS_SNAPSHOT_MAX)
                 return -EINVAL;
             return proc::process_snapshot(static_cast<u64>(output),

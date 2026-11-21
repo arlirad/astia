@@ -20,9 +20,7 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: The target process does not exist.
     struct setpgid : sys::syscall_handler<setpgid, sys::syscall_id::setpgid,
                                           sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i32   pid_raw  = static_cast<i32>(context.arguments[0]);
-            i32   pgid_raw = static_cast<i32>(context.arguments[1]);
+        static i64 invoke(i32 pid_raw, i32 pgid_raw) {
             pid_t pid{};
             if (pid_raw != 0) {
                 auto mapped = mapper<pid_t>::from(pid_raw);

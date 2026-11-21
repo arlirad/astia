@@ -24,10 +24,9 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process or thread.
     struct sigsuspend : sys::syscall_handler<sigsuspend, sys::syscall_id::sigsuspend,
                                              sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   mask_ptr = static_cast<u64>(context.arguments[0]);
-            auto* self     = current_thread();
-            auto* owner    = current_process();
+        static i64 invoke(u64 mask_ptr) {
+            auto* self  = current_thread();
+            auto* owner = current_process();
             if (owner == nullptr || self == nullptr)
                 return -ESRCH;
             const auto range = sys::user_ptr<u32>(mask_ptr).validate();

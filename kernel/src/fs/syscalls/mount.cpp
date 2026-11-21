@@ -14,13 +14,10 @@ namespace astia::fs::syscalls {
     /// it changes only the in-memory VFS namespace and never opens a host path.
     struct mount
         : sys::syscall_handler<mount, sys::syscall_id::mount, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            const u64 type_address   = static_cast<u64>(context.arguments[0]);
-            const u64 target_address = static_cast<u64>(context.arguments[1]);
-            const u64 source_address = static_cast<u64>(context.arguments[2]);
-            char      type[path_max]{};
-            char      target[path_max]{};
-            char      source[path_max]{};
+        static i64 invoke(u64 type_address, u64 target_address, u64 source_address) {
+            char type[path_max]{};
+            char target[path_max]{};
+            char source[path_max]{};
             if (!sys::copy_in_string(span<char>(type, sizeof type),
                                      sys::user_ptr<char>(type_address)) ||
                 !sys::copy_in_string(span<char>(target, sizeof target),

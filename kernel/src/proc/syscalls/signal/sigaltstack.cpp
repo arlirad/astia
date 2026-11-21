@@ -10,10 +10,8 @@
 namespace astia::proc::syscalls {
     struct sigaltstack : sys::syscall_handler<sigaltstack, sys::syscall_id::sigaltstack,
                                               sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   stack_ptr     = static_cast<u64>(context.arguments[0]);
-            u64   old_stack_ptr = static_cast<u64>(context.arguments[1]);
-            auto* self          = current_thread();
+        static i64 invoke(u64 stack_ptr, u64 old_stack_ptr) {
+            auto* self = current_thread();
             if (self == nullptr)
                 return -ESRCH;
 

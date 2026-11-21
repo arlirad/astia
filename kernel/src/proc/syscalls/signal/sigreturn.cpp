@@ -27,9 +27,8 @@ namespace astia::proc::syscalls {
     ///     -EFAULT: The saved context or its registers are invalid.
     struct sigreturn : sys::syscall_handler<sigreturn, sys::syscall_id::sigreturn,
                                             sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            const arch::syscall_frame& input = context.frame;
-            const auto                 range =
+        static i64 invoke(const arch::syscall_frame& input) {
+            const auto range =
                 sys::user_ptr<astia_x86_64_signal_context_t>(input.a0).validate();
             if (!range)
                 return -EFAULT;

@@ -18,10 +18,8 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct getcwd
         : sys::syscall_handler<getcwd, sys::syscall_id::getcwd, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            u64   buffer = static_cast<u64>(context.arguments[0]);
-            u64   length = static_cast<u64>(context.arguments[1]);
-            auto* owner  = current_process();
+        static i64 invoke(u64 buffer, u64 length) {
+            auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
             if (length == 0)

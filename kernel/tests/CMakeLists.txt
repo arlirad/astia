@@ -140,6 +140,7 @@ target_link_options(astia_time_test PRIVATE -Wl,--gc-sections)
 astia_add_host_test(astia_syscall_handler_prototype_test
         syscall_handler_prototype_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/accept.cpp
         support/resume_queue_host.cpp)
 target_compile_options(astia_syscall_handler_prototype_test PRIVATE
         -ffunction-sections -fdata-sections)

@@ -28,10 +28,7 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process or thread.
     struct waitpid : sys::syscall_handler<waitpid, sys::syscall_id::waitpid,
                                           sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i32 pid        = static_cast<i32>(context.arguments[0]);
-            u64 status_ptr = static_cast<u64>(context.arguments[1]);
-            u32 options    = static_cast<u32>(context.arguments[2]);
+        static i64 invoke(i32 pid, u64 status_ptr, u32 options) {
             // Keep the POSIX selector grammar at the ABI edge, but validate each
             // identifier through its domain mapper before the scheduler-facing
             // implementation sees the legacy signed selector.

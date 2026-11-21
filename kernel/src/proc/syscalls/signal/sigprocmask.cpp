@@ -24,11 +24,8 @@ namespace astia::proc::syscalls {
     ///     -ESRCH: There is no current process.
     struct sigprocmask : sys::syscall_handler<sigprocmask, sys::syscall_id::sigprocmask,
                                               sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_context& context) {
-            i32         how     = static_cast<i32>(context.arguments[0]);
-            signal_mask set     = static_cast<signal_mask>(context.arguments[1]);
-            u64         old_ptr = static_cast<u64>(context.arguments[2]);
-            auto*       self    = current_thread();
+        static i64 invoke(i32 how, signal_mask set, u64 old_ptr) {
+            auto* self = current_thread();
             if (self == nullptr) {
                 return -ESRCH;
             }
