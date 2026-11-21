@@ -120,12 +120,19 @@ namespace astia::mm {
 
         template <typename U>
         void acquire(U* value, void (*destroy)(void*)) {
-            if (value != nullptr) {
-                _control = new (std::nothrow)
-                    shcontrol{1, static_cast<T*>(value), value, destroy};
-                if (_control == nullptr && destroy != nullptr)
+            if (value == nullptr)
+                return;
+            shcontrol* control = new (std::nothrow) shcontrol;
+            if (control == nullptr) {
+                if (destroy != nullptr)
                     destroy(value);
+                return;
             }
+            control->refs    = 1;
+            control->value   = static_cast<T*>(value);
+            control->owned   = value;
+            control->destroy = destroy;
+            _control         = control;
         }
 
         void retain() {
