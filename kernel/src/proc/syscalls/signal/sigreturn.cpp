@@ -68,6 +68,14 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// sigreturn - restore a saved signal execution context.
+    ///
+    /// Synopsis:
+    ///     long sigreturn(const signal_context *context);
+    ///
+    /// Errors:
+    ///     -EFAULT: The saved context or its registers are invalid.
+
     /// ABI ID: sigreturn.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

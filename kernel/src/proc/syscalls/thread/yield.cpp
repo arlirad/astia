@@ -26,6 +26,18 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// yield - Yield the current scheduling turn.
+    ///
+    /// Synopsis:
+    ///     long yield(void);
+    ///
+    /// Description:
+    ///     Gives another runnable thread an opportunity to run. The caller
+    ///     remains runnable and may be selected again immediately.
+    ///
+    /// Return Value:
+    ///     Returns zero.
+
     /// ABI ID: yield.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

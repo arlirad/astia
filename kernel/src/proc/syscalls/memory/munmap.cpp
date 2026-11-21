@@ -37,6 +37,22 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// munmap - Remove a mapped virtual range.
+    ///
+    /// Synopsis:
+    ///     long munmap(void *addr, long length);
+    ///
+    /// Description:
+    ///     Removes mappings overlapping a positive-length virtual range. The
+    ///     address space may split a mapping when only part is removed.
+    ///
+    /// Return Value:
+    ///     Returns zero on success or a negative errno.
+    ///
+    /// Errors:
+    ///     -EINVAL: The length is not positive or the range is invalid.
+    ///     -ESRCH: There is no current process.
+
     /// ABI ID: munmap.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

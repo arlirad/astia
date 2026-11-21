@@ -23,6 +23,7 @@ namespace astia::proc::syscalls {
     ///
     /// Return Value:
     ///     Returns the process group identifier or a negative errno.
+
     /// ABI ID: getpgid.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

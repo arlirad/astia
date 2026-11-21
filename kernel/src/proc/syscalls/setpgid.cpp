@@ -39,6 +39,7 @@ namespace astia::proc::syscalls {
     ///     -EPERM: The target belongs to another session.
     ///     -EPERM: The target is a session leader.
     ///     -ESRCH: The target process does not exist.
+
     /// ABI ID: setpgid.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

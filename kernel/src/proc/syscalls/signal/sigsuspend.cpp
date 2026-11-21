@@ -54,6 +54,16 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// sigsuspend - wait for a signal with a temporary mask.
+    ///
+    /// Synopsis:
+    ///     long sigsuspend(const uint32_t *mask);
+    ///
+    /// Errors:
+    ///     -EFAULT: The mask pointer is inaccessible.
+    ///     -EINTR: A signal interrupted the suspended thread.
+    ///     -ESRCH: There is no current process or thread.
+
     /// ABI ID: sigsuspend.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

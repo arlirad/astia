@@ -93,6 +93,7 @@ namespace astia::proc::syscalls {
     /// Errors:
     ///     -EINVAL: signal or target identifier is malformed.
     ///     -ESRCH: no matching live process or process group exists.
+
     /// ABI ID: kill.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

@@ -36,6 +36,24 @@ namespace astia::proc::syscall {
 
 namespace astia::proc::syscalls {
 
+    /// waitpid - wait for and reap a child process.
+    ///
+    /// Synopsis:
+    ///     long waitpid(int pid, int *status, uint32_t options);
+    ///
+    /// Description:
+    ///     pid > 0 selects one child. pid == -1 selects any child.
+    ///     WNOHANG returns immediately when no child has exited.
+    ///
+    /// Return Value:
+    ///     Returns the reaped child PID, or zero with WNOHANG when no child is ready.
+    ///
+    /// Errors:
+    ///     -EFAULT: The status pointer is not writable userspace memory.
+    ///     -ECHILD: The caller has no matching child process.
+    ///     -EINVAL: The PID or option mask is invalid.
+    ///     -ESRCH: There is no current process or thread.
+
     /// ABI ID: waitpid.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.

@@ -15,6 +15,7 @@ namespace astia::proc::syscalls {
     ///
     /// Synopsis:
     ///     long getpgrp(void);
+
     /// ABI ID: getpgrp.
     /// Sync/async mode: async.
     /// Arguments: six ABI register words are available through syscall_context.
