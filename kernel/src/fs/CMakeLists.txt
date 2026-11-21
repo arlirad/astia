@@ -1,4 +1,6 @@
 add_library(fs STATIC
+        aio_dispatch.cpp
+        aio_handlers.cpp
         fs_io.cpp
         fs.cpp
         path_service.cpp

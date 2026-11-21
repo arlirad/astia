@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ring.hpp"
+#include "../io/aio/ring.hpp"
 
 namespace astia::io::aio::socket {
 
