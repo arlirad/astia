@@ -9,6 +9,8 @@ project(astia_libc
   DESCRIPTION "astia C standard library"
   LANGUAGES C)
 
+include_directories(${ASTIA_VERSION_INCLUDE_DIR})
+
 include(GNUInstallDirs)
 
 set(CMAKE_C_STANDARD 11)
@@ -94,12 +96,10 @@ endif()
 target_include_directories(astia_libc PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
-  ${ASTIA_VERSION_INCLUDE_DIR}
 )
 target_include_directories(astia_libc_objects PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
-  ${ASTIA_VERSION_INCLUDE_DIR}
 )
 
 # This archive always links *into* an executable (host tests, future
@@ -117,7 +117,6 @@ if(ASTIA_BUILD_TESTS)
   target_include_directories(astia_libc_host PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
-    ${ASTIA_VERSION_INCLUDE_DIR}
   )
 endif()
 
@@ -151,6 +150,11 @@ set_source_files_properties(src/wchar.c PROPERTIES
 
 install(TARGETS astia_libc ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES
+  ${ASTIA_VERSION_INCLUDE_DIR}/astia/version.h
+  ${ASTIA_VERSION_INCLUDE_DIR}/astia/version.hpp
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/astia
+)
 
 set(ASTIA_LIBC_KERNEL_HEADERS
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/aio.h

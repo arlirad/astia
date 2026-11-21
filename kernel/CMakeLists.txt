@@ -31,6 +31,8 @@ option(ASTIA_EXPERIMENTAL_AARCH64
         "Expose the standalone, compile-only AArch64 bring-up port" OFF)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+include_directories(${ASTIA_VERSION_INCLUDE_DIR})
+
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif ()

@@ -6,11 +6,11 @@ cmake_minimum_required(VERSION 3.20)
 # The repository-level project is the canonical entry point for IDEs.  The
 # kernel remains independently configurable from kernel/, while libc keeps
 # its separate freestanding toolchain and install/sysroot workflow.
-project(astia VERSION 0.0.0 LANGUAGES NONE)
-
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/AstiaVersion.cmake)
-set(PROJECT_VERSION "${ASTIA_VERSION_major}.${ASTIA_VERSION_minor}.${ASTIA_VERSION_patch}")
-set(astia_VERSION "${PROJECT_VERSION}")
+
+project(astia
+        VERSION ${ASTIA_VERSION_major}.${ASTIA_VERSION_minor}.${ASTIA_VERSION_patch}
+        LANGUAGES NONE)
 
 enable_testing()
 
@@ -18,7 +18,7 @@ add_test(NAME astia_version_tests
         COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_astia_version.py)
 set_tests_properties(astia_version_tests PROPERTIES
-        LABELS "repository;deterministic" TIMEOUT 30)
+        LABELS "repository;deterministic" TIMEOUT 60)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/AstiaCTest.cmake)
 

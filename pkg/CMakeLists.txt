@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Arlirad
 
-set(ASTIA_PACKAGE_VERSION "${ASTIA_VERSION}" CACHE INTERNAL
-        "Version embedded in Astia package metadata")
-
 if(ASTIA_BUILD_TESTS)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     enable_language(C)
