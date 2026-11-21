@@ -3,11 +3,6 @@
 #include "../../sys/aio.hpp"
 
 #include <syscall.hpp>
-namespace astia::fs::syscall {
-    i64 io_destroy(u64 ring) {
-        return sys::io_destroy(reinterpret_cast<astia_rings*>(static_cast<usize>(ring)));
-    }
-}
 
 namespace astia::fs::syscalls {
 
@@ -38,7 +33,9 @@ namespace astia::fs::syscalls {
     struct io_destroy : sys::syscall_handler<io_destroy, sys::syscall_id::io_destroy,
                                              sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::fs::syscall::io_destroy>(context);
+            const u64 ring = static_cast<u64>(context.arguments[0]);
+            return sys::io_destroy(
+                reinterpret_cast<astia_rings*>(static_cast<usize>(ring)));
         }
     };
 

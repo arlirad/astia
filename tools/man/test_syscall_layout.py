@@ -73,12 +73,7 @@ def check_production_layout(repository: Path) -> None:
         for path in source.rglob("*.cpp")
         if "invoke_sync<" in path.read_text()
     }
-    assert invoke_sync_files == {
-        "fs/syscalls/io_destroy.cpp",
-        "fs/syscalls/io_register.cpp",
-        "fs/syscalls/io_setup.cpp",
-        "fs/syscalls/io_submit.cpp",
-    }
+    assert invoke_sync_files == set()
     direct_handler = (source / "proc/syscalls/getpid.cpp").read_text()
     assert "raw_id(process->pid())" in direct_handler
     for path in source.rglob("*.cpp"):

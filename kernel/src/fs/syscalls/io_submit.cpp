@@ -4,13 +4,6 @@
 
 #include <syscall.hpp>
 
-namespace astia::fs::syscall {
-    i64 io_submit(u64 ring, u32 submit) {
-        return sys::io_submit(reinterpret_cast<astia_rings*>(static_cast<usize>(ring)),
-                              submit);
-    }
-}
-
 namespace astia::fs::syscalls {
 
     /// io_submit - Submit published asynchronous I/O operations.
@@ -23,7 +16,10 @@ namespace astia::fs::syscalls {
     struct io_submit : sys::syscall_handler<io_submit, sys::syscall_id::io_submit,
                                             sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_context& context) {
-            return sys::invoke_sync<&::astia::fs::syscall::io_submit>(context);
+            const u64 ring   = static_cast<u64>(context.arguments[0]);
+            const u32 submit = static_cast<u32>(context.arguments[1]);
+            return sys::io_submit(
+                reinterpret_cast<astia_rings*>(static_cast<usize>(ring)), submit);
         }
     };
 
