@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 TOOLS_MAN = Path(__file__).resolve().parent
 REPO_ROOT = TOOLS_MAN.parents[1]
@@ -164,166 +165,341 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("Detailed manual text has not been added", body)
         self.assertNotIn("u64 set_ptr", body)
 
+    def _export_pages(self, count: int = 70, version: str = "old"):
+        canonical = [(index, f"fake_{index}") for index in range(count)]
+        pages = {
+            (name, 2): (
+                generate.fallback_body(name, f"long {name}_{version}(void);"),
+                "proc",
+            )
+            for _, name in canonical
+        }
+        return canonical, pages, {}
+
     def test_atomic_output_replaces_symlinks_without_touching_targets(self):
         with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "man7"
-            outside = Path(temporary) / "outside"
+            root = Path(temporary)
+            output = root / "man7"
+            outside = root / "outside"
             output.mkdir()
             outside.mkdir()
             sentinel = outside / "sentinel.txt"
             sentinel.write_text("sentinel")
             target = outside / "dangling.txt"
 
-            for name in ("nodivia.css", "io_setup.2.html", "index.html"):
-                with self.subTest(name=name):
-                    output_file = output / name
-                    if output_file.exists() or output_file.is_symlink():
-                        output_file.unlink()
-                    output_file.symlink_to(sentinel)
-                    generate.write_atomic_file(output, name, "generated")
-                    self.assertEqual(sentinel.read_text(), "sentinel")
-                    self.assertFalse(output_file.is_symlink())
-                    self.assertEqual(output_file.read_text(), "generated")
+            with generate.OutputDirectory.open(output, root) as directory:
+                for name in ("nodivia.css", "io_setup.2.html", "index.html"):
+                    with self.subTest(name=name):
+                        output_file = output / name
+                        if output_file.exists() or output_file.is_symlink():
+                            output_file.unlink()
+                        output_file.symlink_to(sentinel)
+                        directory.write_atomic(name, "generated")
+                        self.assertEqual(sentinel.read_text(), "sentinel")
+                        self.assertFalse(output_file.is_symlink())
+                        self.assertEqual(output_file.read_text(), "generated")
 
-            css = output / "nodivia.css"
-            if css.exists() or css.is_symlink():
-                css.unlink()
-            css.symlink_to(target)
-            generate.write_atomic_file(output, "nodivia.css", "generated")
-            self.assertFalse(target.exists())
-            self.assertFalse(css.is_symlink())
-            self.assertEqual(css.read_text(), "generated")
+                css = output / "nodivia.css"
+                if css.exists() or css.is_symlink():
+                    css.unlink()
+                css.symlink_to(target)
+                directory.write_atomic("nodivia.css", "generated")
+                self.assertFalse(target.exists())
+                self.assertFalse(css.is_symlink())
+                self.assertEqual(css.read_text(), "generated")
 
-            for name in ("../escape.html", "..", "."):
-                with self.subTest(name=name):
-                    with self.assertRaises(ValueError):
-                        generate.write_atomic_file(output, name, "escape")
-            self.assertFalse((Path(temporary) / "escape.html").exists())
+                for name in ("../escape.html", "..", "."):
+                    with self.subTest(name=name):
+                        with self.assertRaises(ValueError):
+                            directory.write_atomic(name, "escape")
+                self.assertFalse((root / "escape.html").exists())
 
-    def test_output_directories_must_not_be_symlinks(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            real = Path(temporary) / "real"
-            real.mkdir()
-            linked = Path(temporary) / "linked"
-            linked.symlink_to(real)
-            dangling = Path(temporary) / "dangling"
-            dangling.symlink_to(Path(temporary) / "missing")
+    def test_output_directory_rejects_symlink_components_and_escapes(self):
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as external:
+            root = Path(temporary)
+            outside = Path(external)
+            (root / ".cache").symlink_to(outside)
+            linked = root / "linked"
+            linked.symlink_to(outside)
+            dangling = root / "dangling"
+            dangling.symlink_to(root / "missing")
 
             with self.assertRaises(ValueError):
-                generate.prepare_output_directory(linked)
+                generate.OutputDirectory.open(root / ".cache/man7", root)
             with self.assertRaises(ValueError):
-                generate.prepare_output_directory(dangling)
+                generate.OutputDirectory.open(linked, root)
+            with self.assertRaises(ValueError):
+                generate.OutputDirectory.open(dangling, root)
+            with self.assertRaises(ValueError):
+                generate.OutputDirectory.open(outside / "man7", root)
             with self.assertRaises(ValueError):
                 generate.export_section2(
-                    linked,
+                    root / ".cache/section2",
                     [],
                     {},
                     {},
                     REPO_ROOT / "kernel/src",
                     ABI_HEADER,
+                    trusted_root=root,
                 )
 
-    def test_clean_man_output_does_not_follow_symlink_entries(self):
+    def test_pinned_output_directory_does_not_follow_a_swapped_path(self):
         with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "man7"
-            outside = Path(temporary) / "outside"
+            root = Path(temporary)
+            output = root / "man7"
+            outside = root / "outside"
             output.mkdir()
             outside.mkdir()
-            sentinel = outside / "sentinel.html"
-            sentinel.write_text("sentinel")
-            stale = outside / "stale.7.html"
-            stale.write_text("outside stale")
-            (output / "old.2.html").symlink_to(sentinel)
-            (output / "architecture-old.html").symlink_to(sentinel)
-            (output / "pl").symlink_to(outside)
 
-            generate.clean_man_output(output, set(), set())
+            with generate.OutputDirectory.open(output, root) as directory:
+                original = root / "man7-original"
+                output.rename(original)
+                output.symlink_to(outside)
+                directory.write_atomic("nodivia.css", "pinned")
 
-            self.assertFalse((output / "old.2.html").is_symlink())
-            self.assertFalse((output / "architecture-old.html").is_symlink())
+            self.assertEqual((original / "nodivia.css").read_text(), "pinned")
+            self.assertFalse((outside / "nodivia.css").exists())
+
+    def test_man_cleanup_uses_manifest_ownership(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "man7"
+            outside = root / "outside"
+            output.mkdir()
+            outside.mkdir()
+            (output / "custom.2.html").write_text("custom")
+            (output / "architecture-custom.html").write_text("custom")
+            (output / "keep.2.html").write_text("keep")
+            (output / "old.2.html").write_text("old")
+            (output / "architecture-old.html").write_text("old")
+            (output / "pl").mkdir()
+            (output / "pl" / "old.7.html").write_text("old")
+            (output / "pl" / "my-notes.7.html").write_text("notes")
+
+            with generate.OutputDirectory.open(output, root) as directory:
+                generate.write_man_manifest(
+                    directory,
+                    {
+                        "old.2.html",
+                        "architecture-old.html",
+                        "pl/old.7.html",
+                        "keep.2.html",
+                        "../outside/escape.html",
+                    },
+                )
+                previous = generate.read_owned_files(directory)
+                generate.clean_owned_output(directory, previous, {"keep.2.html"})
+
             self.assertFalse((output / "old.2.html").exists())
             self.assertFalse((output / "architecture-old.html").exists())
+            self.assertFalse((output / "pl" / "old.7.html").exists())
+            self.assertTrue((output / "keep.2.html").exists())
+            self.assertTrue((output / "custom.2.html").exists())
+            self.assertTrue((output / "architecture-custom.html").exists())
+            self.assertTrue((output / "pl" / "my-notes.7.html").exists())
+            self.assertFalse((outside / "escape.html").exists())
+
+    def test_man_manifest_ignores_missing_malformed_and_unsafe_entries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "man7"
+            outside = root / "outside"
+            output.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.json"
+            sentinel.write_text("sentinel")
+
+            with generate.OutputDirectory.open(output, root) as directory:
+                self.assertEqual(generate.read_owned_files(directory), set())
+                directory.write_atomic(generate.MAN7_MANIFEST, "{")
+                self.assertEqual(generate.read_owned_files(directory), set())
+                directory.write_atomic(
+                    generate.MAN7_MANIFEST,
+                    json.dumps(
+                        {
+                            "files": [
+                                None,
+                                5,
+                                "../outside/escape.html",
+                                "/absolute.html",
+                                "..",
+                                "safe.2.html",
+                            ]
+                        }
+                    ),
+                )
+                self.assertEqual(generate.read_owned_files(directory), {"safe.2.html"})
+
+                (output / generate.MAN7_MANIFEST).unlink()
+                (output / generate.MAN7_MANIFEST).symlink_to(sentinel)
+                self.assertEqual(generate.read_owned_files(directory), set())
+                generate.write_man_manifest(directory, {"safe.2.html"})
+
             self.assertEqual(sentinel.read_text(), "sentinel")
-            self.assertTrue((output / "pl").is_symlink())
-            self.assertEqual(stale.read_text(), "outside stale")
-
-    def _export_fixture(self, temporary: str, manifest: object | None) -> tuple[Path, dict]:
-        export_dir = Path(temporary) / "section2"
-        export_dir.mkdir()
-        outside = Path(temporary) / "outside"
-        outside.mkdir()
-        (export_dir / "notes.md").write_text("unrelated notes")
-        (export_dir / "keep.txt").write_text("keep")
-        (export_dir / "syscall-0-stale.md").write_text("stale generated")
-        (outside / "escape.md").write_text("outside")
-        (export_dir / "syscall-0-fake-0.md").symlink_to(outside / "output.md")
-        (export_dir / "syscall-0-stale-link.md").symlink_to(outside / "stale.md")
-        if manifest is not None:
-            (export_dir / "manifest.json").write_text(json.dumps(manifest))
-
-        canonical = [(index, f"fake_{index}") for index in range(70)]
-        pages = {
-            (name, 2): (
-                generate.fallback_body(name, f"long astia_{name}(void);"),
-                "proc",
+            self.assertFalse((output / generate.MAN7_MANIFEST).is_symlink())
+            self.assertEqual(
+                json.loads((output / generate.MAN7_MANIFEST).read_text()),
+                {"files": ["safe.2.html"]},
             )
-            for _, name in canonical
-        }
-        sources = {(name, 2): ABI_HEADER for _, name in canonical}
 
-        generate.export_section2(
-            export_dir,
-            canonical,
-            pages,
-            sources,
-            REPO_ROOT / "kernel/src",
-            ABI_HEADER,
-        )
-        return export_dir, json.loads((export_dir / "manifest.json").read_text())
+    def test_man_cleanup_does_not_traverse_symlink_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "man7"
+            outside = root / "outside"
+            output.mkdir()
+            outside.mkdir()
+            (outside / "old.7.html").write_text("outside old")
+            (outside / "my-notes.7.html").write_text("outside notes")
+            (output / "pl").symlink_to(outside)
 
-    def test_export_removes_only_previously_generated_markdown(self):
+            with generate.OutputDirectory.open(output, root) as directory:
+                generate.write_man_manifest(
+                    directory, {"pl/old.7.html", "pl/my-notes.7.html"}
+                )
+                previous = generate.read_owned_files(directory)
+                generate.clean_owned_output(directory, previous, set())
+
+            self.assertTrue((output / "pl").is_symlink())
+            self.assertEqual((outside / "old.7.html").read_text(), "outside old")
+            self.assertEqual((outside / "my-notes.7.html").read_text(), "outside notes")
+
+    def test_export_cleanup_uses_manifest_ownership(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            export_dir = root / "section2"
+            outside = root / "outside"
+            export_dir.mkdir()
+            outside.mkdir()
+            sentinel = outside / "sentinel.md"
+            sentinel.write_text("sentinel")
+            (export_dir / "notes.md").write_text("notes")
+            (export_dir / "syscall-9-custom.md").write_text("custom")
+            (export_dir / "syscall-0-stale.md").write_text("stale")
+            (export_dir / "syscall-0-stale-link.md").symlink_to(sentinel)
+            (export_dir / "syscall-0-fake-0.md").symlink_to(sentinel)
+            (export_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "section": 2,
+                        "count": 4,
+                        "pages": [
+                            {"markdown": "syscall-0-stale.md"},
+                            {"markdown": "syscall-0-stale-link.md"},
+                            {"markdown": "notes.md"},
+                            {"markdown": "../outside/escape.md"},
+                        ],
+                    }
+                )
+            )
+            canonical, pages, sources = self._export_pages()
+
+            generate.export_section2(
+                export_dir,
+                canonical,
+                pages,
+                sources,
+                REPO_ROOT / "kernel/src",
+                ABI_HEADER,
+                trusted_root=root,
+            )
+
+            current = json.loads((export_dir / "manifest.json").read_text())
+            generated = {page["markdown"] for page in current["pages"]}
+            self.assertEqual(current["count"], 70)
+            self.assertEqual(len(generated), 70)
+            self.assertTrue(all((export_dir / name).is_file() for name in generated))
+            self.assertFalse((export_dir / "syscall-0-stale.md").exists())
+            self.assertFalse((export_dir / "syscall-0-stale-link.md").exists())
+            self.assertFalse((export_dir / "syscall-0-fake-0.md").is_symlink())
+            self.assertTrue((export_dir / "syscall-0-fake-0.md").is_file())
+            self.assertEqual(sentinel.read_text(), "sentinel")
+            self.assertTrue((export_dir / "notes.md").exists())
+            self.assertTrue((export_dir / "syscall-9-custom.md").exists())
+            self.assertFalse((outside / "escape.md").exists())
+
+    def test_export_tolerates_missing_or_malformed_manifest(self):
         cases = {
             "missing": None,
-            "valid": {
-                "section": 2,
-                "count": 3,
-                "pages": [
-                    {"markdown": "syscall-0-stale.md"},
-                    {"markdown": "notes.md"},
-                    {"markdown": "../outside/escape.md"},
-                ],
-            },
             "null-page": {"pages": [None]},
             "non-list-pages": {"pages": {}},
+            "string-pages": {"pages": "bad"},
         }
         for label, manifest in cases.items():
             with self.subTest(label=label):
                 with tempfile.TemporaryDirectory() as temporary:
-                    export_dir, current = self._export_fixture(temporary, manifest)
-                    generated = {page["markdown"] for page in current["pages"]}
+                    root = Path(temporary)
+                    export_dir = root / "section2"
+                    export_dir.mkdir()
+                    (export_dir / "notes.md").write_text("notes")
+                    (export_dir / "syscall-9-custom.md").write_text("custom")
+                    if manifest is not None:
+                        (export_dir / "manifest.json").write_text(json.dumps(manifest))
+                    canonical, pages, sources = self._export_pages()
 
+                    generate.export_section2(
+                        export_dir,
+                        canonical,
+                        pages,
+                        sources,
+                        REPO_ROOT / "kernel/src",
+                        ABI_HEADER,
+                        trusted_root=root,
+                    )
+
+                    current = json.loads((export_dir / "manifest.json").read_text())
+                    generated = {page["markdown"] for page in current["pages"]}
                     self.assertEqual(current["count"], 70)
                     self.assertEqual(len(generated), 70)
-                    self.assertEqual(len(list(export_dir.glob("syscall-*.md"))), 70)
                     self.assertTrue(all((export_dir / name).is_file() for name in generated))
                     self.assertTrue((export_dir / "notes.md").exists())
-                    self.assertTrue((export_dir / "keep.txt").exists())
-                    self.assertFalse((export_dir / "syscall-0-stale.md").exists())
-                    self.assertTrue((Path(temporary) / "outside" / "escape.md").exists())
+                    self.assertTrue((export_dir / "syscall-9-custom.md").exists())
 
-    def test_export_removes_generated_symlinks_without_following(self):
-        for manifest in (None, {"pages": [None]}):
-            with self.subTest(manifest=manifest):
-                with tempfile.TemporaryDirectory() as temporary:
-                    export_dir, _ = self._export_fixture(temporary, manifest)
-                    outside = Path(temporary) / "outside"
+    def test_export_publication_failure_preserves_prior_page_and_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            export_dir = root / "section2"
+            export_dir.mkdir()
+            canonical, pages, sources = self._export_pages(count=2, version="old")
+            generate.export_section2(
+                export_dir,
+                canonical,
+                pages,
+                sources,
+                REPO_ROOT / "kernel/src",
+                ABI_HEADER,
+                trusted_root=root,
+            )
+            first = export_dir / "syscall-0-fake-0.md"
+            manifest = export_dir / "manifest.json"
+            before_page = first.read_text()
+            before_manifest = manifest.read_text()
 
-                    self.assertFalse((outside / "output.md").exists())
-                    self.assertFalse((outside / "stale.md").exists())
-                    self.assertFalse((export_dir / "syscall-0-fake-0.md").is_symlink())
-                    self.assertFalse((export_dir / "syscall-0-stale-link.md").is_symlink())
-                    self.assertTrue((export_dir / "syscall-0-fake-0.md").is_file())
-                    self.assertEqual(len(list(export_dir.glob("syscall-*.md"))), 70)
+            _, updated, _ = self._export_pages(count=2, version="new")
+            original_replace = generate.os.replace
+
+            def fail_replace(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
+                if dst == "syscall-0-fake-0.md":
+                    raise OSError("injected replacement failure")
+                return original_replace(
+                    src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd
+                )
+
+            with patch.object(generate.os, "replace", side_effect=fail_replace):
+                with self.assertRaises(OSError):
+                    generate.export_section2(
+                        export_dir,
+                        canonical,
+                        updated,
+                        sources,
+                        REPO_ROOT / "kernel/src",
+                        ABI_HEADER,
+                        trusted_root=root,
+                    )
+
+            self.assertEqual(first.read_text(), before_page)
+            self.assertEqual(manifest.read_text(), before_manifest)
+            self.assertEqual([path for path in export_dir.iterdir() if path.name.endswith(".tmp")], [])
 
 
 if __name__ == "__main__":

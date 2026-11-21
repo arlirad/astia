@@ -8,7 +8,7 @@ import html
 import json
 import os
 import re
-import tempfile
+import stat
 from pathlib import Path
 
 
@@ -758,55 +758,174 @@ def generated_syscall_asset(name: str) -> bool:
     return bool(match and int(match.group(1)) <= 69)
 
 
-def prepare_output_directory(output_dir: Path) -> None:
-    if output_dir.is_symlink():
-        raise ValueError(f"output directory must be a real directory: {output_dir}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    if not output_dir.is_dir():
-        raise ValueError(f"output directory must be a real directory: {output_dir}")
-
-
-def write_atomic_file(output_dir: Path, name: str, content: str) -> None:
+def validated_output_name(name: str) -> str:
     if not name or name in {".", ".."} or Path(name).name != name:
         raise ValueError(f"unsafe output name: {name!r}")
-    descriptor, temporary = tempfile.mkstemp(
-        dir=output_dir, prefix=f".{name}.", suffix=".tmp"
-    )
+    return name
+
+
+def validated_relative_path(name: str) -> tuple[str, ...]:
+    path = Path(name)
+    if path.is_absolute() or not path.parts or any(
+        part in {"", ".", ".."} for part in path.parts
+    ):
+        raise ValueError(f"unsafe output path: {name!r}")
+    return path.parts
+
+
+class OutputDirectory:
+    def __init__(self, path: Path, descriptor: int):
+        self.path = path
+        self._descriptor = descriptor
+
+    @classmethod
+    def open(cls, output_dir: Path, trusted_root: Path) -> "OutputDirectory":
+        root = Path(os.path.abspath(trusted_root))
+        target = Path(os.path.abspath(output_dir))
+        try:
+            relative = target.relative_to(root)
+        except ValueError as error:
+            raise ValueError(
+                f"output directory escapes trusted root: {output_dir}"
+            ) from error
+        try:
+            descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        except OSError as error:
+            raise ValueError(f"trusted root is not a directory: {trusted_root}") from error
+        try:
+            for part in relative.parts:
+                try:
+                    os.mkdir(part, 0o755, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+                try:
+                    child = os.open(
+                        part,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=descriptor,
+                    )
+                except OSError as error:
+                    raise ValueError(
+                        f"output directory has a symlink or non-directory component: {part}"
+                    ) from error
+                os.close(descriptor)
+                descriptor = child
+            return cls(target, descriptor)
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    def __enter__(self) -> "OutputDirectory":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        os.close(self._descriptor)
+
+    def write_atomic(self, name: str, content: str) -> None:
+        validated_output_name(name)
+        for _ in range(100):
+            temporary = f".{name}.{os.urandom(8).hex()}.tmp"
+            try:
+                descriptor = os.open(
+                    temporary,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=self._descriptor,
+                )
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise OSError(f"cannot allocate a temporary output for {name}")
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                output.write(content)
+                output.flush()
+                os.fchmod(output.fileno(), 0o644)
+            os.replace(
+                temporary,
+                name,
+                src_dir_fd=self._descriptor,
+                dst_dir_fd=self._descriptor,
+            )
+        except BaseException:
+            try:
+                os.unlink(temporary, dir_fd=self._descriptor)
+            except FileNotFoundError:
+                pass
+            raise
+
+    def read_text(self, name: str) -> str | None:
+        validated_output_name(name)
+        try:
+            descriptor = os.open(
+                name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self._descriptor
+            )
+        except OSError:
+            return None
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                return None
+            source = os.fdopen(descriptor, "r", encoding="utf-8")
+            descriptor = -1
+            with source:
+                return source.read()
+        except (OSError, UnicodeDecodeError):
+            return None
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+    def remove_relative(self, relative: str) -> None:
+        parts = validated_relative_path(relative)
+        descriptor = self._descriptor
+        opened: list[int] = []
+        try:
+            for part in parts[:-1]:
+                try:
+                    child = os.open(
+                        part,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=descriptor,
+                    )
+                except OSError:
+                    return
+                opened.append(child)
+                descriptor = child
+            name = parts[-1]
+            try:
+                info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            if stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+                try:
+                    os.unlink(name, dir_fd=descriptor)
+                except FileNotFoundError:
+                    pass
+                except IsADirectoryError:
+                    pass
+        finally:
+            for descriptor in opened:
+                os.close(descriptor)
+
+
+def stale_generated_assets(manifest_text: str | None) -> set[str]:
+    if manifest_text is None:
+        return set()
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            output.write(content)
-        os.chmod(temporary, 0o644)
-        os.replace(temporary, output_dir / name)
-    except BaseException:
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
-        raise
-
-
-def write_export_file(export_dir: Path, name: str, content: str) -> None:
-    write_atomic_file(export_dir, name, content)
-
-
-def stale_generated_assets(export_dir: Path, manifest_path: Path) -> set[str]:
+        previous = json.loads(manifest_text)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return set()
+    pages = previous.get("pages", []) if isinstance(previous, dict) else []
     stale: set[str] = set()
-    if manifest_path.exists() and not manifest_path.is_symlink():
-        try:
-            previous = json.loads(manifest_path.read_text())
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-            previous = None
-        pages = previous.get("pages", []) if isinstance(previous, dict) else []
-        if isinstance(pages, list):
-            for page in pages:
-                if not isinstance(page, dict):
-                    continue
-                name = page.get("markdown")
-                if isinstance(name, str) and generated_syscall_asset(name):
-                    stale.add(name)
-    for path in export_dir.iterdir():
-        if generated_syscall_asset(path.name) and (path.is_symlink() or path.is_file()):
-            stale.add(path.name)
+    if isinstance(pages, list):
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            name = page.get("markdown")
+            if isinstance(name, str) and generated_syscall_asset(name):
+                stale.add(name)
     return stale
 
 
@@ -818,46 +937,47 @@ def export_section2(
     source_root: Path,
     abi_header: Path,
     raw_synopses: set[str] | None = None,
+    trusted_root: Path | None = None,
 ) -> None:
     raw_synopses = raw_synopses or set()
-    prepare_output_directory(export_dir)
-    manifest_path = export_dir / "manifest.json"
-    for name in stale_generated_assets(export_dir, manifest_path):
-        (export_dir / name).unlink(missing_ok=True)
-    if manifest_path.is_symlink() or manifest_path.exists():
-        manifest_path.unlink()
     repo_root = ROOT.parent.parent
-    records = []
-    for syscall_id, name in canonical:
-        body, _ = pages[(name, 2)]
-        source = sources.get((name, 2), abi_header)
-        slug = f"syscall-{syscall_id}-{name.replace('_', '-')}"
-        markdown_name = f"{slug}.md"
-        write_export_file(
-            export_dir,
-            markdown_name,
-            render_syscall_markdown(name, body, 2, name in raw_synopses),
-        )
-        try:
-            source_path = source.resolve().relative_to(repo_root).as_posix()
-        except ValueError:
-            source_path = source.as_posix()
-        records.append(
-            {
-                "id": syscall_id,
-                "name": name,
-                "slug": slug,
-                "title": f"{name}(2)",
-                "category": CATEGORY_OVERRIDES.get(
-                    name, group_for_source(source, source_root)
-                ),
-                "source": source_path,
-                "markdown": markdown_name,
-                "synopsis_kind": "raw" if name in raw_synopses else "public",
-            }
-        )
-    manifest = {"section": 2, "count": len(records), "pages": records}
-    write_export_file(export_dir, "manifest.json", json.dumps(manifest, indent=2) + "\n")
+    root = trusted_root if trusted_root is not None else repo_root
+    with OutputDirectory.open(export_dir, root) as output:
+        previous = stale_generated_assets(output.read_text("manifest.json"))
+        records = []
+        current: set[str] = set()
+        for syscall_id, name in canonical:
+            body, _ = pages[(name, 2)]
+            source = sources.get((name, 2), abi_header)
+            slug = f"syscall-{syscall_id}-{name.replace('_', '-')}"
+            markdown_name = f"{slug}.md"
+            current.add(markdown_name)
+            output.write_atomic(
+                markdown_name,
+                render_syscall_markdown(name, body, 2, name in raw_synopses),
+            )
+            try:
+                source_path = source.resolve().relative_to(repo_root).as_posix()
+            except ValueError:
+                source_path = source.as_posix()
+            records.append(
+                {
+                    "id": syscall_id,
+                    "name": name,
+                    "slug": slug,
+                    "title": f"{name}(2)",
+                    "category": CATEGORY_OVERRIDES.get(
+                        name, group_for_source(source, source_root)
+                    ),
+                    "source": source_path,
+                    "markdown": markdown_name,
+                    "synopsis_kind": "raw" if name in raw_synopses else "public",
+                }
+            )
+        for name in sorted(previous - current):
+            output.remove_relative(name)
+        manifest = {"section": 2, "count": len(records), "pages": records}
+        output.write_atomic("manifest.json", json.dumps(manifest, indent=2) + "\n")
 
 
 def render(name: str, body: str, section: int) -> str:
@@ -907,31 +1027,46 @@ def render(name: str, body: str, section: int) -> str:
 </article></main></body></html>\n"""
 
 
-def clean_man_output(
-    output_dir: Path,
-    expected_pages: set[str],
-    expected_overviews: set[str],
-) -> None:
-    def remove_entry(path: Path) -> None:
-        if path.is_symlink() or path.is_file():
-            path.unlink()
+MAN7_MANIFEST = ".astia-man7-manifest.json"
 
-    for old_page in output_dir.glob("*.[23].html"):
-        if old_page.name not in expected_pages:
-            remove_entry(old_page)
-    for old_page in output_dir.glob("*.7.html"):
-        if old_page.name not in expected_pages and old_page.name not in expected_overviews:
-            remove_entry(old_page)
-    localized_output = output_dir / "pl"
-    if not localized_output.is_symlink() and localized_output.is_dir():
-        for old_page in localized_output.glob("*.7.html"):
-            remove_entry(old_page)
+
+def read_owned_files(output: OutputDirectory) -> set[str]:
+    text = output.read_text(MAN7_MANIFEST)
+    if text is None:
+        return set()
+    try:
+        previous = json.loads(text)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return set()
+    files = previous.get("files") if isinstance(previous, dict) else None
+    if not isinstance(files, list):
+        return set()
+    owned: set[str] = set()
+    for name in files:
+        if not isinstance(name, str):
+            continue
         try:
-            localized_output.rmdir()
-        except OSError:
-            pass
-    for old_page in output_dir.glob("architecture-*.html"):
-        remove_entry(old_page)
+            validated_relative_path(name)
+        except ValueError:
+            continue
+        owned.add(name)
+    return owned
+
+
+def clean_owned_output(
+    output: OutputDirectory,
+    previous: set[str],
+    current: set[str],
+) -> None:
+    for name in sorted(previous - current):
+        output.remove_relative(name)
+
+
+def write_man_manifest(output: OutputDirectory, files: set[str]) -> None:
+    output.write_atomic(
+        MAN7_MANIFEST,
+        json.dumps({"files": sorted(files)}, indent=2) + "\n",
+    )
 
 
 def main() -> int:
@@ -1037,25 +1172,10 @@ def main() -> int:
     docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
     overviews = overview_pages(docs_root)
 
-    prepare_output_directory(args.output)
-    # A deployment directory is commonly reused.  Remove only generated
-    # section pages so a renamed or removed syscall cannot remain stale.
+    repo_root = ROOT.parent.parent
     expected_pages = {f"{name}.{section}.html" for name, section in pages}
     expected_overviews = {f"{name}.7.html" for name, _, _ in overviews}
-    clean_man_output(args.output, expected_pages, expected_overviews)
-    write_atomic_file(args.output, "nodivia.css", args.css.read_text())
-    for (name, section), (body, _) in sorted(pages.items()):
-        write_atomic_file(
-            args.output,
-            f"{name}.{section}.html",
-            render(name, body, section),
-        )
-    for name, title, body in overviews:
-        write_atomic_file(
-            args.output,
-            f"{name}.7.html",
-            render_overview(name, title, body),
-        )
+    current_owned = {"nodivia.css", "index.html"} | expected_pages | expected_overviews
     groups_by_section: dict[int, dict[str, dict[str, list[tuple[str, int]]]]] = {}
     for (name, section), (_, group) in pages.items():
         parts = group.split("/", 1)
@@ -1107,13 +1227,26 @@ def main() -> int:
             + "</ul></section>"
         )
     grouped = "".join(grouped_parts)
-    write_atomic_file(
-        args.output,
-        "index.html",
-        "<!doctype html><html><head><meta charset='utf-8'><title>Astia manual</title>"
-        "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
-        "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n",
-    )
+    with OutputDirectory.open(args.output, repo_root) as output:
+        clean_owned_output(output, read_owned_files(output), current_owned)
+        output.write_atomic("nodivia.css", args.css.read_text())
+        for (name, section), (body, _) in sorted(pages.items()):
+            output.write_atomic(
+                f"{name}.{section}.html",
+                render(name, body, section),
+            )
+        for name, title, body in overviews:
+            output.write_atomic(
+                f"{name}.7.html",
+                render_overview(name, title, body),
+            )
+        output.write_atomic(
+            "index.html",
+            "<!doctype html><html><head><meta charset='utf-8'><title>Astia manual</title>"
+            "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
+            "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n",
+        )
+        write_man_manifest(output, current_owned)
     if args.export_section2 is not None:
         export_section2(
             args.export_section2,
