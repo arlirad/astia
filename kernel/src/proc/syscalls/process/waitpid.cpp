@@ -40,9 +40,9 @@ namespace astia::proc::syscalls {
             if (pid < -1 && !mapper<pgrp_t>::from(-static_cast<i64>(pid)))
                 return -EINVAL;
             const sys::user_ptr<i32> status(status_ptr);
-            const auto validated_status = status.null()
-                                              ? optional<sys::validated_user_ptr<i32>>{}
-                                              : status.validate();
+            const auto               validated_status = status.null()
+                                                            ? optional<sys::validated_user_ptr<i32>>{}
+                                                            : status.validate();
             if (!status.null() && !validated_status)
                 return -EFAULT;
             i32  local  = 0;

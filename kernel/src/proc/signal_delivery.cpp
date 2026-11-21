@@ -55,7 +55,7 @@ namespace astia::proc {
                 const bool use_alt_stack = (disposition.flags & ASTIA_SA_ONSTACK) != 0 &&
                                            !self->signal_stack_on_alt() &&
                                            self->signal_stack_flags() != ASTIA_SS_DISABLE;
-                u64        context       = 0;
+                u64 context = 0;
                 if (use_alt_stack) {
                     const u64 top = self->signal_stack_sp() + self->signal_stack_size();
                     if (top < self->signal_stack_sp() || top < bytes)
@@ -212,7 +212,7 @@ namespace astia::proc {
             const bool use_alt_stack = (disposition.flags & ASTIA_SA_ONSTACK) != 0 &&
                                        !self->signal_stack_on_alt() &&
                                        self->signal_stack_flags() != ASTIA_SS_DISABLE;
-            u64        context       = 0;
+            u64 context = 0;
             if (use_alt_stack) {
                 const u64 top = self->signal_stack_sp() + self->signal_stack_size();
                 if (top < self->signal_stack_sp() || top < bytes)

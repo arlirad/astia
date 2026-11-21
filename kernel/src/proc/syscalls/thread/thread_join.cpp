@@ -44,9 +44,9 @@ namespace astia::proc::syscalls {
                 return -ESRCH;
             }
             const sys::user_ptr<void*> output(result_ptr);
-            const auto validated_output = output.null()
-                                              ? optional<sys::validated_user_ptr<void*>>{}
-                                              : output.validate();
+            const auto                 validated_output = output.null()
+                                                              ? optional<sys::validated_user_ptr<void*>>{}
+                                                              : output.validate();
             if (!output.null() && !validated_output) {
                 return -EFAULT;
             }

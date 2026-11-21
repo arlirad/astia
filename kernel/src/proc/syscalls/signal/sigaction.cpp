@@ -59,7 +59,7 @@ namespace astia::proc::syscalls {
             if (next_ptr != 0) {
                 const auto next_range =
                     sys::user_ptr<struct astia_sigaction>(next_ptr).validate();
-                struct astia_sigaction next{};
+                struct astia_sigaction next {};
                 if (!next_range || !sys::copy_in(&next, next_range.value.bytes())) {
                     return -EFAULT;
                 }
@@ -85,7 +85,7 @@ namespace astia::proc::syscalls {
             if (old_ptr != 0) {
                 const auto old_range =
                     sys::user_ptr<struct astia_sigaction>(old_ptr).validate();
-                struct astia_sigaction out{};
+                struct astia_sigaction out {};
                 out.handler  = user_handler_value(old);
                 out.mask     = old.mask;
                 out.flags    = old.flags;
