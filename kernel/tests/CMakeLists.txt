@@ -142,6 +142,12 @@ astia_add_host_test(astia_aio_readiness_test
         aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 astia_add_host_test(astia_aio_socket_test
         aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+add_test(NAME astia_aio_registration_macros
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/aio_registration_macros_test.cmake)
+set_tests_properties(astia_aio_registration_macros
+        PROPERTIES LABELS "kernel;deterministic")
 astia_add_host_test(astia_socket_abi_test socket_abi_test.cpp)
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_cwd_context_test

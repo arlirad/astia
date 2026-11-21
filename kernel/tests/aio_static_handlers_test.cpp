@@ -7,34 +7,42 @@
 
 #include <io/aio/handler.hpp>
 #include <io/aio/operation.hpp>
-#include <io/aio/operation_registration.hpp>
 #include <io/aio/registry.hpp>
+#include <io/aio/ring.hpp>
+
+#if defined(ASTIA_AIO_REGISTER_HANDLER) || defined(ASTIA_AIO_REGISTER_CORE) ||         \
+    defined(ASTIA_AIO_REGISTER_FILESYSTEM) || defined(ASTIA_AIO_REGISTER_READINESS) || \
+    defined(ASTIA_AIO_REGISTER_SOCKET)
+#error "AIO operation registration must be explicit; no registration macros"
+#endif
 
 namespace {
 
     namespace aio = astia::io::aio;
 
     struct fake_read : aio::handler<fake_read, aio::opcode::read> {
-        static bool handle(aio::ring::ring_slot&, astia_rings*,
+        static bool invoke(aio::ring::ring_slot&, astia_rings*,
                            const astia_sqe&) noexcept {
             return true;
         }
     };
 
     struct fake_cancel : aio::handler<fake_cancel, aio::opcode::cancel> {
-        static bool handle(aio::ring::ring_slot&, astia_rings*,
+        static bool invoke(aio::ring::ring_slot&, astia_rings*,
                            const astia_sqe&) noexcept {
             return true;
         }
     };
 
-    constexpr aio::descriptor duplicate[] = {
-        fake_read::describe(),
-        fake_read::describe(),
+    constexpr aio::operation_descriptor duplicate[] = {
+        fake_read::descriptor,
+        fake_read::descriptor,
     };
 
     static_assert(fake_read::opcode_value == aio::opcode::read);
     static_assert(fake_cancel::opcode_value == aio::opcode::cancel);
+    static_assert(fake_read::descriptor.operation == aio::opcode::read);
+    static_assert(fake_cancel::descriptor.operation == aio::opcode::cancel);
     static_assert(aio::valid_opcode(aio::opcode::getsockopt));
     static_assert(!aio::valid_opcode(aio::opcode::count));
     static_assert(!aio::valid_descriptors(duplicate));
@@ -51,8 +59,8 @@ ASTIA_TEST(aio_production_handler_manifest_covers_abi_range) {
 }
 
 ASTIA_TEST(aio_production_handler_crtp_descriptors_are_stable) {
-    constexpr aio::descriptor read   = fake_read::describe();
-    constexpr aio::descriptor cancel = fake_cancel::describe();
+    constexpr aio::operation_descriptor read   = fake_read::descriptor;
+    constexpr aio::operation_descriptor cancel = fake_cancel::descriptor;
     ASTIA_CHECK(read.operation == aio::opcode::read);
     ASTIA_CHECK(cancel.operation == aio::opcode::cancel);
     ASTIA_CHECK(read.invoke != nullptr);
@@ -75,7 +83,7 @@ ASTIA_TEST(aio_production_socket_handlers_are_aio_operations) {
 }
 
 ASTIA_TEST(aio_production_handler_rejects_duplicate_descriptors) {
-    aio::descriptor malformed[aio::opcode_count]{};
+    aio::operation_descriptor malformed[aio::opcode_count]{};
     for (astia::usize i = 0; i < aio::registry::size(); ++i)
         malformed[i] = aio::registry::entries()[i];
     malformed[1].operation = malformed[0].operation;
