@@ -4,6 +4,7 @@ import shutil
 import signal
 import socket
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -865,6 +866,153 @@ class GenerateTest(unittest.TestCase):
                 )
             after = len(list(fd_root.iterdir()))
             self.assertEqual(after, before)
+
+    def test_transaction_aborts_on_entry_injected_before_activation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            before = {
+                path.name: path.read_bytes()
+                for path in output.iterdir()
+                if path.is_file()
+            }
+
+            def inject_entry():
+                (output / "late.txt").write_text("late")
+
+            with self.assertRaises(RuntimeError):
+                with generate.TransactionalDirectory.begin(
+                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                ) as transaction:
+                    transaction.output.write_atomic("index.html", "new index")
+                    generate.write_man_manifest(transaction.output, {"index.html"})
+                    transaction.commit(before_activation=inject_entry)
+
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in output.iterdir()
+                    if path.is_file() and path.name != "late.txt"
+                },
+                before,
+            )
+            self.assertEqual((output / "late.txt").read_text(), "late")
+            self.assertEqual(
+                [
+                    path
+                    for path in root.iterdir()
+                    if path.name.startswith(".astia-stage-")
+                    or path.name.startswith(".astia-retired-")
+                ],
+                [],
+            )
+
+    def test_copy_preserves_xattrs_and_acl_for_fallback_and_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            payload = output / "payload.bin"
+            payload.write_bytes(b"payload")
+            os.setxattr(payload, "user.astia", b"file-xattr")
+            private = output / "private"
+            private.mkdir()
+            os.setxattr(private, "user.astia", b"dir-xattr")
+            os.setxattr(output, "user.astia", b"root-xattr")
+            acl_value = None
+            if shutil.which("setfacl"):
+                result = subprocess.run(
+                    ["setfacl", "-m", "u:root:r", str(payload)],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    acl_value = os.getxattr(payload, "system.posix_acl_access")
+
+            with patch.object(generate.os, "link", side_effect=OSError("no link")):
+                with generate.TransactionalDirectory.begin(
+                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                ) as transaction:
+                    transaction.output.write_atomic("index.html", "new index")
+                    generate.write_man_manifest(transaction.output, {"index.html"})
+                    transaction.commit()
+
+            self.assertEqual(
+                os.getxattr(output / "payload.bin", "user.astia"), b"file-xattr"
+            )
+            self.assertEqual(
+                os.getxattr(output / "private", "user.astia"), b"dir-xattr"
+            )
+            self.assertEqual(os.getxattr(output, "user.astia"), b"root-xattr")
+            if acl_value is not None:
+                self.assertEqual(
+                    os.getxattr(
+                        output / "payload.bin", "system.posix_acl_access"
+                    ),
+                    acl_value,
+                )
+
+    def test_transaction_aborts_if_xattr_cannot_be_preserved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            payload = output / "payload.bin"
+            payload.write_bytes(b"payload")
+            os.setxattr(payload, "user.astia", b"file-xattr")
+            original = {
+                path.name: path.read_bytes()
+                for path in output.iterdir()
+                if path.is_file()
+            }
+            real_setxattr = generate.os.setxattr
+
+            def fail_setxattr(path, attribute, value, flags=0, *, follow_symlinks=True):
+                if attribute == "user.astia":
+                    raise OSError("injected xattr failure")
+                return real_setxattr(
+                    path,
+                    attribute,
+                    value,
+                    flags=flags,
+                    follow_symlinks=follow_symlinks,
+                )
+
+            with patch.object(generate.os, "link", side_effect=OSError("no link")):
+                with patch.object(generate.os, "setxattr", side_effect=fail_setxattr):
+                    with self.assertRaises(ValueError):
+                        with generate.TransactionalDirectory.begin(
+                            output,
+                            root,
+                            generate.MAN7_MANIFEST,
+                            generate.read_owned_files,
+                        ) as transaction:
+                            transaction.output.write_atomic(
+                                "index.html", "new index"
+                            )
+                            generate.write_man_manifest(
+                                transaction.output, {"index.html"}
+                            )
+                            transaction.commit()
+
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in output.iterdir()
+                    if path.is_file()
+                },
+                original,
+            )
+            self.assertEqual(
+                os.getxattr(output / "payload.bin", "user.astia"), b"file-xattr"
+            )
+            self.assertEqual(
+                [
+                    path
+                    for path in root.iterdir()
+                    if path.name.startswith(".astia-stage-")
+                    or path.name.startswith(".astia-retired-")
+                ],
+                [],
+            )
 
     def test_transaction_preserves_retired_tree_when_mutation_races_exchange(self):
         with tempfile.TemporaryDirectory() as temporary:

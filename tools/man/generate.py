@@ -931,6 +931,68 @@ class OutputDirectory:
                 os.close(descriptor)
 
 
+def _unsupported_xattrs(error: OSError) -> bool:
+    return error.errno in {
+        errno.ENOTSUP,
+        getattr(errno, "EOPNOTSUPP", errno.ENOTSUP),
+        errno.ENOSYS,
+    }
+
+
+def copy_xattrs(
+    source: int,
+    destination: int,
+    name: str | None,
+    relative: str,
+) -> None:
+    source_path = f"/proc/self/fd/{source}" if name is None else f"/proc/self/fd/{source}/{name}"
+    destination_path = (
+        f"/proc/self/fd/{destination}"
+        if name is None
+        else f"/proc/self/fd/{destination}/{name}"
+    )
+    follow_source = name is None
+    try:
+        attributes = os.listxattr(source_path, follow_symlinks=follow_source)
+    except OSError as error:
+        if not _unsupported_xattrs(error):
+            raise ValueError(
+                f"cannot read extended attributes: {relative}"
+            ) from error
+        try:
+            os.listxattr(destination_path, follow_symlinks=follow_source)
+        except OSError as destination_error:
+            if _unsupported_xattrs(destination_error):
+                return
+            raise ValueError(
+                f"cannot read destination extended attributes: {relative}"
+            ) from destination_error
+        raise ValueError(
+            f"source filesystem does not support extended attributes: {relative}"
+        ) from error
+    for attribute in attributes:
+        try:
+            value = os.getxattr(
+                source_path, attribute, follow_symlinks=follow_source
+            )
+        except OSError as error:
+            raise ValueError(
+                f"cannot read extended attribute {attribute}: {relative}"
+            ) from error
+        try:
+            os.setxattr(
+                destination_path,
+                attribute,
+                value,
+                flags=0,
+                follow_symlinks=follow_source,
+            )
+        except OSError as error:
+            raise ValueError(
+                f"cannot preserve extended attribute {attribute}: {relative}"
+            ) from error
+
+
 def copy_unowned_entries(
     source: int,
     destination: int,
@@ -958,6 +1020,7 @@ def copy_unowned_entries(
                     f"cannot preserve directory ownership: {relative}"
                 ) from error
             os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            copy_xattrs(source, destination, name, relative)
             with ExitStack() as stack:
                 child_source = os.open(
                     name,
@@ -1027,6 +1090,7 @@ def copy_unowned_entries(
                             f"cannot preserve file ownership: {relative}"
                         ) from error
                     os.fchmod(destination_fd, stat.S_IMODE(info.st_mode))
+                    copy_xattrs(source, destination, name, relative)
                     os.fsync(destination_fd)
         elif stat.S_ISFIFO(info.st_mode):
             os.mkfifo(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
@@ -1043,6 +1107,7 @@ def copy_unowned_entries(
                     f"cannot preserve FIFO ownership: {relative}"
                 ) from error
             os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            copy_xattrs(source, destination, name, relative)
         elif stat.S_ISCHR(info.st_mode) or stat.S_ISBLK(info.st_mode):
             try:
                 os.link(
@@ -1246,6 +1311,7 @@ class TransactionalDirectory:
                 dir_fd=parent,
             )
             if active >= 0:
+                copy_xattrs(active, staging, None, ".")
                 current = OutputDirectory(path, active, owns_descriptor=False)
                 owned = owned_reader(current)
                 copy_unowned_entries(active, staging, owned, manifest_name)
@@ -1312,23 +1378,30 @@ class TransactionalDirectory:
         except OSError:
             pass
 
-    def commit(self) -> None:
+    def _assert_active_unchanged(self) -> None:
+        if not self._active_matches():
+            raise RuntimeError("output directory changed during publication")
+        if self._active < 0:
+            return
+        try:
+            current_snapshot = directory_snapshot(self._active)
+        except OSError as error:
+            raise RuntimeError(
+                "output directory content changed during publication"
+            ) from error
+        if current_snapshot != self._active_snapshot:
+            raise RuntimeError(
+                "output directory content changed during publication"
+            )
+
+    def commit(self, before_activation=None) -> None:
         self.output.sync()
         os.close(self._staging)
         self._staging = -1
-        if not self._active_matches():
-            raise RuntimeError("output directory changed during publication")
-        if self._active >= 0:
-            try:
-                current_snapshot = directory_snapshot(self._active)
-            except OSError as error:
-                raise RuntimeError(
-                    "output directory content changed during publication"
-                ) from error
-            if current_snapshot != self._active_snapshot:
-                raise RuntimeError(
-                    "output directory content changed during publication"
-                )
+        self._assert_active_unchanged()
+        if before_activation is not None:
+            before_activation()
+        self._assert_active_unchanged()
         if self._active_info is None:
             rename_noreplace(self._parent, self._staging_name, self._active_name)
             self._committed = True
