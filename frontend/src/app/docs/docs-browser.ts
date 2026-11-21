@@ -3,7 +3,9 @@ import {
   Component,
   ElementRef,
   computed,
+  effect,
   input,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
@@ -15,6 +17,45 @@ interface DocGroupView {
   readonly pages: readonly DocPage[];
 }
 
+const escapeAttribute = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+const slugify = (value: string): string => {
+  const slug = value
+    .replace(/<[^>]+>/g, '')
+    .replace(/&[^;]+;/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'section';
+};
+
+const safeHref = (href: string): boolean =>
+  href.startsWith('#') || /^(?:https?:|mailto:|tel:)/i.test(href);
+
+marked.use({
+  gfm: true,
+  renderer: {
+    heading({ tokens, depth }) {
+      const html = this.parser.parseInline(tokens);
+      return `<h${depth} id="doc-${slugify(html)}">${html}</h${depth}>\n`;
+    },
+    link({ href, title, tokens }) {
+      const html = this.parser.parseInline(tokens);
+      const resolved = href.startsWith('#') ? `#doc-${slugify(href.slice(1))}` : href;
+      if (!safeHref(resolved)) {
+        return html;
+      }
+      const titleAttribute = title ? ` title="${escapeAttribute(title)}"` : '';
+      return `<a href="${escapeAttribute(resolved)}"${titleAttribute}>${html}</a>`;
+    },
+  },
+});
+
 @Component({
   selector: 'app-docs-browser',
   templateUrl: './docs-browser.html',
@@ -23,9 +64,13 @@ interface DocGroupView {
 })
 export class DocsBrowser {
   readonly pages = input.required<readonly DocPage[]>();
+  readonly selectedSlug = input<string | null>(null);
+  readonly pageSelected = output<string>();
+  readonly indexSelected = output<void>();
 
   protected readonly query = signal('');
-  protected readonly selectedSlug = signal<string | null>(null);
+  private firstSelectedChange = true;
+
   protected readonly selectedPage = computed(() => {
     const slug = this.selectedSlug();
     return slug ? (this.pages().find((page) => page.slug === slug) ?? null) : null;
@@ -54,19 +99,55 @@ export class DocsBrowser {
   protected readonly nextPage = computed(() => this.adjacentPage(1));
 
   private readonly browser = viewChild<ElementRef<HTMLElement>>('browser');
+  private readonly markdown = viewChild<ElementRef<HTMLElement>>('markdown');
+
+  constructor() {
+    effect(() => {
+      this.selectedSlug();
+      if (this.firstSelectedChange) {
+        this.firstSelectedChange = false;
+        return;
+      }
+      queueMicrotask(() =>
+        this.browser()?.nativeElement.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+      );
+    });
+
+    effect(() => {
+      this.renderedContent();
+      queueMicrotask(() => this.assignHeadingIds());
+    });
+  }
 
   protected setQuery(event: Event): void {
     this.query.set((event.target as HTMLInputElement).value);
   }
 
   protected selectPage(slug: string): void {
-    this.selectedSlug.set(slug);
-    this.scrollToBrowser();
+    this.pageSelected.emit(slug);
   }
 
   protected backToIndex(): void {
-    this.selectedSlug.set(null);
-    this.scrollToBrowser();
+    this.indexSelected.emit();
+  }
+
+  protected onMarkdownClick(event: MouseEvent): void {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const anchor = target.closest('a') as HTMLAnchorElement | null;
+    const href = anchor?.getAttribute('href') ?? '';
+    if (!anchor || !href.startsWith('#')) {
+      return;
+    }
+    const destination = this.markdown()?.nativeElement.querySelector<HTMLElement>(href);
+    if (!destination) {
+      return;
+    }
+    event.preventDefault();
+    destination.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    history.replaceState(null, '', `${location.pathname}${location.search}${href}`);
   }
 
   private adjacentPage(direction: -1 | 1): DocPage | null {
@@ -79,9 +160,17 @@ export class DocsBrowser {
     return pages[index + direction] ?? null;
   }
 
-  private scrollToBrowser(): void {
-    queueMicrotask(() =>
-      this.browser()?.nativeElement.scrollIntoView({ block: 'start', behavior: 'smooth' }),
-    );
+  private assignHeadingIds(): void {
+    const root = this.markdown()?.nativeElement;
+    if (!root) {
+      return;
+    }
+    for (const heading of root.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')) {
+      heading.id = `doc-${slugify(heading.textContent ?? '')}`;
+    }
+    const hash = location.hash.slice(1);
+    if (hash) {
+      document.getElementById(hash)?.scrollIntoView({ block: 'start' });
+    }
   }
 }

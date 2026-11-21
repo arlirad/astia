@@ -36,12 +36,13 @@ describe('DocsBrowser', () => {
     }).compileComponents();
   });
 
-  function render(): {
+  function render(selectedSlug: string | null = null): {
     fixture: ReturnType<typeof TestBed.createComponent<DocsBrowser>>;
     element: HTMLElement;
   } {
     const fixture = TestBed.createComponent(DocsBrowser);
     fixture.componentRef.setInput('pages', PAGES);
+    fixture.componentRef.setInput('selectedSlug', selectedSlug);
     fixture.detectChanges();
     return { fixture, element: fixture.nativeElement as HTMLElement };
   }
@@ -52,6 +53,13 @@ describe('DocsBrowser', () => {
     expect(element.querySelectorAll('.docs-group').length).toBe(3);
     expect(element.querySelectorAll('.docs-index-link').length).toBe(PAGES.length);
     expect(element.querySelector('.docs-count')?.textContent).toContain('3 pages');
+  });
+
+  it('renders a deep-linked page from the selected slug input', () => {
+    const { element } = render('manual');
+
+    expect(element.querySelector('.docs-page-title')?.textContent).toContain('Manual');
+    expect(element.querySelector('.doc-markdown')?.textContent).toContain('API reference.');
   });
 
   it('filters the index by title, group, or summary', () => {
@@ -77,27 +85,28 @@ describe('DocsBrowser', () => {
     expect(element.querySelector('.docs-empty')?.textContent).toContain('No docs match');
   });
 
-  it('opens a page, follows page navigation, and returns to the index', () => {
+  it('emits page selection, page navigation, and index requests', () => {
     const { fixture, element } = render();
-    const links = element.querySelectorAll<HTMLButtonElement>('.docs-index-link');
+    const component = fixture.componentInstance;
+    const selected: string[] = [];
+    let indexRequested = false;
+    component.pageSelected.subscribe((slug) => selected.push(slug));
+    component.indexSelected.subscribe(() => (indexRequested = true));
 
-    links[1].click();
+    element.querySelectorAll<HTMLButtonElement>('.docs-index-link')[1].click();
+    expect(selected).toEqual(['manual']);
+
+    fixture.componentRef.setInput('selectedSlug', 'manual');
     fixture.detectChanges();
 
     expect(element.querySelector('.docs-page-title')?.textContent).toContain('Manual');
     expect(element.querySelector('.docs-source')?.getAttribute('href')).toContain('docs/aio.7.md');
     expect(element.querySelector('.docs-pager-link')?.textContent).toContain('Guide');
 
-    const next = element.querySelector<HTMLButtonElement>('.docs-pager-link.is-next');
-    next?.click();
-    fixture.detectChanges();
-
-    expect(element.querySelector('.docs-page-title')?.textContent).toContain('Design note');
+    element.querySelector<HTMLButtonElement>('.docs-pager-link.is-next')?.click();
+    expect(selected).toEqual(['manual', 'note']);
 
     element.querySelector<HTMLButtonElement>('.docs-back')?.click();
-    fixture.detectChanges();
-
-    expect(element.querySelector('.doc-markdown')).toBeNull();
-    expect(element.querySelectorAll('.docs-index-link').length).toBe(PAGES.length);
+    expect(indexRequested).toBeTrue();
   });
 });

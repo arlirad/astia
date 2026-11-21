@@ -2,7 +2,13 @@
 
 <header class="site-header">
   <div class="shell header-inner">
-    <a class="brand" href="#overview" aria-label="Astia overview">
+    <a
+      class="brand"
+      routerLink="/"
+      fragment="overview"
+      aria-label="Astia overview"
+      (click)="closeMenu()"
+    >
       <img src="img/logo64.png" alt="" width="32" height="32">
       <span>Astia</span>
     </a>
@@ -26,8 +32,14 @@
       [class.is-open]="menuOpen()"
       aria-label="Primary navigation"
     >
-      @for (link of navLinks; track link.href) {
-        <a [href]="link.href" (click)="closeMenu()">{{ link.label }}</a>
+      @for (link of navLinks; track link.label) {
+        <a
+          [routerLink]="link.path"
+          [fragment]="link.fragment"
+          (click)="closeMenu()"
+        >
+          {{ link.label }}
+        </a>
       }
       <a
         class="nav-github"
@@ -43,205 +55,7 @@
 </header>
 
 <main id="main">
-  <section id="overview" class="hero">
-    <div class="shell hero-grid">
-      <div class="hero-copy">
-        <p class="eyebrow">Freestanding x86_64 · C++20</p>
-        <h1>An operating system built to be understood.</h1>
-        <p class="lede">
-          Astia is a small, freestanding hobby OS for learning, experimentation, and systems
-          programming on QEMU. It pairs a typed C++20 kernel with native userspace, loadable
-          device modules, and a deliberately bounded feature set.
-        </p>
-        <div class="hero-actions">
-          <a
-            class="button button-primary"
-            [href]="readmeUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read the README <span aria-hidden="true">↗</span>
-          </a>
-          <a class="button button-secondary" href="#capabilities">Explore capabilities</a>
-        </div>
-        <ul class="status-list" aria-label="Project status">
-          <li><span class="status-dot" aria-hidden="true"></span>Active development</li>
-          <li>QEMU virt · PVH direct boot</li>
-          <li>MIT licensed</li>
-        </ul>
-      </div>
-
-      <figure class="hero-art">
-        <img
-          src="img/banner.svg"
-          alt="Astia project banner artwork"
-          width="3072"
-          height="1024"
-        >
-        <figcaption>Astia wordmark and banner art</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <section class="snapshot" aria-label="Project at a glance">
-    <div class="shell snapshot-grid">
-      @for (fact of snapshot; track fact.label) {
-        <div class="snapshot-item">
-          <span class="snapshot-value">{{ fact.value }}</span>
-          <span class="snapshot-label">{{ fact.label }}</span>
-        </div>
-      }
-    </div>
-  </section>
-
-  <section id="capabilities" class="section">
-    <div class="shell">
-      <div class="section-head">
-        <p class="eyebrow">Capabilities</p>
-        <h2>Small surface area, real subsystems.</h2>
-        <p>
-          Astia focuses on a coherent kernel and userspace core instead of breadth. Each area below
-          is implemented to a defined boundary.
-        </p>
-      </div>
-
-      <div class="capability-grid">
-        @for (capability of capabilities; track capability.title; let i = $index) {
-          <article class="capability">
-            <div class="capability-top">
-              <span [class]="'tag ' + capability.tone">{{ capability.tag }}</span>
-              <span class="capability-index" aria-hidden="true">0{{ i + 1 }}</span>
-            </div>
-            <h3>{{ capability.title }}</h3>
-            <p>{{ capability.description }}</p>
-          </article>
-        }
-      </div>
-
-      <div class="constraints">
-        <div>
-          <h3>Supported today</h3>
-          <ul class="check-list">
-            @for (item of supported; track item) {
-              <li>{{ item }}</li>
-            }
-          </ul>
-        </div>
-        <div>
-          <h3>Outside current scope</h3>
-          <ul class="check-list is-negative">
-            @for (item of notGoals; track item) {
-              <li>{{ item }}</li>
-            }
-          </ul>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="roadmap" class="section section-alt">
-    <div class="shell">
-      <div class="section-head">
-        <p class="eyebrow">Roadmap</p>
-        <h2>Near-term engineering focus.</h2>
-        <p>
-          Priorities come from the project README and design notes. There are no dates or promised
-          releases; these are the areas receiving active work.
-        </p>
-      </div>
-
-      <ol class="roadmap-list">
-        @for (item of roadmap; track item.title; let i = $index) {
-          <li class="roadmap-item">
-            <span class="roadmap-index" aria-hidden="true">0{{ i + 1 }}</span>
-            <div class="roadmap-body">
-              <div class="roadmap-meta">
-                <span class="tag">{{ item.area }}</span>
-                <span class="roadmap-status">Near-term focus</span>
-              </div>
-              <h3>{{ item.title }}</h3>
-              <p>{{ item.description }}</p>
-            </div>
-          </li>
-        }
-      </ol>
-
-      <p class="roadmap-note">
-        Scope changes are tracked in the repository. The README remains the source of truth for
-        current limitations.
-      </p>
-    </div>
-  </section>
-
-  <section id="documentation" class="section">
-    <div class="shell">
-      <div class="section-head">
-        <p class="eyebrow">Documentation</p>
-        <h2>Design notes, boundaries, and current limits.</h2>
-        <p>
-          Bundled from the repository Markdown sources. Each page links to its GitHub source,
-          and prototype-only work is labeled in the content.
-        </p>
-      </div>
-
-      <app-docs-browser [pages]="docPages" />
-    </div>
-  </section>
-
-  <section id="get-started" class="section">
-    <div class="shell">
-      <div class="section-head">
-        <p class="eyebrow">Get started</p>
-        <h2>Build, boot, and explore.</h2>
-        <p>
-          The supported path is an x86_64 QEMU virt machine. Start with the kernel, then add the
-          interactive userspace when you need a shell.
-        </p>
-      </div>
-
-      <div class="get-started-grid">
-        <div class="command-stack">
-          @for (step of commands; track step.label) {
-            <app-command-block [label]="step.label" [code]="step.code" [note]="step.note" />
-          }
-        </div>
-
-        <aside class="resources" aria-labelledby="resources-title">
-          <h3 id="resources-title">Read next</h3>
-          <ul class="resource-list">
-            @for (resource of resources; track resource.href) {
-              <li>
-                <a
-                  class="resource-link"
-                  [href]="resource.href"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <span>{{ resource.title }} <span aria-hidden="true">↗</span></span>
-                  <small>{{ resource.description }}</small>
-                </a>
-              </li>
-            }
-          </ul>
-        </aside>
-      </div>
-
-      <div class="prerequisites">
-        <div>
-          <h3>Before you begin</h3>
-          <p>
-            The kernel build needs the host tools below. Userspace workflows also need the pinned
-            zsh, nano, and gnulib submodules initialized first.
-          </p>
-        </div>
-        <ul class="chips" aria-label="Build prerequisites">
-          @for (item of prerequisites; track item) {
-            <li>{{ item }}</li>
-          }
-        </ul>
-      </div>
-    </div>
-  </section>
+  <router-outlet />
 </main>
 
 <footer class="site-footer">
@@ -254,7 +68,7 @@
       <p class="footer-copy">© 2026 Arlirad · MIT licensed</p>
     </div>
     <nav class="footer-links" aria-label="Project links">
-      <a href="#documentation">Documentation</a>
+      <a routerLink="/documentation">Documentation</a>
       <a [href]="githubUrl" target="_blank" rel="noopener noreferrer">Source</a>
       <a [href]="issuesUrl" target="_blank" rel="noopener noreferrer">Issues</a>
       <a [href]="readmeUrl" target="_blank" rel="noopener noreferrer">README</a>

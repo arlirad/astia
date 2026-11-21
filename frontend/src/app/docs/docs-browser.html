@@ -55,7 +55,12 @@
         </div>
 
         <h1 class="docs-page-title">{{ page.title }}</h1>
-        <div class="doc-markdown" [innerHTML]="renderedContent()"></div>
+        <div
+          #markdown
+          class="doc-markdown"
+          [innerHTML]="renderedContent()"
+          (click)="onMarkdownClick($event)"
+        ></div>
 
         <nav class="docs-pager" aria-label="Document navigation">
           @if (previousPage(); as previous) {

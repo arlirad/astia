@@ -30,7 +30,7 @@ The in-app docs browser reads bundled Markdown from the repository `docs/` direc
 npm run docs:generate
 ```
 
-The same generator runs automatically before `npm run build`. Edit the source Markdown in the repository, then rebuild.
+The same generator runs automatically before `npm run build`. Repository-relative Markdown links are rewritten to GitHub blob or tree URLs at generation time, while external URLs, anchors, and mailto links are preserved. Edit the source Markdown in the repository, then rebuild.
 
 ## Assets
 

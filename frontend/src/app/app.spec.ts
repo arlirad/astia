@@ -1,55 +1,32 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { App } from './app';
-import { CAPABILITIES, COMMANDS, DOC_PAGES, NAV_LINKS, RESOURCES, ROADMAP } from './content';
+import { routes } from './app.routes';
+import { NAV_LINKS } from './content';
 
-describe('App', () => {
+describe('App shell', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
+      providers: [provideRouter(routes)],
     }).compileComponents();
   });
 
-  function render(): { fixture: ReturnType<typeof TestBed.createComponent<App>>; element: HTMLElement } {
+  function render(): {
+    fixture: ReturnType<typeof TestBed.createComponent<App>>;
+    element: HTMLElement;
+  } {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     return { fixture, element: fixture.nativeElement as HTMLElement };
   }
 
-  it('renders the product overview and primary navigation', () => {
+  it('renders the primary navigation, router outlet, and footer', () => {
     const { element } = render();
 
-    expect(element.querySelector('h1')?.textContent).toContain(
-      'An operating system built to be understood.',
-    );
     expect(element.querySelectorAll('.site-nav a').length).toBe(NAV_LINKS.length + 1);
-    expect(element.querySelector('.hero-art img')?.getAttribute('src')).toContain('banner.svg');
-  });
-
-  it('renders every capability and roadmap item', () => {
-    const { element } = render();
-
-    expect(element.querySelectorAll('#capabilities .capability').length).toBe(
-      CAPABILITIES.length,
-    );
-    expect(element.querySelectorAll('#roadmap .roadmap-item').length).toBe(ROADMAP.length);
-    expect(element.querySelectorAll('#capabilities .check-list').length).toBe(2);
-  });
-
-  it('renders each getting-started command block and resource link', () => {
-    const { element } = render();
-
-    expect(element.querySelectorAll('app-command-block').length).toBe(COMMANDS.length);
-    expect(element.querySelectorAll('.resource-link').length).toBe(RESOURCES.length);
-  });
-
-  it('renders the documentation browser without em dashes', () => {
-    const { element } = render();
-
-    expect(element.querySelector('#documentation app-docs-browser')).toBeTruthy();
-    expect(element.querySelectorAll('#documentation .docs-index-link').length).toBe(
-      DOC_PAGES.length,
-    );
-    expect(element.textContent).not.toContain('\u2014');
+    expect(element.querySelector('router-outlet')).toBeTruthy();
+    expect(element.querySelector('.footer-links a[href="/documentation"]')).toBeTruthy();
   });
 
   it('toggles the mobile navigation and closes it from a link', () => {
@@ -65,7 +42,7 @@ describe('App', () => {
     expect(toggle?.getAttribute('aria-expanded')).toBe('true');
     expect(nav?.classList.contains('is-open')).toBeTrue();
 
-    element.querySelector<HTMLAnchorElement>('.site-nav a')?.click();
+    element.querySelector<HTMLAnchorElement>('.site-nav a[href="/documentation"]')?.click();
     fixture.detectChanges();
 
     expect(toggle?.getAttribute('aria-expanded')).toBe('false');

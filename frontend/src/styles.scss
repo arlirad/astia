@@ -97,6 +97,35 @@ h6 {
   text-transform: uppercase;
 }
 
+.section {
+  padding: clamp(3rem, 6vw, 4.5rem) 0;
+}
+
+.section-alt {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-0);
+}
+
+.section-head {
+  max-width: 64ch;
+  margin-bottom: 2rem;
+}
+
+.section-head h2 {
+  margin: 0.5rem 0 1rem;
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  font-weight: 300;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.section-head p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+
 .button {
   display: inline-flex;
   min-height: 40px;

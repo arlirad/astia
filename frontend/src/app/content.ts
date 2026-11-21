@@ -3,7 +3,8 @@ import { GENERATED_DOCS } from './docs/docs.generated';
 
 export interface NavLink {
   readonly label: string;
-  readonly href: string;
+  readonly path: string;
+  readonly fragment?: string;
 }
 
 export type CapabilityTone = 'tag-core' | 'tag-bounded' | 'tag-experimental';
@@ -48,11 +49,11 @@ const repoBlob = (path: string): string => `${GITHUB_URL}/blob/main/${path}`;
 export const DOC_PAGES: readonly DocPage[] = GENERATED_DOCS;
 
 export const NAV_LINKS: readonly NavLink[] = [
-  { label: 'Overview', href: '#overview' },
-  { label: 'Capabilities', href: '#capabilities' },
-  { label: 'Roadmap', href: '#roadmap' },
-  { label: 'Documentation', href: '#documentation' },
-  { label: 'Get started', href: '#get-started' },
+  { label: 'Overview', path: '/', fragment: 'overview' },
+  { label: 'Capabilities', path: '/', fragment: 'capabilities' },
+  { label: 'Roadmap', path: '/', fragment: 'roadmap' },
+  { label: 'Documentation', path: '/documentation' },
+  { label: 'Get started', path: '/', fragment: 'get-started' },
 ];
 
 export const SNAPSHOT: readonly Snapshot[] = [

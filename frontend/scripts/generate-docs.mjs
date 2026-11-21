@@ -1,5 +1,11 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -20,7 +26,52 @@ if (!existsSync(docsDir)) {
   process.exit(0);
 }
 
+const githubRepo = 'https://github.com/arlirad/astia';
+let rewrittenLinks = 0;
+
 const normalize = (text) => text.replace(/\u2014/g, ' - ');
+
+const rewriteTarget = (target, sourcePath) => {
+  if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(target)) {
+    return target;
+  }
+
+  const hashIndex = target.indexOf('#');
+  const pathPart = hashIndex >= 0 ? target.slice(0, hashIndex) : target;
+  const hash = hashIndex >= 0 ? target.slice(hashIndex) : '';
+  if (!pathPart) {
+    return target;
+  }
+
+  let decoded = pathPart.replace(/^<|>$/g, '');
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    return target;
+  }
+
+  const resolved = posix.normalize(posix.join(posix.dirname(sourcePath), decoded));
+  if (resolved === '..' || resolved.startsWith('../')) {
+    return target;
+  }
+
+  const absolute = join(repoRoot, resolved);
+  if (!existsSync(absolute)) {
+    console.warn(`Unresolved relative link ${target} in ${sourcePath}`);
+    return target;
+  }
+
+  const kind = statSync(absolute).isDirectory() ? 'tree' : 'blob';
+  const encoded = resolved.split('/').map(encodeURIComponent).join('/');
+  rewrittenLinks += 1;
+  return `${githubRepo}/${kind}/main/${encoded}${hash}`;
+};
+
+const rewriteLinks = (content, sourcePath) =>
+  content.replace(
+    /(?<!!)\[([^\]]*)\]\(([^)\s]+)\)/g,
+    (match, text, target) => `[${text}](${rewriteTarget(target, sourcePath)})`,
+  );
 
 const guideTitles = {
   'README.md': 'Project README',
@@ -75,7 +126,10 @@ const entries = [
 ];
 
 const pages = entries.map(({ path, group }) => {
-  const content = normalize(readFileSync(join(repoRoot, path), 'utf8'));
+  const content = rewriteLinks(
+    normalize(readFileSync(join(repoRoot, path), 'utf8')),
+    path,
+  );
   return {
     slug: slugOf(path),
     title: guideTitles[path] ?? titleOf(content, path),
@@ -103,4 +157,6 @@ writeFileSync(
   outputPath,
   `import type { DocPage } from './docs.model';\n\nexport const GENERATED_DOCS: readonly DocPage[] = [\n${body}\n];\n`,
 );
-console.log(`Generated ${pages.length} documentation pages from repository Markdown sources.`);
+console.log(
+  `Generated ${pages.length} documentation pages from repository Markdown sources (${rewrittenLinks} links rewritten).`,
+);
