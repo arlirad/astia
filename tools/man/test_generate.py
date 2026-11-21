@@ -473,6 +473,151 @@ class GenerateTest(unittest.TestCase):
             transaction.commit()
         return output
 
+    def test_transaction_aborts_if_initial_snapshot_vanishes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            (output / "custom.2.html").write_text("custom")
+            before = {
+                path.name: path.read_bytes()
+                for path in output.iterdir()
+                if path.is_file()
+            }
+
+            with patch.object(
+                generate,
+                "directory_snapshot",
+                side_effect=FileNotFoundError("snapshot race"),
+            ):
+                with self.assertRaises(RuntimeError):
+                    generate.TransactionalDirectory.begin(
+                        output,
+                        root,
+                        generate.MAN7_MANIFEST,
+                        generate.read_owned_files,
+                    )
+
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in output.iterdir()
+                    if path.is_file()
+                },
+                before,
+            )
+            self.assertEqual(
+                [path for path in root.iterdir() if path.name.startswith(".astia-stage-")],
+                [],
+            )
+
+    def test_transaction_aborts_if_commit_snapshot_vanishes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            (output / "custom.2.html").write_text("custom")
+            before = {
+                path.name: path.read_bytes()
+                for path in output.iterdir()
+                if path.is_file()
+            }
+            original_snapshot = generate.directory_snapshot
+            calls = 0
+
+            def flaky_snapshot(directory, prefix=""):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise FileNotFoundError("snapshot race")
+                return original_snapshot(directory, prefix)
+
+            with patch.object(
+                generate, "directory_snapshot", side_effect=flaky_snapshot
+            ):
+                with self.assertRaises(RuntimeError):
+                    with generate.TransactionalDirectory.begin(
+                        output,
+                        root,
+                        generate.MAN7_MANIFEST,
+                        generate.read_owned_files,
+                    ) as transaction:
+                        transaction.output.write_atomic("index.html", "new index")
+                        generate.write_man_manifest(
+                            transaction.output, {"index.html"}
+                        )
+                        transaction.commit()
+
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in output.iterdir()
+                    if path.is_file()
+                },
+                before,
+            )
+            self.assertEqual(
+                [path for path in root.iterdir() if path.name.startswith(".astia-stage-")],
+                [],
+            )
+
+    def test_copy_closes_source_descriptors_when_destination_open_fails(self):
+        fd_root = Path("/proc/self/fd")
+        if not fd_root.is_dir():
+            self.skipTest("procfs is unavailable")
+        cases = ("directory", "file")
+        for kind in cases:
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    source = root / "source"
+                    destination = root / "destination"
+                    source.mkdir()
+                    destination.mkdir()
+                    if kind == "directory":
+                        (source / "sub").mkdir()
+                        (source / "sub" / "payload").write_text("payload")
+                    else:
+                        (source / "payload.bin").write_text("payload")
+                    source_fd = os.open(
+                        source, os.O_RDONLY | os.O_DIRECTORY
+                    )
+                    destination_fd = os.open(
+                        destination, os.O_RDONLY | os.O_DIRECTORY
+                    )
+                    before = len(list(fd_root.iterdir()))
+                    real_open = generate.os.open
+
+                    def fail_open(path, flags, mode=0o777, *, dir_fd=None):
+                        target = "sub" if kind == "directory" else "payload.bin"
+                        if (
+                            path == target
+                            and dir_fd == destination_fd
+                            and (
+                                flags & os.O_DIRECTORY
+                                if kind == "directory"
+                                else flags & os.O_WRONLY
+                            )
+                        ):
+                            raise OSError("destination open failure")
+                        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+                    try:
+                        with patch.object(
+                            generate.os, "open", side_effect=fail_open
+                        ), patch.object(
+                            generate.os, "link", side_effect=OSError("no link")
+                        ):
+                            with self.assertRaises(OSError):
+                                generate.copy_unowned_entries(
+                                    source_fd,
+                                    destination_fd,
+                                    set(),
+                                    "manifest.json",
+                                )
+                        self.assertEqual(len(list(fd_root.iterdir())), before)
+                    finally:
+                        os.close(source_fd)
+                        os.close(destination_fd)
+
     def test_transaction_rejects_special_manifest_entries(self):
         cases = ("symlink", "directory", "fifo", "socket")
         for kind in cases:
@@ -571,20 +716,36 @@ class GenerateTest(unittest.TestCase):
                         if connection is not None:
                             connection.close()
 
-    def test_transaction_preserves_active_directory_mode(self):
+    def test_transaction_preserves_directory_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output = self._old_man_generation(root)
+            private = output / "private"
+            private.mkdir()
             previous_umask = os.umask(0o022)
             try:
                 os.chmod(output, 0o700)
+                os.chmod(private, 0o750)
+                output_info = output.stat()
+                private_info = private.stat()
                 with generate.TransactionalDirectory.begin(
                     output, root, generate.MAN7_MANIFEST, generate.read_owned_files
                 ) as transaction:
                     transaction.output.write_atomic("index.html", "new index")
                     generate.write_man_manifest(transaction.output, {"index.html"})
                     transaction.commit()
-                self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
+                result_info = output.stat()
+                result_private = (output / "private").stat()
+                self.assertEqual(stat.S_IMODE(result_info.st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE(result_private.st_mode), 0o750)
+                self.assertEqual(
+                    (result_info.st_uid, result_info.st_gid),
+                    (output_info.st_uid, output_info.st_gid),
+                )
+                self.assertEqual(
+                    (result_private.st_uid, result_private.st_gid),
+                    (private_info.st_uid, private_info.st_gid),
+                )
             finally:
                 os.umask(previous_umask)
 
@@ -593,7 +754,10 @@ class GenerateTest(unittest.TestCase):
             root = Path(temporary)
             output = self._old_man_generation(root)
             payload = bytes(range(256)) * 4
-            (output / "payload.bin").write_bytes(payload)
+            payload_path = output / "payload.bin"
+            payload_path.write_bytes(payload)
+            os.chmod(payload_path, 0o640)
+            payload_info = payload_path.stat()
             writes = []
             original_write = generate.os.write
 
@@ -611,7 +775,14 @@ class GenerateTest(unittest.TestCase):
                         transaction.commit()
 
             self.assertGreater(len(writes), 1)
-            self.assertEqual((output / "payload.bin").read_bytes(), payload)
+            copied = output / "payload.bin"
+            self.assertEqual(copied.read_bytes(), payload)
+            copied_info = copied.stat()
+            self.assertEqual(stat.S_IMODE(copied_info.st_mode), 0o640)
+            self.assertEqual(
+                (copied_info.st_uid, copied_info.st_gid),
+                (payload_info.st_uid, payload_info.st_gid),
+            )
             self.assertEqual((output / "index.html").read_text(), "new index")
 
     def test_transaction_aborts_when_active_content_changes(self):
@@ -694,6 +865,46 @@ class GenerateTest(unittest.TestCase):
                 )
             after = len(list(fd_root.iterdir()))
             self.assertEqual(after, before)
+
+    def test_transaction_preserves_retired_tree_when_mutation_races_exchange(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            (output / "old-unrelated").write_text("old unrelated")
+            original_exchange = generate.exchange_directories
+
+            def mutate_then_exchange(parent, first, second):
+                (output / "late.txt").write_text("late")
+                return original_exchange(parent, first, second)
+
+            with patch.object(
+                generate,
+                "exchange_directories",
+                side_effect=mutate_then_exchange,
+            ):
+                with generate.TransactionalDirectory.begin(
+                    output, root, generate.MAN7_MANIFEST, generate.read_owned_files
+                ) as transaction:
+                    transaction.output.write_atomic("index.html", "new index")
+                    generate.write_man_manifest(transaction.output, {"index.html"})
+                    transaction.commit()
+
+            self.assertEqual((output / "index.html").read_text(), "new index")
+            self.assertFalse((output / "late.txt").exists())
+            self.assertEqual((output / "old-unrelated").read_text(), "old unrelated")
+            retired = [
+                path
+                for path in root.iterdir()
+                if path.name.startswith(".astia-retired-")
+                or path.name.startswith(".astia-stage-")
+            ]
+            self.assertEqual(len(retired), 1)
+            self.assertEqual((retired[0] / "index.html").read_text(), "old index")
+            self.assertEqual((retired[0] / "late.txt").read_text(), "late")
+            self.assertEqual(
+                (retired[0] / "old-unrelated").read_text(), "old unrelated"
+            )
+            shutil.rmtree(retired[0])
 
     def test_export_cleanup_uses_manifest_ownership(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -144,8 +144,18 @@ one Linux `renameat2` operation:
 
 The active generation is not modified before activation. If staging or
 activation fails, the previous manifest and pages remain active. The retired
-generation is removed only after activation succeeds; cleanup errors are
-deferred and do not turn a successful activation into a failure.
+generation is removed only after activation succeeds and its post-exchange
+snapshot still matches the snapshot taken before staging. If a concurrent
+change is detected, the retired tree is retained as an `.astia-retired-<id>`
+sibling rather than deleted, preserving unexpected files for recovery.
+Cleanup errors are deferred and do not turn a successful activation into a
+failure. Cooperating generators should run one at a time.
+
+Regular files are hard-linked when possible, preserving inode ownership,
+mode, ACLs, and extended attributes. Fallback copies and recreated
+directories or FIFOs preserve owner, group, and mode; extended ACLs and
+xattrs are not reproduced. The transaction fails closed if owner, group, or
+mode cannot be preserved.
 
 The man7 tree and the section-2 export tree are separate per-tree
 transactions, not one invocation-wide atomic transaction. The frontend reads

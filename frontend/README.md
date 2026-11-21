@@ -34,6 +34,10 @@ The same generator runs automatically before `npm run build` and before the test
 
 Generated `man7` and section-2 export trees are published transactionally. Each output directory is staged as a private sibling directory, fully written and fsynced, then activated with one Linux `renameat2` exchange. A first generation uses `renameat2` with no-replace semantics. The two trees are separate transactions rather than one invocation-wide atomic unit; the frontend reads the section-2 export only after the generator exits successfully. This requires Linux and a filesystem that supports `renameat2` directory exchange for sibling directories, such as ext4, XFS, Btrfs, or tmpfs.
 
+The retired generation is deleted only when its post-exchange snapshot still matches the snapshot taken before staging. If a concurrent change is detected, the retired tree is retained as a `.astia-retired-<id>` sibling instead of being deleted, so unexpected files are preserved for recovery. Cooperating generators should still run one at a time.
+
+Regular files are hard-linked when possible, which preserves inode ownership, mode, ACLs, and extended attributes. Fallback copies and recreated directories or FIFOs preserve owner, group, and mode; extended ACLs and xattrs are not reproduced. Transactions fail closed if owner, group, or mode cannot be preserved.
+
 ## Assets
 
 Brand assets are copied from the repository `img/` directory into `public/img/`. The banner is used in the overview; the 64px logo is used for the header and favicon.

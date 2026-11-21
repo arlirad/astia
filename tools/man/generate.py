@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+from contextlib import ExitStack
 import errno
 import html
 import json
@@ -944,14 +945,32 @@ def copy_unowned_entries(
         info = os.stat(name, dir_fd=source, follow_symlinks=False)
         if stat.S_ISDIR(info.st_mode):
             os.mkdir(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
-            os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
-            child_source = os.open(
-                name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=source
-            )
-            child_destination = os.open(
-                name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=destination
-            )
             try:
+                os.chown(
+                    name,
+                    info.st_uid,
+                    info.st_gid,
+                    dir_fd=destination,
+                    follow_symlinks=False,
+                )
+            except OSError as error:
+                raise ValueError(
+                    f"cannot preserve directory ownership: {relative}"
+                ) from error
+            os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            with ExitStack() as stack:
+                child_source = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=source,
+                )
+                stack.callback(os.close, child_source)
+                child_destination = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=destination,
+                )
+                stack.callback(os.close, child_destination)
                 copy_unowned_entries(
                     child_source,
                     child_destination,
@@ -959,9 +978,6 @@ def copy_unowned_entries(
                     manifest_name,
                     relative,
                 )
-            finally:
-                os.close(child_source)
-                os.close(child_destination)
         elif relative in owned:
             if not (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
                 raise ValueError(
@@ -980,14 +996,20 @@ def copy_unowned_entries(
                     follow_symlinks=False,
                 )
             except OSError:
-                source_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=source)
-                destination_fd = os.open(
-                    name,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                    stat.S_IMODE(info.st_mode),
-                    dir_fd=destination,
-                )
-                try:
+                with ExitStack() as stack:
+                    source_fd = os.open(
+                        name,
+                        os.O_RDONLY | os.O_NOFOLLOW,
+                        dir_fd=source,
+                    )
+                    stack.callback(os.close, source_fd)
+                    destination_fd = os.open(
+                        name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        stat.S_IMODE(info.st_mode),
+                        dir_fd=destination,
+                    )
+                    stack.callback(os.close, destination_fd)
                     while True:
                         block = os.read(source_fd, 65536)
                         if not block:
@@ -998,13 +1020,28 @@ def copy_unowned_entries(
                             if written <= 0:
                                 raise OSError("short write while copying output")
                             offset += written
+                    try:
+                        os.fchown(destination_fd, info.st_uid, info.st_gid)
+                    except OSError as error:
+                        raise ValueError(
+                            f"cannot preserve file ownership: {relative}"
+                        ) from error
                     os.fchmod(destination_fd, stat.S_IMODE(info.st_mode))
                     os.fsync(destination_fd)
-                finally:
-                    os.close(source_fd)
-                    os.close(destination_fd)
         elif stat.S_ISFIFO(info.st_mode):
             os.mkfifo(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
+            try:
+                os.chown(
+                    name,
+                    info.st_uid,
+                    info.st_gid,
+                    dir_fd=destination,
+                    follow_symlinks=False,
+                )
+            except OSError as error:
+                raise ValueError(
+                    f"cannot preserve FIFO ownership: {relative}"
+                ) from error
             os.chmod(name, stat.S_IMODE(info.st_mode), dir_fd=destination)
         elif stat.S_ISCHR(info.st_mode) or stat.S_ISBLK(info.st_mode):
             try:
@@ -1096,6 +1133,8 @@ def directory_snapshot(directory: int, prefix: str = "") -> dict[str, tuple]:
             info.st_dev,
             info.st_ino,
             info.st_mode,
+            info.st_uid,
+            info.st_gid,
             info.st_size,
             info.st_mtime_ns,
         )
@@ -1156,14 +1195,24 @@ class TransactionalDirectory:
                     os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                     dir_fd=parent,
                 )
-                active_info = os.fstat(active)
-                active_snapshot = directory_snapshot(active)
             except FileNotFoundError:
                 active = -1
             except OSError as error:
                 raise ValueError(
                     f"output directory is a symlink or not a directory: {output_dir}"
                 ) from error
+            if active >= 0:
+                try:
+                    active_info = os.fstat(active)
+                    active_snapshot = directory_snapshot(active)
+                except FileNotFoundError as error:
+                    raise RuntimeError(
+                        "output directory changed during staging setup"
+                    ) from error
+                except OSError as error:
+                    raise RuntimeError(
+                        "cannot snapshot the active output directory"
+                    ) from error
             for _ in range(100):
                 staging_name = f".astia-stage-{os.urandom(8).hex()}"
                 try:
@@ -1174,6 +1223,18 @@ class TransactionalDirectory:
             else:
                 raise OSError("cannot allocate a staging directory")
             if active_info is not None:
+                try:
+                    os.chown(
+                        staging_name,
+                        active_info.st_uid,
+                        active_info.st_gid,
+                        dir_fd=parent,
+                        follow_symlinks=False,
+                    )
+                except OSError as error:
+                    raise ValueError(
+                        "cannot preserve output directory ownership"
+                    ) from error
                 os.chmod(
                     staging_name,
                     stat.S_IMODE(active_info.st_mode),
@@ -1244,6 +1305,13 @@ class TransactionalDirectory:
             os.close(self._active)
             self._active = -1
 
+    def _preserve_retired(self) -> None:
+        retired_name = f".astia-retired-{os.urandom(8).hex()}"
+        try:
+            rename_noreplace(self._parent, self._staging_name, retired_name)
+        except OSError:
+            pass
+
     def commit(self) -> None:
         self.output.sync()
         os.close(self._staging)
@@ -1271,20 +1339,29 @@ class TransactionalDirectory:
                 self._active_name,
             )
             self._committed = True
+            retired_unchanged = False
+            try:
+                retired_snapshot = directory_snapshot(self._active)
+                retired_unchanged = retired_snapshot == self._active_snapshot
+            except OSError:
+                retired_unchanged = False
             try:
                 self._close_active()
             except OSError:
                 pass
-            try:
-                old_info = os.stat(
-                    self._staging_name,
-                    dir_fd=self._parent,
-                    follow_symlinks=False,
-                )
-                if old_info is not None and same_inode(old_info, self._active_info):
-                    remove_tree(self._parent, self._staging_name)
-            except OSError:
-                pass
+            if retired_unchanged:
+                try:
+                    old_info = os.stat(
+                        self._staging_name,
+                        dir_fd=self._parent,
+                        follow_symlinks=False,
+                    )
+                    if old_info is not None and same_inode(old_info, self._active_info):
+                        remove_tree(self._parent, self._staging_name)
+                except OSError:
+                    pass
+            else:
+                self._preserve_retired()
         try:
             os.fsync(self._parent)
         except OSError:
