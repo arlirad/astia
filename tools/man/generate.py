@@ -1332,6 +1332,77 @@ def directory_snapshot(directory: int, prefix: str = "") -> dict[str, tuple]:
     return snapshot
 
 
+def lexical_path(base: Path, name: str) -> str:
+    return os.path.normpath(os.path.join(os.path.abspath(base), name))
+
+
+def clear_directory(descriptor: int) -> None:
+    for child in os.listdir(descriptor):
+        info = os.stat(child, dir_fd=descriptor, follow_symlinks=False)
+        if stat.S_ISDIR(info.st_mode):
+            child_descriptor = os.open(
+                child, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
+            )
+            try:
+                clear_directory(child_descriptor)
+            finally:
+                os.close(child_descriptor)
+            os.rmdir(child, dir_fd=descriptor)
+        elif (
+            stat.S_ISREG(info.st_mode)
+            or stat.S_ISLNK(info.st_mode)
+            or stat.S_ISFIFO(info.st_mode)
+            or stat.S_ISCHR(info.st_mode)
+            or stat.S_ISBLK(info.st_mode)
+        ):
+            os.unlink(child, dir_fd=descriptor)
+        else:
+            raise OSError(
+                errno.EPERM, f"refusing to remove unsupported entry: {child}"
+            )
+
+
+def quarantine_and_remove(
+    parent: int,
+    name: str,
+    expected: os.stat_result,
+    descriptor: int,
+    prefix: str,
+) -> tuple[bool, str, Exception | None]:
+    quarantine_name = ""
+    for _ in range(100):
+        try:
+            candidate = f"{prefix}{os.urandom(8).hex()}"
+        except Exception as error:
+            return False, name, error
+        try:
+            rename_noreplace(parent, name, candidate)
+        except FileExistsError:
+            continue
+        except Exception as error:
+            return False, name, error
+        quarantine_name = candidate
+        break
+    else:
+        return False, name, OSError("cannot allocate a quarantine name")
+    try:
+        info = os.stat(quarantine_name, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISDIR(info.st_mode) or not same_inode(info, expected):
+            return False, quarantine_name, RuntimeError(
+                "quarantine identity changed before cleanup"
+            )
+        clear_directory(descriptor)
+        final = os.stat(quarantine_name, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISDIR(final.st_mode) or not same_inode(final, expected):
+            return False, quarantine_name, RuntimeError(
+                "quarantine identity changed during cleanup"
+            )
+        os.rmdir(quarantine_name, dir_fd=parent)
+        return True, "", None
+    except Exception as error:
+        return False, quarantine_name, error
+
+
 class TransactionalDirectory:
     def __init__(
         self,
@@ -1409,19 +1480,18 @@ class TransactionalDirectory:
                 for _ in range(100):
                     candidate = f".astia-stage-{os.urandom(8).hex()}"
                     try:
-                        os.mkdir(candidate, 0o755, dir_fd=parent)
+                        os.mkdir(candidate, 0o700, dir_fd=parent)
                     except FileExistsError:
                         collisions.append(candidate)
                         continue
                     staging_name = candidate
-                    staging_created = True
                     break
                 else:
                     raise OSError("cannot allocate a staging directory")
             except BaseException as error:
                 if collisions:
                     preserved = ", ".join(
-                        str((path.parent / name).resolve())
+                        lexical_path(path.parent, name)
                         for name in collisions
                     )
                     cls._report_deferred(
@@ -1429,40 +1499,52 @@ class TransactionalDirectory:
                         f"paths: {preserved}: {error}"
                     )
                 raise
-            staging_info = os.stat(
-                staging_name, dir_fd=parent, follow_symlinks=False
-            )
-            if not stat.S_ISDIR(staging_info.st_mode):
-                raise RuntimeError("staging path is not a directory")
+            try:
+                staging = os.open(
+                    staging_name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=parent,
+                )
+                opened_info = os.fstat(staging)
+                os.fchmod(staging, 0o700)
+                opened_info = os.fstat(staging)
+                if (
+                    not stat.S_ISDIR(opened_info.st_mode)
+                    or opened_info.st_uid != os.geteuid()
+                    or stat.S_IMODE(opened_info.st_mode) != 0o700
+                ):
+                    raise RuntimeError(
+                        "staging directory is not private and owned"
+                    )
+                named_info = os.stat(
+                    staging_name, dir_fd=parent, follow_symlinks=False
+                )
+                if (
+                    not stat.S_ISDIR(named_info.st_mode)
+                    or not same_inode(named_info, opened_info)
+                ):
+                    raise RuntimeError(
+                        "staging directory identity changed during creation"
+                    )
+                staging_info = opened_info
+                staging_created = True
+            except BaseException:
+                if staging >= 0:
+                    os.close(staging)
+                    staging = -1
+                raise
             if active_info is not None:
                 try:
-                    os.chown(
-                        staging_name,
+                    os.fchown(
+                        staging,
                         active_info.st_uid,
                         active_info.st_gid,
-                        dir_fd=parent,
-                        follow_symlinks=False,
                     )
                 except OSError as error:
                     raise ValueError(
                         "cannot preserve output directory ownership"
                     ) from error
-                os.chmod(
-                    staging_name,
-                    stat.S_IMODE(active_info.st_mode),
-                    dir_fd=parent,
-                )
-            staging = os.open(
-                staging_name,
-                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                dir_fd=parent,
-            )
-            opened_info = os.fstat(staging)
-            if not same_inode(opened_info, staging_info):
-                os.close(staging)
-                staging = -1
-                raise RuntimeError("staging directory changed during creation")
-            staging_info = opened_info
+                os.fchmod(staging, stat.S_IMODE(active_info.st_mode))
             if active >= 0:
                 replace_xattrs(active, staging, None, ".")
                 current = OutputDirectory(path, active, owns_descriptor=False)
@@ -1480,21 +1562,31 @@ class TransactionalDirectory:
                 staging,
             )
         except BaseException:
+            if staging_created and staging_info is not None:
+                if staging >= 0:
+                    removed, retained, cleanup_error = quarantine_and_remove(
+                        parent,
+                        staging_name,
+                        staging_info,
+                        staging,
+                        ".astia-clean-",
+                    )
+                    if cleanup_error is not None:
+                        cls._report_deferred(
+                            f"staging cleanup failed; retained at "
+                            f"{lexical_path(path.parent, retained)}: "
+                            f"{cleanup_error}"
+                        )
+                else:
+                    cls._report_deferred(
+                        f"staging cleanup deferred; preserved at "
+                        f"{lexical_path(path.parent, staging_name)}: "
+                        f"directory handle unavailable"
+                    )
             if staging >= 0:
                 os.close(staging)
             if active >= 0:
                 os.close(active)
-            if staging_created and staging_info is not None and staging_name:
-                try:
-                    current = os.stat(
-                        staging_name, dir_fd=parent, follow_symlinks=False
-                    )
-                    if stat.S_ISDIR(current.st_mode) and same_inode(
-                        current, staging_info
-                    ):
-                        remove_tree(parent, staging_name)
-                except OSError:
-                    pass
             os.close(parent)
             raise
 
@@ -1502,27 +1594,36 @@ class TransactionalDirectory:
         return self
 
     def __exit__(self, *_: object) -> None:
+        if not self._committed:
+            self._remove_staging_if_owned()
         if self._staging >= 0:
             os.close(self._staging)
             self._staging = -1
         if self._active >= 0:
             os.close(self._active)
             self._active = -1
-        if not self._committed:
-            self._remove_staging_if_owned()
         os.close(self._parent)
 
     def _remove_staging_if_owned(self) -> None:
-        try:
-            current = os.stat(
-                self._staging_name, dir_fd=self._parent, follow_symlinks=False
+        if self._staging < 0 or self._staging_info is None:
+            self._report_deferred(
+                f"staging cleanup deferred; preserved at "
+                f"{self._full_path(self._staging_name)}: "
+                f"directory handle unavailable"
             )
-            if stat.S_ISDIR(current.st_mode) and same_inode(
-                current, self._staging_info
-            ):
-                remove_tree(self._parent, self._staging_name)
-        except OSError:
-            pass
+            return
+        removed, retained, error = quarantine_and_remove(
+            self._parent,
+            self._staging_name,
+            self._staging_info,
+            self._staging,
+            ".astia-clean-",
+        )
+        if error is not None:
+            self._report_deferred(
+                f"staging cleanup failed; retained at "
+                f"{self._full_path(retained)}: {error}"
+            )
 
     def _active_matches(self) -> bool:
         try:
@@ -1540,6 +1641,11 @@ class TransactionalDirectory:
             os.close(self._active)
             self._active = -1
 
+    def _close_staging(self) -> None:
+        if self._staging >= 0:
+            os.close(self._staging)
+            self._staging = -1
+
     @staticmethod
     def _report_deferred(message: str) -> None:
         try:
@@ -1553,7 +1659,7 @@ class TransactionalDirectory:
             pass
 
     def _full_path(self, name: str) -> str:
-        return str((self.path.parent / name).resolve())
+        return lexical_path(self.path.parent, name)
 
     def _preserve_retired(self) -> tuple[str | None, Exception | None]:
         try:
@@ -1584,8 +1690,6 @@ class TransactionalDirectory:
 
     def commit(self, before_activation=None) -> None:
         self.output.sync()
-        os.close(self._staging)
-        self._staging = -1
         self._assert_active_unchanged()
         if before_activation is not None:
             before_activation()
@@ -1609,23 +1713,18 @@ class TransactionalDirectory:
                 )
             except Exception as error:
                 retired_error = error
-            try:
-                self._close_active()
-            except Exception:
-                pass
             if retired_unchanged:
-                try:
-                    old_info = os.stat(
-                        self._staging_name,
-                        dir_fd=self._parent,
-                        follow_symlinks=False,
-                    )
-                    if old_info is not None and same_inode(old_info, self._active_info):
-                        remove_tree(self._parent, self._staging_name)
-                except Exception as error:
+                removed, retained, cleanup_error = quarantine_and_remove(
+                    self._parent,
+                    self._staging_name,
+                    self._active_info,
+                    self._active,
+                    ".astia-clean-",
+                )
+                if cleanup_error is not None:
                     self._report_deferred(
                         f"deferred cleanup: retired generation at "
-                        f"{self._full_path(self._staging_name)}: {error}"
+                        f"{self._full_path(retained)}: {cleanup_error}"
                     )
             else:
                 retained, preserve_error = self._preserve_retired()
@@ -1645,6 +1744,14 @@ class TransactionalDirectory:
                 if causes:
                     message += ": " + "; ".join(causes)
                 self._report_deferred(message)
+            try:
+                self._close_active()
+            except Exception:
+                pass
+        try:
+            self._close_staging()
+        except Exception:
+            pass
         try:
             os.fsync(self._parent)
         except Exception:

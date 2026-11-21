@@ -831,7 +831,7 @@ class GenerateTest(unittest.TestCase):
                 warnings.simplefilter("always")
                 with patch.object(
                     generate,
-                    "remove_tree",
+                    "clear_directory",
                     side_effect=OSError("deferred cleanup"),
                 ):
                     with generate.TransactionalDirectory.begin(
@@ -847,7 +847,10 @@ class GenerateTest(unittest.TestCase):
                         transaction.commit()
             self.assertEqual((output / "index.html").read_text(), "new index")
             retained = [
-                path for path in root.iterdir() if path.name.startswith(".astia-stage-")
+                path
+                for path in root.iterdir()
+                if path.name.startswith(".astia-clean-")
+                or path.name.startswith(".astia-stage-")
             ]
             self.assertEqual(len(retained), 1)
             messages = [str(item.message) for item in caught]
@@ -1203,6 +1206,200 @@ class GenerateTest(unittest.TestCase):
             self.assertIn("snapshot-read-EIO", diagnostic)
             shutil.rmtree(retired[0])
 
+    def test_stage_replacement_before_identity_check_is_preserved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = self._old_man_generation(root)
+            fixed = b"\x02" * 8
+            candidate_name = f".astia-stage-{fixed.hex()}"
+            backup_name = "original-stage"
+            real_urandom = generate.os.urandom
+            real_stat = generate.os.stat
+            replaced = False
+            before = {
+                path.name: path.read_bytes()
+                for path in output.iterdir()
+                if path.is_file()
+            }
+
+            def urandom(size):
+                return fixed if size == 8 else real_urandom(size)
+
+            def replace_on_stat(path, *, dir_fd=None, follow_symlinks=True):
+                nonlocal replaced
+                if (
+                    not replaced
+                    and path == candidate_name
+                    and dir_fd is not None
+                ):
+                    replaced = True
+                    os.rename(
+                        candidate_name,
+                        backup_name,
+                        src_dir_fd=dir_fd,
+                        dst_dir_fd=dir_fd,
+                    )
+                    os.mkdir(candidate_name, 0o700, dir_fd=dir_fd)
+                    replacement_dir = os.open(
+                        candidate_name,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=dir_fd,
+                    )
+                    try:
+                        descriptor = os.open(
+                            "replacement",
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                            0o600,
+                            dir_fd=replacement_dir,
+                        )
+                        try:
+                            os.write(descriptor, b"replacement")
+                        finally:
+                            os.close(descriptor)
+                    finally:
+                        os.close(replacement_dir)
+                return real_stat(
+                    path, dir_fd=dir_fd, follow_symlinks=follow_symlinks
+                )
+
+            with patch.object(generate.os, "urandom", side_effect=urandom), patch.object(
+                generate.os, "stat", side_effect=replace_on_stat
+            ):
+                with self.assertRaises(RuntimeError):
+                    generate.TransactionalDirectory.begin(
+                        output,
+                        root,
+                        generate.MAN7_MANIFEST,
+                        generate.read_owned_files,
+                    )
+
+            replacement = root / candidate_name
+            backup = root / backup_name
+            self.assertTrue(replacement.is_dir())
+            self.assertEqual((replacement / "replacement").read_bytes(), b"replacement")
+            self.assertTrue(backup.is_dir())
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in output.iterdir()
+                    if path.is_file()
+                },
+                before,
+            )
+
+    def test_cleanup_replacement_between_identity_check_and_removal_is_preserved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stage = root / ".astia-stage-cleanup"
+            stage.mkdir()
+            (stage / "old.bin").write_bytes(b"old")
+            backup = root / "original-stage"
+            parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            stage_fd = os.open(stage, os.O_RDONLY | os.O_DIRECTORY)
+            expected = os.fstat(stage_fd)
+            real_rename = generate.rename_noreplace
+            replaced = False
+
+            def replace_then_rename(parent_fd, first, second):
+                nonlocal replaced
+                if not replaced and first == stage.name:
+                    replaced = True
+                    os.rename(
+                        first,
+                        backup.name,
+                        src_dir_fd=parent_fd,
+                        dst_dir_fd=parent_fd,
+                    )
+                    os.mkdir(first, 0o700, dir_fd=parent_fd)
+                    replacement_dir = os.open(
+                        first,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=parent_fd,
+                    )
+                    try:
+                        descriptor = os.open(
+                            "replacement",
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                            0o600,
+                            dir_fd=replacement_dir,
+                        )
+                        try:
+                            os.write(descriptor, b"replacement")
+                        finally:
+                            os.close(descriptor)
+                    finally:
+                        os.close(replacement_dir)
+                return real_rename(parent_fd, first, second)
+
+            try:
+                with patch.object(
+                    generate, "rename_noreplace", side_effect=replace_then_rename
+                ):
+                    removed, retained, error = generate.quarantine_and_remove(
+                        parent,
+                        stage.name,
+                        expected,
+                        stage_fd,
+                        ".astia-clean-",
+                    )
+            finally:
+                os.close(stage_fd)
+                os.close(parent)
+
+            self.assertFalse(removed)
+            self.assertIsNotNone(error)
+            retained_path = root / retained
+            self.assertEqual((retained_path / "replacement").read_bytes(), b"replacement")
+            self.assertEqual((backup / "old.bin").read_bytes(), b"old")
+            self.assertFalse((retained_path / "old.bin").exists())
+
+    def test_symlink_collision_diagnostics_are_lexical(self):
+        for kind in ("loop", "target"):
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    output = self._old_man_generation(root)
+                    fixed = b"\x03" * 8
+                    candidate_name = f".astia-stage-{fixed.hex()}"
+                    candidate = root / candidate_name
+                    target = root / "outside-target"
+                    if kind == "loop":
+                        candidate.symlink_to(candidate_name)
+                    else:
+                        target.mkdir()
+                        candidate.symlink_to(target)
+                    real_urandom = generate.os.urandom
+                    calls = 0
+
+                    def urandom(size):
+                        nonlocal calls
+                        calls += 1
+                        if calls == 1:
+                            return fixed
+                        raise OSError("urandom-ENOSPC")
+
+                    stderr = io.StringIO()
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("error")
+                        with redirect_stderr(stderr):
+                            with patch.object(
+                                generate.os, "urandom", side_effect=urandom
+                            ):
+                                with self.assertRaises(OSError):
+                                    generate.TransactionalDirectory.begin(
+                                        output,
+                                        root,
+                                        generate.MAN7_MANIFEST,
+                                        generate.read_owned_files,
+                                    )
+
+                    diagnostic = stderr.getvalue()
+                    self.assertIn(str(candidate), diagnostic)
+                    self.assertIn("urandom-ENOSPC", diagnostic)
+                    if kind == "target":
+                        self.assertNotIn(str(target), diagnostic)
+                    self.assertEqual(os.readlink(candidate), candidate_name if kind == "loop" else str(target))
+
     def test_staging_collision_is_never_deleted_after_urandom_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1396,7 +1593,7 @@ class GenerateTest(unittest.TestCase):
                 with redirect_stderr(stderr):
                     with patch.object(
                         generate,
-                        "remove_tree",
+                        "clear_directory",
                         side_effect=OSError("deferred cleanup"),
                     ):
                         with generate.TransactionalDirectory.begin(
@@ -1412,7 +1609,10 @@ class GenerateTest(unittest.TestCase):
                             transaction.commit()
             self.assertEqual((output / "index.html").read_text(), "new index")
             retained = [
-                path for path in root.iterdir() if path.name.startswith(".astia-stage-")
+                path
+                for path in root.iterdir()
+                if path.name.startswith(".astia-clean-")
+                or path.name.startswith(".astia-stage-")
             ]
             self.assertEqual(len(retained), 1)
             diagnostic = stderr.getvalue()
