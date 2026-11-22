@@ -1,9 +1,10 @@
-#include <fcntl.h>
+#include <sys/stat.h>
+
 #include <errno.h>
+#include <fcntl.h>
 #include <pty.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -24,8 +25,8 @@ static int raw_slave(int fd) {
 }
 
 static int pty_smoke(void) {
-    int master;
-    int slave;
+    int  master;
+    int  slave;
     char name[32];
     char value;
     if (openpty(&master, &slave, name, NULL, NULL) < 0)
@@ -44,11 +45,11 @@ static int pty_smoke(void) {
 int main(void) {
     char* const editor_argv[] = {(char*) "/bin/nano", (char*) "-t",
                                  (char*) "/tmp/nano-smoke.txt", NULL};
-    char* const editor_env[] = {(char*) "TERM=vt220", NULL};
+    char* const editor_env[]  = {(char*) "TERM=vt220", NULL};
     int         file;
     int         status;
     int         child;
-    int         verified = 0;
+    int         verified     = 0;
     char        contents[64] = {0};
     long        count;
     int         seed_file = open("/tmp/nano-smoke.txt", O_CREAT | O_RDWR, 0600);
