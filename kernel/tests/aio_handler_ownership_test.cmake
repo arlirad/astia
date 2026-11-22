@@ -1,3 +1,9 @@
+# Script mode (-P) does not inherit a project's CMP0057 policy, so IN_LIST
+# would otherwise be rejected by CMake versions that keep the policy OLD.
+if (POLICY CMP0057)
+    cmake_policy(SET CMP0057 NEW)
+endif ()
+
 if (NOT DEFINED ASTIA_KERNEL_SOURCE_DIR)
     message(FATAL_ERROR "ASTIA_KERNEL_SOURCE_DIR is required")
 endif ()
