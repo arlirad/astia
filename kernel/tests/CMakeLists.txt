@@ -810,12 +810,14 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ""
+                "core: version=${ASTIA_VERSION_version}"
                 "pci: enumerated"
                 "selftest: interrupts ok (lapic)"
                 "selftest: clock ok"
                 "selftest: statx ok"
         )
-        set_tests_properties(astia_kernel_boot PROPERTIES TIMEOUT 60)
+        set_tests_properties(astia_kernel_boot PROPERTIES TIMEOUT 60
+                ENVIRONMENT "ASTIA_EXPECT_ONCE_PATTERN=core: version=${ASTIA_VERSION_version}")
 
         add_test(NAME astia_fs_registry_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
