@@ -311,15 +311,13 @@ def main():
         )
     sources = []
     missing_sources = []
+    unanalyzable_renames = []
     headers = []
     for entry_status, path in relevant:
         if path not in ranges or not ranges[path]:
-            if entry_status[0] == "R":
-                absolute = pathlib.Path(args.root) / path
-                lines = len(absolute.read_text(encoding="utf-8").splitlines())
-                ranges[path] = [[1, max(lines, 1)]]
-            else:
-                continue
+            if entry_status == "R100":
+                unanalyzable_renames.append(path)
+            continue
         if pathlib.PurePosixPath(path).suffix.lower() not in COMPILE_SUFFIXES:
             headers.append(path)
             continue
@@ -330,6 +328,12 @@ def main():
             print(f"clang-tidy: explicitly unsupported source: {path}")
         else:
             missing_sources.append(path)
+    if unanalyzable_renames:
+        print(
+            f"clang-tidy: no changed ranges for {unanalyzable_renames!r}",
+            file=sys.stderr,
+        )
+        return 1
     if missing_sources:
         print(
             f"clang-tidy: missing compile database entries: {missing_sources!r}",

@@ -288,20 +288,35 @@ def test_type_change_analyzed_and_deletion_only_skipped():
     assert not record.exists(), result.stdout
 
 
-def test_rename_only_analyzes_destination_full_file():
+def test_rename_only_fails_closed_and_modified_rename_analyzed():
     repo = repo_fixture()
     old = repo / "kernel/src/old.cpp"
     new = repo / "kernel/src/renamed.cpp"
-    old.write_text("int first;\nint second;\n", encoding="utf-8")
+    old.write_text("".join(f"int value{i};\n" for i in range(10)), encoding="utf-8")
     base = commit(repo, "base")
     run(["git", "mv", str(old), str(new)], repo)
     renamed = commit(repo, "rename only")
     assert git(repo, "diff", "--name-status", base, renamed).startswith("R100\t")
+    result = check(
+        repo, database(repo, ["kernel/src/renamed.cpp"]), base, renamed, fake_tidy(repo)
+    )
+    assert result.returncode == 1 and "no changed ranges" in result.stdout, (
+        result.stdout
+    )
+
+    new.write_text(
+        "".join(f"int value{i};\n" for i in range(10)) + "int added;\n",
+        encoding="utf-8",
+    )
+    edited = commit(repo, "rename with edit")
+    assert git(repo, "diff", "--name-status", base, edited, "--", "kernel/src").startswith(
+        "R"
+    )
     record = repo / "record"
     if record.exists():
         record.unlink()
     result = check(
-        repo, database(repo, ["kernel/src/renamed.cpp"]), base, renamed, fake_tidy(repo)
+        repo, database(repo, ["kernel/src/renamed.cpp"]), base, edited, fake_tidy(repo)
     )
     assert result.returncode == 0, result.stdout
     invocation = json.loads(record.read_text().splitlines()[0])
@@ -313,10 +328,10 @@ def test_rename_only_analyzes_destination_full_file():
         )
     )
     assert line_filter == [
-        {"name": "kernel/src/renamed.cpp", "lines": [[1, 2]]},
+        {"name": "kernel/src/renamed.cpp", "lines": [[11, 11]]},
         {
             "name": str((repo / "kernel/src/renamed.cpp").resolve()),
-            "lines": [[1, 2]],
+            "lines": [[11, 11]],
         },
     ], line_filter
 
@@ -401,7 +416,7 @@ def main():
     test_missing_compile_entry_fails()
     test_relative_compile_database_directory()
     test_type_change_analyzed_and_deletion_only_skipped()
-    test_rename_only_analyzes_destination_full_file()
+    test_rename_only_fails_closed_and_modified_rename_analyzed()
     test_empty_diff_smoke_and_errors()
     test_real_clang_tidy_finding_with_relative_database()
     test_base_trusted_config_ignores_pr_config()
