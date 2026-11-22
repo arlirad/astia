@@ -97,7 +97,7 @@ extern int COLS;
 #define KEY_F0 0x200
 #define KEY_F(number) (KEY_F0 + (number))
 #ifndef IEXTEN
-#define IEXTEN 0x000080
+#define IEXTEN 0x008000
 #endif
 #ifndef P_tmpdir
 #define P_tmpdir "/tmp"
