@@ -29,10 +29,11 @@
  * This layer is what a future libc's syscall shims sit on.
  */
 
-#include "wait.h"
 #include <astia/api/errno.h>
 #include <astia/api/signal.h>
 #include <astia/api/signal_stack.h>
+
+#include "wait.h"
 
 #include <stdint.h>
 
@@ -141,6 +142,8 @@ enum {
     SYS_SHM_OPEN              = 67,
     SYS_SHM_UNLINK            = 68,
     SYS_FCHDIR                = 69,
+    /* 70-81 are reserved for the private socket prototype descriptors. */
+    SYS_UNAME = 82,
 };
 
 /* ------------------------------------------------------------------ */
@@ -163,6 +166,14 @@ typedef struct astia_rlimit {
     uint64_t current;
     uint64_t maximum;
 } astia_rlimit;
+
+typedef struct astia_utsname {
+    char sysname[65];
+    char nodename[65];
+    char release[65];
+    char version[65];
+    char machine[65];
+} astia_utsname;
 
 enum {
     RLIMIT_AS     = 9,
@@ -484,6 +495,10 @@ static inline long astia_fchdir(int fd) {
 }
 static inline long astia_getcwd(char* buffer, uint64_t length) {
     return astia_raw6(SYS_GETCWD, (long) buffer, (long) length, 0, 0, 0, 0);
+}
+
+static inline long astia_uname(astia_utsname* output) {
+    return astia_raw6(SYS_UNAME, (long) output, 0, 0, 0, 0, 0);
 }
 
 /* Create a process from the executable at `path`, streaming ELF reads through

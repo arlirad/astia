@@ -1,5 +1,6 @@
 #include "../src/process_port.h"
 #include <sys/syscall.h>
+#include <sys/utsname.h>
 
 #include <errno.h>
 #include <stddef.h>
@@ -41,6 +42,40 @@ long __astia_process_gettid(void) {
 
 long __astia_process_fchdir(int fd) {
     return host_trap(SYS_fchdir, fd, 0, 0, 0);
+}
+
+struct host_utsname {
+    char sysname[65];
+    char nodename[65];
+    char release[65];
+    char version[65];
+    char machine[65];
+    char domainname[65];
+};
+
+_Static_assert(sizeof(struct host_utsname) == 390, "host utsname layout");
+
+long __astia_process_uname(struct utsname* name) {
+    struct host_utsname host;
+    long                rc;
+
+    if (name == NULL)
+        return -EFAULT;
+    rc = syscall(SYS_uname, &host);
+    if (rc == -1)
+        return -HOST_ERRNO;
+    __builtin_memset(name, 0, sizeof *name);
+    for (size_t i = 0; i < sizeof name->sysname; ++i)
+        name->sysname[i] = host.sysname[i];
+    for (size_t i = 0; i < sizeof name->nodename; ++i)
+        name->nodename[i] = host.nodename[i];
+    for (size_t i = 0; i < sizeof name->release; ++i)
+        name->release[i] = host.release[i];
+    for (size_t i = 0; i < sizeof name->version; ++i)
+        name->version[i] = host.version[i];
+    for (size_t i = 0; i < sizeof name->machine; ++i)
+        name->machine[i] = host.machine[i];
+    return 0;
 }
 
 long __astia_process_getuid(void) {

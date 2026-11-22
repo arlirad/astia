@@ -571,6 +571,9 @@ def render_syscall_markdown(
     return "\n\n".join(parts).strip().replace("\u2014", " - ") + "\n"
 
 
+CANONICAL_PUBLIC_SYSCALL_IDS = tuple(range(70)) + (82,)
+
+
 def syscall_abi(path: Path) -> list[tuple[int, str]]:
     entries = []
     for line in path.read_text().splitlines():
@@ -578,10 +581,10 @@ def syscall_abi(path: Path) -> list[tuple[int, str]]:
         if match:
             entries.append((int(match.group(2)), match.group(1).lower()))
     entries.sort()
-    if len(entries) != 70 or [value for value, _ in entries] != list(range(70)):
+    if [value for value, _ in entries] != list(CANONICAL_PUBLIC_SYSCALL_IDS):
         raise ValueError(
-            f"{path}: expected 70 canonical section-2 syscalls with IDs 0..69, "
-            f"found {len(entries)}"
+            f"{path}: expected canonical section-2 syscalls at IDs "
+            f"{list(CANONICAL_PUBLIC_SYSCALL_IDS)}, found {entries}"
         )
     return entries
 
@@ -765,7 +768,9 @@ def generated_syscall_asset(name: str) -> bool:
     if Path(name).name != name:
         return False
     match = GENERATED_SYSCALL_ASSET.fullmatch(name)
-    return bool(match and int(match.group(1)) <= 69)
+    return bool(
+        match and int(match.group(1)) in CANONICAL_PUBLIC_SYSCALL_IDS
+    )
 
 
 def validated_output_name(name: str) -> str:

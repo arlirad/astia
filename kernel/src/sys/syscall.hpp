@@ -87,6 +87,7 @@ namespace astia::sys {
         shm_open              = 67,
         shm_unlink            = 68,
         fchdir                = 69,
+        uname                 = 82,
     };
 
     /// How many registers the ABI hands every trap — and so the most

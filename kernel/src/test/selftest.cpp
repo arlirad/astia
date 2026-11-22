@@ -273,6 +273,59 @@ namespace astia::test {
             return true;
         }
 
+        bool uname_checks() {
+            auto call = [](u64 output) -> long {
+                arch::syscall_frame frame{};
+                frame.nr = static_cast<u64>(sys::syscall_id::uname);
+                frame.a0 = output;
+                return static_cast<long>(sys::dispatch(sys::syscall_id::uname,
+                                                       static_cast<i64>(output), 0, 0, 0,
+                                                       0, 0, frame));
+            };
+            auto equal = [](const char* field, const char* value) {
+                for (usize i = 0;; ++i) {
+                    if (field[i] != value[i])
+                        return false;
+                    if (value[i] == '\0')
+                        return true;
+                }
+            };
+            auto padded = [](const char* field, usize size) {
+                usize i = 0;
+                while (i < size && field[i] != '\0')
+                    ++i;
+                if (i == size)
+                    return false;
+                while (++i < size) {
+                    if (field[i] != '\0')
+                        return false;
+                }
+                return true;
+            };
+
+            astia_utsname name;
+            for (usize i = 0; i < sizeof name; ++i)
+                reinterpret_cast<u8*>(&name)[i] = 0xA5;
+            if (call(reinterpret_cast<u64>(&name)) != 0 ||
+                !equal(name.sysname, "Astia") || !equal(name.nodename, "astia") ||
+                name.release[0] == '\0' || name.version[0] == '\0' ||
+                !equal(name.machine, "x86_64") ||
+                !padded(name.sysname, sizeof name.sysname) ||
+                !padded(name.nodename, sizeof name.nodename) ||
+                !padded(name.release, sizeof name.release) ||
+                !padded(name.version, sizeof name.version) ||
+                !padded(name.machine, sizeof name.machine)) {
+                logs::error("uname fail (identity)");
+                return false;
+            }
+            if (call(0) != -EFAULT) {
+                logs::error("uname fail (null)");
+                return false;
+            }
+            logs::info("uname ok");
+            return true;
+        }
+
         // SYS_CLOCK_GETTIME is dispatched through the production descriptor registry.
         // The timer tick is the resolution, so samples need only remain in range
         // and must not run backwards.
@@ -1210,6 +1263,9 @@ namespace astia::test {
             return false;
         }
         if (!clock_checks()) {
+            return false;
+        }
+        if (!uname_checks()) {
             return false;
         }
         if (!aio_capacity_boundary_checks()) {

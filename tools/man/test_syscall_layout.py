@@ -53,8 +53,8 @@ def check_production_layout(repository: Path) -> None:
         assert "sys::syscall_context" not in handler
         assert "syscall_mode::sync" in handler
         assert "co_return sys::invoke_sync" not in handler
-    assert len(handler_files) == 82
-    assert sorted(seen_ids) == list(range(82))
+    assert len(handler_files) == 83
+    assert sorted(seen_ids) == list(range(83))
     assert sum(path.parts[path.parts.index("src") + 1] == "net" for path in handler_files) == 12
     assert all("syscalls" in path.parts for path in handler_files)
     assert not any("aio" in path.parts or "operation" in path.name for path in handler_files)
@@ -99,7 +99,8 @@ def check_syscall_man_blocks(repository: Path) -> None:
         "getpgid", "getpgrp", "getpid", "getppid", "gettid", "kill", "mmap",
         "munmap", "setpgid", "setsid", "sigaction", "sigprocmask", "sigreturn",
         "sigsuspend", "spawnve", "thread_create", "thread_create2",
-        "thread_detach", "thread_exit", "thread_join", "waitpid", "yield",
+        "thread_detach", "thread_exit", "thread_join", "uname", "waitpid",
+        "yield",
     }
     block = re.compile(r"(?m)^[ \t]*///[ \t]*(\w+)[ \t]*-[ \t]*")
     source_blocks: dict[str, Path] = {}
@@ -110,7 +111,7 @@ def check_syscall_man_blocks(repository: Path) -> None:
             assert name not in source_blocks, f"duplicate man block: {name}"
             source_blocks[name] = path
     assert set(source_blocks) == expected
-    assert sum(len(block.findall(path.read_text())) for path in source.rglob("*.cpp")) == 29
+    assert sum(len(block.findall(path.read_text())) for path in source.rglob("*.cpp")) == 30
     assert not any(block.search(path.read_text()) for path in source.rglob("*.hpp"))
 
 

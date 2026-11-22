@@ -52,8 +52,10 @@ original null and `-EFAULT` semantics. Frame-aware handlers (`fork`,
 `syscall_user_data` fields, remains dispatcher machinery and is not passed to
 canonical handlers.
 
-`kernel/src/sys/handler_registry.hpp` aggregates all 70 public descriptors
-and 12 private socket descriptors. The registry stores `constexpr` pointers to
+`kernel/src/sys/handler_registry.hpp` aggregates all 71 public descriptors
+and 12 private socket descriptors. Public IDs are 0–69 plus the system
+identity descriptor 82; the private socket prototypes keep 70–81 without
+entering the public ABI. The registry stores `constexpr` pointers to
 the per-subsystem descriptor objects rather than value copies, so the table is
 statically initialized in the freestanding kernel, which runs no dynamic
 initializers. Handlers call their owning implementation directly; syscall
