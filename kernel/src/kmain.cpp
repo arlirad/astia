@@ -6,6 +6,7 @@
 #include <astia/fs.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
+#include <astia/version.hpp>
 
 #include "dev/chr/tty/uart16550.hpp"
 #include "panic.hpp"
@@ -34,6 +35,7 @@ namespace {
 } // namespace
 
 extern "C" void kmain(void* start_info) {
+    astia::log::info("version=%s", ASTIA_VERSION_STRING);
     astia::log::info("kmain seed start_info=%p", start_info);
 
     astia::init::context ctx{};
