@@ -1,5 +1,5 @@
-#include "../handler.hpp"
 #include "../dispatch.hpp"
+#include "../handler.hpp"
 
 namespace astia::io::aio::operations {
 
@@ -11,6 +11,7 @@ namespace astia::io::aio::operations {
     };
 
     [[gnu::used, gnu::section("astia_aio_handlers")]]
-    extern const operation_descriptor eventfd_create_descriptor = eventfd_create::descriptor;
+    extern const operation_descriptor eventfd_create_descriptor =
+        eventfd_create::descriptor;
 
 } // namespace astia::io::aio::operations
