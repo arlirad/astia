@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/uio.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
 
 #include <dirent.h>
@@ -39,6 +40,20 @@ extern long __astia_process_futex(unsigned int* address, unsigned int operation,
 #ifndef O_NOCTTY
 #define O_NOCTTY 0
 #endif
+
+static int utsname_field_padded(const char* field, size_t size) {
+    size_t i;
+
+    for (i = 0; i < size && field[i] != '\0'; ++i) {
+    }
+    if (i == size || i == 0)
+        return 0;
+    for (++i; i < size; ++i) {
+        if (field[i] != '\0')
+            return 0;
+    }
+    return 1;
+}
 
 static long direct_chdir(const char* path) {
 #if defined(__x86_64__)
@@ -3057,6 +3072,30 @@ int main(int argc, char** argv) {
             return 191;
         if (rmdir(target) != 0)
             return 192;
+    }
+
+    {
+        struct utsname name;
+        memset(&name, 0xA5, sizeof name);
+        errno = 0;
+        if (uname(&name) != 0 || errno != 0)
+            return 82;
+        if (sizeof(struct utsname) != 325 || strcmp(name.sysname, "Astia") != 0 ||
+            strcmp(name.nodename, "astia") != 0 || strcmp(name.machine, "x86_64") != 0 ||
+            strlen(name.release) == 0 || strlen(name.version) == 0)
+            return 83;
+        if (!utsname_field_padded(name.sysname, sizeof name.sysname) ||
+            !utsname_field_padded(name.nodename, sizeof name.nodename) ||
+            !utsname_field_padded(name.release, sizeof name.release) ||
+            !utsname_field_padded(name.version, sizeof name.version) ||
+            !utsname_field_padded(name.machine, sizeof name.machine))
+            return 84;
+        errno = 0;
+        if (uname(NULL) != -1 || errno != EFAULT)
+            return 85;
+        errno = 0;
+        if (uname((struct utsname*) 1) != -1 || errno != EFAULT)
+            return 86;
     }
 
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from

@@ -12,15 +12,17 @@
 #include <stddef.h>
 #include <stdint.h>
 extern _Thread_local unsigned int __astia_signal_handler_depth;
-void                              __astia_process_exit(int status);
-long                              __astia_process_getpid(void);
-long                              __astia_process_getppid(void);
-long                              __astia_process_gettid(void);
-long                              __astia_process_fchdir(int fd);
-long                              __astia_process_getuid(void);
-long                              __astia_process_geteuid(void);
-long                              __astia_process_getgid(void);
-long                              __astia_process_getegid(void);
+struct utsname;
+void __astia_process_exit(int status);
+long __astia_process_getpid(void);
+long __astia_process_getppid(void);
+long __astia_process_gettid(void);
+long __astia_process_fchdir(int fd);
+long __astia_process_uname(struct utsname* name);
+long __astia_process_getuid(void);
+long __astia_process_geteuid(void);
+long __astia_process_getgid(void);
+long __astia_process_getegid(void);
 long __astia_process_getgroups(int count, unsigned int* groups);
 long __astia_process_alarm(unsigned int seconds);
 long __astia_process_getpgrp(void);

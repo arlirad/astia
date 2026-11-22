@@ -212,6 +212,9 @@ namespace astia::proc::syscalls {
 namespace astia::proc::syscalls {
     extern const ::astia::sys::syscall_descriptor fchdir_descriptor;
 }
+namespace astia::proc::syscalls {
+    extern const ::astia::sys::syscall_descriptor uname_descriptor;
+}
 namespace astia::net::syscalls {
     extern const ::astia::sys::syscall_descriptor accept_descriptor;
 }
@@ -343,6 +346,13 @@ namespace astia::sys {
             &::astia::proc::syscalls::fchdir_descriptor};
         static_assert(sizeof(descriptors) / sizeof(descriptors[0]) == 70);
     } // namespace production
+    namespace identity {
+        inline constexpr u32 descriptor_ids[] = {82};
+        static_assert(valid_syscall_id_manifest(descriptor_ids, 82, 82));
+        inline constexpr const syscall_descriptor* const descriptors[] = {
+            &::astia::proc::syscalls::uname_descriptor};
+        static_assert(sizeof(descriptors) / sizeof(descriptors[0]) == 1);
+    } // namespace identity
     namespace net {
         inline constexpr u32 descriptor_ids[] = {70, 71, 72, 73, 74, 75,
                                                  76, 77, 78, 79, 80, 81};

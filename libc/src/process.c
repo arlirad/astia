@@ -1,7 +1,9 @@
-#include "file_port.h"
-#include "atfork.h"
-#include "process_port.h"
 #include <astia/api/syscalls.h>
+
+#include "atfork.h"
+#include "file_port.h"
+#include "process_port.h"
+#include <sys/utsname.h>
 #include <sys/wait.h>
 
 #include <errno.h>
@@ -30,7 +32,7 @@ int __cxa_atexit(void (*function)(void*), void* argument, void* dso_handle) {
     (void) dso_handle;
     if (function == NULL || g_cxa_atexit_count == ATEXIT_MAX)
         return -1;
-    g_cxa_atexit[g_cxa_atexit_count++] = (struct cxa_atexit_entry) {function, argument};
+    g_cxa_atexit[g_cxa_atexit_count++] = (struct cxa_atexit_entry){function, argument};
     return 0;
 }
 /* Every wrapper speaks the seam's convention: >= 0, or negated error
@@ -45,6 +47,10 @@ static int process_result(long rc) {
 
 __attribute__((weak)) long __astia_process_fchdir(int fd) {
     return astia_fchdir(fd);
+}
+
+__attribute__((weak)) long __astia_process_uname(struct utsname* name) {
+    return astia_uname((astia_utsname*) name);
 }
 
 __attribute__((weak)) long __astia_process_getuid(void) {

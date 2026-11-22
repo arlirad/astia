@@ -4,6 +4,10 @@
 
 namespace astia::arch {
 
+    /// Canonical machine name of the selected architecture port, as reported
+    /// by uname(2). Returns nullptr if the port has no machine identity.
+    const char* machine_name();
+
     /// Publish architecture-specific scheduler state after proc init.
     bool init_scheduler();
 

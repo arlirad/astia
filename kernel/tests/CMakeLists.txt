@@ -123,6 +123,8 @@ target_link_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_user_layout_test user_layout_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
+astia_add_host_test(astia_utsname_test utsname_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/identity.cpp)
 add_test(NAME astia_kernel_stack_usage_budget
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/stack_usage_budget.py
@@ -855,6 +857,7 @@ if (ARCH STREQUAL "x86_64")
                 "pci: enumerated"
                 "selftest: interrupts ok (lapic)"
                 "selftest: clock ok"
+                "selftest: uname ok"
                 "selftest: statx ok"
         )
         set_tests_properties(astia_kernel_boot PROPERTIES TIMEOUT 60
@@ -878,6 +881,7 @@ if (ARCH STREQUAL "x86_64")
                 ""
                 "selftest: interrupts ok (lapic)"
                 "selftest: clock ok"
+                "selftest: uname ok"
                 "selftest: statx ok"
                 "smp: discovered=2 online=1"
                 "smp: reschedule IPI armed"
