@@ -11,6 +11,7 @@ archive=$cache/nano-$nano_version.tar.xz
 
 git -C "$root" submodule update --init --recursive user/zsh
 git -C "$root" submodule update --init --recursive user/gnulib
+git -C "$root" submodule update --init --recursive user/ncurses
 
 if timeout 45 git -C "$root" submodule update --init user/nano; then
     exit 0

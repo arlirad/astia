@@ -35,8 +35,8 @@ toolchain/build-init-libc.sh
 
 ## Initialize pinned userspace sources
 
-The repository keeps clean upstream zsh and GNU nano checkouts as pinned
-submodules. Initialize them after cloning:
+The repository keeps clean upstream zsh, GNU nano, gnulib, and ncurses
+checkouts as pinned submodules. Initialize them after cloning:
 
 ```sh
 toolchain/init-userspace.sh
@@ -44,8 +44,9 @@ toolchain/init-userspace.sh
 
 The current pins are zsh `zsh-5.9.2`
 (`ddee3e7a751a4f03d5a1041fd44bb7af7bc0cebb`), nano `v8.6`
-(`326e4146b2267d8683a8eb3333aa49c9023d0dbf`), and gnulib
-(`f05b5a23f6cef8833402a298d1576a0118912ac8`). To change a pin, check out a
+(`326e4146b2267d8683a8eb3333aa49c9023d0dbf`), gnulib
+(`f05b5a23f6cef8833402a298d1576a0118912ac8`), and ncurses `v6_6_20251230`
+(`0096bd402c4a9c8f39bd7ed266e1b8920327e4d8`). To change a pin, check out a
 reviewed upstream tag or commit in the submodule and record the gitlink in the
 parent; never replace it with an unreviewed branch tip. Upstream source and
 license files remain in the submodules and are not copied into Astia. If the
