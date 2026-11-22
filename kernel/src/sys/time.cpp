@@ -4,6 +4,8 @@
 
 namespace astia::sys {
 
+    /// Shared timer-source boundary retained after the clock syscall handlers
+    /// moved to their canonical files under sys/syscalls.
     bool realtime_now(u64& sec, u64& nsec) {
         const u64 hz = arch::timer_hz();
         if (hz == 0)
