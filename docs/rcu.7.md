@@ -42,14 +42,37 @@ updates an inactive CPU's observed epoch.
 `rcu_vector<T, Capacity>` publishes one immutable bounded array. Its
 `read_guard` exposes `data()`, `size()`, and indexed const access. `replace()`
 allocates and fills a new snapshot, then retries a compare-and-swap publication
-if another writer won. Replaced snapshots are reclaimed after the reader count
-reaches zero.
+if another writer won. Replaced snapshots are reclaimed after a grace period.
 
 `rcu_hashmap` shards immutable bucket snapshots. `read_guard` searches one
 shard, while `find()` copies the value before releasing its guard. Updates
 clone the selected shard, insert or remove the key, and retry CAS publication
 on contention. Bucket nodes retain their successor through owning shared
 references.
+
+Both containers keep a per-shard or per-container grace epoch and reader
+count. A writer publishes the replacement before retiring the old snapshot,
+and `retire()` records the epoch observed at retirement. `reclaim()` advances
+the epoch, detaches the retired list, and only then observes the reader count.
+Every detached snapshot was unpublished before it entered that list. A reader
+that enters after the observation can still load an older snapshot that is
+still published, but that snapshot is not in the detached list. Any reader
+that could have loaded a detached snapshot must have entered before that
+snapshot was retired; if it is still active at the observation, reclamation is
+deferred. Thus a snapshot that is still published when the list is detached,
+or still held by a reader that entered before its retirement, cannot be freed
+by that reclaim. A retirement concurrent with one or more epoch advances
+records whatever counter value it observes, which may lie on either side of the
+current reclaim boundary; the post-detach reader observation, not the epoch
+value alone, is what prevents freeing a snapshot that a reader can still hold.
+Epochs are serial numbers compared over the 2^64 ring: a record is eligible
+only when its retirement epoch lies strictly in the half-range before the
+reclaim boundary. A distance of exactly 2^63 is ambiguous; it is treated as
+not-before, which can delay reclamation but cannot free a snapshot that may
+still be observable. The algorithm assumes no record stays retired across 2^63
+grace advances. This is a container-local
+full-quiescence grace period; unlike `rcu_domain` it needs no CPU identity
+because publication always precedes retirement.
 
 ## LIFETIME/OWNERSHIP
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/core/rcu_grace.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/optional.hpp>
 
@@ -23,14 +24,10 @@ namespace astia::core {
         struct snapshot {
             mm::shptr<node> buckets[bucket_count]{};
         };
-        struct retired_snapshot {
-            snapshot*         value;
-            retired_snapshot* next;
-        };
+        using grace = rcu_grace_period<snapshot>;
         struct shard {
-            mutable u32               readers   = 0;
-            snapshot*                 published = nullptr;
-            mutable retired_snapshot* retired   = nullptr;
+            grace     grace_period;
+            snapshot* published = nullptr;
         };
 
         Hash hash_;
@@ -42,18 +39,6 @@ namespace astia::core {
         }
         usize bucket_index(const Key& key) const {
             return static_cast<usize>(hash_(key) % bucket_count);
-        }
-
-        void reclaim(shard& state) const {
-            if (__atomic_load_n(&state.readers, __ATOMIC_SEQ_CST) != 0)
-                return;
-            auto* list = __atomic_exchange_n(&state.retired, nullptr, __ATOMIC_SEQ_CST);
-            while (list != nullptr) {
-                auto* next = list->next;
-                delete list->value;
-                delete list;
-                list = next;
-            }
         }
 
         snapshot* clone_without(const snapshot* old, const Key& key) const {
@@ -75,27 +60,17 @@ namespace astia::core {
             return next;
         }
 
-        void retire(shard& state, snapshot* old, retired_snapshot* record) const {
-            record->value = old;
-            auto* head    = __atomic_load_n(&state.retired, __ATOMIC_RELAXED);
-            do {
-                record->next = head;
-            } while (!__atomic_compare_exchange_n(&state.retired, &head, record, false,
-                                                  __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
-        }
-
         public:
         class read_guard {
             public:
             read_guard(const rcu_hashmap& map, usize shard_index)
                 : map_(map), shard_index_(shard_index) {
                 auto& state = map_.shards_[shard_index_];
-                __atomic_add_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                state.grace_period.enter();
                 snapshot_ = __atomic_load_n(&state.published, __ATOMIC_SEQ_CST);
             }
             ~read_guard() {
-                __atomic_sub_fetch(&map_.shards_[shard_index_].readers, 1,
-                                   __ATOMIC_SEQ_CST);
+                map_.shards_[shard_index_].grace_period.leave();
             }
             read_guard(const read_guard&)            = delete;
             read_guard& operator=(const read_guard&) = delete;
@@ -120,8 +95,7 @@ namespace astia::core {
             : hash_(hash), equal_(equal) {}
         ~rcu_hashmap() {
             for (shard& state : shards_) {
-                __atomic_store_n(&state.readers, 0, __ATOMIC_SEQ_CST);
-                reclaim(state);
+                state.grace_period.discard();
                 delete __atomic_exchange_n(&state.published, nullptr, __ATOMIC_SEQ_CST);
             }
         }
@@ -146,16 +120,16 @@ namespace astia::core {
         bool update(const Key& key, const Value& value, bool remove) {
             shard& state = shards_[shard_index(key)];
             for (;;) {
-                reclaim(state);
-                __atomic_add_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                state.grace_period.reclaim();
+                state.grace_period.enter();
                 snapshot* old = __atomic_load_n(&state.published, __ATOMIC_SEQ_CST);
 
                 snapshot* next   = clone_without(old, key);
-                auto      record = new retired_snapshot{};
+                auto      record = new grace::retired_record{};
                 if (!next || record == nullptr) {
                     delete next;
                     delete record;
-                    __atomic_sub_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                    state.grace_period.leave();
                     return false;
                 }
                 if (!remove) {
@@ -165,7 +139,7 @@ namespace astia::core {
                     if (!item) {
                         delete next;
                         delete record;
-                        __atomic_sub_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                        state.grace_period.leave();
                         return false;
                     }
                     next->buckets[bucket] = static_cast<mm::shptr<node>&&>(item);
@@ -175,15 +149,15 @@ namespace astia::core {
                 if (__atomic_compare_exchange_n(&state.published, &expected, next, false,
                                                 __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
                     if (old != nullptr)
-                        retire(state, old, record);
+                        state.grace_period.retire(old, record);
                     else
                         delete record;
-                    __atomic_sub_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                    state.grace_period.leave();
                     return true;
                 }
                 delete record;
                 delete next;
-                __atomic_sub_fetch(&state.readers, 1, __ATOMIC_SEQ_CST);
+                state.grace_period.leave();
                 // `next` still owns the failed candidate and releases it here.
             }
         }
