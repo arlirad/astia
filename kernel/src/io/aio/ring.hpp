@@ -49,9 +49,9 @@ namespace astia::io::aio::ring {
         void release_lock();
 
         private:
-        arch::interrupt_guard gate_;
-        ring_lock&            lock_;
-        bool                  held_ = true;
+        arch::interrupt_guard _gate;
+        ring_lock&            _lock;
+        bool                  _held = true;
     };
 
     struct parked_op {

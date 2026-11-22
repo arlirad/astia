@@ -41,7 +41,7 @@ namespace astia::io::aio::dispatch {
 
         class eventfd_file final : public fs::file {
             public:
-            eventfd_file(u64 value, bool nonblock) : value_(value), nonblock_(nonblock) {}
+            eventfd_file(u64 value, bool nonblock) : _value(value), _nonblock(nonblock) {}
 
             fs::file_mode mode() const override {
                 return fs::file_mode(fs::file_type::character,
@@ -51,7 +51,7 @@ namespace astia::io::aio::dispatch {
             long read(void* buffer, u32 length, u64) override {
                 if (buffer == nullptr || length != sizeof(u64))
                     return -EINVAL;
-                u64 value = __atomic_exchange_n(&value_, 0, __ATOMIC_ACQ_REL);
+                u64 value = __atomic_exchange_n(&_value, 0, __ATOMIC_ACQ_REL);
                 if (value == 0)
                     return 0;
                 *static_cast<u64*>(buffer) = value;
@@ -65,11 +65,11 @@ namespace astia::io::aio::dispatch {
                 u64 add = *static_cast<const u64*>(buffer);
                 if (add == UINT64_MAX)
                     return -EINVAL;
-                u64 old = __atomic_load_n(&value_, __ATOMIC_RELAXED);
+                u64 old = __atomic_load_n(&_value, __ATOMIC_RELAXED);
                 for (;;) {
                     if (UINT64_MAX - old < add)
-                        return nonblock_ ? -EAGAIN : 0;
-                    if (__atomic_compare_exchange_n(&value_, &old, old + add, false,
+                        return _nonblock ? -EAGAIN : 0;
+                    if (__atomic_compare_exchange_n(&_value, &old, old + add, false,
                                                     __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
                         io_device_ready_context(this);
                         return sizeof(u64);
@@ -79,9 +79,9 @@ namespace astia::io::aio::dispatch {
 
             u32 poll(u32 events, u32) override {
                 u32 ready = 0;
-                if (__atomic_load_n(&value_, __ATOMIC_ACQUIRE) != 0)
+                if (__atomic_load_n(&_value, __ATOMIC_ACQUIRE) != 0)
                     ready |= POLLIN;
-                if (__atomic_load_n(&value_, __ATOMIC_ACQUIRE) != UINT64_MAX)
+                if (__atomic_load_n(&_value, __ATOMIC_ACQUIRE) != UINT64_MAX)
                     ready |= POLLOUT;
                 return ready & events;
             }
@@ -92,7 +92,7 @@ namespace astia::io::aio::dispatch {
                 const long result = request.direction() == ::astia::io::direction::input
                                         ? read(request.buffer(), request.length(), 0)
                                         : write(request.buffer(), request.length(), 0);
-                if (result == 0 && nonblock_)
+                if (result == 0 && _nonblock)
                     return -EAGAIN;
                 if (result == 0)
                     request.stage(1);
@@ -100,8 +100,8 @@ namespace astia::io::aio::dispatch {
             }
 
             private:
-            u64  value_;
-            bool nonblock_;
+            u64  _value;
+            bool _nonblock;
         };
 
         long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
