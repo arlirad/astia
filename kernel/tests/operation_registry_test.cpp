@@ -3,6 +3,9 @@
 
 #include "support/test.hpp"
 
+#include <atomic>
+#include <thread>
+
 namespace {
     struct probe {
         volatile astia::u32        refs        = 0;
@@ -11,6 +14,17 @@ namespace {
     };
 
     int refs_zero_count = 0;
+
+    std::atomic<bool> zero_entered{false};
+    std::atomic<bool> zero_release{false};
+    std::atomic<int>  blocking_zero_count{0};
+
+    void blocking_refs_zero(void*) {
+        blocking_zero_count.fetch_add(1, std::memory_order_acq_rel);
+        zero_entered.store(true, std::memory_order_release);
+        while (!zero_release.load(std::memory_order_acquire))
+            std::this_thread::yield();
+    }
 
     void probe_exit(void* object, astia::core::cancel_reason reason) {
         auto* value = static_cast<probe*>(object);
@@ -82,6 +96,31 @@ ASTIA_TEST(operation_registry_release_callback_runs_after_refs_zero) {
     ASTIA_CHECK(value.exits == 1);
     ASTIA_CHECK(value.refs == 0);
     ASTIA_CHECK(refs_zero_count == 1);
+    astia::core::unregister_operation(&value);
+}
+
+ASTIA_TEST(operation_registry_zero_callback_serializes_with_new_scans) {
+    probe value{};
+    zero_entered.store(false, std::memory_order_release);
+    zero_release.store(false, std::memory_order_release);
+    blocking_zero_count.store(0, std::memory_order_release);
+    ASTIA_CHECK(astia::core::register_operation(&value, 30, 31, &value.refs, &probe_exit,
+                                                &blocking_refs_zero));
+
+    std::thread canceller([&value] {
+        astia::core::cancel_operations_for_process(30, astia::core::cancel_reason::owner);
+        ASTIA_CHECK(value.exits == 1);
+    });
+    while (!zero_entered.load(std::memory_order_acquire))
+        std::this_thread::yield();
+
+    astia::core::cancel_operations_for_process(30, astia::core::cancel_reason::owner);
+    ASTIA_CHECK(value.exits == 1);
+    ASTIA_CHECK(value.refs == 0);
+    ASTIA_CHECK(blocking_zero_count.load(std::memory_order_acquire) == 1);
+
+    zero_release.store(true, std::memory_order_release);
+    canceller.join();
     astia::core::unregister_operation(&value);
 }
 

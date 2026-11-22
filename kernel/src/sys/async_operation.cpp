@@ -418,7 +418,12 @@ namespace astia::sys {
     }
 
     void async_operation::registry_ref_zero_trampoline(void* object) {
-        static_cast<async_operation*>(object)->maybe_reap();
+        auto* value = static_cast<async_operation*>(object);
+        core::unregister_operation(value);
+        if (!value->enter_call())
+            return;
+        value->maybe_reap();
+        value->leave_call();
     }
 
     void async_operation::reaper_destroy_trampoline(void* object) {

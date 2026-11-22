@@ -124,8 +124,12 @@ handler code:
 - Registry scans hold a registry reference while invoking the exit hook.
   `maybe_reap()` refuses to queue while `registry_refs_` is nonzero, and the
   registry invokes an operation refs-zero callback after the hook releases the
-  last reference. Reaper deletion also rechecks registry refs, so a cancel hook
-  can never destruct the operation while its own reference is held.
+  last reference. That callback unregisters the operation under the registry
+  lock before attempting reaping, so no new scan can acquire a reference and a
+  reaper cannot delete while the zero callback is still running. The callback
+  holds an operation active call across `maybe_reap()`. Reaper deletion also
+  rechecks registry refs, so a cancel hook can never destruct the operation
+  while its own reference is held.
 - `owner_exit()` publishes terminal `eagain` to any attached result awaiter,
   then tears down the driver. Reaping waits for awaiter detach and detach
   callback completion.
