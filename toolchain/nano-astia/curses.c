@@ -291,6 +291,7 @@ int raw(void) {
         saved_termios = state;
         have_saved_termios = 1;
     }
+    state.c_iflag &= ~ICRNL;
     state.c_lflag &= ~(ICANON | ECHO | ISIG);
     state.c_cc[VMIN] = 1;
     state.c_cc[VTIME] = 0;
