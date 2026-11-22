@@ -126,19 +126,15 @@ handler code:
 - Registry scans hold a registry reference while invoking the exit hook.
   `maybe_reap()` refuses to queue while `registry_refs_` is nonzero, and the
   registry invokes an operation refs-zero callback after the hook releases the
-  last reference. That callback unregisters the operation under the registry
-  lock before attempting reaping, so no new scan can acquire a reference and a
-  reaper cannot delete while the zero callback is still running. The callback
-  holds an operation active call across `maybe_reap()`. The registry also sets
-  an operation zero-inflight guard before the final ref drop; `maybe_reap()`
-  and the reaper refuse deletion while that guard is set. The zero callback
-  holds an active call, attempts reaping with the guard still set (which cannot
-  delete), then clears the guard and retries. `retire_operation()` is the
-  authoritative deletion gate: it runs under the registry lock, verifies refs
-  and zero guard there, and removes the entry before any reaper arm/delete, so
-  no scan can acquire a ref after the deletion decision. Thus the guard is
-  cleared before retirement, and retirement removes the entry under the same
-  lock that scan acquisition would use.
+  last reference. The registry sets an operation zero-inflight guard before the
+  final ref drop; `maybe_reap()` and the reaper refuse deletion while that guard
+  is set. The callback holds an operation active call, attempts reaping with the
+  guard still set (which cannot delete), then clears the guard and retries.
+  `retire_operation()` is the authoritative deletion gate: it runs under the
+  registry lock, verifies refs and zero guard there, and removes the entry
+  before any reaper arm/delete, so no scan can acquire a ref after the deletion
+  decision. Thus the guard is cleared before retirement, and retirement removes
+  the entry under the same lock that scan acquisition would use.
 - Create publication failure is aborted through the same reaper/retire
   protocol. If owner exit wins between registry registration and
   `create_state_` publication, `create()` calls `abort_creation()` instead of
