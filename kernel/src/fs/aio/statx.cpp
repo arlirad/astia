@@ -3,53 +3,53 @@
 
 namespace astia::io::aio::operations {
 
-    namespace {
-
-        bool handle_statx(astia_rings* ring, const astia_sqe& s) {
+    struct statx : handler<statx, opcode::statx> {
+        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
+                           const astia_sqe& sqe) noexcept {
             // Footnote ‡ of <astia/api/aio.h>: address NULL means fd is
             // the stat target (fstat), otherwise address is a pathname
             // and fd is the dirfd. The VFS still has one exact-path
             // namespace, so the dirfd is accepted and ignored.
-            const auto out = memory::user_ptr<astia_stat>(s.offset).validate();
+            const auto out = memory::user_ptr<astia_stat>(sqe.offset).validate();
             if (!out) {
-                return cq_post_guarded(ring, s.user_data, -EFAULT);
+                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
             }
             if (!memory::user_span_writable_ok_for(
                     proc::current_process(),
-                    span<u8>::bytes(s.offset, sizeof(astia_stat)))) {
-                return cq_post_guarded(ring, s.user_data, -EFAULT);
+                    span<u8>::bytes(sqe.offset, sizeof(astia_stat)))) {
+                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
             }
-            if (s.length != sizeof(astia_stat)) {
-                return cq_post_guarded(ring, s.user_data, -EINVAL);
+            if (sqe.length != sizeof(astia_stat)) {
+                return cq_post_guarded(ring, sqe.user_data, -EINVAL);
             }
 
             mm::shptr<fs::open_file> object;
-            if (s.address != 0) {
+            if (sqe.address != 0) {
                 char path[256];
                 if (!memory::copy_in_string(span<char>(path, sizeof path),
-                                            memory::user_ptr<char>(s.address))) {
-                    return cq_post_guarded(ring, s.user_data, -EFAULT);
+                                            memory::user_ptr<char>(sqe.address))) {
+                    return cq_post_guarded(ring, sqe.user_data, -EFAULT);
                 }
                 auto* current = proc::current_process();
                 char  resolved[256];
                 if (current == nullptr)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                long resolve_rc = resolve_at(current, s.fd == -1 ? AT_FDCWD : s.fd, path,
-                                             resolved, sizeof resolved);
+                    return cq_post_guarded(ring, sqe.user_data, -EINVAL);
+                long resolve_rc = resolve_at(current, sqe.fd == -1 ? AT_FDCWD : sqe.fd,
+                                             path, resolved, sizeof resolved);
                 if (resolve_rc >= 0)
                     resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
-                                                  (s.op_flags & STATX_NOFOLLOW) == 0);
+                                                  (sqe.op_flags & STATX_NOFOLLOW) == 0);
                 if (resolve_rc < 0)
-                    return cq_post_guarded(ring, s.user_data, (i32) resolve_rc);
+                    return cq_post_guarded(ring, sqe.user_data, (i32) resolve_rc);
                 const fs::file_type type = fs::node_type(resolved);
-                if ((s.op_flags & STATX_NOFOLLOW) != 0 && type == fs::directory_lnk) {
+                if ((sqe.op_flags & STATX_NOFOLLOW) != 0 && type == fs::directory_lnk) {
                     __builtin_memset(reinterpret_cast<void*>(out.value.get()), 0,
                                      sizeof(astia_stat));
                     auto* link = reinterpret_cast<astia_stat*>(out.value.get());
                     char  target[256]{};
                     long  n = fs::read_symlink(resolved, target, sizeof target);
                     if (n < 0)
-                        return cq_post_guarded(ring, s.user_data, static_cast<i32>(n));
+                        return cq_post_guarded(ring, sqe.user_data, static_cast<i32>(n));
                     link->dev   = 1;
                     link->ino   = 1;
                     link->nlink = 1;
@@ -57,7 +57,7 @@ namespace astia::io::aio::operations {
                     link->mode  = mapper<fs::file_mode>::to(fs::node_mode(resolved));
                     link->uid   = static_cast<u32>(fs::node_uid(resolved));
                     link->gid   = static_cast<u32>(fs::node_gid(resolved));
-                    return cq_post_guarded(ring, s.user_data, 0);
+                    return cq_post_guarded(ring, sqe.user_data, 0);
                 }
                 object = fs::open_path(resolved);
                 if (type == fs::directory_dir) {
@@ -70,14 +70,14 @@ namespace astia::io::aio::operations {
                     directory->mode  = mapper<fs::file_mode>::to(fs::node_mode(resolved));
                     directory->uid   = static_cast<u32>(fs::node_uid(resolved));
                     directory->gid   = static_cast<u32>(fs::node_gid(resolved));
-                    return cq_post_guarded(ring, s.user_data, 0);
+                    return cq_post_guarded(ring, sqe.user_data, 0);
                 }
                 if (!object) {
                     char          child[256]{};
                     fs::file_type child_type = fs::directory_unknown;
                     if (fs::read_directory(resolved, 0, child, sizeof child,
                                            &child_type) <= 0) {
-                        return cq_post_guarded(ring, s.user_data, -ENOENT);
+                        return cq_post_guarded(ring, sqe.user_data, -ENOENT);
                     }
                     __builtin_memset(reinterpret_cast<void*>(out.value.get()), 0,
                                      sizeof(astia_stat));
@@ -86,19 +86,19 @@ namespace astia::io::aio::operations {
                     directory->ino   = 1;
                     directory->nlink = 1;
                     directory->mode  = mapper<fs::file_mode>::to(fs::node_mode(resolved));
-                    return cq_post_guarded(ring, s.user_data, 0);
+                    return cq_post_guarded(ring, sqe.user_data, 0);
                 }
             }
             else {
-                object = file_for(s.fd);
+                object = file_for(sqe.fd);
                 if (!object) {
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
+                    return cq_post_guarded(ring, sqe.user_data, -EBADF);
                 }
             }
 
             const long size = object->size();
             if (size < 0) {
-                return cq_post_guarded(ring, s.user_data, static_cast<i32>(size));
+                return cq_post_guarded(ring, sqe.user_data, static_cast<i32>(size));
             }
             // The VFS carries a size and nothing else about a node, so
             // mode/uid/times stay zero rather than being guessed.  The
@@ -115,15 +115,7 @@ namespace astia::io::aio::operations {
             stat_out->gid        = static_cast<u32>(object->node()->gid());
             stat_out->mtime_sec  = object->mtime_sec();
             stat_out->mtime_nsec = object->mtime_nsec();
-            return cq_post_guarded(ring, s.user_data, 0);
-        }
-
-    } // namespace
-
-    struct statx : handler<statx, opcode::statx> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
-            return handle_statx(ring, sqe);
+            return cq_post_guarded(ring, sqe.user_data, 0);
         }
     };
 

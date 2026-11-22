@@ -15,7 +15,11 @@ namespace astia::io::aio::operations {
             return false;
         }
 
-        bool handle_ioctl(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
+    } // namespace
+
+    struct ioctl : handler<ioctl, opcode::ioctl> {
+        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
+                           const astia_sqe& sqe) noexcept {
             /* ioctl is a control-plane fence.  Do not consume this SQE
                while an older read/write is parked: otherwise a batch
                containing READ, IOCTL, READ could observe tty state out
@@ -24,68 +28,60 @@ namespace astia::io::aio::operations {
             if (has_parked(slot))
                 return false;
             // ioctl implementations expect a stable kernel object and
-            // may both read and write it.  Decode the ABI's typed
+            // may both read and write it.  Decode the ABI'sqe typed
             // requests here instead of passing a caller pointer into a
             // device (which was both a TOCTOU and kernel-pointer bug).
             usize expected = 0;
             bool  input = false, output = false;
-            if (s.offset == TCGETS || s.offset == TCSETS || s.offset == TCSETSW ||
-                s.offset == TCSETSF) {
+            if (sqe.offset == TCGETS || sqe.offset == TCSETS || sqe.offset == TCSETSW ||
+                sqe.offset == TCSETSF) {
                 expected = sizeof(struct termios);
-                input    = s.offset != TCGETS;
-                output   = s.offset == TCGETS;
+                input    = sqe.offset != TCGETS;
+                output   = sqe.offset == TCGETS;
             }
-            else if (s.offset == TCFLSH) {
+            else if (sqe.offset == TCFLSH) {
                 expected = sizeof(int);
                 input    = true;
             }
-            else if (s.offset == TIOCGWINSZ || s.offset == TIOCSWINSZ) {
+            else if (sqe.offset == TIOCGWINSZ || sqe.offset == TIOCSWINSZ) {
                 expected = sizeof(struct winsize);
-                input    = s.offset == TIOCSWINSZ;
-                output   = s.offset == TIOCGWINSZ;
+                input    = sqe.offset == TIOCSWINSZ;
+                output   = sqe.offset == TIOCGWINSZ;
             }
-            else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP ||
-                     s.offset == TIOCGPTN || s.offset == TIOCSPTLCK ||
-                     s.offset == TIOCGPTLCK) {
+            else if (sqe.offset == TIOCGPGRP || sqe.offset == TIOCSPGRP ||
+                     sqe.offset == TIOCGPTN || sqe.offset == TIOCSPTLCK ||
+                     sqe.offset == TIOCGPTLCK) {
                 expected = sizeof(i32);
-                input    = s.offset == TIOCSPGRP || s.offset == TIOCSPTLCK;
-                output   = s.offset == TIOCGPGRP || s.offset == TIOCGPTN ||
-                         s.offset == TIOCGPTLCK;
+                input    = sqe.offset == TIOCSPGRP || sqe.offset == TIOCSPTLCK;
+                output   = sqe.offset == TIOCGPGRP || sqe.offset == TIOCGPTN ||
+                         sqe.offset == TIOCGPTLCK;
             }
-            else if (s.offset == TIOCSCTTY) {
+            else if (sqe.offset == TIOCSCTTY) {
                 expected = 0;
             }
             else {
-                return cq_post_guarded(ring, s.user_data, -ENOTTY);
+                return cq_post_guarded(ring, sqe.user_data, -ENOTTY);
             }
-            const auto argument = memory::user_ptr<u8>(s.address).validate(expected);
-            if (s.length != expected || !argument)
-                return cq_post_guarded(ring, s.user_data, -EFAULT);
-            mm::shptr<fs::open_file> object = file_for(s.fd);
+            const auto argument = memory::user_ptr<u8>(sqe.address).validate(expected);
+            if (sqe.length != expected || !argument)
+                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
+            mm::shptr<fs::open_file> object = file_for(sqe.fd);
             if (!object)
-                return cq_post_guarded(ring, s.user_data, -EBADF);
+                return cq_post_guarded(ring, sqe.user_data, -EBADF);
             __atomic_thread_fence(__ATOMIC_SEQ_CST);
             alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
             if (input && !memory::copy_in(ioctl_storage, argument.value.bytes(expected)))
-                return cq_post_guarded(ring, s.user_data, -EFAULT);
+                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
             void* kernel_arg =
                 expected == 0 ? nullptr : static_cast<void*>(ioctl_storage);
-            long rc = object->ioctl(s.offset, kernel_arg, expected);
-            if (rc >= 0 && s.offset == TIOCSCTTY)
+            long rc = object->ioctl(sqe.offset, kernel_arg, expected);
+            if (rc >= 0 && sqe.offset == TIOCSCTTY)
                 rc = proc::acquire_controlling_terminal(object);
             if (rc >= 0 && output &&
                 !memory::copy_out(argument.value.bytes(expected), ioctl_storage))
-                return cq_post_guarded(ring, s.user_data, -EFAULT);
+                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
             __atomic_thread_fence(__ATOMIC_SEQ_CST);
-            return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-        }
-
-    } // namespace
-
-    struct ioctl : handler<ioctl, opcode::ioctl> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
-            return handle_ioctl(slot, ring, sqe);
+            return cq_post_guarded(ring, sqe.user_data, static_cast<i32>(rc));
         }
     };
 

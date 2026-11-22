@@ -3,24 +3,16 @@
 
 namespace astia::io::aio::operations {
 
-    namespace {
-
-        bool handle_ftruncate(astia_rings* ring, const astia_sqe& s) {
-            auto object = file_for(s.fd);
-            if (!object)
-                return cq_post_guarded(ring, s.user_data, -EBADF);
-            if ((object->flags() & fs::open_file_access_mask) == 0)
-                return cq_post_guarded(ring, s.user_data, -EBADF);
-            return cq_post_guarded(ring, s.user_data,
-                                   static_cast<i32>(object->truncate(s.offset)));
-        }
-
-    } // namespace
-
     struct ftruncate : handler<ftruncate, opcode::ftruncate> {
         static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
                            const astia_sqe& sqe) noexcept {
-            return handle_ftruncate(ring, sqe);
+            auto object = file_for(sqe.fd);
+            if (!object)
+                return cq_post_guarded(ring, sqe.user_data, -EBADF);
+            if ((object->flags() & fs::open_file_access_mask) == 0)
+                return cq_post_guarded(ring, sqe.user_data, -EBADF);
+            return cq_post_guarded(ring, sqe.user_data,
+                                   static_cast<i32>(object->truncate(sqe.offset)));
         }
     };
 

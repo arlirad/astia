@@ -3,16 +3,16 @@
 
 namespace astia::io::aio::operations {
 
-    namespace {
-
-        bool handle_poll_add(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
-                             const mm::shptr<fs::open_file>& object) {
+    struct poll_add : handler<poll_add, opcode::poll_add> {
+        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
+                           const astia_sqe& sqe) noexcept {
+            const mm::shptr<fs::open_file> object = dispatch::file_for(sqe.fd);
             if (!object)
-                return cq_post_guarded(ring, s.user_data, POLLNVAL);
+                return cq_post_guarded(ring, sqe.user_data, POLLNVAL);
             const u64 generation = ready_generation();
-            const u32 ready      = object->poll(s.aux);
+            const u32 ready      = object->poll(sqe.aux);
             if (ready != 0)
-                return cq_post_guarded(ring, s.user_data, static_cast<i32>(ready));
+                return cq_post_guarded(ring, sqe.user_data, static_cast<i32>(ready));
             parked_op* p          = nullptr;
             u32        park_index = 0;
             for (u32 i = 0; i < parked_operation_slots; ++i)
@@ -22,7 +22,7 @@ namespace astia::io::aio::operations {
                     break;
                 }
             if (p == nullptr)
-                return cq_post_guarded(ring, s.user_data, -EBUSY);
+                return cq_post_guarded(ring, sqe.user_data, -EBUSY);
             p->used                 = true;
             p->type                 = parked_op::kind::operation;
             p->done                 = false;
@@ -30,18 +30,18 @@ namespace astia::io::aio::operations {
             p->control              = true;
             p->signal_interruptible = true;
             p->readiness            = true;
-            p->poll_events          = s.aux;
-            p->fd                   = s.fd;
+            p->poll_events          = sqe.aux;
+            p->fd                   = sqe.fd;
             p->object               = object;
-            p->operation = new ::astia::io::operation(nullptr, 0, 0, s.user_data,
+            p->operation = new ::astia::io::operation(nullptr, 0, 0, sqe.user_data,
                                                       ::astia::io::direction::input);
             if (p->operation == nullptr) {
                 p->type = parked_op::kind::oom_completion;
-                if (cq_post_guarded(ring, s.user_data, -ENOMEM))
+                if (cq_post_guarded(ring, sqe.user_data, -ENOMEM))
                     p->done = true;
                 else {
                     p->pending_cqe       = true;
-                    p->pending_user_data = s.user_data;
+                    p->pending_user_data = sqe.user_data;
                     p->pending_result    = -ENOMEM;
                 }
                 return true;
@@ -51,14 +51,6 @@ namespace astia::io::aio::operations {
             if (ready_generation() != generation)
                 dispatch::resume_parked(proc::current_process(), ring, *p);
             return true;
-        }
-
-    } // namespace
-
-    struct poll_add : handler<poll_add, opcode::poll_add> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
-            return handle_poll_add(slot, ring, sqe, dispatch::file_for(sqe.fd));
         }
     };
 

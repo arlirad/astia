@@ -2,10 +2,10 @@
 
 namespace astia::io::aio::operations {
 
-    namespace {
-
-        bool handle_cancel(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            const u64 target       = s.offset;
+    struct cancel : handler<cancel, opcode::cancel> {
+        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
+                           const astia_sqe& sqe) noexcept {
+            const u64 target       = sqe.offset;
             auto      has_capacity = [ring](u32 count) {
                 const astia_cq_ring* cq = astia_rings_cq(ring);
                 const u32            head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
@@ -26,7 +26,7 @@ namespace astia::io::aio::operations {
                     p.operation->request().cancel_device(false);
                     p.operation->request().acknowledge();
                     p.done = true;
-                    return cq_post(ring, s.user_data, 0);
+                    return cq_post(ring, sqe.user_data, 0);
                 }
                 if (p.used && p.type == parked_op::kind::oom_completion && !p.done &&
                     p.pending_cqe && p.pending_user_data == target) {
@@ -34,18 +34,10 @@ namespace astia::io::aio::operations {
                         return false;
                     if (!publish_pending(ring, p))
                         return false;
-                    return cq_post(ring, s.user_data, 0);
+                    return cq_post(ring, sqe.user_data, 0);
                 }
             }
-            return cq_post_guarded(ring, s.user_data, -ENOENT);
-        }
-
-    } // namespace
-
-    struct cancel : handler<cancel, opcode::cancel> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
-            return handle_cancel(slot, ring, sqe);
+            return cq_post_guarded(ring, sqe.user_data, -ENOENT);
         }
     };
 

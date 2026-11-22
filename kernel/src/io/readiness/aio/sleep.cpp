@@ -3,22 +3,22 @@
 
 namespace astia::io::aio::operations {
 
-    namespace {
-
-        bool handle_sleep(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            if (s.fd != -1 ||
-                (s.address == 0 ? s.length != 0 : s.length != sizeof(u64)) ||
-                (s.op_flags & ~SLEEP_ABSOLUTE) != 0 || s.aux != 0)
-                return cq_post_guarded(ring, s.user_data, -EINVAL);
-            if (s.address != 0 &&
-                !memory::user_span_ok_for(span<u8>::bytes(s.address, sizeof(u64))))
-                return cq_post_guarded(ring, s.user_data, -EFAULT);
+    struct sleep : handler<sleep, opcode::sleep> {
+        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
+                           const astia_sqe& sqe) noexcept {
+            if (sqe.fd != -1 ||
+                (sqe.address == 0 ? sqe.length != 0 : sqe.length != sizeof(u64)) ||
+                (sqe.op_flags & ~SLEEP_ABSOLUTE) != 0 || sqe.aux != 0)
+                return cq_post_guarded(ring, sqe.user_data, -EINVAL);
+            if (sqe.address != 0 &&
+                !memory::user_span_ok_for(span<u8>::bytes(sqe.address, sizeof(u64))))
+                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
             if (arch::timer_hz() == 0)
-                return cq_post_guarded(ring, s.user_data, -EIO);
-            const bool absolute = (s.op_flags & SLEEP_ABSOLUTE) != 0;
+                return cq_post_guarded(ring, sqe.user_data, -EIO);
+            const bool absolute = (sqe.op_flags & SLEEP_ABSOLUTE) != 0;
             const u64  now      = dispatch::poll_now_ns();
-            if ((!absolute && s.offset == 0) || (absolute && s.offset <= now))
-                return cq_post_guarded(ring, s.user_data, 0);
+            if ((!absolute && sqe.offset == 0) || (absolute && sqe.offset <= now))
+                return cq_post_guarded(ring, sqe.user_data, 0);
 
             parked_op* p = nullptr;
             for (u32 i = 0; i < parked_operation_slots; ++i) {
@@ -28,7 +28,7 @@ namespace astia::io::aio::operations {
                 }
             }
             if (p == nullptr)
-                return cq_post_guarded(ring, s.user_data, -EBUSY);
+                return cq_post_guarded(ring, sqe.user_data, -EBUSY);
 
             p->used                 = true;
             p->type                 = parked_op::kind::operation;
@@ -39,33 +39,26 @@ namespace astia::io::aio::operations {
             p->sleeping             = true;
             p->sleep_absolute       = absolute;
             p->sleep_deadline =
-                absolute ? s.offset
-                         : (UINT64_MAX - now < s.offset ? UINT64_MAX : now + s.offset);
-            p->sleep_remaining_user = absolute ? 0 : s.address;
+                absolute
+                    ? sqe.offset
+                    : (UINT64_MAX - now < sqe.offset ? UINT64_MAX : now + sqe.offset);
+            p->sleep_remaining_user = absolute ? 0 : sqe.address;
             p->fd                   = -1;
-            p->operation = new ::astia::io::operation(nullptr, 0, 0, s.user_data,
+            p->operation = new ::astia::io::operation(nullptr, 0, 0, sqe.user_data,
                                                       ::astia::io::direction::input);
             if (p->operation == nullptr) {
                 p->type = parked_op::kind::oom_completion;
-                if (cq_post_guarded(ring, s.user_data, -ENOMEM))
+                if (cq_post_guarded(ring, sqe.user_data, -ENOMEM))
                     p->done = true;
                 else {
                     p->pending_cqe       = true;
-                    p->pending_user_data = s.user_data;
+                    p->pending_user_data = sqe.user_data;
                     p->pending_result    = -ENOMEM;
                 }
                 return true;
             }
             p->operation->heap_owned(true);
             return true;
-        }
-
-    } // namespace
-
-    struct sleep : handler<sleep, opcode::sleep> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
-            return handle_sleep(slot, ring, sqe);
         }
     };
 

@@ -33,28 +33,24 @@ namespace astia::io::aio::operations {
         static_assert(static_cast<u32>(socket_type::stream) == SOCK_STREAM);
         static_assert(static_cast<u32>(socket_type::datagram) == SOCK_DGRAM);
 
-        bool handle_socket(astia_rings* ring, const astia_sqe& s) {
-            const socket_request request = socket_request::from_sqe(s);
-            if (!request.supported())
-                return cq_post_guarded(ring, s.user_data, -EAFNOSUPPORT);
-            proc::process*           current = proc::current_process();
-            mm::shptr<fs::open_file> object;
-            long rc = fs::create_unix_socket(object, static_cast<u32>(request.type));
-            if (rc < 0 || !current)
-                return cq_post_guarded(ring, s.user_data, (i32) (rc < 0 ? rc : -ESRCH));
-            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
-                if (!current->descriptor(fd_t{fd}) &&
-                    current->set_descriptor(fd_t{fd}, object))
-                    return cq_post_guarded(ring, s.user_data, fd);
-            return cq_post_guarded(ring, s.user_data, -EMFILE);
-        }
-
     } // namespace
 
     struct socket : handler<socket, opcode::socket> {
         static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
                            const astia_sqe& sqe) noexcept {
-            return handle_socket(ring, sqe);
+            const socket_request request = socket_request::from_sqe(sqe);
+            if (!request.supported())
+                return cq_post_guarded(ring, sqe.user_data, -EAFNOSUPPORT);
+            proc::process*           current = proc::current_process();
+            mm::shptr<fs::open_file> object;
+            long rc = fs::create_unix_socket(object, static_cast<u32>(request.type));
+            if (rc < 0 || !current)
+                return cq_post_guarded(ring, sqe.user_data, (i32) (rc < 0 ? rc : -ESRCH));
+            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
+                if (!current->descriptor(fd_t{fd}) &&
+                    current->set_descriptor(fd_t{fd}, object))
+                    return cq_post_guarded(ring, sqe.user_data, fd);
+            return cq_post_guarded(ring, sqe.user_data, -EMFILE);
         }
     };
 

@@ -69,38 +69,35 @@ namespace astia::io::aio::operations {
             bool _nonblock;
         };
 
-        bool handle_eventfd_create(astia_rings* ring, const astia_sqe& s) {
-            if ((s.op_flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0 ||
-                s.offset == UINT64_MAX)
-                return cq_post_guarded(ring, s.user_data, -EINVAL);
-            proc::process* current = proc::current_process();
-            if (!current)
-                return cq_post_guarded(ring, s.user_data, -ESRCH);
-            mm::shptr<eventfd_file> event(
-                new eventfd_file(s.offset, (s.op_flags & ASTIA_EFD_NONBLOCK) != 0));
-            if (!event)
-                return cq_post_guarded(ring, s.user_data, -ENOMEM);
-            const u32 status_flags =
-                s.op_flags & ASTIA_EFD_NONBLOCK
-                    ? static_cast<u32>(fs::open_file_status_flags::nonblock)
-                    : 0u;
-            const u32 descriptor_flags =
-                s.op_flags & ASTIA_EFD_CLOEXEC ? static_cast<u32>(ASTIA_FD_CLOEXEC) : 0u;
-            auto object = mm::share<fs::open_file>(
-                event, static_cast<fs::open_file_status_flags>(status_flags));
-            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
-                if (!current->descriptor(fd_t{fd}) &&
-                    current->set_descriptor(fd_t{fd}, object, descriptor_flags))
-                    return cq_post_guarded(ring, s.user_data, fd);
-            return cq_post_guarded(ring, s.user_data, -EMFILE);
-        }
-
     } // namespace
 
     struct eventfd_create : handler<eventfd_create, opcode::eventfd_create> {
         static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
                            const astia_sqe& sqe) noexcept {
-            return handle_eventfd_create(ring, sqe);
+            if ((sqe.op_flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0 ||
+                sqe.offset == UINT64_MAX)
+                return cq_post_guarded(ring, sqe.user_data, -EINVAL);
+            proc::process* current = proc::current_process();
+            if (!current)
+                return cq_post_guarded(ring, sqe.user_data, -ESRCH);
+            mm::shptr<eventfd_file> event(
+                new eventfd_file(sqe.offset, (sqe.op_flags & ASTIA_EFD_NONBLOCK) != 0));
+            if (!event)
+                return cq_post_guarded(ring, sqe.user_data, -ENOMEM);
+            const u32 status_flags =
+                sqe.op_flags & ASTIA_EFD_NONBLOCK
+                    ? static_cast<u32>(fs::open_file_status_flags::nonblock)
+                    : 0u;
+            const u32 descriptor_flags = sqe.op_flags & ASTIA_EFD_CLOEXEC
+                                             ? static_cast<u32>(ASTIA_FD_CLOEXEC)
+                                             : 0u;
+            auto      object           = mm::share<fs::open_file>(
+                event, static_cast<fs::open_file_status_flags>(status_flags));
+            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
+                if (!current->descriptor(fd_t{fd}) &&
+                    current->set_descriptor(fd_t{fd}, object, descriptor_flags))
+                    return cq_post_guarded(ring, sqe.user_data, fd);
+            return cq_post_guarded(ring, sqe.user_data, -EMFILE);
         }
     };
 
