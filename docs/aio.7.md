@@ -63,13 +63,13 @@ caller can route the result without a side table.
 
 ## OPERATION REGISTRY
 
-Every `OP_*` the kernel implements has one explicit handler type in the
-module that owns the operation:
+Every `OP_*` the kernel implements has one explicit handler type in its
+own source file under the module that owns the operation:
 
-- `kernel/src/fs/aio_handlers.cpp` — filesystem paths, descriptors, and metadata
-- `kernel/src/net/aio_handlers.cpp` — pipes and sockets
-- `kernel/src/io/readiness_handlers.cpp` — polling and sleeping
-- `kernel/src/io/aio/core_handlers.cpp` — AIO core fd/ioctl/eventfd work
+- `kernel/src/fs/aio/` — filesystem paths, descriptors, and metadata
+- `kernel/src/net/aio/` — pipes and sockets
+- `kernel/src/io/readiness/aio/` — polling and sleeping
+- `kernel/src/io/aio/core/` — AIO core fd/ioctl/eventfd work
 
 ```cpp
 struct read : handler<read, opcode::read> {

@@ -1,6 +1,8 @@
+file(GLOB ASTIA_FS_AIO_SOURCES CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/aio/*.cpp)
+
 add_library(fs STATIC
-        aio_dispatch.cpp
-        aio_handlers.cpp
+        ${ASTIA_FS_AIO_SOURCES}
         fs_io.cpp
         fs.cpp
         path_service.cpp
