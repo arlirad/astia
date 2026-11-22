@@ -1,10 +1,16 @@
+file(GLOB ASTIA_IO_AIO_CORE_HANDLER_SOURCES CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/aio/core/*.cpp)
+file(GLOB ASTIA_IO_READINESS_HANDLER_SOURCES CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/readiness/aio/*.cpp)
+
 add_library(io STATIC
         aio/aio.cpp
         aio/dispatch.cpp
-        aio/filesystem.cpp
-        aio/readiness.cpp
-        aio/socket.cpp
+        aio/registry.cpp
         aio/ring.cpp
+        readiness/dispatch.cpp
+        ${ASTIA_IO_AIO_CORE_HANDLER_SOURCES}
+        ${ASTIA_IO_READINESS_HANDLER_SOURCES}
 )
 
 target_include_directories(io PUBLIC

@@ -41,6 +41,7 @@ set(_astia_test_includes
         ${ASTIA_KERNEL_SOURCE_DIR}/src/proc
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio
+        ${ASTIA_KERNEL_SOURCE_DIR}/src
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt
@@ -61,7 +62,12 @@ function(astia_add_host_test name)
     target_include_directories(${name} PRIVATE ${_astia_test_includes})
     target_compile_options(${name} PRIVATE -fno-threadsafe-statics)
     astia_apply_host_sanitizers(${name})
-    add_test(NAME ${name} COMMAND ${name})
+    if (ASTIA_HOST_TEST_LAUNCHER)
+        add_test(NAME ${name} COMMAND ${ASTIA_HOST_TEST_LAUNCHER}
+                $<TARGET_FILE:${name}>)
+    else ()
+        add_test(NAME ${name} COMMAND ${name})
+    endif ()
     astia_add_test_label(${name} "sanitizer-host")
 endfunction()
 
@@ -132,9 +138,41 @@ astia_add_host_test(astia_ownership_test ownership_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 target_compile_definitions(astia_signal_test PRIVATE ASTIA_SIGNAL_HOST_TEST=1)
 astia_add_host_test(astia_aio_test aio_test.cpp)
-astia_add_host_test(astia_aio_filesystem_test aio_filesystem_test.cpp)
-astia_add_host_test(astia_aio_readiness_test aio_readiness_test.cpp)
-astia_add_host_test(astia_aio_socket_test aio_socket_test.cpp)
+file(GLOB ASTIA_AIO_CORE_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/core/*.cpp)
+file(GLOB ASTIA_AIO_FS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio/*.cpp)
+list(REMOVE_ITEM ASTIA_AIO_FS_HANDLER_TEST_SOURCES
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio/dispatch.cpp)
+file(GLOB ASTIA_AIO_NET_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio/*.cpp)
+list(REMOVE_ITEM ASTIA_AIO_NET_HANDLER_TEST_SOURCES
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio/dispatch.cpp)
+file(GLOB ASTIA_AIO_READINESS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/readiness/aio/*.cpp)
+set(ASTIA_AIO_HANDLER_TEST_SOURCES
+        ${ASTIA_AIO_CORE_HANDLER_TEST_SOURCES}
+        ${ASTIA_AIO_FS_HANDLER_TEST_SOURCES}
+        ${ASTIA_AIO_NET_HANDLER_TEST_SOURCES}
+        ${ASTIA_AIO_READINESS_HANDLER_TEST_SOURCES})
+set(ASTIA_AIO_REGISTRY_TEST_SOURCES
+        aio_registry_test_support.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
+        ${ASTIA_AIO_HANDLER_TEST_SOURCES})
+astia_add_host_test(astia_aio_static_handlers_test
+        aio_static_handlers_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+astia_add_host_test(astia_aio_filesystem_test
+        aio_filesystem_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+astia_add_host_test(astia_aio_readiness_test
+        aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+astia_add_host_test(astia_aio_socket_test
+        aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+add_test(NAME astia_aio_handler_ownership
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/aio_handler_ownership_test.cmake)
+set_tests_properties(astia_aio_handler_ownership
+        PROPERTIES LABELS "kernel;deterministic")
 astia_add_host_test(astia_socket_abi_test socket_abi_test.cpp)
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_cwd_context_test
@@ -642,8 +680,36 @@ set_source_files_properties(${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp
 # as pointers. Back a fixed mmap'd window with real memory (support/arena.cpp)
 # and inject symbols the allocator reserves. The addresses must match
 # astia_test::arena_base / kernel_image_size in support/arena.hpp.
+find_program(ASTIA_SETARCH setarch)
+if (NOT ASTIA_SETARCH)
+    message(FATAL_ERROR
+            "setarch is required to run fixed-arena host tests with ASLR disabled")
+endif ()
+execute_process(
+        COMMAND ${ASTIA_SETARCH} -R ${CMAKE_COMMAND} -E true
+        RESULT_VARIABLE ASTIA_SETARCH_RESULT
+        OUTPUT_QUIET ERROR_QUIET)
+if (NOT ASTIA_SETARCH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+            "setarch -R is unavailable; fixed-arena host tests require ASLR disabled")
+endif ()
+set(ASTIA_ARENA_TEST_LAUNCHER ${ASTIA_SETARCH} -R)
+
+set(ASTIA_ARENA_ASLR_TEST_NAMES
+        astia_exec_rollback_test
+        astia_rcu_hashmap_test
+        astia_frame_allocator_test
+        astia_page_map_test
+        astia_address_space_test
+        astia_heap_test
+        astia_phys_region_test)
+
 function(astia_add_arena_test name)
+    if (name IN_LIST ASTIA_ARENA_ASLR_TEST_NAMES)
+        set(ASTIA_HOST_TEST_LAUNCHER ${ASTIA_ARENA_TEST_LAUNCHER})
+    endif ()
     astia_add_host_test(${name} ${ARGN})
+    unset(ASTIA_HOST_TEST_LAUNCHER)
     # The __kernel_* values are absolute; build non-PIE so the dynamic loader
     # does not add the load bias to them (which would move the bitmap far away).
     target_compile_options(${name} PRIVATE -fno-pie)
@@ -995,6 +1061,7 @@ if (ARCH STREQUAL "x86_64")
                 QEMU=${ASTIA_QEMU}
                 ASTIA_KERNEL=$<TARGET_FILE:astiakrn>
                 ASTIA_INITRD=${_fix_dir}/production_exit_initrd.cpio
+                PYTHON=${Python3_EXECUTABLE}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_init_exit.sh)
         set_tests_properties(astia_production_init_exit PROPERTIES TIMEOUT 30
                 FIXTURES_REQUIRED astia-qemu-artifacts)

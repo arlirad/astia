@@ -1,10 +1,10 @@
-#include "readiness.hpp"
+#include "dispatch.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/io.hpp>
 
-#include "dispatch.hpp"
-#include "memory.hpp"
+#include "../aio/dispatch.hpp"
+#include "../aio/memory.hpp"
 
 namespace astia::io::aio::readiness {
 
@@ -127,6 +127,12 @@ namespace astia::io::aio::readiness {
         default:
             return false;
         }
+    }
+
+    bool dispatch_registered(ring_slot& slot, astia_rings* ring, const astia_sqe& sqe) {
+        if (sqe.op == OP_POLL_ADD)
+            return dispatch(slot, ring, sqe, dispatch::file_for(sqe.fd));
+        return dispatch(slot, ring, sqe, {});
     }
 
 } // namespace astia::io::aio::readiness

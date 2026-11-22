@@ -63,28 +63,28 @@ namespace astia::io::aio::ring {
         lock.unlock();
     }
 
-    ring_guard::ring_guard(ring_lock& lock) : gate_(), lock_(lock) {
-        lock_.acquire();
+    ring_guard::ring_guard(ring_lock& lock) : _gate(), _lock(lock) {
+        _lock.acquire();
     }
 
     ring_guard::~ring_guard() {
-        if (held_)
-            lock_.release();
-        gate_.unlock();
+        if (_held)
+            _lock.release();
+        _gate.unlock();
     }
 
     void ring_guard::unlock() {
-        if (held_) {
-            lock_.release();
-            held_ = false;
+        if (_held) {
+            _lock.release();
+            _held = false;
         }
-        gate_.unlock();
+        _gate.unlock();
     }
 
     void ring_guard::release_lock() {
-        if (held_) {
-            lock_.release();
-            held_ = false;
+        if (_held) {
+            _lock.release();
+            _held = false;
         }
     }
 
@@ -384,7 +384,7 @@ namespace astia::io::aio::ring {
                 visible = reinterpret_cast<astia_rings*>(user_address);
             }
             if (!memory::copy_out(
-                    span<u8>::bytes(reinterpret_cast<u64>(out), sizeof visible),
+                    span<u8>::bytes(reinterpret_cast<u64>(out), sizeof(astia_rings*)),
                     &visible)) {
                 unmap_ring_user(slot, owner);
                 clear_slot(slot, slot.cleanup);

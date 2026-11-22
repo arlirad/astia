@@ -61,6 +61,32 @@ Userspace AIO represents every operation that can block with an `OP_*` SQE.
 The kernel publishes a CQE, and the SQE `user_data` is copied to it so the
 caller can route the result without a side table.
 
+## OPERATION REGISTRY
+
+Every `OP_*` the kernel implements has one explicit handler type in its
+own source file under the module that owns the operation:
+
+- `kernel/src/fs/aio/` — filesystem paths, descriptors, and metadata
+- `kernel/src/net/aio/` — pipes and sockets
+- `kernel/src/io/readiness/aio/` — polling and sleeping
+- `kernel/src/io/aio/core/` — AIO core fd/ioctl/eventfd work
+
+```cpp
+struct read : handler<read, opcode::read> {
+    static bool invoke(ring::ring_slot&, astia_rings*, const astia_sqe&) noexcept;
+};
+extern const operation_descriptor read_descriptor = read::descriptor;
+```
+
+The handler names its ABI opcode and the subsystem dispatcher that owns it.
+There is no registration macro. The generic AIO layer retains only the
+operation contract, descriptor/linker-set mechanism, dispatch, and
+validation; `astia::io::aio::registry` imports no concrete owner headers and
+enumerates the `astia_aio_handlers` set instead of a hand-maintained table.
+Registration must cover the ABI opcode range exactly once; a missing,
+duplicate, out-of-range, or null handler fails registry validation. Opcodes
+reserved by the ABI without an implementation complete with `-ENOSYS`.
+
 ## LIFETIME/OWNERSHIP
 
 The caller must keep the file reference, buffer, and returned task valid until
