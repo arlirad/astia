@@ -1020,6 +1020,6 @@ export const GENERATED_DOCS: readonly DocPage[] = [
     category: "proc/process",
     syscallId: 82,
     synopsisKind: "public",
-    content: "# uname(2)\n\n## SYNOPSIS\n\n```c\nlong astia_uname(astia_utsname* output);\n```\n\n## DESCRIPTION\n\nRead the system identity.\n\nCopies the kernel's system identification into output. The five\nfields are fixed 65-byte arrays; every byte after a field's\nterminating NUL is zero.\n\n## RETURN VALUE\n\nReturns zero on success or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: Output is null or not writable userspace memory.\n- `-ESRCH`: There is no current process.\n",
+    content: "# uname(2)\n\n## SYNOPSIS\n\n```c\nlong astia_uname(astia_utsname* output);\n```\n\n## DESCRIPTION\n\nRead the system identity.\n\nCopies the kernel's system identification into output. The five\nfields are fixed 65-byte arrays; every byte after a field's\nterminating NUL is zero.\n\n## RETURN VALUE\n\nReturns zero on success or a negative errno.\n\n## ERRORS\n\n- `-EFAULT`: Output is null or not writable userspace memory.\n- `-ENOSYS`: The selected architecture has no machine identity.\n- `-ESRCH`: There is no current process.\n",
   }
 ];

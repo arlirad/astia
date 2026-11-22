@@ -1,5 +1,6 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/arch/platform.hpp>
 #include <astia/version.h>
 
 #include "../../proc.hpp"
@@ -26,6 +27,7 @@ namespace astia::proc::syscalls {
     ///
     /// Errors:
     ///     -EFAULT: output is null or not writable userspace memory.
+    ///     -ENOSYS: The selected architecture has no machine identity.
     ///     -ESRCH: There is no current process.
     struct uname
         : sys::syscall_handler<uname, sys::syscall_id::uname, sys::syscall_mode::sync> {
@@ -39,9 +41,12 @@ namespace astia::proc::syscalls {
         static i64 invoke(sys::user_ptr<astia_utsname> output) {
             if (current_process() == nullptr)
                 return -ESRCH;
+            const char*   machine = arch::machine_name();
             astia_utsname value{};
-            proc::fill_utsname(value, ASTIA_VERSION_STRING,
-                               "Astia " ASTIA_VERSION_STRING);
+            if (machine == nullptr ||
+                !proc::fill_utsname(value, ASTIA_VERSION_STRING,
+                                    "Astia " ASTIA_VERSION_STRING, machine))
+                return -ENOSYS;
             const auto validated = output.validate();
             if (!validated || !sys::copy_out(validated.value.bytes(), &value))
                 return -EFAULT;

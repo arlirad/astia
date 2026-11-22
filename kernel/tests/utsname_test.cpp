@@ -1,4 +1,5 @@
 #include <astia/api/syscalls.h>
+#include <astia/arch/platform.hpp>
 
 #include "support/test.hpp"
 #include "utsname.hpp"
@@ -36,11 +37,42 @@ static bool field_equals(const char* field, astia::usize size, const char* value
     return false;
 }
 
+static bool text_equals(const char* left, const char* right) {
+    if (left == nullptr || right == nullptr)
+        return left == right;
+    for (astia::usize i = 0;; ++i) {
+        if (left[i] != right[i])
+            return false;
+        if (left[i] == '\0')
+            return true;
+    }
+}
+
+ASTIA_TEST(utsname_machine_name_comes_from_the_architecture_port) {
+    const char* machine = astia::arch::machine_name();
+
+    ASTIA_CHECK(machine != nullptr);
+#if defined(__x86_64__)
+    ASTIA_CHECK(text_equals(machine, "x86_64"));
+#endif
+}
+
+ASTIA_TEST(utsname_fill_rejects_missing_machine_identity) {
+    astia_utsname name;
+
+    ASTIA_CHECK(!astia::proc::fill_utsname(name, "1.2.3", "Astia 1.2.3", nullptr));
+    ASTIA_CHECK(field_equals(name.machine, sizeof name.machine, ""));
+    ASTIA_CHECK(field_equals(name.sysname, sizeof name.sysname, ""));
+
+    ASTIA_CHECK(astia::proc::fill_utsname(name, "1.2.3", "Astia 1.2.3", "aarch64"));
+    ASTIA_CHECK(field_equals(name.machine, sizeof name.machine, "aarch64"));
+}
+
 ASTIA_TEST(utsname_fill_zeroes_padding_and_sets_identity) {
     astia_utsname name;
     __builtin_memset(&name, 0xA5, sizeof name);
 
-    astia::proc::fill_utsname(name, "1.2.3", "Astia 1.2.3");
+    astia::proc::fill_utsname(name, "1.2.3", "Astia 1.2.3", "x86_64");
 
     ASTIA_CHECK(field_equals(name.sysname, sizeof name.sysname, "Astia"));
     ASTIA_CHECK(field_equals(name.nodename, sizeof name.nodename, "astia"));
@@ -66,7 +98,7 @@ ASTIA_TEST(utsname_fill_truncates_long_fields_and_terminates) {
     long_release[sizeof long_release - 1] = '\0';
     long_version[sizeof long_version - 1] = '\0';
 
-    astia::proc::fill_utsname(name, long_release, long_version);
+    astia::proc::fill_utsname(name, long_release, long_version, "x86_64");
 
     ASTIA_CHECK(name.release[64] == '\0');
     ASTIA_CHECK(name.version[64] == '\0');
@@ -79,7 +111,7 @@ ASTIA_TEST(utsname_fill_truncates_long_fields_and_terminates) {
 ASTIA_TEST(utsname_fill_handles_null_version_inputs) {
     astia_utsname name;
 
-    astia::proc::fill_utsname(name, nullptr, nullptr);
+    astia::proc::fill_utsname(name, nullptr, nullptr, "x86_64");
 
     ASTIA_CHECK(name.release[0] == '\0');
     ASTIA_CHECK(name.version[0] == '\0');

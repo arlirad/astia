@@ -9,6 +9,10 @@
 
 namespace astia::arch {
 
+    const char* machine_name() {
+        return "aarch64";
+    }
+
     namespace platform {
 
         u32 online_cpu_count() {

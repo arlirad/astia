@@ -13,14 +13,17 @@ namespace astia::proc {
             field[i] = value[i];
     }
 
-    inline void fill_utsname(astia_utsname& output, const char* release,
-                             const char* version) {
+    inline bool fill_utsname(astia_utsname& output, const char* release,
+                             const char* version, const char* machine) {
         output = astia_utsname{};
+        if (machine == nullptr)
+            return false;
         copy_utsname_field(output.sysname, "Astia");
         copy_utsname_field(output.nodename, "astia");
         copy_utsname_field(output.release, release);
         copy_utsname_field(output.version, version);
-        copy_utsname_field(output.machine, "x86_64");
+        copy_utsname_field(output.machine, machine);
+        return true;
     }
 
 } // namespace astia::proc
