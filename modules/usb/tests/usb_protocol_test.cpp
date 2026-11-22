@@ -88,6 +88,13 @@ int main() {
     assert((link_trb.control.get() & astia::usb::xhci::trb_toggle_cycle) != 0);
     assert((link_trb.control.get() & astia::usb::xhci::trb_chain) == 0);
 
+    assert(slot_context_speed(usb_speed::full) == 1);
+    assert(slot_context_speed(usb_speed::low) == 2);
+    assert(slot_context_speed(usb_speed::high) == 3);
+    assert(slot_context_speed(usb_speed::super) == 4);
+    assert(slot_context_speed(usb_speed::super_plus) == 5);
+    assert(slot_context_speed(static_cast<usb_speed>(0xff)) == 0);
+
     trb ring_memory[64]{};
     astia::usb::xhci::control_ring<64> ring;
     ring.initialize(ring_memory, 0x1000);

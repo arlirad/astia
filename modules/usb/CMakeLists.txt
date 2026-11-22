@@ -1,6 +1,7 @@
 set(ASTIA_USB_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb.o)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/AstiaCTest.cmake)
 set(ASTIA_USB_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_unit)
+set(ASTIA_USB_MMIO_WIDTH_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_mmio_width_unit)
 
 set(ASTIA_USB_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp)
@@ -20,6 +21,7 @@ add_custom_command(
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/usb_protocol.hpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/xhci.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/mmio_width.hpp
                 ${ASTIA_USB_ABI_HEADERS}
         COMMENT "Compiling USB xHCI foundation loadable module"
         VERBATIM)
@@ -44,6 +46,7 @@ add_custom_command(
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/usb_protocol.hpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/xhci.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/mmio_width.hpp
                 ${ASTIA_USB_ABI_HEADERS}
         COMMENT "Compiling USB xHCI rollback test module"
         VERBATIM)
@@ -65,10 +68,27 @@ add_custom_command(
 
 add_custom_target(usb_unit_target ALL DEPENDS ${ASTIA_USB_UNIT})
 
+add_custom_command(
+        OUTPUT ${ASTIA_USB_MMIO_WIDTH_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/mmio_width_test.cpp
+                -o ${ASTIA_USB_MMIO_WIDTH_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/mmio_width_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/mmio_width.hpp
+        VERBATIM)
+
+add_custom_target(usb_mmio_width_unit_target ALL DEPENDS ${ASTIA_USB_MMIO_WIDTH_UNIT})
+
 if(ASTIA_BUILD_TESTS)
     add_test(NAME usb_protocol_unit COMMAND ${ASTIA_USB_UNIT})
     astia_append_test_label("module;usb;xhci;host;deterministic")
     astia_add_test_label(usb_protocol_unit "sanitizer-host")
+    add_test(NAME usb_mmio_width_unit COMMAND ${ASTIA_USB_MMIO_WIDTH_UNIT})
+    astia_add_test_label(usb_mmio_width_unit "module;usb;xhci;host;deterministic")
+    astia_add_test_label(usb_mmio_width_unit "sanitizer-host")
     add_test(NAME usb_xhci_probe_stack_usage
             COMMAND ${Python3_EXECUTABLE}
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/probe_stack_usage.py

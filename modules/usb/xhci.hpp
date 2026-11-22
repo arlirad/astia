@@ -80,6 +80,22 @@ namespace astia::usb::xhci {
         return static_cast<uint32_t>(type) << 10;
     }
 
+    constexpr uint8_t slot_context_speed(usb_speed speed) {
+        switch (speed) {
+        case usb_speed::full:
+            return 1;
+        case usb_speed::low:
+            return 2;
+        case usb_speed::high:
+            return 3;
+        case usb_speed::super:
+            return 4;
+        case usb_speed::super_plus:
+            return 5;
+        }
+        return 0;
+    }
+
     inline trb make_setup_trb(const setup_packet& setup, bool cycle) {
         const uint64_t value = static_cast<uint64_t>(setup.request_type) |
                                (static_cast<uint64_t>(setup.request) << 8) |
@@ -546,18 +562,26 @@ namespace astia::usb::xhci {
         uint16_t          configuration_length_ = 0;
 
         public:
+        void clear() {
+            auto* bytes = reinterpret_cast<uint8_t*>(&device_);
+            for (size_t index = 0; index < sizeof(device_); ++index)
+                bytes[index] = 0;
+            phase_                = enumeration_phase::idle;
+            port_                 = 0;
+            address_              = 0;
+            configuration_length_ = 0;
+        }
+
         bool begin(unsigned slot, uint8_t port, uint8_t address, usb_speed speed) {
             if (slot >= max_devices || port == 0 || address == 0)
                 return false;
-            device_               = device_model{};
-            device_.present       = true;
-            device_.address       = address;
-            device_.speed         = speed;
-            phase_                = enumeration_phase::device_descriptor_short;
-            port_                 = port;
-            address_              = address;
-            configuration_length_ = 0;
-            device_.descriptor    = device_descriptor{};
+            clear();
+            device_.present = true;
+            device_.address = address;
+            device_.speed   = speed;
+            phase_          = enumeration_phase::device_descriptor_short;
+            port_           = port;
+            address_        = address;
             return true;
         }
 

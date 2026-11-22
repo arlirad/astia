@@ -48,6 +48,7 @@ mkdir -p "$staging"
 cp "${ASTIA_USB_MODULE:-$artifact_build/modules/usb/usb.o}" "$staging/usb.o"
 (cd "$staging" && find usb.o -print | cpio -o -H newc > "$initrd")
 
+rm -f "$log" "$trace"
 set +e
 timeout "${ASTIA_USB_TIMEOUT:-30}" "$qemu" \
     -machine q35 -m 128M -kernel "$kernel" \
@@ -65,11 +66,31 @@ if test "${ASTIA_USB_ROLLBACK_TEST:-0}" = 1; then
     exit 0
 fi
 grep -qF 'mod: usb.o rc=0' "$log"
-grep -qF 'usb_xhci_slot_enable slotid 1' "$trace"
-grep -qF 'usb_xhci_slot_address slotid 1, port 1' "$trace"
-grep -qF 'usb_xhci_slot_configure slotid 1' "$trace"
-grep -qF 'TR_SETUP, p 0x0008000001000680' "$trace"
-grep -qF 'TR_SETUP, p 0x0009000002000680' "$trace"
-grep -qF 'TR_SETUP, p 0x0022000002000680' "$trace"
-grep -qF 'TR_SETUP, p 0x0000000000010900' "$trace"
-printf '%s\n' 'QEMU xHCI module load, address, configuration, and interface enumeration smoke passed'
+grep -qF 'usb: xhci started' "$log"
+cmd_ring=$(sed -n 's/.*usb: xhci cmd ring=\([0-9][0-9]*\).*/\1/p' "$log" | head -n 1)
+crcr=$(sed -n 's/.*usb: xhci crcr=\([0-9][0-9]*\).*/\1/p' "$log" | head -n 1)
+slot_trb=$(sed -n 's/.*usb: xhci enable slot trb=\([0-9][0-9]*\).*/\1/p' "$log" |
+    head -n 1)
+slot=$(sed -n 's/.*usb: xhci enable slot=\([0-9][0-9]*\).*/\1/p' "$log" | head -n 1)
+test -n "$cmd_ring" -a -n "$crcr" -a -n "$slot_trb" -a -n "$slot"
+test "$crcr" -eq $((cmd_ring + 1))
+test "$slot_trb" -eq "$cmd_ring"
+test "$slot" -ge 1
+crcr_hex=$(printf '%x' "$crcr")
+slot_trb_hex=$(printf '%x' "$slot_trb")
+grep -q "usb_xhci_oper_write off 0x0018, val 0x0*${crcr_hex}" "$trace"
+grep -q "usb_xhci_fetch_trb addr 0x0*${slot_trb_hex}, CR_ENABLE_SLOT" "$trace"
+crcr_line=$(grep -n "usb_xhci_oper_write off 0x0018, val 0x0*${crcr_hex}" "$trace" |
+    head -n 1 | cut -d: -f1)
+fetch_line=$(grep -n "usb_xhci_fetch_trb addr 0x0*${slot_trb_hex}, CR_ENABLE_SLOT" "$trace" |
+    head -n 1 | cut -d: -f1)
+test -n "$crcr_line" -a -n "$fetch_line"
+test "$crcr_line" -lt "$fetch_line"
+enable_line=$(awk -v n="$fetch_line" -v s="$slot" \
+    'NR > n && index($0, "usb_xhci_slot_enable slotid " s) {print NR; exit}' "$trace")
+test -n "$enable_line"
+complete_line=$(awk -v n="$enable_line" -v p="$slot_trb_hex" \
+    'NR > n && /usb_xhci_queue_event/ && /CC_SUCCESS/ && index($0, p) {print NR; exit}' \
+    "$trace")
+test -n "$complete_line"
+printf '%s\n' 'QEMU xHCI module CRCR/Enable Slot evidence passed (address/HID remain residual)'

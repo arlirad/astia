@@ -3,25 +3,43 @@ import re
 import subprocess
 import sys
 
+FRAME_LIMIT = 0x4000
+TARGETS = ("xhci_driver::probe", "controller::enumerate")
+
+
+def frames(output: str):
+    pattern = re.compile(
+        r"^[0-9a-f]+ <([^>\n]+)>:\n(.*?)(?=^[0-9a-f]+ <[^>\n]+>:\n|\Z)",
+        re.DOTALL | re.MULTILINE,
+    )
+    for symbol, body in pattern.findall(output):
+        sizes = [
+            int(value, 16)
+            for value in re.findall(r"\bsub\s+\$0x([0-9a-f]+),%rsp", body)
+        ]
+        yield symbol, max(sizes, default=0)
+
 
 def main() -> int:
     if len(sys.argv) != 2:
-        return 2
+        raise SystemExit(f"usage: {sys.argv[0]} <usb.o>")
     output = subprocess.check_output(
         ["objdump", "-d", "--demangle", sys.argv[1]], text=True
     )
-    match = re.search(
-        r"<astia::usb::xhci::.*xhci_driver::probe\(.*\)>:\n(.*?)(?=\n[0-9a-f]+ <)",
-        output,
-        re.DOTALL,
-    )
-    if match is None:
-        raise SystemExit("xHCI probe symbol was not found")
-    frame = re.search(r"\bsub\s+\$0x([0-9a-f]+),%rsp", match.group(1))
-    if frame is not None and int(frame.group(1), 16) > 0x4000:
-        raise SystemExit(f"xHCI probe stack frame is too large: 0x{frame.group(1)}")
+    found = dict.fromkeys(TARGETS, False)
+    for symbol, size in frames(output):
+        for target in TARGETS:
+            if target in symbol:
+                found[target] = True
+        if size > FRAME_LIMIT:
+            raise SystemExit(
+                f"xHCI {symbol} stack frame is too large: 0x{size:x}"
+            )
+    for target, present in found.items():
+        if not present:
+            raise SystemExit(f"xHCI {target} symbol was not found")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

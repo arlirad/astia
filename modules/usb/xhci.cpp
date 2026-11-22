@@ -1,10 +1,10 @@
 #include "xhci.hpp"
 
-#include <astia/dev/regs.hpp>
 #include <astia/mm/dma_buffer.hpp>
 #include <astia/module.hpp>
 
 #include "hid_keyboard.hpp"
+#include "mmio_width.hpp"
 
 #include <new>
 
@@ -44,36 +44,6 @@ namespace astia::usb::xhci {
         constexpr unsigned address_bsr                 = 1u << 9;
 
         using dma = astia::mm::dma_buffer;
-
-        class mmio {
-            public:
-            mmio() = default;
-            explicit mmio(volatile void* base) : bytes_(base) {}
-
-            template <typename T>
-            T read(unsigned offset) const {
-                uint8_t raw[sizeof(T)]{};
-                for (unsigned i = 0; i < sizeof(T); ++i)
-                    raw[i] = bytes_[offset + i];
-                return astia::core::le<T>::load(raw);
-            }
-
-            template <typename T>
-            void write(unsigned offset, T value) const {
-                astia::core::le<T> encoded(value);
-                uint8_t            raw[sizeof(T)]{};
-                encoded.store(raw);
-                for (unsigned i = 0; i < sizeof(T); ++i)
-                    bytes_[offset + i] = raw[i];
-            }
-
-            bool mapped() const {
-                return bytes_.base() != nullptr;
-            }
-
-            private:
-            astia::dev::regs<uint8_t> bytes_{};
-        };
 
         struct erst_entry {
             astia::core::le<uint64_t> address{};
@@ -116,6 +86,20 @@ namespace astia::usb::xhci {
             return event.status.get() & 0x00ffffffu;
         }
 
+        class exclusive_scope {
+            bool& active_;
+
+            public:
+            explicit exclusive_scope(bool& active) : active_(active) {
+                active_ = true;
+            }
+            ~exclusive_scope() {
+                active_ = false;
+            }
+            exclusive_scope(const exclusive_scope&)            = delete;
+            exclusive_scope& operator=(const exclusive_scope&) = delete;
+        };
+
         class controller {
             astia::hw::pci_device*                             pci_ = nullptr;
             mmio                                               common_{};
@@ -130,22 +114,25 @@ namespace astia::usb::xhci {
             dma                                                device_context_{};
             dma                                                transfer_memory_{};
             control_transfer_engine<1, transfer_ring_capacity> control_{};
-            unsigned                                           command_enqueue_  = 0;
-            bool                                               command_cycle_    = true;
-            unsigned                                           event_dequeue_    = 0;
-            bool                                               event_cycle_      = true;
-            uint64_t                                           command_physical_ = 0;
-            uint64_t                                           event_physical_   = 0;
-            uint8_t                                            slot_             = 0;
-            uint8_t                                            next_address_     = 1;
-            usb_speed                                          speed_   = usb_speed::full;
-            bool                                               started_ = false;
-            bool                                               quarantined_ = false;
-            bool                                               bar_mapped_  = false;
-            bool     bus_master_changed_                                    = false;
-            bool     msix_modified_                                         = false;
-            uint16_t original_command_                                      = 0;
-            uint16_t original_msix_                                         = 0;
+            enumeration_session                                enumeration_{};
+            uint8_t   enumeration_descriptor_[4096]{};
+            bool      enumerating_        = false;
+            unsigned  command_enqueue_    = 0;
+            bool      command_cycle_      = true;
+            unsigned  event_dequeue_      = 0;
+            bool      event_cycle_        = true;
+            uint64_t  command_physical_   = 0;
+            uint64_t  event_physical_     = 0;
+            uint8_t   slot_               = 0;
+            uint8_t   next_address_       = 1;
+            usb_speed speed_              = usb_speed::full;
+            bool      started_            = false;
+            bool      quarantined_        = false;
+            bool      bar_mapped_         = false;
+            bool      bus_master_changed_ = false;
+            bool      msix_modified_      = false;
+            uint16_t  original_command_   = 0;
+            uint16_t  original_msix_      = 0;
 
             void abandon_dma() {
                 transfer_memory_.abandon();
@@ -301,8 +288,10 @@ namespace astia::usb::xhci {
             }
 
             bool configure_controller() {
+                const uint64_t crcr = command_physical_ | 1u;
                 common_.write<uint64_t>(operational(0x30), dcbaa_.physical());
-                common_.write<uint64_t>(operational(0x18), command_physical_ | 1u);
+                common_.write<uint64_t>(operational(0x18), crcr);
+                astia::module::log_u64("usb", "xhci crcr", crcr);
                 common_.write<uint32_t>(operational(0x38), 1);
                 if (!configure_interrupter())
                     return false;
@@ -320,16 +309,18 @@ namespace astia::usb::xhci {
                     result > capabilities_.max_slots)
                     return false;
                 slot_ = result;
+                astia::module::log_u64("usb", "xhci enable slot trb", command_address);
+                astia::module::log_u64("usb", "xhci enable slot", result);
                 return true;
             }
 
-            void make_input_context(uint8_t port, uint8_t speed,
+            void make_input_context(uint8_t port, uint8_t slot_speed,
                                     uint16_t max_packet_size) {
                 const unsigned context_size = capabilities_.context_size_64 ? 64 : 32;
                 clear_bytes(input_memory_.data(), astia::mm::page_size);
                 store32(input_memory_.data(), 4, (1u << 0) | (1u << endpoint_control));
                 store32(input_memory_.data(), context_size + 0,
-                        (static_cast<uint32_t>(speed) << slot_speed_shift) |
+                        (static_cast<uint32_t>(slot_speed) << slot_speed_shift) |
                             (1u << context_entries_shift));
                 store32(input_memory_.data(), context_size + 4,
                         static_cast<uint32_t>(port) << slot_port_shift);
@@ -358,9 +349,12 @@ namespace astia::usb::xhci {
                 }
             }
 
-            bool address_device(bool block_address, uint8_t port, uint8_t speed,
+            bool address_device(bool block_address, uint8_t port, usb_speed speed,
                                 uint16_t max_packet_size) {
-                make_input_context(port, speed, max_packet_size);
+                const uint8_t slot_speed = slot_context_speed(speed);
+                if (slot_speed == 0)
+                    return false;
+                make_input_context(port, slot_speed, max_packet_size);
                 uint64_t       command_address = 0;
                 const uint32_t control         = trb_type_bits(trb_type::address_device) |
                                          (block_address ? address_bsr : 0u);
@@ -464,21 +458,25 @@ namespace astia::usb::xhci {
             }
 
             bool enumerate(uint8_t port, device_model& result) {
-                if (!started_ || !reset_port(port) || !enable_slot())
+                if (!started_ || enumerating_)
+                    return false;
+                exclusive_scope scope(enumerating_);
+                clear_bytes(enumeration_descriptor_, sizeof enumeration_descriptor_);
+                enumeration_.clear();
+                if (!reset_port(port) || !enable_slot())
                     return false;
                 const uint8_t address =
                     next_address_ == 0 || next_address_ > 127 ? 1 : next_address_++;
-                const uint8_t speed = static_cast<uint8_t>(speed_);
-                if (!address_device(true, port, speed, initial_control_packet_size()))
+                if (!address_device(true, port, speed_, initial_control_packet_size()))
                     return false;
-                enumeration_session session;
+                enumeration_session& session = enumeration_;
                 if (!session.begin(slot_, port, address, speed_))
                     return false;
-                uint8_t descriptor[4096]{};
+                uint8_t* descriptor = enumeration_descriptor_;
                 for (;;) {
                     if (session.phase() == enumeration_phase::set_address) {
                         if (!address_device(
-                                false, port, speed,
+                                false, port, speed_,
                                 session.device().descriptor.max_packet_size0) ||
                             !session.complete_address())
                             return false;
@@ -546,22 +544,42 @@ namespace astia::usb::xhci {
                 const uint64_t size   = astia::module::pci_bar_size(pci_, 0);
                 if (mapped == 0 || size < 0x800)
                     return rollback_pci(), -95;
+                astia::module::log("usb", "xhci bar mapped");
                 probe_result checked{};
                 if (!probe(reinterpret_cast<volatile const uint8_t*>(mapped), size,
                            checked) ||
-                    checked.capabilities.max_scratchpad_buffers != 0 || !checked.valid)
+                    checked.capabilities.max_scratchpad_buffers != 0 || !checked.valid) {
+                    astia::module::log("usb", "xhci probe failed");
                     return rollback_pci(), -95;
+                }
                 capabilities_ = checked.capabilities;
-                common_       = mmio{reinterpret_cast<volatile void*>(mapped)};
-                doorbells_    = mmio{reinterpret_cast<volatile void*>(
+                astia::module::log("usb", "xhci probe ok");
+                common_    = mmio{reinterpret_cast<volatile void*>(mapped)};
+                doorbells_ = mmio{reinterpret_cast<volatile void*>(
                     mapped + capabilities_.doorbell_offset)};
-                runtime_      = mmio{reinterpret_cast<volatile void*>(
+                runtime_   = mmio{reinterpret_cast<volatile void*>(
                     mapped + capabilities_.runtime_offset + 0x20)};
-                if (!reset() || !allocate_memory() || !configure_controller()) {
+                if (!reset()) {
+                    astia::module::log("usb", "xhci reset failed");
+                    (void) stop();
+                    return -5;
+                }
+                astia::module::log("usb", "xhci reset ok");
+                if (!allocate_memory()) {
+                    astia::module::log("usb", "xhci dma failed");
+                    (void) stop();
+                    return -5;
+                }
+                astia::module::log_u64("usb", "xhci cmd ring", command_physical_);
+                astia::module::log_u64("usb", "xhci event ring", event_physical_);
+                astia::module::log_u64("usb", "xhci dcbaa", dcbaa_.physical());
+                if (!configure_controller()) {
+                    astia::module::log("usb", "xhci configure failed");
                     (void) stop();
                     return -5;
                 }
                 started_ = true;
+                astia::module::log("usb", "xhci started");
                 return 0;
             }
 
@@ -664,8 +682,10 @@ namespace astia::usb::xhci {
                 if (pci == nullptr)
                     return false;
                 auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
-                if (stable == nullptr || controller_instance.start(stable) != 0)
+                if (stable == nullptr || controller_instance.start(stable) != 0) {
+                    astia::module::log("usb", "xhci start failed");
                     return false;
+                }
                 auto* model = new (std::nothrow) device_model{};
                 if (model == nullptr) {
                     controller_instance.stop();
@@ -673,9 +693,11 @@ namespace astia::usb::xhci {
                 }
                 for (uint8_t port = 1; port <= controller_instance.max_ports(); ++port)
                     if (controller_instance.enumerate_port(port, *model) == 0) {
+                        astia::module::log_u64("usb", "xhci port enumerated", port);
                         delete model;
                         return true;
                     }
+                astia::module::log("usb", "xhci enumeration failed");
                 delete model;
                 controller_instance.stop();
                 return false;
