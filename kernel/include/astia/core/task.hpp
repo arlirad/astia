@@ -27,12 +27,14 @@ namespace astia::core {
     }
 
     struct task_link {
-        std::coroutine_handle<> continuation{};
-        std::coroutine_handle<> waiting{};
-        task_link*              parent          = nullptr;
-        detail::resume_context* resume          = nullptr;
-        task_link*              resume_previous = nullptr;
-        task_link*              resume_next     = nullptr;
+        std::coroutine_handle<>    continuation{};
+        std::coroutine_handle<>    waiting{};
+        task_link*                 parent           = nullptr;
+        detail::resume_context*    resume           = nullptr;
+        task_link*                 resume_previous  = nullptr;
+        task_link*                 resume_next      = nullptr;
+        coroutine_destroy_observer destroy_observer = nullptr;
+        void*                      destroy_context  = nullptr;
     };
 
     namespace detail {
@@ -270,10 +272,12 @@ namespace astia::core {
             void destroy_child() noexcept {
                 if (!coroutine)
                     return;
+                auto observer = coroutine.promise().link.destroy_observer;
+                auto context  = coroutine.promise().link.destroy_context;
                 coroutine.promise().link.continuation = {};
                 coroutine.promise().link.parent       = nullptr;
                 detail::detach_resume_context(coroutine.promise().link);
-                (void) destroy_coroutine(coroutine);
+                (void) destroy_coroutine(coroutine, observer, context);
                 coroutine = {};
             }
         };
@@ -286,13 +290,27 @@ namespace astia::core {
             (void) reset_with_observer(nullptr, nullptr);
         }
 
+        bool set_destroy_observer(coroutine_destroy_observer observer, void* context) {
+            if (!_coroutine)
+                return false;
+            _coroutine.promise().link.destroy_observer = observer;
+            _coroutine.promise().link.destroy_context  = context;
+            return true;
+        }
+
         bool reset_with_observer(coroutine_destroy_observer observer, void* context) {
             if (_coroutine) {
-                auto coroutine = _coroutine;
-                _coroutine     = {};
+                auto coroutine        = _coroutine;
+                _coroutine            = {};
+                auto destroy_observer = observer;
+                auto destroy_context  = context;
+                if (destroy_observer == nullptr) {
+                    destroy_observer = coroutine.promise().link.destroy_observer;
+                    destroy_context  = coroutine.promise().link.destroy_context;
+                }
                 cancel_resume(coroutine);
                 detail::detach_resume_context(coroutine.promise().link);
-                return destroy_coroutine(coroutine, observer, context);
+                return destroy_coroutine(coroutine, destroy_observer, destroy_context);
             }
             return true;
         }
@@ -410,10 +428,12 @@ namespace astia::core {
             void destroy_child() noexcept {
                 if (!coroutine)
                     return;
+                auto observer = coroutine.promise().link.destroy_observer;
+                auto context  = coroutine.promise().link.destroy_context;
                 coroutine.promise().link.continuation = {};
                 coroutine.promise().link.parent       = nullptr;
                 detail::detach_resume_context(coroutine.promise().link);
-                (void) destroy_coroutine(coroutine);
+                (void) destroy_coroutine(coroutine, observer, context);
                 coroutine = {};
             }
         };
@@ -428,13 +448,27 @@ namespace astia::core {
             (void) reset_with_observer(nullptr, nullptr);
         }
 
+        bool set_destroy_observer(coroutine_destroy_observer observer, void* context) {
+            if (!_coroutine)
+                return false;
+            _coroutine.promise().link.destroy_observer = observer;
+            _coroutine.promise().link.destroy_context  = context;
+            return true;
+        }
+
         bool reset_with_observer(coroutine_destroy_observer observer, void* context) {
             if (_coroutine) {
-                auto coroutine = _coroutine;
-                _coroutine     = {};
+                auto coroutine        = _coroutine;
+                _coroutine            = {};
+                auto destroy_observer = observer;
+                auto destroy_context  = context;
+                if (destroy_observer == nullptr) {
+                    destroy_observer = coroutine.promise().link.destroy_observer;
+                    destroy_context  = coroutine.promise().link.destroy_context;
+                }
                 cancel_resume(coroutine);
                 detail::detach_resume_context(coroutine.promise().link);
-                return destroy_coroutine(coroutine, observer, context);
+                return destroy_coroutine(coroutine, destroy_observer, destroy_context);
             }
             return true;
         }

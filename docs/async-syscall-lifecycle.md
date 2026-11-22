@@ -134,7 +134,16 @@ handler code:
   and the reaper refuse deletion while that guard is set, and the zero callback
   clears it only after unregistering. Reaper deletion rechecks both registry
   refs and the zero guard, so a cancel hook can never destruct the operation
-  while its own reference or zero callback is live.
+  while its own reference or zero callback is live. `retire_operation()` is the
+  authoritative deletion gate: it runs under the registry lock, verifies refs
+  and zero guard there, and removes the entry before any reaper arm/delete, so
+  no scan can acquire a ref after the deletion decision.
+- The handler body frame has its own destroy observer and operation gate.
+  Reaping requires both the driver frame and the body frame to be confirmed
+  destroyed. A deferred body resume therefore keeps `async_operation` and its
+  owned `syscall_context` alive until the body frame actually leaves the
+  resume path. `destroy_coroutine()` invokes the observer after immediate
+  destruction as well as after deferred destruction.
 - `owner_exit()` publishes terminal `eagain` to any attached result awaiter,
   then tears down the driver. Reaping waits for awaiter detach and detach
   callback completion.

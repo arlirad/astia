@@ -115,6 +115,41 @@ namespace {
     }
 }
 
+namespace {
+    int child_destroyed_count = 0;
+
+    void note_child_destroyed(void*) {
+        ++child_destroyed_count;
+    }
+
+    astia::core::task<int> child_waits(astia::core::completion<int>& operation) {
+        auto result = co_await operation;
+        if (!result)
+            co_return result.error;
+        co_return result.value;
+    }
+
+    astia::core::task<int> parent_waits(astia::core::task<int> child) {
+        auto result = co_await static_cast<astia::core::task<int>&&>(child);
+        if (!result)
+            co_return result.error;
+        co_return result.value;
+    }
+}
+
+ASTIA_TEST(task_destroy_observer_reports_child_frame_destruction) {
+    astia::core::completion<int> operation;
+    child_destroyed_count = 0;
+    auto child            = child_waits(operation);
+    ASTIA_CHECK(child.set_destroy_observer(&note_child_destroyed, nullptr));
+    auto parent = parent_waits(static_cast<astia::core::task<int>&&>(child));
+    ASTIA_CHECK(parent.resume());
+    ASTIA_CHECK(!parent.done());
+    ASTIA_CHECK(child_destroyed_count == 0);
+    parent.reset();
+    ASTIA_CHECK(child_destroyed_count == 1);
+}
+
 ASTIA_TEST(task_runs_and_suspends_at_yield) {
     int  steps     = 0;
     auto coroutine = three_steps(steps);

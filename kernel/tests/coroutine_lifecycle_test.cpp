@@ -146,7 +146,7 @@ ASTIA_TEST(coroutine_destroy_is_immediate_when_quiescent) {
     ASTIA_CHECK(
         astia::core::destroy_coroutine(value.coroutine, note_observer, &observed));
     ASTIA_CHECK(destroyed == 1);
-    ASTIA_CHECK(observed == 0);
+    ASTIA_CHECK(observed == 1);
 }
 
 ASTIA_TEST(coroutine_resume_now_balances_lifecycle_refs) {

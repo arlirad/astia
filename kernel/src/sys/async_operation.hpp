@@ -100,6 +100,7 @@ namespace astia::sys {
         static async_start_result start_result_for(async_operation_state state) noexcept;
         static void owner_exit_trampoline(void* object, core::cancel_reason reason);
         static void frame_destroyed_trampoline(void* context);
+        static void body_destroyed_trampoline(void* context);
         static void completion_detached_trampoline(void* context);
         static void registry_ref_zero_trampoline(void* object);
         static void reaper_destroy_trampoline(void* object);
@@ -133,10 +134,11 @@ namespace astia::sys {
         u8                     destroy_claimed_  = 0;
         u8                     driver_state_     = static_cast<u8>(driver_state::idle);
         u8                     driver_destroyed_ = 0;
-        u8                     reaper_queued_    = 0;
-        u8                     create_state_     = 0;
-        u8                     create_ref_       = 1;
-        volatile u32           active_calls_     = 0;
+        u8                     body_frame_destroyed_   = 1;
+        u8                     reaper_queued_          = 0;
+        u8                     create_state_           = 0;
+        u8                     create_ref_             = 1;
+        volatile u32           active_calls_           = 0;
         volatile u8            registry_zero_inflight_ = 0;
     };
 

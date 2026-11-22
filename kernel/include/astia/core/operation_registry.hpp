@@ -13,6 +13,7 @@ namespace astia::core {
                             operation_refs_zero refs_zero  = nullptr,
                             volatile u8*        zero_guard = nullptr);
     void unregister_operation(void* object) noexcept;
+    bool retire_operation(void* object) noexcept;
 
     void cancel_operations_for_process(u64 process, cancel_reason reason);
     void cancel_operations_for_thread(u64 process, u64 thread, cancel_reason reason);

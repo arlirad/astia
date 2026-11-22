@@ -120,6 +120,27 @@ namespace astia::core {
         entry->signaled   = false;
     }
 
+    bool retire_operation(void* object) noexcept {
+        core::spinlock_guard guard(lock);
+        registry_entry*      entry = find_entry(object);
+        if (entry == nullptr)
+            return true;
+        if (entry->refs != nullptr && __atomic_load_n(entry->refs, __ATOMIC_ACQUIRE) != 0)
+            return false;
+        if (entry->zero_guard != nullptr &&
+            __atomic_load_n(entry->zero_guard, __ATOMIC_ACQUIRE) != 0)
+            return false;
+        entry->object     = nullptr;
+        entry->process    = 0;
+        entry->thread     = 0;
+        entry->refs       = nullptr;
+        entry->hook       = nullptr;
+        entry->refs_zero  = nullptr;
+        entry->zero_guard = nullptr;
+        entry->signaled   = false;
+        return true;
+    }
+
     void cancel_operations_for_process(u64 process, cancel_reason reason) {
         cancel_matching(process, 0, false, reason);
     }

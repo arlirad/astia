@@ -178,7 +178,7 @@ namespace astia::core {
             __atomic_store_n(&value->state, static_cast<u8>(slot_state::destroying),
                              __ATOMIC_RELEASE);
         }
-        destroy_and_release(handle, nullptr, nullptr);
+        destroy_and_release(handle, observer, context);
         return true;
     }
 

@@ -61,8 +61,14 @@ namespace astia::sys {
                                   user_data},
           owner_(owner) {
         auto body = factory(context_);
-        driver_   = drive(*this, static_cast<core::task<i64>&&>(body));
+        body_frame_destroyed_ =
+            body.valid() && body.set_destroy_observer(
+                                &async_operation::body_destroyed_trampoline, this)
+                ? 0
+                : 1;
+        driver_ = drive(*this, static_cast<core::task<i64>&&>(body));
         if (!driver_.valid()) {
+            body_frame_destroyed_ = 1;
             const error_t failure =
                 driver_.error() == error_t::enone ? error_t::enomem : driver_.error();
             result_ = optional<i64>(failure);
@@ -420,10 +426,13 @@ namespace astia::sys {
     void async_operation::maybe_reap() noexcept {
         if (__atomic_load_n(&destroy_claimed_, __ATOMIC_ACQUIRE) == 0 ||
             __atomic_load_n(&driver_destroyed_, __ATOMIC_ACQUIRE) == 0 ||
+            __atomic_load_n(&body_frame_destroyed_, __ATOMIC_ACQUIRE) == 0 ||
             __atomic_load_n(&create_ref_, __ATOMIC_ACQUIRE) != 0 ||
             __atomic_load_n(&registry_refs_, __ATOMIC_ACQUIRE) != 0 ||
             __atomic_load_n(&registry_zero_inflight_, __ATOMIC_ACQUIRE) != 0 ||
             completion_.awaiter_count() != 0 || completion_.detach_inflight())
+            return;
+        if (!core::retire_operation(this))
             return;
         u8 expected = 0;
         if (!__atomic_compare_exchange_n(&reaper_queued_, &expected, 1, false,
@@ -445,6 +454,15 @@ namespace astia::sys {
         value->leave_call();
     }
 
+    void async_operation::body_destroyed_trampoline(void* context) {
+        auto* value = static_cast<async_operation*>(context);
+        if (!value->enter_call())
+            return;
+        __atomic_store_n(&value->body_frame_destroyed_, 1, __ATOMIC_RELEASE);
+        value->maybe_reap();
+        value->leave_call();
+    }
+
     void async_operation::completion_detached_trampoline(void* context) {
         auto* value = static_cast<async_operation*>(context);
         if (!value->enter_call())
@@ -456,7 +474,6 @@ namespace astia::sys {
 
     void async_operation::registry_ref_zero_trampoline(void* object) {
         auto* value = static_cast<async_operation*>(object);
-        core::unregister_operation(value);
         if (!value->enter_call()) {
             __atomic_store_n(&value->registry_zero_inflight_, 0, __ATOMIC_RELEASE);
             return;
@@ -469,8 +486,7 @@ namespace astia::sys {
 
     void async_operation::reaper_destroy_trampoline(void* object) {
         auto* value = static_cast<async_operation*>(object);
-        if (__atomic_load_n(&value->registry_refs_, __ATOMIC_ACQUIRE) != 0 ||
-            __atomic_load_n(&value->registry_zero_inflight_, __ATOMIC_ACQUIRE) != 0) {
+        if (!core::retire_operation(value)) {
             __atomic_store_n(&value->reaper_queued_, 0, __ATOMIC_RELEASE);
             return;
         }
