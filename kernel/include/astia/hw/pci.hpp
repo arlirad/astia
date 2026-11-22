@@ -44,6 +44,8 @@ namespace astia::hw {
         u8           address_bits = 0;
         u8           index        = 0;
 
+        /// Map through the fail-closed arch PCI mapper and return an owning
+        /// mapping; release through the matching PCI unmap path.
         optional<hw::mmio_mapping> map() const;
     };
 

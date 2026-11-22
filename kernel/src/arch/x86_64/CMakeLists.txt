@@ -18,6 +18,7 @@ add_library(arch_x86_64 STATIC
         ${CMAKE_CURRENT_BINARY_DIR}/isrs_gen.S
         init_arch.cpp
         pci_config.cpp
+        pci_mmio_owner.cpp
         smp.cpp
         platform.cpp
 )

@@ -117,6 +117,11 @@ add_test(NAME astia_kernel_stack_usage_budget_fixtures
                 ${CMAKE_CURRENT_SOURCE_DIR}/stack_usage_budget.py --fixture)
 set_tests_properties(astia_kernel_stack_usage_budget_fixtures PROPERTIES
         LABELS "build;kernel;deterministic")
+astia_add_host_test(astia_pci_mmio_policy_test pci_mmio_policy_test.cpp)
+astia_add_host_test(astia_pci_mmio_owner_test
+        pci_mmio_owner_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/pci_mmio_owner.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/layout.cpp)
 astia_add_host_test(astia_platform_test platform_test.cpp)
 astia_add_host_test(astia_resource_limits_test resource_limits_test.cpp)
 astia_add_host_test(astia_regs_test regs_test.cpp)

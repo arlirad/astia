@@ -28,4 +28,10 @@ namespace astia::arch {
     /// see src/arch/x86_64/page_map.cpp).
     extern const u64 recursive_base;
 
+    /// Exclusive physical-offset limit of the direct-map segment starting at
+    /// `kernel_base`: `kernel_base + physical` stays inside that segment only
+    /// while `physical < direct_map_limit`. x86_64: one PML4 slot (512 GiB);
+    /// 0 when the arch has no direct map.
+    extern const u64 direct_map_limit;
+
 } // namespace astia::arch
