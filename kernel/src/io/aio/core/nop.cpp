@@ -5,11 +5,7 @@ namespace astia::io::aio::operations {
     struct nop : handler<nop, opcode::nop> {
         static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
                            const astia_sqe& sqe) noexcept {
-#ifdef ASTIA_AIO_HOST_TEST
-            return ::astia::io::aio::dispatch::dispatch_core(slot, ring, sqe);
-#else
             return cq_post_guarded(ring, sqe.user_data, 0);
-#endif
         }
     };
 

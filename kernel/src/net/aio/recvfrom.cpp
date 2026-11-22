@@ -1,13 +1,8 @@
 #include "../../io/aio/handler.hpp"
-#ifdef ASTIA_AIO_HOST_TEST
-#include "dispatch.hpp"
-#else
 #include "common.hpp"
-#endif
 
 namespace astia::io::aio::operations {
 
-#ifndef ASTIA_AIO_HOST_TEST
     namespace {
 
         bool handle_recvfrom(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
@@ -32,16 +27,11 @@ namespace astia::io::aio::operations {
         }
 
     } // namespace
-#endif
 
     struct recvfrom : handler<recvfrom, opcode::recvfrom> {
         static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
                            const astia_sqe& sqe) noexcept {
-#ifdef ASTIA_AIO_HOST_TEST
-            return ::astia::io::aio::socket::dispatch(slot, ring, sqe);
-#else
             return handle_recvfrom(slot, ring, sqe);
-#endif
         }
     };
 

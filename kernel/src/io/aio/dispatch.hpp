@@ -26,8 +26,4 @@ namespace astia::io::aio::dispatch {
                           i32 result);
     u64  poll_now_ns();
 
-#ifdef ASTIA_AIO_HOST_TEST
-    bool dispatch_core(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
-#endif
-
 } // namespace astia::io::aio::dispatch

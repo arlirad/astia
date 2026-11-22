@@ -26,7 +26,10 @@ endforeach ()
 foreach (_retired_dispatch
         "${_src}/fs/aio/dispatch.cpp"
         "${_src}/net/aio/dispatch.cpp"
-        "${_src}/io/readiness/dispatch.cpp")
+        "${_src}/io/readiness/dispatch.cpp"
+        "${_src}/fs/aio/dispatch.hpp"
+        "${_src}/net/aio/dispatch.hpp"
+        "${_src}/io/readiness/dispatch.hpp")
     if (EXISTS "${_retired_dispatch}")
         message(FATAL_ERROR
                 "aggregate handler dispatch must not remain: ${_retired_dispatch}")
@@ -36,38 +39,19 @@ endforeach ()
 set(_enosys_handlers spawn wait)
 
 function(astia_aio_check_handler _file _stem)
-    file(STRINGS "${_file}" _lines)
-    set(_host_guard FALSE)
-    set(_mode normal)
-    set(_production "")
-    foreach (_line IN LISTS _lines)
-        if (_line MATCHES "^[ \t]*#ifdef[ \t]+ASTIA_AIO_HOST_TEST")
-            set(_host_guard TRUE)
-            set(_mode skip_host)
-        elseif (_line MATCHES "^[ \t]*#ifndef[ \t]+ASTIA_AIO_HOST_TEST")
-            set(_mode include_prod)
-        elseif (_mode STREQUAL "skip_host" AND _line MATCHES "^[ \t]*#else")
-            set(_mode include_alt)
-        elseif ((_mode STREQUAL "include_alt" OR _mode STREQUAL "include_prod")
-                AND _line MATCHES "^[ \t]*#endif")
-            set(_mode normal)
-        elseif (_mode STREQUAL "normal" OR _mode STREQUAL "include_alt"
-                OR _mode STREQUAL "include_prod")
-            string(APPEND _production "${_line}\n")
-        endif ()
-    endforeach ()
-
-    if (NOT _host_guard)
-        message(FATAL_ERROR "${_file}: missing explicit ASTIA_AIO_HOST_TEST route seam")
+    file(READ "${_file}" _contents)
+    string(FIND "${_contents}" "ASTIA_AIO_HOST_TEST" _host_offset)
+    if (NOT _host_offset EQUAL -1)
+        message(FATAL_ERROR "${_file}: host-only AIO handler bypass remains")
     endif ()
-    if (_production MATCHES
+    if (_contents MATCHES
             "filesystem::dispatch|socket::dispatch|readiness::dispatch|dispatch::dispatch_core")
-        message(FATAL_ERROR "${_file}: production path is a trivial forwarder")
+        message(FATAL_ERROR "${_file}: production handler is a trivial forwarder")
     endif ()
-    if (NOT _production MATCHES "return ")
+    if (NOT _contents MATCHES "return ")
         message(FATAL_ERROR "${_file}: production path has no implementation body")
     endif ()
-    if (_stem IN_LIST _enosys_handlers AND NOT _production MATCHES "-ENOSYS")
+    if (_stem IN_LIST _enosys_handlers AND NOT _contents MATCHES "-ENOSYS")
         message(FATAL_ERROR "${_file}: intentional ENOSYS handler lost its contract")
     endif ()
 endfunction()
@@ -142,6 +126,33 @@ foreach (_file IN LISTS _scan)
         message(FATAL_ERROR "AIO registration macro remains in ${_file}")
     endif ()
 endforeach ()
+
+file(GLOB_RECURSE _test_scan
+        "${ASTIA_KERNEL_SOURCE_DIR}/tests/aio_*.c"
+        "${ASTIA_KERNEL_SOURCE_DIR}/tests/aio_*.cpp"
+        "${ASTIA_KERNEL_SOURCE_DIR}/tests/aio_*.h"
+        "${ASTIA_KERNEL_SOURCE_DIR}/tests/aio_*.hpp"
+        "${ASTIA_KERNEL_SOURCE_DIR}/tests/support/aio_*.h"
+        "${ASTIA_KERNEL_SOURCE_DIR}/tests/support/aio_*.hpp")
+foreach (_file IN LISTS _test_scan)
+    file(READ "${_file}" _contents)
+    string(FIND "${_contents}" "ASTIA_AIO_HOST_TEST" _host_offset)
+    if (NOT _host_offset EQUAL -1)
+        message(FATAL_ERROR "host-only AIO test bypass remains in ${_file}")
+    endif ()
+    if (_contents MATCHES
+            "filesystem::dispatch|socket::dispatch|readiness::dispatch|dispatch::dispatch_core")
+        message(FATAL_ERROR "AIO tests must not stub canonical handler entry points: ${_file}")
+    endif ()
+endforeach ()
+
+file(READ "${ASTIA_KERNEL_SOURCE_DIR}/tests/CMakeLists.txt" _aio_test_cmake)
+if (NOT _aio_test_cmake MATCHES "ASTIA_AIO_HANDLER_TEST_SOURCES")
+    message(FATAL_ERROR "AIO tests no longer link owner handler translation units")
+endif ()
+if (NOT _aio_test_cmake MATCHES "src/io/aio/dispatch.cpp")
+    message(FATAL_ERROR "AIO tests no longer link the shared production dispatch core")
+endif ()
 
 file(READ "${_aio}/dispatch.cpp" _core_dispatch)
 foreach (_shared

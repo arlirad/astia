@@ -187,6 +187,9 @@ set(ASTIA_AIO_HANDLER_TEST_SOURCES
         ${ASTIA_AIO_READINESS_HANDLER_TEST_SOURCES})
 set(ASTIA_AIO_REGISTRY_TEST_SOURCES
         aio_registry_test_support.cpp
+        support/file_host.cpp
+        support/interrupts_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/dispatch.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
         ${ASTIA_AIO_HANDLER_TEST_SOURCES})
 astia_add_host_test(astia_aio_static_handlers_test
@@ -197,10 +200,6 @@ astia_add_host_test(astia_aio_readiness_test
         aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 astia_add_host_test(astia_aio_socket_test
         aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
-foreach(_aio_test astia_aio_static_handlers_test astia_aio_filesystem_test
-        astia_aio_readiness_test astia_aio_socket_test)
-    target_compile_definitions(${_aio_test} PRIVATE ASTIA_AIO_HOST_TEST=1)
-endforeach()
 add_test(NAME astia_aio_handler_ownership
         COMMAND ${CMAKE_COMMAND}
         -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}

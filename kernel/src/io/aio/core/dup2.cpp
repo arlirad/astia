@@ -2,7 +2,6 @@
 
 namespace astia::io::aio::operations {
 
-#ifndef ASTIA_AIO_HOST_TEST
     namespace {
 
         bool handle_dup2(astia_rings* ring, const astia_sqe& s) {
@@ -24,16 +23,11 @@ namespace astia::io::aio::operations {
         }
 
     } // namespace
-#endif
 
     struct dup2 : handler<dup2, opcode::dup2> {
         static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
                            const astia_sqe& sqe) noexcept {
-#ifdef ASTIA_AIO_HOST_TEST
-            return ::astia::io::aio::dispatch::dispatch_core(slot, ring, sqe);
-#else
             return handle_dup2(ring, sqe);
-#endif
         }
     };
 

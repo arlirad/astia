@@ -1,22 +1,43 @@
 #pragma once
 
+#include <astia/api/aio.h>
+#include <astia/common.hpp>
+#include <astia/fs.hpp>
+#include <astia/mm/shptr.hpp>
+
 namespace astia::io::aio::test_support {
 
-    enum class owner : unsigned {
-        core,
-        filesystem,
-        readiness,
-        socket,
-        unknown,
+    struct cq_capture {
+        astia_rings   ring{};
+        astia_cq_ring cq{};
+        astia_cqe     cqes[64]{};
+
+        cq_capture();
+
+        u32              count() const;
+        const astia_cqe* at(u32 index) const;
+        i32              result(u32 index) const;
+        u64              user_data(u32 index) const;
+        void             consume(u32 count);
     };
 
-    extern unsigned core_dispatches;
-    extern unsigned filesystem_dispatches;
-    extern unsigned readiness_dispatches;
-    extern unsigned socket_dispatches;
-    extern unsigned unknown_completions;
+    void reset_environment();
+    void install_current_process();
+    void clear_current_process();
 
-    void reset_registry_counters();
-    bool routes_to(owner expected, unsigned operation);
+    i32  install_descriptor(const mm::shptr<fs::open_file>& file, u32 flags = 0);
+    bool descriptor_present(i32 fd);
+    void clear_descriptor(i32 fd);
+
+    void set_open_file(const mm::shptr<fs::open_file>& file);
+    void set_pipe_files(const mm::shptr<fs::open_file>& read_end,
+                        const mm::shptr<fs::open_file>& write_end);
+    void set_socket_file(const mm::shptr<fs::open_file>& file);
+    void set_socketpair_files(const mm::shptr<fs::open_file>& first,
+                              const mm::shptr<fs::open_file>& second);
+    void set_node_mode(fs::file_mode mode);
+    void set_memory_allowed(bool allowed);
+    void set_timer(u64 hz, u64 ticks);
+    void add_timer_ticks(u64 ticks);
 
 } // namespace astia::io::aio::test_support
