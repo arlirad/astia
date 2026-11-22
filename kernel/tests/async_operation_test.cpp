@@ -6,6 +6,9 @@
 #include "support/resume_queue_host.hpp"
 #include "support/test.hpp"
 
+#include <atomic>
+#include <thread>
+
 namespace {
     astia::core::completion<astia::i64>* source_completion = nullptr;
     astia::sys::async_operation*         active_operation  = nullptr;
@@ -50,6 +53,37 @@ namespace {
     astia::core::task<astia::i64> failing_body(astia::sys::syscall_context&) {
         ++body_entries;
         co_return astia::error_t::eio;
+    }
+
+    std::atomic<bool> finish_entered{false};
+    std::atomic<bool> finish_release{false};
+    std::atomic<int>  finish_wakes{0};
+
+    astia::core::task<astia::i64>
+    finish_waiter(astia::core::completion<astia::i64>& value) {
+        const auto result = co_await value;
+        finish_entered.store(true, std::memory_order_release);
+        while (!finish_release.load(std::memory_order_acquire))
+            std::this_thread::yield();
+        finish_wakes.fetch_add(1, std::memory_order_acq_rel);
+        if (!result)
+            co_return result.error;
+        co_return result.value;
+    }
+
+    void fill_resume_queue() {
+        const auto noop       = std::noop_coroutine();
+        astia::u64 generation = 1;
+        while (astia::core::schedule_resume(noop, generation))
+            ++generation;
+    }
+
+    void clear_resume_queue() {
+        const auto noop = std::noop_coroutine();
+        astia::core::cancel_resume(noop, 0);
+        while (astia::core::drain_resumes(astia::resource_limits::queue::resume * 2 +
+                                          1) != 0) {
+        }
     }
 
     astia::core::task<astia::i64>
@@ -228,12 +262,104 @@ ASTIA_TEST(async_operation_cancel_during_wake_is_terminal_exactly_once) {
     operation->destroy();
 }
 
+ASTIA_TEST(async_operation_shutdown_destroy_during_driver_resume_is_quiescent) {
+    astia::core::initialize_resume_queues();
+    astia::core::reap_operations();
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+    finish_entered.store(false, std::memory_order_release);
+    finish_release.store(false, std::memory_order_release);
+    finish_wakes.store(0, std::memory_order_release);
+    const astia::u64 process_id = 0x6000;
+    const astia::u64 thread_id  = 0x6001;
+
+    auto* operation =
+        make_operation(parked_body, static_cast<astia::sys::syscall_id>(143), arguments,
+                       frame, {}, {}, {process_id, thread_id});
+    if (operation == nullptr) {
+        ASTIA_CHECK(operation != nullptr);
+        return;
+    }
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+    auto waiter = finish_waiter(operation->completion());
+    ASTIA_CHECK(waiter.resume());
+    fill_resume_queue();
+
+    std::thread producer([&source] { ASTIA_CHECK(source.complete(7)); });
+    while (!finish_entered.load(std::memory_order_acquire))
+        std::this_thread::yield();
+
+    ASTIA_CHECK(operation->state() == astia::sys::async_operation_state::completed);
+    operation->shutdown();
+    operation->destroy();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 1);
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 0);
+
+    finish_release.store(true, std::memory_order_release);
+    producer.join();
+    ASTIA_CHECK(waiter.done());
+    ASTIA_CHECK(finish_wakes.load(std::memory_order_acquire) == 1);
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 1);
+    ASTIA_CHECK(astia::core::operation_registry_count() == 1);
+    astia::core::reap_operations();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+    clear_resume_queue();
+}
+
+ASTIA_TEST(async_operation_owner_exit_during_driver_resume_is_quiescent) {
+    astia::core::initialize_resume_queues();
+    astia::core::reap_operations();
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+    finish_entered.store(false, std::memory_order_release);
+    finish_release.store(false, std::memory_order_release);
+    finish_wakes.store(0, std::memory_order_release);
+    const astia::u64 process_id = 0x7000;
+    const astia::u64 thread_id  = 0x7001;
+
+    auto* operation =
+        make_operation(parked_body, static_cast<astia::sys::syscall_id>(144), arguments,
+                       frame, {}, {}, {process_id, thread_id});
+    if (operation == nullptr) {
+        ASTIA_CHECK(operation != nullptr);
+        return;
+    }
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+    auto waiter = finish_waiter(operation->completion());
+    ASTIA_CHECK(waiter.resume());
+    fill_resume_queue();
+
+    std::thread producer([&source] { ASTIA_CHECK(source.complete(8)); });
+    while (!finish_entered.load(std::memory_order_acquire))
+        std::this_thread::yield();
+
+    astia::core::cancel_operations_for_process(process_id,
+                                               astia::core::cancel_reason::owner);
+    ASTIA_CHECK(astia::core::operation_registry_count() == 1);
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 0);
+
+    finish_release.store(true, std::memory_order_release);
+    producer.join();
+    ASTIA_CHECK(waiter.done());
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 1);
+    astia::core::reap_operations();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+    clear_resume_queue();
+}
+
 ASTIA_TEST(async_operation_process_exit_cancels_registered_operation) {
     astia::arch::syscall_frame          frame{};
     astia::i64                          arguments[astia::sys::syscall_argument_count]{};
     astia::core::completion<astia::i64> source;
-    source_completion           = &source;
-    body_entries                = 0;
+    source_completion = &source;
+    body_entries      = 0;
+    astia::core::reap_operations();
     const astia::u64 process_id = 0x1000;
     const astia::u64 thread_id  = 0x2000;
 

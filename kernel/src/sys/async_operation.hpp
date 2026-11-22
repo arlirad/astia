@@ -81,14 +81,26 @@ namespace astia::sys {
                         async_operation_owner owner) noexcept;
         ~async_operation();
 
+        enum class teardown_result : u8 {
+            not_started,
+            immediate,
+            deferred,
+        };
+
         static core::task<i64>    drive(async_operation& operation, core::task<i64> body);
         static async_start_result start_result_for(async_operation_state state) noexcept;
         static void owner_exit_trampoline(void* object, core::cancel_reason reason);
         static void frame_destroyed_trampoline(void* context);
         static void reaper_destroy_trampoline(void* object);
 
-        void finish(optional<i64> result) noexcept;
-        void deliver(const optional<i64>& result) noexcept;
+        static constexpr u32 deletion_claimed = ~u32{0};
+
+        bool            enter_call() noexcept;
+        void            leave_call() noexcept;
+        teardown_result begin_teardown() noexcept;
+        void            maybe_reap() noexcept;
+        void            finish(optional<i64> result) noexcept;
+        void            deliver(const optional<i64>& result) noexcept;
         bool terminalize(core::cancel_reason reason, bool deliver_result) noexcept;
         void owner_exit() noexcept;
 
@@ -101,9 +113,14 @@ namespace astia::sys {
         optional<i64>          result_{};
         core::cancel_reason    reason_ = core::cancel_reason::none;
         async_operation_owner  owner_{};
-        volatile u32           registry_refs_   = 0;
-        u8                     registered_      = 0;
-        u8                     destroy_claimed_ = 0;
+        volatile u32           registry_refs_    = 0;
+        u8                     registered_       = 0;
+        u8                     destroy_claimed_  = 0;
+        u8                     teardown_state_   = 0;
+        u8                     driver_destroyed_ = 0;
+        u8                     reaper_queued_    = 0;
+        u8                     delete_when_idle_ = 0;
+        volatile u32           active_calls_     = 0;
     };
 
 } // namespace astia::sys

@@ -64,45 +64,97 @@ namespace astia::sys {
         (void) driver_.reset_with_observer(nullptr, nullptr);
     }
 
-    void async_operation::destroy() noexcept {
-        u8 expected = 0;
-        if (!__atomic_compare_exchange_n(&destroy_claimed_, &expected, 1, false,
-                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    bool async_operation::enter_call() noexcept {
+        u32 value = __atomic_load_n(&active_calls_, __ATOMIC_ACQUIRE);
+        for (;;) {
+            if (value == deletion_claimed)
+                return false;
+            if (__atomic_compare_exchange_n(&active_calls_, &value, value + 1, false,
+                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return true;
+        }
+    }
+
+    void async_operation::leave_call() noexcept {
+        if (__atomic_sub_fetch(&active_calls_, 1, __ATOMIC_ACQ_REL) != 0 ||
+            __atomic_load_n(&delete_when_idle_, __ATOMIC_ACQUIRE) == 0)
             return;
-        if (!terminal())
-            (void) terminalize(core::cancel_reason::shutdown, true);
-        bool immediate = driver_.reset_with_observer(
-            &async_operation::frame_destroyed_trampoline, this);
-        if (immediate)
+        u32 expected = 0;
+        if (__atomic_compare_exchange_n(&active_calls_, &expected, deletion_claimed,
+                                        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
             delete this;
     }
 
+    void async_operation::destroy() noexcept {
+        if (!enter_call())
+            return;
+        u8 expected = 0;
+        if (!__atomic_compare_exchange_n(&destroy_claimed_, &expected, 1, false,
+                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            leave_call();
+            return;
+        }
+        if (!terminal())
+            (void) terminalize(core::cancel_reason::shutdown, true);
+        const teardown_result result = begin_teardown();
+        if (result == teardown_result::immediate) {
+            __atomic_store_n(&delete_when_idle_, 1, __ATOMIC_RELEASE);
+            leave_call();
+            return;
+        }
+        if (result == teardown_result::deferred) {
+            leave_call();
+            return;
+        }
+        maybe_reap();
+        leave_call();
+    }
+
     void async_operation::shutdown(core::cancel_reason reason) noexcept {
+        if (!enter_call())
+            return;
         (void) terminalize(reason, true);
-        (void) driver_.reset_with_observer(nullptr, nullptr);
+        (void) begin_teardown();
+        maybe_reap();
+        leave_call();
     }
 
     async_start_result async_operation::start() noexcept {
+        if (!enter_call())
+            return async_start_result::canceled;
         u8 expected = static_cast<u8>(async_operation_state::created);
         if (!__atomic_compare_exchange_n(&state_, &expected,
                                          static_cast<u8>(async_operation_state::running),
-                                         false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-            return start_result_for(state());
+                                         false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            const async_start_result result = start_result_for(state());
+            leave_call();
+            return result;
+        }
 
         driver_.resume();
 
         expected = static_cast<u8>(async_operation_state::running);
         if (__atomic_compare_exchange_n(&state_, &expected,
                                         static_cast<u8>(async_operation_state::parked),
-                                        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                                        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            leave_call();
             return async_start_result::parked;
-        return start_result_for(state());
+        }
+        const async_start_result result = start_result_for(state());
+        leave_call();
+        return result;
     }
 
     bool async_operation::request_cancel(core::cancel_reason reason) noexcept {
-        if (!terminalize(reason, true))
+        if (!enter_call())
             return false;
-        (void) driver_.reset_with_observer(nullptr, nullptr);
+        if (!terminalize(reason, true)) {
+            leave_call();
+            return false;
+        }
+        (void) begin_teardown();
+        maybe_reap();
+        leave_call();
         return true;
     }
 
@@ -222,29 +274,67 @@ namespace astia::sys {
     }
 
     void async_operation::owner_exit() noexcept {
+        if (!enter_call())
+            return;
         u8 expected = 0;
         if (!__atomic_compare_exchange_n(&destroy_claimed_, &expected, 1, false,
-                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            leave_call();
             return;
+        }
         (void) terminalize(core::cancel_reason::owner, false);
-        bool immediate = driver_.reset_with_observer(
-            &async_operation::frame_destroyed_trampoline, this);
-        if (immediate)
-            (void) core::defer_operation_destroy(
-                this, &async_operation::reaper_destroy_trampoline);
+        (void) begin_teardown();
+        maybe_reap();
+        leave_call();
     }
 
     void async_operation::owner_exit_trampoline(void* object, core::cancel_reason) {
         static_cast<async_operation*>(object)->owner_exit();
     }
 
-    void async_operation::frame_destroyed_trampoline(void* context) {
-        (void) core::defer_operation_destroy(context,
+    async_operation::teardown_result async_operation::begin_teardown() noexcept {
+        u8 expected = 0;
+        if (!__atomic_compare_exchange_n(&teardown_state_, &expected, 1, false,
+                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return teardown_result::not_started;
+        if (driver_.reset_with_observer(&async_operation::frame_destroyed_trampoline,
+                                        this)) {
+            __atomic_store_n(&driver_destroyed_, 1, __ATOMIC_RELEASE);
+            __atomic_store_n(&teardown_state_, 2, __ATOMIC_RELEASE);
+            return teardown_result::immediate;
+        }
+        __atomic_store_n(&teardown_state_, 3, __ATOMIC_RELEASE);
+        return teardown_result::deferred;
+    }
+
+    void async_operation::maybe_reap() noexcept {
+        if (__atomic_load_n(&destroy_claimed_, __ATOMIC_ACQUIRE) == 0 ||
+            __atomic_load_n(&driver_destroyed_, __ATOMIC_ACQUIRE) == 0)
+            return;
+        u8 expected = 0;
+        if (!__atomic_compare_exchange_n(&reaper_queued_, &expected, 1, false,
+                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return;
+        (void) core::defer_operation_destroy(this,
                                              &async_operation::reaper_destroy_trampoline);
     }
 
+    void async_operation::frame_destroyed_trampoline(void* context) {
+        auto* value = static_cast<async_operation*>(context);
+        __atomic_store_n(&value->driver_destroyed_, 1, __ATOMIC_RELEASE);
+        value->maybe_reap();
+    }
+
     void async_operation::reaper_destroy_trampoline(void* object) {
-        delete static_cast<async_operation*>(object);
+        auto* value    = static_cast<async_operation*>(object);
+        u32   expected = 0;
+        if (__atomic_compare_exchange_n(&value->active_calls_, &expected,
+                                        deletion_claimed, false, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE)) {
+            delete value;
+            return;
+        }
+        __atomic_store_n(&value->delete_when_idle_, 1, __ATOMIC_RELEASE);
     }
 
 } // namespace astia::sys

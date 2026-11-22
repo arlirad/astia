@@ -6,6 +6,9 @@
 #include "support/resume_queue_host.hpp"
 #include "support/test.hpp"
 
+#include <atomic>
+#include <thread>
+
 namespace {
     int* probe_destroyed = nullptr;
 
@@ -58,6 +61,40 @@ namespace {
         if (!result)
             co_return result.error;
         co_return result.value;
+    }
+
+    std::atomic<bool> fallback_entered{false};
+    std::atomic<bool> fallback_release{false};
+    std::atomic<int>  fallback_destroyed{0};
+
+    void note_fallback_destroyed(void* context) {
+        static_cast<std::atomic<int>*>(context)->fetch_add(1, std::memory_order_acq_rel);
+    }
+
+    astia::core::task<astia::i64>
+    fallback_spinner(astia::core::completion<astia::i64>& source) {
+        const auto result = co_await source;
+        fallback_entered.store(true, std::memory_order_release);
+        while (!fallback_release.load(std::memory_order_acquire))
+            std::this_thread::yield();
+        if (!result)
+            co_return result.error;
+        co_return result.value;
+    }
+
+    void fill_resume_queue() {
+        const auto noop       = std::noop_coroutine();
+        astia::u64 generation = 1;
+        while (astia::core::schedule_resume(noop, generation))
+            ++generation;
+    }
+
+    void clear_resume_queue() {
+        const auto noop = std::noop_coroutine();
+        astia::core::cancel_resume(noop, 0);
+        while (astia::core::drain_resumes(astia::resource_limits::queue::resume * 2 +
+                                          1) != 0) {
+        }
     }
 
     astia::core::completion<astia::i64>* outer_source = nullptr;
@@ -175,6 +212,62 @@ ASTIA_TEST(completion_reentrant_inline_wake_balances_acknowledgements) {
     ASTIA_CHECK(outer_task.done());
     ASTIA_CHECK(inner_task.value() != nullptr && *inner_task.value() == 7);
     ASTIA_CHECK(outer_task.value() != nullptr && *outer_task.value() == 6);
+    ASTIA_CHECK(astia::core::coroutine_lifecycle_inflight() == 0);
+}
+
+ASTIA_TEST(completion_inline_detach_before_completion_does_not_resume) {
+    astia::core::completion<astia::i64> source;
+    inline_seen = 0;
+    auto task   = observes_inline_resume(source);
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+
+    task.reset();
+    ASTIA_CHECK(source.complete(4));
+    ASTIA_CHECK(astia::core::coroutine_lifecycle_inflight() == 0);
+    ASTIA_CHECK(inline_seen == 0);
+}
+
+ASTIA_TEST(completion_deferred_detach_before_completion_does_not_resume) {
+    astia::core::initialize_resume_queues();
+    astia::core::completion<astia::i64> source;
+    inline_seen = 0;
+    auto task   = observes_deferred_resume(source);
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+
+    task.reset();
+    ASTIA_CHECK(source.complete_deferred(4));
+    ASTIA_CHECK(astia::core::drain_resumes() == 0);
+    ASTIA_CHECK(astia::core::coroutine_lifecycle_inflight() == 0);
+    ASTIA_CHECK(inline_seen == 0);
+}
+
+ASTIA_TEST(completion_overflow_fallback_destroy_race_is_quiescent) {
+    astia::core::initialize_resume_queues();
+    fill_resume_queue();
+    fallback_entered.store(false, std::memory_order_release);
+    fallback_release.store(false, std::memory_order_release);
+    fallback_destroyed.store(0, std::memory_order_release);
+
+    astia::core::completion<astia::i64> source;
+    auto                                task = fallback_spinner(source);
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+
+    std::thread producer([&source] { ASTIA_CHECK(source.complete_deferred(21)); });
+    while (!fallback_entered.load(std::memory_order_acquire))
+        std::this_thread::yield();
+
+    ASTIA_CHECK(!task.reset_with_observer(&note_fallback_destroyed, &fallback_destroyed));
+    ASTIA_CHECK(fallback_destroyed.load(std::memory_order_acquire) == 0);
+
+    fallback_release.store(true, std::memory_order_release);
+    producer.join();
+    ASTIA_CHECK(fallback_destroyed.load(std::memory_order_acquire) == 1);
+    ASTIA_CHECK(astia::core::coroutine_lifecycle_inflight() != 0);
+
+    clear_resume_queue();
     ASTIA_CHECK(astia::core::coroutine_lifecycle_inflight() == 0);
 }
 

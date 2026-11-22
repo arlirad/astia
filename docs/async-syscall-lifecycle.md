@@ -82,6 +82,12 @@ handler code:
   final step, but it cannot be resumed after the frame is destroyed.
 - `destroy_claimed_` is a compare-and-exchange ownership token: owner release
   and owner-exit cancellation cannot both queue or delete the same operation.
+- `teardown_state_` tracks driver teardown independently of `driver_` handle
+  ownership. `destroy()` never frees the operation when teardown was deferred;
+  only `frame_destroyed_trampoline` plus the reaper can do that.
+- `active_calls_` plus `delete_when_idle_` keep `request_cancel()`, `shutdown()`,
+  `owner_exit()`, and `destroy()` from freeing an operation while another call
+  is still using it.
 
 ## Remaining limitations
 

@@ -77,9 +77,10 @@ namespace astia::core {
                 const resume_schedule result = schedule_resume_owned(handle, generation);
                 if (result == resume_schedule::queued)
                     return;
-                resume_end(handle);
-                if (result == resume_schedule::duplicate)
+                if (result == resume_schedule::duplicate) {
+                    resume_end(handle);
                     return;
+                }
                 handle.resume();
                 resume_end(handle);
                 return;
