@@ -61,9 +61,9 @@ merge_base_with_main() {
 
 if [[ "$full_tree" -eq 0 ]]; then
     case "$event" in
-        pull_request)
+        pull_request|merge_group)
             is_commit "$base_sha" && is_commit "$head_sha" ||
-                die 'pull_request requires valid BASE_SHA and HEAD_SHA commits'
+                die "$event requires valid BASE_SHA and HEAD_SHA commits"
             ;;
         push)
             is_commit "$head_sha" ||
@@ -83,7 +83,7 @@ fi
 
 if [[ "$full_tree" -eq 0 ]]; then
     case "$event" in
-        pull_request|push)
+        pull_request|merge_group|push)
             is_commit "$base_sha" && is_commit "$head_sha" ||
                 die "could not resolve $event formatting range"
             ;;
