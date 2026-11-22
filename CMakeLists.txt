@@ -522,6 +522,12 @@ if(ASTIA_BUILD_TESTS)
 
     set(_astia_zsh_env)
     list(APPEND _astia_zsh_env ZSH_SOURCE=${ASTIA_ZSH_SOURCE})
+    astia_register_script_test(astia_zsh_zshenv_prompt
+            "zsh;repository;deterministic"
+            ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/check-zsh-zshenv-prompt.sh
+            TIMEOUT 30
+            ENV
+                ASTIA_ZSH_ZSHENV_CHECK_BUILD=${CMAKE_BINARY_DIR}/zshenv-prompt-check)
     astia_register_script_test(astia_zsh_pty_regression
             "zsh;pty;qemu;external;deterministic"
             ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/run-zsh-qemu.sh
