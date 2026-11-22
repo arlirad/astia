@@ -2,6 +2,7 @@
 #include <astia/api/signal.h>
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
+#include <astia/memory.hpp>
 
 #include "../../mapping.hpp"
 #include "../../proc.hpp"
@@ -81,7 +82,8 @@ namespace astia::proc::syscalls {
             const auto old = owner->signals().disposition(signal);
             if (!old_ptr.null()) {
                 const auto             old_range = old_ptr.validate();
-                struct astia_sigaction out {};
+                struct astia_sigaction out;
+                fill_zero(&out, sizeof out);
                 out.handler  = user_handler_value(old);
                 out.mask     = old.mask;
                 out.flags    = old.flags;

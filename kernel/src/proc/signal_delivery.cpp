@@ -5,6 +5,7 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/log.hpp>
+#include <astia/memory.hpp>
 #include <astia/mm/heap.hpp>
 #include <astia/wait.hpp>
 
@@ -13,6 +14,7 @@
 #include "mapping.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
+#include "signal_info.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
 
@@ -71,9 +73,9 @@ namespace astia::proc {
                     !sys::user_span_ok(
                         span<u8>::bytes(reinterpret_cast<u64>(disposition.handler), 1)))
                     goto fatal_signal;
-                astia_siginfo_t user_info{info.signo, info.errno_value, info.code,
-                                          info.pid,   info.uid,         info.status,
-                                          info.addr};
+                const astia_siginfo_t user_info =
+                    make_siginfo(info.signo, info.errno_value, info.code, info.pid,
+                                 info.uid, info.status, info.addr);
                 if (!sys::user_span_ok(
                         span<u8>::bytes(info_address, sizeof(user_info))) ||
                     !sys::copy_out(span<u8>::bytes(info_address, sizeof(user_info)),
@@ -229,35 +231,36 @@ namespace astia::proc {
                 return fatal_signal();
 
             const i32 code = (error & 1) != 0 ? ASTIA_SEGV_ACCERR : ASTIA_SEGV_MAPERR;
-            const astia_siginfo_t user_info{
-                static_cast<i32>(signal), 0, code, 0, 0, 0, addr};
+            const astia_siginfo_t user_info =
+                make_siginfo(static_cast<i32>(signal), 0, code, 0, 0, 0, addr);
             if (!sys::user_span_ok(span<u8>::bytes(info_address, sizeof(user_info))) ||
                 !sys::copy_out(span<u8>::bytes(info_address, sizeof(user_info)),
                                &user_info))
                 return fatal_signal();
 
-            const astia_x86_64_signal_context_t saved{
-                raw_frame->rax,
-                raw_frame->rbx,
-                raw_frame->rcx,
-                raw_frame->rdx,
-                raw_frame->rsi,
-                raw_frame->rdi,
-                raw_frame->r8,
-                raw_frame->r9,
-                raw_frame->r10,
-                raw_frame->r11,
-                raw_frame->r12,
-                raw_frame->r13,
-                raw_frame->r14,
-                raw_frame->r15,
-                raw_frame->rbp,
-                raw_frame->rip,
-                raw_frame->rsp,
-                raw_frame->rflags,
-                self->signals().blocked(),
-                static_cast<u32>(self->signal_stack_on_alt() ? 1u : 0u) | 2u,
-                raw_frame->rip};
+            astia_x86_64_signal_context_t saved;
+            fill_zero(&saved, sizeof saved);
+            saved.rax      = raw_frame->rax;
+            saved.rbx      = raw_frame->rbx;
+            saved.rcx      = raw_frame->rcx;
+            saved.rdx      = raw_frame->rdx;
+            saved.rsi      = raw_frame->rsi;
+            saved.rdi      = raw_frame->rdi;
+            saved.r8       = raw_frame->r8;
+            saved.r9       = raw_frame->r9;
+            saved.r10      = raw_frame->r10;
+            saved.r11      = raw_frame->r11;
+            saved.r12      = raw_frame->r12;
+            saved.r13      = raw_frame->r13;
+            saved.r14      = raw_frame->r14;
+            saved.r15      = raw_frame->r15;
+            saved.rbp      = raw_frame->rbp;
+            saved.rip      = raw_frame->rip;
+            saved.rsp      = raw_frame->rsp;
+            saved.rflags   = raw_frame->rflags;
+            saved.blocked  = self->signals().blocked();
+            saved.reserved = static_cast<u32>(self->signal_stack_on_alt() ? 1u : 0u) | 2u;
+            saved.fault_rip = raw_frame->rip;
             if (!sys::copy_out(span<u8>::bytes(context, sizeof saved), &saved) ||
                 !sys::copy_out(span<u8>::bytes(retaddr, 8), &disposition.restorer))
                 return fatal_signal();

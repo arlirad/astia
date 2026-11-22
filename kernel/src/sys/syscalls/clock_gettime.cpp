@@ -1,6 +1,7 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 #include <astia/arch/interrupts.hpp>
+#include <astia/memory.hpp>
 
 #include "../time.hpp"
 #include "user_mem.hpp"
@@ -31,7 +32,10 @@ namespace astia::sys::syscalls {
             default:
                 return -EINVAL;
             }
-            const astia_timespec ts{sec, nsec};
+            astia_timespec ts;
+            fill_zero(&ts, sizeof ts);
+            ts.tv_sec  = sec;
+            ts.tv_nsec = nsec;
             return sys::copy_out(ts_out.value.bytes(), &ts) ? 0 : -EFAULT;
         }
     };

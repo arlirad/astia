@@ -1,5 +1,6 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
+#include <astia/memory.hpp>
 
 #include "../../../sys/user_mem.hpp"
 #include "../../proc.hpp"
@@ -26,9 +27,12 @@ namespace astia::proc::syscalls {
             if (!snapshot.supported)
                 return -ENOTSUP;
 
-            astia_thread_stack_info info{snapshot.stack_base,
-                                         static_cast<u64>(snapshot.stack_size),
-                                         snapshot.detached ? 1u : 0u, 0u};
+            astia_thread_stack_info info;
+            fill_zero(&info, sizeof info);
+            info.stack_addr = snapshot.stack_base;
+            info.stack_size = static_cast<u64>(snapshot.stack_size);
+            info.detached   = snapshot.detached ? 1u : 0u;
+            info.reserved   = 0u;
             return sys::copy_out(validated.value.bytes(), &info) ? 0 : -EFAULT;
         }
     };

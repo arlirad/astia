@@ -1,5 +1,6 @@
 #include <astia/api/errno.h>
 #include <astia/api/signal.h>
+#include <astia/memory.hpp>
 
 #include "../../proc.hpp"
 #include "syscall.hpp"
@@ -18,7 +19,8 @@ namespace astia::proc::syscalls {
 
             optional<sys::validated_user_ptr<astia_stack_t>> old_range;
             astia_stack_t                                    next{};
-            astia_stack_t                                    old{};
+            astia_stack_t                                    old;
+            fill_zero(&old, sizeof old);
             if (!stack_ptr.null()) {
                 auto validated = stack_ptr.validate();
                 if (!validated || !sys::copy_in(&next, validated.value.bytes()))
