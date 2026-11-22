@@ -263,16 +263,10 @@ if [ -n "$nano_binary" ]; then
 fi
 if [ "$fallback" = serial ]; then
     cat >"$work/root/etc/zshenv" <<'EOF'
-typeset -ga .term.extensions
-.term.extensions=(-query)
-.term.extensions+=(-integration-prompt -integration-output -integration-pwd -bracketed-paste)
 PS1='ASTIA_READY> '
 EOF
 else
     cat >"$work/root/etc/zshenv" <<'EOF'
-typeset -ga .term.extensions
-.term.extensions=(-query)
-.term.extensions+=(-integration-prompt -integration-output -integration-pwd -bracketed-paste)
 PS1=$'\e[1;32mASTIA_VGA_READY>\e[0m '
 EOF
 fi

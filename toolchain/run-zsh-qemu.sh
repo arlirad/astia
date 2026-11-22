@@ -276,9 +276,6 @@ if [ -n "$nano_binary" ]; then
     cp "$nano_binary" "$work/root/bin/nano"
 fi
 cat > "$work/root/etc/zshenv" <<'EOF'
-typeset -ga .term.extensions
-.term.extensions=(-query)
-.term.extensions+=(-integration-prompt -integration-output -integration-pwd -bracketed-paste)
 PS1='ASTIA_READY> '
 EOF
 test -x "$work/root/sbin/init"
