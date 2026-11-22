@@ -17,6 +17,11 @@ add_test(NAME astia_net_syscall_manifest
                 ${ASTIA_KERNEL_SOURCE_DIR}/../tools/man/test_syscall_layout.py --net-only)
 set_tests_properties(astia_net_syscall_manifest PROPERTIES
         LABELS "docs;abi;deterministic")
+add_test(NAME astia_man_generator_unit
+        COMMAND ${Python3_EXECUTABLE}
+                ${ASTIA_KERNEL_SOURCE_DIR}/../tools/man/test_generate.py)
+set_tests_properties(astia_man_generator_unit PROPERTIES
+        LABELS "docs;deterministic")
 
 find_package(Threads REQUIRED)
 find_program(ASTIA_OBJDUMP NAMES llvm-objdump objdump REQUIRED)

@@ -146,7 +146,7 @@ def main() -> int:
     check_production_layout(repository)
     check_syscall_man_blocks(repository)
     check_net_socket_manifest(repository)
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory(dir=repository) as directory:
         root = Path(directory)
         source = root / "kernel" / "src"
         docs = root / "docs"
@@ -180,13 +180,15 @@ def main() -> int:
                 str(docs),
                 "--libc-source",
                 str(root / "libc"),
+                "--abi-header",
+                str(repository / "kernel/include/astia/api/syscalls.h"),
             ],
             check=True,
         )
         index = (output / "index.html").read_text()
         assert "wait_example.2.html" in index
         assert "socket_example.2.html" in index
-        assert index.index("net") < index.index("proc")
+        assert index.index("<h3>net</h3>") < index.index("<h3>proc</h3>")
         assert "wait_example(2)" in (output / "wait_example.2.html").read_text()
         assert "socket_example(2)" in (output / "socket_example.2.html").read_text()
         assert "long wait_example(void);" in (output / "wait_example.2.html").read_text()
