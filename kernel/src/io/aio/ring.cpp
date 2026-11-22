@@ -384,7 +384,7 @@ namespace astia::io::aio::ring {
                 visible = reinterpret_cast<astia_rings*>(user_address);
             }
             if (!memory::copy_out(
-                    span<u8>::bytes(reinterpret_cast<u64>(out), sizeof visible),
+                    span<u8>::bytes(reinterpret_cast<u64>(out), sizeof(astia_rings*)),
                     &visible)) {
                 unmap_ring_user(slot, owner);
                 clear_slot(slot, slot.cleanup);
