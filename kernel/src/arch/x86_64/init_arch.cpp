@@ -1,14 +1,17 @@
-#include "gdt.hpp"
-#include "smp.hpp"
-#include <astia/hw/pci.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
+#include <astia/arch/mmio.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/boot.hpp>
+#include <astia/hw/pci.hpp>
 #include <astia/init.hpp>
 #include <astia/memory.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
+
+#include "gdt.hpp"
+#include "pci_mmio_owner.hpp"
+#include "smp.hpp"
 
 // Kernel image bounds from the linker script; both are *physical* addresses
 // (see cmake/linker/virt-x86_64.ld): the frame allocator reserves
@@ -57,47 +60,6 @@ namespace astia::arch {
 
 namespace astia::arch::x86_64 {
 
-    namespace {
-
-        bool map_pci_mmio(u64 physical, u64 size, bool prefetchable, u64& virtual_address) {
-            if (size == 0 || physical > ~u64{0} - (size - 1))
-                return false;
-            const u64 first = physical & ~static_cast<u64>(mm::page_mask);
-            const u64 last = (physical + size - 1) & ~static_cast<u64>(mm::page_mask);
-            auto* map = kernel_page_map();
-            if (map == nullptr)
-                return false;
-            const page_flags flags = page_flags::present | page_flags::writable |
-                                     (prefetchable ? page_flags::none : page_flags::cache_disable);
-            for (u64 page = first;; page += mm::page_size) {
-                if (!map->map_4k(kernel_base + page, page, flags)) {
-                    for (u64 rollback = first; rollback < page; rollback += mm::page_size)
-                        map->unmap(kernel_base + rollback);
-                    return false;
-                }
-                if (page == last)
-                    break;
-            }
-            virtual_address = kernel_base + physical;
-            return true;
-        }
-
-        void unmap_pci_mmio(u64 virtual_address, u64 size) {
-            auto* map = kernel_page_map();
-            if (map == nullptr || size == 0)
-                return;
-            const u64 physical = virtual_address - kernel_base;
-            const u64 first = physical & ~static_cast<u64>(mm::page_mask);
-            const u64 last = (physical + size - 1) & ~static_cast<u64>(mm::page_mask);
-            for (u64 page = first;; page += mm::page_size) {
-                map->unmap(kernel_base + page);
-                if (page == last)
-                    break;
-            }
-        }
-
-    }
-
     static bool step_paging(init::context& ctx) {
         if (ctx.info == nullptr) {
             return false;
@@ -109,7 +71,6 @@ namespace astia::arch::x86_64 {
         }
 
         constexpr u64        two_m = 2ull << 20;
-        constexpr u64        one_g = 1ull << 30;
         constexpr page_flags rw    = page_flags::present | page_flags::writable;
 
         // Identity window [0, 1 GiB), mirroring what boot.S established:
@@ -117,7 +78,7 @@ namespace astia::arch::x86_64 {
         // the frame bitmap, loaded modules, the loader's start info, and
         // the page-table frames themselves (page_map writes tables through
         // this window).
-        for (u64 v = 0; v < one_g; v += two_m) {
+        for (u64 v = 0; v < pci_identity_window_size; v += two_m) {
             if (!map.map_2m(v, v, rw)) {
                 return false;
             }
@@ -139,13 +100,12 @@ namespace astia::arch::x86_64 {
             if (length == 0 || length > ~u64{0} - ctx.info->framebuffer.physical_address)
                 return false;
             const u64 first = ctx.info->framebuffer.physical_address & ~mm::page_mask;
-            const u64 end = align_up(ctx.info->framebuffer.physical_address + length,
-                                     static_cast<u64>(mm::page_size));
+            const u64 end   = align_up(ctx.info->framebuffer.physical_address + length,
+                                       static_cast<u64>(mm::page_size));
             if (end < first)
                 return false;
             for (u64 p = first; p < end; p += mm::page_size) {
-                if (!map.map_4k(kernel_base + p, p,
-                                rw | page_flags::cache_disable))
+                if (!map.map_4k(kernel_base + p, p, rw | page_flags::cache_disable))
                     return false;
             }
         }
@@ -170,7 +130,11 @@ namespace astia::arch::x86_64 {
         kernel_map_live = true;
         kernel_map.activate();
         mm::kernel_frames().configure_access(direct_access);
-        hw::pci_set_mmio_mapper(map_pci_mmio, unmap_pci_mmio);
+        pci_mmio_owner_configure(pci_mmio_safe_floor(top),
+                                 pci_mmio_va_limits_for(kernel_base, direct_map_limit,
+                                                        mmio_window().base,
+                                                        recursive_base, image_base));
+        hw::pci_set_mmio_mapper(pci_mmio_owner_map, pci_mmio_owner_unmap);
         return true;
     }
 
@@ -196,6 +160,28 @@ namespace astia::arch {
 
     bool init_scheduler() {
         return x86_64::smp::init_scheduler();
+    }
+
+    mmio_borrow_status mmio_borrow_status_of(u64 base, u64 mapped_bytes) {
+        return x86_64::pci_mmio_owner_borrow_status(base, mapped_bytes);
+    }
+
+    mmio_reserve_result mmio_reserve_generic(u64 base, u64 mapped_bytes,
+                                             u64 virtual_address) {
+        return x86_64::pci_mmio_owner_reserve_generic(base, mapped_bytes,
+                                                      virtual_address);
+    }
+
+    void mmio_release_generic(u64 virtual_address, u64 mapped_bytes) {
+        x86_64::pci_mmio_owner_release_generic(virtual_address, mapped_bytes);
+    }
+
+    bool pci_mmio_map(u64 physical, u64 size, bool prefetchable, u64& virtual_address) {
+        return x86_64::pci_mmio_owner_map(physical, size, prefetchable, virtual_address);
+    }
+
+    void pci_mmio_unmap(u64 virtual_address, u64 size) {
+        x86_64::pci_mmio_owner_unmap(virtual_address, size);
     }
 
 } // namespace astia::arch

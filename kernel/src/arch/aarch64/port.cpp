@@ -60,9 +60,17 @@ namespace astia::arch {
     mmio_window_bounds mmio_window() {
         return {kernel_base, kernel_base + 0x400000000000ull};
     }
+
+    bool pci_mmio_map(u64, u64, bool, u64&) {
+        return false;
+    }
+
+    void      pci_mmio_unmap(u64, u64) {}
     const u64 image_base = 0xFFFFFF8000000000ull;
     // No recursive window yet (no page_map port); 0 = disabled.
     const u64 recursive_base = 0;
+    // No direct-map contract yet (no page_map port); 0 = disabled.
+    const u64 direct_map_limit = 0;
 
     // Real instructions even in the stub: wfi/daif are the architectural
     // aarch64 counterparts of hlt/cli/sti, so this is what the port will

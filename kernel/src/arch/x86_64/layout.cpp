@@ -16,9 +16,10 @@ namespace astia::arch {
     //                    mapping: table access without 1:1 windows).
     // Must agree with boot.S (boot page tables) and
     // cmake/linker/virt-x86_64.ld.
-    const u64 kernel_base    = 0xFFFF800000000000ull;
-    const u64 image_base     = 0xFFFFFFFF80000000ull;
-    const u64 recursive_base = 0xFFFFFF0000000000ull;
+    const u64 kernel_base      = 0xFFFF800000000000ull;
+    const u64 image_base       = 0xFFFFFFFF80000000ull;
+    const u64 recursive_base   = 0xFFFFFF0000000000ull;
+    const u64 direct_map_limit = 1ull << 39;
 
     mmio_window_bounds mmio_window() {
         return {0xFFFFC00000000000ull, 0xFFFFF00000000000ull};

@@ -1,4 +1,5 @@
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/layout.hpp>
 #include <astia/arch/mmio.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/arch/pci_config.hpp>
@@ -11,6 +12,62 @@
 #include <cstdio>
 
 namespace {
+
+    bool                            fake_page_map_ready   = false;
+    astia::u32                      fake_unmap_count      = 0;
+    astia::u32                      fake_map_calls        = 0;
+    astia::u32                      fake_reserve_calls    = 0;
+    astia::u32                      fake_release_calls    = 0;
+    astia::u32                      fake_invalid_release  = 0;
+    astia::u32                      fake_map_fail_on_call = ~astia::u32{0};
+    astia::u32                      fake_pci_map_calls    = 0;
+    astia::u32                      fake_pci_unmap_calls  = 0;
+    bool                            fake_pci_map_result   = true;
+    bool                            fake_pci_malformed_va = false;
+    astia::u64                      fake_pci_unmap_va     = 0;
+    astia::u64                      fake_last_map_va      = 0;
+    astia::arch::mmio_borrow_status fake_borrow_status =
+        astia::arch::mmio_borrow_status::absent;
+    astia::arch::mmio_reserve_result fake_reserve_result =
+        astia::arch::mmio_reserve_result::ok;
+    astia::arch::page_map fake_page_map;
+
+    struct fake_owner {
+        astia::u64 first = 0;
+        astia::u64 last  = 0;
+        astia::u64 va    = 0;
+        astia::u64 size  = 0;
+        bool       pci   = false;
+        bool       used  = false;
+    };
+
+    constexpr astia::usize fake_owner_limit = 8;
+    fake_owner             fake_owners[fake_owner_limit]{};
+
+    void reset_fake_owners() {
+        for (auto& owner : fake_owners)
+            owner = {};
+        fake_page_map_ready   = false;
+        fake_unmap_count      = 0;
+        fake_map_calls        = 0;
+        fake_reserve_calls    = 0;
+        fake_release_calls    = 0;
+        fake_invalid_release  = 0;
+        fake_map_fail_on_call = ~astia::u32{0};
+        fake_borrow_status    = astia::arch::mmio_borrow_status::absent;
+        fake_reserve_result   = astia::arch::mmio_reserve_result::ok;
+        fake_pci_map_calls    = 0;
+        fake_pci_unmap_calls  = 0;
+        fake_pci_map_result   = true;
+        fake_pci_malformed_va = false;
+        fake_pci_unmap_va     = 0;
+        fake_last_map_va      = 0;
+    }
+
+    bool fake_overlap(astia::u64 first, astia::u64 last, astia::u64 other_first,
+                      astia::u64 other_last) {
+        return first <= other_last && other_first <= last;
+    }
 
     struct fake_pci {
         astia::u16 command    = 0;
@@ -106,6 +163,8 @@ namespace {
 
 namespace astia::arch {
 
+    const u64 kernel_base = 0xFFFF800000000000ull;
+
     mmio_window_bounds mmio_window() {
         return {0xFFFFC00000000000ull, 0xFFFFF00000000000ull};
     }
@@ -122,9 +181,72 @@ namespace astia::arch {
         state.write(address, static_cast<u8>(offset), value);
     }
 
-    page_map* kernel_page_map() {
-        return nullptr;
+    mmio_borrow_status mmio_borrow_status_of(u64 base, u64 mapped_bytes) {
+        if (fake_borrow_status != mmio_borrow_status::absent)
+            return fake_borrow_status;
+        if (mapped_bytes == 0)
+            return mmio_borrow_status::absent;
+        const u64 first = base & ~static_cast<u64>(mm::page_mask);
+        const u64 last  = (base + mapped_bytes - 1) & ~static_cast<u64>(mm::page_mask);
+        for (const auto& owner : fake_owners) {
+            if (owner.used && fake_overlap(first, last, owner.first, owner.last))
+                return owner.pci ? mmio_borrow_status::pci_owned
+                                 : mmio_borrow_status::generic_owned;
+        }
+        return mmio_borrow_status::absent;
     }
+
+    mmio_reserve_result mmio_reserve_generic(u64 base, u64 mapped_bytes,
+                                             u64 virtual_address) {
+        ++fake_reserve_calls;
+        if (fake_reserve_result != mmio_reserve_result::ok)
+            return fake_reserve_result;
+        const u64 first = base & ~static_cast<u64>(mm::page_mask);
+        const u64 last  = (base + mapped_bytes - 1) & ~static_cast<u64>(mm::page_mask);
+        for (const auto& owner : fake_owners) {
+            if (owner.used && fake_overlap(first, last, owner.first, owner.last))
+                return mmio_reserve_result::busy;
+        }
+        for (auto& owner : fake_owners) {
+            if (owner.used)
+                continue;
+            owner = {first, last, virtual_address, mapped_bytes, false, true};
+            return mmio_reserve_result::ok;
+        }
+        return mmio_reserve_result::full;
+    }
+
+    void mmio_release_generic(u64 virtual_address, u64 mapped_bytes) {
+        ++fake_release_calls;
+        if (mapped_bytes == 0)
+            ++fake_invalid_release;
+        for (auto& owner : fake_owners) {
+            if (owner.used && !owner.pci && owner.va == virtual_address &&
+                owner.size == mapped_bytes) {
+                owner = {};
+                return;
+            }
+        }
+    }
+
+    bool pci_mmio_map(u64 physical, u64, bool, u64& virtual_address) {
+        ++fake_pci_map_calls;
+        if (!fake_pci_map_result)
+            return false;
+        virtual_address = fake_pci_malformed_va ? 0 : kernel_base + physical;
+        return true;
+    }
+
+    void pci_mmio_unmap(u64 virtual_address, u64) {
+        ++fake_pci_unmap_calls;
+        fake_pci_unmap_va = virtual_address;
+    }
+
+    page_map* kernel_page_map() {
+        return fake_page_map_ready ? &fake_page_map : nullptr;
+    }
+
+    page_map::~page_map() {}
 
     bool cpu::check_interrupts() {
         return false;
@@ -132,11 +254,14 @@ namespace astia::arch {
     void cpu::nointerrupts() {}
     void cpu::interrupts() {}
 
-    bool page_map::map_4k(vaddr_t, paddr_t, page_flags) {
-        return false;
+    bool page_map::map_4k(vaddr_t virt, paddr_t, page_flags) {
+        ++fake_map_calls;
+        fake_last_map_va = virt;
+        return fake_page_map_ready && fake_map_calls < fake_map_fail_on_call;
     }
     bool page_map::unmap(vaddr_t) {
-        return false;
+        ++fake_unmap_count;
+        return fake_page_map_ready;
     }
 
 } // namespace astia::arch
@@ -174,6 +299,242 @@ ASTIA_TEST(mmio_mapping_rejects_unavailable_kernel_paging) {
     auto unavailable = astia::dev::mmio_mapping::map(0x1000, 4);
     ASTIA_CHECK(!unavailable);
     ASTIA_CHECK(unavailable.error == astia::error_t::enosys);
+}
+
+ASTIA_TEST(pci_bar_public_map_routes_through_pci_mapper) {
+    reset_fake_owners();
+
+    astia::hw::pci_bar bar{};
+    bar.address = 0x1'0000'0000ull;
+    bar.size    = 0x1000;
+    bar.present = true;
+
+    auto mapping = bar.map();
+    ASTIA_CHECK(mapping);
+    if (mapping) {
+        ASTIA_CHECK(mapping.value.valid());
+        ASTIA_CHECK(mapping.value.base() == reinterpret_cast<volatile void*>(
+                                                astia::arch::kernel_base + bar.address));
+        mapping.value.release();
+    }
+    ASTIA_CHECK(fake_pci_map_calls == 1);
+    ASTIA_CHECK(fake_pci_unmap_calls == 1);
+    ASTIA_CHECK(fake_map_calls == 0);
+    ASTIA_CHECK(fake_unmap_count == 0);
+    ASTIA_CHECK(fake_reserve_calls == 0);
+    ASTIA_CHECK(fake_release_calls == 0);
+}
+
+ASTIA_TEST(pci_bar_public_map_malformed_va_rolls_back) {
+    reset_fake_owners();
+    fake_pci_malformed_va = true;
+
+    astia::hw::pci_bar bar{};
+    bar.address = 0x1'0000'0000ull;
+    bar.size    = 0x1000;
+    bar.present = true;
+
+    auto mapping = bar.map();
+    ASTIA_CHECK(!mapping);
+    ASTIA_CHECK(mapping.error == astia::error_t::erange);
+    ASTIA_CHECK(fake_pci_map_calls == 1);
+    ASTIA_CHECK(fake_pci_unmap_calls == 1);
+    ASTIA_CHECK(fake_pci_unmap_va == astia::arch::kernel_base + bar.address);
+}
+
+ASTIA_TEST(pci_bar_public_map_expected_va_overflow_rejected) {
+    reset_fake_owners();
+
+    astia::hw::pci_bar bar{};
+    bar.address = 0x1'0000'0000'0000ull;
+    bar.size    = 0x1000;
+    bar.present = true;
+
+    auto mapping = bar.map();
+    ASTIA_CHECK(!mapping);
+    ASTIA_CHECK(mapping.error == astia::error_t::erange);
+    ASTIA_CHECK(fake_pci_map_calls == 0);
+}
+
+ASTIA_TEST(pci_bar_public_map_below_floor_is_busy) {
+    reset_fake_owners();
+    fake_pci_map_result = false;
+
+    astia::hw::pci_bar bar{};
+    bar.address = 0x1000;
+    bar.size    = 0x1000;
+    bar.present = true;
+
+    auto mapping = bar.map();
+    ASTIA_CHECK(!mapping);
+    ASTIA_CHECK(mapping.error == astia::error_t::ebusy);
+    ASTIA_CHECK(fake_pci_map_calls == 1);
+    ASTIA_CHECK(fake_map_calls == 0);
+    ASTIA_CHECK(fake_reserve_calls == 0);
+}
+
+ASTIA_TEST(pci_bar_public_map_high_address_is_busy) {
+    reset_fake_owners();
+    fake_pci_map_result = false;
+
+    astia::hw::pci_bar bar{};
+    bar.address = 0x8000000000ull;
+    bar.size    = 0x1000;
+    bar.present = true;
+
+    auto mapping = bar.map();
+    ASTIA_CHECK(!mapping);
+    ASTIA_CHECK(mapping.error == astia::error_t::ebusy);
+    ASTIA_CHECK(fake_pci_map_calls == 1);
+    ASTIA_CHECK(fake_map_calls == 0);
+    ASTIA_CHECK(fake_reserve_calls == 0);
+}
+
+ASTIA_TEST(mmio_mapping_aliased_conflict_is_busy) {
+    reset_fake_owners();
+    fake_borrow_status  = astia::arch::mmio_borrow_status::aliased;
+    fake_page_map_ready = true;
+
+    auto mapping = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(!mapping);
+    ASTIA_CHECK(mapping.error == astia::error_t::ebusy);
+    ASTIA_CHECK(fake_map_calls == 0);
+    ASTIA_CHECK(fake_reserve_calls == 0);
+}
+
+ASTIA_TEST(mmio_mapping_out_of_range_is_busy) {
+    reset_fake_owners();
+    fake_borrow_status  = astia::arch::mmio_borrow_status::out_of_range;
+    fake_page_map_ready = true;
+
+    auto mapping = astia::dev::mmio_mapping::map(0x1'0000'0000'0000ull, 0x2000);
+    ASTIA_CHECK(!mapping);
+    ASTIA_CHECK(mapping.error == astia::error_t::ebusy);
+    ASTIA_CHECK(fake_map_calls == 0);
+    ASTIA_CHECK(fake_reserve_calls == 0);
+}
+
+ASTIA_TEST(mmio_mapping_generic_success_and_release) {
+    reset_fake_owners();
+    fake_page_map_ready = true;
+
+    auto mapping = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(mapping);
+    if (mapping) {
+        ASTIA_CHECK(mapping.value.valid());
+        mapping.value.release();
+    }
+    ASTIA_CHECK(fake_map_calls == 1);
+    ASTIA_CHECK(fake_unmap_count == 1);
+    ASTIA_CHECK(fake_reserve_calls == 1);
+    ASTIA_CHECK(fake_release_calls == 1);
+    for (const auto& owner : fake_owners)
+        ASTIA_CHECK(!owner.used);
+}
+
+ASTIA_TEST(mmio_mapping_borrow_release_has_no_reservation_side_effect) {
+    reset_fake_owners();
+    fake_borrow_status  = astia::arch::mmio_borrow_status::borrowable;
+    fake_page_map_ready = true;
+
+    auto mapping = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(mapping);
+    if (mapping) {
+        ASTIA_CHECK(mapping.value.valid());
+        mapping.value.release();
+    }
+    ASTIA_CHECK(fake_map_calls == 0);
+    ASTIA_CHECK(fake_unmap_count == 0);
+    ASTIA_CHECK(fake_release_calls == 0);
+    ASTIA_CHECK(fake_invalid_release == 0);
+}
+
+ASTIA_TEST(mmio_mapping_pci_overlap_is_busy) {
+    reset_fake_owners();
+    fake_owners[0] = {
+        0x1'0000'0000ull, 0x1'0000'0000ull, 0xffffc00000001000ull, 0x1000, true, true};
+    fake_page_map_ready = true;
+
+    auto mapping = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(!mapping);
+    ASTIA_CHECK(mapping.error == astia::error_t::ebusy);
+    ASTIA_CHECK(fake_map_calls == 0);
+    ASTIA_CHECK(fake_reserve_calls == 0);
+}
+
+ASTIA_TEST(mmio_mapping_partial_failure_rolls_back) {
+    reset_fake_owners();
+    fake_page_map_ready   = true;
+    fake_map_fail_on_call = 2;
+
+    auto mapping = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x2000);
+    ASTIA_CHECK(!mapping);
+    ASTIA_CHECK(mapping.error == astia::error_t::enomem);
+    ASTIA_CHECK(fake_map_calls == 2);
+    ASTIA_CHECK(fake_unmap_count == 1);
+    ASTIA_CHECK(fake_reserve_calls == 1);
+    ASTIA_CHECK(fake_release_calls == 1);
+    for (const auto& owner : fake_owners)
+        ASTIA_CHECK(!owner.used);
+}
+
+ASTIA_TEST(mmio_mapping_repeated_failure_reuses_window_cursor) {
+    reset_fake_owners();
+    fake_page_map_ready   = true;
+    fake_map_fail_on_call = 1;
+
+    auto first = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(!first);
+    const astia::u64 first_va = fake_last_map_va;
+
+    auto second = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(!second);
+    ASTIA_CHECK(fake_last_map_va == first_va);
+    ASTIA_CHECK(fake_release_calls == 2);
+    for (const auto& owner : fake_owners)
+        ASTIA_CHECK(!owner.used);
+}
+
+ASTIA_TEST(mmio_mapping_release_preserves_pci_owner) {
+    reset_fake_owners();
+    fake_page_map_ready = true;
+
+    fake_owners[0] = {0x1000, 0x1000, 0xffffc00000000000ull, 0x1000, true, true};
+    auto first     = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(first);
+    if (first) {
+        first.value.release();
+    }
+    ASTIA_CHECK(fake_owners[0].used);
+    ASTIA_CHECK(fake_owners[0].pci);
+
+    auto second = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(second);
+    fake_owners[0] = {};
+    if (second) {
+        second.value.release();
+    }
+    for (const auto& owner : fake_owners)
+        ASTIA_CHECK(!owner.used);
+}
+
+ASTIA_TEST(mmio_mapping_page_sharing_conflict_is_busy) {
+    reset_fake_owners();
+    fake_page_map_ready = true;
+
+    auto first = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(first);
+
+    auto second = astia::dev::mmio_mapping::map(0x1'0000'0000ull, 0x1000);
+    ASTIA_CHECK(!second);
+    ASTIA_CHECK(second.error == astia::error_t::ebusy);
+    ASTIA_CHECK(fake_map_calls == 1);
+    ASTIA_CHECK(fake_reserve_calls == 1);
+
+    if (first) {
+        first.value.release();
+    }
+    ASTIA_CHECK(fake_release_calls == 1);
 }
 
 ASTIA_TEST(pci_resource_rollback_supports_reprobe) {
