@@ -138,11 +138,23 @@ astia_add_host_test(astia_ownership_test ownership_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 target_compile_definitions(astia_signal_test PRIVATE ASTIA_SIGNAL_HOST_TEST=1)
 astia_add_host_test(astia_aio_test aio_test.cpp)
+file(GLOB ASTIA_AIO_CORE_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/core/*.cpp)
+file(GLOB ASTIA_AIO_FS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio/*.cpp)
+list(REMOVE_ITEM ASTIA_AIO_FS_HANDLER_TEST_SOURCES
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio/dispatch.cpp)
+file(GLOB ASTIA_AIO_NET_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio/*.cpp)
+list(REMOVE_ITEM ASTIA_AIO_NET_HANDLER_TEST_SOURCES
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio/dispatch.cpp)
+file(GLOB ASTIA_AIO_READINESS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/readiness/aio/*.cpp)
 set(ASTIA_AIO_HANDLER_TEST_SOURCES
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/core_handlers.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio_handlers.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio_handlers.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/readiness_handlers.cpp)
+        ${ASTIA_AIO_CORE_HANDLER_TEST_SOURCES}
+        ${ASTIA_AIO_FS_HANDLER_TEST_SOURCES}
+        ${ASTIA_AIO_NET_HANDLER_TEST_SOURCES}
+        ${ASTIA_AIO_READINESS_HANDLER_TEST_SOURCES})
 set(ASTIA_AIO_REGISTRY_TEST_SOURCES
         aio_registry_test_support.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp

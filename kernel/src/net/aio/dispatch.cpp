@@ -1,15 +1,15 @@
-#include "aio_dispatch.hpp"
+#include "dispatch.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/mapping.hpp>
 
-#include "../fs/mapping.hpp"
-#include "../io/aio/dispatch.hpp"
-#include "../io/aio/memory.hpp"
-#include "../ipc/pipe.hpp"
-#include "../ipc/unix_socket.hpp"
-#include "../proc/mapping.hpp"
-#include "../proc/proc.hpp"
+#include "../../fs/mapping.hpp"
+#include "../../io/aio/dispatch.hpp"
+#include "../../io/aio/memory.hpp"
+#include "../../ipc/pipe.hpp"
+#include "../../ipc/unix_socket.hpp"
+#include "../../proc/mapping.hpp"
+#include "../../proc/proc.hpp"
 
 namespace astia::io::aio::socket {
 
