@@ -104,10 +104,13 @@ namespace astia::sys {
         static void registry_ref_zero_trampoline(void* object);
         static void reaper_destroy_trampoline(void* object);
 
-        static constexpr u32 deletion_claimed = ~u32{0};
+        static constexpr u32 active_count_mask = 0x7FFFFFFFu;
+        static constexpr u32 delete_armed      = 0x80000000u;
+        static constexpr u32 deletion_claimed  = 0xFFFFFFFFu;
 
         bool            enter_call() noexcept;
         void            leave_call() noexcept;
+        bool            arm_delete() noexcept;
         teardown_result begin_teardown() noexcept;
         teardown_result finish_teardown() noexcept;
         void            maybe_reap() noexcept;
@@ -131,10 +134,10 @@ namespace astia::sys {
         u8                     driver_state_     = static_cast<u8>(driver_state::idle);
         u8                     driver_destroyed_ = 0;
         u8                     reaper_queued_    = 0;
-        u8                     delete_when_idle_ = 0;
         u8                     create_state_     = 0;
         u8                     create_ref_       = 1;
         volatile u32           active_calls_     = 0;
+        volatile u8            registry_zero_inflight_ = 0;
     };
 
 } // namespace astia::sys

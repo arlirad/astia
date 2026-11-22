@@ -85,9 +85,11 @@ handler code:
 - `teardown_state_` tracks driver teardown independently of `driver_` handle
   ownership. `destroy()` never frees the operation when teardown was deferred;
   only `frame_destroyed_trampoline` plus the reaper can do that.
-- `active_calls_` plus `delete_when_idle_` keep `request_cancel()`, `shutdown()`,
-  `owner_exit()`, and `destroy()` from freeing an operation while another call
-  is still using it.
+- `active_calls_` is one atomic word holding the call count, a delete-armed bit,
+  and a deleting sentinel. `leave_call()` claims the final deletion with the
+  same CAS that decrements the last call, so a concurrent reaper can never free
+  the object between decrement and deletion. `enter_call()` rejects both the
+  armed and deleting states.
 
 ## Remaining limitations
 
@@ -127,9 +129,12 @@ handler code:
   last reference. That callback unregisters the operation under the registry
   lock before attempting reaping, so no new scan can acquire a reference and a
   reaper cannot delete while the zero callback is still running. The callback
-  holds an operation active call across `maybe_reap()`. Reaper deletion also
-  rechecks registry refs, so a cancel hook can never destruct the operation
-  while its own reference is held.
+  holds an operation active call across `maybe_reap()`. The registry also sets
+  an operation zero-inflight guard before the final ref drop; `maybe_reap()`
+  and the reaper refuse deletion while that guard is set, and the zero callback
+  clears it only after unregistering. Reaper deletion rechecks both registry
+  refs and the zero guard, so a cancel hook can never destruct the operation
+  while its own reference or zero callback is live.
 - `owner_exit()` publishes terminal `eagain` to any attached result awaiter,
   then tears down the driver. Reaping waits for awaiter detach and detach
   callback completion.

@@ -28,7 +28,8 @@ namespace astia::sys {
             !core::register_operation(value, owner.process, owner.thread,
                                       &value->registry_refs_,
                                       &async_operation::owner_exit_trampoline,
-                                      &async_operation::registry_ref_zero_trampoline)) {
+                                      &async_operation::registry_ref_zero_trampoline,
+                                      &value->registry_zero_inflight_)) {
             value->registered_ = 0;
             value->leave_call();
             value->~async_operation();
@@ -85,7 +86,7 @@ namespace astia::sys {
     bool async_operation::enter_call() noexcept {
         u32 value = __atomic_load_n(&active_calls_, __ATOMIC_ACQUIRE);
         for (;;) {
-            if (value == deletion_claimed)
+            if (value == deletion_claimed || (value & delete_armed) != 0)
                 return false;
             if (__atomic_compare_exchange_n(&active_calls_, &value, value + 1, false,
                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
@@ -94,13 +95,48 @@ namespace astia::sys {
     }
 
     void async_operation::leave_call() noexcept {
-        if (__atomic_sub_fetch(&active_calls_, 1, __ATOMIC_ACQ_REL) != 0 ||
-            __atomic_load_n(&delete_when_idle_, __ATOMIC_ACQUIRE) == 0)
-            return;
-        u32 expected = 0;
-        if (__atomic_compare_exchange_n(&active_calls_, &expected, deletion_claimed,
-                                        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-            delete this;
+        u32 value = __atomic_load_n(&active_calls_, __ATOMIC_ACQUIRE);
+        for (;;) {
+            if (value == deletion_claimed)
+                return;
+            const u32 count = value & active_count_mask;
+            if (count == 0)
+                return;
+            if (count == 1 && (value & delete_armed) != 0) {
+                if (__atomic_compare_exchange_n(&active_calls_, &value, deletion_claimed,
+                                                false, __ATOMIC_ACQ_REL,
+                                                __ATOMIC_ACQUIRE)) {
+                    delete this;
+                    return;
+                }
+                continue;
+            }
+            const u32 next = value - 1;
+            if (__atomic_compare_exchange_n(&active_calls_, &value, next, false,
+                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return;
+        }
+    }
+
+    bool async_operation::arm_delete() noexcept {
+        for (;;) {
+            u32 value = __atomic_load_n(&active_calls_, __ATOMIC_ACQUIRE);
+            if (value == deletion_claimed)
+                return false;
+            if ((value & delete_armed) == 0) {
+                const u32 armed_value = value | delete_armed;
+                if (!__atomic_compare_exchange_n(&active_calls_, &value, armed_value,
+                                                 false, __ATOMIC_ACQ_REL,
+                                                 __ATOMIC_ACQUIRE))
+                    continue;
+                value = armed_value;
+            }
+            if ((value & active_count_mask) != 0)
+                return false;
+            if (__atomic_compare_exchange_n(&active_calls_, &value, deletion_claimed,
+                                            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                return true;
+        }
     }
 
     void async_operation::destroy() noexcept {
@@ -386,6 +422,7 @@ namespace astia::sys {
             __atomic_load_n(&driver_destroyed_, __ATOMIC_ACQUIRE) == 0 ||
             __atomic_load_n(&create_ref_, __ATOMIC_ACQUIRE) != 0 ||
             __atomic_load_n(&registry_refs_, __ATOMIC_ACQUIRE) != 0 ||
+            __atomic_load_n(&registry_zero_inflight_, __ATOMIC_ACQUIRE) != 0 ||
             completion_.awaiter_count() != 0 || completion_.detach_inflight())
             return;
         u8 expected = 0;
@@ -420,26 +457,25 @@ namespace astia::sys {
     void async_operation::registry_ref_zero_trampoline(void* object) {
         auto* value = static_cast<async_operation*>(object);
         core::unregister_operation(value);
-        if (!value->enter_call())
+        if (!value->enter_call()) {
+            __atomic_store_n(&value->registry_zero_inflight_, 0, __ATOMIC_RELEASE);
             return;
+        }
+        value->maybe_reap();
+        __atomic_store_n(&value->registry_zero_inflight_, 0, __ATOMIC_RELEASE);
         value->maybe_reap();
         value->leave_call();
     }
 
     void async_operation::reaper_destroy_trampoline(void* object) {
         auto* value = static_cast<async_operation*>(object);
-        if (__atomic_load_n(&value->registry_refs_, __ATOMIC_ACQUIRE) != 0) {
+        if (__atomic_load_n(&value->registry_refs_, __ATOMIC_ACQUIRE) != 0 ||
+            __atomic_load_n(&value->registry_zero_inflight_, __ATOMIC_ACQUIRE) != 0) {
             __atomic_store_n(&value->reaper_queued_, 0, __ATOMIC_RELEASE);
             return;
         }
-        u32 expected = 0;
-        if (__atomic_compare_exchange_n(&value->active_calls_, &expected,
-                                        deletion_claimed, false, __ATOMIC_ACQ_REL,
-                                        __ATOMIC_ACQUIRE)) {
+        if (value->arm_delete())
             delete value;
-            return;
-        }
-        __atomic_store_n(&value->delete_when_idle_, 1, __ATOMIC_RELEASE);
     }
 
 } // namespace astia::sys

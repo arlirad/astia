@@ -9,13 +9,14 @@ namespace astia::core {
         constexpr u32 reaper_capacity   = resource_limits::queue::operation_reaper;
 
         struct registry_entry {
-            void*               object    = nullptr;
-            u64                 process   = 0;
-            u64                 thread    = 0;
-            volatile u32*       refs      = nullptr;
-            operation_exit_hook hook      = nullptr;
-            operation_refs_zero refs_zero = nullptr;
-            bool                signaled  = false;
+            void*               object     = nullptr;
+            u64                 process    = 0;
+            u64                 thread     = 0;
+            volatile u32*       refs       = nullptr;
+            operation_exit_hook hook       = nullptr;
+            operation_refs_zero refs_zero  = nullptr;
+            volatile u8*        zero_guard = nullptr;
+            bool                signaled   = false;
         };
 
         struct destroy_entry {
@@ -39,10 +40,11 @@ namespace astia::core {
         void cancel_matching(u64 process, u64 thread, bool match_thread,
                              cancel_reason reason) {
             for (;;) {
-                void*               object    = nullptr;
-                operation_exit_hook hook      = nullptr;
-                operation_refs_zero refs_zero = nullptr;
-                volatile u32*       refs      = nullptr;
+                void*               object     = nullptr;
+                operation_exit_hook hook       = nullptr;
+                operation_refs_zero refs_zero  = nullptr;
+                volatile u8*        zero_guard = nullptr;
+                volatile u32*       refs       = nullptr;
                 {
                     core::spinlock_guard guard(lock);
                     for (registry_entry& entry : registry) {
@@ -54,6 +56,7 @@ namespace astia::core {
                         object         = entry.object;
                         hook           = entry.hook;
                         refs_zero      = entry.refs_zero;
+                        zero_guard     = entry.zero_guard;
                         refs           = entry.refs;
                         __atomic_add_fetch(refs, 1, __ATOMIC_ACQ_REL);
                         break;
@@ -62,9 +65,15 @@ namespace astia::core {
                 if (object == nullptr)
                     return;
                 hook(object, reason);
-                if (__atomic_sub_fetch(refs, 1, __ATOMIC_ACQ_REL) == 0 &&
-                    refs_zero != nullptr)
+                if (zero_guard != nullptr)
+                    __atomic_store_n(zero_guard, 1, __ATOMIC_RELEASE);
+                const u32 remaining = __atomic_sub_fetch(refs, 1, __ATOMIC_ACQ_REL);
+                if (remaining == 0 && refs_zero != nullptr) {
                     refs_zero(object);
+                }
+                else if (zero_guard != nullptr) {
+                    __atomic_store_n(zero_guard, 0, __ATOMIC_RELEASE);
+                }
             }
         }
 
@@ -72,7 +81,8 @@ namespace astia::core {
     }
 
     bool register_operation(void* object, u64 process, u64 thread, volatile u32* refs,
-                            operation_exit_hook hook, operation_refs_zero refs_zero) {
+                            operation_exit_hook hook, operation_refs_zero refs_zero,
+                            volatile u8* zero_guard) {
         if (object == nullptr || refs == nullptr || hook == nullptr || process == 0)
             return false;
         core::spinlock_guard guard(lock);
@@ -81,13 +91,14 @@ namespace astia::core {
         for (registry_entry& entry : registry) {
             if (entry.object != nullptr)
                 continue;
-            entry.object    = object;
-            entry.process   = process;
-            entry.thread    = thread;
-            entry.refs      = refs;
-            entry.hook      = hook;
-            entry.refs_zero = refs_zero;
-            entry.signaled  = false;
+            entry.object     = object;
+            entry.process    = process;
+            entry.thread     = thread;
+            entry.refs       = refs;
+            entry.hook       = hook;
+            entry.refs_zero  = refs_zero;
+            entry.zero_guard = zero_guard;
+            entry.signaled   = false;
             __atomic_store_n(refs, 0, __ATOMIC_RELEASE);
             return true;
         }
@@ -99,13 +110,14 @@ namespace astia::core {
         registry_entry*      entry = find_entry(object);
         if (entry == nullptr)
             return;
-        entry->object    = nullptr;
-        entry->process   = 0;
-        entry->thread    = 0;
-        entry->refs      = nullptr;
-        entry->hook      = nullptr;
-        entry->refs_zero = nullptr;
-        entry->signaled  = false;
+        entry->object     = nullptr;
+        entry->process    = 0;
+        entry->thread     = 0;
+        entry->refs       = nullptr;
+        entry->hook       = nullptr;
+        entry->refs_zero  = nullptr;
+        entry->zero_guard = nullptr;
+        entry->signaled   = false;
     }
 
     void cancel_operations_for_process(u64 process, cancel_reason reason) {

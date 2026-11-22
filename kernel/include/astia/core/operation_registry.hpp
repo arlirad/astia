@@ -10,7 +10,8 @@ namespace astia::core {
 
     bool register_operation(void* object, u64 process, u64 thread, volatile u32* refs,
                             operation_exit_hook hook,
-                            operation_refs_zero refs_zero = nullptr);
+                            operation_refs_zero refs_zero  = nullptr,
+                            volatile u8*        zero_guard = nullptr);
     void unregister_operation(void* object) noexcept;
 
     void cancel_operations_for_process(u64 process, cancel_reason reason);

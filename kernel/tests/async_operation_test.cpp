@@ -397,6 +397,79 @@ ASTIA_TEST(async_operation_destroy_vs_cancel_with_reaper_pressure_is_safe) {
                 static_cast<int>(astia::resource_limits::queue::operation_reaper));
 }
 
+ASTIA_TEST(async_operation_reap_vs_destroy_is_serialized) {
+    astia::core::reap_operations();
+    for (astia::u32 iteration = 0; iteration < 150; ++iteration) {
+        astia::arch::syscall_frame frame{};
+        astia::i64                 arguments[astia::sys::syscall_argument_count]{};
+        astia::core::completion<astia::i64> source;
+        source_completion           = &source;
+        const astia::u64 process_id = 0x9000 + iteration;
+        const astia::u64 thread_id  = 0xA000 + iteration;
+
+        auto* operation =
+            make_operation(parked_body, static_cast<astia::sys::syscall_id>(151),
+                           arguments, frame, {}, {}, {process_id, thread_id});
+        if (operation == nullptr) {
+            ASTIA_CHECK(operation != nullptr);
+            return;
+        }
+        ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+
+        std::atomic<bool> destroy_done{false};
+        std::thread       destroyer([operation, &destroy_done] {
+            operation->destroy();
+            destroy_done.store(true, std::memory_order_release);
+        });
+        std::thread       reaper([&destroy_done] {
+            while (!destroy_done.load(std::memory_order_acquire))
+                astia::core::reap_operations();
+        });
+        destroyer.join();
+        reaper.join();
+        astia::core::reap_operations();
+        ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+    }
+}
+
+ASTIA_TEST(async_operation_reap_vs_owner_exit_is_serialized) {
+    astia::core::reap_operations();
+    for (astia::u32 iteration = 0; iteration < 150; ++iteration) {
+        astia::arch::syscall_frame frame{};
+        astia::i64                 arguments[astia::sys::syscall_argument_count]{};
+        astia::core::completion<astia::i64> source;
+        source_completion           = &source;
+        const astia::u64 process_id = 0xB000 + iteration;
+        const astia::u64 thread_id  = 0xC000 + iteration;
+
+        auto* operation =
+            make_operation(parked_body, static_cast<astia::sys::syscall_id>(152),
+                           arguments, frame, {}, {}, {process_id, thread_id});
+        if (operation == nullptr) {
+            ASTIA_CHECK(operation != nullptr);
+            return;
+        }
+        ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+
+        std::atomic<bool> cancel_done{false};
+        std::thread       canceller([process_id, thread_id, &cancel_done] {
+            astia::core::cancel_operations_for_thread(process_id, thread_id,
+                                                      astia::core::cancel_reason::owner);
+            cancel_done.store(true, std::memory_order_release);
+        });
+        std::thread       reaper([&cancel_done] {
+            while (!cancel_done.load(std::memory_order_acquire))
+                astia::core::reap_operations();
+        });
+        canceller.join();
+        operation->destroy();
+        cancel_done.store(true, std::memory_order_release);
+        reaper.join();
+        astia::core::reap_operations();
+        ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+    }
+}
+
 ASTIA_TEST(async_operation_start_teardown_race_is_serialized) {
     astia::core::initialize_resume_queues();
     astia::core::reap_operations();
