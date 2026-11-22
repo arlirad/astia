@@ -27,7 +27,8 @@ namespace astia::sys {
         if (owner.valid() &&
             !core::register_operation(value, owner.process, owner.thread,
                                       &value->registry_refs_,
-                                      &async_operation::owner_exit_trampoline)) {
+                                      &async_operation::owner_exit_trampoline,
+                                      &async_operation::registry_ref_zero_trampoline)) {
             value->registered_ = 0;
             value->leave_call();
             value->~async_operation();
@@ -132,35 +133,42 @@ namespace astia::sys {
     async_start_result async_operation::start() noexcept {
         if (!enter_call())
             return async_start_result::canceled;
-        u8 expected = 0;
-        if (!__atomic_compare_exchange_n(&start_state_, &expected, 1, false,
+        u8 expected = static_cast<u8>(driver_state::idle);
+        if (!__atomic_compare_exchange_n(&driver_state_, &expected,
+                                         static_cast<u8>(driver_state::starting), false,
                                          __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
             const async_start_result result = start_result_for(state());
             leave_call();
             return result;
         }
-        expected = static_cast<u8>(async_operation_state::created);
-        if (!__atomic_compare_exchange_n(&state_, &expected,
-                                         static_cast<u8>(async_operation_state::running),
-                                         false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-            __atomic_store_n(&start_state_, 2, __ATOMIC_RELEASE);
-            if (__atomic_load_n(&teardown_from_start_, __ATOMIC_ACQUIRE) != 0) {
-                const teardown_result result = finish_teardown();
-                if (result == teardown_result::immediate)
-                    maybe_reap();
+        expected              = static_cast<u8>(async_operation_state::created);
+        const bool run_driver = __atomic_compare_exchange_n(
+            &state_, &expected, static_cast<u8>(async_operation_state::running), false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+        if (run_driver)
+            driver_.resume();
+
+        for (;;) {
+            const u8 current = __atomic_load_n(&driver_state_, __ATOMIC_ACQUIRE);
+            if (current == static_cast<u8>(driver_state::starting)) {
+                u8 next = current;
+                if (__atomic_compare_exchange_n(
+                        &driver_state_, &next, static_cast<u8>(driver_state::started),
+                        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                    break;
+                continue;
             }
-            const async_start_result result = start_result_for(state());
-            leave_call();
-            return result;
-        }
-
-        driver_.resume();
-
-        __atomic_store_n(&start_state_, 2, __ATOMIC_RELEASE);
-        if (__atomic_load_n(&teardown_from_start_, __ATOMIC_ACQUIRE) != 0) {
-            const teardown_result result = finish_teardown();
-            if (result == teardown_result::immediate)
-                maybe_reap();
+            if (current == static_cast<u8>(driver_state::teardown_requested)) {
+                u8 next = current;
+                if (__atomic_compare_exchange_n(
+                        &driver_state_, &next,
+                        static_cast<u8>(driver_state::teardown_running), false,
+                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                    (void) finish_teardown();
+                }
+                break;
+            }
+            break;
         }
 
         expected = static_cast<u8>(async_operation_state::running);
@@ -329,25 +337,47 @@ namespace astia::sys {
     }
 
     async_operation::teardown_result async_operation::begin_teardown() noexcept {
-        u8 expected = 0;
-        if (!__atomic_compare_exchange_n(&teardown_state_, &expected, 1, false,
-                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        for (;;) {
+            u8 current = __atomic_load_n(&driver_state_, __ATOMIC_ACQUIRE);
+            if (current == static_cast<u8>(driver_state::idle)) {
+                if (__atomic_compare_exchange_n(
+                        &driver_state_, &current,
+                        static_cast<u8>(driver_state::teardown_running), false,
+                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                    return finish_teardown();
+                continue;
+            }
+            if (current == static_cast<u8>(driver_state::starting)) {
+                if (__atomic_compare_exchange_n(
+                        &driver_state_, &current,
+                        static_cast<u8>(driver_state::teardown_requested), false,
+                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                    return teardown_result::deferred;
+                continue;
+            }
+            if (current == static_cast<u8>(driver_state::started)) {
+                if (__atomic_compare_exchange_n(
+                        &driver_state_, &current,
+                        static_cast<u8>(driver_state::teardown_running), false,
+                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                    return finish_teardown();
+                continue;
+            }
+            if (current == static_cast<u8>(driver_state::teardown_requested))
+                return teardown_result::deferred;
             return teardown_result::not_started;
-        if (__atomic_load_n(&start_state_, __ATOMIC_ACQUIRE) == 1) {
-            __atomic_store_n(&teardown_from_start_, 1, __ATOMIC_RELEASE);
-            return teardown_result::deferred;
         }
-        return finish_teardown();
     }
 
     async_operation::teardown_result async_operation::finish_teardown() noexcept {
         if (driver_.reset_with_observer(&async_operation::frame_destroyed_trampoline,
                                         this)) {
             __atomic_store_n(&driver_destroyed_, 1, __ATOMIC_RELEASE);
-            __atomic_store_n(&teardown_state_, 2, __ATOMIC_RELEASE);
+            __atomic_store_n(&driver_state_, static_cast<u8>(driver_state::destroyed),
+                             __ATOMIC_RELEASE);
+            maybe_reap();
             return teardown_result::immediate;
         }
-        __atomic_store_n(&teardown_state_, 3, __ATOMIC_RELEASE);
         return teardown_result::deferred;
     }
 
@@ -355,6 +385,7 @@ namespace astia::sys {
         if (__atomic_load_n(&destroy_claimed_, __ATOMIC_ACQUIRE) == 0 ||
             __atomic_load_n(&driver_destroyed_, __ATOMIC_ACQUIRE) == 0 ||
             __atomic_load_n(&create_ref_, __ATOMIC_ACQUIRE) != 0 ||
+            __atomic_load_n(&registry_refs_, __ATOMIC_ACQUIRE) != 0 ||
             completion_.awaiter_count() != 0 || completion_.detach_inflight())
             return;
         u8 expected = 0;
@@ -371,6 +402,8 @@ namespace astia::sys {
         if (!value->enter_call())
             return;
         __atomic_store_n(&value->driver_destroyed_, 1, __ATOMIC_RELEASE);
+        __atomic_store_n(&value->driver_state_, static_cast<u8>(driver_state::destroyed),
+                         __ATOMIC_RELEASE);
         value->maybe_reap();
         value->leave_call();
     }
@@ -384,9 +417,17 @@ namespace astia::sys {
         value->leave_call();
     }
 
+    void async_operation::registry_ref_zero_trampoline(void* object) {
+        static_cast<async_operation*>(object)->maybe_reap();
+    }
+
     void async_operation::reaper_destroy_trampoline(void* object) {
-        auto* value    = static_cast<async_operation*>(object);
-        u32   expected = 0;
+        auto* value = static_cast<async_operation*>(object);
+        if (__atomic_load_n(&value->registry_refs_, __ATOMIC_ACQUIRE) != 0) {
+            __atomic_store_n(&value->reaper_queued_, 0, __ATOMIC_RELEASE);
+            return;
+        }
+        u32 expected = 0;
         if (__atomic_compare_exchange_n(&value->active_calls_, &expected,
                                         deletion_claimed, false, __ATOMIC_ACQ_REL,
                                         __ATOMIC_ACQUIRE)) {

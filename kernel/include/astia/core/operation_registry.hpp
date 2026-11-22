@@ -6,9 +6,11 @@
 namespace astia::core {
 
     using operation_exit_hook = void (*)(void* object, cancel_reason reason);
+    using operation_refs_zero = void (*)(void* object);
 
     bool register_operation(void* object, u64 process, u64 thread, volatile u32* refs,
-                            operation_exit_hook hook);
+                            operation_exit_hook hook,
+                            operation_refs_zero refs_zero = nullptr);
     void unregister_operation(void* object) noexcept;
 
     void cancel_operations_for_process(u64 process, cancel_reason reason);

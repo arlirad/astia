@@ -354,6 +354,49 @@ ASTIA_TEST(async_operation_create_owner_exit_keeps_creator_reference) {
     ASTIA_CHECK(astia::core::operation_registry_count() == 0);
 }
 
+ASTIA_TEST(async_operation_destroy_vs_cancel_with_reaper_pressure_is_safe) {
+    astia::core::initialize_resume_queues();
+    astia::core::reap_operations();
+    int          destroyed = 0;
+    reaper_probe probes[astia::resource_limits::queue::operation_reaper];
+    for (astia::u32 i = 0; i < astia::resource_limits::queue::operation_reaper; ++i) {
+        probes[i].destroyed = &destroyed;
+        ASTIA_CHECK(
+            astia::core::defer_operation_destroy(&probes[i], &destroy_reaper_probe));
+    }
+
+    for (astia::u32 iteration = 0; iteration < 100; ++iteration) {
+        astia::arch::syscall_frame frame{};
+        astia::i64                 arguments[astia::sys::syscall_argument_count]{};
+        astia::core::completion<astia::i64> source;
+        source_completion           = &source;
+        const astia::u64 process_id = 0x7000 + iteration;
+        const astia::u64 thread_id  = 0x8000 + iteration;
+
+        auto* operation =
+            make_operation(parked_body, static_cast<astia::sys::syscall_id>(150),
+                           arguments, frame, {}, {}, {process_id, thread_id});
+        if (operation == nullptr) {
+            ASTIA_CHECK(operation != nullptr);
+            return;
+        }
+        ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+
+        std::thread canceller([process_id, thread_id] {
+            astia::core::cancel_operations_for_thread(process_id, thread_id,
+                                                      astia::core::cancel_reason::owner);
+        });
+        std::thread destroyer([operation] { operation->destroy(); });
+        canceller.join();
+        destroyer.join();
+        ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+    }
+
+    astia::core::reap_operations();
+    ASTIA_CHECK(destroyed ==
+                static_cast<int>(astia::resource_limits::queue::operation_reaper));
+}
+
 ASTIA_TEST(async_operation_start_teardown_race_is_serialized) {
     astia::core::initialize_resume_queues();
     astia::core::reap_operations();

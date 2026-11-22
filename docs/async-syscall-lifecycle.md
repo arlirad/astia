@@ -116,9 +116,16 @@ handler code:
   `destroy()`. Owner exit can cancel and tear down the driver but cannot reap
   the operation while the creator still holds the returned pointer. This
   closes the create/owner-exit publication window.
-- `start_state_` and `teardown_from_start_` serialize `start()` against
-  teardown. Teardown never resets the driver while `start()` is resuming it;
-  the start path performs the teardown after its resume returns.
+- `driver_state_` is one atomic handshake: `idle → starting → started`, with
+  `teardown_requested → teardown_running → destroyed` arbitration. A teardown
+  request that races a start cannot be lost between separate flags; exactly one
+  side claims `teardown_running` and resets the driver. This closes the
+  start/begin-teardown A < X < Y < B lost-teardown interleaving.
+- Registry scans hold a registry reference while invoking the exit hook.
+  `maybe_reap()` refuses to queue while `registry_refs_` is nonzero, and the
+  registry invokes an operation refs-zero callback after the hook releases the
+  last reference. Reaper deletion also rechecks registry refs, so a cancel hook
+  can never destruct the operation while its own reference is held.
 - `owner_exit()` publishes terminal `eagain` to any attached result awaiter,
   then tears down the driver. Reaping waits for awaiter detach and detach
   callback completion.

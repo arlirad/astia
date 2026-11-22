@@ -10,10 +10,16 @@ namespace {
         astia::core::cancel_reason last_reason = astia::core::cancel_reason::none;
     };
 
+    int refs_zero_count = 0;
+
     void probe_exit(void* object, astia::core::cancel_reason reason) {
         auto* value = static_cast<probe*>(object);
         ++value->exits;
         value->last_reason = reason;
+    }
+
+    void probe_refs_zero(void*) {
+        ++refs_zero_count;
     }
 
     int destroyed = 0;
@@ -65,6 +71,18 @@ ASTIA_TEST(operation_registry_cancels_process_and_thread_once) {
 
     astia::core::unregister_operation(&first);
     astia::core::unregister_operation(&second);
+}
+
+ASTIA_TEST(operation_registry_release_callback_runs_after_refs_zero) {
+    probe value{};
+    refs_zero_count = 0;
+    ASTIA_CHECK(astia::core::register_operation(&value, 20, 21, &value.refs, &probe_exit,
+                                                &probe_refs_zero));
+    astia::core::cancel_operations_for_process(20, astia::core::cancel_reason::owner);
+    ASTIA_CHECK(value.exits == 1);
+    ASTIA_CHECK(value.refs == 0);
+    ASTIA_CHECK(refs_zero_count == 1);
+    astia::core::unregister_operation(&value);
 }
 
 ASTIA_TEST(operation_registry_reaps_deferred_destruction) {
