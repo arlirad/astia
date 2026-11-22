@@ -16,10 +16,12 @@ namespace astia::core {
         failed,
     };
 
-    bool schedule_resume(std::coroutine_handle<> continuation, u64 generation = 0);
+    bool schedule_resume(std::coroutine_handle<> continuation, u64 generation = 0,
+                         u64 key = 0);
     resume_schedule schedule_resume_owned(std::coroutine_handle<> continuation,
-                                          u64                     generation = 0);
-    void cancel_resume(std::coroutine_handle<> continuation, u64 generation = 0);
+                                          u64 generation = 0, u64 key = 0);
+    void cancel_resume(std::coroutine_handle<> continuation, u64 generation = 0,
+                       u64 key = 0);
     u32  drain_resumes(u32 budget = 256);
 
 } // namespace astia::core

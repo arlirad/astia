@@ -18,16 +18,31 @@ namespace astia::sys {
             async_operation(factory, id, arguments, frame, operation, user_data, owner);
         if (value == nullptr)
             return nullptr;
-        if (owner.valid()) {
-            if (!core::register_operation(value, owner.process, owner.thread,
-                                          &value->registry_refs_,
-                                          &async_operation::owner_exit_trampoline)) {
-                value->~async_operation();
-                ::operator delete(value);
-                return nullptr;
-            }
-            value->registered_ = 1;
+        if (!value->enter_call()) {
+            value->~async_operation();
+            ::operator delete(value);
+            return nullptr;
         }
+        value->registered_ = owner.valid() ? 1 : 0;
+        if (owner.valid() &&
+            !core::register_operation(value, owner.process, owner.thread,
+                                      &value->registry_refs_,
+                                      &async_operation::owner_exit_trampoline)) {
+            value->registered_ = 0;
+            value->leave_call();
+            value->~async_operation();
+            ::operator delete(value);
+            return nullptr;
+        }
+        u8 expected = 0;
+        if (!__atomic_compare_exchange_n(&value->create_state_, &expected, 1, false,
+                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            value->leave_call();
+            value->~async_operation();
+            ::operator delete(value);
+            return nullptr;
+        }
+        value->leave_call();
         return value;
     }
 
@@ -53,6 +68,8 @@ namespace astia::sys {
                              __ATOMIC_RELEASE);
             completion_.fail_deferred(failure);
         }
+        completion_.set_awaiter_observer(&async_operation::completion_detached_trampoline,
+                                         this);
     }
 
     async_operation::~async_operation() {
@@ -88,24 +105,17 @@ namespace astia::sys {
     void async_operation::destroy() noexcept {
         if (!enter_call())
             return;
+        __atomic_store_n(&create_ref_, 0, __ATOMIC_RELEASE);
         u8 expected = 0;
         if (!__atomic_compare_exchange_n(&destroy_claimed_, &expected, 1, false,
                                          __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            maybe_reap();
             leave_call();
             return;
         }
         if (!terminal())
             (void) terminalize(core::cancel_reason::shutdown, true);
-        const teardown_result result = begin_teardown();
-        if (result == teardown_result::immediate) {
-            __atomic_store_n(&delete_when_idle_, 1, __ATOMIC_RELEASE);
-            leave_call();
-            return;
-        }
-        if (result == teardown_result::deferred) {
-            leave_call();
-            return;
-        }
+        (void) begin_teardown();
         maybe_reap();
         leave_call();
     }
@@ -122,16 +132,36 @@ namespace astia::sys {
     async_start_result async_operation::start() noexcept {
         if (!enter_call())
             return async_start_result::canceled;
-        u8 expected = static_cast<u8>(async_operation_state::created);
+        u8 expected = 0;
+        if (!__atomic_compare_exchange_n(&start_state_, &expected, 1, false,
+                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            const async_start_result result = start_result_for(state());
+            leave_call();
+            return result;
+        }
+        expected = static_cast<u8>(async_operation_state::created);
         if (!__atomic_compare_exchange_n(&state_, &expected,
                                          static_cast<u8>(async_operation_state::running),
                                          false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            __atomic_store_n(&start_state_, 2, __ATOMIC_RELEASE);
+            if (__atomic_load_n(&teardown_from_start_, __ATOMIC_ACQUIRE) != 0) {
+                const teardown_result result = finish_teardown();
+                if (result == teardown_result::immediate)
+                    maybe_reap();
+            }
             const async_start_result result = start_result_for(state());
             leave_call();
             return result;
         }
 
         driver_.resume();
+
+        __atomic_store_n(&start_state_, 2, __ATOMIC_RELEASE);
+        if (__atomic_load_n(&teardown_from_start_, __ATOMIC_ACQUIRE) != 0) {
+            const teardown_result result = finish_teardown();
+            if (result == teardown_result::immediate)
+                maybe_reap();
+        }
 
         expected = static_cast<u8>(async_operation_state::running);
         if (__atomic_compare_exchange_n(&state_, &expected,
@@ -274,6 +304,12 @@ namespace astia::sys {
     }
 
     void async_operation::owner_exit() noexcept {
+        u8 create_state = 0;
+        if (__atomic_compare_exchange_n(&create_state_, &create_state, 2, false,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return;
+        if (__atomic_load_n(&create_state_, __ATOMIC_ACQUIRE) == 2)
+            return;
         if (!enter_call())
             return;
         u8 expected = 0;
@@ -282,7 +318,7 @@ namespace astia::sys {
             leave_call();
             return;
         }
-        (void) terminalize(core::cancel_reason::owner, false);
+        (void) terminalize(core::cancel_reason::owner, true);
         (void) begin_teardown();
         maybe_reap();
         leave_call();
@@ -297,6 +333,14 @@ namespace astia::sys {
         if (!__atomic_compare_exchange_n(&teardown_state_, &expected, 1, false,
                                          __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
             return teardown_result::not_started;
+        if (__atomic_load_n(&start_state_, __ATOMIC_ACQUIRE) == 1) {
+            __atomic_store_n(&teardown_from_start_, 1, __ATOMIC_RELEASE);
+            return teardown_result::deferred;
+        }
+        return finish_teardown();
+    }
+
+    async_operation::teardown_result async_operation::finish_teardown() noexcept {
         if (driver_.reset_with_observer(&async_operation::frame_destroyed_trampoline,
                                         this)) {
             __atomic_store_n(&driver_destroyed_, 1, __ATOMIC_RELEASE);
@@ -309,20 +353,35 @@ namespace astia::sys {
 
     void async_operation::maybe_reap() noexcept {
         if (__atomic_load_n(&destroy_claimed_, __ATOMIC_ACQUIRE) == 0 ||
-            __atomic_load_n(&driver_destroyed_, __ATOMIC_ACQUIRE) == 0)
+            __atomic_load_n(&driver_destroyed_, __ATOMIC_ACQUIRE) == 0 ||
+            __atomic_load_n(&create_ref_, __ATOMIC_ACQUIRE) != 0 ||
+            completion_.awaiter_count() != 0 || completion_.detach_inflight())
             return;
         u8 expected = 0;
         if (!__atomic_compare_exchange_n(&reaper_queued_, &expected, 1, false,
                                          __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
             return;
-        (void) core::defer_operation_destroy(this,
-                                             &async_operation::reaper_destroy_trampoline);
+        if (!core::defer_operation_destroy(this,
+                                           &async_operation::reaper_destroy_trampoline))
+            reaper_destroy_trampoline(this);
     }
 
     void async_operation::frame_destroyed_trampoline(void* context) {
         auto* value = static_cast<async_operation*>(context);
+        if (!value->enter_call())
+            return;
         __atomic_store_n(&value->driver_destroyed_, 1, __ATOMIC_RELEASE);
         value->maybe_reap();
+        value->leave_call();
+    }
+
+    void async_operation::completion_detached_trampoline(void* context) {
+        auto* value = static_cast<async_operation*>(context);
+        if (!value->enter_call())
+            return;
+        value->completion_.clear_detach_inflight();
+        value->maybe_reap();
+        value->leave_call();
     }
 
     void async_operation::reaper_destroy_trampoline(void* object) {

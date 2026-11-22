@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <thread>
+#include <vector>
 
 namespace {
     astia::core::completion<astia::i64>* source_completion = nullptr;
@@ -53,6 +54,30 @@ namespace {
     astia::core::task<astia::i64> failing_body(astia::sys::syscall_context&) {
         ++body_entries;
         co_return astia::error_t::eio;
+    }
+
+    std::atomic<bool> start_entered{false};
+    std::atomic<bool> start_release{false};
+
+    astia::core::task<astia::i64> start_spinner(astia::sys::syscall_context&) {
+        start_entered.store(true, std::memory_order_release);
+        while (!start_release.load(std::memory_order_acquire))
+            std::this_thread::yield();
+        co_return 5;
+    }
+
+    struct registry_probe {
+        volatile astia::u32 refs = 0;
+    };
+
+    void ignore_owner_exit(void*, astia::core::cancel_reason) {}
+
+    struct reaper_probe {
+        int* destroyed = nullptr;
+    };
+
+    void destroy_reaper_probe(void* object) {
+        ++*static_cast<reaper_probe*>(object)->destroyed;
     }
 
     std::atomic<bool> finish_entered{false};
@@ -262,6 +287,165 @@ ASTIA_TEST(async_operation_cancel_during_wake_is_terminal_exactly_once) {
     operation->destroy();
 }
 
+ASTIA_TEST(async_operation_owner_exit_waits_for_attached_awaiter_detach) {
+    astia::core::initialize_resume_queues();
+    astia::core::reap_operations();
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion           = &source;
+    body_entries                = 0;
+    const astia::u64 process_id = 0x6500;
+    const astia::u64 thread_id  = 0x6501;
+
+    auto* operation =
+        make_operation(parked_body, static_cast<astia::sys::syscall_id>(145), arguments,
+                       frame, {}, {}, {process_id, thread_id});
+    if (operation == nullptr) {
+        ASTIA_CHECK(operation != nullptr);
+        return;
+    }
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+    int  wakes  = 0;
+    auto waiter = await_result(operation->completion(), wakes);
+    ASTIA_CHECK(waiter.resume());
+    ASTIA_CHECK(!waiter.done());
+
+    astia::core::cancel_operations_for_process(process_id,
+                                               astia::core::cancel_reason::owner);
+    ASTIA_CHECK(operation->completion().done());
+    ASTIA_CHECK(astia::core::operation_registry_count() == 1);
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 0);
+
+    ASTIA_CHECK(astia::core::drain_resumes() == 1);
+    ASTIA_CHECK(waiter.done());
+    ASTIA_CHECK(waiter.error() == astia::error_t::eagain);
+    ASTIA_CHECK(wakes == 1);
+    operation->destroy();
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 1);
+    astia::core::reap_operations();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+}
+
+ASTIA_TEST(async_operation_create_owner_exit_keeps_creator_reference) {
+    astia::core::initialize_resume_queues();
+    astia::core::reap_operations();
+    astia::arch::syscall_frame frame{};
+    astia::i64                 arguments[astia::sys::syscall_argument_count]{};
+    const astia::u64           process_id = 0x6700;
+    const astia::u64           thread_id  = 0x6701;
+
+    auto* operation =
+        make_operation(parked_body, static_cast<astia::sys::syscall_id>(149), arguments,
+                       frame, {}, {}, {process_id, thread_id});
+    if (operation == nullptr) {
+        ASTIA_CHECK(operation != nullptr);
+        return;
+    }
+    astia::core::cancel_operations_for_process(process_id,
+                                               astia::core::cancel_reason::owner);
+    ASTIA_CHECK(operation->canceled());
+    ASTIA_CHECK(astia::core::operation_registry_count() == 1);
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 0);
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::canceled);
+    operation->destroy();
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 1);
+    astia::core::reap_operations();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+}
+
+ASTIA_TEST(async_operation_start_teardown_race_is_serialized) {
+    astia::core::initialize_resume_queues();
+    astia::core::reap_operations();
+    astia::arch::syscall_frame frame{};
+    astia::i64                 arguments[astia::sys::syscall_argument_count]{};
+    start_entered.store(false, std::memory_order_release);
+    start_release.store(false, std::memory_order_release);
+    const astia::u64 process_id = 0x6600;
+    const astia::u64 thread_id  = 0x6601;
+
+    auto* operation =
+        make_operation(start_spinner, static_cast<astia::sys::syscall_id>(146), arguments,
+                       frame, {}, {}, {process_id, thread_id});
+    if (operation == nullptr) {
+        ASTIA_CHECK(operation != nullptr);
+        return;
+    }
+    std::atomic<int> start_result{0};
+    std::thread      starter([&operation, &start_result] {
+        start_result.store(static_cast<int>(operation->start()),
+                           std::memory_order_release);
+    });
+    while (!start_entered.load(std::memory_order_acquire))
+        std::this_thread::yield();
+
+    ASTIA_CHECK(operation->request_cancel());
+    operation->destroy();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 1);
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 0);
+
+    start_release.store(true, std::memory_order_release);
+    starter.join();
+    ASTIA_CHECK(static_cast<astia::sys::async_start_result>(
+                    start_result.load(std::memory_order_acquire)) ==
+                astia::sys::async_start_result::canceled);
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 1);
+    astia::core::reap_operations();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+}
+
+ASTIA_TEST(async_operation_registry_capacity_create_is_clean) {
+    astia::core::reap_operations();
+    const astia::u32            capacity = astia::core::operation_registry_capacity();
+    std::vector<registry_probe> probes(capacity);
+    for (astia::u32 i = 0; i < capacity; ++i) {
+        ASTIA_CHECK(astia::core::register_operation(&probes[i], 0x8000 + i, 0,
+                                                    &probes[i].refs, &ignore_owner_exit));
+    }
+    ASTIA_CHECK(astia::core::operation_registry_count() == capacity);
+
+    astia::arch::syscall_frame frame{};
+    astia::i64                 arguments[astia::sys::syscall_argument_count]{};
+    auto*                      operation =
+        make_operation(parked_body, static_cast<astia::sys::syscall_id>(147), arguments,
+                       frame, {}, {}, {0x8999, 1});
+    ASTIA_CHECK(operation == nullptr);
+    ASTIA_CHECK(astia::core::operation_registry_count() == capacity);
+    for (astia::u32 i = 0; i < capacity; ++i)
+        astia::core::unregister_operation(&probes[i]);
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+}
+
+ASTIA_TEST(async_operation_reaper_capacity_failure_is_explicit) {
+    astia::core::reap_operations();
+    int          destroyed = 0;
+    reaper_probe probes[astia::resource_limits::queue::operation_reaper];
+    for (astia::u32 i = 0; i < astia::resource_limits::queue::operation_reaper; ++i) {
+        probes[i].destroyed = &destroyed;
+        ASTIA_CHECK(
+            astia::core::defer_operation_destroy(&probes[i], &destroy_reaper_probe));
+    }
+    ASTIA_CHECK(!astia::core::defer_operation_destroy(&probes[0], &destroy_reaper_probe));
+
+    astia::arch::syscall_frame frame{};
+    astia::i64                 arguments[astia::sys::syscall_argument_count]{};
+    body_entries = 0;
+    auto* operation =
+        make_operation(failing_body, static_cast<astia::sys::syscall_id>(148), arguments,
+                       frame, {}, {}, {0x8A00, 1});
+    if (operation == nullptr) {
+        ASTIA_CHECK(operation != nullptr);
+        return;
+    }
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::completed);
+    operation->destroy();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+
+    astia::core::reap_operations();
+    ASTIA_CHECK(destroyed ==
+                static_cast<int>(astia::resource_limits::queue::operation_reaper));
+}
+
 ASTIA_TEST(async_operation_shutdown_destroy_during_driver_resume_is_quiescent) {
     astia::core::initialize_resume_queues();
     astia::core::reap_operations();
@@ -347,6 +531,7 @@ ASTIA_TEST(async_operation_owner_exit_during_driver_resume_is_quiescent) {
     finish_release.store(true, std::memory_order_release);
     producer.join();
     ASTIA_CHECK(waiter.done());
+    operation->destroy();
     ASTIA_CHECK(astia::core::operation_reaper_pending() == 1);
     astia::core::reap_operations();
     ASTIA_CHECK(astia::core::operation_registry_count() == 0);
@@ -381,8 +566,10 @@ ASTIA_TEST(async_operation_process_exit_cancels_registered_operation) {
     ASTIA_CHECK(operation->canceled());
     ASTIA_CHECK(operation->reason() == astia::core::cancel_reason::owner);
     ASTIA_CHECK(operation->result().error == astia::error_t::eagain);
-    ASTIA_CHECK(!operation->completion().done());
+    ASTIA_CHECK(operation->completion().done());
+    ASTIA_CHECK(operation->completion().await_resume().error == astia::error_t::eagain);
     ASTIA_CHECK(source.complete(1));
+    operation->destroy();
     ASTIA_CHECK(astia::core::operation_reaper_pending() == 1);
     astia::core::reap_operations();
     ASTIA_CHECK(astia::core::operation_registry_count() == 0);
@@ -414,6 +601,8 @@ ASTIA_TEST(async_operation_thread_exit_cancels_only_matching_thread) {
     astia::core::cancel_operations_for_process(0x3000, astia::core::cancel_reason::owner);
     ASTIA_CHECK(second->canceled());
     (void) source.complete(2);
+    first->destroy();
+    second->destroy();
     astia::core::reap_operations();
     ASTIA_CHECK(astia::core::operation_registry_count() == 0);
 }

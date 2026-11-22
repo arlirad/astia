@@ -19,6 +19,7 @@ namespace astia::core {
         struct resume_slot {
             std::coroutine_handle<> continuation{};
             u64                     generation = 0;
+            u64                     key        = 0;
             u8                      state      = static_cast<u8>(slot_state::free);
             u8                      ref_held   = 0;
         };
@@ -42,6 +43,7 @@ namespace astia::core {
         void release_slot(resume_slot& slot) {
             slot.continuation = {};
             slot.generation   = 0;
+            slot.key          = 0;
             slot.ref_held     = 0;
             __atomic_store_n(&slot.state, static_cast<u8>(slot_state::free),
                              __ATOMIC_RELEASE);
@@ -71,7 +73,7 @@ namespace astia::core {
     }
 
     resume_schedule schedule_resume_owned(std::coroutine_handle<> continuation,
-                                          u64                     generation) {
+                                          u64 generation, u64 key) {
         if (!continuation || !__atomic_load_n(&queues_initialized, __ATOMIC_ACQUIRE))
             return resume_schedule::failed;
         const u32 cpu = arch::cpu::current_index();
@@ -86,7 +88,7 @@ namespace astia::core {
                 static_cast<slot_state>(__atomic_load_n(&slot.state, __ATOMIC_ACQUIRE));
             if ((state == slot_state::queued || state == slot_state::running) &&
                 slot.continuation.address() == continuation.address() &&
-                slot.generation == generation)
+                slot.generation == generation && slot.key == key)
                 return resume_schedule::duplicate;
         }
         u16  free  = 0;
@@ -104,6 +106,7 @@ namespace astia::core {
         resume_slot& slot = queue.slots[free];
         slot.continuation = continuation;
         slot.generation   = generation;
+        slot.key          = key;
         slot.ref_held     = 1;
         __atomic_store_n(&slot.state, static_cast<u8>(slot_state::queued),
                          __ATOMIC_RELEASE);
@@ -124,18 +127,19 @@ namespace astia::core {
         return resume_schedule::failed;
     }
 
-    bool schedule_resume(std::coroutine_handle<> continuation, u64 generation) {
+    bool schedule_resume(std::coroutine_handle<> continuation, u64 generation, u64 key) {
         if (!continuation)
             return false;
         if (!resume_begin(continuation))
             return false;
-        const resume_schedule result = schedule_resume_owned(continuation, generation);
+        const resume_schedule result =
+            schedule_resume_owned(continuation, generation, key);
         if (result != resume_schedule::queued)
             resume_end(continuation);
         return result != resume_schedule::failed;
     }
 
-    void cancel_resume(std::coroutine_handle<> continuation, u64 generation) {
+    void cancel_resume(std::coroutine_handle<> continuation, u64 generation, u64 key) {
         if (!continuation)
             return;
         for (u32 cpu = 0; cpu < max_cpus; ++cpu) {
@@ -151,6 +155,8 @@ namespace astia::core {
                     if (slot.continuation.address() != continuation.address())
                         continue;
                     if (generation != 0 && slot.generation != generation)
+                        continue;
+                    if (key != 0 && slot.key != key)
                         continue;
                     if (state == slot_state::queued) {
                         __atomic_store_n(&slot.state,
@@ -183,6 +189,7 @@ namespace astia::core {
                             resume_slot& slot = queue.slots[i];
                             if (slot.continuation.address() == continuation.address() &&
                                 (generation == 0 || slot.generation == generation) &&
+                                (key == 0 || slot.key == key) &&
                                 is_state(slot, slot_state::running)) {
                                 running = true;
                                 break;

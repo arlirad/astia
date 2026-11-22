@@ -100,6 +100,36 @@ handler code:
   device or filesystem work behind a handler. Handlers must not keep
   references into their own coroutine frame.
 
+## Structural closure
+
+- `completion` tracks attached awaiters (`awaiter_refs_`) and detach callbacks in
+  flight (`detach_inflight_`). A wake that took the continuation cannot let the
+  completion/operation be freed before the awaiter detaches. Deferred wake
+  publication holds `deferred_inflight_`; `detach()` waits for publication and
+  then cancels the queued slot by completion key, not just generation.
+- Resume queue slots carry a unique completion key. Duplicate detection and
+  cancellation match handle + generation + key, so two distinct completions
+  awaiting the same handle/generation cannot swallow each other's wake.
+- `drain_resumes()` keeps the lifecycle reference through `resume()`,
+  `await_resume`, detach, and `resume_end`.
+- `async_operation` has a `create_ref_` held until the creator calls
+  `destroy()`. Owner exit can cancel and tear down the driver but cannot reap
+  the operation while the creator still holds the returned pointer. This
+  closes the create/owner-exit publication window.
+- `start_state_` and `teardown_from_start_` serialize `start()` against
+  teardown. Teardown never resets the driver while `start()` is resuming it;
+  the start path performs the teardown after its resume returns.
+- `owner_exit()` publishes terminal `eagain` to any attached result awaiter,
+  then tears down the driver. Reaping waits for awaiter detach and detach
+  callback completion.
+- `maybe_reap()` waits for `driver_destroyed_`, `create_ref_ == 0`,
+  `awaiter_count() == 0`, and `detach_inflight() == false`. If the bounded
+  reaper is full, it falls back to the idle-delete gate rather than dropping
+  the object. Exhausting the lifecycle table is explicit: resume/destroy
+  returns false instead of an unguarded frame access.
+- `resume_end()` releases zero-reference lifecycle slots, so transient wake
+  refs cannot permanently exhaust the table.
+
 ## Tests
 
 Host tests cover inline wake, deferred wake, queue-overflow fallback, detach

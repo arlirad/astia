@@ -132,8 +132,12 @@ namespace astia::core {
             if (value == nullptr || value->refs == 0)
                 return;
             --value->refs;
-            if (value->refs != 0 || value->pending == 0)
+            if (value->refs != 0)
                 return;
+            if (value->pending == 0) {
+                release_slot(*value);
+                return;
+            }
             __atomic_store_n(&value->state, static_cast<u8>(slot_state::destroying),
                              __ATOMIC_RELEASE);
             destroy  = value->handle;

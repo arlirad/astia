@@ -10,6 +10,8 @@
 
 namespace astia::core {
 
+    using completion_detach_observer = void (*)(void* context);
+
     /// One-shot awaitable completion owning its optional result and awaiting
     /// continuation handle, but not the coroutine frame that owns the handle.
     /// The producer may complete it from an IRQ-safe path; the consumer awaits
@@ -23,10 +25,15 @@ namespace astia::core {
             canceled,
         };
 
-        optional<T>             result_;
-        u8                      state_      = static_cast<u8>(state::pending);
-        u64                     generation_ = 1;
-        std::coroutine_handle<> continuation_{};
+        optional<T>                result_;
+        u8                         state_             = static_cast<u8>(state::pending);
+        u8                         deferred_inflight_ = 0;
+        u8                         detach_inflight_   = 0;
+        u64                        generation_        = 1;
+        volatile u32               awaiter_refs_      = 0;
+        std::coroutine_handle<>    continuation_{};
+        completion_detach_observer detach_observer_ = nullptr;
+        void*                      detach_context_  = nullptr;
 
         bool finished() const {
             u8 value = __atomic_load_n(&state_, __ATOMIC_ACQUIRE);
@@ -59,14 +66,20 @@ namespace astia::core {
 
         void wake_deferred() {
             const u64 generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
+            const u64 key        = reinterpret_cast<u64>(this);
+            __atomic_store_n(&deferred_inflight_, 1, __ATOMIC_RELEASE);
             for (;;) {
                 auto* value = __atomic_load_n(reinterpret_cast<void**>(&continuation_),
                                               __ATOMIC_ACQUIRE);
-                if (value == nullptr)
+                if (value == nullptr) {
+                    __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
                     return;
+                }
                 const auto handle = std::coroutine_handle<>::from_address(value);
-                if (!resume_begin(handle))
+                if (!resume_begin(handle)) {
+                    __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
                     return;
+                }
                 void* expected = value;
                 if (!__atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
                                                  &expected, nullptr, false,
@@ -74,13 +87,18 @@ namespace astia::core {
                     resume_end(handle);
                     continue;
                 }
-                const resume_schedule result = schedule_resume_owned(handle, generation);
-                if (result == resume_schedule::queued)
-                    return;
-                if (result == resume_schedule::duplicate) {
-                    resume_end(handle);
+                const resume_schedule result =
+                    schedule_resume_owned(handle, generation, key);
+                if (result == resume_schedule::queued) {
+                    __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
                     return;
                 }
+                if (result == resume_schedule::duplicate) {
+                    resume_end(handle);
+                    __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
+                    return;
+                }
+                __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
                 handle.resume();
                 resume_end(handle);
                 return;
@@ -105,7 +123,7 @@ namespace astia::core {
                 other.generation_   = 0;
             }
             ~awaiter() {
-                if (completion_ != nullptr)
+                if (completion_ != nullptr && generation_ != 0)
                     completion_->detach(continuation_, generation_);
             }
 
@@ -198,6 +216,24 @@ namespace astia::core {
             return finished();
         }
 
+        u32 awaiter_count() const {
+            return __atomic_load_n(&awaiter_refs_, __ATOMIC_ACQUIRE);
+        }
+
+        bool detach_inflight() const {
+            return __atomic_load_n(&detach_inflight_, __ATOMIC_ACQUIRE) != 0;
+        }
+
+        void clear_detach_inflight() noexcept {
+            __atomic_store_n(&detach_inflight_, 0, __ATOMIC_RELEASE);
+        }
+
+        void set_awaiter_observer(completion_detach_observer observer,
+                                  void*                      context) noexcept {
+            __atomic_store_n(&detach_context_, context, __ATOMIC_RELEASE);
+            __atomic_store_n(&detach_observer_, observer, __ATOMIC_RELEASE);
+        }
+
         private:
         bool begin_completion() {
             u8 expected = static_cast<u8>(state::pending);
@@ -216,17 +252,22 @@ namespace astia::core {
             if (finished())
                 return 0;
             const u64 generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
-            void*     expected   = nullptr;
+            __atomic_add_fetch(&awaiter_refs_, 1, __ATOMIC_ACQ_REL);
+            void* expected = nullptr;
             if (!__atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
                                              &expected, continuation.address(), false,
-                                             __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+                                             __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) {
+                __atomic_sub_fetch(&awaiter_refs_, 1, __ATOMIC_ACQ_REL);
                 return 0;
+            }
             if (finished()) {
                 void* value = continuation.address();
                 if (__atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
                                                 &value, nullptr, false, __ATOMIC_ACQ_REL,
-                                                __ATOMIC_ACQUIRE))
+                                                __ATOMIC_ACQUIRE)) {
+                    __atomic_sub_fetch(&awaiter_refs_, 1, __ATOMIC_ACQ_REL);
                     return 0;
+                }
                 return generation;
             }
             return generation;
@@ -240,8 +281,22 @@ namespace astia::core {
             const bool detached = __atomic_compare_exchange_n(
                 reinterpret_cast<void**>(&continuation_), &expected, nullptr, false,
                 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-            (void) detached;
-            cancel_resume(continuation, generation);
+            if (!detached) {
+                while (__atomic_load_n(&deferred_inflight_, __ATOMIC_ACQUIRE) != 0)
+                    ASTIA_CPU_RELAX();
+            }
+            cancel_resume(continuation, generation, reinterpret_cast<u64>(this));
+            __atomic_add_fetch(&detach_inflight_, 1, __ATOMIC_ACQ_REL);
+            if (__atomic_sub_fetch(&awaiter_refs_, 1, __ATOMIC_ACQ_REL) == 0) {
+                const auto observer =
+                    __atomic_load_n(&detach_observer_, __ATOMIC_ACQUIRE);
+                void* context = __atomic_load_n(&detach_context_, __ATOMIC_ACQUIRE);
+                if (observer != nullptr) {
+                    observer(context);
+                    return;
+                }
+            }
+            __atomic_store_n(&detach_inflight_, 0, __ATOMIC_RELEASE);
         }
     };
 

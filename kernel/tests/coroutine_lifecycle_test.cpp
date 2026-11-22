@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <thread>
+#include <vector>
 
 namespace {
     int* probe_destroyed = nullptr;
@@ -212,6 +213,83 @@ ASTIA_TEST(completion_reentrant_inline_wake_balances_acknowledgements) {
     ASTIA_CHECK(outer_task.done());
     ASTIA_CHECK(inner_task.value() != nullptr && *inner_task.value() == 7);
     ASTIA_CHECK(outer_task.value() != nullptr && *outer_task.value() == 6);
+    ASTIA_CHECK(astia::core::coroutine_lifecycle_inflight() == 0);
+}
+
+ASTIA_TEST(resume_queue_distinguishes_duplicate_keys_and_generations) {
+    astia::core::initialize_resume_queues();
+    const auto noop = std::noop_coroutine();
+
+    ASTIA_CHECK(astia::core::resume_begin(noop));
+    ASTIA_CHECK(astia::core::schedule_resume_owned(noop, 7, 0x111) ==
+                astia::core::resume_schedule::queued);
+    ASTIA_CHECK(astia::core::resume_begin(noop));
+    ASTIA_CHECK(astia::core::schedule_resume_owned(noop, 7, 0x222) ==
+                astia::core::resume_schedule::queued);
+    ASTIA_CHECK(astia::core::drain_resumes() == 2);
+
+    ASTIA_CHECK(astia::core::resume_begin(noop));
+    ASTIA_CHECK(astia::core::schedule_resume_owned(noop, 8, 0x333) ==
+                astia::core::resume_schedule::queued);
+    ASTIA_CHECK(astia::core::resume_begin(noop));
+    ASTIA_CHECK(astia::core::schedule_resume_owned(noop, 8, 0x333) ==
+                astia::core::resume_schedule::duplicate);
+    astia::core::resume_end(noop);
+    astia::core::cancel_resume(noop, 0, 0);
+    while (astia::core::drain_resumes(astia::resource_limits::queue::resume * 2 + 1) !=
+           0) {
+    }
+    ASTIA_CHECK(astia::core::coroutine_lifecycle_inflight() == 0);
+}
+
+ASTIA_TEST(coroutine_lifecycle_capacity_is_explicit_and_released) {
+    const astia::u32        capacity = astia::core::coroutine_lifecycle_capacity();
+    std::vector<astia::u64> storage((static_cast<astia::usize>(capacity) + 1) * 2, 0);
+    auto                    address = [&storage](astia::u32 index) {
+        return reinterpret_cast<void*>(reinterpret_cast<astia::usize>(storage.data()) +
+                                       static_cast<astia::usize>(index) * 16);
+    };
+
+    astia::u32 accepted = 0;
+    for (; accepted < capacity; ++accepted) {
+        if (!astia::core::resume_begin(
+                std::coroutine_handle<>::from_address(address(accepted))))
+            break;
+    }
+    ASTIA_CHECK(accepted == capacity);
+    ASTIA_CHECK(!astia::core::resume_begin(
+        std::coroutine_handle<>::from_address(address(capacity))));
+
+    for (astia::u32 i = 0; i < accepted; ++i)
+        astia::core::resume_end(std::coroutine_handle<>::from_address(address(i)));
+    ASTIA_CHECK(astia::core::coroutine_lifecycle_inflight() == 0);
+    ASTIA_CHECK(astia::core::resume_begin(
+        std::coroutine_handle<>::from_address(address(capacity))));
+    astia::core::resume_end(std::coroutine_handle<>::from_address(address(capacity)));
+}
+
+ASTIA_TEST(coroutine_destroy_capacity_exhaustion_is_explicit) {
+    const astia::u32        capacity = astia::core::coroutine_lifecycle_capacity();
+    std::vector<astia::u64> storage((static_cast<astia::usize>(capacity) + 1) * 2, 0);
+    auto                    address = [&storage](astia::u32 index) {
+        return reinterpret_cast<void*>(reinterpret_cast<astia::usize>(storage.data()) +
+                                       static_cast<astia::usize>(index) * 16);
+    };
+    for (astia::u32 i = 0; i < capacity; ++i)
+        ASTIA_CHECK(
+            astia::core::resume_begin(std::coroutine_handle<>::from_address(address(i))));
+
+    int destroyed   = 0;
+    probe_destroyed = &destroyed;
+    auto value      = make_probe();
+    ASTIA_CHECK(!astia::core::destroy_coroutine(value.coroutine));
+    ASTIA_CHECK(destroyed == 0);
+
+    astia::core::resume_end(std::coroutine_handle<>::from_address(address(0)));
+    ASTIA_CHECK(astia::core::destroy_coroutine(value.coroutine));
+    ASTIA_CHECK(destroyed == 1);
+    for (astia::u32 i = 1; i < capacity; ++i)
+        astia::core::resume_end(std::coroutine_handle<>::from_address(address(i)));
     ASTIA_CHECK(astia::core::coroutine_lifecycle_inflight() == 0);
 }
 
