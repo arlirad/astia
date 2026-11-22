@@ -59,6 +59,10 @@ long __astia_process_getegid(void) {
     return host_trap(SYS_getegid, 0, 0, 0, 0);
 }
 
+__attribute__((weak)) long __astia_process_getgroups(int count, unsigned int* groups) {
+    return host_trap(SYS_getgroups, count, (long) groups, 0, 0);
+}
+
 long __astia_process_getpgrp(void) {
     return host_trap(SYS_getpgrp, 0, 0, 0, 0);
 }
@@ -100,7 +104,7 @@ long __astia_process_spawnve(const char* path, char* const argv[], char* const e
     char* empty_env[]     = {NULL};
     int   child           = 0;
     int   rc = posix_spawn(&child, path, NULL, NULL, argv == NULL ? fallback_argv : argv,
-                           envp == NULL ? empty_env : envp);
+                         envp == NULL ? empty_env : envp);
     return rc == 0 ? (long) child : -(long) rc;
 }
 
@@ -131,7 +135,7 @@ long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_se
 
 long __astia_process_sigpending(unsigned int* set) {
     unsigned long host_set = 0;
-    long rc = syscall(SYS_rt_sigpending, &host_set, sizeof host_set);
+    long          rc       = syscall(SYS_rt_sigpending, &host_set, sizeof host_set);
     if (rc == -1)
         return -HOST_ERRNO;
     if (set != NULL)
@@ -143,15 +147,15 @@ long __astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info
                                   const void* timeout) {
     unsigned long host_set = set == NULL ? 0 : (unsigned long) *set;
     struct {
-        int signo;
-        int errno_value;
-        int code;
-        int pid;
+        int          signo;
+        int          errno_value;
+        int          code;
+        int          pid;
         unsigned int uid;
-        int status;
+        int          status;
     } host_info;
-    long rc = syscall(SYS_rt_sigtimedwait, &host_set,
-                      info == NULL ? NULL : &host_info, timeout, sizeof host_set);
+    long rc = syscall(SYS_rt_sigtimedwait, &host_set, info == NULL ? NULL : &host_info,
+                      timeout, sizeof host_set);
     if (rc == -1)
         return -HOST_ERRNO;
     if (info != NULL) {

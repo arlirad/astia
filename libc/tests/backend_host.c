@@ -233,8 +233,8 @@ long __astia_fio_stat(const char* path, void* out, uint32_t length) {
                        {0, 0, 0, 0}};
     return 0;
 }
-long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length,
-                        int flags) {
+long __astia_host_fio_statat(int dirfd, const char* path, void* out, uint32_t length,
+                             int flags) {
     struct host_stat hs;
     astia_stat*      st = (astia_stat*) out;
     if (length != sizeof *st)
@@ -257,6 +257,11 @@ long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length,
                        hs.ctime_nsec,
                        {0, 0, 0, 0}};
     return 0;
+}
+
+__attribute__((weak)) long __astia_fio_statat(int dirfd, const char* path, void* out,
+                                              uint32_t length, int flags) {
+    return __astia_host_fio_statat(dirfd, path, out, length, flags);
 }
 long __astia_fio_lstat(const char* path, void* out, uint32_t length) {
     struct host_stat hs;

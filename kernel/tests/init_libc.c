@@ -3003,6 +3003,62 @@ int main(int argc, char** argv) {
             return 81;
     }
 
+    /* Supplementary groups participate in access/faccessat decisions. */
+    if (geteuid() == 0) {
+        const char* target           = "/tmp/access-supplementary";
+        const gid_t member_groups[1] = {4242};
+        const gid_t other_groups[1]  = {4243};
+        int         status           = 0;
+        pid_t       child;
+
+        (void) rmdir(target);
+        if (mkdir(target, 0700) != 0)
+            return 186;
+        if (chown(target, 0, 4242) != 0 || chmod(target, 0050) != 0)
+            return 187;
+
+        child = fork();
+        if (child < 0)
+            return 188;
+        if (child == 0) {
+            if (setgroups(1, member_groups) != 0 || setgid(1000) != 0 ||
+                setuid(1000) != 0)
+                _Exit(1);
+            if (access(target, R_OK) != 0 || access(target, X_OK) != 0 ||
+                access(target, F_OK) != 0)
+                _Exit(2);
+            errno = 0;
+            if (access(target, W_OK) != -1 || errno != EACCES)
+                _Exit(3);
+            if (faccessat(AT_FDCWD, target, X_OK, AT_EACCESS) != 0)
+                _Exit(4);
+            _Exit(0);
+        }
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 189;
+
+        child = fork();
+        if (child < 0)
+            return 190;
+        if (child == 0) {
+            if (setgroups(1, other_groups) != 0 || setgid(1000) != 0 || setuid(1000) != 0)
+                _Exit(1);
+            if (access(target, F_OK) != 0)
+                _Exit(2);
+            errno = 0;
+            if (access(target, R_OK) != -1 || errno != EACCES)
+                _Exit(3);
+            errno = 0;
+            if (access(target, X_OK) != -1 || errno != EACCES)
+                _Exit(4);
+            _Exit(0);
+        }
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 191;
+        if (rmdir(target) != 0)
+            return 192;
+    }
+
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from
        the frame the kernel built. */
     printf("astia: libc ok pid=%d argc=%d argv0=%s\n", pid, argc,

@@ -45,14 +45,30 @@ int getlogin_r(char* name, unsigned long name_size) {
     return 0;
 }
 
+enum { ACCESS_GROUP_CAPACITY = 16 };
+
+static int supplementary_group(unsigned int gid) {
+    unsigned int groups[ACCESS_GROUP_CAPACITY];
+    long         count = __astia_process_getgroups(ACCESS_GROUP_CAPACITY, groups);
+    if (count < 0)
+        return 0;
+    for (long i = 0; i < count; ++i)
+        if (groups[i] == gid)
+            return 1;
+    return 0;
+}
+
 static int check_access(const struct stat* value, int mode, unsigned int uid,
                         unsigned int gid) {
     unsigned int bits;
     if (mode == F_OK)
         return 0;
-    bits = uid == value->st_uid ? ((value->st_mode >> 6) & 7)
-                                : (gid == value->st_gid ? ((value->st_mode >> 3) & 7)
-                                                        : (value->st_mode & 7));
+    if (uid == value->st_uid)
+        bits = (value->st_mode >> 6) & 7;
+    else if (gid == value->st_gid || supplementary_group((unsigned int) value->st_gid))
+        bits = (value->st_mode >> 3) & 7;
+    else
+        bits = value->st_mode & 7;
     if (uid == 0)
         bits = (mode & X_OK) ? ((value->st_mode & 0111) ? 7 : 0) : 7;
     if ((mode & R_OK) && !(bits & 4))
@@ -399,7 +415,7 @@ long sysconf(int name) {
     }
 }
 int getgroups(int count, gid_t groups[]) {
-    long rc = astia_getgroups(count, (uint32_t*) groups);
+    long rc = __astia_process_getgroups(count, (unsigned int*) groups);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
