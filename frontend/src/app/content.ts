@@ -52,8 +52,8 @@ export const NAV_LINKS: readonly NavLink[] = [
   { label: 'Overview', path: '/', fragment: 'overview' },
   { label: 'Capabilities', path: '/', fragment: 'capabilities' },
   { label: 'Roadmap', path: '/', fragment: 'roadmap' },
-  { label: 'Documentation', path: '/documentation' },
   { label: 'Get started', path: '/', fragment: 'get-started' },
+  { label: 'Documentation', path: '/documentation' },
 ];
 
 export const SNAPSHOT: readonly Snapshot[] = [

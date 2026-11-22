@@ -29,6 +29,21 @@ describe('App shell', () => {
     expect(element.querySelector('.footer-links a[href="/documentation"]')).toBeTruthy();
   });
 
+  it('renders Documentation after Get started in the navbar', () => {
+    const { element } = render();
+    const labels = [
+      ...element.querySelectorAll<HTMLAnchorElement>('.site-nav a:not(.nav-github)'),
+    ].map((link) => link.textContent?.trim());
+
+    expect(labels).toEqual([
+      'Overview',
+      'Capabilities',
+      'Roadmap',
+      'Get started',
+      'Documentation',
+    ]);
+  });
+
   it('toggles the mobile navigation and closes it from a link', () => {
     const { fixture, element } = render();
     const toggle = element.querySelector<HTMLButtonElement>('.nav-toggle');
