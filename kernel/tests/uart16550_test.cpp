@@ -222,6 +222,8 @@ ASTIA_TEST(uart16550_tcsetsf_drains_receive_fifo) {
     ASTIA_CHECK(uart.init_uart());
     raw_mode(uart);
 
+    fake.push('x');
+    uart.irq();
     fake.push('a');
     fake.push('b');
     struct termios value {};
@@ -230,6 +232,12 @@ ASTIA_TEST(uart16550_tcsetsf_drains_receive_fifo) {
     ASTIA_CHECK(fake.empty());
     char result[4]{};
     ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 0);
+
+    fake.push('o');
+    fake.push('k');
+    uart.irq();
+    ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 2);
+    ASTIA_CHECK(result[0] == 'o' && result[1] == 'k');
 }
 
 ASTIA_TEST(uart16550_termios_round_trip_preserves_state) {
