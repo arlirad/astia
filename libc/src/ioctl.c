@@ -11,6 +11,10 @@ int ioctl(int fd, unsigned long request, ...) {
     size_t  length = 0;
     long    rc;
 
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
     if (request == TIOCSCTTY) {
         arg = NULL;
     }
@@ -22,6 +26,8 @@ int ioctl(int fd, unsigned long request, ...) {
     if (request == TCGETS || request == TCSETS || request == TCSETSW ||
         request == TCSETSF)
         length = sizeof(struct termios);
+    else if (request == TCFLSH)
+        length = sizeof(int);
     else if (request == TIOCGWINSZ || request == TIOCSWINSZ)
         length = sizeof(struct winsize);
     else if (request == TIOCGPGRP || request == TIOCSPGRP)

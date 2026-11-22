@@ -34,10 +34,16 @@ int tcdrain(int fd) {
     return -1;
 }
 int tcflush(int fd, int queue_selector) {
-    (void) fd;
-    (void) queue_selector;
-    errno = ENOSYS;
-    return -1;
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    if (queue_selector != TCIFLUSH && queue_selector != TCOFLUSH &&
+        queue_selector != TCIOFLUSH) {
+        errno = EINVAL;
+        return -1;
+    }
+    return ioctl(fd, TCFLSH, &queue_selector);
 }
 int tcflow(int fd, int action) {
     (void) fd;

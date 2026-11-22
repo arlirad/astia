@@ -1,8 +1,10 @@
+#include <astia/api/syscalls.h>
+
 #include "file_port.h"
 #include "path.h"
 #include "process_port.h"
-#include <astia/api/syscalls.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -11,7 +13,6 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -51,7 +52,7 @@ static int check_access(const struct stat* value, int mode, unsigned int uid,
         return 0;
     bits = uid == value->st_uid ? ((value->st_mode >> 6) & 7)
                                 : (gid == value->st_gid ? ((value->st_mode >> 3) & 7)
-                                                          : (value->st_mode & 7));
+                                                        : (value->st_mode & 7));
     if (uid == 0)
         bits = (mode & X_OK) ? ((value->st_mode & 0111) ? 7 : 0) : 7;
     if ((mode & R_OK) && !(bits & 4))
@@ -64,7 +65,7 @@ static int check_access(const struct stat* value, int mode, unsigned int uid,
 }
 
 int faccessat(int dirfd, const char* path, int mode, int flags) {
-    struct stat value;
+    struct stat  value;
     unsigned int uid;
     unsigned int gid;
 
@@ -75,8 +76,8 @@ int faccessat(int dirfd, const char* path, int mode, int flags) {
     else if (fstatat(dirfd, path, &value, 0) < 0)
         return -1;
     else {
-        uid = (flags & AT_EACCESS) ? geteuid() : getuid();
-        gid = (flags & AT_EACCESS) ? getegid() : getgid();
+        uid        = (flags & AT_EACCESS) ? geteuid() : getuid();
+        gid        = (flags & AT_EACCESS) ? getegid() : getgid();
         int result = check_access(&value, mode, uid, gid);
         if (result == 0)
             return 0;
@@ -142,7 +143,7 @@ int openat(int dirfd, const char* path, int flags, ...) {
 }
 int ttyname_r(int fd, char* buffer, size_t buffer_size) {
     static const char tty_path[] = "/dev/tts0";
-    int                process_group;
+    int               process_group;
 
     if (buffer == NULL)
         return EINVAL;
@@ -237,10 +238,12 @@ int eventfd(unsigned int initial_value, int flags) {
 }
 int isatty(int fd) {
     int process_group;
-    if (fd < 0 || ioctl(fd, TIOCGPGRP, &process_group) < 0) {
-        errno = ENOTTY;
+    if (fd < 0) {
+        errno = EBADF;
         return 0;
     }
+    if (ioctl(fd, TIOCGPGRP, &process_group) < 0)
+        return 0;
     return 1;
 }
 long read(int fd, void* buffer, unsigned long length) {
@@ -322,8 +325,7 @@ unsigned int sleep(unsigned int seconds) {
     if (nanosleep(&requested, &remaining) == 0)
         return 0;
     if (errno == EINTR)
-        return (unsigned int) remaining.tv_sec +
-               (remaining.tv_nsec != 0 ? 1u : 0u);
+        return (unsigned int) remaining.tv_sec + (remaining.tv_nsec != 0 ? 1u : 0u);
     return seconds;
 }
 char* mktemp(char* template_name) {
@@ -335,8 +337,8 @@ int mkstemp(char* template_name) {
     static unsigned long sequence;
     static const char    alphabet[] = "0123456789abcdefghijklmnopqrstuvwxyz";
     unsigned long        seed;
-    size_t                length;
-    int                   attempt;
+    size_t               length;
+    int                  attempt;
 
     if (template_name == NULL) {
         errno = EINVAL;

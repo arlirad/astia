@@ -1,11 +1,12 @@
 #pragma once
 
-#include "../../console.hpp"
-#include "../tty.hpp"
 #include <astia/api/termios.h>
 #include <astia/common.hpp>
 #include <astia/dev/regs.hpp>
 #include <astia/dev/uart_platform.hpp>
+
+#include "../../console.hpp"
+#include "../tty.hpp"
 
 // COM1 as a 16550 UART, shaped by the dev layer's blk/char/net split:
 // a uart16550 is a tty (line discipline: termios, TCGETS/TCSETS, a
@@ -31,6 +32,10 @@
 // The class is the unit of extension: COM2..COM4 are one instance +
 // one init_irq away (base/irq pair), everything else is per-port
 // state already.
+
+namespace astia::fs {
+    class file;
+}
 
 namespace astia::dev {
 
@@ -74,13 +79,16 @@ namespace astia::dev {
         long tty_speed(speed_t speed) override;
         bool tty_putc(u8 byte) override;
         void tty_ready() override;
+        long tty_discard_input() override;
 
         private:
         bool tx_byte(u8 c);
         void rx_drain();
 
-        io_port   _ports;
-        irq_line& _irq;
+        io_port        _ports;
+        irq_line&      _irq;
+        core::spinlock _rx_lock;
+        fs::file*      _ready_file = nullptr;
     };
 
     /// Bring COM1 up: FIFOs on, 8N1, divisor 1, OUT2, interrupts off.

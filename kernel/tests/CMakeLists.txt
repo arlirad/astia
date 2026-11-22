@@ -194,6 +194,16 @@ astia_add_host_test(astia_tty_test
 )
 target_compile_definitions(astia_tty_test PRIVATE ASTIA_TTY_HOST_TEST=1)
 target_include_directories(astia_tty_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_add_host_test(astia_uart16550_test
+        uart16550_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/uart16550.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+)
+target_compile_options(astia_uart16550_test PRIVATE -ffunction-sections -fdata-sections)
+target_compile_definitions(astia_uart16550_test PRIVATE ASTIA_UART16550_HOST_TEST=1)
+target_link_options(astia_uart16550_test PRIVATE -Wl,--gc-sections)
+target_include_directories(astia_uart16550_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 astia_add_host_test(astia_pty_test
         pty_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/pty.cpp
@@ -906,6 +916,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/poll.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/prctl.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pthread.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pty.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/printf.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/rlimit.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/scanf.c
