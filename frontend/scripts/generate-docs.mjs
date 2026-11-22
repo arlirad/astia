@@ -162,16 +162,29 @@ const manifestPath = join(syscallExportDir, 'manifest.json');
 if (!existsSync(manifestPath)) {
   throw new Error(`missing section-2 manifest: ${manifestPath}`);
 }
+const canonicalSyscallIds = [
+  ...Array.from({ length: 70 }, (_, index) => index),
+  82,
+];
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-if (manifest.section !== 2 || manifest.count !== 70 || manifest.pages.length !== 70) {
-  throw new Error('section-2 manifest must contain exactly 70 pages');
+if (
+  manifest.section !== 2 ||
+  manifest.count !== canonicalSyscallIds.length ||
+  manifest.pages.length !== canonicalSyscallIds.length
+) {
+  throw new Error(
+    `section-2 manifest must contain exactly ${canonicalSyscallIds.length} pages`,
+  );
 }
 const syscallIds = manifest.pages.map((page) => page.id);
+const sortedSyscallIds = [...syscallIds].sort((a, b) => a - b);
 if (
-  new Set(syscallIds).size !== 70 ||
-  syscallIds.some((id, index) => id !== index)
+  new Set(syscallIds).size !== canonicalSyscallIds.length ||
+  sortedSyscallIds.some((id, index) => id !== canonicalSyscallIds[index])
 ) {
-  throw new Error('section-2 manifest must contain stable IDs 0 through 69');
+  throw new Error(
+    `section-2 manifest must contain canonical public IDs ${canonicalSyscallIds.join(', ')}`,
+  );
 }
 
 const syscallPages = manifest.pages.map((entry) => {

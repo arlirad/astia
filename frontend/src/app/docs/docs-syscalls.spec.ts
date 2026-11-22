@@ -3,6 +3,10 @@ import { DOC_PAGES } from '../content';
 import { DocsBrowser } from './docs-browser';
 
 const SYSCALL_PAGES = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
+const CANONICAL_SYSCALL_IDS = [
+  ...Array.from({ length: 70 }, (_, index) => index),
+  82,
+];
 
 const synopsisOf = (page: (typeof SYSCALL_PAGES)[number]): string => {
   const match = page.content.match(
@@ -18,14 +22,14 @@ describe('Generated section-2 syscall docs', () => {
     }).compileComponents();
   });
 
-  it('contains all 70 canonical syscall pages with stable IDs and slugs', () => {
-    expect(SYSCALL_PAGES.length).toBe(70);
+  it('contains all 71 canonical syscall pages with stable IDs and slugs', () => {
+    expect(SYSCALL_PAGES.length).toBe(CANONICAL_SYSCALL_IDS.length);
     expect(SYSCALL_PAGES.map((page) => page.syscallId).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual(
-      Array.from({ length: 70 }, (_, index) => index),
+      CANONICAL_SYSCALL_IDS,
     );
 
     const slugs = new Set(SYSCALL_PAGES.map((page) => page.slug));
-    expect(slugs.size).toBe(70);
+    expect(slugs.size).toBe(CANONICAL_SYSCALL_IDS.length);
     for (const page of SYSCALL_PAGES) {
       expect(page.slug).toBe(
         `syscall-${page.syscallId}-${page.title.replace(/\(2\)$/, '').replace(/_/g, '-')}`,
@@ -43,15 +47,25 @@ describe('Generated section-2 syscall docs', () => {
     expect(ioSetup?.content).toContain('Allocates a ring');
     expect(ioSetup?.category).toBe('fs');
     expect(ioSetup?.source).toBe(
-      'https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_setup.hpp',
+      'https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_setup.cpp',
     );
 
     expect(alarm?.title).toBe('alarm(2)');
-    expect(alarm?.content).toContain('System call handler for `alarm`');
+    expect(alarm?.content).toContain('Schedule delivery of a process alarm');
     expect(alarm?.source).toContain('kernel/src/proc/syscalls/alarm.cpp');
 
     expect(fchdir?.title).toBe('fchdir(2)');
-    expect(fchdir?.source).toContain('kernel/src/proc/syscalls/process/fchdir.cpp');
+    expect(fchdir?.source).toContain('kernel/include/astia/api/syscalls.h');
+
+    const uname = SYSCALL_PAGES.find((page) => page.syscallId === 82);
+    expect(uname?.title).toBe('uname(2)');
+    expect(uname?.slug).toBe('syscall-82-uname');
+    expect(uname?.category).toBe('proc/process');
+    expect(uname?.source).toContain('kernel/src/proc/syscalls/process/uname.cpp');
+    expect(uname?.content).toContain('## SYNOPSIS');
+    expect(uname?.content).toContain('long astia_uname(astia_utsname* output);');
+    expect(uname?.content).toContain('`-EFAULT`');
+    expect(uname?.content).toContain('`-ESRCH`');
 
     const sigwait = SYSCALL_PAGES.find((page) => page.syscallId === 50);
     expect(sigwait?.content).toContain(
@@ -61,10 +75,10 @@ describe('Generated section-2 syscall docs', () => {
 
     const clockGetTime = SYSCALL_PAGES.find((page) => page.syscallId === 7);
     const clockGetRes = SYSCALL_PAGES.find((page) => page.syscallId === 62);
-    expect(clockGetTime?.source).toContain('kernel/src/sys/time.cpp');
-    expect(clockGetRes?.source).toContain('kernel/src/sys/time.cpp');
+    expect(clockGetTime?.source).toContain('kernel/include/astia/api/syscalls.h');
+    expect(clockGetRes?.source).toContain('kernel/include/astia/api/syscalls.h');
     expect(clockGetRes?.content).toContain('astia_clock_getres');
-    expect(clockGetRes?.content).toContain('Detailed manual text has not been added');
+    expect(clockGetRes?.content).toContain('Resolution is derived from the active timer');
     expect(clockGetTime?.content).toContain('`-EIO`');
     expect(clockGetTime?.content).toContain('active timer source');
     expect(clockGetRes?.content).toContain('`-EIO`');
@@ -132,7 +146,7 @@ describe('Generated section-2 syscall docs', () => {
     }
   });
 
-  it('uses public ABI or explicitly raw synopses for all 70 pages', () => {
+  it('uses public ABI or explicitly raw synopses for all 71 pages', () => {
     for (const page of SYSCALL_PAGES) {
       expect(page.synopsisKind).toBeTruthy();
       const synopsis = synopsisOf(page);
@@ -176,6 +190,7 @@ describe('Generated section-2 syscall docs', () => {
     expect(exact(13)).toBe(
       'long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);',
     );
+    expect(exact(82)).toBe('long astia_uname(astia_utsname* output);');
   });
 
   it('renders a syscall page through the existing Markdown parser', async () => {
@@ -196,7 +211,7 @@ describe('Generated section-2 syscall docs', () => {
       'long astia_io_setup',
     );
     expect(element.querySelector('.docs-source')?.getAttribute('href')).toContain(
-      'kernel/src/fs/syscalls/io_setup.hpp',
+      'kernel/src/fs/syscalls/io_setup.cpp',
     );
     expect(element.querySelectorAll('.docs-page-top .tag').length).toBeGreaterThanOrEqual(3);
   });
