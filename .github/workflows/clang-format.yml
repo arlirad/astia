@@ -3,6 +3,7 @@ name: C/C++ formatting
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  merge_group:
   push:
     branches:
       - main
@@ -19,7 +20,7 @@ permissions:
 
 jobs:
   clang-format:
-    name: ${{ github.event_name == 'pull_request' && 'clang-format-pr' || 'clang-format-baseline' }}
+    name: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'clang-format-pr' || 'clang-format-baseline' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -64,7 +65,7 @@ jobs:
 
       - name: Check formatting
         env:
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
-          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'push' && github.event.after || github.sha }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event_name == 'push' && github.event.before || '' }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.sha || github.event_name == 'push' && github.event.after || github.sha }}
           CLANG_FORMAT_FULL_TREE: ${{ inputs.full_tree || '0' }}
         run: .github/scripts/check-format.sh

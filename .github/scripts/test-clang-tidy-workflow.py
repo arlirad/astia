@@ -10,6 +10,8 @@ def main():
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert "pull_request_target" not in workflow
     assert "pull_request:" in workflow
+    assert "merge_group:" in workflow
+    assert "github.event.merge_group.base_sha" in workflow
     assert "permissions:\n  contents: read" in workflow
     assert "persist-credentials: false" in workflow
     assert 'git show "${BASE_SHA}:.github/scripts/check-clang-tidy.py"' in workflow

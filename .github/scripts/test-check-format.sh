@@ -76,6 +76,14 @@ pr_head="$(git -C "$test_root" rev-parse HEAD)"
 pr_args="$(run_check pull_request "$base_sha" "$pr_head")"
 assert_files "$pr_args" a.cpp
 
+git -C "$test_root" checkout --quiet -b merge-group "$base_sha"
+printf 'int a() { return 3; }\n' >"$test_root/a.cpp"
+git -C "$test_root" add a.cpp
+git -C "$test_root" commit --quiet -m merge-group
+merge_group_head="$(git -C "$test_root" rev-parse HEAD)"
+merge_group_args="$(run_check merge_group "$base_sha" "$merge_group_head")"
+assert_files "$merge_group_args" a.cpp
+
 git -C "$test_root" checkout --quiet -b push "$base_sha"
 printf 'int b() { return 1; }\n' >"$test_root/b.cpp"
 git -C "$test_root" add b.cpp
