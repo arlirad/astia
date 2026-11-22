@@ -81,6 +81,7 @@ add_custom_command(
         VERBATIM)
 
 add_custom_target(usb_mmio_width_unit_target ALL DEPENDS ${ASTIA_USB_MMIO_WIDTH_UNIT})
+add_dependencies(usb_unit_target usb_mmio_width_unit_target)
 
 if(ASTIA_BUILD_TESTS)
     add_test(NAME usb_protocol_unit COMMAND ${ASTIA_USB_UNIT})
