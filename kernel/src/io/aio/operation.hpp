@@ -18,86 +18,86 @@ namespace astia::io::aio {
 
     class operation {
         public:
-        explicit constexpr operation(operation_id id) : id_(id) {}
+        explicit constexpr operation(operation_id id) : _id(id) {}
 
         constexpr operation_id id() const {
-            return id_;
+            return _id;
         }
 
         constexpr operation_state state() const {
-            return state_;
+            return _state;
         }
 
         constexpr bool cancellation_requested() const {
-            return cancellation_requested_;
+            return _cancellation_requested;
         }
 
         constexpr bool completed() const {
-            return completed_;
+            return _completed;
         }
 
         constexpr bool acknowledged() const {
-            return acknowledged_;
+            return _acknowledged;
         }
 
         constexpr bool device_acknowledged() const {
-            return device_acknowledged_;
+            return _device_acknowledged;
         }
 
         constexpr bool quiescent() const {
-            return quiescent_;
+            return _quiescent;
         }
 
         constexpr bool request_cancel() {
-            if (state_ == operation_state::terminal)
+            if (_state == operation_state::terminal)
                 return false;
-            cancellation_requested_ = true;
+            _cancellation_requested = true;
             return true;
         }
 
         constexpr bool complete(std::int32_t result) {
-            if (state_ == operation_state::terminal)
+            if (_state == operation_state::terminal)
                 return false;
-            result_    = result;
-            completed_ = true;
-            state_     = operation_state::terminal;
+            _result    = result;
+            _completed = true;
+            _state     = operation_state::terminal;
             return true;
         }
 
         constexpr std::int32_t result() const {
-            return result_;
+            return _result;
         }
 
         constexpr bool acknowledge_device() {
-            if (state_ != operation_state::terminal || device_acknowledged_)
+            if (_state != operation_state::terminal || _device_acknowledged)
                 return false;
-            device_acknowledged_ = true;
+            _device_acknowledged = true;
             return true;
         }
 
         constexpr bool mark_quiescent() {
-            if (!device_acknowledged_ || quiescent_)
+            if (!_device_acknowledged || _quiescent)
                 return false;
-            quiescent_ = true;
+            _quiescent = true;
             return true;
         }
 
         constexpr bool acknowledge() {
-            if (!quiescent_ || acknowledged_)
+            if (!_quiescent || _acknowledged)
                 return false;
-            acknowledged_ = true;
+            _acknowledged = true;
             return true;
         }
 
         private:
-        operation_id    id_;
-        operation_state state_                  = operation_state::pending;
-        std::int32_t    result_                 = 0;
-        bool            cancellation_requested_ = false;
-        bool            completed_              = false;
-        bool            device_acknowledged_    = false;
-        bool            quiescent_              = false;
-        bool            acknowledged_           = false;
+        operation_id    _id;
+        operation_state _state                  = operation_state::pending;
+        std::int32_t    _result                 = 0;
+        bool            _cancellation_requested = false;
+        bool            _completed              = false;
+        bool            _device_acknowledged    = false;
+        bool            _quiescent              = false;
+        bool            _acknowledged           = false;
     };
 
 } // namespace astia::io::aio

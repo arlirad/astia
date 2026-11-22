@@ -18,25 +18,25 @@ namespace astia::io::aio::memory {
         public:
         constexpr validated_user_ptr() = default;
         T* get() const {
-            return reinterpret_cast<T*>(address_);
+            return reinterpret_cast<T*>(_address);
         }
 
         span<u8> bytes(usize count = 1) const {
-            return span<u8>::bytes(address_, sizeof(T) * count);
+            return span<u8>::bytes(_address, sizeof(T) * count);
         }
 
         private:
-        explicit validated_user_ptr(u64 address) : address_(address) {}
-        u64 address_ = 0;
+        explicit validated_user_ptr(u64 address) : _address(address) {}
+        u64 _address = 0;
     };
 
     template <typename T>
     class user_ptr {
         public:
-        explicit constexpr user_ptr(u64 address) : address_(address) {}
+        explicit constexpr user_ptr(u64 address) : _address(address) {}
 
         constexpr u64 address() const {
-            return address_;
+            return _address;
         }
 
         optional<validated_user_ptr<T>> validate(usize count = 1) const {
@@ -47,14 +47,14 @@ namespace astia::io::aio::memory {
                                                      usize          count = 1) const {
             if (count > (~usize{0} / sizeof(T)))
                 return error_t::erange;
-            const span<u8> range = span<u8>::bytes(address_, sizeof(T) * count);
+            const span<u8> range = span<u8>::bytes(_address, sizeof(T) * count);
             return user_span_ok_for(owner, range)
-                       ? optional<validated_user_ptr<T>>(validated_user_ptr<T>(address_))
+                       ? optional<validated_user_ptr<T>>(validated_user_ptr<T>(_address))
                        : optional<validated_user_ptr<T>>(error_t::efault);
         }
 
         private:
-        u64 address_ = 0;
+        u64 _address = 0;
     };
 
     inline bool user_span_ok_for(proc::process* owner, span<u8> range) {
