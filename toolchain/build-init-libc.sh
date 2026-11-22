@@ -31,6 +31,7 @@ sysroot=$(canonical_path "$sysroot")
 target=${ASTIA_TARGET:-x86_64-unknown-elf}
 clang=${CLANG:-clang}
 clang_path=$(command -v "$clang")
+python=${PYTHON:-python3}
 
 libc_build=$build/libc
 cache=$libc_build/CMakeCache.txt
@@ -53,13 +54,18 @@ if [ -z "$builtins" ]; then
     exit 1
 fi
 
+"$python" "$root/tools/astia_version.py" \
+    --root "$root" --output "$build/version.json"
+version_metadata=$(cat "$build/version.json")
+
 libc_revision=$(
     {
         find "$root/libc" -type f -exec sha256sum {} +
         sha256sum "$root/toolchain/build-init-libc.sh" \
-            "$root/toolchain/astia-x86_64-clang.cmake" "$clang_path"
+            "$root/toolchain/astia-x86_64-clang.cmake" "$clang_path" \
+            "$root/tools/astia_version.py" "$root/cmake/AstiaVersion.cmake"
         "$clang" --version
-        printf '%s\n' "$sysroot" "$target" "$external_sysroot"
+        printf '%s\n' "$version_metadata" "$sysroot" "$target" "$external_sysroot"
     } | sort | sha256sum | awk '{print $1}'
 )
 if [ ! -f "$cache" ] || [ ! -f "$libc_build/.astia-config-key" ] ||

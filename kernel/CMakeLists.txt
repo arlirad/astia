@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 
+if(NOT DEFINED ASTIA_VERSION)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AstiaVersion.cmake)
+endif()
+
 project(astiakernel
-        VERSION 0.1.0
+        VERSION ${ASTIA_VERSION_major}.${ASTIA_VERSION_minor}.${ASTIA_VERSION_patch}
         DESCRIPTION "Modular kernel (C++20, no exceptions)"
         LANGUAGES C CXX ASM)
 
@@ -26,6 +30,8 @@ option(ASTIA_BUILD_EXPERIMENTAL_FIBER
 option(ASTIA_EXPERIMENTAL_AARCH64
         "Expose the standalone, compile-only AArch64 bring-up port" OFF)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+include_directories(${ASTIA_VERSION_INCLUDE_DIR})
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)

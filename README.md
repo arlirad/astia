@@ -311,6 +311,7 @@ boundaries.
 
 - [Kernel guide](kernel/README.md)
 - [Module ABI](docs/module-abi.md)
+- [Versioning](docs/versioning.md)
 - [CTest suites](docs/ctest.md)
 - [Toolchain and userspace](toolchain/README.md)
 - [Man-page documentation guide](tools/man/DOCUMENTING.md)

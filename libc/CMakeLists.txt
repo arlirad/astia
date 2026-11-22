@@ -1,9 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 
+if(NOT DEFINED ASTIA_VERSION)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AstiaVersion.cmake)
+endif()
+
 project(astia_libc
-  VERSION 0.1.0
+  VERSION ${ASTIA_VERSION_major}.${ASTIA_VERSION_minor}.${ASTIA_VERSION_patch}
   DESCRIPTION "astia C standard library"
   LANGUAGES C)
+
+include_directories(${ASTIA_VERSION_INCLUDE_DIR})
 
 include(GNUInstallDirs)
 
@@ -144,6 +150,11 @@ set_source_files_properties(src/wchar.c PROPERTIES
 
 install(TARGETS astia_libc ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES
+  ${ASTIA_VERSION_INCLUDE_DIR}/astia/version.h
+  ${ASTIA_VERSION_INCLUDE_DIR}/astia/version.hpp
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/astia
+)
 
 set(ASTIA_LIBC_KERNEL_HEADERS
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include/astia/api/aio.h
