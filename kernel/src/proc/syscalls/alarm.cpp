@@ -1,21 +1,34 @@
-#include "alarm.hpp"
-
-#include "../proc.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/interrupts.hpp>
 
-namespace astia::proc::syscall {
+#include "../proc.hpp"
 
-    i64 alarm(i64 seconds) {
-        if (seconds < 0 || static_cast<u64>(seconds) > UINT32_MAX)
-            return -EINVAL;
-        auto* owner = current_process();
-        if (owner == nullptr)
-            return -ESRCH;
-        const u32 hz = arch::timer_hz();
-        if (hz == 0)
-            return -EIO;
-        return owner->alarm(static_cast<u32>(seconds), arch::timer_ticks(), hz);
-    }
+#include <syscall.hpp>
 
-} // namespace astia::proc::syscall
+namespace astia::proc::syscalls {
+
+    /// alarm - Schedule delivery of a process alarm.
+    ///
+    /// Synopsis:
+    ///     long alarm(long seconds);
+    ///
+    /// Return Value:
+    ///     Returns the previous alarm value or a negative errno.
+    struct alarm
+        : sys::syscall_handler<alarm, sys::syscall_id::alarm, sys::syscall_mode::sync> {
+        static i64 invoke(i64 seconds) {
+            if (seconds < 0 || static_cast<u64>(seconds) > UINT32_MAX)
+                return -EINVAL;
+            auto* owner = current_process();
+            if (owner == nullptr)
+                return -ESRCH;
+            const u32 hz = arch::timer_hz();
+            if (hz == 0)
+                return -EIO;
+            return owner->alarm(static_cast<u32>(seconds), arch::timer_ticks(), hz);
+        }
+    };
+
+    extern const sys::syscall_descriptor alarm_descriptor = alarm::descriptor;
+
+} // namespace astia::proc::syscalls

@@ -6,22 +6,8 @@
 namespace astia::sys {
 
     namespace {
-        inline constexpr u32 syscall_capacity = syscall_table_capacity;
-        syscall_handler      handlers[syscall_capacity]{};
-        syscall_exit_hook    exit_hook = nullptr;
+        syscall_exit_hook exit_hook = nullptr;
     }
-
-    namespace detail {
-        bool register_abi(syscall_id id, syscall_handler handler) {
-            const u32 number = static_cast<u32>(id);
-            if (number >= syscall_capacity || handler == nullptr ||
-                handlers[number] != nullptr) {
-                return false;
-            }
-            handlers[number] = handler;
-            return true;
-        }
-    } // namespace detail
 
     bool register_exit_hook(syscall_exit_hook hook) {
         if (hook == nullptr || exit_hook != nullptr) {
@@ -33,11 +19,10 @@ namespace astia::sys {
 
     i64 dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
                  const arch::syscall_frame& frame) {
-        const u32 number = static_cast<u32>(id);
-        if (number >= syscall_capacity || handlers[number] == nullptr) {
-            return -ENOSYS;
-        }
-        return handlers[number](a0, a1, a2, a3, a4, a5, frame);
+        syscall_context context{id, {a0, a1, a2, a3, a4, a5}, frame, {}, {}};
+        i64             result = -ENOSYS;
+        (void) production_dispatch(context, result);
+        return result;
     }
 
 } // namespace astia::sys

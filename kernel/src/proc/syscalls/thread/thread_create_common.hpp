@@ -1,10 +1,11 @@
 #pragma once
 
-#include "user_mem.hpp"
 #include <astia/arch/layout.hpp>
 #include <astia/proc/user_layout.hpp>
 
-namespace astia::proc::syscall {
+#include "user_mem.hpp"
+
+namespace astia::proc::syscalls::detail {
 
     inline bool valid_thread_start(u64 entry, u64 stack_top) {
         constexpr u64 stack_alignment_bytes = thread_stack_alignment_bytes;
@@ -29,4 +30,4 @@ namespace astia::proc::syscall {
             sys::user_span<u8>(stack_base, static_cast<usize>(stack_size)).validate());
     }
 
-} // namespace astia::proc::syscall
+} // namespace astia::proc::syscalls::detail

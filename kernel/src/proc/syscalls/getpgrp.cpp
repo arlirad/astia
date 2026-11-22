@@ -1,8 +1,20 @@
-#include "getpgrp.hpp"
-
 #include "../proc.hpp"
-namespace astia::proc::syscall {
-    i64 getpgrp() {
-        return static_cast<i64>(raw_id(proc::getpgrp()));
-    }
-}
+
+#include <syscall.hpp>
+
+namespace astia::proc::syscalls {
+
+    /// getpgrp - return the calling process group ID.
+    ///
+    /// Synopsis:
+    ///     long getpgrp(void);
+    struct getpgrp : sys::syscall_handler<getpgrp, sys::syscall_id::getpgrp,
+                                          sys::syscall_mode::sync> {
+        static i64 invoke() {
+            return static_cast<i64>(raw_id(proc::getpgrp()));
+        }
+    };
+
+    extern const sys::syscall_descriptor getpgrp_descriptor = getpgrp::descriptor;
+
+} // namespace astia::proc::syscalls

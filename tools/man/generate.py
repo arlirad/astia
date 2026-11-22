@@ -316,6 +316,24 @@ LIBC_PAGES = {
 
 
 SYSCALL_PAGES = {
+    "clock_getres": ("long clock_getres(int clock_id, astia_timespec *out);", "Reads the supported resolution for a kernel clock. Passing a null output requests validation only.", "Returns zero or a negative errno.", "-EFAULT: out is not writable userspace memory.\n-EINVAL: clock_id is unsupported.\n-EIO: The kernel timer has no configured frequency.", "Resolution is derived from the active timer frequency."),
+    "clock_gettime": ("long clock_gettime(int clock_id, astia_timespec *out);", "Reads a kernel clock into out. CLOCK_MONOTONIC and CLOCK_BOOTTIME report uptime; CLOCK_REALTIME adds the configured epoch anchor.", "Returns zero or a negative errno.", "-EFAULT: out is not writable userspace memory.\n-EINVAL: clock_id is unsupported.\n-EIO: The kernel timer has no configured frequency.", "Clock values advance at the timer tick rate."),
+    "fchdir": ("long fchdir(int fd);", "Changes the calling process's working directory to the directory referenced by fd.", "Returns zero or a negative errno.", "-EBADF: fd is not an open descriptor.\n-ENOTDIR: fd does not refer to a directory.\n-ESRCH: There is no current process.", "The working directory is process-local and inherited by fork."),
+    "lseek": ("long lseek(int fd, long offset, int whence);", "Changes the offset of a seekable open file description.", "Returns the resulting file offset or a negative errno.", "-EBADF: fd is invalid.\n-EINVAL: whence is unsupported.\n-ESPIPE: The open file is not seekable.", "File descriptions shared by duplicated descriptors share the offset."),
+    "msync": ("long msync(void *addr, long length, uint32_t flags);", "Validates a mapped range and synchronization flags. The current in-memory mapping implementation has no backing-store flush operation.", "Returns zero or a negative errno.", "-EINVAL: The range or flags are invalid.\n-EFAULT: The requested range is not mapped.\n-ESRCH: There is no current process.", "No data is persisted to a host or disk filesystem."),
+    "shm_open": ("long shm_open(const char *name, int flags, uint32_t mode);", "Opens or creates a process-owned shared-memory object identified by name.", "Returns a descriptor or a negative errno.", "-EFAULT: name is not readable userspace memory.\n-EINVAL: flags or mode are invalid.\n-ENOENT: The object does not exist and creation was not requested.\n-ESRCH: There is no current process.", "The object is backed by the kernel's in-memory shared-memory namespace."),
+    "shm_unlink": ("long shm_unlink(const char *name);", "Removes the name of a process-owned shared-memory object.", "Returns zero or a negative errno.", "-EFAULT: name is not readable userspace memory.\n-ENOENT: The named object does not exist.\n-ESRCH: There is no current process.", "Open references remain valid after unlink."),
+    "sigaltstack": ("long sigaltstack(const astia_stack_t *next, astia_stack_t *old);", "Reads or changes the calling thread's alternate signal stack.", "Returns zero or a negative errno.", "-EFAULT: next or old points to inaccessible userspace memory.\n-EINVAL: The stack range or flags are invalid.\n-ESRCH: There is no current thread.", "The alternate stack is per-thread."),
+    "sigpending": ("long sigpending(uint32_t *set);", "Copies the calling thread's pending, currently blocked signal set to set.", "Returns zero or a negative errno.", "-EFAULT: set is not writable userspace memory.\n-ESRCH: There is no current thread.", "The result is a signal bit mask."),
+    "sigtimedwait": ("long sigtimedwait(uint32_t set, astia_siginfo_t *info, const astia_timespec *timeout);", "Waits for one pending signal in set, optionally bounded by a relative timeout.", "Returns the selected signal number or a negative errno.", "-EFAULT: info or timeout is inaccessible userspace memory.\n-EINVAL: set or timeout is invalid.\n-EAGAIN: No selected signal arrived before timeout.\n-EINTR: A different signal interrupted the wait.\n-ESRCH: There is no current thread.", "A null timeout waits without a deadline."),
+    "sigwait": ("long sigwait(uint32_t set, int *signal);", "Waits for one pending signal in set and stores its number in signal.", "Returns zero or a negative errno.", "-EFAULT: signal is not writable userspace memory.\n-EINVAL: set is invalid or contains an unblocked signal.\n-EINTR: The wait was interrupted by a different signal.\n-ESRCH: There is no current thread.", "Signals selected by set should be blocked before entering the wait."),
+    "thread_cancel": ("long thread_cancel(uint32_t tid);", "Requests cancellation of a thread owned by the calling process.", "Returns zero or a negative errno.", "-EINVAL: tid selects the caller.\n-ESRCH: The thread does not exist in the process.", "Cancellation is cooperative with the target's syscall continuation."),
+    "thread_cancel_pending": ("long thread_cancel_pending(void);", "Cancels the calling thread's pending syscall continuation, if one exists.", "Returns zero or a negative errno.", "-ESRCH: There is no current thread.", "Cancellation completion is one-shot; a later completion cannot replace it."),
+    "thread_create_owned": ("long thread_create_owned(const astia_thread_start *start);", "Creates a thread using a kernel-owned stack and starts it with the requested entry and arguments.", "Returns the new thread ID or a negative errno.", "-EFAULT: start is inaccessible userspace memory.\n-EINVAL: Entry or stack parameters are invalid.\n-EAGAIN: Thread resources are exhausted.\n-ESRCH: There is no current process.", "The kernel owns and reclaims the allocated stack."),
+    "thread_exists": ("long thread_exists(uint32_t tid);", "Checks whether tid identifies a live thread in the calling process.", "Returns one when the thread exists, zero otherwise, or a negative errno.", "-ESRCH: There is no current process.", "The query does not acquire ownership of the thread."),
+    "thread_getattr": ("long thread_getattr(uint32_t tid, astia_thread_attr *out);", "Reads attributes for a thread in the calling process.", "Returns zero or a negative errno.", "-EFAULT: out is not writable userspace memory.\n-ESRCH: The thread does not exist.", "Returned stack details describe kernel-managed thread state."),
+    "thread_kill": ("long thread_kill(uint32_t tid, int signal);", "Sends signal to a thread in the calling process.", "Returns zero or a negative errno.", "-EINVAL: signal is invalid or cannot be delivered.\n-ESRCH: The thread does not exist.", "Signal delivery follows the thread's process dispositions."),
+    "umask": ("long umask(uint32_t mask);", "Sets the calling process's file-creation permission mask.", "Returns the previous mask.", "-ESRCH: There is no current process.", "Only permission bits represented by the filesystem mode are retained."),
     "mprotect": ("long mprotect(void *addr, long length, uint32_t prot);", "Validates a requested protection change for a mapped virtual range. Astia does not currently implement page-permission changes.", "Returns a negative errno.", "-EINVAL: The address, length, or protection value is invalid.\n-ENOSYS: Protection changes are not implemented.", "The syscall number is reserved in the public ABI; mappings retain their creation-time permissions."),
     "process_snapshot": ("long process_snapshot(astia_process_info *output, uint32_t capacity);", "Copies a bounded snapshot of registered processes into output. Each record contains process IDs, credentials, state, controlling-terminal presence, and bounded names.", "Returns the number of records copied, or a negative errno.", "-EINVAL: capacity exceeds ASTIA_PROCESS_SNAPSHOT_MAX, or output is null with a non-zero capacity.\n-EFAULT: The output range is not writable userspace memory.", "A zero capacity returns zero without writing output. The snapshot is point-in-time and records are not handles."),
     "getrlimit": ("long getrlimit(int resource, astia_rlimit *output);", "Reads the calling process's native resource limit into output. Astia supports RLIMIT_NOFILE and RLIMIT_AS.", "Returns zero, or a negative errno.", "-EFAULT: output is null or not writable userspace memory.\n-EINVAL: resource is not supported.\n-ESRCH: There is no current process.", "The limits are process-local and are inherited by fork."),
@@ -348,21 +366,6 @@ def syscall_pages() -> list[tuple[str, str, str]]:
 
 def libc_pages() -> list[tuple[str, str, str, int]]:
     return [(name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\n{returns}\n\nErrors:\n{errors}\n\nNotes:\n{notes}", "libc/filesystem", 3) for name, (synopsis, description, returns, errors, notes) in LIBC_PAGES.items()]
-
-
-def legacy_pages(text: str, subsystem: str) -> list[tuple[str, str, str]]:
-    names = re.findall(r"\bi64\s+sys_(\w+)\s*\(", text)
-    pages = []
-    for name in names:
-        synopsis, description, errors = LEGACY.get(
-            name,
-            (f"long {name}(...);", f"System call handler for `{name}`.", "See the kernel error ABI."),
-        )
-        errors = ERROR_DETAILS.get(name, errors)
-        returns = LEGACY_RETURNS.get(name, "Returns a non-negative result on success. Negative values are ABI errno codes.")
-        notes = LEGACY_NOTES.get(name, "Arguments enter through the direct syscall ABI; validation is performed before entering the owning subsystem.")
-        pages.append((name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\n{returns}\n\nErrors:\n{errors}\n\nNotes:\n{notes}", subsystem))
-    return pages
 
 
 def markdown_inline(text: str) -> str:
@@ -1938,16 +1941,16 @@ def main() -> int:
             pages[(name, 2)] = (body, subsystem)
             page_sources[(name, 2)] = path
     for path in sorted(args.source.rglob("*.cpp")):
-        if path.name != "syscalls.cpp":
+        if "syscall_handler<" not in path.read_text():
             continue
-        subsystem = path.parent.name
-        for name, body, group in legacy_pages(path.read_text(), subsystem):
-            if (name, 2) not in pages:
-                pages[(name, 2)] = (body, group)
-                page_sources[(name, 2)] = path
-    for path in sorted(args.source.glob("sys/time.cpp")):
-        for name, body, group in legacy_pages(path.read_text(), "sys"):
-            pages.setdefault((name, 2), (body, group))
+        if "syscalls" not in path.parts:
+            continue
+        syscall_index = path.parts.index("syscalls")
+        subsystem = path.parts[syscall_index - 1]
+        if path.parent != Path(*path.parts[:syscall_index + 1]):
+            subsystem = f"{subsystem}/{path.parent.name}"
+        for name, body in comments(path.read_text()):
+            pages[(name, 2)] = (body, subsystem)
             page_sources[(name, 2)] = path
     libc_root = args.libc_source
     if libc_root is None:

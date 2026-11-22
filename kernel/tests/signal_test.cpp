@@ -1,9 +1,11 @@
-#include "support/test.hpp"
 #include <astia/api/signal.h>
 
-#include <signal.hpp>
-#include "../src/proc/signal_waiter_registry.hpp"
+#include "../src/proc/signal_info.hpp"
 #include "../src/proc/signal_permission.hpp"
+#include "../src/proc/signal_waiter_registry.hpp"
+#include "support/test.hpp"
+
+#include <signal.hpp>
 
 ASTIA_TEST(signal_state_queues_and_masks_signals) {
     astia::signal_state state;
@@ -30,7 +32,7 @@ ASTIA_TEST(signal_state_sigwait_consumes_only_matching_signal) {
 ASTIA_TEST(signal_state_fork_inherits_dispositions_without_pending) {
     astia::signal_state parent;
     astia::signal_state child;
-    const auto           handler = reinterpret_cast<astia::signal_handler>(0x400123);
+    const auto          handler = reinterpret_cast<astia::signal_handler>(0x400123);
 
     ASTIA_CHECK(parent.disposition(astia::signal_number::usr1,
                                    {astia::signal_action::handler, handler, 0x12, 0x34}));
@@ -81,8 +83,12 @@ ASTIA_TEST(signal_state_repeated_wait_preserves_unmatched_signal) {
 
 ASTIA_TEST(signal_state_preserves_user_signal_metadata) {
     astia::signal_state state;
-    astia::signal_info  sent{static_cast<astia::i32>(astia::signal_number::usr1), 0,
-                             ASTIA_SI_USER, 123, 456, 0};
+    astia::signal_info  sent{static_cast<astia::i32>(astia::signal_number::usr1),
+                            0,
+                            ASTIA_SI_USER,
+                            123,
+                            456,
+                            0};
     astia::signal_info  observed{};
 
     ASTIA_CHECK(state.send(astia::signal_number::usr1, sent));
@@ -95,9 +101,9 @@ ASTIA_TEST(signal_state_preserves_user_signal_metadata) {
 
 ASTIA_TEST(signal_waiters_remain_registered_until_removed) {
     astia::proc::signal_waiter_registry waiters;
-    auto*                             first  = reinterpret_cast<astia::proc::thread*>(1);
-    auto*                             second = reinterpret_cast<astia::proc::thread*>(2);
-    astia::proc::thread*              observed[2]{};
+    auto*                               first = reinterpret_cast<astia::proc::thread*>(1);
+    auto*                second               = reinterpret_cast<astia::proc::thread*>(2);
+    astia::proc::thread* observed[2]{};
 
     ASTIA_CHECK(waiters.add(first));
     ASTIA_CHECK(waiters.add(first));
@@ -112,9 +118,9 @@ ASTIA_TEST(signal_waiters_remain_registered_until_removed) {
 
 ASTIA_TEST(signal_waiters_expire_only_timed_entries) {
     astia::proc::signal_waiter_registry waiters;
-    auto*                              timed = reinterpret_cast<astia::proc::thread*>(1);
-    auto*                              plain = reinterpret_cast<astia::proc::thread*>(2);
-    astia::proc::thread*               expired[2]{};
+    auto*                               timed = reinterpret_cast<astia::proc::thread*>(1);
+    auto*                               plain = reinterpret_cast<astia::proc::thread*>(2);
+    astia::proc::thread*                expired[2]{};
 
     ASTIA_CHECK(waiters.add(timed, true, 10));
     ASTIA_CHECK(waiters.add(plain));
@@ -128,8 +134,8 @@ ASTIA_TEST(signal_waiters_expire_only_timed_entries) {
 
 ASTIA_TEST(signal_waiters_publish_wakes_before_blocking) {
     astia::proc::signal_waiter_registry waiters;
-    auto*                              first = reinterpret_cast<astia::proc::thread*>(1);
-    astia::proc::thread*               wake_list[1]{};
+    auto*                               first = reinterpret_cast<astia::proc::thread*>(1);
+    astia::proc::thread*                wake_list[1]{};
 
     ASTIA_CHECK(waiters.add(first));
     ASTIA_CHECK(waiters.wake(wake_list, 1) == 1);
@@ -140,7 +146,7 @@ ASTIA_TEST(signal_waiters_publish_wakes_before_blocking) {
 
 ASTIA_TEST(signal_state_sigwait_restores_mask_and_preserves_pending_signal) {
     astia::signal_state state;
-    const auto          prior = astia::signal_bit(astia::signal_number::term);
+    const auto          prior  = astia::signal_bit(astia::signal_number::term);
     const auto          waited = astia::signal_bit(astia::signal_number::usr1);
 
     state.set_blocked(prior);
@@ -221,6 +227,33 @@ ASTIA_TEST(signal_default_actions_match_posix_categories) {
                 astia::signal_default::stop);
     ASTIA_CHECK(astia::default_action(astia::signal_number::chld) ==
                 astia::signal_default::ignore);
+}
+
+ASTIA_TEST(signal_info_initialization_covers_full_abi_storage) {
+    const auto info = astia::proc::make_siginfo(11, 0, 1, 42, 1000, 7, 0x1234);
+    ASTIA_CHECK(info.signo == 11);
+    ASTIA_CHECK(info.errno_value == 0);
+    ASTIA_CHECK(info.code == 1);
+    ASTIA_CHECK(info.pid == 42);
+    ASTIA_CHECK(info.uid == 1000);
+    ASTIA_CHECK(info.status == 7);
+    ASTIA_CHECK(info.addr == 0x1234);
+
+    const auto* bytes = reinterpret_cast<const astia::u8*>(&info);
+    bool        covered[sizeof(astia_siginfo_t)]{};
+    const auto  cover = [&covered](astia::usize offset, astia::usize length) {
+        for (astia::usize i = 0; i < length; ++i)
+            covered[offset + i] = true;
+    };
+    cover(offsetof(astia_siginfo_t, signo), sizeof(info.signo));
+    cover(offsetof(astia_siginfo_t, errno_value), sizeof(info.errno_value));
+    cover(offsetof(astia_siginfo_t, code), sizeof(info.code));
+    cover(offsetof(astia_siginfo_t, pid), sizeof(info.pid));
+    cover(offsetof(astia_siginfo_t, uid), sizeof(info.uid));
+    cover(offsetof(astia_siginfo_t, status), sizeof(info.status));
+    cover(offsetof(astia_siginfo_t, addr), sizeof(info.addr));
+    for (astia::usize i = 0; i < sizeof(astia_siginfo_t); ++i)
+        ASTIA_CHECK(covered[i] || bytes[i] == 0);
 }
 
 ASTIA_TEST(x86_64_signal_abi_keeps_register_order_and_frame_size) {

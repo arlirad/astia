@@ -1,4 +1,8 @@
-#include "spawnve.hpp"
+#include <astia/api/errno.h>
+#include <astia/arch/context.hpp>
+#include <astia/fs.hpp>
+#include <astia/mapping.hpp>
+#include <astia/mm/share.hpp>
 
 #include "../../proc.hpp"
 #include "../../scheduler.hpp"
@@ -6,13 +10,7 @@
 #include "argv.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-#include <astia/api/errno.h>
-#include <astia/arch/context.hpp>
-#include <astia/fs.hpp>
-#include <astia/mapping.hpp>
-#include <astia/mm/share.hpp>
-namespace astia::proc::syscall {
-    using namespace detail;
+namespace astia::proc::syscalls::detail {
 
     namespace {
         struct spawn_continuation {
@@ -44,15 +42,15 @@ namespace astia::proc::syscall {
         }
     }
 
-    i64 spawnve(u64 path_ptr, u64 argv_ptr, u64 envp_ptr) {
+    i64 spawnve(sys::user_ptr<char> path_ptr, sys::user_ptr<const u64> argv_ptr,
+                sys::user_ptr<const u64> envp_ptr) {
         auto* owner = current_process();
         auto* self  = current_thread();
         if (owner == nullptr || self == nullptr)
             return -ESRCH;
 
         char path[path_cap];
-        if (!sys::copy_in_string(span<char>(path, sizeof path),
-                                 sys::user_ptr<char>(path_ptr))) {
+        if (!sys::copy_in_string(span<char>(path, sizeof path), path_ptr)) {
             return -EFAULT;
         }
 
@@ -63,7 +61,7 @@ namespace astia::proc::syscall {
             return -ENOMEM;
         if (!staging->staging.allocate())
             return -ENOMEM;
-        i64 result = staging->staging.copy(argv_ptr, envp_ptr);
+        i64 result = staging->staging.copy(argv_ptr.address(), envp_ptr.address());
         if (result != 0)
             return result;
 
@@ -102,3 +100,36 @@ namespace astia::proc::syscall {
         return result;
     }
 }
+
+namespace astia::proc::syscalls {
+
+    /// spawnve - Create a process using asynchronous streamed ELF loading.
+    ///
+    /// Synopsis:
+    ///     long spawnve(const char *path, char *const argv[], char *const envp[]);
+    ///
+    /// Description:
+    ///     Copies the vectors, creates a child process, and builds its initial
+    ///     user stack. The child inherits the caller's descriptors and cwd.
+    ///
+    /// Return Value:
+    ///     Returns the child PID, or a negative errno.
+    ///
+    /// Errors:
+    ///     -E2BIG: The argument or environment vector exceeds its limit.
+    ///     -EFAULT: A path, vector, or string pointer is invalid.
+    ///     -ENOENT: The executable path does not exist.
+    ///     -EINVAL: The file is malformed or truncated.
+    ///     -ENOMEM: The image or process cannot be allocated.
+    ///     -EAGAIN: The process or thread registry is full.
+    struct spawnve : sys::syscall_handler<spawnve, sys::syscall_id::spawnve,
+                                          sys::syscall_mode::sync> {
+        static i64 invoke(sys::user_ptr<char> path_ptr, sys::user_ptr<const u64> argv_ptr,
+                          sys::user_ptr<const u64> envp_ptr) {
+            return ::astia::proc::syscalls::detail::spawnve(path_ptr, argv_ptr, envp_ptr);
+        }
+    };
+
+    extern const sys::syscall_descriptor spawnve_descriptor = spawnve::descriptor;
+
+} // namespace astia::proc::syscalls

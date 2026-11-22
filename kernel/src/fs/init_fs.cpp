@@ -1,13 +1,10 @@
-#include "syscall.hpp"
 #include <astia/fs.hpp>
 #include <astia/init.hpp>
 
 namespace astia::fs {
 
-    bool register_syscalls();
-
     static bool step_fs(init::context&) {
-        return init() && register_syscalls();
+        return init();
     }
 
 } // namespace astia::fs
