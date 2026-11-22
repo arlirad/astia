@@ -93,4 +93,6 @@ ASTIA_TEST(aio_readiness_sleep_validates_and_parks) {
     ASTIA_CHECK(capture.count() == 2);
     ASTIA_CHECK(slot.park[0].used);
     ASTIA_CHECK(slot.park[0].sleeping);
+    release_parked(slot);
+    ASTIA_CHECK(!slot.park[0].used);
 }

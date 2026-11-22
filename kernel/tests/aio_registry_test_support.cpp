@@ -116,11 +116,6 @@ namespace astia::io::aio::test_support {
             return true;
         }
 
-        const user_memory_adapter adapter{
-            user_span_ok, user_span_writable_ok, kernel_span_ok, pin_user_span,
-            copy_in,      copy_in_string,        copy_out,       realtime_now,
-        };
-
     } // namespace detail
 
     using namespace detail;
@@ -244,6 +239,20 @@ namespace astia::io::aio::test_support {
 
     void add_timer_ticks(u64 ticks) {
         timer_ticks_value += ticks;
+    }
+
+    void release_parked(ring::ring_slot& slot) {
+        for (u32 i = 0; i < ring::parked_operation_slots; ++i) {
+            ring::parked_op& op = slot.park[i];
+            if (!op.used)
+                continue;
+            if (!op.done && op.operation != nullptr) {
+                op.operation->request().cancel_device(false,
+                                                      core::cancel_reason::shutdown);
+                op.operation->request().acknowledge();
+            }
+            op.clear();
+        }
     }
 
 } // namespace astia::io::aio::test_support

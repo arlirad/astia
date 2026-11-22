@@ -5,6 +5,10 @@
 #include <astia/fs.hpp>
 #include <astia/mm/shptr.hpp>
 
+namespace astia::io::aio::ring {
+    struct ring_slot;
+}
+
 namespace astia::io::aio::test_support {
 
     struct cq_capture {
@@ -39,5 +43,6 @@ namespace astia::io::aio::test_support {
     void set_memory_allowed(bool allowed);
     void set_timer(u64 hz, u64 ticks);
     void add_timer_ticks(u64 ticks);
+    void release_parked(ring::ring_slot& slot);
 
 } // namespace astia::io::aio::test_support

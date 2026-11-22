@@ -179,6 +179,8 @@ ASTIA_TEST(aio_production_cancel_posts_target_and_acknowledges) {
     ASTIA_CHECK(operation.request().cancellation_requested());
     ASTIA_CHECK(operation.cancellation_acknowledged());
     ASTIA_CHECK(slot.park[0].done);
+    release_parked(slot);
+    ASTIA_CHECK(!slot.park[0].used);
 }
 
 ASTIA_TEST(aio_production_read_uses_real_submission_engine) {
@@ -205,6 +207,8 @@ ASTIA_TEST(aio_production_read_uses_real_submission_engine) {
     ASTIA_CHECK(capture.count() == 1);
     ASTIA_CHECK(capture.result(0) == 4);
     ASTIA_CHECK(buffer[0] == 0x5a);
+    release_parked(slot);
+    ASTIA_CHECK(!slot.park[0].used);
 }
 
 ASTIA_TEST(aio_production_eventfd_create_write_read) {
@@ -247,6 +251,9 @@ ASTIA_TEST(aio_production_eventfd_create_write_read) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, read));
     ASTIA_CHECK(capture.result(0) == static_cast<i32>(sizeof(read_value)));
     ASTIA_CHECK(read_value == 5);
+    release_parked(slot);
+    ASTIA_CHECK(!slot.park[0].used);
+    ASTIA_CHECK(!slot.park[1].used);
 }
 
 ASTIA_TEST(aio_operation_completion_cancel_and_acknowledgement_are_once_only) {

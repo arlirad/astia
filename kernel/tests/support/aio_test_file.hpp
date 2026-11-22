@@ -59,6 +59,7 @@ namespace aio_test {
         }
 
         long read(void* buffer, u32 length, u64) override {
+            (void) buffer;
             if (read_result < 0)
                 return read_result;
             return static_cast<long>(length);
