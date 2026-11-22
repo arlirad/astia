@@ -57,7 +57,9 @@ struct winsize {
 #define IGNBRK 0x000001
 #define BRKINT 0x000002
 #define IGNPAR 0x000004
+#define PARMRK 0x000008
 #define INPCK 0x000010
+#define ISTRIP 0x000020
 #define INLCR 0x000040
 #define IGNCR 0x000080
 #define ICRNL 0x000100
@@ -86,7 +88,9 @@ struct winsize {
 #define ECHOE 0x000010
 #define ECHOK 0x000020
 #define ECHONL 0x000040
+#define NOFLSH 0x000080
 #define TOSTOP 0x000100
+#define IEXTEN 0x008000
 
 /* baud rate indices (glibc numbering; each device maps them onto its
    own line rate) */

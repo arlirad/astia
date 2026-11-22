@@ -72,7 +72,7 @@ The repository follows a layered kernel/userspace layout:
 Prerequisites include Git, CMake 3.20+, a C/C++ toolchain, Clang for
 userspace, QEMU, Python 3 for helper scripts, and the archive tools used by
 the test suite (`cpio`, `xxd`, `gzip`, and `zstd`). The repository contains
-pinned zsh, nano, and gnulib submodules. Initialize them with
+pinned zsh, nano, gnulib, and ncurses submodules. Initialize them with
 `toolchain/init-userspace.sh` before running userspace workflows.
 
 Build the supported kernel directly:
@@ -328,6 +328,6 @@ Astia project source and metadata are released under the MIT License.
 - License: MIT (`SPDX-License-Identifier: MIT`)
 
 The complete license text is in [`LICENSE`](LICENSE). Imported and generated
-materials retain their own upstream license notices. The zsh, GNU nano, and
-LTP workflows use external source trees; their upstream licenses and notices
-remain applicable.
+materials retain their own upstream license notices. The zsh, GNU nano,
+ncurses, and LTP workflows use external source trees; their upstream licenses
+and notices remain applicable.

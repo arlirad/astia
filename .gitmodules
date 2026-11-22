@@ -7,3 +7,6 @@
 [submodule "user/gnulib"]
 	path = user/gnulib
 	url = https://github.com/coreutils/gnulib.git
+[submodule "user/ncurses"]
+	path = user/ncurses
+	url = https://github.com/ThomasDickey/ncurses-snapshots.git

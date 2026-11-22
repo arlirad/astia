@@ -10,7 +10,9 @@ foreach(_astia_submodule
         "path = user/nano"
         "url = https://github.com/madnight/nano.git"
         "path = user/gnulib"
-        "url = https://github.com/coreutils/gnulib.git")
+        "url = https://github.com/coreutils/gnulib.git"
+        "path = user/ncurses"
+        "url = https://github.com/ThomasDickey/ncurses-snapshots.git")
     if(NOT _astia_gitmodules MATCHES "${_astia_submodule}")
         message(FATAL_ERROR ".gitmodules is missing: ${_astia_submodule}")
     endif()
@@ -21,7 +23,7 @@ if(NOT EXISTS "${_astia_root}/user/nano/autogen.sh" AND
 endif()
 
 execute_process(
-    COMMAND git -C "${_astia_root}" ls-files --stage -- user/zsh user/nano user/gnulib
+    COMMAND git -C "${_astia_root}" ls-files --stage -- user/zsh user/nano user/gnulib user/ncurses
     OUTPUT_VARIABLE _astia_gitlinks
     OUTPUT_STRIP_TRAILING_WHITESPACE
     RESULT_VARIABLE _astia_gitlinks_status)
@@ -35,6 +37,10 @@ endif()
 if(NOT _astia_gitlinks MATCHES
        "160000 f05b5a23f6cef8833402a298d1576a0118912ac8 0[ \t]+user/gnulib")
     message(FATAL_ERROR "gnulib is not pinned to the reviewed revision")
+endif()
+if(NOT _astia_gitlinks MATCHES
+       "160000 0096bd402c4a9c8f39bd7ed266e1b8920327e4d8 0[ \t]+user/ncurses")
+    message(FATAL_ERROR "ncurses is not pinned to the reviewed revision")
 endif()
 
 foreach(_astia_launcher
