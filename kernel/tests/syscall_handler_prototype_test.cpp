@@ -21,10 +21,14 @@ namespace astia::net::syscalls {
 namespace {
     astia::core::completion<astia::i64>* pending_source = nullptr;
 
+    struct probe_marker {};
+
     struct sync_probe
         : astia::sys::syscall_handler<sync_probe,
                                       static_cast<astia::sys::syscall_id>(126),
                                       astia::sys::syscall_mode::sync> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::i64 invoke(astia::i64 value) {
             return value + 1;
         }
@@ -34,6 +38,8 @@ namespace {
         : astia::sys::syscall_handler<zero_probe,
                                       static_cast<astia::sys::syscall_id>(120),
                                       astia::sys::syscall_mode::sync> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::i64 invoke() {
             return 7;
         }
@@ -43,6 +49,8 @@ namespace {
         : astia::sys::syscall_handler<scalar_probe,
                                       static_cast<astia::sys::syscall_id>(121),
                                       astia::sys::syscall_mode::sync> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::i64 invoke(astia::i32 value, astia::u32 count) {
             return static_cast<astia::i64>(value) + static_cast<astia::i64>(count);
         }
@@ -52,6 +60,8 @@ namespace {
         : astia::sys::syscall_handler<pointer_probe,
                                       static_cast<astia::sys::syscall_id>(122),
                                       astia::sys::syscall_mode::sync> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::i64 invoke(astia::sys::user_ptr<astia::u8> address) {
             return address.null() ? -EFAULT : static_cast<astia::i64>(address.address());
         }
@@ -61,6 +71,8 @@ namespace {
         : astia::sys::syscall_handler<string_probe,
                                       static_cast<astia::sys::syscall_id>(117),
                                       astia::sys::syscall_mode::sync> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::i64 invoke(astia::sys::user_ptr<char> value) {
             return value.null() ? -EFAULT : static_cast<astia::i64>(value.address());
         }
@@ -70,6 +82,8 @@ namespace {
         : astia::sys::syscall_handler<array_probe,
                                       static_cast<astia::sys::syscall_id>(118),
                                       astia::sys::syscall_mode::sync> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::i64 invoke(astia::sys::user_ptr<const astia::u32> values) {
             return values.null() ? -EFAULT : static_cast<astia::i64>(values.address());
         }
@@ -79,6 +93,8 @@ namespace {
         : astia::sys::syscall_handler<wide_probe,
                                       static_cast<astia::sys::syscall_id>(123),
                                       astia::sys::syscall_mode::sync> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::i64 invoke(astia::u64 value) {
             return static_cast<astia::i64>(value);
         }
@@ -88,6 +104,8 @@ namespace {
         : astia::sys::syscall_handler<frame_probe,
                                       static_cast<astia::sys::syscall_id>(124),
                                       astia::sys::syscall_mode::sync> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::i64 invoke(const astia::arch::syscall_frame& frame) {
             return static_cast<astia::i64>(frame.a1);
         }
@@ -97,6 +115,8 @@ namespace {
         : astia::sys::syscall_handler<async_probe,
                                       static_cast<astia::sys::syscall_id>(127),
                                       astia::sys::syscall_mode::async> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::core::task<astia::i64> invoke(astia::sys::syscall_context&) {
             co_return 42;
         }
@@ -106,6 +126,8 @@ namespace {
         : astia::sys::syscall_handler<pending_async_probe,
                                       static_cast<astia::sys::syscall_id>(125),
                                       astia::sys::syscall_mode::async> {
+        using syscall_descriptor_marker = probe_marker;
+
         static astia::core::task<astia::i64> invoke(astia::sys::syscall_context&) {
             const auto result = co_await *pending_source;
             if (result)
