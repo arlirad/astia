@@ -1,0 +1,382 @@
+#include <astia/core/completion.hpp>
+#include <astia/core/operation_registry.hpp>
+#include <astia/core/task.hpp>
+
+#include "async_operation.hpp"
+#include "support/resume_queue_host.hpp"
+#include "support/test.hpp"
+
+namespace {
+    astia::core::completion<astia::i64>* source_completion = nullptr;
+    astia::sys::async_operation*         active_operation  = nullptr;
+    int                                  body_entries      = 0;
+
+    astia::core::task<astia::i64> immediate_body(astia::sys::syscall_context& context) {
+        ++body_entries;
+        co_return context.arguments[0] + static_cast<astia::i64>(context.frame.a1) +
+            static_cast<astia::i64>(context.operation.value) +
+            static_cast<astia::i64>(context.user_data.value);
+    }
+
+    astia::core::task<astia::i64> parked_body(astia::sys::syscall_context& context) {
+        ++body_entries;
+        const auto result = co_await *source_completion;
+        if (!result)
+            co_return result.error;
+        co_return result.value + context.arguments[0] +
+            static_cast<astia::i64>(context.frame.a1);
+    }
+
+    astia::core::task<astia::i64> cancels_while_resuming(astia::sys::syscall_context&) {
+        ++body_entries;
+        const auto result = co_await *source_completion;
+        if (!result)
+            co_return result.error;
+        (void) active_operation->request_cancel();
+        co_return result.value + 1;
+    }
+
+    astia::core::task<astia::i64>
+    identity_after_suspend(astia::sys::syscall_context& context) {
+        ++body_entries;
+        const auto result = co_await *source_completion;
+        if (!result)
+            co_return result.error;
+        co_return static_cast<astia::i64>(context.operation.value +
+                                          context.user_data.value) +
+            result.value;
+    }
+
+    astia::core::task<astia::i64> failing_body(astia::sys::syscall_context&) {
+        ++body_entries;
+        co_return astia::error_t::eio;
+    }
+
+    astia::core::task<astia::i64>
+    await_result(astia::core::completion<astia::i64>& operation, int& wakes) {
+        const auto result = co_await operation;
+        ++wakes;
+        if (!result)
+            co_return result.error;
+        co_return result.value;
+    }
+
+    astia::sys::async_operation*
+    make_operation(astia::sys::async_operation::body_factory factory,
+                   astia::sys::syscall_id            id, astia::i64 (&arguments)[6],
+                   const astia::arch::syscall_frame& frame,
+                   astia::sys::operation_id          operation = {},
+                   astia::sys::syscall_user_data     user_data = {},
+                   astia::sys::async_operation_owner owner     = {}) {
+        return astia::sys::async_operation::create(factory, id, arguments, frame,
+                                                   operation, user_data, owner);
+    }
+}
+
+ASTIA_TEST(async_operation_owns_frame_context_and_identity) {
+    astia::arch::syscall_frame frame{};
+    frame.a1 = 31;
+    astia::i64 arguments[astia::sys::syscall_argument_count]{2, 0, 0, 0, 0, 0};
+    body_entries = 0;
+
+    auto* operation =
+        make_operation(immediate_body, static_cast<astia::sys::syscall_id>(130),
+                       arguments, frame, {0x1234}, {0x5678});
+    if (operation == nullptr) {
+        ASTIA_CHECK(operation != nullptr);
+        return;
+    }
+    frame.a1     = 99;
+    arguments[0] = 50;
+
+    ASTIA_CHECK(&operation->context().frame != &frame);
+    ASTIA_CHECK(operation->context().frame.a1 == 31);
+    ASTIA_CHECK(operation->context().arguments[0] == 2);
+    ASTIA_CHECK(operation->id().value == 0x1234);
+    ASTIA_CHECK(operation->user_data().value == 0x5678);
+    ASTIA_CHECK(!operation->owner().valid());
+    ASTIA_CHECK(!operation->registered());
+    ASTIA_CHECK(operation->state() == astia::sys::async_operation_state::created);
+
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::completed);
+    ASTIA_CHECK(body_entries == 1);
+    ASTIA_CHECK(operation->terminal());
+    ASTIA_CHECK(operation->result().has_value);
+    ASTIA_CHECK(operation->result().value == 2 + 31 + 0x1234 + 0x5678);
+    ASTIA_CHECK(operation->completion().done());
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::completed);
+    ASTIA_CHECK(body_entries == 1);
+    operation->destroy();
+}
+
+ASTIA_TEST(async_operation_parks_then_completes_once) {
+    astia::arch::syscall_frame frame{};
+    frame.a1 = 5;
+    astia::i64 arguments[astia::sys::syscall_argument_count]{7, 0, 0, 0, 0, 0};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+
+    auto* operation = make_operation(
+        parked_body, static_cast<astia::sys::syscall_id>(131), arguments, frame);
+    if (operation == nullptr) {
+        ASTIA_CHECK(operation != nullptr);
+        return;
+    }
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+    ASTIA_CHECK(operation->parked());
+    ASTIA_CHECK(body_entries == 1);
+    ASTIA_CHECK(!operation->completion().done());
+
+    ASTIA_CHECK(source.complete(30));
+    ASTIA_CHECK(operation->terminal());
+    ASTIA_CHECK(operation->result().has_value);
+    ASTIA_CHECK(operation->result().value == 42);
+    ASTIA_CHECK(operation->completion().done());
+    ASTIA_CHECK(!source.complete(31));
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::completed);
+    ASTIA_CHECK(body_entries == 1);
+    operation->destroy();
+}
+
+ASTIA_TEST(async_operation_resumes_owner_only_at_terminal_completion) {
+    astia::core::initialize_resume_queues();
+    astia::arch::test::clear_reschedule_request();
+
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+
+    auto* operation = make_operation(
+        parked_body, static_cast<astia::sys::syscall_id>(132), arguments, frame);
+    int  wakes  = 0;
+    auto waiter = await_result(operation->completion(), wakes);
+    ASTIA_CHECK(waiter.resume());
+    ASTIA_CHECK(!waiter.done());
+
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+    astia::arch::test::clear_reschedule_request();
+    ASTIA_CHECK(source.complete(11));
+    ASTIA_CHECK(astia::arch::test::reschedule_requested());
+    ASTIA_CHECK(!waiter.done());
+    ASTIA_CHECK(astia::core::drain_resumes() == 1);
+    ASTIA_CHECK(waiter.done());
+    ASTIA_CHECK(waiter.value() != nullptr && *waiter.value() == 11);
+    ASTIA_CHECK(wakes == 1);
+    operation->destroy();
+}
+
+ASTIA_TEST(async_operation_cancels_parked_body_exactly_once) {
+    astia::core::initialize_resume_queues();
+    astia::arch::test::clear_reschedule_request();
+
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+
+    auto* operation = make_operation(
+        parked_body, static_cast<astia::sys::syscall_id>(133), arguments, frame);
+    int  wakes  = 0;
+    auto waiter = await_result(operation->completion(), wakes);
+    ASTIA_CHECK(waiter.resume());
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+
+    ASTIA_CHECK(operation->request_cancel(astia::core::cancel_reason::request));
+    ASTIA_CHECK(operation->canceled());
+    ASTIA_CHECK(operation->reason() == astia::core::cancel_reason::request);
+    ASTIA_CHECK(operation->result().error == astia::error_t::eagain);
+    ASTIA_CHECK(operation->completion().done());
+    ASTIA_CHECK(!operation->request_cancel());
+    ASTIA_CHECK(astia::core::drain_resumes() == 1);
+    ASTIA_CHECK(waiter.done());
+    ASTIA_CHECK(waiter.error() == astia::error_t::eagain);
+    ASTIA_CHECK(wakes == 1);
+
+    ASTIA_CHECK(source.complete(3));
+    ASTIA_CHECK(astia::core::drain_resumes() == 0);
+    ASTIA_CHECK(operation->canceled());
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::canceled);
+    operation->destroy();
+}
+
+ASTIA_TEST(async_operation_cancel_during_wake_is_terminal_exactly_once) {
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+
+    auto* operation =
+        make_operation(cancels_while_resuming, static_cast<astia::sys::syscall_id>(140),
+                       arguments, frame);
+    active_operation = operation;
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+
+    ASTIA_CHECK(source.complete(8));
+    ASTIA_CHECK(operation->canceled());
+    ASTIA_CHECK(operation->reason() == astia::core::cancel_reason::request);
+    ASTIA_CHECK(operation->result().error == astia::error_t::eagain);
+    ASTIA_CHECK(operation->completion().done());
+    ASTIA_CHECK(!source.complete(9));
+    ASTIA_CHECK(!operation->request_cancel());
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::canceled);
+    active_operation = nullptr;
+    operation->destroy();
+}
+
+ASTIA_TEST(async_operation_process_exit_cancels_registered_operation) {
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion           = &source;
+    body_entries                = 0;
+    const astia::u64 process_id = 0x1000;
+    const astia::u64 thread_id  = 0x2000;
+
+    auto* operation =
+        make_operation(parked_body, static_cast<astia::sys::syscall_id>(134), arguments,
+                       frame, {}, {}, {process_id, thread_id});
+    if (operation == nullptr) {
+        ASTIA_CHECK(operation != nullptr);
+        return;
+    }
+    ASTIA_CHECK(operation->registered());
+    ASTIA_CHECK(operation->owner().valid());
+    ASTIA_CHECK(operation->owner().process == process_id);
+    ASTIA_CHECK(operation->owner().thread == thread_id);
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+
+    astia::core::cancel_operations_for_thread(process_id, thread_id,
+                                              astia::core::cancel_reason::owner);
+    ASTIA_CHECK(operation->canceled());
+    ASTIA_CHECK(operation->reason() == astia::core::cancel_reason::owner);
+    ASTIA_CHECK(operation->result().error == astia::error_t::eagain);
+    ASTIA_CHECK(!operation->completion().done());
+    ASTIA_CHECK(source.complete(1));
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 1);
+    astia::core::reap_operations();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+}
+
+ASTIA_TEST(async_operation_thread_exit_cancels_only_matching_thread) {
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+
+    auto* first  = make_operation(parked_body, static_cast<astia::sys::syscall_id>(135),
+                                  arguments, frame, {}, {}, {0x3000, 0x4000});
+    auto* second = make_operation(parked_body, static_cast<astia::sys::syscall_id>(136),
+                                  arguments, frame, {}, {}, {0x3000, 0x5000});
+    if (first == nullptr || second == nullptr) {
+        ASTIA_CHECK(first != nullptr && second != nullptr);
+        return;
+    }
+    ASTIA_CHECK(first->start() == astia::sys::async_start_result::parked);
+    ASTIA_CHECK(second->state() == astia::sys::async_operation_state::created);
+
+    astia::core::cancel_operations_for_thread(0x3000, 0x4000,
+                                              astia::core::cancel_reason::owner);
+    ASTIA_CHECK(first->canceled());
+    ASTIA_CHECK(second->state() == astia::sys::async_operation_state::created);
+
+    astia::core::cancel_operations_for_process(0x3000, astia::core::cancel_reason::owner);
+    ASTIA_CHECK(second->canceled());
+    (void) source.complete(2);
+    astia::core::reap_operations();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+}
+
+ASTIA_TEST(async_operation_destruction_tears_down_parked_body) {
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+
+    auto* operation = make_operation(
+        parked_body, static_cast<astia::sys::syscall_id>(137), arguments, frame);
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+    operation->destroy();
+    ASTIA_CHECK(source.complete(9));
+}
+
+ASTIA_TEST(async_operation_cancel_before_start_does_not_run_body) {
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+
+    auto* operation = make_operation(
+        parked_body, static_cast<astia::sys::syscall_id>(138), arguments, frame);
+    ASTIA_CHECK(operation->request_cancel());
+    ASTIA_CHECK(operation->canceled());
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::canceled);
+    ASTIA_CHECK(body_entries == 0);
+    operation->destroy();
+}
+
+ASTIA_TEST(async_operation_delivers_synchronous_error_once) {
+    astia::arch::syscall_frame frame{};
+    astia::i64                 arguments[astia::sys::syscall_argument_count]{};
+    body_entries = 0;
+
+    auto* operation = make_operation(
+        failing_body, static_cast<astia::sys::syscall_id>(139), arguments, frame);
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::completed);
+    ASTIA_CHECK(operation->terminal());
+    ASTIA_CHECK(!operation->result().has_value);
+    ASTIA_CHECK(operation->result().error == astia::error_t::eio);
+    ASTIA_CHECK(operation->completion().done());
+    ASTIA_CHECK(!operation->request_cancel());
+
+    int  wakes  = 0;
+    auto waiter = await_result(operation->completion(), wakes);
+    ASTIA_CHECK(waiter.resume());
+    ASTIA_CHECK(waiter.done());
+    ASTIA_CHECK(waiter.error() == astia::error_t::eio);
+    ASTIA_CHECK(wakes == 1);
+    operation->destroy();
+}
+
+ASTIA_TEST(async_operation_preserves_identity_across_suspension) {
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+
+    auto* operation =
+        make_operation(identity_after_suspend, static_cast<astia::sys::syscall_id>(141),
+                       arguments, frame, {0x22}, {0x33});
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+    ASTIA_CHECK(operation->id().value == 0x22);
+    ASTIA_CHECK(operation->user_data().value == 0x33);
+    ASTIA_CHECK(source.complete(1));
+    ASTIA_CHECK(operation->result().value == 1 + 0x22 + 0x33);
+    operation->destroy();
+}
+
+ASTIA_TEST(async_operation_without_owner_ignores_owner_exit) {
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion = &source;
+    body_entries      = 0;
+
+    auto* operation = make_operation(
+        parked_body, static_cast<astia::sys::syscall_id>(142), arguments, frame);
+    ASTIA_CHECK(!operation->registered());
+    ASTIA_CHECK(operation->start() == astia::sys::async_start_result::parked);
+    astia::core::cancel_operations_for_process(0, astia::core::cancel_reason::owner);
+    ASTIA_CHECK(operation->parked());
+    ASTIA_CHECK(operation->request_cancel());
+    ASTIA_CHECK(operation->canceled());
+    operation->destroy();
+}

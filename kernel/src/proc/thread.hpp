@@ -1,11 +1,12 @@
 #pragma once
 
-#include "../ipc/signal.hpp"
 #include <astia/api/signal.h>
 #include <astia/arch/context.hpp>
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/shptr.hpp>
+
+#include "../ipc/signal.hpp"
 
 namespace astia::proc {
 
@@ -44,6 +45,9 @@ namespace astia::proc {
         }
         tid_t tid() const {
             return _tid;
+        }
+        u64 lifecycle_id() const {
+            return _lifecycle_id;
         }
         thread_state state() const {
             return static_cast<thread_state>(
@@ -280,6 +284,7 @@ namespace astia::proc {
 
         process*         _owner;
         tid_t            _tid;
+        u64              _lifecycle_id;
         thread_state     _state                         = thread_state::fresh;
         scheduling_class _sched_class                   = scheduling_class::normal;
         i32              _nice                          = 0;

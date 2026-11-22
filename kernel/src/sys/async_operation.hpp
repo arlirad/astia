@@ -1,0 +1,109 @@
+#pragma once
+
+#include <astia/core/cancellation.hpp>
+#include <astia/core/completion.hpp>
+#include <astia/core/operation_registry.hpp>
+#include <astia/core/spinlock.hpp>
+#include <astia/optional.hpp>
+
+#include "syscall.hpp"
+
+namespace astia::sys {
+
+    enum class async_operation_state : u8 {
+        created,
+        running,
+        parked,
+        canceled,
+        completed,
+    };
+
+    enum class async_start_result : u8 {
+        completed,
+        parked,
+        canceled,
+    };
+
+    struct async_operation_owner {
+        u64 process = 0;
+        u64 thread  = 0;
+
+        bool valid() const {
+            return process != 0;
+        }
+    };
+
+    class async_operation {
+        public:
+        using body_factory = core::task<i64> (*)(syscall_context&);
+
+        static async_operation* create(body_factory factory, syscall_id id,
+                                       const i64 (&arguments)[syscall_argument_count],
+                                       const arch::syscall_frame& frame,
+                                       operation_id               operation = {},
+                                       syscall_user_data          user_data = {},
+                                       async_operation_owner      owner = {}) noexcept;
+
+        void destroy() noexcept;
+        void
+        shutdown(core::cancel_reason reason = core::cancel_reason::shutdown) noexcept;
+
+        async_operation(const async_operation&)            = delete;
+        async_operation& operator=(const async_operation&) = delete;
+        async_operation(async_operation&&)                 = delete;
+        async_operation& operator=(async_operation&&)      = delete;
+
+        async_start_result start() noexcept;
+        bool               request_cancel(
+            core::cancel_reason reason = core::cancel_reason::request) noexcept;
+
+        async_operation_state state() const noexcept;
+        bool                  terminal() const noexcept;
+        bool                  parked() const noexcept;
+        bool                  canceled() const noexcept;
+        core::cancel_reason   reason() const noexcept;
+
+        optional<i64>                result() const noexcept;
+        core::completion<i64>&       completion() noexcept;
+        const core::completion<i64>& completion() const noexcept;
+
+        const syscall_context& context() const noexcept;
+        operation_id           id() const noexcept;
+        syscall_user_data      user_data() const noexcept;
+        async_operation_owner  owner() const noexcept;
+        bool                   registered() const noexcept;
+
+        private:
+        async_operation(body_factory factory, syscall_id id,
+                        const i64 (&arguments)[syscall_argument_count],
+                        const arch::syscall_frame& frame, operation_id operation,
+                        syscall_user_data     user_data,
+                        async_operation_owner owner) noexcept;
+        ~async_operation();
+
+        static core::task<i64>    drive(async_operation& operation, core::task<i64> body);
+        static async_start_result start_result_for(async_operation_state state) noexcept;
+        static void owner_exit_trampoline(void* object, core::cancel_reason reason);
+        static void frame_destroyed_trampoline(void* context);
+        static void reaper_destroy_trampoline(void* object);
+
+        void finish(optional<i64> result) noexcept;
+        void deliver(const optional<i64>& result) noexcept;
+        bool terminalize(core::cancel_reason reason, bool deliver_result) noexcept;
+        void owner_exit() noexcept;
+
+        arch::syscall_frame    frame_;
+        syscall_context        context_;
+        core::task<i64>        driver_;
+        core::completion<i64>  completion_;
+        mutable core::spinlock lock_;
+        u8                     state_ = static_cast<u8>(async_operation_state::created);
+        optional<i64>          result_{};
+        core::cancel_reason    reason_ = core::cancel_reason::none;
+        async_operation_owner  owner_{};
+        volatile u32           registry_refs_   = 0;
+        u8                     registered_      = 0;
+        u8                     destroy_claimed_ = 0;
+    };
+
+} // namespace astia::sys

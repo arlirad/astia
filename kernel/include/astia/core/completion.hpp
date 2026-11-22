@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/core/coroutine_lifecycle.hpp>
 #include <astia/core/resume_queue.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/error.hpp>
@@ -23,9 +24,8 @@ namespace astia::core {
         };
 
         optional<T>             result_;
-        u8                      state_             = static_cast<u8>(state::pending);
-        u8                      deferred_inflight_ = 0;
-        u64                     generation_        = 1;
+        u8                      state_      = static_cast<u8>(state::pending);
+        u64                     generation_ = 1;
         std::coroutine_handle<> continuation_{};
 
         bool finished() const {
@@ -36,23 +36,54 @@ namespace astia::core {
         }
 
         void wake() {
-            auto continuation = __atomic_exchange_n(
-                reinterpret_cast<void**>(&continuation_), nullptr, __ATOMIC_ACQ_REL);
-            if (continuation != nullptr)
-                std::coroutine_handle<>::from_address(continuation).resume();
+            for (;;) {
+                auto* value = __atomic_load_n(reinterpret_cast<void**>(&continuation_),
+                                              __ATOMIC_ACQUIRE);
+                if (value == nullptr)
+                    return;
+                const auto handle = std::coroutine_handle<>::from_address(value);
+                if (!resume_begin(handle))
+                    return;
+                void* expected = value;
+                if (!__atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
+                                                 &expected, nullptr, false,
+                                                 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                    resume_end(handle);
+                    continue;
+                }
+                handle.resume();
+                resume_end(handle);
+                return;
+            }
         }
 
         void wake_deferred() {
-            __atomic_store_n(&deferred_inflight_, 1, __ATOMIC_RELEASE);
-            const u64 generation   = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
-            auto      continuation = __atomic_exchange_n(
-                reinterpret_cast<void**>(&continuation_), nullptr, __ATOMIC_ACQ_REL);
-            if (continuation != nullptr) {
-                const auto handle = std::coroutine_handle<>::from_address(continuation);
-                if (!schedule_resume(handle, generation))
-                    handle.resume();
+            const u64 generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
+            for (;;) {
+                auto* value = __atomic_load_n(reinterpret_cast<void**>(&continuation_),
+                                              __ATOMIC_ACQUIRE);
+                if (value == nullptr)
+                    return;
+                const auto handle = std::coroutine_handle<>::from_address(value);
+                if (!resume_begin(handle))
+                    return;
+                void* expected = value;
+                if (!__atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
+                                                 &expected, nullptr, false,
+                                                 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                    resume_end(handle);
+                    continue;
+                }
+                const resume_schedule result = schedule_resume_owned(handle, generation);
+                if (result == resume_schedule::queued)
+                    return;
+                resume_end(handle);
+                if (result == resume_schedule::duplicate)
+                    return;
+                handle.resume();
+                resume_end(handle);
+                return;
             }
-            __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
         }
 
         public:
@@ -208,10 +239,7 @@ namespace astia::core {
             const bool detached = __atomic_compare_exchange_n(
                 reinterpret_cast<void**>(&continuation_), &expected, nullptr, false,
                 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-            if (!detached) {
-                while (__atomic_load_n(&deferred_inflight_, __ATOMIC_ACQUIRE) != 0)
-                    ASTIA_CPU_RELAX();
-            }
+            (void) detached;
             cancel_resume(continuation, generation);
         }
     };

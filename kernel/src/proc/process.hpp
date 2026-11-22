@@ -1,11 +1,5 @@
 #pragma once
 
-#include "../ipc/signal.hpp"
-#include "cwd_context.hpp"
-#include "fd_table.hpp"
-#include "mmap_region.hpp"
-#include "signal_waiter_registry.hpp"
-#include "thread.hpp"
 #include <astia/api/syscalls.h>
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
@@ -18,6 +12,13 @@
 #include <astia/resource_limits.hpp>
 #include <astia/span.hpp>
 #include <astia/wait.hpp>
+
+#include "../ipc/signal.hpp"
+#include "cwd_context.hpp"
+#include "fd_table.hpp"
+#include "mmap_region.hpp"
+#include "signal_waiter_registry.hpp"
+#include "thread.hpp"
 
 namespace astia::proc {
 
@@ -65,6 +66,9 @@ namespace astia::proc {
         }
         pid_t parent_pid() const {
             return _parent_pid;
+        }
+        u64 lifecycle_id() const {
+            return _lifecycle_id;
         }
         pgrp_t process_group() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
@@ -474,6 +478,7 @@ namespace astia::proc {
         bool   grow_stack(mmap_region* vma, u64 addr, bool write);
         pid_t  _pid;
         pid_t  _parent_pid;
+        u64    _lifecycle_id;
         pgrp_t _process_group;
         pid_t  _session;
         mm::shptr<fs::open_file> _controlling_terminal;

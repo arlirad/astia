@@ -1,5 +1,7 @@
 set(_astia_core_sources
+        coroutine_lifecycle.cpp
         init_core.cpp
+        operation_registry.cpp
         resume_queue.cpp
         rcu_runtime.cpp
 )

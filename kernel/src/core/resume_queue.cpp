@@ -1,5 +1,6 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/platform.hpp>
+#include <astia/core/coroutine_lifecycle.hpp>
 #include <astia/core/resume_queue.hpp>
 #include <astia/resource_limits.hpp>
 
@@ -19,6 +20,7 @@ namespace astia::core {
             std::coroutine_handle<> continuation{};
             u64                     generation = 0;
             u8                      state      = static_cast<u8>(slot_state::free);
+            u8                      ref_held   = 0;
         };
 
         struct cpu_queue {
@@ -40,6 +42,7 @@ namespace astia::core {
         void release_slot(resume_slot& slot) {
             slot.continuation = {};
             slot.generation   = 0;
+            slot.ref_held     = 0;
             __atomic_store_n(&slot.state, static_cast<u8>(slot_state::free),
                              __ATOMIC_RELEASE);
         }
@@ -67,14 +70,13 @@ namespace astia::core {
         __atomic_store_n(&queues_initialized, true, __ATOMIC_RELEASE);
     }
 
-    bool schedule_resume(std::coroutine_handle<> continuation, u64 generation) {
-        if (!continuation)
-            return false;
-        if (!__atomic_load_n(&queues_initialized, __ATOMIC_ACQUIRE))
-            return false;
+    resume_schedule schedule_resume_owned(std::coroutine_handle<> continuation,
+                                          u64                     generation) {
+        if (!continuation || !__atomic_load_n(&queues_initialized, __ATOMIC_ACQUIRE))
+            return resume_schedule::failed;
         const u32 cpu = arch::cpu::current_index();
         if (cpu >= max_cpus)
-            return false;
+            return resume_schedule::failed;
 
         cpu_queue&                     queue = queues[cpu];
         arch::interrupt_spinlock_guard guard(queue.lock);
@@ -85,7 +87,7 @@ namespace astia::core {
             if ((state == slot_state::queued || state == slot_state::running) &&
                 slot.continuation.address() == continuation.address() &&
                 slot.generation == generation)
-                return true;
+                return resume_schedule::duplicate;
         }
         u16  free  = 0;
         bool found = false;
@@ -97,28 +99,40 @@ namespace astia::core {
             }
         }
         if (!found)
-            return false;
+            return resume_schedule::failed;
 
         resume_slot& slot = queue.slots[free];
         slot.continuation = continuation;
         slot.generation   = generation;
+        slot.ref_held     = 1;
         __atomic_store_n(&slot.state, static_cast<u8>(slot_state::queued),
                          __ATOMIC_RELEASE);
         if (!queue.overflow.empty_approx()) {
             if (queue.overflow.try_push(free)) {
                 arch::cpu::request_local_reschedule();
-                return true;
+                return resume_schedule::queued;
             }
             release_slot(slot);
-            return false;
+            return resume_schedule::failed;
         }
         if (queue.ready.try_push(free) || queue.overflow.try_push(free)) {
             arch::cpu::request_local_reschedule();
-            return true;
+            return resume_schedule::queued;
         }
 
         release_slot(slot);
-        return false;
+        return resume_schedule::failed;
+    }
+
+    bool schedule_resume(std::coroutine_handle<> continuation, u64 generation) {
+        if (!continuation)
+            return false;
+        if (!resume_begin(continuation))
+            return false;
+        const resume_schedule result = schedule_resume_owned(continuation, generation);
+        if (result != resume_schedule::queued)
+            resume_end(continuation);
+        return result != resume_schedule::failed;
     }
 
     void cancel_resume(std::coroutine_handle<> continuation, u64 generation) {
@@ -128,7 +142,8 @@ namespace astia::core {
             cpu_queue& queue = queues[cpu];
             for (;;) {
                 arch::interrupt_spinlock_guard guard(queue.lock);
-                bool                           retry = false;
+                bool                           retry    = false;
+                u32                            released = 0;
                 for (u16 i = 0; i < queue_capacity * 2; ++i) {
                     resume_slot& slot  = queue.slots[i];
                     const auto   state = static_cast<slot_state>(
@@ -141,6 +156,10 @@ namespace astia::core {
                         __atomic_store_n(&slot.state,
                                          static_cast<u8>(slot_state::canceled),
                                          __ATOMIC_RELEASE);
+                        if (slot.ref_held != 0) {
+                            slot.ref_held = 0;
+                            ++released;
+                        }
                     }
                     else if (state == slot_state::running) {
                         if (cpu == arch::cpu::current_index() &&
@@ -150,6 +169,10 @@ namespace astia::core {
                     }
                 }
                 guard.unlock();
+                while (released != 0) {
+                    resume_end(continuation);
+                    --released;
+                }
                 if (!retry)
                     break;
                 while (true) {
@@ -199,6 +222,7 @@ namespace astia::core {
             }
             resume_slot& slot = queue.slots[index];
             slot.continuation.resume();
+            resume_end(slot.continuation);
             {
                 arch::interrupt_spinlock_guard guard(queue.lock);
                 queue.active = {};

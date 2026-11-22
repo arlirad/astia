@@ -10,7 +10,15 @@ namespace astia::core {
 
     /// Scheduler-owned continuation handoff. Producers may publish a
     /// coroutine from IRQ/task context; only the owning CPU drains it.
+    enum class resume_schedule : u8 {
+        queued,
+        duplicate,
+        failed,
+    };
+
     bool schedule_resume(std::coroutine_handle<> continuation, u64 generation = 0);
+    resume_schedule schedule_resume_owned(std::coroutine_handle<> continuation,
+                                          u64                     generation = 0);
     void cancel_resume(std::coroutine_handle<> continuation, u64 generation = 0);
     u32  drain_resumes(u32 budget = 256);
 

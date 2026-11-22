@@ -1,17 +1,19 @@
 #include "process.hpp"
 
+#include <astia/api/signal.h>
+#include <astia/api/syscalls.h>
+#include <astia/api/termios.h>
+#include <astia/arch/cpu.hpp>
+#include <astia/core/operation_registry.hpp>
+#include <astia/core/spinlock.hpp>
+#include <astia/mm/frame_allocator.hpp>
+#include <astia/mm/share.hpp>
+
 #include "../fs/path_service.hpp"
 #include "../ipc/futex.hpp"
 #include "../sys/aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
-#include <astia/api/signal.h>
-#include <astia/api/syscalls.h>
-#include <astia/api/termios.h>
-#include <astia/arch/cpu.hpp>
-#include <astia/core/spinlock.hpp>
-#include <astia/mm/frame_allocator.hpp>
-#include <astia/mm/share.hpp>
 
 void* operator new[](astia::usize size, void* where) noexcept;
 
@@ -282,8 +284,8 @@ namespace astia::proc {
     } // namespace
 
     process::process(pid_t id, pid_t parent, const char* name)
-        : _pid(id), _parent_pid(parent), _process_group(pgrp_from_raw(raw_id(id))),
-          _session(id) {
+        : _pid(id), _parent_pid(parent), _lifecycle_id(core::allocate_lifecycle_id()),
+          _process_group(pgrp_from_raw(raw_id(id))), _session(id) {
         u32 i = 0;
         while (name != nullptr && name[i] != '\0' && i + 1 < sizeof(_name)) {
             _name[i] = name[i];
@@ -458,12 +460,15 @@ namespace astia::proc {
         }
         futex_remove_process(this);
         sys::io_interrupt_process(this, -EINTR);
+        core::cancel_operations_for_process(_lifecycle_id, core::cancel_reason::owner);
         for (u32 i = 0; i < count; ++i)
             scheduler::wake(wake_list[i]);
     }
 
     bool process::thread_exited(thread* value, i32 status) {
         if (value != nullptr) {
+            core::cancel_operations_for_thread(_lifecycle_id, value->lifecycle_id(),
+                                               core::cancel_reason::owner);
             release_thread_tls(value);
             if (value->detached())
                 release_thread_stack(value);
@@ -1151,8 +1156,8 @@ namespace astia::proc {
             return false;
         }
 
-        u64 base = process_tls_first -
-                   (static_cast<u64>(id % max_threads_per_process) * process_tls_stride);
+        u64  base = process_tls_first -
+                    (static_cast<u64>(id % max_threads_per_process) * process_tls_stride);
         bool free = false;
         for (u32 attempt = 0; attempt < max_threads_per_process; ++attempt) {
             free = true;

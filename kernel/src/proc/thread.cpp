@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/core/operation_registry.hpp>
 #include <astia/mm/heap.hpp>
 
 #include "proc.hpp"
@@ -31,7 +32,8 @@ namespace astia::proc {
     }
 
     thread::thread(process* owner, tid_t id)
-        : _owner(owner), _tid(id), _context(arch::context_create()) {}
+        : _owner(owner), _tid(id), _lifecycle_id(core::allocate_lifecycle_id()),
+          _context(arch::context_create()) {}
 
     thread::~thread() {
         // Destruction can happen on an interruptible join path, not only in

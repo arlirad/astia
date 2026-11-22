@@ -2,6 +2,7 @@ file(GLOB_RECURSE ASTIA_SYS_SYSCALL_SOURCES CONFIGURE_DEPENDS syscalls/*.cpp)
 add_library(sys STATIC
         ${ASTIA_SYS_SYSCALL_SOURCES}
         aio.cpp
+        async_operation.cpp
         syscall.cpp
         handler_registry.cpp
         time.cpp)

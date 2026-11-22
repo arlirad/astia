@@ -44,11 +44,14 @@ namespace astia::resource_limits {
         inline constexpr u32 rcu_retired           = 256;
         inline constexpr u32 futex_waiters         = 64;
         inline constexpr u32 futex_buckets         = 4;
+        inline constexpr u32 operation_registry    = 32;
+        inline constexpr u32 operation_reaper      = 64;
     }
 
     namespace coroutine {
         inline constexpr usize frame_slot_bytes = 2048;
         inline constexpr u32   frame_slots      = 32;
+        inline constexpr u32   lifecycle_slots  = 1024;
     }
 
 } // namespace astia::resource_limits

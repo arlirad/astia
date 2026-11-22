@@ -73,11 +73,15 @@ target_compile_options(astia_host_file_runtime PRIVATE
         -fno-pie -fno-rtti -ffunction-sections -fdata-sections -fno-sanitize=all)
 
 function(astia_add_host_test name)
-    add_executable(${name} ${ARGN} support/freestanding_new.cpp)
+    add_executable(${name} ${ARGN}
+            ${ASTIA_KERNEL_SOURCE_DIR}/src/core/coroutine_lifecycle.cpp
+            ${ASTIA_KERNEL_SOURCE_DIR}/src/core/operation_registry.cpp
+            support/freestanding_new.cpp)
     set_target_properties(${name} PROPERTIES LINK_OPTIONS "")
     target_link_libraries(${name} PRIVATE c astia_test_support)
     target_include_directories(${name} PRIVATE ${_astia_test_includes})
     target_compile_options(${name} PRIVATE -fno-threadsafe-statics)
+    target_compile_definitions(${name} PRIVATE ASTIA_HOST_COROUTINE_LIFECYCLE=1)
     astia_apply_host_sanitizers(${name})
     if (ASTIA_HOST_TEST_LAUNCHER)
         add_test(NAME ${name} COMMAND ${ASTIA_HOST_TEST_LAUNCHER}
@@ -162,6 +166,17 @@ target_compile_options(astia_syscall_handler_prototype_test PRIVATE
         -ffunction-sections -fdata-sections)
 target_link_options(astia_syscall_handler_prototype_test PRIVATE
         -Wl,--gc-sections)
+astia_add_host_test(astia_coroutine_lifecycle_test
+        coroutine_lifecycle_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
+astia_add_host_test(astia_operation_registry_test
+        operation_registry_test.cpp)
+astia_add_host_test(astia_async_operation_test
+        async_operation_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/async_operation.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
 astia_add_host_test(astia_console_test
         console_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)

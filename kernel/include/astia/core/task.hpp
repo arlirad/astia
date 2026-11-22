@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/core/coroutine_lifecycle.hpp>
 #include <astia/core/resume_queue.hpp>
 #include <astia/error.hpp>
 #include <astia/optional.hpp>
@@ -98,7 +99,7 @@ namespace astia::core {
             while (context->pending) {
                 auto next        = context->pending;
                 context->pending = {};
-                next.resume();
+                (void) resume_now(next);
             }
             context->active = false;
             clear_resume_context(*context);
@@ -218,10 +219,8 @@ namespace astia::core {
                 return false;
             auto waiting = _coroutine.promise().link.waiting;
             if (waiting && !waiting.done())
-                waiting.resume();
-            else
-                _coroutine.resume();
-            return true;
+                return resume_now(waiting);
+            return resume_now(_coroutine);
         }
 
         struct awaiter {
@@ -274,7 +273,7 @@ namespace astia::core {
                 coroutine.promise().link.continuation = {};
                 coroutine.promise().link.parent       = nullptr;
                 detail::detach_resume_context(coroutine.promise().link);
-                coroutine.destroy();
+                (void) destroy_coroutine(coroutine);
                 coroutine = {};
             }
         };
@@ -284,12 +283,18 @@ namespace astia::core {
             return value;
         }
         void reset() {
+            (void) reset_with_observer(nullptr, nullptr);
+        }
+
+        bool reset_with_observer(coroutine_destroy_observer observer, void* context) {
             if (_coroutine) {
-                cancel_resume(_coroutine);
-                detail::detach_resume_context(_coroutine.promise().link);
-                _coroutine.destroy();
+                auto coroutine = _coroutine;
+                _coroutine     = {};
+                cancel_resume(coroutine);
+                detail::detach_resume_context(coroutine.promise().link);
+                return destroy_coroutine(coroutine, observer, context);
             }
-            _coroutine = {};
+            return true;
         }
 
         private:
@@ -355,10 +360,8 @@ namespace astia::core {
                 return false;
             auto waiting = _coroutine.promise().link.waiting;
             if (waiting && !waiting.done())
-                waiting.resume();
-            else
-                _coroutine.resume();
-            return true;
+                return resume_now(waiting);
+            return resume_now(_coroutine);
         }
 
         struct awaiter {
@@ -410,7 +413,7 @@ namespace astia::core {
                 coroutine.promise().link.continuation = {};
                 coroutine.promise().link.parent       = nullptr;
                 detail::detach_resume_context(coroutine.promise().link);
-                coroutine.destroy();
+                (void) destroy_coroutine(coroutine);
                 coroutine = {};
             }
         };
@@ -422,12 +425,18 @@ namespace astia::core {
         }
 
         void reset() {
+            (void) reset_with_observer(nullptr, nullptr);
+        }
+
+        bool reset_with_observer(coroutine_destroy_observer observer, void* context) {
             if (_coroutine) {
-                cancel_resume(_coroutine);
-                detail::detach_resume_context(_coroutine.promise().link);
-                _coroutine.destroy();
+                auto coroutine = _coroutine;
+                _coroutine     = {};
+                cancel_resume(coroutine);
+                detail::detach_resume_context(coroutine.promise().link);
+                return destroy_coroutine(coroutine, observer, context);
             }
-            _coroutine = {};
+            return true;
         }
 
         struct promise_type {
