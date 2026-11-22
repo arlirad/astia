@@ -1,5 +1,6 @@
-#include "process_port.h"
 #include <astia/api/syscalls.h>
+
+#include "process_port.h"
 
 #include <stddef.h>
 
@@ -39,6 +40,10 @@ long __astia_process_kill(int pid, int signal) {
     return astia_kill((int32_t) pid, (int32_t) signal);
 }
 
+long __astia_process_getgroups(int count, unsigned int* groups) {
+    return astia_getgroups(count, (uint32_t*) groups);
+}
+
 long __astia_process_yield(void) {
     return astia_yield();
 }
@@ -63,14 +68,14 @@ __attribute__((weak)) long __astia_process_sigsuspend(const unsigned int* mask) 
     return astia_raw6(SYS_SIGSUSPEND, (long) mask, 0, 0, 0, 0, 0);
 }
 
-__attribute__((weak)) long
-__astia_process_sigaction(int signal, const astia_sigaction_t* action,
-                          astia_sigaction_t* old_action) {
+__attribute__((weak)) long __astia_process_sigaction(int                      signal,
+                                                     const astia_sigaction_t* action,
+                                                     astia_sigaction_t* old_action) {
     return astia_sigaction(signal, action, old_action);
 }
 
-__attribute__((weak)) long
-__astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_set) {
+__attribute__((weak)) long __astia_process_sigprocmask(int how, unsigned int set,
+                                                       unsigned int* old_set) {
     return astia_sigprocmask(how, set, old_set);
 }
 
@@ -78,9 +83,9 @@ __attribute__((weak)) long __astia_process_sigwait(const unsigned int* set, int*
     return astia_raw6(SYS_SIGWAIT, (long) set, (long) signal, 0, 0, 0, 0);
 }
 
-__attribute__((weak)) long
-__astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info,
-                             const void* timeout) {
+__attribute__((weak)) long __astia_process_sigtimedwait(const unsigned int* set,
+                                                        astia_siginfo_t*    info,
+                                                        const void*         timeout) {
     return astia_sigtimedwait(set, info, (const astia_timespec*) timeout);
 }
 
@@ -96,8 +101,8 @@ long __astia_process_thread_create(void (*entry)(void*), void* stack_top,
 }
 
 long __astia_process_thread_create2(void (*entry)(void*, void*), void* stack_top,
-                                    void* argument0, void* argument1,
-                                    void* stack_addr, size_t stack_size) {
+                                    void* argument0, void* argument1, void* stack_addr,
+                                    size_t stack_size) {
     return astia_thread_create2(entry, stack_top, argument0, argument1, stack_addr,
                                 stack_size);
 }

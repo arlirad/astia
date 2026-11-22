@@ -36,6 +36,7 @@ set_tests_properties(libc_installed_headers
 # archive (which would both bypass the host fixture and create duplicate
 # definitions).
 set_source_files_properties(backend_host.c process_host.c socket_backend_host.c
+                            access_stat_host.c
   PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden")
 
 foreach(_t string ctype stdlib malloc snprintf)
@@ -123,6 +124,11 @@ add_test(NAME libc_uio_test COMMAND libc_uio_test)
 add_executable(libc_stat_test stat_test.c backend_host.c process_host.c alarm_host.c)
 target_link_libraries(libc_stat_test PRIVATE astia_libc_host)
 add_test(NAME libc_stat_test COMMAND libc_stat_test)
+
+add_executable(libc_access_test access_test.c access_stat_host.c backend_host.c
+                                  process_host.c alarm_host.c)
+target_link_libraries(libc_access_test PRIVATE astia_libc_host)
+add_test(NAME libc_access_test COMMAND libc_access_test)
 
 add_executable(libc_rename_test rename_test.c backend_host.c)
 target_link_libraries(libc_rename_test PRIVATE astia_libc)

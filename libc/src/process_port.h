@@ -8,25 +8,27 @@
  * astia ABI convention. */
 #pragma GCC visibility push(default)
 #include <astia/api/signal.h>
+
 #include <stddef.h>
 #include <stdint.h>
 extern _Thread_local unsigned int __astia_signal_handler_depth;
-void                   __astia_process_exit(int status);
-long                   __astia_process_getpid(void);
-long                   __astia_process_getppid(void);
-long                   __astia_process_gettid(void);
-long                   __astia_process_fchdir(int fd);
-long                   __astia_process_getuid(void);
-long                   __astia_process_geteuid(void);
-long                   __astia_process_getgid(void);
-long                   __astia_process_getegid(void);
-long                   __astia_process_alarm(unsigned int seconds);
-long                   __astia_process_getpgrp(void);
-long                   __astia_process_getpgid(int pid);
-long                   __astia_process_setpgid(int pid, int process_group);
-long                   __astia_process_kill(int pid, int signal);
-long                   __astia_process_yield(void);
-long                   __astia_process_waitpid(int pid, int* status, int options);
+void                              __astia_process_exit(int status);
+long                              __astia_process_getpid(void);
+long                              __astia_process_getppid(void);
+long                              __astia_process_gettid(void);
+long                              __astia_process_fchdir(int fd);
+long                              __astia_process_getuid(void);
+long                              __astia_process_geteuid(void);
+long                              __astia_process_getgid(void);
+long                              __astia_process_getegid(void);
+long __astia_process_getgroups(int count, unsigned int* groups);
+long __astia_process_alarm(unsigned int seconds);
+long __astia_process_getpgrp(void);
+long __astia_process_getpgid(int pid);
+long __astia_process_setpgid(int pid, int process_group);
+long __astia_process_kill(int pid, int signal);
+long __astia_process_yield(void);
+long __astia_process_waitpid(int pid, int* status, int options);
 long __astia_process_spawnve(const char* path, char* const argv[], char* const envp[]);
 long __astia_process_execve(const char* path, char* const argv[], char* const envp[]);
 long __astia_process_fork(void);
@@ -41,8 +43,8 @@ long __astia_process_futex(unsigned int* address, unsigned int operation,
                            unsigned int value, const int64_t* timeout);
 long __astia_process_thread_create(void (*entry)(void*), void* stack_top, void* argument);
 long __astia_process_thread_create2(void (*entry)(void*, void*), void* stack_top,
-                                    void* argument0, void* argument1,
-                                    void* stack_addr, size_t stack_size);
+                                    void* argument0, void* argument1, void* stack_addr,
+                                    size_t stack_size);
 long __astia_process_thread_create_owned(void (*entry)(void*, void*), void* stack_top,
                                          void* argument0, void* argument1,
                                          void* stack_addr, size_t stack_size);
