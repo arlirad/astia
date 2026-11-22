@@ -250,7 +250,7 @@ def test_relative_compile_database_directory():
     ], line_filter
 
 
-def test_type_change_analyzed_and_rename_fails_closed():
+def test_type_change_analyzed_and_deletion_only_skipped():
     repo = repo_fixture()
     real = repo / "kernel/src/real.cpp"
     source = repo / "kernel/src/type.cpp"
@@ -266,17 +266,59 @@ def test_type_change_analyzed_and_rename_fails_closed():
     )
     assert result.returncode == 0, result.stdout
 
-    old = repo / "kernel/src/type.cpp"
+    removed = repo / "kernel/src/removed.cpp"
+    removed.write_text("int first;\nint second;\n", encoding="utf-8")
+    before_removal = commit(repo, "before removal")
+    removed.write_text("", encoding="utf-8")
+    deletion = commit(repo, "deletion only")
+    assert git(repo, "diff", "--name-status", before_removal, deletion).startswith(
+        "M\t"
+    )
+    record = repo / "record"
+    if record.exists():
+        record.unlink()
+    result = check(
+        repo,
+        database(repo, ["kernel/src/removed.cpp"]),
+        before_removal,
+        deletion,
+        fake_tidy(repo),
+    )
+    assert result.returncode == 0, result.stdout
+    assert not record.exists(), result.stdout
+
+
+def test_rename_only_analyzes_destination_full_file():
+    repo = repo_fixture()
+    old = repo / "kernel/src/old.cpp"
     new = repo / "kernel/src/renamed.cpp"
+    old.write_text("int first;\nint second;\n", encoding="utf-8")
+    base = commit(repo, "base")
     run(["git", "mv", str(old), str(new)], repo)
     renamed = commit(repo, "rename only")
-    assert git(repo, "diff", "--name-status", head, renamed)
+    assert git(repo, "diff", "--name-status", base, renamed).startswith("R100\t")
+    record = repo / "record"
+    if record.exists():
+        record.unlink()
     result = check(
-        repo, database(repo, ["kernel/src/renamed.cpp"]), head, renamed, fake_tidy(repo)
+        repo, database(repo, ["kernel/src/renamed.cpp"]), base, renamed, fake_tidy(repo)
     )
-    assert result.returncode == 1 and "no changed ranges" in result.stdout, (
-        result.stdout
+    assert result.returncode == 0, result.stdout
+    invocation = json.loads(record.read_text().splitlines()[0])
+    line_filter = json.loads(
+        next(
+            value.split("=", 1)[1]
+            for value in invocation
+            if value.startswith("-line-filter=")
+        )
     )
+    assert line_filter == [
+        {"name": "kernel/src/renamed.cpp", "lines": [[1, 2]]},
+        {
+            "name": str((repo / "kernel/src/renamed.cpp").resolve()),
+            "lines": [[1, 2]],
+        },
+    ], line_filter
 
 
 def test_empty_diff_smoke_and_errors():
@@ -358,7 +400,8 @@ def main():
     test_mixed_header_source_fails_on_header()
     test_missing_compile_entry_fails()
     test_relative_compile_database_directory()
-    test_type_change_analyzed_and_rename_fails_closed()
+    test_type_change_analyzed_and_deletion_only_skipped()
+    test_rename_only_analyzes_destination_full_file()
     test_empty_diff_smoke_and_errors()
     test_real_clang_tidy_finding_with_relative_database()
     test_base_trusted_config_ignores_pr_config()

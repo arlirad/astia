@@ -85,9 +85,9 @@ def decode_path(raw):
     return data.decode("utf-8", "surrogateescape")
 
 
-def status_paths(data):
+def status_entries(data):
     fields = data.split(b"\0")
-    paths = []
+    entries = []
     i = 0
     while i < len(fields) and fields[i]:
         status = fields[i].decode("ascii")
@@ -98,9 +98,9 @@ def status_paths(data):
             i += 1
         if i >= len(fields):
             raise ValueError("truncated status output")
-        paths.append(decode_path(fields[i]))
+        entries.append((status, decode_path(fields[i])))
         i += 1
-    return paths
+    return entries
 
 
 def changed_ranges(diff):
@@ -247,7 +247,7 @@ def main():
         return 1
     normalized_build = None
     try:
-        status = status_paths(
+        status = status_entries(
             git(
                 [
                     "diff",
@@ -290,12 +290,10 @@ def main():
         print(f"clang-tidy: failed to prepare analysis: {error}", file=sys.stderr)
         return 1
     relevant = [
-        p for p in status if pathlib.PurePosixPath(p).suffix.lower() in SOURCE_SUFFIXES
+        (status, path)
+        for status, path in status
+        if pathlib.PurePosixPath(path).suffix.lower() in SOURCE_SUFFIXES
     ]
-    missing = [p for p in relevant if p not in ranges or not ranges[p]]
-    if missing:
-        print(f"clang-tidy: no changed ranges for {missing!r}", file=sys.stderr)
-        return 1
     if not relevant:
         smoke = str((pathlib.Path(args.root) / "kernel/src/kmain.cpp").resolve())
         if smoke not in db:
@@ -314,7 +312,14 @@ def main():
     sources = []
     missing_sources = []
     headers = []
-    for path in relevant:
+    for entry_status, path in relevant:
+        if path not in ranges or not ranges[path]:
+            if entry_status[0] == "R":
+                absolute = pathlib.Path(args.root) / path
+                lines = len(absolute.read_text(encoding="utf-8").splitlines())
+                ranges[path] = [[1, max(lines, 1)]]
+            else:
+                continue
         if pathlib.PurePosixPath(path).suffix.lower() not in COMPILE_SUFFIXES:
             headers.append(path)
             continue
