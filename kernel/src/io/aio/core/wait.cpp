@@ -1,5 +1,5 @@
-#include "../handler.hpp"
 #include "../dispatch.hpp"
+#include "../handler.hpp"
 
 namespace astia::io::aio::operations {
 
