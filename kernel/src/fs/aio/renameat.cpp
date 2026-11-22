@@ -1,12 +1,54 @@
 #include "../../io/aio/handler.hpp"
+#ifdef ASTIA_AIO_HOST_TEST
 #include "dispatch.hpp"
+#else
+#include "common.hpp"
+#endif
 
 namespace astia::io::aio::operations {
 
+#ifndef ASTIA_AIO_HOST_TEST
+    namespace {
+
+        bool handle_renameat(ring_slot&, astia_rings* ring, const astia_sqe& s) {
+            char old_path[256], new_path[256];
+            if (!memory::copy_in_string(span<char>(old_path, sizeof old_path),
+                                        memory::user_ptr<char>(s.address)) ||
+                !memory::copy_in_string(span<char>(new_path, sizeof new_path),
+                                        memory::user_ptr<char>(s.offset)))
+                return cq_post_guarded(ring, s.user_data, -EFAULT);
+            auto* current = proc::current_process();
+            char  old_resolved[256], new_resolved[256];
+            if (current == nullptr)
+                return cq_post_guarded(ring, s.user_data, -ESRCH);
+            long old_rc =
+                resolve_at(current, s.fd, old_path, old_resolved, sizeof old_resolved);
+            i32  new_dirfd = s.length == 0 ? AT_FDCWD : static_cast<i32>(s.length);
+            long new_rc    = resolve_at(current, new_dirfd, new_path, new_resolved,
+                                        sizeof new_resolved);
+            if (old_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) old_rc);
+            if (new_rc < 0)
+                return cq_post_guarded(ring, s.user_data, (i32) new_rc);
+            if (!parent_writable(current, old_resolved) ||
+                !parent_writable(current, new_resolved))
+                return cq_post_guarded(ring, s.user_data, -EACCES);
+            return cq_post_guarded(
+                ring, s.user_data,
+                static_cast<i32>(fs::rename_path(old_resolved, new_resolved)));
+        }
+
+    } // namespace
+#endif
+
     struct renameat : handler<renameat, opcode::renameat> {
-        static bool invoke(ring::ring_slot& slot, astia_rings* ring,
+        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
                            const astia_sqe& sqe) noexcept {
+#ifdef ASTIA_AIO_HOST_TEST
             return ::astia::io::aio::filesystem::dispatch(slot, ring, sqe);
+#else
+            return handle_renameat(slot, ring, sqe);
+#endif
         }
     };
 

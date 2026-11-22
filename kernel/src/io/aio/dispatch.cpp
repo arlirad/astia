@@ -37,71 +37,6 @@ namespace astia::io::aio::dispatch {
         void wake_request(void* context) {
             if (context != nullptr)
                 io_device_ready_context(static_cast<io_device*>(context));
-        }
-
-        class eventfd_file final : public fs::file {
-            public:
-            eventfd_file(u64 value, bool nonblock) : _value(value), _nonblock(nonblock) {}
-
-            fs::file_mode mode() const override {
-                return fs::file_mode(fs::file_type::character,
-                                     fs::default_device_permissions);
-            }
-
-            long read(void* buffer, u32 length, u64) override {
-                if (buffer == nullptr || length != sizeof(u64))
-                    return -EINVAL;
-                u64 value = __atomic_exchange_n(&_value, 0, __ATOMIC_ACQ_REL);
-                if (value == 0)
-                    return 0;
-                *static_cast<u64*>(buffer) = value;
-                io_device_ready_context(this);
-                return sizeof(u64);
-            }
-
-            long write(const void* buffer, u32 length, u64) override {
-                if (buffer == nullptr || length != sizeof(u64))
-                    return -EINVAL;
-                u64 add = *static_cast<const u64*>(buffer);
-                if (add == UINT64_MAX)
-                    return -EINVAL;
-                u64 old = __atomic_load_n(&_value, __ATOMIC_RELAXED);
-                for (;;) {
-                    if (UINT64_MAX - old < add)
-                        return _nonblock ? -EAGAIN : 0;
-                    if (__atomic_compare_exchange_n(&_value, &old, old + add, false,
-                                                    __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
-                        io_device_ready_context(this);
-                        return sizeof(u64);
-                    }
-                }
-            }
-
-            u32 poll(u32 events, u32) override {
-                u32 ready = 0;
-                if (__atomic_load_n(&_value, __ATOMIC_ACQUIRE) != 0)
-                    ready |= POLLIN;
-                if (__atomic_load_n(&_value, __ATOMIC_ACQUIRE) != UINT64_MAX)
-                    ready |= POLLOUT;
-                return ready & events;
-            }
-
-            long submit(::astia::io::request& request) override {
-                if (request.length() != sizeof(u64))
-                    return -EINVAL;
-                const long result = request.direction() == ::astia::io::direction::input
-                                        ? read(request.buffer(), request.length(), 0)
-                                        : write(request.buffer(), request.length(), 0);
-                if (result == 0 && _nonblock)
-                    return -EAGAIN;
-                if (result == 0)
-                    request.stage(1);
-                return result;
-            }
-
-            private:
-            u64  _value;
-            bool _nonblock;
         };
 
         long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
@@ -578,14 +513,6 @@ namespace astia::io::aio::dispatch {
             op.resuming = false;
         }
 
-        bool has_parked(const ring_slot& slot) {
-            for (u32 i = 0; i < parked_operation_slots; ++i) {
-                if (slot.park[i].used && !slot.park[i].done)
-                    return true;
-            }
-            return false;
-        }
-
         struct dispatch_context {
             ring_slot&       slot;
             astia_rings*     ring;
@@ -597,16 +524,13 @@ namespace astia::io::aio::dispatch {
             }
         };
 
-        bool dispatch_io(dispatch_context& context) {
-            const astia_sqe&         s      = context.sqe;
+        bool submit_io(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
+                       ::astia::io::direction direction, bool vectored) {
+            dispatch_context         context{slot, ring, s, proc::current_process()};
             mm::shptr<fs::open_file> object = file_for(context.current, s.fd);
             if (!object) {
                 return context.complete(-EBADF);
             }
-            const ::astia::io::direction direction =
-                (s.op == OP_READ || s.op == OP_RECV || s.op == OP_READV)
-                    ? ::astia::io::direction::input
-                    : ::astia::io::direction::output;
             const u32 access = object->flags() & fs::open_file_access_mask;
             if ((direction == ::astia::io::direction::output && access == 0 &&
                  (object->flags() & fs::pipe_write_endpoint_flag) == 0 &&
@@ -619,8 +543,7 @@ namespace astia::io::aio::dispatch {
             // and a device still gets one buffer per submit() either way.
             span<u8> ranges[mm::iovec::max_segments];
             u32      count = 0;
-            if (s.op == OP_READ || s.op == OP_WRITE || s.op == OP_SEND ||
-                s.op == OP_RECV) {
+            if (!vectored) {
                 ranges[0] = span<u8>::bytes(s.address, s.length);
                 count     = 1;
             }
@@ -678,262 +601,6 @@ namespace astia::io::aio::dispatch {
                                   direction);
         }
 
-        bool handle_dup(astia_rings* ring, const astia_sqe& s) {
-            proc::process*           current = proc::current_process();
-            mm::shptr<fs::open_file> source  = file_for(s.fd);
-            if (current == nullptr || !source) {
-                return cq_post_guarded(ring, s.user_data, -EBADF);
-            }
-            const auto fd = current->duplicate_descriptor(mapper<fd_t>::from(s.fd).value);
-            return cq_post_guarded(ring, s.user_data,
-                                   fd ? static_cast<i64>(fd.value.value) : -EMFILE);
-        }
-
-        bool handle_dup2(astia_rings* ring, const astia_sqe& s) {
-            proc::process* current = proc::current_process();
-            auto           old_fd  = mapper<fd_t>::from(s.fd);
-            auto           new_fd  = mapper<fd_t>::from(static_cast<i64>(s.offset));
-            if (current == nullptr || !old_fd.has_value || !new_fd.has_value ||
-                !current->descriptor(old_fd.value)) {
-                return cq_post_guarded(ring, s.user_data, -EBADF);
-            }
-            const i32 target = new_fd.value.value;
-            if (target != s.fd) {
-                const auto result =
-                    current->duplicate_descriptor_to(old_fd.value, new_fd.value);
-                if (!result)
-                    return cq_post_guarded(ring, s.user_data, -EMFILE);
-            }
-            return cq_post_guarded(ring, s.user_data, target);
-        }
-
-        bool handle_fcntl(astia_rings* ring, const astia_sqe& s) {
-            proc::process* current = proc::current_process();
-            auto           mapped  = mapper<fd_t>::from(s.fd);
-            if (current == nullptr || !mapped.has_value ||
-                !current->descriptor(mapped.value))
-                return cq_post_guarded(ring, s.user_data, -EBADF);
-            const u32 argument = s.aux;
-            switch (s.op_flags) {
-            case ASTIA_F_DUPFD:
-            case ASTIA_F_DUPFD_CLOEXEC: {
-                if (static_cast<i32>(argument) < 0)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                const u32 flags =
-                    s.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
-                const auto result = current->duplicate_descriptor(
-                    mapped.value, fd_t{static_cast<i32>(argument)}, flags);
-                return cq_post_guarded(ring, s.user_data,
-                                       result ? result.value.value : -EMFILE);
-            }
-            case ASTIA_F_GETFD:
-                return cq_post_guarded(
-                    ring, s.user_data,
-                    static_cast<i32>(current->descriptor_flags(mapped.value)));
-            case ASTIA_F_SETFD:
-                if ((argument & ~ASTIA_FD_CLOEXEC) != 0)
-                    return cq_post_guarded(ring, s.user_data, -EINVAL);
-                if (!current->set_descriptor_flags(mapped.value, argument))
-                    return cq_post_guarded(ring, s.user_data, -EBADF);
-                return cq_post_guarded(ring, s.user_data, 0);
-            case ASTIA_F_GETFL: {
-                const u32 flags = current->descriptor(mapped.value)->flags();
-                u32       result;
-                if ((flags & fs::pipe_write_endpoint_flag) != 0)
-                    result = ASTIA_AIO_O_WRONLY;
-                else if ((flags & fs::pipe_read_endpoint_flag) != 0)
-                    result = ASTIA_AIO_O_RDONLY;
-                else
-                    result = (flags & ASTIA_AIO_O_ACCMODE) == ASTIA_AIO_O_RDWR
-                                 ? ASTIA_AIO_O_RDWR
-                                 : ((flags & ASTIA_AIO_O_WRONLY) ? ASTIA_AIO_O_WRONLY
-                                                                 : ASTIA_AIO_O_RDONLY);
-                if (flags & static_cast<u32>(fs::open_file_status_flags::append))
-                    result |= ASTIA_O_APPEND;
-                if (flags & static_cast<u32>(fs::open_file_status_flags::nonblock))
-                    result |= ASTIA_O_NONBLOCK;
-                return cq_post_guarded(ring, s.user_data, static_cast<i32>(result));
-            }
-            case ASTIA_F_SETFL: {
-                auto object = current->descriptor(mapped.value);
-                object->set_status_flags(
-                    (argument & ASTIA_O_APPEND
-                         ? static_cast<u32>(fs::open_file_status_flags::append)
-                         : 0u) |
-                    (argument & ASTIA_O_NONBLOCK
-                         ? static_cast<u32>(fs::open_file_status_flags::nonblock)
-                         : 0u));
-                return cq_post_guarded(ring, s.user_data, 0);
-            }
-            default:
-                return cq_post_guarded(ring, s.user_data, -EINVAL);
-            }
-        }
-
-        bool handle_eventfd_create(astia_rings* ring, const astia_sqe& s) {
-            if ((s.op_flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0 ||
-                s.offset == UINT64_MAX)
-                return cq_post_guarded(ring, s.user_data, -EINVAL);
-            proc::process* current = proc::current_process();
-            if (!current)
-                return cq_post_guarded(ring, s.user_data, -ESRCH);
-            mm::shptr<eventfd_file> event(
-                new eventfd_file(s.offset, (s.op_flags & ASTIA_EFD_NONBLOCK) != 0));
-            if (!event)
-                return cq_post_guarded(ring, s.user_data, -ENOMEM);
-            const u32 status_flags =
-                s.op_flags & ASTIA_EFD_NONBLOCK
-                    ? static_cast<u32>(fs::open_file_status_flags::nonblock)
-                    : 0u;
-            const u32 descriptor_flags =
-                s.op_flags & ASTIA_EFD_CLOEXEC ? static_cast<u32>(ASTIA_FD_CLOEXEC) : 0u;
-            auto object = mm::share<fs::open_file>(
-                event, static_cast<fs::open_file_status_flags>(status_flags));
-            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
-                if (!current->descriptor(fd_t{fd}) &&
-                    current->set_descriptor(fd_t{fd}, object, descriptor_flags))
-                    return cq_post_guarded(ring, s.user_data, fd);
-            return cq_post_guarded(ring, s.user_data, -EMFILE);
-        }
-
-        bool handle_ioctl(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            /* ioctl is a control-plane fence.  Do not consume this SQE
-               while an older read/write is parked: otherwise a batch
-               containing READ, IOCTL, READ could observe tty state out
-               of order.  Returning false leaves SQ head at IOCTL; the
-               wake-up path retries it after the parked operation posts. */
-            if (has_parked(slot))
-                return false;
-            // ioctl implementations expect a stable kernel object and
-            // may both read and write it.  Decode the ABI's typed
-            // requests here instead of passing a caller pointer into a
-            // device (which was both a TOCTOU and kernel-pointer bug).
-            usize expected = 0;
-            bool  input = false, output = false;
-            if (s.offset == TCGETS || s.offset == TCSETS || s.offset == TCSETSW ||
-                s.offset == TCSETSF) {
-                expected = sizeof(struct termios);
-                input    = s.offset != TCGETS;
-                output   = s.offset == TCGETS;
-            }
-            else if (s.offset == TCFLSH) {
-                expected = sizeof(int);
-                input    = true;
-            }
-            else if (s.offset == TIOCGWINSZ || s.offset == TIOCSWINSZ) {
-                expected = sizeof(struct winsize);
-                input    = s.offset == TIOCSWINSZ;
-                output   = s.offset == TIOCGWINSZ;
-            }
-            else if (s.offset == TIOCGPGRP || s.offset == TIOCSPGRP ||
-                     s.offset == TIOCGPTN || s.offset == TIOCSPTLCK ||
-                     s.offset == TIOCGPTLCK) {
-                expected = sizeof(i32);
-                input    = s.offset == TIOCSPGRP || s.offset == TIOCSPTLCK;
-                output   = s.offset == TIOCGPGRP || s.offset == TIOCGPTN ||
-                         s.offset == TIOCGPTLCK;
-            }
-            else if (s.offset == TIOCSCTTY) {
-                expected = 0;
-            }
-            else {
-                return cq_post_guarded(ring, s.user_data, -ENOTTY);
-            }
-            const auto argument = memory::user_ptr<u8>(s.address).validate(expected);
-            if (s.length != expected || !argument)
-                return cq_post_guarded(ring, s.user_data, -EFAULT);
-            mm::shptr<fs::open_file> object = file_for(s.fd);
-            if (!object)
-                return cq_post_guarded(ring, s.user_data, -EBADF);
-            __atomic_thread_fence(__ATOMIC_SEQ_CST);
-            alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
-            if (input && !memory::copy_in(ioctl_storage, argument.value.bytes(expected)))
-                return cq_post_guarded(ring, s.user_data, -EFAULT);
-            void* kernel_arg =
-                expected == 0 ? nullptr : static_cast<void*>(ioctl_storage);
-            long rc = object->ioctl(s.offset, kernel_arg, expected);
-            if (rc >= 0 && s.offset == TIOCSCTTY)
-                rc = proc::acquire_controlling_terminal(object);
-            if (rc >= 0 && output &&
-                !memory::copy_out(argument.value.bytes(expected), ioctl_storage))
-                return cq_post_guarded(ring, s.user_data, -EFAULT);
-            __atomic_thread_fence(__ATOMIC_SEQ_CST);
-            return cq_post_guarded(ring, s.user_data, static_cast<i32>(rc));
-        }
-
-        bool handle_cancel(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            const u64 target       = s.offset;
-            auto      has_capacity = [ring](u32 count) {
-                const astia_cq_ring* cq = astia_rings_cq(ring);
-                const u32            head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
-                const u32            tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
-                return tail - head <= cq->entries - count;
-            };
-            for (u32 i = 0; i < parked_operation_slots; ++i) {
-                parked_op& p = slot.park[i];
-                if (p.used && p.type == parked_op::kind::operation && !p.done &&
-                    p.operation != nullptr &&
-                    p.operation->request().user_data() == target) {
-                    // Cancellation needs two CQ slots.  Do not consume the
-                    // SQE if either completion could be lost.
-                    if (!has_capacity(2))
-                        return false;
-                    if (!cq_post(ring, target, -ECANCELED))
-                        return false;
-                    p.operation->request().cancel_device(false);
-                    p.operation->request().acknowledge();
-                    p.done = true;
-                    return cq_post(ring, s.user_data, 0);
-                }
-                if (p.used && p.type == parked_op::kind::oom_completion && !p.done &&
-                    p.pending_cqe && p.pending_user_data == target) {
-                    if (!has_capacity(2))
-                        return false;
-                    if (!publish_pending(ring, p))
-                        return false;
-                    return cq_post(ring, s.user_data, 0);
-                }
-            }
-            return cq_post_guarded(ring, s.user_data, -ENOENT);
-        }
-
-        bool dispatch_core(ring_slot& slot, astia_rings* ring, const astia_sqe& s) {
-            switch (s.op) {
-            case OP_NOP:
-                return cq_post_guarded(ring, s.user_data, 0);
-
-            case OP_READ:
-            case OP_WRITE:
-            case OP_SEND:
-            case OP_RECV:
-            case OP_READV:
-            case OP_WRITEV: {
-                dispatch_context context{slot, ring, s, proc::current_process()};
-                return dispatch_io(context);
-            }
-
-            case OP_DUP:
-                return handle_dup(ring, s);
-
-            case OP_DUP2:
-                return handle_dup2(ring, s);
-
-            case OP_FCNTL:
-                return handle_fcntl(ring, s);
-
-            case OP_IOCTL:
-                return handle_ioctl(slot, ring, s);
-
-            case OP_EVENTFD_CREATE:
-                return handle_eventfd_create(ring, s);
-
-            case OP_CANCEL:
-                return handle_cancel(slot, ring, s);
-            default:
-                return cq_post_guarded(ring, s.user_data, -ENOSYS);
-            }
-        }
-
     } // namespace detail
 
     mm::shptr<fs::open_file> file_for(proc::process* current, i32 fd) {
@@ -963,12 +630,17 @@ namespace astia::io::aio::dispatch {
                                       control, socket_accept);
     }
 
-    bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& sqe) {
-        return registry::dispatch(slot, ring, sqe);
+    bool submit_io(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe,
+                   ::astia::io::direction direction, bool vectored) {
+        return detail::submit_io(slot, ring, sqe, direction, vectored);
     }
 
-    bool dispatch_core(ring_slot& slot, astia_rings* ring, const astia_sqe& sqe) {
-        return detail::dispatch_core(slot, ring, sqe);
+    bool publish_pending(astia_rings* ring, parked_op& op) {
+        return detail::publish_pending(ring, op);
+    }
+
+    bool dispatch_one(ring_slot& slot, astia_rings* ring, const astia_sqe& sqe) {
+        return registry::dispatch(slot, ring, sqe);
     }
 
     void retry_pending(ring_slot& slot, astia_rings* ring) {

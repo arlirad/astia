@@ -48,10 +48,6 @@ namespace astia::io::aio::dispatch {
         return true;
     }
 
-    mm::shptr<fs::open_file> file_for(i32) {
-        return {};
-    }
-
 } // namespace astia::io::aio::dispatch
 
 namespace astia::io::aio::filesystem {
@@ -65,15 +61,9 @@ namespace astia::io::aio::filesystem {
 
 namespace astia::io::aio::readiness {
 
-    bool dispatch(ring::ring_slot&, astia_rings*, const astia_sqe&,
-                  const mm::shptr<fs::open_file>&) {
+    bool dispatch_registered(ring::ring_slot&, astia_rings*, const astia_sqe&) {
         ++test_support::readiness_dispatches;
         return true;
-    }
-
-    bool dispatch_registered(ring::ring_slot& slot, astia_rings* ring,
-                             const astia_sqe& sqe) {
-        return dispatch(slot, ring, sqe, {});
     }
 
 } // namespace astia::io::aio::readiness

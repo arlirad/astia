@@ -176,12 +176,8 @@ file(GLOB ASTIA_AIO_CORE_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/core/*.cpp)
 file(GLOB ASTIA_AIO_FS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio/*.cpp)
-list(REMOVE_ITEM ASTIA_AIO_FS_HANDLER_TEST_SOURCES
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio/dispatch.cpp)
 file(GLOB ASTIA_AIO_NET_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio/*.cpp)
-list(REMOVE_ITEM ASTIA_AIO_NET_HANDLER_TEST_SOURCES
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio/dispatch.cpp)
 file(GLOB ASTIA_AIO_READINESS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/readiness/aio/*.cpp)
 set(ASTIA_AIO_HANDLER_TEST_SOURCES
@@ -201,6 +197,10 @@ astia_add_host_test(astia_aio_readiness_test
         aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 astia_add_host_test(astia_aio_socket_test
         aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+foreach(_aio_test astia_aio_static_handlers_test astia_aio_filesystem_test
+        astia_aio_readiness_test astia_aio_socket_test)
+    target_compile_definitions(${_aio_test} PRIVATE ASTIA_AIO_HOST_TEST=1)
+endforeach()
 add_test(NAME astia_aio_handler_ownership
         COMMAND ${CMAKE_COMMAND}
         -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}

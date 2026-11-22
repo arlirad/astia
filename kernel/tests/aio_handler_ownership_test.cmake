@@ -23,6 +23,55 @@ foreach (_old_file
     endif ()
 endforeach ()
 
+foreach (_retired_dispatch
+        "${_src}/fs/aio/dispatch.cpp"
+        "${_src}/net/aio/dispatch.cpp"
+        "${_src}/io/readiness/dispatch.cpp")
+    if (EXISTS "${_retired_dispatch}")
+        message(FATAL_ERROR
+                "aggregate handler dispatch must not remain: ${_retired_dispatch}")
+    endif ()
+endforeach ()
+
+set(_enosys_handlers spawn wait)
+
+function(astia_aio_check_handler _file _stem)
+    file(STRINGS "${_file}" _lines)
+    set(_host_guard FALSE)
+    set(_mode normal)
+    set(_production "")
+    foreach (_line IN LISTS _lines)
+        if (_line MATCHES "^[ \t]*#ifdef[ \t]+ASTIA_AIO_HOST_TEST")
+            set(_host_guard TRUE)
+            set(_mode skip_host)
+        elseif (_line MATCHES "^[ \t]*#ifndef[ \t]+ASTIA_AIO_HOST_TEST")
+            set(_mode include_prod)
+        elseif (_mode STREQUAL "skip_host" AND _line MATCHES "^[ \t]*#else")
+            set(_mode include_alt)
+        elseif ((_mode STREQUAL "include_alt" OR _mode STREQUAL "include_prod")
+                AND _line MATCHES "^[ \t]*#endif")
+            set(_mode normal)
+        elseif (_mode STREQUAL "normal" OR _mode STREQUAL "include_alt"
+                OR _mode STREQUAL "include_prod")
+            string(APPEND _production "${_line}\n")
+        endif ()
+    endforeach ()
+
+    if (NOT _host_guard)
+        message(FATAL_ERROR "${_file}: missing explicit ASTIA_AIO_HOST_TEST route seam")
+    endif ()
+    if (_production MATCHES
+            "filesystem::dispatch|socket::dispatch|readiness::dispatch|dispatch::dispatch_core")
+        message(FATAL_ERROR "${_file}: production path is a trivial forwarder")
+    endif ()
+    if (NOT _production MATCHES "return ")
+        message(FATAL_ERROR "${_file}: production path has no implementation body")
+    endif ()
+    if (_stem IN_LIST _enosys_handlers AND NOT _production MATCHES "-ENOSYS")
+        message(FATAL_ERROR "${_file}: intentional ENOSYS handler lost its contract")
+    endif ()
+endfunction()
+
 set(_owners
         "${_aio}/core|15"
         "${_src}/fs/aio|15"
@@ -46,12 +95,20 @@ foreach (_entry IN LISTS _owners)
     set(_total 0)
     foreach (_file IN LISTS _files)
         file(READ "${_file}" _contents)
+        get_filename_component(_stem "${_file}" NAME_WE)
         string(REGEX MATCHALL "_descriptor =" _matches "${_contents}")
         list(LENGTH _matches _count)
         if (NOT _count EQUAL 1)
             message(FATAL_ERROR
                     "${_file}: expected exactly one descriptor, found ${_count}")
         endif ()
+        string(FIND "${_contents}"
+                "extern const operation_descriptor ${_stem}_descriptor" _named)
+        if (_named EQUAL -1)
+            message(FATAL_ERROR
+                    "${_file}: descriptor does not match handler file name ${_stem}")
+        endif ()
+        astia_aio_check_handler("${_file}" "${_stem}")
         math(EXPR _total "${_total} + ${_count}")
     endforeach ()
     if (NOT _total EQUAL _expected)
@@ -86,6 +143,26 @@ foreach (_file IN LISTS _scan)
     endif ()
 endforeach ()
 
+file(READ "${_aio}/dispatch.cpp" _core_dispatch)
+foreach (_shared
+        file_for resolve_at parent_writable submit_socket_request submit_io
+        publish_pending retry_pending resume_parked complete_control poll_now_ns
+        dispatch_one)
+    string(FIND "${_core_dispatch}" "${_shared}" _shared_offset)
+    if (_shared_offset EQUAL -1)
+        message(FATAL_ERROR "shared AIO core helper was removed: ${_shared}")
+    endif ()
+endforeach ()
+
+file(READ "${_aio}/aio.cpp" _aio_runtime)
+foreach (_caller retry_pending resume_parked complete_control dispatch_one poll_now_ns)
+    string(FIND "${_aio_runtime}" "dispatch::${_caller}" _caller_offset)
+    if (_caller_offset EQUAL -1)
+        message(FATAL_ERROR
+                "task-context AIO path no longer exercises shared core: ${_caller}")
+    endif ()
+endforeach ()
+
 file(READ "${_aio}/registry.cpp" _registry)
 if (_registry MATCHES "filesystem|readiness|socket|aio_dispatch")
     message(FATAL_ERROR "generic AIO registry imports concrete owner headers")
@@ -93,4 +170,4 @@ endif ()
 
 list(LENGTH _scan _scan_count)
 message(STATUS
-        "AIO handler ownership: 43 descriptors across 4 owner directories; no registration macros (${_scan_count} files)")
+        "AIO handler ownership: 43 descriptors across 4 owner directories; production bodies are owner-local; shared submission/publication core retained; no registration macros (${_scan_count} files)")
