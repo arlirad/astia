@@ -6,7 +6,17 @@ namespace astia::sys {
 
     namespace {
         constexpr error_t cancellation_error = error_t::eagain;
+
+#if defined(ASTIA_ASYNC_OPERATION_TEST_SUPPORT)
+        async_operation::create_hook create_hook_fn = nullptr;
+#endif
     }
+
+#if defined(ASTIA_ASYNC_OPERATION_TEST_SUPPORT)
+    void async_operation::set_create_hook(create_hook hook) {
+        create_hook_fn = hook;
+    }
+#endif
 
     async_operation*
     async_operation::create(body_factory factory, syscall_id id,
@@ -36,12 +46,15 @@ namespace astia::sys {
             ::operator delete(value);
             return nullptr;
         }
+#if defined(ASTIA_ASYNC_OPERATION_TEST_SUPPORT)
+        if (create_hook_fn != nullptr)
+            create_hook_fn(owner.process, owner.thread);
+#endif
         u8 expected = 0;
         if (!__atomic_compare_exchange_n(&value->create_state_, &expected, 1, false,
                                          __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            value->abort_creation();
             value->leave_call();
-            value->~async_operation();
-            ::operator delete(value);
             return nullptr;
         }
         value->leave_call();
@@ -470,6 +483,16 @@ namespace astia::sys {
         value->completion_.clear_detach_inflight();
         value->maybe_reap();
         value->leave_call();
+    }
+
+    void async_operation::abort_creation() noexcept {
+        u8 expected = 0;
+        (void) __atomic_compare_exchange_n(&destroy_claimed_, &expected, 1, false,
+                                           __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+        __atomic_store_n(&create_ref_, 0, __ATOMIC_RELEASE);
+        (void) terminalize(core::cancel_reason::owner, true);
+        (void) begin_teardown();
+        maybe_reap();
     }
 
     void async_operation::registry_ref_zero_trampoline(void* object) {

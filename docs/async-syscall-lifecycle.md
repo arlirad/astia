@@ -82,9 +82,9 @@ handler code:
   final step, but it cannot be resumed after the frame is destroyed.
 - `destroy_claimed_` is a compare-and-exchange ownership token: owner release
   and owner-exit cancellation cannot both queue or delete the same operation.
-- `teardown_state_` tracks driver teardown independently of `driver_` handle
-  ownership. `destroy()` never frees the operation when teardown was deferred;
-  only `frame_destroyed_trampoline` plus the reaper can do that.
+- `driver_state_` tracks driver start/teardown independently of the `driver_`
+  handle. `destroy()` never frees the operation when teardown was deferred;
+  only the frame/body observers plus the reaper can do that.
 - `active_calls_` is one atomic word holding the call count, a delete-armed bit,
   and a deleting sentinel. `leave_call()` claims the final deletion with the
   same CAS that decrements the last call, so a concurrent reaper can never free
@@ -131,13 +131,20 @@ handler code:
   reaper cannot delete while the zero callback is still running. The callback
   holds an operation active call across `maybe_reap()`. The registry also sets
   an operation zero-inflight guard before the final ref drop; `maybe_reap()`
-  and the reaper refuse deletion while that guard is set, and the zero callback
-  clears it only after unregistering. Reaper deletion rechecks both registry
-  refs and the zero guard, so a cancel hook can never destruct the operation
-  while its own reference or zero callback is live. `retire_operation()` is the
+  and the reaper refuse deletion while that guard is set. The zero callback
+  holds an active call, attempts reaping with the guard still set (which cannot
+  delete), then clears the guard and retries. `retire_operation()` is the
   authoritative deletion gate: it runs under the registry lock, verifies refs
   and zero guard there, and removes the entry before any reaper arm/delete, so
-  no scan can acquire a ref after the deletion decision.
+  no scan can acquire a ref after the deletion decision. Thus the guard is
+  cleared before retirement, and retirement removes the entry under the same
+  lock that scan acquisition would use.
+- Create publication failure is aborted through the same reaper/retire
+  protocol. If owner exit wins between registry registration and
+  `create_state_` publication, `create()` calls `abort_creation()` instead of
+  directly deleting: it claims destruction, releases the creator reference,
+  terminalizes, tears down the driver/body at quiescence, and lets the
+  registry/reaper protocol own final deletion.
 - The handler body frame has its own destroy observer and operation gate.
   Reaping requires both the driver frame and the body frame to be confirmed
   destroyed. A deferred body resume therefore keeps `async_operation` and its

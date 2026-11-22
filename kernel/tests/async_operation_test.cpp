@@ -56,6 +56,15 @@ namespace {
         co_return astia::error_t::eio;
     }
 
+    astia::u64 create_exit_process = 0;
+
+    void create_owner_exit_hook(astia::u64 process, astia::u64 thread) {
+        (void) thread;
+        if (process == create_exit_process)
+            astia::core::cancel_operations_for_process(process,
+                                                       astia::core::cancel_reason::owner);
+    }
+
     std::atomic<bool> body_resume_entered{false};
     std::atomic<bool> body_resume_release{false};
 
@@ -408,6 +417,28 @@ ASTIA_TEST(async_operation_destroy_vs_cancel_with_reaper_pressure_is_safe) {
     astia::core::reap_operations();
     ASTIA_CHECK(destroyed ==
                 static_cast<int>(astia::resource_limits::queue::operation_reaper));
+}
+
+ASTIA_TEST(async_operation_create_owner_exit_before_publication_is_safe) {
+    astia::core::initialize_resume_queues();
+    astia::core::reap_operations();
+    astia::arch::syscall_frame          frame{};
+    astia::i64                          arguments[astia::sys::syscall_argument_count]{};
+    astia::core::completion<astia::i64> source;
+    source_completion   = &source;
+    create_exit_process = 0xF000;
+    astia::sys::async_operation::set_create_hook(&create_owner_exit_hook);
+
+    auto* operation =
+        make_operation(parked_body, static_cast<astia::sys::syscall_id>(155), arguments,
+                       frame, {}, {}, {create_exit_process, 0xF001});
+    astia::sys::async_operation::set_create_hook(nullptr);
+
+    ASTIA_CHECK(operation == nullptr);
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 1);
+    astia::core::reap_operations();
+    ASTIA_CHECK(astia::core::operation_registry_count() == 0);
+    ASTIA_CHECK(astia::core::operation_reaper_pending() == 0);
 }
 
 ASTIA_TEST(async_operation_body_frame_gates_destroy_reap) {

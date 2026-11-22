@@ -177,6 +177,8 @@ astia_add_host_test(astia_async_operation_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/async_operation.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         support/resume_queue_host.cpp)
+target_compile_definitions(astia_async_operation_test PRIVATE
+        ASTIA_ASYNC_OPERATION_TEST_SUPPORT=1)
 astia_add_host_test(astia_console_test
         console_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)

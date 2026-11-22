@@ -37,6 +37,11 @@ namespace astia::sys {
         public:
         using body_factory = core::task<i64> (*)(syscall_context&);
 
+#if defined(ASTIA_ASYNC_OPERATION_TEST_SUPPORT)
+        using create_hook = void (*)(u64 process, u64 thread);
+        static void set_create_hook(create_hook hook);
+#endif
+
         static async_operation* create(body_factory factory, syscall_id id,
                                        const i64 (&arguments)[syscall_argument_count],
                                        const arch::syscall_frame& frame,
@@ -115,6 +120,7 @@ namespace astia::sys {
         teardown_result begin_teardown() noexcept;
         teardown_result finish_teardown() noexcept;
         void            maybe_reap() noexcept;
+        void            abort_creation() noexcept;
         void            finish(optional<i64> result) noexcept;
         void            deliver(const optional<i64>& result) noexcept;
         bool terminalize(core::cancel_reason reason, bool deliver_result) noexcept;
