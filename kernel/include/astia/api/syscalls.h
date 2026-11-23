@@ -18,8 +18,12 @@
  * anywhere in the ABI.
  *
  * Return convention: >= 0 on success, or a negative value from
- * <astia/api/errno.h>.  Syscall numbers are the same on every
- * architecture; the table is append-only.
+ * <astia/api/errno.h>.  Public syscall numbers are architecture-independent.
+ * This tree is a deliberate, repository-only breaking migration: the table is
+ * contiguous 0..70 and uname moved from 82 to 70.  There is no legacy 82
+ * alias; new public calls append from 71.  The API_VERSION constant below
+ * versions the AIO ring layout, not the syscall table, and is unchanged by
+ * this migration.
  *
  * Naming: constants are unprefixed — the astia/api/ include path is the
  * namespace — while types and functions keep the astia_ prefix because
@@ -62,11 +66,11 @@
 extern "C" {
 #endif
 
-/* version of the whole astia userspace ABI */
+/* version of the AIO ring layout; not the syscall number table */
 enum { API_VERSION = 1 };
 
 /* ------------------------------------------------------------------ */
-/* syscall numbers — architecture-independent, append-only.            */
+/* syscall numbers — architecture-independent, contiguous 0..70.      */
 /* ------------------------------------------------------------------ */
 
 enum {
@@ -142,8 +146,7 @@ enum {
     SYS_SHM_OPEN              = 67,
     SYS_SHM_UNLINK            = 68,
     SYS_FCHDIR                = 69,
-    /* 70-81 are reserved for the private socket prototype descriptors. */
-    SYS_UNAME = 82,
+    SYS_UNAME                 = 70,
 };
 
 /* ------------------------------------------------------------------ */

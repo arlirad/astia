@@ -52,16 +52,21 @@ handlers that need the trap itself (`fork`, `execve`, and `sigreturn`) lead with
 parameter is not an ABI argument and consumes no register. The syscall number
 and arguments are never stored in the return image.
 
-`kernel/src/sys/handler_registry.hpp` aggregates all 71 public descriptors
-and 12 private socket descriptors. Public IDs are 0–69 plus the system
-identity descriptor 82; the private socket prototypes keep 70–81 without
-entering the public ABI. The registry stores `constexpr` pointers to
-the per-subsystem descriptor objects rather than value copies, so the table is
-statically initialized in the freestanding kernel, which runs no dynamic
-initializers. Handlers call their owning implementation directly; syscall
-dispatch does not use subsystem registration tables. Tests audit complete ID
-coverage and exercise the sync/async adapters, completion semantics, and
-unknown-ID handling.
+`kernel/src/sys/handler_registry.hpp` aggregates all 71 public descriptors.
+Public IDs are contiguous 0–70; the system identity call `uname` is ID 70 and
+71 is the next available append-only public ID. This is a deliberate breaking,
+repository-only ABI migration: the former identity ID 82, the private socket
+syscall stubs, and their 70–81 registrations were removed. There is no legacy 82
+alias and no dual ABI. `API_VERSION` is unchanged: it versions the AIO ring
+layout, not the syscall table. Rebuild userspace, initrds, and generated syscall
+assets against this tree; stale objects produced before the migration are
+invalid. The registry stores `constexpr` pointers to the per-subsystem
+descriptor objects rather than value copies, so the table is statically
+initialized in the freestanding kernel, which runs no dynamic initializers.
+Handlers call their owning implementation
+directly; syscall dispatch does not use subsystem registration tables. Tests
+audit complete ID coverage and exercise the sync/async adapters, completion
+semantics, and unknown-ID handling.
 
 Synchronous syscall logic lives in its canonical handler source. Reused
 subsystem operations are called directly, and syscall-only wrappers have been
@@ -71,14 +76,14 @@ pointers where required or delegate to the existing `sys::io_*` boundary;
 `io_register` returns `-ENOSYS`. No AIO behavior, registry, lifecycle, or
 implementation was changed.
 
-Socket operation handlers live under `kernel/src/net/syscalls/`, with private
-prototype-only descriptors 70–81. They model socket AIO opcodes; they do not
-add public syscall numbers or change the public ABI. Socket semantics belong
-to `net`; `fs` owns AIO ring submission and delegates I/O execution through
-the existing `io` boundary. There is intentionally no synchronous `read` or
-public `write` syscall. A future compatibility read entry point must validate
-user arguments and translate them into an `io` request through an owner-facing
-API; `sys` must not inspect or construct AIO ring internals.
+Socket operation handlers are not public syscalls. Socket semantics belong to
+`net`, and the socket AIO opcode family keeps its existing ownership and
+numbering under `kernel/src/net/aio/`; the libc socket backend is unchanged.
+`fs` owns AIO ring submission and delegates I/O execution through the existing
+`io` boundary. There is intentionally no synchronous `read` or public `write`
+syscall. A future compatibility read entry point must validate user arguments
+and translate them into an `io` request through an owner-facing API; `sys` must
+not inspect or construct AIO ring internals.
 
 The syscall entry remains the C ABI boundary: `syscall.S` calls
 `astia_syscall_dispatch` with the call number, the six argument registers, and a

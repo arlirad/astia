@@ -27,8 +27,6 @@ namespace astia::sys {
     bool production_dispatch(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
                              u64 a5, arch::syscall_return& image, i64& result) {
         return dispatch_from(production::descriptors, id, a0, a1, a2, a3, a4, a5, image,
-                             result) ||
-               dispatch_from(identity::descriptors, id, a0, a1, a2, a3, a4, a5, image,
                              result);
     }
 } // namespace astia::sys

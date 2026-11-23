@@ -274,6 +274,10 @@ namespace astia::test {
         }
 
         bool uname_checks() {
+            static_assert(static_cast<u32>(sys::syscall_id::fchdir) == 69);
+            static_assert(static_cast<u32>(sys::syscall_id::uname) == 70);
+            static_assert(SYS_FCHDIR == 69);
+            static_assert(SYS_UNAME == 70);
             auto call = [](u64 output) -> long {
                 arch::syscall_return image{};
                 return static_cast<long>(sys::dispatch(sys::syscall_id::uname,
@@ -318,6 +322,12 @@ namespace astia::test {
             }
             if (call(0) != -EFAULT) {
                 logs::error("uname fail (null)");
+                return false;
+            }
+            arch::syscall_return unassigned{};
+            if (sys::dispatch(static_cast<sys::syscall_id>(71), 0, 0, 0, 0, 0, 0,
+                              unassigned) != -ENOSYS) {
+                logs::error("syscall id 71 is not unassigned");
                 return false;
             }
             logs::info("uname ok");

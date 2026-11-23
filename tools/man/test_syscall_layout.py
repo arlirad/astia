@@ -53,9 +53,9 @@ def check_production_layout(repository: Path) -> None:
         assert "sys::syscall_context" not in handler
         assert "syscall_mode::sync" in handler
         assert "co_return sys::invoke_sync" not in handler
-    assert len(handler_files) == 83
-    assert sorted(seen_ids) == list(range(83))
-    assert sum(path.parts[path.parts.index("src") + 1] == "net" for path in handler_files) == 12
+    assert len(handler_files) == 71
+    assert sorted(seen_ids) == list(range(71))
+    assert not (source / "net" / "syscalls").exists()
     assert all("syscalls" in path.parts for path in handler_files)
     assert not any("aio" in path.parts or "operation" in path.name for path in handler_files)
     assert not any("syscall_handler<" in path.read_text() for path in source.glob("*/syscalls/**/*.hpp"))
@@ -92,6 +92,54 @@ def check_production_layout(repository: Path) -> None:
         assert "legacy_dispatch" not in path.read_text()
 
 
+def check_public_abi(repository: Path) -> None:
+    abi_path = repository / "kernel" / "include" / "astia" / "api" / "syscalls.h"
+    abi = abi_path.read_text()
+    entries = {
+        name: int(number)
+        for name, number in re.findall(r"\bSYS_([A-Z0-9_]+)\s*=\s*(\d+)\s*,", abi)
+    }
+    assert len(entries) == 71
+    assert sorted(entries.values()) == list(range(71))
+    assert entries["FCHDIR"] == 69
+    assert entries["UNAME"] == 70
+    assert not {
+        "SOCKET", "SOCKETPAIR", "BIND", "CONNECT", "LISTEN", "ACCEPT", "SEND",
+        "RECV", "SENDTO", "RECVFROM", "SHUTDOWN", "GETSOCKOPT", "READ", "WRITE",
+    } & entries.keys()
+
+
+def check_no_stale_syscall_82(repository: Path) -> None:
+    stale = re.compile(
+        r"(?:SYS_UNAME\s*=\s*82|syscall_id::uname\s*=\s*82|"
+        r"uname\s*=\s*82\b|syscall-82-|syscallId:\s*82\b|"
+        r"descriptor_ids\s*=\s*\{82\}|range\(70,\s*82\))"
+    )
+    allowlist = {repository / "tools" / "man" / "test_syscall_layout.py"}
+    roots = [
+        repository / "kernel",
+        repository / "libc",
+        repository / "tools",
+        repository / "frontend" / "scripts",
+        repository / "frontend" / "src" / "app" / "docs" / "docs.generated.ts",
+    ]
+    scanned = 0
+    for root in roots:
+        paths = [root] if root.is_file() else root.rglob("*")
+        for path in paths:
+            if path in allowlist or not path.is_file():
+                continue
+            if path.suffix not in {".c", ".cpp", ".h", ".hpp", ".py", ".mjs", ".ts", ".md"}:
+                continue
+            scanned += 1
+            for number, line in enumerate(path.read_text(errors="ignore").splitlines(), 1):
+                if stale.search(line):
+                    raise AssertionError(
+                        f"stale syscall 82 reference at {path.relative_to(repository)}:{number}"
+                    )
+    assert scanned > 0
+
+
 def check_syscall_man_blocks(repository: Path) -> None:
     source = repository / "kernel" / "src" / "proc" / "syscalls"
     expected = {
@@ -115,45 +163,23 @@ def check_syscall_man_blocks(repository: Path) -> None:
     assert not any(block.search(path.read_text()) for path in source.rglob("*.hpp"))
 
 
-def check_net_socket_manifest(repository: Path) -> None:
-    source = repository / "kernel" / "src" / "net" / "syscalls"
-    expected = {
-        "accept", "bind", "connect", "getsockopt", "listen", "recv", "recvfrom",
-        "send", "sendto", "shutdown", "socket", "socketpair",
-    }
-    handlers = {}
-    for path in source.glob("*.cpp"):
-        text = path.read_text()
-        match = re.search(
-            r"struct ([a-z_0-9]+)\s*:\s*sys::syscall_handler<.*?"
-            r"static_cast<sys::syscall_id>\((\d+)\)",
-            text,
-            re.S,
-        )
-        if match:
-            name, number = match.groups()
-            handlers[name] = int(number)
-            assert path.stem == name
-    assert set(handlers) == expected
-    assert sorted(handlers.values()) == list(range(70, 82))
-
-
 def main() -> int:
     repository = Path(__file__).resolve().parents[2]
     generator = repository / "tools/man/generate.py"
-    if sys.argv[1:] == ["--net-only"]:
-        check_net_socket_manifest(repository)
+    if sys.argv[1:] == ["--abi-only"]:
+        check_public_abi(repository)
+        check_no_stale_syscall_82(repository)
         return 0
     check_production_layout(repository)
+    check_public_abi(repository)
     check_syscall_man_blocks(repository)
-    check_net_socket_manifest(repository)
+    check_no_stale_syscall_82(repository)
     with tempfile.TemporaryDirectory(dir=repository) as directory:
         root = Path(directory)
         source = root / "kernel" / "src"
         docs = root / "docs"
         output = root / "man"
         (source / "proc" / "syscalls").mkdir(parents=True)
-        (source / "net" / "syscalls").mkdir(parents=True)
         docs.mkdir()
         (source / "proc" / "syscalls" / "wait_example.cpp").write_text(
             "/// wait_example - Wait for a child.\\n"
@@ -162,14 +188,6 @@ def main() -> int:
             "///     long wait_example(void);\\n"
             "struct wait_example : sys::syscall_handler<wait_example,\\n"
             "    sys::syscall_id::waitpid, sys::syscall_mode::sync> {};\\n"
-        )
-        (source / "net" / "syscalls" / "socket_example.cpp").write_text(
-            "/// socket_example - Open a socket.\\n"
-            "///\\n"
-            "/// Synopsis:\\n"
-            "///     long socket_example(void);\\n"
-            "struct socket_example : sys::syscall_handler<socket_example,\\n"
-            "    static_cast<sys::syscall_id>(70), sys::syscall_mode::async> {};\\n"
         )
         subprocess.run(
             [
@@ -188,10 +206,7 @@ def main() -> int:
         )
         index = (output / "index.html").read_text()
         assert "wait_example.2.html" in index
-        assert "socket_example.2.html" in index
-        assert index.index("<h3>net</h3>") < index.index("<h3>proc</h3>")
         assert "wait_example(2)" in (output / "wait_example.2.html").read_text()
-        assert "socket_example(2)" in (output / "socket_example.2.html").read_text()
         assert "long wait_example(void);" in (output / "wait_example.2.html").read_text()
         production_output = root / "production-man"
         subprocess.run(
@@ -210,7 +225,8 @@ def main() -> int:
             "getpgid", "getpgrp", "getpid", "getppid", "gettid", "kill", "mmap",
             "munmap", "setpgid", "setsid", "sigaction", "sigprocmask", "sigreturn",
             "sigsuspend", "spawnve", "thread_create", "thread_create2",
-            "thread_detach", "thread_exit", "thread_join", "waitpid", "yield",
+            "thread_detach", "thread_exit", "thread_join", "uname", "waitpid",
+            "yield",
         }:
             assert (production_output / f"{name}.2.html").exists(), name
         assert "FUTEX_WAIT blocks while the word equals value." in (
