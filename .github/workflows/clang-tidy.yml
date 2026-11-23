@@ -117,6 +117,57 @@ jobs:
           cmake --build build-clang-tidy --parallel 2 \
             2>&1 | tee build-clang-tidy/build.log
 
+      - name: Configure and merge AArch64 cross compilation database
+        run: |
+          set -euo pipefail
+          rm -rf build-clang-tidy-aarch64
+          mkdir -p build-clang-tidy-aarch64
+          cmake -S kernel -B build-clang-tidy-aarch64 -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/kernel/cmake/toolchain-aarch64-virt.cmake \
+            -DARCH=aarch64 \
+            -DPLATFORM=virt \
+            -DBOOT=virt \
+            -DASTIA_BUILD_TESTS=OFF \
+            -DASTIA_AARCH64_VIRT_C_COMPILER=/usr/lib/llvm-${LLVM_VERSION}/bin/clang \
+            -DASTIA_AARCH64_VIRT_CXX_COMPILER=/usr/lib/llvm-${LLVM_VERSION}/bin/clang++ \
+            "-DCMAKE_C_FLAGS=--target=aarch64-linux-gnu" \
+            "-DCMAKE_CXX_FLAGS=--target=aarch64-linux-gnu" \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            2>&1 | tee build-clang-tidy-aarch64/configure.log
+          python3 - build-clang-tidy/compile_commands.json build-clang-tidy-aarch64/compile_commands.json <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          host_path, arch_path = map(pathlib.Path, sys.argv[1:3])
+          host = json.loads(host_path.read_text(encoding="utf-8"))
+          arch = json.loads(arch_path.read_text(encoding="utf-8"))
+          seen = set()
+          for entry in host:
+              directory = pathlib.Path(entry.get("directory", ".")).resolve()
+              file = pathlib.Path(entry["file"])
+              if not file.is_absolute():
+                  file = directory / file
+              seen.add(str(file.resolve()))
+          added = 0
+          for entry in arch:
+              directory = pathlib.Path(entry["directory"]).resolve()
+              file = pathlib.Path(entry["file"])
+              if not file.is_absolute():
+                  file = directory / file
+              file = str(file.resolve())
+              if file in seen:
+                  continue
+              normalized = dict(entry)
+              normalized["directory"] = str(directory)
+              normalized["file"] = file
+              host.append(normalized)
+              seen.add(file)
+              added += 1
+          host_path.write_text(json.dumps(host), encoding="utf-8")
+          print(f"merged {added} AArch64 compile database entrie(s)")
+          PY
+
       - name: Analyze changed source lines
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before || github.sha }}
@@ -143,3 +194,4 @@ jobs:
             build-clang-tidy/configure.log
             build-clang-tidy/build.log
             build-clang-tidy/clang-tidy.log
+            build-clang-tidy-aarch64/configure.log

@@ -41,22 +41,75 @@ if (NOT "${x86_build_output}\n${x86_build_error}" MATCHES "-T[ \t]+.*virt-x86_64
             "${x86_build_output}\n${x86_build_error}")
 endif ()
 
+set(aarch64_toolchain
+        "${ASTIA_KERNEL_SOURCE_DIR}/cmake/toolchain-aarch64-virt.cmake")
+if (NOT EXISTS "${aarch64_toolchain}")
+    message(FATAL_ERROR "AArch64 toolchain file is missing: ${aarch64_toolchain}")
+endif ()
+
 execute_process(
         COMMAND "${CMAKE_COMMAND}" -S "${ASTIA_KERNEL_SOURCE_DIR}"
         -B "${test_root}/aarch64"
+        -DCMAKE_TOOLCHAIN_FILE=${aarch64_toolchain}
         -DARCH=aarch64 -DPLATFORM=virt -DBOOT=virt
-        -DASTIA_EXPERIMENTAL_AARCH64=ON
         -DASTIA_BUILD_TESTS=OFF
         RESULT_VARIABLE aarch64_result
         OUTPUT_VARIABLE aarch64_output
         ERROR_VARIABLE aarch64_error)
-if (aarch64_result EQUAL 0)
-    message(FATAL_ERROR "AArch64 target configuration unexpectedly succeeded")
-endif ()
-if (NOT "${aarch64_output}\n${aarch64_error}" MATCHES "Unsupported AArch64 kernel target")
+if (aarch64_result)
     message(FATAL_ERROR
-            "AArch64 target configuration failed without the supported diagnostic:\n"
+            "aarch64/virt/virt target configuration failed:\n"
             "${aarch64_output}\n${aarch64_error}")
+endif ()
+
+file(READ "${test_root}/aarch64/CMakeCache.txt" aarch64_cache)
+set(expected_aarch64_linker
+        "${ASTIA_KERNEL_SOURCE_DIR}/cmake/linker/virt-aarch64.ld")
+string(FIND "${aarch64_cache}"
+        "ASTIA_LINKER_SCRIPT:INTERNAL=${expected_aarch64_linker}"
+        aarch64_linker_position)
+if (aarch64_linker_position EQUAL -1)
+    message(FATAL_ERROR
+            "aarch64/virt/virt configuration did not select its linker script:\n"
+            "${aarch64_cache}")
+endif ()
+
+execute_process(
+        COMMAND "${CMAKE_COMMAND}" --build "${test_root}/aarch64"
+        --target astiakrn --verbose
+        RESULT_VARIABLE aarch64_build_result
+        OUTPUT_VARIABLE aarch64_build_output
+        ERROR_VARIABLE aarch64_build_error)
+if (aarch64_build_result)
+    message(FATAL_ERROR
+            "aarch64/virt/virt kernel build failed:\n"
+            "${aarch64_build_output}\n${aarch64_build_error}")
+endif ()
+if (NOT "${aarch64_build_output}\n${aarch64_build_error}" MATCHES
+        "-T[ \t]*.*virt-aarch64\\.ld")
+    message(FATAL_ERROR
+            "aarch64 kernel build did not use the target-derived linker script:\n"
+            "${aarch64_build_output}\n${aarch64_build_error}")
+endif ()
+
+execute_process(
+        COMMAND "${CMAKE_COMMAND}" -S "${ASTIA_KERNEL_SOURCE_DIR}"
+        -B "${test_root}/aarch64-unsupported-platform"
+        -DCMAKE_TOOLCHAIN_FILE=${aarch64_toolchain}
+        -DARCH=aarch64 -DPLATFORM=pc -DBOOT=virt
+        -DASTIA_BUILD_TESTS=OFF
+        RESULT_VARIABLE aarch64_unsupported_result
+        OUTPUT_VARIABLE aarch64_unsupported_output
+        ERROR_VARIABLE aarch64_unsupported_error)
+if (aarch64_unsupported_result EQUAL 0)
+    message(FATAL_ERROR
+            "unsupported aarch64/pc/virt target configuration unexpectedly succeeded")
+endif ()
+if (NOT "${aarch64_unsupported_output}\n${aarch64_unsupported_error}" MATCHES
+        "Unsupported AArch64 kernel target")
+    message(FATAL_ERROR
+            "unsupported AArch64 target failed without the expected diagnostic:\n"
+            "${aarch64_unsupported_output}\n${aarch64_unsupported_error}")
 endif ()
 
 execute_process(
