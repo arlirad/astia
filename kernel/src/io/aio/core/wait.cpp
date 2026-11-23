@@ -1,12 +1,12 @@
-#include "../dispatch.hpp"
-#include "../handler.hpp"
+#include "common.hpp"
 
 namespace astia::io::aio::operations {
 
     struct wait : handler<wait, opcode::wait> {
-        static bool invoke(ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
-            return ::astia::io::aio::dispatch::dispatch_core(slot, ring, sqe);
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             [[maybe_unused]] astia_sqe sqe) noexcept {
+            co_return -ENOSYS;
         }
     };
 

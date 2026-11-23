@@ -1,12 +1,68 @@
-#include "../dispatch.hpp"
-#include "../handler.hpp"
+#include "common.hpp"
 
 namespace astia::io::aio::operations {
 
     struct fcntl : handler<fcntl, opcode::fcntl> {
-        static bool invoke(ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
-            return ::astia::io::aio::dispatch::dispatch_core(slot, ring, sqe);
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             astia_sqe sqe) noexcept {
+            proc::process* current = proc::current_process();
+            auto           mapped  = mapper<fd_t>::from(sqe.fd);
+            if (current == nullptr || !mapped.has_value ||
+                !current->descriptor(mapped.value))
+                co_return -EBADF;
+            const u32 argument = sqe.aux;
+            switch (sqe.op_flags) {
+            case ASTIA_F_DUPFD:
+            case ASTIA_F_DUPFD_CLOEXEC: {
+                if (static_cast<i32>(argument) < 0)
+                    co_return -EINVAL;
+                const u32 flags =
+                    sqe.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
+                const auto result = current->duplicate_descriptor(
+                    mapped.value, fd_t{static_cast<i32>(argument)}, flags);
+                co_return result ? result.value.value : -EMFILE;
+            }
+            case ASTIA_F_GETFD:
+                co_return static_cast<i32>(current->descriptor_flags(mapped.value));
+            case ASTIA_F_SETFD:
+                if ((argument & ~ASTIA_FD_CLOEXEC) != 0)
+                    co_return -EINVAL;
+                if (!current->set_descriptor_flags(mapped.value, argument))
+                    co_return -EBADF;
+                co_return 0;
+            case ASTIA_F_GETFL: {
+                const u32 flags = current->descriptor(mapped.value)->flags();
+                u32       result;
+                if ((flags & fs::pipe_write_endpoint_flag) != 0)
+                    result = ASTIA_AIO_O_WRONLY;
+                else if ((flags & fs::pipe_read_endpoint_flag) != 0)
+                    result = ASTIA_AIO_O_RDONLY;
+                else
+                    result = (flags & ASTIA_AIO_O_ACCMODE) == ASTIA_AIO_O_RDWR
+                                 ? ASTIA_AIO_O_RDWR
+                                 : ((flags & ASTIA_AIO_O_WRONLY) ? ASTIA_AIO_O_WRONLY
+                                                                 : ASTIA_AIO_O_RDONLY);
+                if (flags & static_cast<u32>(fs::open_file_status_flags::append))
+                    result |= ASTIA_O_APPEND;
+                if (flags & static_cast<u32>(fs::open_file_status_flags::nonblock))
+                    result |= ASTIA_O_NONBLOCK;
+                co_return static_cast<i32>(result);
+            }
+            case ASTIA_F_SETFL: {
+                auto object = current->descriptor(mapped.value);
+                object->set_status_flags(
+                    (argument & ASTIA_O_APPEND
+                         ? static_cast<u32>(fs::open_file_status_flags::append)
+                         : 0u) |
+                    (argument & ASTIA_O_NONBLOCK
+                         ? static_cast<u32>(fs::open_file_status_flags::nonblock)
+                         : 0u));
+                co_return 0;
+            }
+            default:
+                co_return -EINVAL;
+            }
         }
     };
 

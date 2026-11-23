@@ -29,7 +29,10 @@ int main() {
     assert(initial_token.reason() == astia::core::cancel_reason::none);
     assert(!fresh_token.cancellation_requested());
 
-    astia::io::request pre_canceled(nullptr, 0, 0, 0, astia::io::direction::input);
+    astia::core::clsource pre_canceled_source;
+
+    astia::io::request pre_canceled(pre_canceled_source, nullptr, 0, 0, 0,
+                                    astia::io::direction::input);
     const auto         request_token = pre_canceled.cancellation_token();
     assert(request_token.valid());
     assert(pre_canceled.cancel_device(false, astia::core::cancel_reason::owner));
@@ -47,7 +50,10 @@ int main() {
     assert(!generations.current(first));
     assert(!generations.current(0));
 
-    astia::io::request request(nullptr, 0, 0, 0, astia::io::direction::input);
+    astia::core::clsource request_source;
+
+    astia::io::request request(request_source, nullptr, 0, 0, 0,
+                               astia::io::direction::input);
     request.poll_interval_ns(1000);
     assert(request.poll_interval_set());
     assert(request.poll_interval_ns() == 1000);
