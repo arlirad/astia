@@ -42,7 +42,7 @@ namespace astia::core {
         }
 
         snapshot* clone_without(const snapshot* old, const Key& key) const {
-            auto* next = new snapshot{};
+            auto* next = new snapshot();
             if (!next)
                 return {};
             for (usize bucket = 0; bucket < bucket_count; ++bucket) {
