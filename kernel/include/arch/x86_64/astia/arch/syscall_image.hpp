@@ -4,7 +4,7 @@
 
 namespace astia::arch {
 
-    struct user_context;
+    class user_context;
 
     /// Selects what the exit path does with the return image.  These are
     /// return paths, not error codes: the ordinary result travels separately

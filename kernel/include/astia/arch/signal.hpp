@@ -6,7 +6,7 @@
 
 namespace astia::arch {
 
-    struct syscall_return;
+    class syscall_return;
     struct interrupt_frame;
 
     /// Upper bound on a port's saved signal-context ABI.  Generic code keeps

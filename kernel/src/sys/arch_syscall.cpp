@@ -1,8 +1,8 @@
-#include "syscall.hpp"
-
 #include <astia/api/errno.h>
 #include <astia/arch/context.hpp>
 #include <astia/mapping.hpp>
+
+#include "syscall.hpp"
 
 using namespace astia;
 
