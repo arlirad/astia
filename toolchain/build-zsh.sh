@@ -113,6 +113,13 @@ if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     printf '%s\n' "$config_key" >"$build/.astia-config-key"
 fi
 
+# zsh links the libc archive statically and make does not track it as a
+# prerequisite, so an ABI update would otherwise leave the stale binary.
+libc_archive="$build/astia/libc/libastia_libc.a"
+if [ -e "$libc_archive" ] && [ -e "$build/Src/zsh" ] &&
+    [ "$libc_archive" -nt "$build/Src/zsh" ]; then
+    rm -f "$build/Src/zsh" "$build/output/zsh"
+fi
 make -C "$build" -j "$jobs"
 mkdir -p "$build/output"
 if [ ! -e "$build/output/zsh" ] || ! cmp -s "$build/Src/zsh" "$build/output/zsh"; then

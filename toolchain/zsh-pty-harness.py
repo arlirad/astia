@@ -15,6 +15,7 @@ EXPECTED_STATUS = 1
 TIMEOUT = 60.0
 KERNEL_PROC_LINE = re.compile(rb"^\[\s*[0-9]+\.[0-9]+[^\r\n]*\]\s+proc:")
 TTY_ERROR_MARKERS = (b"bad tcgets", b"unknown error")
+ANSI_CSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
 class HarnessError(RuntimeError):
@@ -100,6 +101,7 @@ def shell_output(response, command):
     output = bytearray()
     for line in lines:
         content = line[:-1] if line.endswith(b"\n") else line
+        content = ANSI_CSI.sub(b"", content)
         if KERNEL_PROC_LINE.match(content):
             continue
         if content == command.encode() or content == b"":
