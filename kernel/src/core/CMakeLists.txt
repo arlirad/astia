@@ -4,10 +4,6 @@ set(_astia_core_sources
         rcu_runtime.cpp
 )
 
-if (ASTIA_BUILD_EXPERIMENTAL_FIBER)
-    list(APPEND _astia_core_sources fiber.cpp)
-endif ()
-
 add_library(core STATIC ${_astia_core_sources})
 
 target_include_directories(core PUBLIC

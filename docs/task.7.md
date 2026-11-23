@@ -1,9 +1,8 @@
-# Kernel coroutine tasks and fibers
+# Kernel coroutine tasks
 
 ## NAME
 
-`core::task<T>`, `core::task<void>` - movable, stackless coroutine operations;
-`core::fiber` - experimental stackful kernel execution context.
+`core::task<T>`, `core::task<void>` - movable, stackless coroutine operations.
 
 ## SYNOPSIS
 
@@ -15,10 +14,6 @@ bool task.resume();
 bool task.done() const;
 bool task.valid() const;
 error_t task.error() const;
-
-bool fiber.start();
-bool fiber.resume();
-static bool fiber::yield();
 ```
 
 ## DESCRIPTION
@@ -51,26 +46,13 @@ Destroying or resetting a task destroys its coroutine frame. Destroying a
 owner and clears the source. Referenced files, buffers, and other objects must
 remain valid for the whole operation unless the frame stores an owning handle.
 
-`core::fiber` is stackful. It is not compiled into the production kernel by
-default. Enable `-DASTIA_BUILD_EXPERIMENTAL_FIBER=ON` to compile it into the
-core library for architecture bring-up and focused experiments. Starting one
-allocates a 16 KiB kernel stack and two architecture contexts. Its entry
-function may call ordinary code and suspend that call stack with
-`fiber::yield()`. The fiber remains owned by the CPU on which it starts.
-
 ## ERRORS
 
 An oversized `task<void>` frame or an exhausted frame pool produces an invalid
 task carrying `error_t::enomem`. Check `valid()`, `done()`, or `error()` before
 resuming it; awaiting an allocation-failed task yields `error_t::enomem`.
 
-`fiber::start()`, `fiber::resume()`, and `fiber::yield()` return false for an
-invalid or completed operation, an invalid entry point, allocation or context
-failure, CPU migration, or a nested active fiber.
-
 ## NOTES
 
-Use a task when suspension points fit a coroutine frame. Use the experimental
-fiber only when preserving a conventional call stack is the requirement;
-`core::fiber` is not integrated with `proc::thread` scheduling. Neither
-primitive provides scheduling, cancellation, or cross-CPU migration by itself.
+Use a task when suspension points fit a coroutine frame. A task provides no
+scheduling, cancellation, or cross-CPU migration by itself.
