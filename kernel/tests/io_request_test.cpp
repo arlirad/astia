@@ -80,6 +80,52 @@ int main() {
     assert(local_token.valid());
     assert(child.token().valid());
 
+    // Cancellation walks the whole chain; the nearest cancelled ancestor wins.
+    astia::core::clsource grandparent;
+    astia::core::clsource parent{grandparent};
+    astia::core::clsource leaf{parent};
+    const auto            leaf_token = leaf.token();
+    assert(leaf_token.source() == &leaf);
+    assert(parent.cancel(astia::core::cancel_reason::timeout));
+    assert(leaf_token.cancellation_requested());
+    assert(leaf_token.reason() == astia::core::cancel_reason::timeout);
+    assert(grandparent.cancel(astia::core::cancel_reason::shutdown));
+    assert(leaf_token.reason() == astia::core::cancel_reason::timeout);
+
+    // Resetting a middle ancestor stales its subtree but not its siblings.
+    astia::core::clsource grandroot;
+    astia::core::clsource middle{grandroot};
+    astia::core::clsource middle_leaf{middle};
+    astia::core::clsource cousin{grandroot};
+    const auto            grandroot_token   = grandroot.token();
+    const auto            middle_leaf_token = middle_leaf.token();
+    const auto            cousin_token      = cousin.token();
+    middle.reset();
+    assert(middle_leaf_token.stale());
+    assert(!grandroot_token.stale());
+    assert(!cousin_token.stale());
+    assert(!middle.token().stale());
+    assert(middle_leaf.token().stale());
+    // Only a child created in the new epoch is fresh again.
+    astia::core::clsource middle_new{middle};
+    assert(!middle_new.token().stale());
+    assert(grandroot.cancel(astia::core::cancel_reason::shutdown));
+    assert(cousin_token.cancellation_requested());
+    assert(!middle_leaf_token.cancellation_requested());
+    assert(!middle_leaf.token().cancellation_requested());
+    assert(middle_new.token().cancellation_requested());
+
+    // Reset followed by a new cancellation is a fresh epoch and reason.
+    astia::core::clsource rearmed;
+    const auto            rearmed_old = rearmed.token();
+    assert(rearmed.cancel(astia::core::cancel_reason::detach));
+    rearmed.reset();
+    assert(!rearmed.token().cancellation_requested());
+    assert(rearmed.cancel(astia::core::cancel_reason::timeout));
+    assert(rearmed.token().cancellation_requested());
+    assert(rearmed.token().reason() == astia::core::cancel_reason::timeout);
+    assert(rearmed_old.stale());
+
     astia::core::clsource pre_canceled_source;
 
     astia::io::request pre_canceled(pre_canceled_source, nullptr, 0, 0, 0,

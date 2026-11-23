@@ -146,6 +146,202 @@ ASTIA_TEST(aio_cancel_targets_a_detached_operation) {
     slot.detached_ops.fetch_sub(1, astia::memory_order::acq_rel);
 }
 
+ASTIA_TEST(aio_root_cancellation_reaches_a_detached_operation) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe{};
+    sqe.user_data = 0x6262;
+
+    astia::core::clsource root;
+    auto                  state = astia::mm::shptr<aio::runner::detached_state>(
+        new aio::runner::detached_state(root));
+    astia::core::completion<aio::aio_result> pending;
+
+    ASTIA_CHECK(
+        aio::runner::launch(suspend_until(pending), state, slot, &capture.ring, sqe));
+    ASTIA_CHECK(root.cancel(astia::core::cancel_reason::shutdown));
+    ASTIA_CHECK(state->cancel.token().cancellation_requested());
+    ASTIA_CHECK(pending.complete(aio::aio_result{7}));
+
+    ASTIA_CHECK(capture.count() == 1);
+    ASTIA_CHECK(capture.result(0) == -ECANCELED);
+    ASTIA_CHECK(capture.user_data(0) == 0x6262);
+    ASTIA_CHECK(slot.detached_ops.load() == 0);
+    ASTIA_CHECK(slot.detached_head == nullptr);
+}
+
+ASTIA_TEST(aio_exec_epoch_reset_discards_an_in_flight_result) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe{};
+    sqe.user_data = 0x6363;
+
+    astia::core::clsource root;
+    auto                  state = astia::mm::shptr<aio::runner::detached_state>(
+        new aio::runner::detached_state(root));
+    astia::core::completion<aio::aio_result> pending;
+
+    ASTIA_CHECK(
+        aio::runner::launch(suspend_until(pending), state, slot, &capture.ring, sqe));
+    // exec cancels the old image and starts a fresh epoch.
+    ASTIA_CHECK(root.cancel(astia::core::cancel_reason::shutdown));
+    root.reset();
+    ASTIA_CHECK(state->cancel.token().stale());
+    ASTIA_CHECK(!state->cancel.token().cancellation_requested());
+    ASTIA_CHECK(pending.complete(aio::aio_result{7}));
+
+    ASTIA_CHECK(capture.count() == 1);
+    ASTIA_CHECK(capture.result(0) == -ECANCELED);
+    ASTIA_CHECK(capture.user_data(0) == 0x6363);
+    ASTIA_CHECK(slot.detached_ops.load() == 0);
+    ASTIA_CHECK(slot.detached_head == nullptr);
+}
+
+ASTIA_TEST(aio_cancel_targets_only_the_matching_operation) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    cq_capture            capture;
+    aio::ring::ring_slot  slot{};
+    astia::core::clsource root;
+    auto                  first = astia::mm::shptr<aio::runner::detached_state>(
+        new aio::runner::detached_state(root));
+    auto second = astia::mm::shptr<aio::runner::detached_state>(
+        new aio::runner::detached_state(root));
+    astia::core::completion<aio::aio_result> first_pending;
+    astia::core::completion<aio::aio_result> second_pending;
+    astia_sqe                                first_sqe{};
+    astia_sqe                                second_sqe{};
+    first_sqe.user_data  = 0xa1;
+    second_sqe.user_data = 0xb2;
+    first->user_data     = first_sqe.user_data;
+    second->user_data    = second_sqe.user_data;
+
+    ASTIA_CHECK(aio::runner::launch(suspend_until(first_pending), first, slot,
+                                    &capture.ring, first_sqe));
+    ASTIA_CHECK(aio::runner::launch(suspend_until(second_pending), second, slot,
+                                    &capture.ring, second_sqe));
+    ASTIA_CHECK(slot.detached_ops.load() == 2);
+
+    astia_sqe cancel_sqe{};
+    cancel_sqe.op        = OP_CANCEL;
+    cancel_sqe.offset    = 0xb2;
+    cancel_sqe.user_data = 0xc3;
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, cancel_sqe));
+    ASTIA_CHECK(capture.count() == 1);
+    ASTIA_CHECK(capture.result(0) == 0);
+    ASTIA_CHECK(capture.user_data(0) == 0xc3);
+    ASTIA_CHECK(second->cancel.token().cancellation_requested());
+    ASTIA_CHECK(!first->cancel.token().cancellation_requested());
+
+    // Completing the untouched operation publishes its result and unlinks it
+    // from the middle of the list.
+    ASTIA_CHECK(first_pending.complete(aio::aio_result{7}));
+    ASTIA_CHECK(slot.detached_ops.load() == 1);
+    ASTIA_CHECK(slot.detached_head == second.get());
+    ASTIA_CHECK(capture.count() == 2);
+    ASTIA_CHECK(capture.result(1) == 7);
+    ASTIA_CHECK(capture.user_data(1) == 0xa1);
+
+    ASTIA_CHECK(second_pending.complete(aio::aio_result{9}));
+    ASTIA_CHECK(capture.count() == 3);
+    ASTIA_CHECK(capture.result(2) == -ECANCELED);
+    ASTIA_CHECK(capture.user_data(2) == 0xb2);
+    ASTIA_CHECK(slot.detached_ops.load() == 0);
+    ASTIA_CHECK(slot.detached_head == nullptr);
+}
+
+ASTIA_TEST(aio_cancel_own_user_data_is_ignored) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+
+    astia_sqe sqe{};
+    sqe.op        = OP_CANCEL;
+    sqe.offset    = 0x9a;
+    sqe.user_data = 0x9a;
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.count() == 1);
+    ASTIA_CHECK(capture.result(0) == -ENOENT);
+    ASTIA_CHECK(capture.user_data(0) == 0x9a);
+    ASTIA_CHECK(slot.detached_ops.load() == 0);
+    ASTIA_CHECK(slot.detached_head == nullptr);
+}
+
+ASTIA_TEST(aio_cancel_unknown_target_reports_enoent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+
+    astia_sqe sqe{};
+    sqe.op        = OP_CANCEL;
+    sqe.offset    = 0xdead;
+    sqe.user_data = 0xbeef;
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.count() == 1);
+    ASTIA_CHECK(capture.result(0) == -ENOENT);
+    ASTIA_CHECK(capture.user_data(0) == 0xbeef);
+    ASTIA_CHECK(slot.detached_ops.load() == 0);
+    ASTIA_CHECK(slot.detached_head == nullptr);
+}
+
+ASTIA_TEST(aio_cancel_needs_a_completion_slot_before_cancelling) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    cq_capture            capture;
+    aio::ring::ring_slot  slot{};
+    astia::core::clsource root;
+    auto                  target = astia::mm::shptr<aio::runner::detached_state>(
+        new aio::runner::detached_state(root));
+    target->user_data  = 0x77;
+    slot.detached_head = target.get();
+    slot.detached_ops.fetch_add(1, astia::memory_order::acq_rel);
+
+    capture.cq.tail = capture.cq.entries;
+    astia_sqe sqe{};
+    sqe.op        = OP_CANCEL;
+    sqe.offset    = 0x77;
+    sqe.user_data = 0x88;
+    ASTIA_CHECK(!aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(!target->cancel.token().cancellation_requested());
+    ASTIA_CHECK(slot.detached_ops.load() == 1);
+
+    slot.detached_head = nullptr;
+    slot.detached_ops.fetch_sub(1, astia::memory_order::acq_rel);
+}
+
+ASTIA_TEST(aio_launch_rejects_invalid_arguments_without_registration) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    cq_capture                               capture;
+    aio::ring::ring_slot                     slot{};
+    astia::core::clsource                    root;
+    astia::core::completion<aio::aio_result> pending;
+    astia_sqe                                sqe{};
+    auto state = astia::mm::shptr<aio::runner::detached_state>(
+        new aio::runner::detached_state(root));
+
+    ASTIA_CHECK(!aio::runner::launch(astia::core::task<aio::aio_result>{}, state, slot,
+                                     &capture.ring, sqe));
+    ASTIA_CHECK(
+        !aio::runner::launch(suspend_until(pending), {}, slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.count() == 0);
+    ASTIA_CHECK(slot.detached_ops.load() == 0);
+    ASTIA_CHECK(slot.detached_head == nullptr);
+}
+
 ASTIA_TEST(aio_production_handler_manifest_covers_abi_range) {
     ASTIA_CHECK(aio::opcode_count == 42);
     ASTIA_CHECK(aio::registry::size() == aio::opcode_count);
