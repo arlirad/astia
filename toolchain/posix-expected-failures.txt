@@ -41,7 +41,7 @@ mq_setattr/* | LTP sources require absent `mqueue.h`; POSIX message queues are u
 mq_timedreceive/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
 mq_timedsend/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
 mq_unlink/* | LTP sources require absent `mqueue.h`; POSIX message queues are unimplemented
-aio_fsync/* | `aio_fsync` is not implemented
+aio_fsync/5-1 | PTS_UNTESTED is intentional: the Astia OP_FSYNC completes synchronously, so aio_error() never observes EINPROGRESS immediately after aio_fsync(); the case asserts no failure
 aio_cancel/2-1 | socket AIO setup now passes; LTP rejects the permitted AIO_ALLDONE result
 aio_cancel/3-1 | socket AIO setup now passes; source requires realtime signal constants and siginfo payloads
 aio_cancel/4-1 | socket AIO setup now passes; cancellation completion reports a non-ECANCELED result

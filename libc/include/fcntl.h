@@ -11,6 +11,8 @@
 #define O_TRUNC 0x0200
 #define O_APPEND 0x0400
 #define O_NONBLOCK 0x0800
+#define O_DSYNC 0x001000
+#define O_SYNC 0x101000
 #define O_CLOEXEC 0x080000
 #define O_NOCTTY 0x00100
 #define O_DIRECTORY 0x10000
