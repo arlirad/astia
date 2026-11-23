@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/core/rcu_grace.hpp>
 #include <astia/mm/share.hpp>
 #include <astia/span.hpp>
 
@@ -14,45 +15,28 @@ namespace astia::core {
             usize size = 0;
             T     values[Capacity]{};
         };
-        struct retired_snapshot {
-            snapshot*         value;
-            retired_snapshot* next;
-        };
+        using grace = rcu_grace_period<snapshot>;
 
-        mutable u32               _readers   = 0;
-        snapshot*                 _published = nullptr;
-        mutable retired_snapshot* _retired   = nullptr;
+        grace     _grace;
+        snapshot* _published = nullptr;
 
         void reclaim() const {
-            if (__atomic_load_n(&_readers, __ATOMIC_SEQ_CST) != 0)
-                return;
-            auto* list = __atomic_exchange_n(&_retired, nullptr, __ATOMIC_SEQ_CST);
-            while (list != nullptr) {
-                auto* next = list->next;
-                delete list->value;
-                delete list;
-                list = next;
-            }
+            _grace.reclaim();
         }
 
-        void retire(snapshot* value, retired_snapshot* record) {
-            record->value          = value;
-            retired_snapshot* head = __atomic_load_n(&_retired, __ATOMIC_RELAXED);
-            do {
-                record->next = head;
-            } while (!__atomic_compare_exchange_n(&_retired, &head, record, false,
-                                                  __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+        void retire(snapshot* value, grace::retired_record* record) const {
+            _grace.retire(value, record);
         }
 
         public:
         class read_guard {
             public:
             explicit read_guard(const rcu_vector& owner) : _owner(owner) {
-                __atomic_add_fetch(&_owner._readers, 1, __ATOMIC_SEQ_CST);
+                _owner._grace.enter();
                 _snapshot = __atomic_load_n(&_owner._published, __ATOMIC_SEQ_CST);
             }
             ~read_guard() {
-                __atomic_sub_fetch(&_owner._readers, 1, __ATOMIC_SEQ_CST);
+                _owner._grace.leave();
             }
             read_guard(const read_guard&)            = delete;
             read_guard& operator=(const read_guard&) = delete;
@@ -74,8 +58,7 @@ namespace astia::core {
 
         ~rcu_vector() {
             // Destruction is only valid after all readers have quiesced.
-            __atomic_store_n(&_readers, 0, __ATOMIC_SEQ_CST);
-            reclaim();
+            _grace.discard();
             delete __atomic_exchange_n(&_published, nullptr, __ATOMIC_SEQ_CST);
         }
 
@@ -87,7 +70,7 @@ namespace astia::core {
             if (values.size() > Capacity)
                 return false;
             auto* next   = new snapshot{};
-            auto* record = new retired_snapshot{};
+            auto* record = new grace::retired_record{};
             if (next == nullptr || record == nullptr) {
                 delete next;
                 delete record;
@@ -101,11 +84,11 @@ namespace astia::core {
             for (;;) {
                 snapshot* old = __atomic_load_n(&_published, __ATOMIC_SEQ_CST);
                 {
-                    __atomic_add_fetch(&_readers, 1, __ATOMIC_SEQ_CST);
+                    _grace.enter();
                     snapshot* protected_old =
                         __atomic_load_n(&_published, __ATOMIC_SEQ_CST);
                     if (protected_old != old) {
-                        __atomic_sub_fetch(&_readers, 1, __ATOMIC_SEQ_CST);
+                        _grace.leave();
                         continue;
                     }
                     snapshot* expected = old;
@@ -115,10 +98,10 @@ namespace astia::core {
                             retire(old, record);
                         else
                             delete record;
-                        __atomic_sub_fetch(&_readers, 1, __ATOMIC_SEQ_CST);
+                        _grace.leave();
                         return true;
                     }
-                    __atomic_sub_fetch(&_readers, 1, __ATOMIC_SEQ_CST);
+                    _grace.leave();
                 }
             }
         }
