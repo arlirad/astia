@@ -3,6 +3,7 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/common.hpp>
+#include <astia/core/cancellation.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
 #include <astia/io.hpp>
@@ -437,14 +438,17 @@ namespace astia::fs {
         io::operation*       operation_ = nullptr;
     };
 
+    /// Async VFS I/O.  The optional token makes a transfer abandonable: a
+    /// cancelled or stale token refuses the submission and discards a result
+    /// that arrives after cancellation.
     core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,
-                           u64 offset, io::direction direction);
+                           u64 offset, io::direction direction, core::cltoken token = {});
     core::task<i64> read(const mm::shptr<open_file>& file, span<u8> buffer,
-                         u64 offset = offset_current);
+                         u64 offset = offset_current, core::cltoken token = {});
     core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer,
-                          u64 offset = offset_current);
+                          u64 offset = offset_current, core::cltoken token = {});
     core::task<i64> read_exact(const mm::shptr<open_file>& file, span<u8> buffer,
-                               u64 offset = offset_current);
+                               u64 offset = offset_current, core::cltoken token = {});
 
     /// Reset the fixed VFS tables.  Called by the `fs` init step before
     /// any device node is registered.

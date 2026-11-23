@@ -216,6 +216,77 @@ ASTIA_TEST(fs_async_active_cancel_releases_device_reference_once) {
     }
 }
 
+ASTIA_TEST(fs_async_refuses_a_canceled_token_before_submit) {
+    astia::fs::open_file file({}, astia::fs::open_file_status_flags::none);
+    auto                 handle = astia::mm::shptr<astia::fs::open_file>::borrowed(&file);
+    astia::u8            buffer[1]{};
+    submit_mode_state   = submit_mode::synchronous_zero;
+    synchronous_submits = 0;
+
+    astia::core::clsource source;
+    ASTIA_CHECK(source.cancel(astia::core::cancel_reason::request));
+    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0,
+                                source.token());
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(task.failed());
+    ASTIA_CHECK(task.error() == astia::error_t::ecanceled);
+    ASTIA_CHECK(synchronous_submits == 0);
+}
+
+ASTIA_TEST(fs_async_canceled_while_parked_discards_the_result) {
+    astia::fs::open_file file({}, astia::fs::open_file_status_flags::none);
+    auto                 handle = astia::mm::shptr<astia::fs::open_file>::borrowed(&file);
+    astia::u8            buffer[1]{};
+    submit_mode_state = submit_mode::parked_zero;
+    parked_completion = nullptr;
+    parked_request    = nullptr;
+
+    astia::core::clsource source;
+    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0,
+                                source.token());
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+    if (parked_request == nullptr || parked_completion == nullptr) {
+        ASTIA_CHECK(false);
+        return;
+    }
+    ASTIA_CHECK(source.cancel(astia::core::cancel_reason::request));
+
+    parked_request->acknowledge();
+    ASTIA_CHECK(parked_completion->complete(17));
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(task.failed());
+    ASTIA_CHECK(task.error() == astia::error_t::ecanceled);
+}
+
+ASTIA_TEST(fs_async_reset_epoch_discards_a_parked_result) {
+    astia::fs::open_file file({}, astia::fs::open_file_status_flags::none);
+    auto                 handle = astia::mm::shptr<astia::fs::open_file>::borrowed(&file);
+    astia::u8            buffer[1]{};
+    submit_mode_state = submit_mode::parked_zero;
+    parked_completion = nullptr;
+    parked_request    = nullptr;
+
+    astia::core::clsource source;
+    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0,
+                                source.token());
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+    if (parked_request == nullptr || parked_completion == nullptr) {
+        ASTIA_CHECK(false);
+        return;
+    }
+    ASTIA_CHECK(source.cancel(astia::core::cancel_reason::shutdown));
+    source.reset();
+
+    parked_request->acknowledge();
+    ASTIA_CHECK(parked_completion->complete(17));
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(task.failed());
+    ASTIA_CHECK(task.error() == astia::error_t::ecanceled);
+}
+
 ASTIA_TEST(fs_async_cancel_end_device_race_is_linearized) {
     for (int cycle = 0; cycle < 128; ++cycle) {
         astia::fs::open_file file({}, astia::fs::open_file_status_flags::none);

@@ -32,6 +32,7 @@ namespace astia {
         etimedout,  ///< Timed out.
         e2big,      ///< Argument or vector exceeds a fixed contract.
         enfile,     ///< Kernel-wide finite resource table is full.
+        ecanceled,  ///< Operation was cancelled before it completed.
     };
 
     /// Short, human-readable name for an error code (for logs). Never null.
@@ -85,6 +86,8 @@ namespace astia {
             return "argument list too large";
         case error_t::enfile:
             return "too many open files in system";
+        case error_t::ecanceled:
+            return "operation cancelled";
         }
         return "unknown error";
     }

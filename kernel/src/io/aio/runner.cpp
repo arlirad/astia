@@ -10,10 +10,6 @@
 namespace astia::io::aio::runner {
 
     namespace {
-        /// Owner-less rings exist only in host tests; they still need a
-        /// source so the token contract is uniform.
-        core::clsource fallback_root;
-
         void unlink(ring::ring_slot& slot, detached_state* state) {
             if (slot.detached_head == state) {
                 slot.detached_head = state->next;
@@ -30,8 +26,10 @@ namespace astia::io::aio::runner {
     } // namespace
 
     mm::shptr<detached_state> make_state(ring::ring_slot& slot, u64 user_data) {
+        // Owner-less rings exist only in host tests; they share the same
+        // never-cancelled source as default-constructed tokens.
         auto state = mm::shptr<detached_state>(new (std::nothrow) detached_state(
-            slot.owner ? slot.owner->cancellation_root() : fallback_root));
+            slot.owner ? slot.owner->cancellation_root() : core::unrestricted_source));
         if (!state)
             return {};
         state->user_data = user_data;
@@ -59,7 +57,7 @@ namespace astia::io::aio::runner {
                 aio_result result =
                     completed ? completed.value : aio_result(completed.error);
                 const core::cltoken token = state->cancel.token();
-                if (token.stale() || token.cancellation_requested())
+                if (token.canceled())
                     result = aio_result(-ECANCELED);
                 bool consumed = true;
                 {

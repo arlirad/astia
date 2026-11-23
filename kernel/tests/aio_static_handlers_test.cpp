@@ -11,6 +11,7 @@
 #include <astia/api/aio.h>
 
 using namespace astia;
+#include <io/aio/dispatch.hpp>
 #include <io/aio/handler.hpp>
 #include <io/aio/operation.hpp>
 #include <io/aio/registry.hpp>
@@ -140,7 +141,7 @@ ASTIA_TEST(aio_cancel_targets_a_detached_operation) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.count() == 1);
     ASTIA_CHECK(capture.result(0) == 0);
-    ASTIA_CHECK(target->cancel.token().cancellation_requested());
+    ASTIA_CHECK(target->cancel.token().canceled());
 
     slot.detached_head = nullptr;
     slot.detached_ops.fetch_sub(1, astia::memory_order::acq_rel);
@@ -163,7 +164,7 @@ ASTIA_TEST(aio_root_cancellation_reaches_a_detached_operation) {
     ASTIA_CHECK(
         aio::runner::launch(suspend_until(pending), state, slot, &capture.ring, sqe));
     ASTIA_CHECK(root.cancel(astia::core::cancel_reason::shutdown));
-    ASTIA_CHECK(state->cancel.token().cancellation_requested());
+    ASTIA_CHECK(state->cancel.token().canceled());
     ASTIA_CHECK(pending.complete(aio::aio_result{7}));
 
     ASTIA_CHECK(capture.count() == 1);
@@ -193,7 +194,7 @@ ASTIA_TEST(aio_exec_epoch_reset_discards_an_in_flight_result) {
     ASTIA_CHECK(root.cancel(astia::core::cancel_reason::shutdown));
     root.reset();
     ASTIA_CHECK(state->cancel.token().stale());
-    ASTIA_CHECK(!state->cancel.token().cancellation_requested());
+    ASTIA_CHECK(state->cancel.token().canceled());
     ASTIA_CHECK(pending.complete(aio::aio_result{7}));
 
     ASTIA_CHECK(capture.count() == 1);
@@ -237,8 +238,8 @@ ASTIA_TEST(aio_cancel_targets_only_the_matching_operation) {
     ASTIA_CHECK(capture.count() == 1);
     ASTIA_CHECK(capture.result(0) == 0);
     ASTIA_CHECK(capture.user_data(0) == 0xc3);
-    ASTIA_CHECK(second->cancel.token().cancellation_requested());
-    ASTIA_CHECK(!first->cancel.token().cancellation_requested());
+    ASTIA_CHECK(second->cancel.token().canceled());
+    ASTIA_CHECK(!first->cancel.token().canceled());
 
     // Completing the untouched operation publishes its result and unlinks it
     // from the middle of the list.
@@ -314,7 +315,7 @@ ASTIA_TEST(aio_cancel_needs_a_completion_slot_before_cancelling) {
     sqe.offset    = 0x77;
     sqe.user_data = 0x88;
     ASTIA_CHECK(!aio::registry::dispatch(slot, &capture.ring, sqe));
-    ASTIA_CHECK(!target->cancel.token().cancellation_requested());
+    ASTIA_CHECK(!target->cancel.token().canceled());
     ASTIA_CHECK(slot.detached_ops.load() == 1);
 
     slot.detached_head = nullptr;
@@ -340,6 +341,74 @@ ASTIA_TEST(aio_launch_rejects_invalid_arguments_without_registration) {
     ASTIA_CHECK(capture.count() == 0);
     ASTIA_CHECK(slot.detached_ops.load() == 0);
     ASTIA_CHECK(slot.detached_head == nullptr);
+}
+
+ASTIA_TEST(aio_submit_io_refuses_a_canceled_token) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    auto* node          = new aio_test::fake_file;
+    node->submit_result = 4;
+    const auto file     = aio_test::make_open_file(node);
+    const i32  fd       = install_descriptor(file);
+
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe{};
+    char                 buffer[4]{};
+    sqe.op        = OP_READ;
+    sqe.fd        = fd;
+    sqe.address   = reinterpret_cast<u64>(buffer);
+    sqe.length    = sizeof buffer;
+    sqe.user_data = 0x44;
+
+    astia::core::clsource source;
+    ASTIA_CHECK(source.cancel(astia::core::cancel_reason::request));
+    ASTIA_CHECK(aio::dispatch::submit_io(
+        slot, &capture.ring, sqe, ::astia::io::direction::input, false, source.token()));
+    ASTIA_CHECK(capture.count() == 1);
+    ASTIA_CHECK(capture.result(0) == -ECANCELED);
+    ASTIA_CHECK(!slot.park[0].used);
+    clear_descriptor(fd);
+}
+
+ASTIA_TEST(aio_parked_io_settles_a_canceled_token) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    auto* node          = new aio_test::fake_file;
+    node->submit_result = 0;
+    const auto file     = aio_test::make_open_file(node);
+    const i32  fd       = install_descriptor(file);
+
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe{};
+    char                 buffer[4]{};
+    sqe.op        = OP_READ;
+    sqe.fd        = fd;
+    sqe.address   = reinterpret_cast<u64>(buffer);
+    sqe.length    = sizeof buffer;
+    sqe.user_data = 0x55;
+
+    astia::core::clsource source;
+    ASTIA_CHECK(aio::dispatch::submit_io(
+        slot, &capture.ring, sqe, ::astia::io::direction::input, false, source.token()));
+    ASTIA_CHECK(slot.park[0].used);
+    ASTIA_CHECK(!slot.park[0].done);
+    ASTIA_CHECK(capture.count() == 0);
+
+    ASTIA_CHECK(source.cancel(astia::core::cancel_reason::request));
+    node->submit_result = 4;
+    aio::dispatch::resume_parked(nullptr, &capture.ring, slot.park[0]);
+    ASTIA_CHECK(capture.count() == 1);
+    ASTIA_CHECK(capture.result(0) == -ECANCELED);
+    ASTIA_CHECK(capture.user_data(0) == 0x55);
+    ASTIA_CHECK(slot.park[0].done);
+    release_parked(slot);
+    clear_descriptor(fd);
 }
 
 ASTIA_TEST(aio_production_handler_manifest_covers_abi_range) {

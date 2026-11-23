@@ -4,9 +4,10 @@
 namespace astia::io::aio::operations {
 
     struct sendto : handler<sendto, opcode::sendto> {
-        static core::task<aio_result>
-        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
-               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             astia_sqe                         sqe,
+                                             core::cltoken token) noexcept {
             mm::shptr<fs::open_file> object = file_for(sqe.fd);
             if (!object)
                 co_return -EBADF;
@@ -34,7 +35,8 @@ namespace astia::io::aio::operations {
                 co_return static_cast<i32>(rc);
             span<u8> range = span<u8>::bytes(sqe.address, sqe.length);
             co_return submit_socket_request(slot, ring, sqe, object, &range, 1,
-                                            ::astia::io::direction::output)
+                                            ::astia::io::direction::output, false, false,
+                                            token)
                 ? aio_result::pending
                 : aio_result::retry;
         }

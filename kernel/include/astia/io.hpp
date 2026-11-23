@@ -324,7 +324,7 @@ namespace astia::io {
             return _cancel_token;
         }
         bool cancellation_requested() const {
-            return _cancel_token.cancellation_requested();
+            return _cancel_token.canceled();
         }
         core::cancel_reason cancellation_reason() const {
             return _cancel_token.reason();
