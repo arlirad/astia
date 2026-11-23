@@ -48,10 +48,15 @@ def check_production_layout(repository: Path) -> None:
         handler = text.split("struct " + name, 1)[1].split("};", 1)[0]
         assert "/// ABI ID:" not in text
         assert "/// Sync/async mode:" not in text
-        assert mode == "sync", f"production wrapper is fake async: {path}"
-        assert re.search(r"static\s+i64\s+invoke\s*\(", handler)
+        if mode == "async":
+            assert name in {"execve", "spawnve"}, (
+                f"unexpected async production wrapper: {path}"
+            )
+            assert re.search(r"static\s+core::task<i64>\s+invoke\s*\(", handler)
+        else:
+            assert re.search(r"static\s+i64\s+invoke\s*\(", handler)
         assert "sys::syscall_context" not in handler
-        assert "syscall_mode::sync" in handler
+        assert f"syscall_mode::{mode}" in handler
         assert "co_return sys::invoke_sync" not in handler
     assert len(handler_files) == 71
     assert sorted(seen_ids) == list(range(71))
@@ -66,7 +71,6 @@ def check_production_layout(repository: Path) -> None:
     assert shared_headers == {
         "proc/syscalls/ipc/shm_common.hpp",
         "proc/syscalls/process/argv.hpp",
-        "proc/syscalls/syscall_continuation.hpp",
         "proc/syscalls/thread/thread_create_common.hpp",
     }
     invoke_sync_files = {

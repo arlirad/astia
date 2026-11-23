@@ -7,12 +7,13 @@ number through `mapper<sys::syscall_id>` before dispatching. A handler derives
 from the mode-last template `sys::syscall_handler<Impl, syscall_id,
 syscall_mode>`. `sync` implementations return `i64`; `async` implementations
 return `core::task<i64>`. Separate CRTP specializations enforce these contracts
-at compile time, so dispatch contains no runtime mode branch. The production
-handlers use sync mode: their syscall entry points return `i64`, including
-operations that wait through the established syscall-continuation mechanism.
-No production task wrapper is labeled async unless its handler actually
-implements the task contract. Descriptor sets
-reject duplicate and out-of-range IDs at compile time; unhandled numbers
+at compile time. The descriptor records which entry is set: dispatch calls a
+sync entry directly and returns its `i64`, or obtains the task from an async
+entry and runs the process task runner, which parks the calling thread until
+the task completes. `execve` and `spawnve` are the production async
+handlers. Each
+handler emits its descriptor into a link section; `sys::validate_registry()`
+rejects duplicate, out-of-range, or empty entries at boot. Unhandled numbers
 return `-ENOSYS`.
 
 The production `kernel/src/` tree contains one handler file for every public
@@ -98,5 +99,10 @@ directly invokes the implementation owned by its subsystem; subsystem
 registration tables are not part of syscall dispatch.
 
 An async handler is a `core::task<i64>` contract with the same typed arguments
-as a sync handler. Long-running I/O remains on the AIO ring and its `io`
-implementation.
+as a sync handler. Dispatch runs it through the process task runner, so the
+calling thread blocks on the syscall exactly like a sync handler. A leading
+`sys::syscall_trap` owns its six registers, which lets an async handler keep
+the trap in its coroutine frame and write the return image after a suspension.
+All blocking syscalls share one file-local `async_wait` park/wake object in
+`proc/async_syscall.cpp`.
+Long-running I/O remains on the AIO ring and its `io` implementation.
