@@ -53,6 +53,13 @@ fi
 ASTIA_CROSS_BUILD="$build/astia" ASTIA_SYSROOT="$sysroot" CLANG="$clang" \
     "$root/toolchain/build-init-libc.sh"
 
+sysroot_content_key=$(
+    {
+        find "$sysroot/include" -type f -exec sha256sum {} + | sort
+        sha256sum "$sysroot/lib/libastia_libc.a"
+    } | sha256sum | awk '{print $1}'
+)
+
 mkdir -p "$build"
 config_compat_dir=${TMPDIR:-/tmp}/astia-zsh-config-$(printf '%s' "$build" |
     sha256sum | awk '{print $1}')
@@ -95,10 +102,11 @@ ac_cv_func_fork=yes
 ac_cv_func_setpgid=yes
 ac_cv_func_setsid=yes
 ac_cv_func_kill=yes
+ac_cv_func_strptime=yes
 EOF
 config_key=$(printf '%s\n' "$zsh_build_source" "$source_revision" \
-    "$toolchain_revision" "$sysroot" "$builtins" "$compiler_launcher" \
-    "$config_compat_dir" |
+    "$toolchain_revision" "$sysroot" "$sysroot_content_key" "$builtins" \
+    "$compiler_launcher" "$config_compat_dir" |
     sha256sum | awk '{print $1}')
 if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     [ "$(cat "$build/.astia-config-key")" != "$config_key" ]; then

@@ -30,5 +30,25 @@ int main(void) {
         return 24;
     if (run_zsh("trap 'echo astia-signal-ok' INT; kill -INT $$") != 0)
         return 25;
+    if (run_zsh("zmodload zsh/datetime") != 0)
+        return 26;
+    if (run_zsh("zmodload zsh/datetime && "
+                "[ \"$(strftime '%Y-%m-%d %H:%M:%S' 1795442709)\" = "
+                "'2026-11-23 14:05:09' ]") != 0)
+        return 27;
+    if (run_zsh("zmodload zsh/datetime && "
+                "[ \"$(strftime -r '%Y-%m-%d %H:%M:%S' "
+                "'2026-11-23 14:05:09')\" = '1795442709' ]") != 0)
+        return 28;
+    if (run_zsh("zmodload zsh/datetime && "
+                "[ \"$(strftime -r '%Y-%m-%d %H:%M:%S' "
+                "'1969-12-31 23:59:59')\" = '-1' ]") != 0)
+        return 29;
+    if (run_zsh("zmodload zsh/datetime && "
+                "strftime -q -r '%Y-%m-%d' '2026-13-01'") == 0)
+        return 30;
+    if (run_zsh("zmodload zsh/datetime && "
+                "[ \"$(strftime -r '%Y-%m-%d' '2026-11-23')\" = '1795392000' ]") != 0)
+        return 31;
     return 0;
 }
