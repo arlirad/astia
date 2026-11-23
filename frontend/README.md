@@ -24,13 +24,11 @@ npm run test:ci
 
 ## Documentation content
 
-The in-app docs browser reads bundled Markdown from the repository `docs/` directory and the project README files. Regenerate the bundle with:
+The in-app docs browser fetches public Markdown and syscall source files from GitHub at runtime. Repository, ref, and host settings live in `DEFAULT_DOCS_REPOSITORY_CONFIG` in `src/app/docs/docs.repository.ts`; changing `ref` there switches the documentation source for every page.
 
-```sh
-npm run docs:generate
-```
+`npm run docs:generate` writes the tracked `src/app/docs/docs.manifest.ts` metadata index. The manifest contains page IDs, slugs, titles, groups, summaries, source paths, content kinds, syscall IDs, categories, synopsis kinds, and public synopsis signatures. It never contains Markdown bodies. The runtime uses this metadata for navigation and fetches each page body from `raw.githubusercontent.com`.
 
-The same generator runs automatically before `npm run build` and before the test runners. It also invokes `tools/man/generate.py` with `--export-section2`, which writes the section-2 Markdown pages and manifest for all 71 canonical syscall IDs (0–70, with `uname` at 70) into the ignored `frontend/.cache` directory. Repository-relative Markdown links are rewritten to GitHub blob or tree URLs at generation time, while external URLs, anchors, and mailto links are preserved. Edit the source Markdown or syscall documentation in the repository, then rebuild.
+The generator runs automatically before `npm run build` and before the test runners. It invokes `tools/man/generate.py` with `--export-section2` to derive section-2 metadata for all 71 canonical syscall IDs (0-70, with `uname` at 70) into the ignored `frontend/.cache` directory. Relative Markdown links and images are resolved against the configured repository and ref when a page is rendered; external URLs, anchors, and mailto links are preserved.
 
 Generated `man7` and section-2 export trees are published transactionally. Each output directory is staged as a private sibling directory, fully written and fsynced, then activated with one Linux `renameat2` exchange. A first generation uses `renameat2` with no-replace semantics. The two trees are separate transactions rather than one invocation-wide atomic unit; the frontend reads the section-2 export only after the generator exits successfully. This requires Linux and a filesystem that supports `renameat2` directory exchange for sibling directories, such as ext4, XFS, Btrfs, or tmpfs.
 

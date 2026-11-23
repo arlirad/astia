@@ -4,12 +4,37 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from './app.routes';
 import { DocumentationPage } from './documentation/documentation-page';
 import { DOC_PAGES } from './content';
+import { DOCS_FETCH } from './docs/docs.repository';
 import { HomePage } from './home/home';
+
+async function settle(harness: RouterTestingHarness): Promise<void> {
+  harness.detectChanges();
+  await harness.fixture.whenStable();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  harness.detectChanges();
+}
 
 describe('Application routes', () => {
   beforeEach(async () => {
+    const fetchSpy = jasmine.createSpy('fetch').and.callFake((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/docs/aio.7.md')) {
+        return Promise.resolve(
+          new Response('# Asynchronous I/O\n\n## DESCRIPTION\n\nRuntime content.', {
+            status: 200,
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response('long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out) {\n  return 0;\n}', {
+          status: 200,
+        }),
+      );
+    });
+
     await TestBed.configureTestingModule({
-      providers: [provideRouter(routes)],
+      providers: [provideRouter(routes), { provide: DOCS_FETCH, useValue: fetchSpy }],
     }).compileComponents();
   });
 
@@ -63,13 +88,18 @@ describe('Application routes', () => {
   it('renders a deep-linked section-2 syscall page', async () => {
     const harness = await RouterTestingHarness.create();
     await harness.navigateByUrl('/documentation/syscall-0-io-setup', DocumentationPage);
-    harness.detectChanges();
+    await settle(harness);
     const element = harness.routeNativeElement as HTMLElement;
 
     expect(element.querySelector('.docs-page-title')?.textContent).toContain(
       'io_setup(2)',
     );
-    expect(element.querySelector('.doc-markdown')?.textContent).toContain('SYNOPSIS');
+    expect(element.querySelector('.doc-markdown')?.textContent).toContain(
+      'REPOSITORY SOURCE',
+    );
+    expect(element.querySelector('.doc-markdown')?.textContent).toContain(
+      'astia_io_setup',
+    );
   });
 
   it('keeps the docs filter and category state across result navigation', async () => {

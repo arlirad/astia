@@ -7,8 +7,13 @@
     <app-docs-browser
       [pages]="docPages"
       [selectedSlug]="selectedSlug()"
+      [renderedContent]="renderedContent()"
+      [status]="status()"
+      [errorMessage]="errorMessage()"
+      [sourceUrl]="sourceUrl()"
       (pageSelected)="openPage($event)"
       (indexSelected)="openIndex()"
+      (retryRequested)="reload()"
     />
   </div>
 </section>
