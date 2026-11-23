@@ -14,6 +14,8 @@
  * interrupts.cpp (lowest address = last pushed = first field).
  */
 
+#include <astia/arch/x86_64/cpu_local.hpp>
+
 .text
 .global isr_common
 isr_common:
@@ -39,8 +41,9 @@ isr_common:
     call interrupt_dispatch
     movq %rbx, %rdi
     call astia_interrupt_user_return
-    /* The outermost dispatch publishes should_yield in GS:28.  Restore the
-       exact GPR/iret layout before the scheduler safe point. */
+    /* The outermost dispatch publishes should_yield in the GS anchor
+       (cpu_local::should_yield).  Restore the exact GPR/iret layout before
+       the scheduler safe point. */
     movq %rbx, %rsp
 
     popq %r15
@@ -64,7 +67,7 @@ isr_common:
     /* If the outermost dispatch raised should_yield, preserve every restored
        register around the C safe-point call.  The trampoline's aligned stack
        may context-switch; on return it restores this exact iret frame. */
-    cmpl $0, %gs:28
+    cmpl $0, %gs:ASTIA_GS_SHOULD_YIELD
     je .isr_return
     pushq %rax
     pushq %rcx

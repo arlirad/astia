@@ -1,6 +1,8 @@
+#include <astia/arch/cpu.hpp>
+#include <astia/arch/x86_64/cpu_local.hpp>
+
 #include "gdt.hpp"
 #include "smp.hpp"
-#include <astia/arch/cpu.hpp>
 
 namespace astia::arch {
 
@@ -29,26 +31,35 @@ namespace astia::arch {
     }
 
     void cpu::interrupt_enter() {
-        asm volatile("incl %%gs:24" ::: "memory");
+        asm volatile("incl %%gs:%c0" : : "i"(ASTIA_GS_INTERRUPT_DEPTH) : "memory");
     }
 
     void cpu::interrupt_exit() {
         u32 depth;
-        asm volatile("decl %%gs:24; movl %%gs:24, %0" : "=r"(depth)::"memory");
+        asm volatile("decl %%gs:%c1; movl %%gs:%c1, %0"
+                     : "=r"(depth)
+                     : "i"(ASTIA_GS_INTERRUPT_DEPTH)
+                     : "memory");
         if (depth == 0 && x86_64::smp::consume_reschedule(current_index())) {
-            asm volatile("movl $1, %%gs:28" ::: "memory");
+            asm volatile("movl $1, %%gs:%c0" : : "i"(ASTIA_GS_SHOULD_YIELD) : "memory");
         }
     }
 
     bool cpu::in_interrupt() {
         u32 depth;
-        asm volatile("movl %%gs:24, %0" : "=r"(depth)::"memory");
+        asm volatile("movl %%gs:%c1, %0"
+                     : "=r"(depth)
+                     : "i"(ASTIA_GS_INTERRUPT_DEPTH)
+                     : "memory");
         return depth != 0;
     }
 
     bool cpu::consume_should_yield() {
         u32 value = 0;
-        asm volatile("xchgl %0, %%gs:28" : "+r"(value)::"memory");
+        asm volatile("xchgl %0, %%gs:%c1"
+                     : "+r"(value)
+                     : "i"(ASTIA_GS_SHOULD_YIELD)
+                     : "memory");
         return value != 0;
     }
 
@@ -66,7 +77,7 @@ namespace astia::arch {
 
     u32 cpu::current_index() {
         u32 value;
-        asm volatile("movl %%gs:0, %0" : "=r"(value));
+        asm volatile("movl %%gs:%c1, %0" : "=r"(value) : "i"(ASTIA_GS_CPU_INDEX));
         return value;
     }
 

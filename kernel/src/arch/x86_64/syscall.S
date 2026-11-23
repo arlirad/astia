@@ -1,3 +1,5 @@
+#include <astia/arch/x86_64/cpu_local.hpp>
+
 .text
 .global astia_syscall_entry
 .type astia_syscall_entry, @function
@@ -6,9 +8,9 @@ astia_syscall_entry:
     /* GS points at the current CPU's anchor.  These values must not be
        process-wide: another CPU may enter a syscall while this one is
        constructing its frame. */
-    movq %r12, %gs:16
+    movq %r12, %gs:ASTIA_GS_SYSCALL_SAVED_R12
     movq %rsp, %r12
-    movq %gs:8, %rsp
+    movq %gs:ASTIA_GS_SYSCALL_STACK_TOP, %rsp
 
     /* syscall_return: the return mode, the caller-saved image,
        user RIP, RFLAGS, RSP, then the callee-saved image (rbx, rbp,
@@ -18,7 +20,7 @@ astia_syscall_entry:
     pushq %r15
     pushq %r14
     pushq %r13
-    pushq %gs:16                  /* user R12 (r12 is the RSP stash) */
+    pushq %gs:ASTIA_GS_SYSCALL_SAVED_R12 /* user R12 (r12 is the RSP stash) */
     pushq %rbp
     pushq %rbx
     pushq %r12                           /* user RSP */
