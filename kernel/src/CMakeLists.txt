@@ -1,4 +1,15 @@
 # Core source directories
+if (ARCH STREQUAL "aarch64")
+    # The generic full kernel graph (paging, IRQ, devices, scheduler) has no
+    # AArch64 production implementation yet.  This stage owns its complete
+    # source composition so x86 keeps the existing target graph unchanged.
+    add_subdirectory(lib)
+    add_subdirectory(arch)
+    add_subdirectory(plat/aarch64-virt)
+    add_subdirectory(boot/aarch64-virt)
+    return()
+endif ()
+
 add_subdirectory(lib)
 add_subdirectory(net)
 add_subdirectory(io)

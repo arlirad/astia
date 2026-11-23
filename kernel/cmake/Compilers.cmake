@@ -7,7 +7,9 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 
     # Interrupt handlers run on the interrupted thread's stack and overwrite
     # the 128-byte red zone below RSP, so no function may keep data there.
-    set(_astia_freestanding "${_astia_freestanding} -mno-red-zone")
+    if (ARCH STREQUAL "x86_64")
+        set(_astia_freestanding "${_astia_freestanding} -mno-red-zone")
+    endif ()
 
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_astia_freestanding} -fno-omit-frame-pointer -Wall -Wextra -Werror")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_astia_freestanding} -fno-omit-frame-pointer -Wall -Wextra -Werror")
