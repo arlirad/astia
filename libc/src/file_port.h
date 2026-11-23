@@ -29,6 +29,7 @@
  */
 
 #include <astia/api/aio.h>
+
 #include <sys/uio.h>
 
 #include <poll.h>
@@ -36,14 +37,14 @@
 #include <stdint.h>
 
 enum { /* open flags — the subset every port can speak */
-       FIO_READ     = 1u << 0,
-       FIO_WRITE    = 1u << 1,
-       FIO_CREAT    = 1u << 2,
-       FIO_EXCL     = 1u << 3,
-       FIO_TRUNC    = 1u << 4,
-       FIO_APPEND   = 1u << 5,
-       FIO_NONBLOCK = 1u << 6,
-       FIO_CLOEXEC  = 1u << 7,
+       FIO_READ      = 1u << 0,
+       FIO_WRITE     = 1u << 1,
+       FIO_CREAT     = 1u << 2,
+       FIO_EXCL      = 1u << 3,
+       FIO_TRUNC     = 1u << 4,
+       FIO_APPEND    = 1u << 5,
+       FIO_NONBLOCK  = 1u << 6,
+       FIO_CLOEXEC   = 1u << 7,
        FIO_DIRECTORY = 1u << 8,
 };
 
@@ -59,6 +60,7 @@ long __astia_fio_openat(int dirfd, const char* path, int flags, int mode);
 long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n);
 long __astia_fio_aio_submit(int fd, uint64_t off, void* buf, size_t n, int write,
                             uint64_t* tag);
+long __astia_fio_aio_fsync(int fd, uint64_t* tag);
 long __astia_fio_aio_result(uint64_t tag, long* result);
 
 struct astia_fio_batch_read {

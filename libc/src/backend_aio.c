@@ -1,6 +1,7 @@
+#include <astia/api/aio.h>
+
 #include "file_port.h"
 #include "process_port.h"
-#include <astia/api/aio.h>
 
 #include <fcntl.h>
 #include <string.h>
@@ -77,9 +78,9 @@ static _Thread_local uint64_t     g_inflight; /* 0: none.  Tag of an operation w
                                    the stale entry and wait on a completion
                                    that never comes, or an append could be
                                    applied twice. */
-static uint64_t     g_deferred_user_data[RING_ENTRIES];
-static int32_t      g_deferred_result[RING_ENTRIES];
-static size_t       g_deferred_count;
+static uint64_t g_deferred_user_data[RING_ENTRIES];
+static int32_t  g_deferred_result[RING_ENTRIES];
+static size_t   g_deferred_count;
 
 static int deferred_result(uint64_t user_data, long* result) {
     size_t i;
@@ -158,20 +159,20 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     long         rc;
 
     if (__astia_signal_handler_depth != 0 && !g_signal_transaction) {
-        astia_rings* saved_ring = g_ring;
-        uint64_t     saved_tag = g_tag;
+        astia_rings* saved_ring     = g_ring;
+        uint64_t     saved_tag      = g_tag;
         uint64_t     saved_inflight = g_inflight;
-        g_signal_transaction = 1;
-        g_ring = g_signal_ring;
-        g_tag = g_signal_tag;
-        g_inflight = 0;
-        rc = transact(op, fd, off, addr, len, op_flags, aux);
-        g_signal_ring = g_ring;
-        g_signal_tag = g_tag;
-        g_ring = saved_ring;
-        g_tag = saved_tag;
-        g_inflight = saved_inflight;
-        g_signal_transaction = 0;
+        g_signal_transaction        = 1;
+        g_ring                      = g_signal_ring;
+        g_tag                       = g_signal_tag;
+        g_inflight                  = 0;
+        rc                          = transact(op, fd, off, addr, len, op_flags, aux);
+        g_signal_ring               = g_ring;
+        g_signal_tag                = g_tag;
+        g_ring                      = saved_ring;
+        g_tag                       = saved_tag;
+        g_inflight                  = saved_inflight;
+        g_signal_transaction        = 0;
         return rc;
     }
 
@@ -248,14 +249,14 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     }
 }
 
-long __astia_fio_aio_submit(int fd, uint64_t off, void* buf, size_t n, int write,
-                             uint64_t* tag_out) {
+static long aio_submit_op(uint32_t op, int fd, uint32_t op_flags, uint64_t off,
+                          const void* address, uint32_t length, uint64_t* tag_out) {
     astia_rings* r;
     astia_sqe*   s;
     uint64_t     tag;
     long         rc;
 
-    if (n > UINT32_MAX || tag_out == NULL)
+    if (tag_out == NULL)
         return -EINVAL;
     rc = ring_ensure();
     if (rc < 0)
@@ -275,14 +276,14 @@ long __astia_fio_aio_submit(int fd, uint64_t off, void* buf, size_t n, int write
         if (s == NULL)
             return -EBUSY;
     }
-    tag         = ++g_tag;
+    tag = ++g_tag;
     memset(s, 0, sizeof *s);
-    s->op       = write ? OP_WRITE : OP_READ;
-    s->fd       = fd;
-    s->op_flags = ASTIA_AIO_POSITIONED;
-    s->offset   = off;
-    s->address  = (uint64_t) (uintptr_t) buf;
-    s->length   = (uint32_t) n;
+    s->op        = op;
+    s->fd        = fd;
+    s->op_flags  = op_flags;
+    s->offset    = off;
+    s->address   = (uint64_t) (uintptr_t) address;
+    s->length    = length;
     s->user_data = tag;
     astia_sq_publish(r, 1);
     rc = astia_io_submit(r, 1);
@@ -297,6 +298,18 @@ long __astia_fio_aio_submit(int fd, uint64_t off, void* buf, size_t n, int write
         return -EBUSY;
     *tag_out = tag;
     return 0;
+}
+
+long __astia_fio_aio_submit(int fd, uint64_t off, void* buf, size_t n, int write,
+                            uint64_t* tag_out) {
+    if (n > UINT32_MAX)
+        return -EINVAL;
+    return aio_submit_op(write ? OP_WRITE : OP_READ, fd, ASTIA_AIO_POSITIONED, off, buf,
+                         (uint32_t) n, tag_out);
+}
+
+long __astia_fio_aio_fsync(int fd, uint64_t* tag_out) {
+    return aio_submit_op(OP_FSYNC, fd, 0, 0, NULL, 0, tag_out);
 }
 
 long __astia_fio_aio_result(uint64_t tag, long* result) {
@@ -334,11 +347,11 @@ long __astia_fio_aio_result(uint64_t tag, long* result) {
 void __astia_fio_prepare_exec(void) {
     if (g_ring != NULL)
         (void) astia_io_destroy(g_ring);
-    g_ring     = NULL;
-    g_inflight = 0;
-    g_tag      = 0;
-    g_signal_ring = NULL;
-    g_signal_tag = 0;
+    g_ring           = NULL;
+    g_inflight       = 0;
+    g_tag            = 0;
+    g_signal_ring    = NULL;
+    g_signal_tag     = 0;
     g_deferred_count = 0;
 }
 
@@ -348,11 +361,11 @@ void __astia_fio_prepare_fork(void) {
        acquire a private ring before their next file operation. */
     if (g_ring != NULL)
         (void) astia_io_destroy(g_ring);
-    g_ring     = NULL;
-    g_inflight = 0;
-    g_tag      = 0;
-    g_signal_ring = NULL;
-    g_signal_tag = 0;
+    g_ring           = NULL;
+    g_inflight       = 0;
+    g_tag            = 0;
+    g_signal_ring    = NULL;
+    g_signal_tag     = 0;
     g_deferred_count = 0;
 }
 
@@ -615,8 +628,8 @@ long __astia_fio_socketpair(int domain, int type, int protocol, int fds[2]) {
     return transact(OP_SOCKETPAIR, domain, 0, fds, 2 * sizeof(int), (uint32_t) type,
                     (uint32_t) protocol);
 }
-long __astia_fio_getsockopt(int fd, int level, int option, void* value,
-                            uint32_t capacity, uint32_t* length) {
+long __astia_fio_getsockopt(int fd, int level, int option, void* value, uint32_t capacity,
+                            uint32_t* length) {
     return transact(OP_GETSOCKOPT, fd, (uint64_t) (uintptr_t) length, value, capacity,
                     (uint32_t) level, (uint32_t) option);
 }
@@ -679,8 +692,8 @@ long __astia_fio_fcntl(int fd, int command, unsigned int argument) {
 
 long __astia_fio_sleep(uint64_t nanoseconds, uint64_t* remaining_nanoseconds) {
     return transact(OP_SLEEP, -1, nanoseconds, remaining_nanoseconds,
-                    remaining_nanoseconds == NULL ? 0 : sizeof *remaining_nanoseconds,
-                    0, 0);
+                    remaining_nanoseconds == NULL ? 0 : sizeof *remaining_nanoseconds, 0,
+                    0);
 }
 
 long __astia_fio_sleep_absolute(uint64_t deadline_nanoseconds) {
@@ -692,13 +705,13 @@ long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
     uint64_t      tags[IO_MAX_ENTRIES];
     uint64_t      cancel_tags[IO_MAX_ENTRIES];
     unsigned char pending[IO_MAX_ENTRIES] = {0};
-    uint64_t      sleep_tag = 0;
+    uint64_t      sleep_tag               = 0;
     size_t        submitted = 0, pending_count = 0, ready_count = 0;
     size_t        cancel_count = 0, cancel_submitted = 0, cancel_acks = 0;
-    long          rc = 0;
-    long          wait_error = 0;
+    long          rc            = 0;
+    long          wait_error    = 0;
     int           sleep_pending = 0;
-    int           stop = 0;
+    int           stop          = 0;
 
     if (count > RING_ENTRIES - (timeout_ms >= 0 ? 1u : 0u) ||
         (count != 0 && fds == NULL) || timeout_ms < -1)
@@ -708,10 +721,9 @@ long __astia_fio_poll(struct pollfd* fds, size_t count, int timeout_ms) {
     if (count == 0) {
         if (timeout_ms == 0)
             return 0;
-        return __astia_fio_sleep(timeout_ms < 0
-                                     ? UINT64_MAX
-                                     : (uint64_t) (unsigned) timeout_ms * 1000000ull,
-                                 NULL);
+        return __astia_fio_sleep(
+            timeout_ms < 0 ? UINT64_MAX : (uint64_t) (unsigned) timeout_ms * 1000000ull,
+            NULL);
     }
     rc = ring_ensure();
     if (rc < 0)
@@ -809,9 +821,9 @@ cancel:
             astia_sqe* s = astia_sqe_slot(r);
             if (s != NULL) {
                 memset(s, 0, sizeof *s);
-                s->op        = OP_CANCEL;
-                s->offset    = tags[i];
-                s->user_data = ++g_tag;
+                s->op                       = OP_CANCEL;
+                s->offset                   = tags[i];
+                s->user_data                = ++g_tag;
                 cancel_tags[cancel_count++] = s->user_data;
                 astia_sq_publish(r, 1);
                 break;
@@ -827,9 +839,9 @@ cancel:
             astia_sqe* s = astia_sqe_slot(r);
             if (s != NULL) {
                 memset(s, 0, sizeof *s);
-                s->op        = OP_CANCEL;
-                s->offset    = sleep_tag;
-                s->user_data = ++g_tag;
+                s->op                       = OP_CANCEL;
+                s->offset                   = sleep_tag;
+                s->user_data                = ++g_tag;
                 cancel_tags[cancel_count++] = s->user_data;
                 astia_sq_publish(r, 1);
                 break;
@@ -901,11 +913,11 @@ void __astia_fio_after_fork(void) {
     /* The ring's user alias belongs to the parent address space.  The child
        inherits libc data through CoW, so it must acquire its own ring before
        issuing any I/O. */
-    g_ring     = NULL;
-    g_inflight = 0;
-    g_tag      = 0;
-    g_signal_ring = NULL;
-    g_signal_tag = 0;
+    g_ring               = NULL;
+    g_inflight           = 0;
+    g_tag                = 0;
+    g_signal_ring        = NULL;
+    g_signal_tag         = 0;
     g_signal_transaction = 0;
-    g_deferred_count = 0;
+    g_deferred_count     = 0;
 }

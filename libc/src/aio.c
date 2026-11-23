@@ -1,9 +1,10 @@
-#include "file_port.h"
-#include <aio.h>
-
 #include <astia/api/syscalls.h>
 
+#include "file_port.h"
+
+#include <aio.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -57,33 +58,43 @@ static int aio_update(struct aio_slot* slot) {
     return 1;
 }
 
+static struct aio_slot* aio_begin(const struct aiocb* cb) {
+    struct aio_slot* slot;
+
+    if (aio_find(cb) != NULL) {
+        errno = EINVAL;
+        return NULL;
+    }
+    slot = aio_free_slot();
+    if (slot == NULL)
+        errno = EAGAIN;
+    return slot;
+}
+
+static void aio_commit(struct aio_slot* slot, struct aiocb* cb, uint64_t tag) {
+    *slot = (struct aio_slot){cb, tag, 0, 0, 0};
+}
+
 static int aio_submit(struct aiocb* cb, int write) {
     struct aio_slot* slot;
     uint64_t         tag = 0;
     long             rc;
 
     if (cb == NULL || cb->aio_nbytes > UINT32_MAX || cb->aio_offset < 0 ||
-        cb->aio_reqprio != 0 ||
-        (cb->aio_nbytes != 0 && cb->aio_buf == NULL)) {
+        cb->aio_reqprio != 0 || (cb->aio_nbytes != 0 && cb->aio_buf == NULL)) {
         errno = EINVAL;
         return -1;
     }
-    if (aio_find(cb) != NULL) {
-        errno = EINVAL;
+    slot = aio_begin(cb);
+    if (slot == NULL)
         return -1;
-    }
-    slot = aio_free_slot();
-    if (slot == NULL) {
-        errno = EAGAIN;
-        return -1;
-    }
     rc = __astia_fio_aio_submit(cb->aio_fildes, (uint64_t) cb->aio_offset,
                                 (void*) cb->aio_buf, cb->aio_nbytes, write, &tag);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
     }
-    *slot = (struct aio_slot) {cb, tag, 0, 0, 0};
+    aio_commit(slot, cb, tag);
     return 0;
 }
 
@@ -93,6 +104,29 @@ int aio_read(struct aiocb* aiocbp) {
 
 int aio_write(struct aiocb* aiocbp) {
     return aio_submit(aiocbp, 1);
+}
+
+int aio_fsync(int op, struct aiocb* aiocbp) {
+    struct aio_slot* slot;
+    uint64_t         tag = 0;
+    long             rc;
+
+    if ((op != O_SYNC && op != O_DSYNC) || aiocbp == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (fcntl(aiocbp->aio_fildes, F_GETFD) < 0)
+        return -1;
+    slot = aio_begin(aiocbp);
+    if (slot == NULL)
+        return -1;
+    rc = __astia_fio_aio_fsync(aiocbp->aio_fildes, &tag);
+    if (rc < 0) {
+        errno = (int) -rc;
+        return -1;
+    }
+    aio_commit(slot, aiocbp, tag);
+    return 0;
 }
 
 static int aio_event_supported(const struct sigevent* event) {
@@ -114,15 +148,14 @@ static void aio_wait_all(struct aiocb* const list[], size_t count) {
     }
 }
 
-int lio_listio(int mode, struct aiocb* const list[], int nent,
-               struct sigevent* sig) {
+int lio_listio(int mode, struct aiocb* const list[], int nent, struct sigevent* sig) {
     struct aiocb* submitted[aio_slots_max];
-    size_t         submitted_count = 0;
-    int            failure = 0;
-    int            i;
+    size_t        submitted_count = 0;
+    int           failure         = 0;
+    int           i;
 
-    if ((mode != LIO_WAIT && mode != LIO_NOWAIT) || nent <= 0 ||
-        nent > aio_slots_max || list == NULL) {
+    if ((mode != LIO_WAIT && mode != LIO_NOWAIT) || nent <= 0 || nent > aio_slots_max ||
+        list == NULL) {
         errno = EINVAL;
         return -1;
     }
@@ -183,9 +216,9 @@ ssize_t aio_return(struct aiocb* aiocbp) {
         errno = EINVAL;
         return -1;
     }
-    result          = slot->result;
-    slot->returned  = 1;
-    slot->cb        = NULL;
+    result         = slot->result;
+    slot->returned = 1;
+    slot->cb       = NULL;
     if (result < 0) {
         errno = (int) -result;
         return -1;
@@ -225,8 +258,8 @@ int aio_suspend(const struct aiocb* const list[], int nent,
     int      i;
 
     if (list == NULL || nent <= 0 ||
-        (timeout != NULL &&
-         (timeout->tv_sec < 0 || timeout->tv_nsec < 0 || timeout->tv_nsec >= 1000000000L))) {
+        (timeout != NULL && (timeout->tv_sec < 0 || timeout->tv_nsec < 0 ||
+                             timeout->tv_nsec >= 1000000000L))) {
         errno = EINVAL;
         return -1;
     }
@@ -256,9 +289,9 @@ int aio_suspend(const struct aiocb* const list[], int nent,
 }
 
 int aio_cancel(int fildes, struct aiocb* aiocbp) {
-    int       active = 0;
-    int       done = 0;
-    size_t    i;
+    int    active = 0;
+    int    done   = 0;
+    size_t i;
 
     if (fildes < 0) {
         errno = EBADF;
@@ -295,9 +328,7 @@ static _Thread_local struct {
     int      used;
 } g_host_results[aio_slots_max];
 
-long __attribute__((weak)) __astia_fio_aio_submit(int fd, uint64_t off, void* buf,
-                                                   size_t n, int write, uint64_t* tag) {
-    long result = write ? __astia_fio_write(fd, off, buf, n) : __astia_fio_read(fd, off, buf, n);
+static long aio_host_record(long result, uint64_t* tag) {
     size_t i;
 
     for (i = 0; i < aio_slots_max; ++i)
@@ -311,12 +342,24 @@ long __attribute__((weak)) __astia_fio_aio_submit(int fd, uint64_t off, void* bu
     return -EAGAIN;
 }
 
+long __attribute__((weak)) __astia_fio_aio_submit(int fd, uint64_t off, void* buf,
+                                                  size_t n, int write, uint64_t* tag) {
+    long result =
+        write ? __astia_fio_write(fd, off, buf, n) : __astia_fio_read(fd, off, buf, n);
+
+    return aio_host_record(result, tag);
+}
+
+long __attribute__((weak)) __astia_fio_aio_fsync(int fd, uint64_t* tag) {
+    return aio_host_record(__astia_fio_fsync(fd), tag);
+}
+
 long __attribute__((weak)) __astia_fio_aio_result(uint64_t tag, long* result) {
     size_t i;
 
     for (i = 0; i < aio_slots_max; ++i)
         if (g_host_results[i].used && g_host_results[i].tag == tag) {
-            *result = g_host_results[i].result;
+            *result                = g_host_results[i].result;
             g_host_results[i].used = 0;
             return 1;
         }
