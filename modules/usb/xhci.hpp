@@ -80,19 +80,48 @@ namespace astia::usb::xhci {
         return static_cast<uint32_t>(type) << 10;
     }
 
+    constexpr unsigned trb_transfer_type_shift   = 16;
+    constexpr uint32_t trb_transfer_type_no_data = 0u << trb_transfer_type_shift;
+    constexpr uint32_t trb_transfer_type_out     = 2u << trb_transfer_type_shift;
+    constexpr uint32_t trb_transfer_type_in      = 3u << trb_transfer_type_shift;
+
+    constexpr unsigned command_slot_shift = 24;
+
+    constexpr uint32_t command_slot_bits(uint8_t slot) {
+        return static_cast<uint32_t>(slot) << command_slot_shift;
+    }
+
+    constexpr uint8_t slot_context_speed(usb_speed speed) {
+        switch (speed) {
+        case usb_speed::full:
+            return 1;
+        case usb_speed::low:
+            return 2;
+        case usb_speed::high:
+            return 3;
+        case usb_speed::super:
+            return 4;
+        case usb_speed::super_plus:
+            return 5;
+        }
+        return 0;
+    }
+
     inline trb make_setup_trb(const setup_packet& setup, bool cycle) {
         const uint64_t value = static_cast<uint64_t>(setup.request_type) |
                                (static_cast<uint64_t>(setup.request) << 8) |
                                (static_cast<uint64_t>(setup.value) << 16) |
                                (static_cast<uint64_t>(setup.index) << 32) |
                                (static_cast<uint64_t>(setup.length) << 48);
+        const uint32_t transfer_type =
+            setup.length == 0 ? trb_transfer_type_no_data
+                              : (setup.request_type & 0x80u ? trb_transfer_type_in
+                                                            : trb_transfer_type_out);
         trb result{};
         result.parameter = value;
-        result.status =
-            8u | ((setup.length == 0 ? 0u : ((setup.request_type & 0x80u) != 0 ? 3u : 2u))
-                  << 16);
-        result.control = trb_type_bits(trb_type::setup_stage) | trb_immediate_data |
-                         (cycle ? trb_cycle : 0u);
+        result.status    = 8u;
+        result.control   = trb_type_bits(trb_type::setup_stage) | trb_immediate_data |
+                         transfer_type | (cycle ? trb_cycle : 0u);
         return result;
     }
 
@@ -546,18 +575,26 @@ namespace astia::usb::xhci {
         uint16_t          configuration_length_ = 0;
 
         public:
+        void clear() {
+            auto* bytes = reinterpret_cast<uint8_t*>(&device_);
+            for (size_t index = 0; index < sizeof(device_); ++index)
+                bytes[index] = 0;
+            phase_                = enumeration_phase::idle;
+            port_                 = 0;
+            address_              = 0;
+            configuration_length_ = 0;
+        }
+
         bool begin(unsigned slot, uint8_t port, uint8_t address, usb_speed speed) {
             if (slot >= max_devices || port == 0 || address == 0)
                 return false;
-            device_               = device_model{};
-            device_.present       = true;
-            device_.address       = address;
-            device_.speed         = speed;
-            phase_                = enumeration_phase::device_descriptor_short;
-            port_                 = port;
-            address_              = address;
-            configuration_length_ = 0;
-            device_.descriptor    = device_descriptor{};
+            clear();
+            device_.present = true;
+            device_.address = address;
+            device_.speed   = speed;
+            phase_          = enumeration_phase::device_descriptor_short;
+            port_           = port;
+            address_        = address;
             return true;
         }
 
