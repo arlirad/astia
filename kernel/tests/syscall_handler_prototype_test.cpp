@@ -148,14 +148,13 @@ namespace {
         }
     };
 
-    using trap_by_value_signature = astia::i64 (*)(astia::sys::syscall_trap);
+    using trap_by_value_signature     = astia::i64 (*)(astia::sys::syscall_trap);
     using trap_by_reference_signature = astia::i64 (*)(astia::sys::syscall_trap&);
-    using misplaced_trap_signature =
-        astia::i64 (*)(astia::i32, astia::sys::syscall_trap);
-    using over_arity_signature = astia::i64 (*)(astia::i64, astia::i64, astia::i64,
+    using misplaced_trap_signature = astia::i64 (*)(astia::i32, astia::sys::syscall_trap);
+    using over_arity_signature     = astia::i64 (*)(astia::i64, astia::i64, astia::i64,
                                                 astia::i64, astia::i64, astia::i64,
                                                 astia::i64);
-    using task_signature = astia::core::task<astia::i64> (*)(astia::i64);
+    using task_signature           = astia::core::task<astia::i64> (*)(astia::i64);
 
     static_assert(
         astia::sys::detail::typed_sync_handler<decltype(&zero_probe::invoke)>::value);
@@ -186,17 +185,15 @@ namespace {
 }
 
 ASTIA_TEST(syscall_mode_specializations_dispatch_sync_and_async_handlers) {
-    astia::arch::syscall_return          image{};
+    astia::arch::syscall_return         image{};
     astia::core::completion<astia::i64> sync_result;
     ASTIA_CHECK(astia::sys::dispatch_async<sync_probe>(
-        static_cast<astia::sys::syscall_id>(126), 6, 0, 0, 0, 0, 0, image,
-        sync_result));
+        static_cast<astia::sys::syscall_id>(126), 6, 0, 0, 0, 0, 0, image, sync_result));
     ASTIA_CHECK(sync_result.await_resume().value == 7);
 
     astia::core::completion<astia::i64> async_result;
     ASTIA_CHECK(astia::sys::dispatch_async<async_probe>(
-        static_cast<astia::sys::syscall_id>(127), 2, 0, 0, 0, 0, 0, image,
-        async_result));
+        static_cast<astia::sys::syscall_id>(127), 2, 0, 0, 0, 0, 0, image, async_result));
     ASTIA_CHECK(async_result.await_resume().value == 42);
 
     astia::core::completion<astia::i64> trap_async_result;
@@ -211,28 +208,25 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
     ASTIA_CHECK(zero_probe::invoke() == 7);
     ASTIA_CHECK(scalar_probe::invoke(-7, 1) == -6);
     ASTIA_CHECK(pointer_probe::invoke(astia::sys::user_ptr<astia::u8>(
-                     0x00007fff12345678ull)) == 0x00007fff12345678ll);
-    ASTIA_CHECK(wide_probe::invoke(0x8000000000001234ull) ==
-                0x8000000000001234ull);
+                    0x00007fff12345678ull)) == 0x00007fff12345678ll);
+    ASTIA_CHECK(wide_probe::invoke(0x8000000000001234ull) == 0x8000000000001234ull);
 
-    astia::arch::syscall_return image{};
+    astia::arch::syscall_return         image{};
     astia::core::completion<astia::i64> zero_result;
     ASTIA_CHECK(astia::sys::dispatch_async<zero_probe>(
-        static_cast<astia::sys::syscall_id>(120), 1, 2, 3, 4, 5, 6, image,
-        zero_result));
+        static_cast<astia::sys::syscall_id>(120), 1, 2, 3, 4, 5, 6, image, zero_result));
     ASTIA_CHECK(zero_result.await_resume().value == 7);
 
     astia::core::completion<astia::i64> scalar_result;
     ASTIA_CHECK(astia::sys::dispatch_async<scalar_probe>(
-        static_cast<astia::sys::syscall_id>(121), -7, 0x1'0000'0001, 0, 0, 0, 0,
-        image, scalar_result));
+        static_cast<astia::sys::syscall_id>(121), -7, 0x1'0000'0001, 0, 0, 0, 0, image,
+        scalar_result));
     ASTIA_CHECK(scalar_result.await_resume().value == -6);
 
     astia::core::completion<astia::i64> pointer_result;
     ASTIA_CHECK(astia::sys::dispatch_async<pointer_probe>(
-        static_cast<astia::sys::syscall_id>(122),
-        0x00007fff12345678ull, 0, 0, 0, 0, 0, image,
-        pointer_result));
+        static_cast<astia::sys::syscall_id>(122), 0x00007fff12345678ull, 0, 0, 0, 0, 0,
+        image, pointer_result));
     ASTIA_CHECK(pointer_result.await_resume().value == 0x00007fff12345678ll);
 
     astia::core::completion<astia::i64> null_pointer_result;
@@ -243,13 +237,11 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
 
     astia::core::completion<astia::i64> wide_result;
     ASTIA_CHECK(astia::sys::dispatch_async<wide_probe>(
-        static_cast<astia::sys::syscall_id>(123),
-        0x8000000000001234ull, 0, 0, 0, 0, 0, image,
-        wide_result));
-    ASTIA_CHECK(wide_result.await_resume().value ==
-                0x8000000000001234ull);
+        static_cast<astia::sys::syscall_id>(123), 0x8000000000001234ull, 0, 0, 0, 0, 0,
+        image, wide_result));
+    ASTIA_CHECK(wide_result.await_resume().value == 0x8000000000001234ull);
 
-    astia::arch::syscall_return trait_image{};
+    astia::arch::syscall_return         trait_image{};
     astia::core::completion<astia::i64> trap_result;
     ASTIA_CHECK(astia::sys::dispatch_async<trap_probe>(
         static_cast<astia::sys::syscall_id>(124), 0, 99, 0, 0, 0, 0, trait_image,
@@ -259,7 +251,7 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
 }
 
 ASTIA_TEST(private_net_descriptor_uses_typed_handler_without_arguments) {
-    astia::arch::syscall_return          image{};
+    astia::arch::syscall_return         image{};
     astia::core::completion<astia::i64> result;
     ASTIA_CHECK(astia::net::syscalls::accept_descriptor.id ==
                 static_cast<astia::sys::syscall_id>(70));
@@ -269,7 +261,7 @@ ASTIA_TEST(private_net_descriptor_uses_typed_handler_without_arguments) {
 }
 
 ASTIA_TEST(async_adapter_cancels_pending_task_exactly_once) {
-    astia::arch::syscall_return    image{};
+    astia::arch::syscall_return         image{};
     astia::core::completion<astia::i64> source;
     pending_source = &source;
     astia::core::completion<astia::i64> result;
@@ -283,7 +275,7 @@ ASTIA_TEST(async_adapter_cancels_pending_task_exactly_once) {
 }
 
 ASTIA_TEST(generic_syscall_dispatch_returns_enosys_for_unhandled_id) {
-    astia::arch::syscall_return          image{};
+    astia::arch::syscall_return         image{};
     astia::core::completion<astia::i64> result;
     ASTIA_CHECK(!astia::sys::dispatch_async<sync_probe>(
         static_cast<astia::sys::syscall_id>(128), 0, 0, 0, 0, 0, 0, image, result));

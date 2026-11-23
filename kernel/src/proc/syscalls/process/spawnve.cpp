@@ -42,7 +42,8 @@ namespace astia::proc::syscalls::detail {
     }
 
     i64 spawnve(sys::user_ptr<char> path_ptr, sys::user_ptr<const u64> argv_ptr,
-                sys::user_ptr<const u64> envp_ptr) {        auto* owner = current_process();
+                sys::user_ptr<const u64> envp_ptr) {
+        auto* owner = current_process();
         auto* self  = current_thread();
         if (owner == nullptr || self == nullptr)
             return -ESRCH;

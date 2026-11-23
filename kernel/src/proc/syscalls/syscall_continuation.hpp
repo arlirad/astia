@@ -16,10 +16,10 @@ namespace astia::proc::syscalls::detail {
             canceled,
         };
 
-        mm::shptr<process>  _owner;
-        mm::shptr<thread>   _waiter;
-        i64                 _result = -EINTR;
-        u8                  _phase  = static_cast<u8>(phase::pending);
+        mm::shptr<process> _owner;
+        mm::shptr<thread>  _waiter;
+        i64                _result = -EINTR;
+        u8                 _phase  = static_cast<u8>(phase::pending);
 
         phase current_phase() const {
             return static_cast<phase>(__atomic_load_n(&_phase, __ATOMIC_ACQUIRE));

@@ -112,7 +112,7 @@ namespace astia::sys {
                                         core::completion<i64>& completion);
 
     struct syscall_descriptor {
-        syscall_id       id;
+        syscall_id         id;
         syscall_handler_fn invoke;
     };
 
@@ -219,7 +219,7 @@ namespace astia::sys {
             static R call(R (*function)(syscall_trap, Args...),
                           const u64 (&arguments)[syscall_argument_count],
                           arch::syscall_return& image) {
-                const auto  indices =
+                const auto indices =
                     typename make_index_sequence<sizeof...(Args)>::type{};
                 syscall_trap trap{arguments, image};
                 return call_arguments(function, trap, arguments, indices);
@@ -273,9 +273,9 @@ namespace astia::sys {
         using syscall_descriptor_marker = void;
 
         static constexpr syscall_id id = Id;
-        static void thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                          arch::syscall_return&  image,
-                          core::completion<i64>& completion) {
+        static void                 thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                                          arch::syscall_return&  image,
+                                          core::completion<i64>& completion) {
             using function = decltype(&Impl::invoke);
             static_assert(
                 detail::typed_sync_handler<function>::value,
@@ -297,14 +297,13 @@ namespace astia::sys {
         using syscall_descriptor_marker = void;
 
         static constexpr syscall_id id = Id;
-        static void thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                          arch::syscall_return&  image,
-                          core::completion<i64>& completion) {
+        static void                 thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                                          arch::syscall_return&  image,
+                                          core::completion<i64>& completion) {
             using function = decltype(&Impl::invoke);
-            static_assert(
-                detail::typed_task_handler<function>::value,
-                "async syscall handlers must return core::task<i64> from "
-                "invoke(typed arguments)");
+            static_assert(detail::typed_task_handler<function>::value,
+                          "async syscall handlers must return core::task<i64> from "
+                                          "invoke(typed arguments)");
             const u64 arguments[syscall_argument_count]{a0, a1, a2, a3, a4, a5};
             if (!detail::decoded_arguments_valid<function>::check(arguments)) {
                 completion.complete(-EFAULT);
@@ -388,9 +387,9 @@ namespace astia::sys {
                                   u64 a5, arch::syscall_return& image,
                                   core::completion<i64>& completion) {
             bool dispatched = false;
-            ((dispatched = dispatched ||
-                           dispatch_descriptor<Descriptors>(id, a0, a1, a2, a3, a4, a5,
-                                                            image, completion)),
+            ((dispatched =
+                  dispatched || dispatch_descriptor<Descriptors>(id, a0, a1, a2, a3, a4,
+                                                                 a5, image, completion)),
              ...);
             return dispatched;
         }
@@ -399,8 +398,7 @@ namespace astia::sys {
 
     template <typename... Descriptors>
     bool dispatch_async(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                        arch::syscall_return& image,
-                        core::completion<i64>& completion) {
+                        arch::syscall_return& image, core::completion<i64>& completion) {
         static_assert(
             detail::valid_descriptor_ids<Descriptors...>(),
             "syscall descriptor IDs must be unique and within ABI table capacity");
@@ -418,8 +416,8 @@ namespace astia::sys {
     i64 dispatch(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
                  arch::syscall_return& image);
 
-    bool production_dispatch(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                             arch::syscall_return& image, i64& result);
+    bool production_dispatch(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
+                             u64 a5, arch::syscall_return& image, i64& result);
 
 } // namespace astia::sys
 
@@ -439,4 +437,3 @@ namespace astia {
     };
 
 } // namespace astia
-

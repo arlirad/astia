@@ -61,9 +61,8 @@ namespace astia::proc::syscalls::detail {
         char path[path_cap];
         if (!sys::copy_in_string(span<char>(path, sizeof path), path_ptr))
             return -EFAULT;
-        auto staging =
-            mm::share<exec_continuation>(mm::shptr<process>{},
-                                         mm::shptr<thread>{}, mm::shptr<fs::open_file>{});
+        auto staging = mm::share<exec_continuation>(
+            mm::shptr<process>{}, mm::shptr<thread>{}, mm::shptr<fs::open_file>{});
         if (!staging)
             return -ENOMEM;
         if (!staging->staging.allocate())

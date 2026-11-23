@@ -276,9 +276,9 @@ namespace astia::test {
         bool uname_checks() {
             auto call = [](u64 output) -> long {
                 arch::syscall_return image{};
-                return static_cast<long>(sys::dispatch(
-                    sys::syscall_id::uname, static_cast<i64>(output), 0, 0, 0, 0, 0,
-                    image));
+                return static_cast<long>(sys::dispatch(sys::syscall_id::uname,
+                                                       static_cast<i64>(output), 0, 0, 0,
+                                                       0, 0, image));
             };
             auto equal = [](const char* field, const char* value) {
                 for (usize i = 0;; ++i) {

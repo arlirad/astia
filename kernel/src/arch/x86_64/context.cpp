@@ -1,5 +1,6 @@
-#include "gdt.hpp"
 #include <astia/arch/context.hpp>
+
+#include "gdt.hpp"
 
 namespace astia::arch {
 

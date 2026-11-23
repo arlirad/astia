@@ -7,8 +7,8 @@ namespace astia::sys {
     namespace {
         template <usize Count>
         bool dispatch_from(const syscall_descriptor* const (&descriptors)[Count],
-                           syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
-                           u64 a5, arch::syscall_return& image, i64& result) {
+                           syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                           arch::syscall_return& image, i64& result) {
             for (const auto* descriptor : descriptors) {
                 if (descriptor->id != id)
                     continue;

@@ -27,7 +27,7 @@ namespace astia::proc::syscalls {
     ///     -EFAULT: The saved context or its registers are invalid.
     struct sigreturn : sys::syscall_handler<sigreturn, sys::syscall_id::sigreturn,
                                             sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_trap trap,
+        static i64 invoke(sys::syscall_trap                            trap,
                           sys::user_ptr<astia_x86_64_signal_context_t> context) {
             const auto range = context.validate();
             if (!range)
@@ -49,14 +49,14 @@ namespace astia::proc::syscalls {
                 }
                 return -ESRCH;
             }
-            auto& image = trap.image;
-            image.mode = arch::return_mode::sigreturn;
-            image.rdi   = saved.rdi;
-            image.rsi   = saved.rsi;
-            image.rdx   = saved.rdx;
-            image.r10   = saved.r10;
-            image.r8    = saved.r8;
-            image.r9    = saved.r9;
+            auto& image  = trap.image;
+            image.mode   = arch::return_mode::sigreturn;
+            image.rdi    = saved.rdi;
+            image.rsi    = saved.rsi;
+            image.rdx    = saved.rdx;
+            image.r10    = saved.r10;
+            image.r8     = saved.r8;
+            image.r9     = saved.r9;
             image.rip    = saved.rip;
             image.rflags = saved.rflags;
             image.rsp    = saved.rsp;

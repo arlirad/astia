@@ -36,10 +36,10 @@ namespace astia::proc::syscalls {
     struct fork
         : sys::syscall_handler<fork, sys::syscall_id::fork, sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_trap trap) {
-            const u64 (&arguments)[sys::syscall_argument_count] = trap.arguments;
-            return proc::fork(arch::caller_image(
-                trap.image, arguments[0], arguments[1], arguments[2], arguments[3],
-                arguments[4], arguments[5]));
+            const u64(&arguments)[sys::syscall_argument_count] = trap.arguments;
+            return proc::fork(arch::caller_image(trap.image, arguments[0], arguments[1],
+                                                 arguments[2], arguments[3], arguments[4],
+                                                 arguments[5]));
         }
     };
 

@@ -112,8 +112,9 @@ namespace astia::proc {
                     (disposition.flags & ASTIA_SA_NODEFER) != 0 ? 0 : signal_bit(signal);
                 self->signals().block(automatic_mask | disposition.mask);
                 frame.mode = arch::return_mode::signal;
-                frame.rdi = static_cast<u64>(signal);
-                frame.rsi = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0;
+                frame.rdi  = static_cast<u64>(signal);
+                frame.rsi =
+                    (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0;
                 frame.rdx = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? context : 0;
                 frame.r10 = frame.r8 = frame.r9 = 0;
                 frame.rip = reinterpret_cast<u64>(disposition.handler);
