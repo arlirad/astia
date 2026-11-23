@@ -5,6 +5,8 @@
 #include <astia/memory.hpp>
 #include <astia/proc/user_layout.hpp>
 
+#include "runner.hpp"
+
 namespace astia::io::aio::ring {
 
     static_assert(alignof(ring_slot) >= mm::page_size);
@@ -201,11 +203,13 @@ namespace astia::io::aio::ring {
         slot.cq_entries = 0;
         slot.waiters    = 0;
         slot.detached_ops.store(0, memory_order::relaxed);
-        slot.notify_pending  = false;
-        slot.notify_signaled = 0;
-        slot.kernel_buffers  = false;
-        slot.owner           = {};
-        slot.used            = false;
+        slot.detached_head    = nullptr;
+        slot.detached_reclaim = false;
+        slot.notify_pending   = false;
+        slot.notify_signaled  = 0;
+        slot.kernel_buffers   = false;
+        slot.owner            = {};
+        slot.used             = false;
     }
 
     void reap_completed(ring_slot& slot, parked_cleanup& cleanup) {
@@ -339,7 +343,8 @@ namespace astia::io::aio::ring {
         ring_guard pool_guard(g_ring_pool_lock);
         for (u32 i = 0; i < slot_count; ++i) {
             ring_slot* slot_ptr = g_slots[i];
-            if (slot_ptr != nullptr && slot_ptr->used)
+            if (slot_ptr != nullptr &&
+                (slot_ptr->used || slot_ptr->reclaiming.load(memory_order::acquire)))
                 continue;
             if (slot_ptr == nullptr) {
                 slot_ptr   = ::new (slot_storage[i]) ring_slot{};
@@ -412,6 +417,10 @@ namespace astia::io::aio::ring {
         ring_guard      ring_lock_guard(slot->lock);
         parked_cleanup& cleanup = slot->cleanup;
         reap_completed(*slot, cleanup);
+        for (runner::detached_state* entry = slot->detached_head; entry != nullptr;
+             entry                         = entry->next) {
+            (void) entry->cancel.cancel(core::cancel_reason::request);
+        }
         if (slot->waiters != 0 || slot->detached_ops.load(memory_order::acquire) != 0) {
             ring_lock_guard.unlock();
             pool_guard.unlock();

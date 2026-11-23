@@ -4,9 +4,9 @@
 namespace astia::io::aio::operations {
 
     struct ftruncate : handler<ftruncate, opcode::ftruncate> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             auto object = file_for(sqe.fd);
             if (!object)
                 co_return -EBADF;

@@ -4,9 +4,9 @@
 namespace astia::io::aio::operations {
 
     struct mkdirat : handler<mkdirat, opcode::mkdirat> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             char path[256];
             if (!memory::copy_in_string(span<char>(path, sizeof path),
                                         memory::user_ptr<char>(sqe.address)))

@@ -4,9 +4,9 @@
 namespace astia::io::aio::operations {
 
     struct poll_add : handler<poll_add, opcode::poll_add> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             const mm::shptr<fs::open_file> object = dispatch::file_for(sqe.fd);
             if (!object)
                 co_return POLLNVAL;

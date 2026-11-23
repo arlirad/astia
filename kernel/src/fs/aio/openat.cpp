@@ -4,9 +4,9 @@
 namespace astia::io::aio::operations {
 
     struct openat : handler<openat, opcode::openat> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             // The pathname is user memory: copy it into the kernel rather
             // than letting the VFS walk a raw user pointer.
             char path[256];

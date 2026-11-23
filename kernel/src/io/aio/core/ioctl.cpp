@@ -19,9 +19,9 @@ namespace astia::io::aio::operations {
     } // namespace
 
     struct ioctl : handler<ioctl, opcode::ioctl> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             /* ioctl is a control-plane fence.  Do not consume this SQE
                while an older read/write is parked: otherwise a batch
                containing READ, IOCTL, READ could observe tty state out

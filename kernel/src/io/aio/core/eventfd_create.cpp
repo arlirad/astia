@@ -75,9 +75,9 @@ namespace astia::io::aio::operations {
     } // namespace
 
     struct eventfd_create : handler<eventfd_create, opcode::eventfd_create> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             if ((sqe.op_flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0 ||
                 sqe.offset == UINT64_MAX)
                 co_return -EINVAL;

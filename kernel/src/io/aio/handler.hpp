@@ -2,6 +2,7 @@
 
 #include <astia/api/aio.h>
 #include <astia/common.hpp>
+#include <astia/core/cancellation.hpp>
 #include <astia/core/task.hpp>
 #include <astia/mapping.hpp>
 
@@ -113,8 +114,8 @@ namespace astia::io::aio {
 
     struct operation_descriptor {
         opcode operation;
-        core::task<aio_result> (*invoke)(ring::ring_slot&, astia_rings*,
-                                         astia_sqe) noexcept;
+        core::task<aio_result> (*invoke)(ring::ring_slot&, astia_rings*, astia_sqe,
+                                         core::cltoken) noexcept;
     };
 
     template <typename Derived, opcode Opcode>
@@ -122,10 +123,10 @@ namespace astia::io::aio {
         static constexpr opcode opcode_value = Opcode;
 
         static core::task<aio_result> thunk(ring::ring_slot& slot, astia_rings* ring,
-                                            astia_sqe sqe) noexcept {
+                                            astia_sqe sqe, core::cltoken token) noexcept {
             static_assert(Derived::opcode_value == Opcode);
             static_assert(valid_opcode(Opcode));
-            return Derived::invoke(slot, ring, sqe);
+            return Derived::invoke(slot, ring, sqe, token);
         }
 
         static constexpr operation_descriptor descriptor{Opcode, &handler::thunk};
