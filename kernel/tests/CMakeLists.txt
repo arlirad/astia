@@ -353,6 +353,13 @@ add_test(NAME astia_architecture_boundaries
 set_tests_properties(astia_architecture_boundaries
         PROPERTIES LABELS "kernel;architecture;deterministic")
 
+add_test(NAME astia_experimental_core_removal
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_REPO_ROOT=${ASTIA_KERNEL_SOURCE_DIR}/..
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/experimental_core_removal_test.cmake)
+set_tests_properties(astia_experimental_core_removal
+        PROPERTIES LABELS "kernel;deterministic")
+
 add_test(NAME astia_kernel_warning_flags
         COMMAND ${CMAKE_COMMAND}
         -DASTIA_MODE=kernel

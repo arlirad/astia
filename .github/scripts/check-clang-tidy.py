@@ -15,7 +15,6 @@ COMPILE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx"}
 UNSUPPORTED_PREFIXES = ("kernel/src/arch/aarch64/",)
 UNSUPPORTED_FILES = {
     "kernel/src/test/selftest_aarch64.cpp",
-    "kernel/src/core/fiber.cpp",
     "kernel/tests/public_header_alone.cpp",
     "kernel/tests/pipe_api_test.cpp",
     "kernel/tests/module_symbols.cpp",
