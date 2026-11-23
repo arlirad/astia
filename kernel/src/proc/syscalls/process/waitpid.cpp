@@ -54,6 +54,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor waitpid_descriptor = waitpid::descriptor;
-
 } // namespace astia::proc::syscalls

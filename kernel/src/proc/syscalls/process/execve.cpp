@@ -145,6 +145,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor execve_descriptor = execve::descriptor;
-
 } // namespace astia::proc::syscalls

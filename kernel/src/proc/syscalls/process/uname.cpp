@@ -54,6 +54,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor uname_descriptor = uname::descriptor;
-
 } // namespace astia::proc::syscalls

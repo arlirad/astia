@@ -38,6 +38,4 @@ namespace astia::fs::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor io_destroy_descriptor = io_destroy::descriptor;
-
 } // namespace astia::fs::syscalls

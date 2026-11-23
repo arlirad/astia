@@ -24,6 +24,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor sigpending_descriptor = sigpending::descriptor;
-
 } // namespace astia::proc::syscalls

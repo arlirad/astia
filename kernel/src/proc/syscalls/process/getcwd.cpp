@@ -37,6 +37,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor getcwd_descriptor = getcwd::descriptor;
-
 } // namespace astia::proc::syscalls

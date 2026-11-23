@@ -46,6 +46,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor fork_descriptor = fork::descriptor;
-
 } // namespace astia::proc::syscalls

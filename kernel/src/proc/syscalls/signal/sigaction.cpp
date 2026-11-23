@@ -99,6 +99,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor sigaction_descriptor = sigaction::descriptor;
-
 } // namespace astia::proc::syscalls

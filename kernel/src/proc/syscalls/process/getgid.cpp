@@ -14,6 +14,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor getgid_descriptor = getgid::descriptor;
-
 } // namespace astia::proc::syscalls

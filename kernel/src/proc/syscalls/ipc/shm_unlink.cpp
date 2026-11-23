@@ -19,6 +19,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor shm_unlink_descriptor = shm_unlink::descriptor;
-
 } // namespace astia::proc::syscalls

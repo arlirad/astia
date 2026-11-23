@@ -12,6 +12,7 @@
 #include "panic.hpp"
 #include "proc/proc.hpp"
 #include "proc/scheduler.hpp"
+#include "sys/syscall.hpp"
 
 namespace {
     astia::core::task<astia::mm::shptr<astia::proc::process>>
@@ -43,6 +44,10 @@ extern "C" void kmain(void* start_info) {
 
     const bool ok = astia::init::run(ctx);
     astia::log::info("init result=%s", ok ? "ok" : "fail");
+
+    if (!ok || !astia::sys::validate_registry()) {
+        astia::core::kpanic("syscall registry invalid");
+    }
 
     const astia::boot::init_selection selected =
         astia::boot::select_init(ctx.info == nullptr ? nullptr : ctx.info->cmdline);

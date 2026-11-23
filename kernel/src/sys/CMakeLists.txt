@@ -3,7 +3,7 @@ add_library(sys STATIC
         ${ASTIA_SYS_SYSCALL_SOURCES}
         aio.cpp
         syscall.cpp
-        handler_registry.cpp
+        dispatch.cpp
         time.cpp
         arch_syscall.cpp)
 

@@ -91,6 +91,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor kill_descriptor = kill::descriptor;
-
 } // namespace astia::proc::syscalls

@@ -22,6 +22,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor getppid_descriptor = getppid::descriptor;
-
 } // namespace astia::proc::syscalls

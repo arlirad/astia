@@ -29,6 +29,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor alarm_descriptor = alarm::descriptor;
-
 } // namespace astia::proc::syscalls

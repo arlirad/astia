@@ -52,21 +52,23 @@ handlers that need the trap itself (`fork`, `execve`, and `sigreturn`) lead with
 parameter is not an ABI argument and consumes no register. The syscall number
 and arguments are never stored in the return image.
 
-`kernel/src/sys/handler_registry.hpp` aggregates all 71 public descriptors.
-Public IDs are contiguous 0–70; the system identity call `uname` is ID 70 and
-71 is the next available append-only public ID. This is a deliberate breaking,
-repository-only ABI migration: the former identity ID 82, the private socket
-syscall stubs, and their 70–81 registrations were removed. There is no legacy 82
+Each handler declares itself: `sys::syscall_handler<Impl, id, mode>` emits a
+`constexpr` descriptor into the `astia_syscall_handlers` link section, so the
+handler file needs no registration line and there is no central registry
+header. The kernel linker brackets the section with
+`__start/__stop_astia_syscall_handlers`; `sys::dispatch` scans it and
+`sys::validate_registry()` (called once at boot) rejects duplicate,
+out-of-range, or null entries. The section is statically initialized, so the
+freestanding kernel still runs no dynamic initializers. Public IDs are
+contiguous 0–70: the 0–69 calls plus the system identity call `uname` at ID 70,
+and 71 is the next available append-only public ID. This is a deliberate
+breaking, repository-only ABI migration: the former identity ID 82 and the
+private socket syscall stubs at 70–81 were removed. There is no legacy 82
 alias and no dual ABI. `API_VERSION` is unchanged: it versions the AIO ring
-layout, not the syscall table. Rebuild userspace, initrds, and generated syscall
-assets against this tree; stale objects produced before the migration are
-invalid. The registry stores `constexpr` pointers to the per-subsystem
-descriptor objects rather than value copies, so the table is statically
-initialized in the freestanding kernel, which runs no dynamic initializers.
-Handlers call their owning implementation
-directly; syscall dispatch does not use subsystem registration tables. Tests
-audit complete ID coverage and exercise the sync/async adapters, completion
-semantics, and unknown-ID handling.
+layout, not the syscall table. Rebuild userspace, initrds, and generated
+syscall assets against this tree; stale objects produced before the migration
+are invalid. Tests audit complete ID coverage and exercise the sync/async
+adapters, completion semantics, and unknown-ID handling.
 
 Synchronous syscall logic lives in its canonical handler source. Reused
 subsystem operations are called directly, and syscall-only wrappers have been
@@ -76,13 +78,13 @@ pointers where required or delegate to the existing `sys::io_*` boundary;
 `io_register` returns `-ENOSYS`. No AIO behavior, registry, lifecycle, or
 implementation was changed.
 
-Socket operation handlers are not public syscalls. Socket semantics belong to
-`net`, and the socket AIO opcode family keeps its existing ownership and
-numbering under `kernel/src/net/aio/`; the libc socket backend is unchanged.
-`fs` owns AIO ring submission and delegates I/O execution through the existing
-`io` boundary. There is intentionally no synchronous `read` or public `write`
-syscall. A future compatibility read entry point must validate user arguments
-and translate them into an `io` request through an owner-facing API; `sys` must
+Socket AIO operations live under `kernel/src/net/aio/` and register through
+their own link section; the former prototype-only syscall descriptors 70–81
+have been removed and never entered the public ABI. `fs` owns AIO ring
+submission and delegates I/O execution through the existing `io` boundary.
+There is intentionally no synchronous `read` or public `write` syscall. A
+future compatibility read entry point must validate user arguments and
+translate them into an `io` request through an owner-facing API; `sys` must
 not inspect or construct AIO ring internals.
 
 The syscall entry remains the C ABI boundary: `syscall.S` calls
@@ -91,7 +93,7 @@ pointer to the return image. The C door maps the number through
 `mapper<sys::syscall_id>` and preserves the registers for signal delivery; the
 return image carries only the caller's return state (return mode,
 caller-saved image, RIP/RFLAGS/RSP, callee-saved image). The production C++
-dispatcher selects each descriptor from one central registry. Each descriptor
+dispatcher scans the link-time descriptor section. Each descriptor
 directly invokes the implementation owned by its subsystem; subsystem
 registration tables are not part of syscall dispatch.
 

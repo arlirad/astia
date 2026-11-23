@@ -19,6 +19,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor setreuid_descriptor = setreuid::descriptor;
-
 } // namespace astia::proc::syscalls

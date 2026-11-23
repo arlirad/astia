@@ -21,6 +21,4 @@ namespace astia::fs::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor io_submit_descriptor = io_submit::descriptor;
-
 } // namespace astia::fs::syscalls

@@ -37,6 +37,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor yield_descriptor = yield::descriptor;
-
 } // namespace astia::proc::syscalls

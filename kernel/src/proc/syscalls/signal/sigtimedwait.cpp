@@ -125,7 +125,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor sigtimedwait_descriptor =
-        sigtimedwait::descriptor;
-
 } // namespace astia::proc::syscalls

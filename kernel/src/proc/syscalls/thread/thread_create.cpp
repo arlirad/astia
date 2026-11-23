@@ -51,7 +51,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor thread_create_descriptor =
-        thread_create::descriptor;
-
 } // namespace astia::proc::syscalls

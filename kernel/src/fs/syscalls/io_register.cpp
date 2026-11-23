@@ -37,6 +37,4 @@ namespace astia::fs::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor io_register_descriptor = io_register::descriptor;
-
 } // namespace astia::fs::syscalls

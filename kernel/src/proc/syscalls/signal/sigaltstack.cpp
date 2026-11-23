@@ -59,6 +59,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor sigaltstack_descriptor = sigaltstack::descriptor;
-
 } // namespace astia::proc::syscalls

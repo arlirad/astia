@@ -18,7 +18,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor process_snapshot_descriptor =
-        process_snapshot::descriptor;
-
 } // namespace astia::proc::syscalls
