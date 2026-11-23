@@ -1,3 +1,5 @@
+#include <astia/atomic.hpp>
+
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
@@ -5,12 +7,14 @@ namespace astia::io::aio::operations {
     struct cancel : handler<cancel, opcode::cancel> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             const u64 target       = sqe.offset;
             auto      has_capacity = [ring](u32 count) {
                 const astia_cq_ring* cq = astia_rings_cq(ring);
-                const u32            head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
-                const u32            tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+                const u32            head =
+                    astia::atomic_ref(cq->head).load(astia::memory_order::acquire);
+                const u32 tail =
+                    astia::atomic_ref(cq->tail).load(astia::memory_order::relaxed);
                 return tail - head <= cq->entries - count;
             };
             for (u32 i = 0; i < parked_operation_slots; ++i) {

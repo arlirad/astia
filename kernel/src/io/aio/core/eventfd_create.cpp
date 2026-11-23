@@ -1,3 +1,5 @@
+#include <astia/atomic.hpp>
+
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
@@ -16,7 +18,7 @@ namespace astia::io::aio::operations {
             long read(void* buffer, u32 length, u64) override {
                 if (buffer == nullptr || length != sizeof(u64))
                     return -EINVAL;
-                u64 value = __atomic_exchange_n(&_value, 0, __ATOMIC_ACQ_REL);
+                u64 value = _value.exchange(0, astia::memory_order::acq_rel);
                 if (value == 0)
                     return 0;
                 *static_cast<u64*>(buffer) = value;
@@ -30,12 +32,13 @@ namespace astia::io::aio::operations {
                 u64 add = *static_cast<const u64*>(buffer);
                 if (add == UINT64_MAX)
                     return -EINVAL;
-                u64 old = __atomic_load_n(&_value, __ATOMIC_RELAXED);
+                u64 old = _value.load(astia::memory_order::relaxed);
                 for (;;) {
                     if (UINT64_MAX - old < add)
                         return _nonblock ? -EAGAIN : 0;
-                    if (__atomic_compare_exchange_n(&_value, &old, old + add, false,
-                                                    __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+                    if (_value.compare_exchange_strong(old, old + add,
+                                                       astia::memory_order::release,
+                                                       astia::memory_order::relaxed)) {
                         io_device_ready_context(this);
                         return sizeof(u64);
                     }
@@ -44,9 +47,9 @@ namespace astia::io::aio::operations {
 
             u32 poll(u32 events, u32) override {
                 u32 ready = 0;
-                if (__atomic_load_n(&_value, __ATOMIC_ACQUIRE) != 0)
+                if (_value.load(astia::memory_order::acquire) != 0)
                     ready |= POLLIN;
-                if (__atomic_load_n(&_value, __ATOMIC_ACQUIRE) != UINT64_MAX)
+                if (_value.load(astia::memory_order::acquire) != UINT64_MAX)
                     ready |= POLLOUT;
                 return ready & events;
             }
@@ -65,8 +68,8 @@ namespace astia::io::aio::operations {
             }
 
             private:
-            u64  _value;
-            bool _nonblock;
+            astia::atomic<u64> _value;
+            bool               _nonblock;
         };
 
     } // namespace
@@ -74,7 +77,7 @@ namespace astia::io::aio::operations {
     struct eventfd_create : handler<eventfd_create, opcode::eventfd_create> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             if ((sqe.op_flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0 ||
                 sqe.offset == UINT64_MAX)
                 co_return -EINVAL;

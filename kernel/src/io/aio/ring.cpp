@@ -1,6 +1,7 @@
 #include "ring.hpp"
 
 #include <astia/api/errno.h>
+#include <astia/atomic.hpp>
 #include <astia/memory.hpp>
 #include <astia/proc/user_layout.hpp>
 
@@ -33,7 +34,7 @@ namespace astia::io::aio::ring {
             waiter_index_none, waiter_index_none, waiter_index_none, waiter_index_none,
             waiter_index_none, waiter_index_none, waiter_index_none, waiter_index_none};
         waiter_index_entry g_waiter_index[slot_count * parked_slot_count];
-        u64                g_ready_generation = 0;
+        atomic<u64>        g_ready_generation{0};
 
         u32 waiter_index_hash(const fs::file* key) {
             return (static_cast<u32>(reinterpret_cast<u64>(key) >> 4) &
@@ -125,11 +126,11 @@ namespace astia::io::aio::ring {
     }
 
     u64 ready_generation() {
-        return __atomic_load_n(&g_ready_generation, __ATOMIC_ACQUIRE);
+        return g_ready_generation.load(memory_order::acquire);
     }
 
     void note_device_ready(const fs::file*) {
-        __atomic_fetch_add(&g_ready_generation, 1, __ATOMIC_ACQ_REL);
+        (void) g_ready_generation.fetch_add(1, memory_order::acq_rel);
     }
 
     void clear_waiter_hint(const ring_slot& slot, u32 park_index) {
@@ -195,10 +196,11 @@ namespace astia::io::aio::ring {
             }
         detach_parked(slot, cleanup);
         __builtin_memset(slot.map, 0, sizeof slot.map);
-        slot.user_base       = 0;
-        slot.sq_entries      = 0;
-        slot.cq_entries      = 0;
-        slot.waiters         = 0;
+        slot.user_base  = 0;
+        slot.sq_entries = 0;
+        slot.cq_entries = 0;
+        slot.waiters    = 0;
+        slot.detached_ops.store(0, memory_order::relaxed);
         slot.notify_pending  = false;
         slot.notify_signaled = 0;
         slot.kernel_buffers  = false;
@@ -225,10 +227,14 @@ namespace astia::io::aio::ring {
         if (sq->entries != slot.sq_entries || sq->mask != slot.sq_entries - 1 ||
             cq->entries != slot.cq_entries || cq->mask != slot.cq_entries - 1)
             return false;
-        const u32 sq_tail = __atomic_load_n(&sq->tail, __ATOMIC_ACQUIRE);
-        const u32 sq_head = __atomic_load_n(&sq->head, __ATOMIC_RELAXED);
-        const u32 cq_tail = __atomic_load_n(&cq->tail, __ATOMIC_ACQUIRE);
-        const u32 cq_head = __atomic_load_n(&cq->head, __ATOMIC_RELAXED);
+        const u32 sq_tail =
+            astia::atomic_ref(sq->tail).load(astia::memory_order::acquire);
+        const u32 sq_head =
+            astia::atomic_ref(sq->head).load(astia::memory_order::relaxed);
+        const u32 cq_tail =
+            astia::atomic_ref(cq->tail).load(astia::memory_order::acquire);
+        const u32 cq_head =
+            astia::atomic_ref(cq->head).load(astia::memory_order::relaxed);
         return sq_tail - sq_head <= slot.sq_entries &&
                cq_tail - cq_head <= slot.cq_entries;
     }
@@ -274,13 +280,15 @@ namespace astia::io::aio::ring {
     }
 
     void cq_retrigger(ring_slot& slot, astia_rings* ring) {
-        astia_cq_ring* cq           = astia_rings_cq(ring);
-        const u32      acknowledged = __atomic_load_n(&cq->notify_ack, __ATOMIC_ACQUIRE);
+        astia_cq_ring* cq = astia_rings_cq(ring);
+        const u32      acknowledged =
+            astia::atomic_ref(cq->notify_ack).load(astia::memory_order::acquire);
         if (slot.notify_pending && acknowledged == slot.notify_signaled)
             slot.notify_pending = false;
         if (!slot.notify_pending && astia_cq_ready(ring) != 0 && slot.owner) {
-            const u32 generation =
-                __atomic_add_fetch(&cq->notify_generation, 1, __ATOMIC_ACQ_REL);
+            const u32 generation = astia::atomic_ref(cq->notify_generation)
+                                       .fetch_add(1, astia::memory_order::acq_rel) +
+                                   1;
             slot.notify_pending  = true;
             slot.notify_signaled = generation;
             (void) slot.owner->signals().send(signal_number::aio);
@@ -302,15 +310,15 @@ namespace astia::io::aio::ring {
             return false;
         astia_rings*   storage_ring = rings_of(*storage);
         astia_cq_ring* cq           = astia_rings_cq(storage_ring);
-        const u32      head         = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
-        const u32      tail         = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+        const u32 head = astia::atomic_ref(cq->head).load(astia::memory_order::acquire);
+        const u32 tail = astia::atomic_ref(cq->tail).load(astia::memory_order::relaxed);
         if (tail - head >= cq->entries)
             return false;
         astia_cqe* c = &astia_rings_cqes(storage_ring)[tail & cq->mask];
         c->user_data = user_data;
         c->result    = result;
         c->flags     = 0;
-        __atomic_store_n(&cq->tail, tail + 1, __ATOMIC_RELEASE);
+        astia::atomic_ref(cq->tail).store(tail + 1, astia::memory_order::release);
         cq_retrigger(*storage, storage_ring);
         return true;
     }
@@ -404,7 +412,7 @@ namespace astia::io::aio::ring {
         ring_guard      ring_lock_guard(slot->lock);
         parked_cleanup& cleanup = slot->cleanup;
         reap_completed(*slot, cleanup);
-        if (slot->waiters != 0) {
+        if (slot->waiters != 0 || slot->detached_ops.load(memory_order::acquire) != 0) {
             ring_lock_guard.unlock();
             pool_guard.unlock();
             cleanup.release();

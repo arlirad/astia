@@ -1,4 +1,5 @@
 #include <astia/api/termios.h>
+#include <astia/atomic.hpp>
 
 #include "../memory.hpp"
 #include "common.hpp"
@@ -20,7 +21,7 @@ namespace astia::io::aio::operations {
     struct ioctl : handler<ioctl, opcode::ioctl> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             /* ioctl is a control-plane fence.  Do not consume this SQE
                while an older read/write is parked: otherwise a batch
                containing READ, IOCTL, READ could observe tty state out
@@ -69,7 +70,7 @@ namespace astia::io::aio::operations {
             mm::shptr<fs::open_file> object = file_for(sqe.fd);
             if (!object)
                 co_return -EBADF;
-            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            astia::atomic_thread_fence(astia::memory_order::seq_cst);
             alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
             if (input && !memory::copy_in(ioctl_storage, argument.value.bytes(expected)))
                 co_return -EFAULT;
@@ -81,7 +82,7 @@ namespace astia::io::aio::operations {
             if (rc >= 0 && output &&
                 !memory::copy_out(argument.value.bytes(expected), ioctl_storage))
                 co_return -EFAULT;
-            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            astia::atomic_thread_fence(astia::memory_order::seq_cst);
             co_return static_cast<i32>(rc);
         }
     };

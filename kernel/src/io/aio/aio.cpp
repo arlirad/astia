@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/atomic.hpp>
 
 #include "dispatch.hpp"
 #include "memory.hpp"
@@ -45,17 +46,17 @@ namespace astia::io::aio {
 
         dispatch::retry_pending(*slot, rings_of(*slot));
 
-        astia_sq_ring* sq       = astia_rings_sq(ring);
-        const u32      tail     = __atomic_load_n(&sq->tail, __ATOMIC_ACQUIRE);
-        u32            head     = __atomic_load_n(&sq->head, __ATOMIC_RELAXED);
-        u32            consumed = 0;
+        astia_sq_ring* sq = astia_rings_sq(ring);
+        const u32 tail = astia::atomic_ref(sq->tail).load(astia::memory_order::acquire);
+        u32       head = astia::atomic_ref(sq->head).load(astia::memory_order::relaxed);
+        u32       consumed = 0;
         while (consumed < to_submit && head != tail) {
             const astia_sqe s = astia_rings_sqes(ring)[head & sq->mask];
             if (!dispatch::dispatch_one(*slot, ring, s)) {
                 break;
             }
             head += 1;
-            __atomic_store_n(&sq->head, head, __ATOMIC_RELEASE);
+            astia::atomic_ref(sq->head).store(head, astia::memory_order::release);
             consumed += 1;
         }
 
