@@ -16,6 +16,15 @@ namespace astia::core {
         /// False when the frame could not be allocated and the body never ran.
         bool started = true;
 
+        /// Run `operation` and hand its result to `continuation` when it
+        /// finishes.  The chained det_task starts eagerly and owns both the
+        /// task and the continuation across a suspension.
+        template <typename T, typename Continuation>
+        static det_task then(task<T> operation, Continuation continuation) {
+            auto completed = co_await static_cast<task<T>&&>(operation);
+            continuation(static_cast<decltype(completed)&&>(completed));
+        }
+
         struct promise_type {
             det_task get_return_object() noexcept {
                 return det_task{true};
