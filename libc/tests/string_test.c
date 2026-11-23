@@ -150,6 +150,56 @@ static void test_strerror(void) {
     CHECK(strcmp(strerror(123456), "Unknown error") == 0);
 }
 
+static void test_strerror_r(void) {
+    char buffer[64];
+    char canary[16] = "0123456789abcde";
+    int  saved_errno;
+
+    CHECK(strerror_r(ENOENT, buffer, sizeof buffer) == 0);
+    CHECK(strcmp(buffer, "No such file or directory") == 0);
+    CHECK(strcmp(buffer, strerror(ENOENT)) == 0);
+    CHECK(strerror_r(ERANGE, buffer, sizeof buffer) == 0);
+    CHECK(strcmp(buffer, "Numerical result out of range") == 0);
+    CHECK(strerror_r(0, buffer, sizeof buffer) == 0);
+    CHECK(strcmp(buffer, "Success") == 0);
+    CHECK(strerror_r(123456, buffer, sizeof buffer) == 0);
+    CHECK(strcmp(buffer, "Unknown error") == 0);
+
+    /* buflen counts the terminator: six characters fit in seven bytes */
+    CHECK(strerror_r(ENOENT, buffer, 7) == ERANGE);
+    CHECK(strcmp(buffer, "No suc") == 0);
+    /* the exact fit succeeds; one byte short is a truncated ERANGE */
+    CHECK(strerror_r(ENOENT, buffer, sizeof "No such file or directory") == 0);
+    CHECK(strcmp(buffer, "No such file or directory") == 0);
+    CHECK(strerror_r(ENOENT, buffer, sizeof "No such file or directory" - 1) == ERANGE);
+    CHECK(strcmp(buffer, "No such file or director") == 0);
+
+    saved_errno = errno;
+    errno       = 424242;
+    CHECK(strerror_r(ENOENT, NULL, 0) == ERANGE);
+    CHECK(strerror_r(ENOENT, canary, 0) == ERANGE);
+    CHECK(strcmp(canary, "0123456789abcde") == 0);
+    CHECK(errno == 424242);
+
+    CHECK(strerror_r(ENOENT, canary, 7) == ERANGE);
+    CHECK(strcmp(canary, "No suc") == 0);
+    CHECK(canary[7] == '7');
+    CHECK(canary[8] == '8');
+    CHECK(canary[14] == 'e');
+    CHECK(canary[15] == '\0');
+
+    errno = 424242;
+    CHECK(strerror_r(ENOENT, buffer, sizeof buffer) == 0);
+    CHECK(errno == 424242);
+    CHECK(strerror_r(ENOENT, buffer, 1) == ERANGE);
+    CHECK(errno == 424242);
+    CHECK(strerror_r(0, buffer, sizeof buffer) == 0);
+    CHECK(errno == 424242);
+    CHECK(strerror_r(123456, buffer, sizeof buffer) == 0);
+    CHECK(errno == 424242);
+    errno = saved_errno;
+}
+
 int main(void) {
     assert(1 == 1); /* header and fail-path link at least resolve */
 
@@ -158,6 +208,7 @@ int main(void) {
     test_strtok();
     test_strings_aliases();
     test_strerror();
+    test_strerror_r();
 
     if (fails)
         printf("string_test: %d failure(s)\n", fails);
