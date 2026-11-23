@@ -1,15 +1,16 @@
 #include "curses.h"
 
+#include "libgen.h"
+#include <sys/ioctl.h>
+
 #include <errno.h>
 #include <poll.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <termios.h>
 #include <time.h>
-#include "libgen.h"
 #include <unistd.h>
 
 WINDOW* stdscr;
@@ -21,8 +22,6 @@ static struct termios saved_termios;
 static int            have_saved_termios;
 static int            pushed_key = -1;
 static int            input_nonblocking;
-
-
 
 const char* getprogname(void) {
     return "nano";
@@ -79,13 +78,12 @@ static int read_byte(unsigned char* value) {
 }
 
 static int next_escape_byte(unsigned char* value) {
-    struct pollfd descriptor = {STDIN_FILENO, POLLIN, 0};
-    int poll_result = poll(&descriptor, 1, 30);
+    struct pollfd descriptor  = {STDIN_FILENO, POLLIN, 0};
+    int           poll_result = poll(&descriptor, 1, 30);
     if (poll_result != 1)
         return -1;
     return read_byte(value);
 }
-
 
 WINDOW* initscr(void) {
     struct winsize size;
@@ -94,7 +92,7 @@ WINDOW* initscr(void) {
         return NULL;
     stdscr->rows = LINES;
     stdscr->cols = COLS;
-    curscr = stdscr;
+    curscr       = stdscr;
     if (ioctl(STDIN_FILENO, TIOCGWINSZ, &size) == 0) {
         if (size.ws_row > 0)
             LINES = stdscr->rows = size.ws_row;
@@ -110,8 +108,8 @@ int endwin(void) {
         tcsetattr(STDIN_FILENO, TCSANOW, &saved_termios);
     output("\033[0m\033[?25h\033[2J\033[H");
     free(stdscr);
-    stdscr = NULL;
-    curscr = NULL;
+    stdscr             = NULL;
+    curscr             = NULL;
     have_saved_termios = 0;
     return OK;
 }
@@ -122,7 +120,7 @@ WINDOW* newwin(int rows, int cols, int top, int left) {
         return NULL;
     window->rows = rows;
     window->cols = cols;
-    window->top = top;
+    window->top  = top;
     window->left = left;
     return window;
 }
@@ -150,7 +148,8 @@ int waddch(WINDOW* window, const chtype value) {
     if (character == '\n') {
         window->row++;
         window->col = 0;
-    } else if (++window->col >= window->cols) {
+    }
+    else if (++window->col >= window->cols) {
         window->col = 0;
         if (window->row + 1 < window->rows)
             window->row++;
@@ -258,66 +257,166 @@ int wgetch(WINDOW* window) {
     unsigned char code;
     if (read_byte(&code) < 0)
         return 27;
-    if (code == 'A') return KEY_UP;
-    if (code == 'B') return KEY_DOWN;
-    if (code == 'C') return KEY_RIGHT;
-    if (code == 'D') return KEY_LEFT;
-    if (code == 'H') return KEY_HOME;
-    if (code == 'F') return KEY_END;
-    if (code == 'Z') return KEY_BTAB;
+    if (code == 'A')
+        return KEY_UP;
+    if (code == 'B')
+        return KEY_DOWN;
+    if (code == 'C')
+        return KEY_RIGHT;
+    if (code == 'D')
+        return KEY_LEFT;
+    if (code == 'H')
+        return KEY_HOME;
+    if (code == 'F')
+        return KEY_END;
+    if (code == 'Z')
+        return KEY_BTAB;
     if (code >= '0' && code <= '9') {
         unsigned char tail;
         if (read_byte(&tail) < 0)
             return 27;
         if (tail == '~') {
-            if (code == '2') return KEY_IC;
-            if (code == '3') return KEY_DC;
-            if (code == '5') return KEY_PPAGE;
-            if (code == '6') return KEY_NPAGE;
+            if (code == '2')
+                return KEY_IC;
+            if (code == '3')
+                return KEY_DC;
+            if (code == '5')
+                return KEY_PPAGE;
+            if (code == '6')
+                return KEY_NPAGE;
         }
     }
     return 27;
 }
 
-int refresh(void) { return wrefresh(stdscr); }
-int doupdate(void) { return 0; }
-int isendwin(void) { return FALSE; }
+int refresh(void) {
+    return wrefresh(stdscr);
+}
+int doupdate(void) {
+    return 0;
+}
+int isendwin(void) {
+    return FALSE;
+}
 
 int raw(void) {
     struct termios state;
     if (tcgetattr(STDIN_FILENO, &state) < 0)
         return ERR;
     if (!have_saved_termios) {
-        saved_termios = state;
+        saved_termios      = state;
         have_saved_termios = 1;
     }
+    state.c_iflag &= ~ICRNL;
     state.c_lflag &= ~(ICANON | ECHO | ISIG);
-    state.c_cc[VMIN] = 1;
+    state.c_cc[VMIN]  = 1;
     state.c_cc[VTIME] = 0;
     return tcsetattr(STDIN_FILENO, TCSANOW, &state);
 }
 
-int noecho(void) { return raw(); }
-int nonl(void) { return OK; }
-int keypad(WINDOW* window, int enabled) { (void) window; (void) enabled; return OK; }
-int nodelay(WINDOW* window, int enabled) { (void) window; input_nonblocking = enabled != 0; return OK; }
-int halfdelay(int tenths) { (void) tenths; return OK; }
-int scrollok(WINDOW* window, int enabled) { (void) window; (void) enabled; return OK; }
-int curs_set(int visibility) { output(visibility ? "\033[?25h" : "\033[?25l"); return OK; }
-int beep(void) { output("\a"); return OK; }
-int napms(int milliseconds) { struct timespec request = {milliseconds / 1000, (milliseconds % 1000) * 1000000L}; return nanosleep(&request, NULL); }
-int has_colors(void) { return FALSE; }
-int start_color(void) { return OK; }
-int use_default_colors(void) { return OK; }
-int init_pair(short pair, short foreground, short background) { (void) pair; (void) foreground; (void) background; return OK; }
-int wattron(WINDOW* window, int attributes) { (void) window; (void) attributes; return OK; }
-int wattroff(WINDOW* window, int attributes) { (void) window; (void) attributes; return OK; }
-int mousemask(mmask_t newmask, mmask_t* oldmask) { (void) newmask; if (oldmask) *oldmask = 0; return OK; }
-int mouseinterval(int milliseconds) { (void) milliseconds; return OK; }
-int wmouse_trafo(const WINDOW* window, int* y, int* x, int to_screen) { (void) window; (void) y; (void) x; (void) to_screen; return FALSE; }
-int wenclose(const WINDOW* window, int y, int x) { return window && y >= window->top && x >= window->left && y < window->top + window->rows && x < window->left + window->cols; }
-int ungetch(int value) { if (pushed_key >= 0) return ERR; pushed_key = value; return OK; }
-const char* tigetstr(const char* capability) { (void) capability; return NULL; }
-int key_defined(const char* sequence) { (void) sequence; return 0; }
-int define_key(const char* sequence, int keycode) { (void) sequence; (void) keycode; return OK; }
-int typeahead(int file_descriptor) { (void) file_descriptor; return OK; }
+int noecho(void) {
+    return raw();
+}
+int nonl(void) {
+    return OK;
+}
+int keypad(WINDOW* window, int enabled) {
+    (void) window;
+    (void) enabled;
+    return OK;
+}
+int nodelay(WINDOW* window, int enabled) {
+    (void) window;
+    input_nonblocking = enabled != 0;
+    return OK;
+}
+int halfdelay(int tenths) {
+    (void) tenths;
+    return OK;
+}
+int scrollok(WINDOW* window, int enabled) {
+    (void) window;
+    (void) enabled;
+    return OK;
+}
+int curs_set(int visibility) {
+    output(visibility ? "\033[?25h" : "\033[?25l");
+    return OK;
+}
+int beep(void) {
+    output("\a");
+    return OK;
+}
+int napms(int milliseconds) {
+    struct timespec request = {milliseconds / 1000, (milliseconds % 1000) * 1000000L};
+    return nanosleep(&request, NULL);
+}
+int has_colors(void) {
+    return FALSE;
+}
+int start_color(void) {
+    return OK;
+}
+int use_default_colors(void) {
+    return OK;
+}
+int init_pair(short pair, short foreground, short background) {
+    (void) pair;
+    (void) foreground;
+    (void) background;
+    return OK;
+}
+int wattron(WINDOW* window, int attributes) {
+    (void) window;
+    (void) attributes;
+    return OK;
+}
+int wattroff(WINDOW* window, int attributes) {
+    (void) window;
+    (void) attributes;
+    return OK;
+}
+int mousemask(mmask_t newmask, mmask_t* oldmask) {
+    (void) newmask;
+    if (oldmask)
+        *oldmask = 0;
+    return OK;
+}
+int mouseinterval(int milliseconds) {
+    (void) milliseconds;
+    return OK;
+}
+int wmouse_trafo(const WINDOW* window, int* y, int* x, int to_screen) {
+    (void) window;
+    (void) y;
+    (void) x;
+    (void) to_screen;
+    return FALSE;
+}
+int wenclose(const WINDOW* window, int y, int x) {
+    return window && y >= window->top && x >= window->left &&
+           y < window->top + window->rows && x < window->left + window->cols;
+}
+int ungetch(int value) {
+    if (pushed_key >= 0)
+        return ERR;
+    pushed_key = value;
+    return OK;
+}
+const char* tigetstr(const char* capability) {
+    (void) capability;
+    return NULL;
+}
+int key_defined(const char* sequence) {
+    (void) sequence;
+    return 0;
+}
+int define_key(const char* sequence, int keycode) {
+    (void) sequence;
+    (void) keycode;
+    return OK;
+}
+int typeahead(int file_descriptor) {
+    (void) file_descriptor;
+    return OK;
+}

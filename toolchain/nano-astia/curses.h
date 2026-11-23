@@ -18,16 +18,16 @@ typedef struct astia_window {
 
 typedef struct {
     short id;
-    int x;
-    int y;
-    int z;
-    int bstate;
+    int   x;
+    int   y;
+    int   z;
+    int   bstate;
 } MEVENT;
 
 extern WINDOW* stdscr;
 extern WINDOW* curscr;
-extern int LINES;
-extern int COLS;
+extern int     LINES;
+extern int     COLS;
 
 #define OK 0
 #define ERR (-1)
@@ -97,7 +97,7 @@ extern int COLS;
 #define KEY_F0 0x200
 #define KEY_F(number) (KEY_F0 + (number))
 #ifndef IEXTEN
-#define IEXTEN 0x000080
+#define IEXTEN 0x008000
 #endif
 #ifndef P_tmpdir
 #define P_tmpdir "/tmp"
@@ -108,51 +108,51 @@ extern int COLS;
 #define getcury(window) ((window)->row)
 #define getcurx(window) ((window)->col)
 
-WINDOW* initscr(void);
-int endwin(void);
-int isendwin(void);
-WINDOW* newwin(int rows, int cols, int top, int left);
-int delwin(WINDOW* window);
-int wmove(WINDOW* window, int row, int col);
-int waddch(WINDOW* window, const chtype value);
-int waddnstr(WINDOW* window, const char* text, int length);
-int waddstr(WINDOW* window, const char* text);
-int wprintw(WINDOW* window, const char* format, ...);
-int mvwaddch(WINDOW* window, int row, int col, const chtype value);
-int mvwaddnstr(WINDOW* window, int row, int col, const char* text, int length);
-int mvwaddstr(WINDOW* window, int row, int col, const char* text);
-int mvwprintw(WINDOW* window, int row, int col, const char* format, ...);
-int wclrtoeol(WINDOW* window);
-int wrefresh(WINDOW* window);
-int wnoutrefresh(WINDOW* window);
-int wredrawln(WINDOW* window, int row, int count);
-int wscrl(WINDOW* window, int lines);
-int wgetch(WINDOW* window);
-int refresh(void);
-int doupdate(void);
-int raw(void);
-int noecho(void);
-int nonl(void);
-int keypad(WINDOW* window, int enabled);
-int nodelay(WINDOW* window, int enabled);
-int halfdelay(int tenths);
-int scrollok(WINDOW* window, int enabled);
-int curs_set(int visibility);
-int beep(void);
-int napms(int milliseconds);
-int has_colors(void);
-int start_color(void);
-int use_default_colors(void);
-int init_pair(short pair, short foreground, short background);
-int wattron(WINDOW* window, int attributes);
-int wattroff(WINDOW* window, int attributes);
-int mousemask(mmask_t newmask, mmask_t* oldmask);
-int mouseinterval(int milliseconds);
-int wmouse_trafo(const WINDOW* window, int* y, int* x, int to_screen);
-int wenclose(const WINDOW* window, int y, int x);
-int ungetch(int value);
+WINDOW*     initscr(void);
+int         endwin(void);
+int         isendwin(void);
+WINDOW*     newwin(int rows, int cols, int top, int left);
+int         delwin(WINDOW* window);
+int         wmove(WINDOW* window, int row, int col);
+int         waddch(WINDOW* window, const chtype value);
+int         waddnstr(WINDOW* window, const char* text, int length);
+int         waddstr(WINDOW* window, const char* text);
+int         wprintw(WINDOW* window, const char* format, ...);
+int         mvwaddch(WINDOW* window, int row, int col, const chtype value);
+int         mvwaddnstr(WINDOW* window, int row, int col, const char* text, int length);
+int         mvwaddstr(WINDOW* window, int row, int col, const char* text);
+int         mvwprintw(WINDOW* window, int row, int col, const char* format, ...);
+int         wclrtoeol(WINDOW* window);
+int         wrefresh(WINDOW* window);
+int         wnoutrefresh(WINDOW* window);
+int         wredrawln(WINDOW* window, int row, int count);
+int         wscrl(WINDOW* window, int lines);
+int         wgetch(WINDOW* window);
+int         refresh(void);
+int         doupdate(void);
+int         raw(void);
+int         noecho(void);
+int         nonl(void);
+int         keypad(WINDOW* window, int enabled);
+int         nodelay(WINDOW* window, int enabled);
+int         halfdelay(int tenths);
+int         scrollok(WINDOW* window, int enabled);
+int         curs_set(int visibility);
+int         beep(void);
+int         napms(int milliseconds);
+int         has_colors(void);
+int         start_color(void);
+int         use_default_colors(void);
+int         init_pair(short pair, short foreground, short background);
+int         wattron(WINDOW* window, int attributes);
+int         wattroff(WINDOW* window, int attributes);
+int         mousemask(mmask_t newmask, mmask_t* oldmask);
+int         mouseinterval(int milliseconds);
+int         wmouse_trafo(const WINDOW* window, int* y, int* x, int to_screen);
+int         wenclose(const WINDOW* window, int y, int x);
+int         ungetch(int value);
 const char* tigetstr(const char* capability);
-char* tgetstr(const char* capability, char** area);
-int key_defined(const char* sequence);
-int define_key(const char* sequence, int keycode);
-int typeahead(int file_descriptor);
+char*       tgetstr(const char* capability, char** area);
+int         key_defined(const char* sequence);
+int         define_key(const char* sequence, int keycode);
+int         typeahead(int file_descriptor);

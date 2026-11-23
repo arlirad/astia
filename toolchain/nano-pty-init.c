@@ -1,9 +1,11 @@
-#include <fcntl.h>
+#include <sys/stat.h>
+
 #include <errno.h>
+#include <fcntl.h>
 #include <pty.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
+#include <termios.h>
 #include <unistd.h>
 
 static int fail(const char* message) {
@@ -11,14 +13,26 @@ static int fail(const char* message) {
     return 1;
 }
 
+static int raw_slave(int fd) {
+    struct termios state;
+    if (tcgetattr(fd, &state) < 0)
+        return -1;
+    state.c_iflag &= ~ICRNL;
+    state.c_lflag &= ~(ICANON | ECHO | ISIG);
+    state.c_cc[VMIN]  = 1;
+    state.c_cc[VTIME] = 0;
+    return tcsetattr(fd, TCSANOW, &state);
+}
+
 static int pty_smoke(void) {
-    int master;
-    int slave;
+    int  master;
+    int  slave;
     char name[32];
     char value;
     if (openpty(&master, &slave, name, NULL, NULL) < 0)
         return -1;
-    if (write(master, "x", 1) != 1 || read(slave, &value, 1) != 1 || value != 'x')
+    if (raw_slave(slave) < 0 || write(master, "x", 1) != 1 ||
+        read(slave, &value, 1) != 1 || value != 'x')
         return -1;
     close(master);
     errno = 0;
@@ -31,11 +45,11 @@ static int pty_smoke(void) {
 int main(void) {
     char* const editor_argv[] = {(char*) "/bin/nano", (char*) "-t",
                                  (char*) "/tmp/nano-smoke.txt", NULL};
-    char* const editor_env[] = {(char*) "TERM=vt220", NULL};
+    char* const editor_env[]  = {(char*) "TERM=vt220", NULL};
     int         file;
     int         status;
     int         child;
-    int         verified = 0;
+    int         verified     = 0;
     char        contents[64] = {0};
     long        count;
     int         seed_file = open("/tmp/nano-smoke.txt", O_CREAT | O_RDWR, 0600);

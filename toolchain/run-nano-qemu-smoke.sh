@@ -79,6 +79,7 @@ deadline = time.time() + 45
 buffer = bytearray()
 stage = 0
 stage_deadline = time.time() + 45
+saw_wrote = False
 while time.time() < deadline and process.poll() is None:
     ready, _, _ = select.select([master], [], [], 0.2)
     if ready:
@@ -87,23 +88,26 @@ while time.time() < deadline and process.poll() is None:
         except OSError:
             break
     if stage == 0 and b"GNU nano" in buffer:
-        os.write(master, b"Astia nano smoke\n")
+        os.write(master, b"Astia nano smoke\r\x7f")
         stage = 1
-        stage_deadline = time.time() + 5
-    elif stage == 1 and time.time() > stage_deadline:
-        os.write(master, b"\x18")
+        stage_deadline = time.time() + 10
+    elif stage == 1 and b"Astia nano smoke" in buffer and b"Modified" in buffer:
+        os.write(master, b"\x0f")
         stage = 2
-        stage_deadline = time.time() + 5
-    elif stage == 2 and time.time() > stage_deadline:
-        os.write(master, b"y")
-        stage = 3
-        stage_deadline = time.time() + 2
-    elif stage == 3 and time.time() > stage_deadline:
+        stage_deadline = time.time() + 10
+    elif stage == 2 and b"Write to File:" in buffer:
         os.write(master, b"\r")
+        stage = 3
+        stage_deadline = time.time() + 10
+    elif stage == 3 and b"Wrote " in buffer:
+        saw_wrote = True
+        os.write(master, b"\x18")
         stage = 4
-        stage_deadline = time.time() + 5
+        stage_deadline = time.time() + 10
     elif stage == 4 and b"NANO_SMOKE_OK" in buffer:
-        stage = 5
+        break
+    if 1 <= stage <= 4 and time.time() > stage_deadline:
+        break
 if process.poll() is None:
     process.terminate()
     process.wait(timeout=5)
@@ -112,8 +116,14 @@ output = bytes(buffer)
 if direct:
     print("nano direct-exec smoke: process exited")
     raise SystemExit(0)
+if b"Unbound key" in output:
+    sys.stderr.write(output.decode("utf-8", "replace")[-4000:])
+    raise SystemExit("nano save regression: CR arrived as ^J")
+if not saw_wrote or b"Wrote " not in output:
+    sys.stderr.write(output.decode("utf-8", "replace")[-4000:])
+    raise SystemExit("nano save regression: missing Wrote confirmation")
 if b"NANO_SMOKE_OK" not in output:
     sys.stderr.write(output.decode("utf-8", "replace")[-4000:])
     raise SystemExit("nano QEMU smoke failed")
-print("nano QEMU smoke: PASS")
+print("nano QEMU smoke: PASS (^O save, exact file content)")
 PY
