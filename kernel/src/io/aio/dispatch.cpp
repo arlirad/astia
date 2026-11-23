@@ -286,6 +286,8 @@ namespace astia::io::aio::dispatch {
         bool publish_pending(astia_rings* ring, parked_op& op) {
             if (!op.pending_cqe)
                 return true;
+            if (op.token.canceled())
+                op.pending_result = -ECANCELED;
             if (!cq_post(ring, op.pending_user_data, op.pending_result))
                 return false;
             op.pending_cqe = false;
@@ -313,7 +315,9 @@ namespace astia::io::aio::dispatch {
                             const mm::shptr<fs::open_file>& object,
                             const span<u8>* entries, u32 count,
                             ::astia::io::direction direction, bool control = false,
-                            bool socket_accept = false) {
+                            bool socket_accept = false, core::cltoken token = {}) {
+            if (token.canceled())
+                return cq_post(ring, s.user_data, -ECANCELED);
             parked_op* p          = nullptr;
             u32        park_index = 0;
             for (u32 i = 0; i < parked_operation_slots; ++i) {
@@ -345,6 +349,7 @@ namespace astia::io::aio::dispatch {
             p->pending_result        = 0;
             p->recvfrom_address      = s.op == OP_RECVFROM;
             p->recvfrom_address_user = p->recvfrom_address ? s.offset : 0;
+            p->token                 = token;
 
             // Snapshot every entry for as long as this operation lasts.  From
             // here the device is handed kernel windows and never the user
@@ -419,6 +424,8 @@ namespace astia::io::aio::dispatch {
                     p->device_ready = true;
                 return true; // parked: a device resume completes it
             }
+            if (p->token.canceled())
+                result = -ECANCELED;
             complete_recvfrom_address(slot.owner.get(), *p, result);
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
@@ -461,6 +468,10 @@ namespace astia::io::aio::dispatch {
                 op.resuming = false;
                 return;
             }
+            if (op.operation == nullptr) {
+                op.resuming = false;
+                return;
+            }
             if (op.readiness) {
                 const u32 ready = op.object ? op.object->poll(op.poll_events)
                                             : static_cast<u32>(POLLNVAL);
@@ -468,16 +479,17 @@ namespace astia::io::aio::dispatch {
                     op.resuming = false;
                     return;
                 }
+                const i32 result =
+                    op.token.canceled() ? -ECANCELED : static_cast<i32>(ready);
                 if (op.operation->request().completion() != nullptr) {
                     op.operation->request().completion()->complete_deferred(
-                        static_cast<i64>(ready));
+                        static_cast<i64>(result));
                     op.done = true;
                 }
-                else if (!cq_post(ring, op.operation->request().user_data(),
-                                  static_cast<i32>(ready))) {
+                else if (!cq_post(ring, op.operation->request().user_data(), result)) {
                     op.pending_cqe       = true;
                     op.pending_user_data = op.operation->request().user_data();
-                    op.pending_result    = static_cast<i32>(ready);
+                    op.pending_result    = result;
                 }
                 else
                     op.done = true;
@@ -485,7 +497,16 @@ namespace astia::io::aio::dispatch {
                 return;
             }
             long result = 0;
-            if (pump(op, result) == io_outcome::parked) {
+            if (op.token.canceled()) {
+                // Do not hand the device any more work for a cancelled
+                // operation; retire the frozen request and publish the
+                // cancellation through the normal settlement path.
+                (void) op.operation->request().cancel_device(
+                    false, core::cancel_reason::request);
+                op.operation->request().acknowledge();
+                result = -ECANCELED;
+            }
+            else if (pump(op, result) == io_outcome::parked) {
                 arm_request_timeout(op);
                 op.resuming = false;
                 return;
@@ -525,7 +546,10 @@ namespace astia::io::aio::dispatch {
         };
 
         bool submit_io(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
-                       ::astia::io::direction direction, bool vectored) {
+                       ::astia::io::direction direction, bool vectored,
+                       core::cltoken token) {
+            if (token.canceled())
+                return ring::cq_post_guarded(ring, s.user_data, -ECANCELED);
             dispatch_context         context{slot, ring, s, proc::current_process()};
             mm::shptr<fs::open_file> object = file_for(context.current, s.fd);
             if (!object) {
@@ -598,7 +622,7 @@ namespace astia::io::aio::dispatch {
                 return context.complete(0);
             }
             return submit_request(context.slot, context.ring, s, object, ranges, count,
-                                  direction);
+                                  direction, false, false, token);
         }
 
     } // namespace detail
@@ -625,14 +649,14 @@ namespace astia::io::aio::dispatch {
                                const mm::shptr<fs::open_file>& object,
                                const span<u8>* entries, u32 count,
                                ::astia::io::direction direction, bool control,
-                               bool socket_accept) {
+                               bool socket_accept, core::cltoken token) {
         return detail::submit_request(slot, ring, sqe, object, entries, count, direction,
-                                      control, socket_accept);
+                                      control, socket_accept, token);
     }
 
     bool submit_io(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe,
-                   ::astia::io::direction direction, bool vectored) {
-        return detail::submit_io(slot, ring, sqe, direction, vectored);
+                   ::astia::io::direction direction, bool vectored, core::cltoken token) {
+        return detail::submit_io(slot, ring, sqe, direction, vectored, token);
     }
 
     bool publish_pending(astia_rings* ring, parked_op& op) {

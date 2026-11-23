@@ -69,6 +69,8 @@ namespace astia {
             return EROFS;
         case error_t::etimedout:
             return ETIMEDOUT;
+        case error_t::ecanceled:
+            return ECANCELED;
         }
         return EINVAL;
     }
@@ -123,6 +125,8 @@ namespace astia {
             return error_t::erofs;
         case ETIMEDOUT:
             return error_t::etimedout;
+        case ECANCELED:
+            return error_t::ecanceled;
         default:
             return error_t::eio;
         }

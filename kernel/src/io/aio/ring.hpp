@@ -4,6 +4,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
 #include <astia/atomic.hpp>
+#include <astia/core/cancellation.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/io.hpp>
 #include <astia/memory.hpp>
@@ -92,7 +93,8 @@ namespace astia::io::aio::ring {
         i32                      fd;
         mm::shptr<fs::open_file> object;
         mm::iovec                entries;
-        ::astia::io::operation*  operation  = nullptr;
+        ::astia::io::operation*  operation = nullptr;
+        core::cltoken            token{};
         u64                      generation = 0;
         usize                    moved      = 0;
 
@@ -126,6 +128,7 @@ namespace astia::io::aio::ring {
             pending_result        = 0;
             fd                    = 0;
             object                = {};
+            token                 = {};
             generation            = 0;
             moved                 = 0;
         }

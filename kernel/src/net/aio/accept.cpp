@@ -4,9 +4,10 @@
 namespace astia::io::aio::operations {
 
     struct accept : handler<accept, opcode::accept> {
-        static core::task<aio_result>
-        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
-               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             astia_sqe                         sqe,
+                                             core::cltoken token) noexcept {
             auto object = file_for(sqe.fd);
             if (!object)
                 co_return -EBADF;
@@ -14,7 +15,7 @@ namespace astia::io::aio::operations {
                 co_return -EOPNOTSUPP;
             co_return dispatch::submit_socket_request(slot, ring, sqe, object, nullptr, 0,
                                                       ::astia::io::direction::input, true,
-                                                      true)
+                                                      true, token)
                 ? aio_result::pending
                 : aio_result::retry;
         }

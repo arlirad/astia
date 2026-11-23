@@ -39,6 +39,7 @@ namespace astia::io::aio::operations {
             p->signal_interruptible = true;
             p->sleeping             = true;
             p->sleep_absolute       = absolute;
+            p->token                = {};
             p->sleep_deadline =
                 absolute
                     ? sqe.offset

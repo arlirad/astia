@@ -32,6 +32,7 @@ namespace astia::io::aio::operations {
             p->signal_interruptible = true;
             p->readiness            = true;
             p->poll_events          = sqe.aux;
+            p->token                = {};
             p->fd                   = sqe.fd;
             p->object               = object;
             p->operation = new ::astia::io::operation(nullptr, 0, 0, sqe.user_data,

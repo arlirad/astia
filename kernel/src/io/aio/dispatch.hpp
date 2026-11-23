@@ -14,9 +14,10 @@ namespace astia::io::aio::dispatch {
                                const mm::shptr<fs::open_file>& object,
                                const span<u8>* entries, u32 count,
                                ::astia::io::direction direction, bool control = false,
-                               bool socket_accept = false);
+                               bool socket_accept = false, core::cltoken token = {});
     bool submit_io(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe,
-                   ::astia::io::direction direction, bool vectored);
+                   ::astia::io::direction direction, bool vectored,
+                   core::cltoken token = {});
     bool publish_pending(astia_rings* ring, ring::parked_op& op);
 
     bool dispatch_one(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
