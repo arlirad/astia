@@ -115,10 +115,6 @@ default build, and is never linked into `astiakrn`, `astiakrn_test`, or
 The linker script is selected from that target as
 `cmake/linker/${BOOT}-${ARCH}.ld` and passed to every kernel executable; do not
 configure a separate linker-script cache variable.
-The stackful `core::fiber` implementation is experimental and excluded from
-production builds; enable `-DASTIA_BUILD_EXPERIMENTAL_FIBER=ON` only for
-focused architecture experiments.
-
 The remaining audit findings are tracked for later slices: the generic MMIO
 window and user virtual-address layout still need arch/platform policy
 providers; process, AIO, and mapping code need narrower ownership boundaries;

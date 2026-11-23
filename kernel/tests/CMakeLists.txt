@@ -178,12 +178,8 @@ file(GLOB ASTIA_AIO_CORE_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/core/*.cpp)
 file(GLOB ASTIA_AIO_FS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio/*.cpp)
-list(REMOVE_ITEM ASTIA_AIO_FS_HANDLER_TEST_SOURCES
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/aio/dispatch.cpp)
 file(GLOB ASTIA_AIO_NET_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio/*.cpp)
-list(REMOVE_ITEM ASTIA_AIO_NET_HANDLER_TEST_SOURCES
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/aio/dispatch.cpp)
 file(GLOB ASTIA_AIO_READINESS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/readiness/aio/*.cpp)
 set(ASTIA_AIO_HANDLER_TEST_SOURCES
@@ -193,7 +189,11 @@ set(ASTIA_AIO_HANDLER_TEST_SOURCES
         ${ASTIA_AIO_READINESS_HANDLER_TEST_SOURCES})
 set(ASTIA_AIO_REGISTRY_TEST_SOURCES
         aio_registry_test_support.cpp
+        support/file_host.cpp
+        support/interrupts_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/dispatch.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/runner.cpp
         ${ASTIA_AIO_HANDLER_TEST_SOURCES})
 astia_add_host_test(astia_aio_static_handlers_test
         aio_static_handlers_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
@@ -354,6 +354,13 @@ add_test(NAME astia_architecture_boundaries
         -P ${CMAKE_CURRENT_SOURCE_DIR}/architecture_boundaries_test.cmake)
 set_tests_properties(astia_architecture_boundaries
         PROPERTIES LABELS "kernel;architecture;deterministic")
+
+add_test(NAME astia_experimental_core_removal
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_REPO_ROOT=${ASTIA_KERNEL_SOURCE_DIR}/..
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/experimental_core_removal_test.cmake)
+set_tests_properties(astia_experimental_core_removal
+        PROPERTIES LABELS "kernel;deterministic")
 
 add_test(NAME astia_kernel_warning_flags
         COMMAND ${CMAKE_COMMAND}

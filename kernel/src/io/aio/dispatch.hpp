@@ -15,8 +15,10 @@ namespace astia::io::aio::dispatch {
                                const span<u8>* entries, u32 count,
                                ::astia::io::direction direction, bool control = false,
                                bool socket_accept = false);
+    bool submit_io(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe,
+                   ::astia::io::direction direction, bool vectored);
+    bool publish_pending(astia_rings* ring, ring::parked_op& op);
 
-    bool dispatch_core(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
     bool dispatch_one(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
     void retry_pending(ring::ring_slot& slot, astia_rings* ring);
     void resume_parked(proc::process* owner, astia_rings* ring, ring::parked_op& op);

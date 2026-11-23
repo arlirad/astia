@@ -1,20 +1,18 @@
 import { TestBed } from '@angular/core/testing';
 import { DOC_PAGES } from '../content';
 import { DocsBrowser } from './docs-browser';
+import { DocsMarkdownRenderer } from './docs-markdown';
+import {
+  DEFAULT_DOCS_REPOSITORY_CONFIG,
+  GitHubDocsSource,
+} from './docs.repository';
 
 const SYSCALL_PAGES = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
 const CANONICAL_SYSCALL_IDS = [
   ...Array.from({ length: 71 }, (_, index) => index),
 ];
 
-const synopsisOf = (page: (typeof SYSCALL_PAGES)[number]): string => {
-  const match = page.content.match(
-    /## SYNOPSIS\s+(?:```c\n([\s\S]*?)\n```|([^\n]+))/,
-  );
-  return (match?.[1] ?? match?.[2] ?? '').trim();
-};
-
-describe('Generated section-2 syscall docs', () => {
+describe('Runtime section-2 syscall docs', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [DocsBrowser],
@@ -23,9 +21,9 @@ describe('Generated section-2 syscall docs', () => {
 
   it('contains all 71 canonical syscall pages with stable IDs and slugs', () => {
     expect(SYSCALL_PAGES.length).toBe(CANONICAL_SYSCALL_IDS.length);
-    expect(SYSCALL_PAGES.map((page) => page.syscallId).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual(
-      CANONICAL_SYSCALL_IDS,
-    );
+    expect(
+      SYSCALL_PAGES.map((page) => page.syscallId).sort((a, b) => (a ?? 0) - (b ?? 0)),
+    ).toEqual(CANONICAL_SYSCALL_IDS);
 
     const slugs = new Set(SYSCALL_PAGES.map((page) => page.slug));
     expect(slugs.size).toBe(CANONICAL_SYSCALL_IDS.length);
@@ -36,128 +34,42 @@ describe('Generated section-2 syscall docs', () => {
     }
   });
 
-  it('carries real Markdown bodies and authoritative source links', () => {
+  it('keeps authoritative paths and ABI metadata without baking page bodies', () => {
     const ioSetup = SYSCALL_PAGES.find((page) => page.syscallId === 0);
     const alarm = SYSCALL_PAGES.find((page) => page.syscallId === 55);
     const fchdir = SYSCALL_PAGES.find((page) => page.syscallId === 69);
+    const uname = SYSCALL_PAGES.find((page) => page.syscallId === 70);
 
     expect(ioSetup?.title).toBe('io_setup(2)');
-    expect(ioSetup?.content).toContain('## SYNOPSIS');
-    expect(ioSetup?.content).toContain('Allocates a ring');
     expect(ioSetup?.category).toBe('fs');
-    expect(ioSetup?.source).toBe(
-      'https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_setup.cpp',
+    expect(ioSetup?.contentKind).toBe('source');
+    expect(ioSetup?.sourcePath).toBe('kernel/src/fs/syscalls/io_setup.cpp');
+    expect(ioSetup?.synopsis).toBe(
+      'long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);',
     );
 
     expect(alarm?.title).toBe('alarm(2)');
-    expect(alarm?.content).toContain('Schedule delivery of a process alarm');
-    expect(alarm?.source).toContain('kernel/src/proc/syscalls/alarm.cpp');
+    expect(alarm?.sourcePath).toBe('kernel/src/proc/syscalls/alarm.cpp');
 
     expect(fchdir?.title).toBe('fchdir(2)');
-    expect(fchdir?.source).toContain('kernel/include/astia/api/syscalls.h');
+    expect(fchdir?.sourcePath).toBe('kernel/include/astia/api/syscalls.h');
 
-    const uname = SYSCALL_PAGES.find((page) => page.syscallId === 70);
     expect(uname?.title).toBe('uname(2)');
     expect(uname?.slug).toBe('syscall-70-uname');
     expect(uname?.category).toBe('proc/process');
-    expect(uname?.source).toContain('kernel/src/proc/syscalls/process/uname.cpp');
-    expect(uname?.content).toContain('## SYNOPSIS');
-    expect(uname?.content).toContain('long astia_uname(astia_utsname* output);');
-    expect(uname?.content).toContain('`-EFAULT`');
-    expect(uname?.content).toContain('`-ESRCH`');
+    expect(uname?.sourcePath).toBe('kernel/src/proc/syscalls/process/uname.cpp');
+    expect(uname?.synopsisKind).toBe('public');
+    expect(uname?.synopsis).toBe('long astia_uname(astia_utsname* output);');
 
-    const sigwait = SYSCALL_PAGES.find((page) => page.syscallId === 50);
-    expect(sigwait?.content).toContain(
-      'long astia_sigwait(const uint32_t* set, int32_t* signal);',
-    );
-    expect(sigwait?.content).not.toContain('long sigwait(u64');
-
-    const clockGetTime = SYSCALL_PAGES.find((page) => page.syscallId === 7);
-    const clockGetRes = SYSCALL_PAGES.find((page) => page.syscallId === 62);
-    expect(clockGetTime?.source).toContain('kernel/include/astia/api/syscalls.h');
-    expect(clockGetRes?.source).toContain('kernel/include/astia/api/syscalls.h');
-    expect(clockGetRes?.content).toContain('astia_clock_getres');
-    expect(clockGetRes?.content).toContain('Resolution is derived from the active timer');
-    expect(clockGetTime?.content).toContain('`-EIO`');
-    expect(clockGetTime?.content).toContain('active timer source');
-    expect(clockGetRes?.content).toContain('`-EIO`');
-    expect(clockGetRes?.content).toContain('active timer source');
-
-    const execve = SYSCALL_PAGES.find((page) => page.syscallId === 24);
-    expect(execve?.category).toBe('proc/process');
-    expect(execve?.source).toContain('libc/src/unistd.c');
-    expect(execve?.content).toContain('returns -1 and sets errno');
-    expect(execve?.content).not.toContain('negative errno');
-    expect(execve?.content).toContain('FD_CLOEXEC');
-    expect(execve?.content).toContain('`E2BIG`');
-    expect(execve?.content).not.toContain('`-E2BIG`');
-    expect(execve?.content).toContain('argv or envp');
-    expect(execve?.content).not.toContain('A path, vector, or string pointer is invalid');
-    expect(execve?.content).toContain('null path returns EINVAL');
-    expect(execve?.content).toContain('`EINVAL`');
-    expect(execve?.content).toContain('not a valid ELF executable image');
-    expect(execve?.content).toContain('`ENAMETOOLONG`');
-    expect(execve?.content).toContain('`ENOEXEC`');
-    expect(execve?.content).toContain('The file is empty');
-    expect(execve?.content).not.toContain('not a supported executable image');
-    expect(execve?.content).toContain('no current process or thread context');
-    expect(execve?.content).toContain(
-      'The current process or thread could not be retained',
-    );
-    expect(execve?.content).not.toContain('ESRCH: There is no current process');
-    expect(execve?.content).toContain('resolved against the caller');
-    expect(execve?.content).toContain('kernel/src/proc/syscalls/process/execve.cpp');
-    expect(execve?.content).toContain('kernel/src/elf/exec_loader.cpp');
-
-    const sigsuspend = SYSCALL_PAGES.find((page) => page.syscallId === 25);
-    expect(sigsuspend?.category).toBe('proc/signal');
-    expect(sigsuspend?.source).toContain('libc/src/signal.c');
-    expect(sigsuspend?.content).toContain('Never returns 0');
-    expect(sigsuspend?.content).toContain('errno to EINTR');
-    expect(sigsuspend?.content).toContain('`EINTR`');
-    expect(sigsuspend?.content).not.toContain('`-EINTR`');
-    expect(sigsuspend?.content).toContain('kernel/src/proc/syscalls/signal/sigsuspend.cpp');
-
-    const waitpid = SYSCALL_PAGES.find((page) => page.syscallId === 13);
-    expect(waitpid?.category).toBe('proc/process');
-    expect(waitpid?.source).toContain('kernel/include/astia/api/syscalls.h');
-    expect(waitpid?.content).toContain(
-      'long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);',
-    );
-    expect(waitpid?.content).toContain('The libc waitpid() wrapper translates that result to -1');
-    expect(waitpid?.content).toContain('`-EINTR`');
-    expect(waitpid?.content).toContain('unblocked interrupting signal');
-    expect(waitpid?.content).toContain('`-EAGAIN`');
-    expect(waitpid?.content).toContain('process waiter table');
+    const sigreturn = SYSCALL_PAGES.find((page) => page.syscallId === 29);
+    expect(sigreturn?.synopsisKind).toBe('raw');
+    expect(sigreturn?.synopsis).toContain('Raw kernel ABI');
 
     for (const page of SYSCALL_PAGES) {
-      expect(page.category).toBeTruthy();
-      expect(page.source).toMatch(
-        /^https:\/\/github\.com\/arlirad\/astia\/blob\/main\/(kernel\/src|kernel\/include|libc)\//,
-      );
-      expect(page.content).toContain('## DESCRIPTION');
-      if (page.content.includes('Detailed manual text has not been added')) {
-        const synopsis = page.content.match(/## SYNOPSIS\s+```c\n([\s\S]*?)\n```/)?.[1] ?? '';
-        expect(synopsis).toContain('astia_');
-        expect(synopsis.trimEnd().endsWith(';')).toBeTrue();
-        expect(synopsis).not.toMatch(/\b(?:i64|u64|u32|i32)\b/);
-      }
-    }
-  });
-
-  it('uses public ABI or explicitly raw synopses for all 71 pages', () => {
-    for (const page of SYSCALL_PAGES) {
+      expect(page.sourcePath).toMatch(/^(kernel\/src|kernel\/include|libc)\//);
+      expect(page.contentKind).toBe('source');
       expect(page.synopsisKind).toBeTruthy();
-      const synopsis = synopsisOf(page);
-      if (page.synopsisKind === 'raw') {
-        expect(synopsis).toContain('Raw kernel ABI');
-        expect(synopsis).not.toContain('astia_');
-        expect(synopsis).not.toContain('long ');
-      } else {
-        expect(synopsis).toMatch(/^(long astia_|int |void astia_)/);
-        expect(synopsis.endsWith(';')).toBeTrue();
-        expect(synopsis).not.toMatch(/\b(?:i64|u64|u32|i32)\b/);
-      }
+      expect('content' in page).toBeFalse();
     }
 
     expect(
@@ -165,37 +77,39 @@ describe('Generated section-2 syscall docs', () => {
         (page) => page.title,
       ),
     ).toEqual(['sigreturn(2)']);
-
-    const exact = (id: number) =>
-      synopsisOf(SYSCALL_PAGES.find((page) => page.syscallId === id)!);
-
-    expect(exact(0)).toBe(
-      'long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);',
-    );
-    expect(exact(46)).toBe('long astia_unmount(const char* target);');
-    expect(exact(7)).toBe(
-      'long astia_clock_gettime(uint32_t clock_id, astia_timespec* out);',
-    );
-    expect(exact(62)).toBe(
-      'long astia_clock_getres(uint32_t clock_id, astia_timespec* out);',
-    );
-    expect(exact(50)).toBe(
-      'long astia_sigwait(const uint32_t* set, int32_t* signal);',
-    );
-    expect(exact(24)).toBe(
-      'int execve(const char* path, char* const argv[], char* const envp[]);',
-    );
-    expect(exact(25)).toBe('int sigsuspend(const sigset_t* mask);');
-    expect(exact(13)).toBe(
-      'long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);',
-    );
-    expect(exact(70)).toBe('long astia_uname(astia_utsname* output);');
   });
 
-  it('renders a syscall page through the existing Markdown parser', async () => {
+  it('fetches and renders a representative syscall source page', async () => {
+    const sourceText = [
+      '// io_setup(2)',
+      'long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out) {',
+      '  return 0;',
+      '}',
+    ].join('\n');
+    const fetchSpy = jasmine
+      .createSpy('fetch')
+      .and.returnValue(Promise.resolve(new Response(sourceText, { status: 200 })));
+    const source = new GitHubDocsSource(
+      DEFAULT_DOCS_REPOSITORY_CONFIG,
+      fetchSpy as unknown as typeof fetch,
+    );
+    const page = SYSCALL_PAGES.find((candidate) => candidate.syscallId === 0)!;
+
+    const markdown = await source.load(page);
+
+    expect(fetchSpy.calls.mostRecent().args[0]).toBe(
+      'https://raw.githubusercontent.com/arlirad/astia/main/kernel/src/fs/syscalls/io_setup.cpp',
+    );
+
     const fixture = TestBed.createComponent(DocsBrowser);
-    fixture.componentRef.setInput('pages', DOC_PAGES);
-    fixture.componentRef.setInput('selectedSlug', 'syscall-0-io-setup');
+    fixture.componentRef.setInput('pages', SYSCALL_PAGES);
+    fixture.componentRef.setInput('selectedSlug', page.slug);
+    fixture.componentRef.setInput(
+      'renderedContent',
+      new DocsMarkdownRenderer(source).render(markdown, page.sourcePath),
+    );
+    fixture.componentRef.setInput('status', 'ready');
+    fixture.componentRef.setInput('sourceUrl', source.sourceUrl(page));
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -204,11 +118,16 @@ describe('Generated section-2 syscall docs', () => {
       node.textContent?.trim(),
     );
 
-    expect(element.querySelector('.docs-page-title')?.textContent).toContain('io_setup(2)');
-    expect(headings).toContain('SYNOPSIS');
-    expect(element.querySelector('.doc-markdown pre code')?.textContent).toContain(
-      'long astia_io_setup',
+    expect(element.querySelector('.docs-page-title')?.textContent).toContain(
+      'io_setup(2)',
     );
+    expect(headings).toContain('SYNOPSIS');
+    expect(headings).toContain('REPOSITORY SOURCE');
+    const codeBlocks = [...element.querySelectorAll('.doc-markdown pre code')].map(
+      (node) => node.textContent ?? '',
+    );
+    expect(codeBlocks[0]).toContain('long astia_io_setup');
+    expect(codeBlocks[1]).toContain('long astia_io_setup');
     expect(element.querySelector('.docs-source')?.getAttribute('href')).toContain(
       'kernel/src/fs/syscalls/io_setup.cpp',
     );
@@ -217,7 +136,7 @@ describe('Generated section-2 syscall docs', () => {
 
   it('filters syscall pages by title', () => {
     const fixture = TestBed.createComponent(DocsBrowser);
-    fixture.componentRef.setInput('pages', DOC_PAGES);
+    fixture.componentRef.setInput('pages', SYSCALL_PAGES);
     fixture.detectChanges();
 
     const input = fixture.nativeElement.querySelector(

@@ -43,6 +43,7 @@ char*  strndup(const char* s, size_t n);         /* POSIX */
 int    strcasecmp(const char* a, const char* b); /* POSIX */
 int    strncasecmp(const char* a, const char* b, size_t n); /* POSIX */
 char*  strerror(int errnum);
+int    strerror_r(int errnum, char* buf, size_t buflen); /* POSIX */
 
 #ifdef __cplusplus
 } /* extern "C" */

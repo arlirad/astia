@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 
 #include <new>
@@ -12,9 +13,9 @@
 namespace astia::mm {
 
     struct shcontrol {
-        u32   refs;
-        void* value;
-        void* owned;
+        atomic<u32> refs;
+        void*       value;
+        void*       owned;
         void (*destroy)(void*);
     };
 
@@ -128,7 +129,7 @@ namespace astia::mm {
                     destroy(value);
                 return;
             }
-            control->refs    = 1;
+            control->refs.store(1, memory_order::relaxed);
             control->value   = static_cast<T*>(value);
             control->owned   = value;
             control->destroy = destroy;
@@ -137,7 +138,7 @@ namespace astia::mm {
 
         void retain() {
             if (_control != nullptr) {
-                __atomic_add_fetch(&_control->refs, 1, __ATOMIC_RELAXED);
+                (void) _control->refs.fetch_add(1, memory_order::relaxed);
             }
         }
 
@@ -147,7 +148,7 @@ namespace astia::mm {
             }
             shcontrol* control = _control;
             _control           = nullptr;
-            if (__atomic_sub_fetch(&control->refs, 1, __ATOMIC_ACQ_REL) == 0) {
+            if (control->refs.fetch_sub(1, memory_order::acq_rel) == 1) {
                 if (control->destroy != nullptr) {
                     control->destroy(control->owned);
                 }

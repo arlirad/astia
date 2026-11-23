@@ -48,9 +48,11 @@ namespace {
 }
 
 int main() {
-    controller         value{};
-    astia::io::request request(nullptr, 512, 0, 0, astia::io::direction::input);
-    unsigned           acknowledgements = 0;
+    controller            value{};
+    astia::core::clsource request_source;
+    astia::io::request    request(request_source, nullptr, 512, 0, 0,
+                                  astia::io::direction::input);
+    unsigned              acknowledgements = 0;
     request.cancel_observer_set(count_ack, &acknowledgements);
     request.cancel_handler_set(retain_cancel);
     value.pending.active = true;

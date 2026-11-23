@@ -6,7 +6,6 @@ set(ASTIA_PUBLIC_HEADERS
         astia/boot/virt/pvh.hpp
         astia/core/completion.hpp
         astia/core/endian.hpp
-        astia/core/fiber.hpp
         astia/core/mpmc_queue.hpp
         astia/core/rcu_domain.hpp
         astia/core/rcu_hashmap.hpp

@@ -104,16 +104,19 @@ namespace astia::io {
 
     class request {
         public:
-        request() : _cancel_token(_cancel_source.token()) {}
-
         request(const request&)            = delete;
         request& operator=(const request&) = delete;
         request(request&&)                 = delete;
         request& operator=(request&&)      = delete;
 
-        request(void* buffer, u32 length, u64 offset, u64 user_data, direction direction)
+        explicit request(core::clsource& source)
+            : _cancel_source(&source), _cancel_token(source.token()) {}
+
+        request(core::clsource& source, void* buffer, u32 length, u64 offset,
+                u64 user_data, direction direction)
             : _buffer(buffer), _length(length), _offset(offset), _user_data(user_data),
-              _direction(direction), _cancel_token(_cancel_source.token()) {}
+              _direction(direction), _cancel_source(&source),
+              _cancel_token(source.token()) {}
 
         void* buffer() const {
             return _buffer;
@@ -218,8 +221,8 @@ namespace astia::io {
             _length       = length;
             _offset       = offset;
             _device_state = nullptr;
-            _cancel_source.reset();
-            _cancel_token                 = _cancel_source.token();
+            _cancel_source->reset();
+            _cancel_token                 = _cancel_source->token();
             _cancellation_handler         = nullptr;
             _cancellation_observer        = nullptr;
             _legacy_cancellation_handler  = nullptr;
@@ -328,7 +331,7 @@ namespace astia::io {
         }
         bool cancel_device(bool                retain = false,
                            core::cancel_reason reason = core::cancel_reason::request) {
-            if (!_cancel_source.cancel(reason))
+            if (!_cancel_source->cancel(reason))
                 return false;
             auto* handler = __atomic_load_n(&_cancellation_handler, __ATOMIC_ACQUIRE);
             auto  legacy_handler =
@@ -381,7 +384,7 @@ namespace astia::io {
         void*                           _wake_context = nullptr;
         operation*                      _operation    = nullptr;
         mm::uptr<core::completion<i64>> _completion;
-        core::clsource                  _cancel_source;
+        core::clsource*                 _cancel_source = nullptr;
         core::cltoken                   _cancel_token;
         cancellation_handler*           _cancellation_handler         = nullptr;
         cancellation_observer*          _cancellation_observer        = nullptr;
@@ -405,6 +408,7 @@ namespace astia::io {
             completed,
         };
 
+        core::clsource     _cancel_source;
         astia::io::request _request;
         volatile u8        _state          = static_cast<u8>(state::owner);
         volatile u32       _refs           = 1;
@@ -448,19 +452,19 @@ namespace astia::io {
             release_ref();
         }
 
-        operation() : _request() {
+        operation() : _request(_cancel_source) {
             _request._operation = this;
         }
         operation(void* buffer, u32 length, u64 offset, direction direction,
                   mm::uptr<core::completion<i64>> completion = {})
-            : _request(buffer, length, offset, 0, direction) {
+            : _request(_cancel_source, buffer, length, offset, 0, direction) {
             _request._operation = this;
             _request.completion(
                 static_cast<mm::uptr<core::completion<i64>>&&>(completion));
         }
         operation(void* buffer, u32 length, u64 offset, u64 user_data,
                   direction direction, mm::uptr<core::completion<i64>> completion = {})
-            : _request(buffer, length, offset, user_data, direction) {
+            : _request(_cancel_source, buffer, length, offset, user_data, direction) {
             _request._operation = this;
             _request.completion(
                 static_cast<mm::uptr<core::completion<i64>>&&>(completion));

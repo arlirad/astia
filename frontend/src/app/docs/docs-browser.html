@@ -75,23 +75,47 @@
           @if (page.synopsisKind === 'raw') {
             <span class="tag tag-experimental">Raw ABI</span>
           }
-          <a
-            class="docs-source"
-            [href]="page.source"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GitHub source <span aria-hidden="true">↗</span>
-          </a>
+          @if (sourceUrl(); as source) {
+            <a
+              class="docs-source"
+              [href]="source"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub source <span aria-hidden="true">↗</span>
+            </a>
+          }
         </div>
 
         <h2 #pageTitle class="docs-page-title" tabindex="-1">{{ page.title }}</h2>
-        <div
-          #markdown
-          class="doc-markdown"
-          [innerHTML]="renderedContent()"
-          (click)="onMarkdownClick($event)"
-        ></div>
+
+        @switch (status()) {
+          @case ('loading') {
+            <p class="docs-state" role="status">Loading documentation...</p>
+          }
+          @case ('not-found') {
+            <div class="docs-state" role="alert">
+              <p>This page is not available in the configured repository.</p>
+              <button type="button" class="docs-back" (click)="backToIndex()">
+                Back to all docs
+              </button>
+            </div>
+          }
+          @case ('error') {
+            <div class="docs-state" role="alert">
+              <p>{{ errorMessage() ?? 'The documentation could not be loaded.' }}</p>
+              <button type="button" class="docs-back" (click)="retry()">Retry</button>
+            </div>
+          }
+          @default {
+            <div
+              #markdown
+              class="doc-markdown"
+              [innerHTML]="renderedContent()"
+              (click)="onMarkdownClick($event)"
+            ></div>
+          }
+        }
 
         <nav class="docs-pager" aria-label="Document navigation">
           @if (previousPage(); as previous) {

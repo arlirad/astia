@@ -1,97 +1,708 @@
 #include "aio_registry_test_support.hpp"
 
-#include "../src/fs/aio/dispatch.hpp"
+#include <astia/api/errno.h>
+#include <astia/arch/interrupts.hpp>
+#include <astia/core/resume_queue.hpp>
+#include <astia/error.hpp>
+#include <astia/mm/heap.hpp>
+#include <astia/mm/iovec.hpp>
+#include <astia/optional.hpp>
+#include <astia/span.hpp>
+
+#include "../src/io/aio/aio.hpp"
 #include "../src/io/aio/dispatch.hpp"
-#include "../src/io/aio/registry.hpp"
-#include "../src/io/readiness/dispatch.hpp"
-#include "../src/net/aio/dispatch.hpp"
+#include "../src/io/aio/memory.hpp"
+#include "../src/io/aio/ring.hpp"
+#include "../src/ipc/pipe.hpp"
+#include "../src/ipc/unix_socket.hpp"
+#include "../src/proc/proc.hpp"
+#include "../src/proc/process.hpp"
+
+#include <cstdlib>
 
 namespace astia::io::aio::test_support {
 
-    unsigned core_dispatches       = 0;
-    unsigned filesystem_dispatches = 0;
-    unsigned readiness_dispatches  = 0;
-    unsigned socket_dispatches     = 0;
-    unsigned unknown_completions   = 0;
+    namespace detail {
 
-    void reset_registry_counters() {
-        core_dispatches       = 0;
-        filesystem_dispatches = 0;
-        readiness_dispatches  = 0;
-        socket_dispatches     = 0;
-        unknown_completions   = 0;
+        using fs::file_mode;
+        using fs::file_type;
+        using fs::open_file;
+
+        struct descriptor_entry {
+            mm::shptr<open_file> file;
+            u32                  flags = 0;
+        };
+
+        alignas(proc::process) unsigned char process_storage[sizeof(proc::process)]{};
+        proc::process*       current = nullptr;
+        descriptor_entry     descriptors[proc::max_process_fds];
+        mm::shptr<open_file> open_file_value;
+        mm::shptr<open_file> pipe_read_value;
+        mm::shptr<open_file> pipe_write_value;
+        mm::shptr<open_file> socket_value;
+        mm::shptr<open_file> socketpair_first;
+        mm::shptr<open_file> socketpair_second;
+        file_mode            node_mode{file_type::regular, fs::default_file_permissions};
+        bool                 memory_allowed    = true;
+        u64                  timer_hz_value    = 1000;
+        u64                  timer_ticks_value = 0;
+        u64                  generation_value  = 0;
+
+        bool inside_range(span<u8> range) {
+            return memory_allowed && (!range.null() || range.empty());
+        }
+
+        bool is_valid_fd(i32 fd) {
+            return fd >= 0 && static_cast<u32>(fd) < proc::max_process_fds;
+        }
+
+        bool user_span_ok(proc::process*, span<u8> range) {
+            return inside_range(range);
+        }
+
+        bool user_span_writable_ok(proc::process*, span<u8> range) {
+            return inside_range(range);
+        }
+
+        bool kernel_span_ok(span<u8>) {
+            return true;
+        }
+
+        long pin_user_span(proc::process*, span<u8> range, ::astia::io::direction,
+                           mm::iovec& out, bool) {
+            if (!inside_range(range))
+                return -EFAULT;
+            if (range.empty())
+                return 0;
+            return out.append_kernel(range.data(), range.length()) ? 0 : -ENOMEM;
+        }
+
+        bool copy_in(proc::process*, void* destination, span<u8> source) {
+            if (!inside_range(source) || destination == nullptr || source.empty())
+                return false;
+            __builtin_memcpy(destination, source.data(), source.length());
+            return true;
+        }
+
+        bool copy_in_string(proc::process*, span<char> destination, span<u8> source) {
+            if (!inside_range(source) || destination.null() || destination.empty() ||
+                source.null())
+                return false;
+            const usize limit =
+                source.empty() ? destination.length() - 1 : source.length();
+            usize length = 0;
+            while (length < limit && length + 1 < destination.length()) {
+                const char value    = static_cast<char>(source[length]);
+                destination[length] = value;
+                ++length;
+                if (value == '\0')
+                    return true;
+            }
+            return false;
+        }
+
+        bool copy_out(proc::process*, span<u8> destination, const void* source) {
+            if (!inside_range(destination) || source == nullptr)
+                return false;
+            if (destination.empty())
+                return true;
+            __builtin_memcpy(destination.data(), source, destination.length());
+            return true;
+        }
+
+        bool realtime_now(u64& sec, u64& nsec) {
+            sec  = 100;
+            nsec = 0;
+            return true;
+        }
+
+    } // namespace detail
+
+    using namespace detail;
+
+    cq_capture::cq_capture() {
+        ring.cq_off =
+            static_cast<u32>(reinterpret_cast<u8*>(&cq) - reinterpret_cast<u8*>(&ring));
+        ring.cqes_off =
+            static_cast<u32>(reinterpret_cast<u8*>(cqes) - reinterpret_cast<u8*>(&ring));
+        cq.entries = 64;
+        cq.mask    = 63;
     }
 
-    bool routes_to(owner expected, unsigned operation) {
-        ring::ring_slot slot{};
-        astia_rings     ring{};
-        astia_sqe       sqe{};
-        sqe.op = operation;
-        reset_registry_counters();
-        if (!registry::dispatch(slot, &ring, sqe))
-            return false;
-        const unsigned counts[]       = {core_dispatches, filesystem_dispatches,
-                                         readiness_dispatches, socket_dispatches};
-        const unsigned expected_index = static_cast<unsigned>(expected);
-        for (unsigned i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i)
-            if (counts[i] != (i == expected_index ? 1u : 0u))
-                return false;
-        return unknown_completions == (expected == owner::unknown ? 1u : 0u);
+    u32 cq_capture::count() const {
+        const u32 head = __atomic_load_n(&cq.head, __ATOMIC_ACQUIRE);
+        const u32 tail = __atomic_load_n(&cq.tail, __ATOMIC_ACQUIRE);
+        return tail - head;
+    }
+
+    const astia_cqe* cq_capture::at(u32 index) const {
+        const u32 head = __atomic_load_n(&cq.head, __ATOMIC_ACQUIRE);
+        return &cqes[(head + index) & cq.mask];
+    }
+
+    i32 cq_capture::result(u32 index) const {
+        return at(index)->result;
+    }
+
+    u64 cq_capture::user_data(u32 index) const {
+        return at(index)->user_data;
+    }
+
+    void cq_capture::consume(u32 count) {
+        const u32 head = __atomic_load_n(&cq.head, __ATOMIC_ACQUIRE);
+        __atomic_store_n(&cq.head, head + count, __ATOMIC_RELEASE);
+    }
+
+    void reset_environment() {
+        for (auto& entry : descriptors)
+            entry = {};
+        open_file_value   = {};
+        pipe_read_value   = {};
+        pipe_write_value  = {};
+        socket_value      = {};
+        socketpair_first  = {};
+        socketpair_second = {};
+        node_mode         = file_mode(file_type::regular, fs::default_file_permissions);
+        memory_allowed    = true;
+        timer_hz_value    = 1000;
+        timer_ticks_value = 0;
+        generation_value  = 0;
+        current           = nullptr;
+    }
+
+    void install_current_process() {
+        if (current == nullptr)
+            current = reinterpret_cast<proc::process*>(process_storage);
+        if (!descriptors[0].file) {
+            auto standard = mm::share<open_file>(mm::shptr<fs::file>{}, 0u);
+            for (i32 fd = 0; fd < 3; ++fd)
+                descriptors[fd].file = standard;
+        }
+    }
+
+    void clear_current_process() {
+        current = nullptr;
+    }
+
+    i32 install_descriptor(const mm::shptr<open_file>& file, u32 flags) {
+        for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
+            if (!descriptors[fd].file) {
+                descriptors[fd].file  = file;
+                descriptors[fd].flags = flags;
+                return fd;
+            }
+        }
+        return -EMFILE;
+    }
+
+    bool descriptor_present(i32 fd) {
+        return is_valid_fd(fd) && static_cast<bool>(descriptors[fd].file);
+    }
+
+    void clear_descriptor(i32 fd) {
+        if (is_valid_fd(fd))
+            descriptors[fd] = {};
+    }
+
+    void set_open_file(const mm::shptr<open_file>& file) {
+        open_file_value = file;
+    }
+
+    void set_pipe_files(const mm::shptr<open_file>& read_end,
+                        const mm::shptr<open_file>& write_end) {
+        pipe_read_value  = read_end;
+        pipe_write_value = write_end;
+    }
+
+    void set_socket_file(const mm::shptr<open_file>& file) {
+        socket_value = file;
+    }
+
+    void set_socketpair_files(const mm::shptr<open_file>& first,
+                              const mm::shptr<open_file>& second) {
+        socketpair_first  = first;
+        socketpair_second = second;
+    }
+
+    void set_node_mode(file_mode mode) {
+        node_mode = mode;
+    }
+
+    void set_memory_allowed(bool allowed) {
+        memory_allowed = allowed;
+    }
+
+    void set_timer(u64 hz, u64 ticks) {
+        timer_hz_value    = hz;
+        timer_ticks_value = ticks;
+    }
+
+    void add_timer_ticks(u64 ticks) {
+        timer_ticks_value += ticks;
+    }
+
+    void release_parked(ring::ring_slot& slot) {
+        for (u32 i = 0; i < ring::parked_operation_slots; ++i) {
+            ring::parked_op& op = slot.park[i];
+            if (!op.used)
+                continue;
+            if (!op.done && op.operation != nullptr) {
+                op.operation->request().cancel_device(false,
+                                                      core::cancel_reason::shutdown);
+                op.operation->request().acknowledge();
+            }
+            op.clear();
+        }
     }
 
 } // namespace astia::io::aio::test_support
 
-namespace astia::io::aio::dispatch {
+namespace astia::io::aio {
 
-    bool dispatch_core(ring::ring_slot&, astia_rings*, const astia_sqe&) {
-        ++test_support::core_dispatches;
-        return true;
+    const user_memory_adapter& user_memory() {
+        static const user_memory_adapter value = {
+            ::astia::io::aio::test_support::detail::user_span_ok,
+            ::astia::io::aio::test_support::detail::user_span_writable_ok,
+            ::astia::io::aio::test_support::detail::kernel_span_ok,
+            ::astia::io::aio::test_support::detail::pin_user_span,
+            ::astia::io::aio::test_support::detail::copy_in,
+            ::astia::io::aio::test_support::detail::copy_in_string,
+            ::astia::io::aio::test_support::detail::copy_out,
+            ::astia::io::aio::test_support::detail::realtime_now,
+        };
+        return value;
     }
 
-    mm::shptr<fs::open_file> file_for(i32) {
-        return {};
-    }
-
-} // namespace astia::io::aio::dispatch
-
-namespace astia::io::aio::filesystem {
-
-    bool dispatch(ring::ring_slot&, astia_rings*, const astia_sqe&) {
-        ++test_support::filesystem_dispatches;
-        return true;
-    }
-
-} // namespace astia::io::aio::filesystem
-
-namespace astia::io::aio::readiness {
-
-    bool dispatch(ring::ring_slot&, astia_rings*, const astia_sqe&,
-                  const mm::shptr<fs::open_file>&) {
-        ++test_support::readiness_dispatches;
-        return true;
-    }
-
-    bool dispatch_registered(ring::ring_slot& slot, astia_rings* ring,
-                             const astia_sqe& sqe) {
-        return dispatch(slot, ring, sqe, {});
-    }
-
-} // namespace astia::io::aio::readiness
-
-namespace astia::io::aio::socket {
-
-    bool dispatch(ring::ring_slot&, astia_rings*, const astia_sqe&) {
-        ++test_support::socket_dispatches;
-        return true;
-    }
-
-} // namespace astia::io::aio::socket
+} // namespace astia::io::aio
 
 namespace astia::io::aio::ring {
 
-    bool cq_post_guarded(astia_rings*, u64, i32) {
-        ++test_support::unknown_completions;
+    void ring_lock::acquire() {
+        const u32 cpu = arch::cpu::current_index();
+        if (cpu < cpu_slots)
+            ++depth[cpu];
+    }
+
+    void ring_lock::release() {
+        const u32 cpu = arch::cpu::current_index();
+        if (cpu < cpu_slots && depth[cpu] != 0)
+            --depth[cpu];
+    }
+
+    ring_guard::ring_guard(ring_lock& value) : _lock(value) {
+        _lock.acquire();
+    }
+
+    ring_guard::~ring_guard() {
+        if (_held)
+            _lock.release();
+    }
+
+    void ring_guard::unlock() {
+        if (_held) {
+            _lock.release();
+            _held = false;
+        }
+    }
+
+    void ring_guard::release_lock() {
+        if (_held) {
+            _lock.release();
+            _held = false;
+        }
+    }
+
+    bool cq_post(astia_rings* ring, u64 user_data, i32 result) {
+        astia_cq_ring* cq   = astia_rings_cq(ring);
+        astia_cqe*     cqes = astia_rings_cqes(ring);
+        const u32      head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
+        const u32      tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+        if (tail - head >= cq->entries)
+            return false;
+        cqes[tail & cq->mask] = {user_data, result, 0};
+        __atomic_store_n(&cq->tail, tail + 1, __ATOMIC_RELEASE);
         return true;
     }
 
+    bool cq_post_guarded(astia_rings* ring, u64 user_data, i32 result) {
+        return cq_post(ring, user_data, result);
+    }
+
+    u64 ready_generation() {
+        return ++::astia::io::aio::test_support::detail::generation_value;
+    }
+
+    void publish_waiter_hint(const ring_slot&, u32, const fs::file*) {}
+
 } // namespace astia::io::aio::ring
+
+namespace astia::io::aio {
+
+    void io_device_ready_context(const io_device*) {}
+
+} // namespace astia::io::aio
+
+namespace astia::arch {
+
+    u64 timer_ticks() {
+        return ::astia::io::aio::test_support::detail::timer_ticks_value;
+    }
+
+    u32 timer_hz() {
+        return static_cast<u32>(::astia::io::aio::test_support::detail::timer_hz_value);
+    }
+
+} // namespace astia::arch
+
+namespace astia::core {
+
+    bool schedule_resume(std::coroutine_handle<>, u64) {
+        return false;
+    }
+
+    void cancel_resume(std::coroutine_handle<>, u64) {}
+
+} // namespace astia::core
+
+namespace astia::mm::heap {
+
+    optional<u8*> alloc(usize bytes) {
+        if (bytes == 0)
+            return error_t::einval;
+        void* value = std::malloc(bytes);
+        if (value == nullptr)
+            return error_t::enomem;
+        return static_cast<u8*>(value);
+    }
+
+    void free(void* value) {
+        std::free(value);
+    }
+
+} // namespace astia::mm::heap
+
+namespace astia::mm {
+
+    usize iovec::bytes() const {
+        return _total;
+    }
+
+    bool iovec::done() const {
+        return _remaining == 0;
+    }
+
+    void* iovec::window() const {
+        if (_remaining == 0 || _index >= _count)
+            return nullptr;
+        const pinned_segment& segment = _segments[_index];
+        return segment.base + segment.offset + _offset;
+    }
+
+    usize iovec::chunk() const {
+        if (_remaining == 0 || _index >= _count)
+            return 0;
+        const pinned_segment& segment = _segments[_index];
+        const usize           left    = segment.length - _offset;
+        return left < _remaining ? left : _remaining;
+    }
+
+    usize iovec::advance(usize bytes) {
+        usize moved = 0;
+        while (moved < bytes && _remaining != 0 && _index < _count) {
+            const usize take = chunk();
+            if (take == 0)
+                break;
+            const usize step = take < bytes - moved ? take : bytes - moved;
+            _offset += step;
+            _remaining -= step;
+            moved += step;
+            if (_offset == _segments[_index].length) {
+                ++_index;
+                _offset = 0;
+            }
+        }
+        return moved;
+    }
+
+    bool iovec::append_kernel(void* address, usize length) {
+        if (_count >= max_segments || length == 0)
+            return _count < max_segments;
+        pinned_segment& segment = _segments[_count];
+        segment.base            = static_cast<u8*>(address);
+        segment.offset          = 0;
+        segment.length          = length;
+        ++_count;
+        _total += length;
+        _remaining += length;
+        return true;
+    }
+
+} // namespace astia::mm
+
+namespace astia::proc {
+
+    process* current_process() {
+        return ::astia::io::aio::test_support::detail::current;
+    }
+
+    i64 acquire_controlling_terminal(const mm::shptr<fs::open_file>&) {
+        return 0;
+    }
+
+    bool has_controlling_terminal() {
+        return false;
+    }
+
+    mm::shptr<fs::open_file> process::descriptor(fd_t fd) const {
+        if (!::astia::io::aio::test_support::is_valid_fd(fd.value))
+            return {};
+        return ::astia::io::aio::test_support::detail::descriptors[fd.value].file;
+    }
+
+    bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value) {
+        return set_descriptor(fd, value, 0);
+    }
+
+    bool process::set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value,
+                                 u32 flags) {
+        if (!::astia::io::aio::test_support::is_valid_fd(fd.value))
+            return false;
+        ::astia::io::aio::test_support::detail::descriptors[fd.value].file  = value;
+        ::astia::io::aio::test_support::detail::descriptors[fd.value].flags = flags;
+        return true;
+    }
+
+    bool process::clear_descriptor(fd_t fd) {
+        if (!::astia::io::aio::test_support::is_valid_fd(fd.value))
+            return false;
+        ::astia::io::aio::test_support::detail::descriptors[fd.value] = {};
+        return true;
+    }
+
+    optional<fd_t> process::duplicate_descriptor(fd_t old_fd) {
+        return duplicate_descriptor(old_fd, fd_t{0}, 0);
+    }
+
+    optional<fd_t> process::duplicate_descriptor(fd_t old_fd, fd_t minimum, u32 flags) {
+        if (!::astia::io::aio::test_support::is_valid_fd(old_fd.value) ||
+            !::astia::io::aio::test_support::detail::descriptors[old_fd.value].file)
+            return error_t::ebadf;
+        for (i32 fd = minimum.value; fd < static_cast<i32>(max_process_fds); ++fd) {
+            if (!::astia::io::aio::test_support::detail::descriptors[fd].file) {
+                ::astia::io::aio::test_support::detail::descriptors[fd].file =
+                    ::astia::io::aio::test_support::detail::descriptors[old_fd.value]
+                        .file;
+                ::astia::io::aio::test_support::detail::descriptors[fd].flags = flags;
+                return fd_t{fd};
+            }
+        }
+        return error_t::emfile;
+    }
+
+    u32 process::descriptor_flags(fd_t fd) const {
+        if (!::astia::io::aio::test_support::is_valid_fd(fd.value))
+            return 0;
+        return ::astia::io::aio::test_support::detail::descriptors[fd.value].flags;
+    }
+
+    bool process::set_descriptor_flags(fd_t fd, u32 flags) {
+        if (!::astia::io::aio::test_support::is_valid_fd(fd.value) ||
+            !::astia::io::aio::test_support::detail::descriptors[fd.value].file)
+            return false;
+        ::astia::io::aio::test_support::detail::descriptors[fd.value].flags = flags;
+        return true;
+    }
+
+    optional<fd_t> process::duplicate_descriptor_to(fd_t old_fd, fd_t new_fd) {
+        if (!::astia::io::aio::test_support::is_valid_fd(old_fd.value) ||
+            !::astia::io::aio::test_support::is_valid_fd(new_fd.value) ||
+            !::astia::io::aio::test_support::detail::descriptors[old_fd.value].file)
+            return error_t::ebadf;
+        ::astia::io::aio::test_support::detail::descriptors[new_fd.value].file =
+            ::astia::io::aio::test_support::detail::descriptors[old_fd.value].file;
+        ::astia::io::aio::test_support::detail::descriptors[new_fd.value].flags =
+            ::astia::io::aio::test_support::detail::descriptors[old_fd.value].flags;
+        return new_fd;
+    }
+
+    i64 process::compose_path(const char* path, span<char> buffer) const {
+        if (path == nullptr || buffer.null() || buffer.empty())
+            return -EINVAL;
+        usize length = 0;
+        while (path[length] != '\0')
+            ++length;
+        if (length + 1 > buffer.length())
+            return -ENAMETOOLONG;
+        for (usize i = 0; i <= length; ++i)
+            buffer[i] = path[i];
+        return static_cast<i64>(length);
+    }
+
+    i64 process::compose_path_at(fd_t, const char* path, span<char> buffer) const {
+        return compose_path(path, buffer);
+    }
+
+    bool process::in_group(gid_t group) const {
+        return group.value == _gid;
+    }
+
+} // namespace astia::proc
+
+namespace astia::fs {
+
+    open_file::~open_file() {}
+
+    file_mode open_file::mode() const {
+        return _object ? _object->mode() : _mode;
+    }
+
+    u32 open_file::poll(u32 events) const {
+        return _object ? _object->poll(events, 0) : 0;
+    }
+
+    long open_file::submit(io::request& request) {
+        return _object ? _object->submit(request) : -EBADF;
+    }
+
+    long open_file::size() const {
+        return _object ? _object->size() : -EBADF;
+    }
+
+    long open_file::truncate(u64 length) {
+        return _object ? _object->truncate(length) : -EBADF;
+    }
+
+    long open_file::ioctl(u64 request, void* argument, usize size) {
+        return _object ? _object->ioctl(request, argument, size) : -EBADF;
+    }
+
+    long open_file::acquire_controlling_terminal(i32 group) {
+        return _object ? _object->acquire_controlling_terminal(group) : -EBADF;
+    }
+
+    u64 open_file::mtime_sec() const {
+        return _object ? _object->mtime_sec() : 0;
+    }
+
+    u64 open_file::mtime_nsec() const {
+        return _object ? _object->mtime_nsec() : 0;
+    }
+
+    long open_file::chmod(file_permissions permissions) {
+        return _object ? _object->chmod(permissions) : -EBADF;
+    }
+
+    mm::shptr<open_file> open(const char*, u32) {
+        return ::astia::io::aio::test_support::open_file_value;
+    }
+
+    mm::shptr<open_file> open_directory(const char*) {
+        return ::astia::io::aio::test_support::open_file_value;
+    }
+
+    mm::shptr<open_file> open_path(const char*, u32) {
+        return ::astia::io::aio::test_support::open_file_value;
+    }
+
+    long resolve_path(const char* path, char* buffer, u32 capacity, bool) {
+        if (path == nullptr || buffer == nullptr)
+            return -EINVAL;
+        usize length = 0;
+        while (path[length] != '\0')
+            ++length;
+        if (length + 1 > capacity)
+            return -ENAMETOOLONG;
+        for (usize i = 0; i <= length; ++i)
+            buffer[i] = path[i];
+        return 0;
+    }
+
+    file_type node_type(const char* path) {
+        return path == nullptr ? file_type::unknown
+                               : ::astia::io::aio::test_support::detail::node_mode.type();
+    }
+
+    file_mode node_mode(const char* path) {
+        return path == nullptr ? file_mode{}
+                               : ::astia::io::aio::test_support::detail::node_mode;
+    }
+
+    uid_t node_uid(const char*) {
+        return {};
+    }
+
+    gid_t node_gid(const char*) {
+        return {};
+    }
+
+    long chmod_path(const char*, file_permissions) {
+        return 0;
+    }
+
+    long chown_path(const char*, uid_t, gid_t, bool) {
+        return 0;
+    }
+
+    long touch_path(const char*, u64, u64) {
+        return 0;
+    }
+
+    long make_directory(const char*, file_mode) {
+        return 0;
+    }
+
+    long remove_path(const char*, bool) {
+        return 0;
+    }
+
+    long rename_path(const char*, const char*) {
+        return 0;
+    }
+
+    long link_path(const char*, const char*) {
+        return 0;
+    }
+
+    long make_symlink(const char*, const char*) {
+        return 0;
+    }
+
+    long read_symlink(const char*, char*, u32) {
+        return 0;
+    }
+
+    long read_directory(const char*, u64, char* name, u32 capacity, file_type* type) {
+        if (name == nullptr || capacity == 0)
+            return -EINVAL;
+        name[0] = 'x';
+        name[1] = '\0';
+        if (type != nullptr)
+            *type = ::astia::io::aio::test_support::detail::node_mode.type();
+        return 1;
+    }
+
+    optional<pipe_endpoints> create_pipe() {
+        if (!::astia::io::aio::test_support::detail::pipe_read_value ||
+            !::astia::io::aio::test_support::detail::pipe_write_value)
+            return error_t::emfile;
+        return pipe_endpoints{::astia::io::aio::test_support::detail::pipe_read_value,
+                              ::astia::io::aio::test_support::detail::pipe_write_value};
+    }
+
+    long create_unix_socket(mm::shptr<open_file>& out, u32) {
+        if (!::astia::io::aio::test_support::detail::socket_value)
+            return -EAFNOSUPPORT;
+        out = ::astia::io::aio::test_support::detail::socket_value;
+        return 0;
+    }
+
+    long unix_socketpair(mm::shptr<open_file>& first, mm::shptr<open_file>& second, u32) {
+        if (!::astia::io::aio::test_support::detail::socketpair_first ||
+            !::astia::io::aio::test_support::detail::socketpair_second)
+            return -EMFILE;
+        first  = ::astia::io::aio::test_support::detail::socketpair_first;
+        second = ::astia::io::aio::test_support::detail::socketpair_second;
+        return 0;
+    }
+
+} // namespace astia::fs

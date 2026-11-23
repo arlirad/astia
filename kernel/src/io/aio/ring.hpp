@@ -3,6 +3,7 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
+#include <astia/atomic.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/io.hpp>
 #include <astia/memory.hpp>
@@ -141,6 +142,7 @@ namespace astia::io::aio::ring {
         u32                      sq_entries;
         u32                      cq_entries;
         u32                      waiters;
+        atomic<u32>              detached_ops;
         bool                     notify_pending;
         u32                      notify_signaled;
         u32                      pool_index;

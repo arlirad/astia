@@ -1,7 +1,8 @@
+#include <astia/api/errno.h>
 #include <astia/dev/blk/blkdev.hpp>
+
 #include "test.hpp"
 
-#include <astia/api/errno.h>
 #include <cstring>
 #include <vector>
 
@@ -34,7 +35,7 @@ namespace {
 
 ASTIA_TEST(blkdev_reads_at_offset) {
     synthetic_blkdev device;
-    char buffer[4]{};
+    char             buffer[4]{};
     ASTIA_CHECK(device.read(buffer, sizeof buffer, 2) == sizeof buffer);
     ASTIA_CHECK(std::memcmp(buffer, "tia!", sizeof buffer) == 0);
 }
@@ -48,9 +49,11 @@ ASTIA_TEST(blkdev_rejects_invalid_read) {
 }
 
 ASTIA_TEST(blkdev_submit_rejects_unaligned_request) {
-    synthetic_blkdev device;
-    char buffer[2]{};
-    astia::io::request request(buffer, sizeof buffer, 1, 0, astia::io::direction::input);
+    synthetic_blkdev      device;
+    char                  buffer[2]{};
+    astia::core::clsource request_source;
+    astia::io::request    request(request_source, buffer, sizeof buffer, 1, 0,
+                                  astia::io::direction::input);
     ASTIA_CHECK(device.submit(request) == -EINVAL);
 
     request.offset(2);
@@ -60,6 +63,6 @@ ASTIA_TEST(blkdev_submit_rejects_unaligned_request) {
 
 ASTIA_TEST(blkdev_write_is_read_only) {
     synthetic_blkdev device;
-    const char buffer[2] = {'x', 'y'};
+    const char       buffer[2] = {'x', 'y'};
     ASTIA_CHECK(device.write(buffer, sizeof buffer, 0) == -EROFS);
 }

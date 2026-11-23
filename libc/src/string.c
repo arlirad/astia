@@ -332,8 +332,10 @@ char* rindex(const char* string, int character) {
     return strrchr(string, character);
 }
 
-char* strerror(int errnum) {
+static const char* strerror_message(int errnum) {
     switch (errnum) {
+    case 0:
+        return "Success";
     case EPERM:
         return "Operation not permitted";
     case ENOENT:
@@ -386,3 +388,23 @@ char* strerror(int errnum) {
         return "Unknown error";
     }
 }
+
+char* strerror(int errnum) {
+    return (char*) strerror_message(errnum);
+}
+
+int strerror_r(int errnum, char* buf, size_t buflen) {
+    const char* message = strerror_message(errnum);
+    size_t      length  = strlen(message);
+
+    if (buflen == 0)
+        return ERANGE;
+    size_t copy = length < buflen ? length : buflen - 1;
+    memcpy(buf, message, copy);
+    buf[copy] = '\0';
+    return length < buflen ? 0 : ERANGE;
+}
+
+typedef int (*strerror_r_signature)(int, char*, size_t);
+_Static_assert(_Generic(&strerror_r, strerror_r_signature: 1, default: 0),
+               "strerror_r must keep the POSIX int-returning ABI");

@@ -1,5 +1,5 @@
 import type { DocPage } from './docs/docs.model';
-import { GENERATED_DOCS } from './docs/docs.generated';
+import { DOCS_MANIFEST } from './docs/docs.manifest';
 
 export interface NavLink {
   readonly label: string;
@@ -46,7 +46,7 @@ export const LICENSE_URL = `${GITHUB_URL}/blob/main/LICENSE`;
 
 const repoBlob = (path: string): string => `${GITHUB_URL}/blob/main/${path}`;
 
-export const DOC_PAGES: readonly DocPage[] = GENERATED_DOCS;
+export const DOC_PAGES: readonly DocPage[] = DOCS_MANIFEST;
 
 export const NAV_LINKS: readonly NavLink[] = [
   { label: 'Overview', path: '/', fragment: 'overview' },

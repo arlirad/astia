@@ -300,8 +300,6 @@ are documented in [`docs/ctest.md`](docs/ctest.md).
 - POSIX timers, message queues, named/process-shared semaphores, `shm_open`,
   realtime queued-signal payloads, and `aio_fsync` remain unsupported. Some
   larger POSIX stress cases exceed current process/thread resource limits.
-- The stackful `core::fiber` implementation is experimental and excluded from
-  production builds.
 - The network layer is a driver-facing foundation only; TCP/IP and network
   sockets are not implemented.
 - The USB xHCI/HID path is experimental and its hardware smoke coverage is

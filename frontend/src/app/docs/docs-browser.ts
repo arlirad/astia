@@ -9,31 +9,13 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { marked } from 'marked';
-import type { DocPage } from './docs.model';
+import type { DocPage, DocsLoadStatus } from './docs.model';
+import { slugify } from './docs-utils';
 
 interface DocGroupView {
   readonly name: string;
   readonly pages: readonly DocPage[];
 }
-
-const escapeAttribute = (value: string): string =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-const slugify = (value: string): string =>
-  value
-    .replace(/<[^>]+>/g, '')
-    .replace(/&[^;]+;/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'section';
-
-const safeHref = (href: string): boolean =>
-  href.startsWith('#') || /^(?:https?:|mailto:|tel:)/i.test(href);
 
 const pageMatches = (page: DocPage, query: string): boolean => {
   if (!query) {
@@ -45,25 +27,6 @@ const pageMatches = (page: DocPage, query: string): boolean => {
   return searchable.toLowerCase().includes(query);
 };
 
-marked.use({
-  gfm: true,
-  renderer: {
-    heading({ tokens, depth }) {
-      const html = this.parser.parseInline(tokens);
-      return `<h${depth} id="doc-${slugify(html)}">${html}</h${depth}>\n`;
-    },
-    link({ href, title, tokens }) {
-      const html = this.parser.parseInline(tokens);
-      const resolved = href.startsWith('#') ? `#doc-${slugify(href.slice(1))}` : href;
-      if (!safeHref(resolved)) {
-        return html;
-      }
-      const titleAttribute = title ? ` title="${escapeAttribute(title)}"` : '';
-      return `<a href="${escapeAttribute(resolved)}"${titleAttribute}>${html}</a>`;
-    },
-  },
-});
-
 @Component({
   selector: 'app-docs-browser',
   templateUrl: './docs-browser.html',
@@ -73,8 +36,13 @@ marked.use({
 export class DocsBrowser {
   readonly pages = input.required<readonly DocPage[]>();
   readonly selectedSlug = input<string | null>(null);
+  readonly renderedContent = input<string>('');
+  readonly status = input<DocsLoadStatus>('idle');
+  readonly errorMessage = input<string | null>(null);
+  readonly sourceUrl = input<string | null>(null);
   readonly pageSelected = output<string>();
   readonly indexSelected = output<void>();
+  readonly retryRequested = output<void>();
 
   protected readonly query = signal('');
   private readonly expandedGroups = signal<ReadonlySet<string>>(new Set());
@@ -101,10 +69,6 @@ export class DocsBrowser {
   protected readonly resultCount = computed(() =>
     this.filteredGroups().reduce((count, group) => count + group.pages.length, 0),
   );
-  protected readonly renderedContent = computed(() => {
-    const page = this.selectedPage();
-    return page ? (marked.parse(page.content.replace(/^#\s+.+\n+/, '')) as string) : '';
-  });
   protected readonly previousPage = computed(() => this.adjacentPage(-1));
   protected readonly nextPage = computed(() => this.adjacentPage(1));
 
@@ -210,6 +174,10 @@ export class DocsBrowser {
 
   protected backToIndex(): void {
     this.indexSelected.emit();
+  }
+
+  protected retry(): void {
+    this.retryRequested.emit();
   }
 
   protected onMarkdownClick(event: MouseEvent): void {
