@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/api/syscalls.h>
 #include <astia/core/completion.hpp>
 
 #include "support/test.hpp"
@@ -14,12 +15,12 @@
 
 #include <syscall.hpp>
 
-namespace astia::net::syscalls {
-    extern const astia::sys::syscall_descriptor accept_descriptor;
-}
-
 namespace {
     astia::core::completion<astia::i64>* pending_source = nullptr;
+
+    static_assert(SYS_FCHDIR == 69);
+    static_assert(SYS_UNAME == 70);
+    static_assert(static_cast<astia::u32>(astia::sys::syscall_id::uname) == 70);
 
     struct probe_marker {};
 
@@ -250,13 +251,11 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
     ASTIA_CHECK(trait_image.mode == 0xfeed);
 }
 
-ASTIA_TEST(private_net_descriptor_uses_typed_handler_without_arguments) {
+ASTIA_TEST(generic_syscall_dispatch_returns_enosys_for_unhandled_id) {
     astia::arch::syscall_return         image{};
     astia::core::completion<astia::i64> result;
-    ASTIA_CHECK(astia::net::syscalls::accept_descriptor.id ==
-                static_cast<astia::sys::syscall_id>(70));
-    astia::net::syscalls::accept_descriptor.invoke(1, 2, 3, 4, 5, 6, image, result);
-    ASTIA_CHECK(result.done());
+    ASTIA_CHECK(!astia::sys::dispatch_async<sync_probe>(
+        static_cast<astia::sys::syscall_id>(71), 0, 0, 0, 0, 0, 0, image, result));
     ASTIA_CHECK(result.await_resume().value == -ENOSYS);
 }
 
@@ -272,12 +271,4 @@ ASTIA_TEST(async_adapter_cancels_pending_task_exactly_once) {
     ASTIA_CHECK(result.await_resume().error == astia::error_t::eagain);
     ASTIA_CHECK(source.complete(2));
     pending_source = nullptr;
-}
-
-ASTIA_TEST(generic_syscall_dispatch_returns_enosys_for_unhandled_id) {
-    astia::arch::syscall_return         image{};
-    astia::core::completion<astia::i64> result;
-    ASTIA_CHECK(!astia::sys::dispatch_async<sync_probe>(
-        static_cast<astia::sys::syscall_id>(128), 0, 0, 0, 0, 0, 0, image, result));
-    ASTIA_CHECK(result.await_resume().value == -ENOSYS);
 }

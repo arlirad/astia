@@ -4,8 +4,7 @@ import { DocsBrowser } from './docs-browser';
 
 const SYSCALL_PAGES = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
 const CANONICAL_SYSCALL_IDS = [
-  ...Array.from({ length: 70 }, (_, index) => index),
-  82,
+  ...Array.from({ length: 71 }, (_, index) => index),
 ];
 
 const synopsisOf = (page: (typeof SYSCALL_PAGES)[number]): string => {
@@ -57,9 +56,9 @@ describe('Generated section-2 syscall docs', () => {
     expect(fchdir?.title).toBe('fchdir(2)');
     expect(fchdir?.source).toContain('kernel/include/astia/api/syscalls.h');
 
-    const uname = SYSCALL_PAGES.find((page) => page.syscallId === 82);
+    const uname = SYSCALL_PAGES.find((page) => page.syscallId === 70);
     expect(uname?.title).toBe('uname(2)');
-    expect(uname?.slug).toBe('syscall-82-uname');
+    expect(uname?.slug).toBe('syscall-70-uname');
     expect(uname?.category).toBe('proc/process');
     expect(uname?.source).toContain('kernel/src/proc/syscalls/process/uname.cpp');
     expect(uname?.content).toContain('## SYNOPSIS');
@@ -190,7 +189,7 @@ describe('Generated section-2 syscall docs', () => {
     expect(exact(13)).toBe(
       'long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);',
     );
-    expect(exact(82)).toBe('long astia_uname(astia_utsname* output);');
+    expect(exact(70)).toBe('long astia_uname(astia_utsname* output);');
   });
 
   it('renders a syscall page through the existing Markdown parser', async () => {

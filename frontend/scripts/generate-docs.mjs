@@ -163,8 +163,7 @@ if (!existsSync(manifestPath)) {
   throw new Error(`missing section-2 manifest: ${manifestPath}`);
 }
 const canonicalSyscallIds = [
-  ...Array.from({ length: 70 }, (_, index) => index),
-  82,
+  ...Array.from({ length: 71 }, (_, index) => index),
 ];
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 if (

@@ -215,42 +215,6 @@ namespace astia::proc::syscalls {
 namespace astia::proc::syscalls {
     extern const ::astia::sys::syscall_descriptor uname_descriptor;
 }
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor accept_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor bind_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor connect_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor getsockopt_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor listen_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor recv_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor recvfrom_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor send_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor sendto_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor shutdown_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor socket_descriptor;
-}
-namespace astia::net::syscalls {
-    extern const ::astia::sys::syscall_descriptor socketpair_descriptor;
-}
 
 namespace astia::sys {
     template <usize Count>
@@ -269,8 +233,8 @@ namespace astia::sys {
             0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16, 17,
             18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
             36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
-            54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69};
-        static_assert(valid_syscall_id_manifest(descriptor_ids, 0, 69));
+            54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70};
+        static_assert(valid_syscall_id_manifest(descriptor_ids, 0, 70));
         // Address constants keep this table statically initialized; the
         // freestanding kernel runs no dynamic initializers for value copies.
         inline constexpr const syscall_descriptor* const descriptors[] = {
@@ -343,33 +307,8 @@ namespace astia::sys {
             &::astia::proc::syscalls::umask_descriptor,
             &::astia::proc::syscalls::shm_open_descriptor,
             &::astia::proc::syscalls::shm_unlink_descriptor,
-            &::astia::proc::syscalls::fchdir_descriptor};
-        static_assert(sizeof(descriptors) / sizeof(descriptors[0]) == 70);
-    } // namespace production
-    namespace identity {
-        inline constexpr u32 descriptor_ids[] = {82};
-        static_assert(valid_syscall_id_manifest(descriptor_ids, 82, 82));
-        inline constexpr const syscall_descriptor* const descriptors[] = {
+            &::astia::proc::syscalls::fchdir_descriptor,
             &::astia::proc::syscalls::uname_descriptor};
-        static_assert(sizeof(descriptors) / sizeof(descriptors[0]) == 1);
-    } // namespace identity
-    namespace net {
-        inline constexpr u32 descriptor_ids[] = {70, 71, 72, 73, 74, 75,
-                                                 76, 77, 78, 79, 80, 81};
-        static_assert(valid_syscall_id_manifest(descriptor_ids, 70, 81));
-        inline constexpr const syscall_descriptor* const descriptors[] = {
-            &::astia::net::syscalls::accept_descriptor,
-            &::astia::net::syscalls::bind_descriptor,
-            &::astia::net::syscalls::connect_descriptor,
-            &::astia::net::syscalls::getsockopt_descriptor,
-            &::astia::net::syscalls::listen_descriptor,
-            &::astia::net::syscalls::recv_descriptor,
-            &::astia::net::syscalls::recvfrom_descriptor,
-            &::astia::net::syscalls::send_descriptor,
-            &::astia::net::syscalls::sendto_descriptor,
-            &::astia::net::syscalls::shutdown_descriptor,
-            &::astia::net::syscalls::socket_descriptor,
-            &::astia::net::syscalls::socketpair_descriptor};
-        static_assert(sizeof(descriptors) / sizeof(descriptors[0]) == 12);
-    } // namespace net
+        static_assert(sizeof(descriptors) / sizeof(descriptors[0]) == 71);
+    } // namespace production
 } // namespace astia::sys
