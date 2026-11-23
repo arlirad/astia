@@ -8,26 +8,39 @@ const PAGES: readonly DocPage[] = [
     title: 'Guide',
     group: 'Guide',
     summary: 'Build and run.',
-    source: 'https://github.com/arlirad/astia/blob/main/README.md',
-    content: '# Guide\n\nBuild and run.\n\n## Steps\n\n- one\n- two',
+    sourcePath: 'README.md',
+    contentKind: 'markdown',
   },
   {
     slug: 'manual',
     title: 'Manual',
     group: 'Manual page',
     summary: 'API reference.',
-    source: 'https://github.com/arlirad/astia/blob/main/docs/aio.7.md',
-    content: '# Manual\n\nAPI reference.',
+    sourcePath: 'docs/aio.7.md',
+    contentKind: 'markdown',
   },
   {
     slug: 'note',
     title: 'Design note',
     group: 'Design note',
     summary: 'Boundary notes.',
-    source: 'https://github.com/arlirad/astia/blob/main/docs/architecture-boundaries.md',
-    content: '# Design note\n\nBoundary notes.',
+    sourcePath: 'docs/architecture-boundaries.md',
+    contentKind: 'markdown',
   },
 ];
+
+const CONTENT: Readonly<Record<string, string>> = {
+  guide:
+    '<h2 id="doc-steps">Steps</h2><ul><li>one</li><li>two</li></ul>',
+  manual: '<p>API reference.</p>',
+  note: '<p>Boundary notes.</p>',
+};
+
+const SOURCE_URLS: Readonly<Record<string, string>> = {
+  guide: 'https://github.com/arlirad/astia/blob/main/README.md',
+  manual: 'https://github.com/arlirad/astia/blob/main/docs/aio.7.md',
+  note: 'https://github.com/arlirad/astia/blob/main/docs/architecture-boundaries.md',
+};
 
 describe('DocsBrowser', () => {
   beforeEach(async () => {
@@ -43,11 +56,28 @@ describe('DocsBrowser', () => {
     const fixture = TestBed.createComponent(DocsBrowser);
     fixture.componentRef.setInput('pages', PAGES);
     fixture.componentRef.setInput('selectedSlug', selectedSlug);
+    if (selectedSlug) {
+      fixture.componentRef.setInput('renderedContent', CONTENT[selectedSlug]);
+      fixture.componentRef.setInput('status', 'ready');
+      fixture.componentRef.setInput('sourceUrl', SOURCE_URLS[selectedSlug]);
+    }
     fixture.detectChanges();
     return { fixture, element: fixture.nativeElement as HTMLElement };
   }
 
-  async function settle(fixture: ReturnType<typeof TestBed.createComponent<DocsBrowser>>): Promise<void> {
+  function select(
+    fixture: ReturnType<typeof TestBed.createComponent<DocsBrowser>>,
+    slug: string | null,
+  ): void {
+    fixture.componentRef.setInput('selectedSlug', slug);
+    fixture.componentRef.setInput('renderedContent', slug ? CONTENT[slug] : '');
+    fixture.componentRef.setInput('status', slug ? 'ready' : 'idle');
+    fixture.componentRef.setInput('sourceUrl', slug ? SOURCE_URLS[slug] : null);
+  }
+
+  async function settle(
+    fixture: ReturnType<typeof TestBed.createComponent<DocsBrowser>>,
+  ): Promise<void> {
     fixture.detectChanges();
     await fixture.whenStable();
     await Promise.resolve();
@@ -62,7 +92,6 @@ describe('DocsBrowser', () => {
     expect(element.querySelector('.docs-count')?.textContent).toContain('3 pages');
     expect(element.querySelectorAll('.docs-group-toggle[aria-expanded="true"]').length).toBe(0);
     expect(element.querySelectorAll('.docs-group ul:not([hidden])').length).toBe(0);
-    expect(element.querySelector('.docs-welcome')).toBeNull();
   });
 
   it('toggles categories with an accessible button and aria state', () => {
@@ -129,7 +158,7 @@ describe('DocsBrowser', () => {
   it('moves focus to the page heading after selection', async () => {
     const { fixture, element } = render();
 
-    fixture.componentRef.setInput('selectedSlug', 'manual');
+    select(fixture, 'manual');
     await settle(fixture);
 
     const title = element.querySelector<HTMLElement>('.docs-page-title');
@@ -148,19 +177,53 @@ describe('DocsBrowser', () => {
     }
     await settle(fixture);
 
-    fixture.componentRef.setInput('selectedSlug', 'manual');
+    select(fixture, 'manual');
     await settle(fixture);
 
     expect(input?.value).toBe('manual');
     expect(element.querySelectorAll('.docs-index-link').length).toBe(1);
     expect(element.querySelector('.docs-page-title')?.textContent).toContain('Manual');
 
-    fixture.componentRef.setInput('selectedSlug', null);
+    select(fixture, null);
     await settle(fixture);
 
     expect(input?.value).toBe('manual');
     expect(element.querySelectorAll('.docs-index-link').length).toBe(1);
     expect(document.activeElement).toBe(input);
+  });
+
+  it('shows loading, not-found, and error states for the selected page', () => {
+    const { fixture, element } = render('manual');
+
+    fixture.componentRef.setInput('status', 'loading');
+    fixture.componentRef.setInput('renderedContent', '');
+    fixture.detectChanges();
+    expect(element.querySelector('[role="status"]')?.textContent).toContain('Loading');
+    expect(element.querySelector('.doc-markdown')).toBeNull();
+
+    fixture.componentRef.setInput('status', 'not-found');
+    fixture.detectChanges();
+    expect(element.querySelector('[role="alert"]')?.textContent).toContain('not available');
+
+    fixture.componentRef.setInput('status', 'error');
+    fixture.componentRef.setInput('errorMessage', 'HTTP 503');
+    fixture.detectChanges();
+    expect(element.querySelector('[role="alert"]')?.textContent).toContain('HTTP 503');
+    expect(element.querySelector('.docs-state button')?.textContent).toContain('Retry');
+  });
+
+  it('emits a retry request from the error state', () => {
+    const { fixture, element } = render('manual');
+    const component = fixture.componentInstance;
+    let retried = false;
+    component.retryRequested.subscribe(() => (retried = true));
+
+    fixture.componentRef.setInput('status', 'error');
+    fixture.componentRef.setInput('errorMessage', 'HTTP 503');
+    fixture.detectChanges();
+
+    element.querySelector<HTMLButtonElement>('.docs-state button')?.click();
+    expect(retried).toBeTrue();
   });
 
   it('emits page selection, page navigation, and index requests', () => {
@@ -174,7 +237,7 @@ describe('DocsBrowser', () => {
     element.querySelectorAll<HTMLButtonElement>('.docs-index-link')[1].click();
     expect(selected).toEqual(['manual']);
 
-    fixture.componentRef.setInput('selectedSlug', 'manual');
+    select(fixture, 'manual');
     fixture.detectChanges();
 
     expect(element.querySelector('.docs-page-title')?.textContent).toContain('Manual');

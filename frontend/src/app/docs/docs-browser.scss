@@ -171,6 +171,18 @@
   font-size: 0.875rem;
 }
 
+.docs-state {
+  display: grid;
+  justify-items: start;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.docs-state p {
+  margin: 0;
+}
+
 .docs-main {
   height: 100%;
   min-width: 0;

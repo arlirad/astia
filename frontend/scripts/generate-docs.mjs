@@ -1,12 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
-import { dirname, join, posix, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -15,7 +9,7 @@ const docsDir = join(repoRoot, 'docs');
 const generatorPath = join(repoRoot, 'tools/man/generate.py');
 const syscallExportDir = join(frontendRoot, '.cache/syscall-docs');
 const manOutputDir = join(frontendRoot, '.cache/man7');
-const outputPath = join(frontendRoot, 'src/app/docs/docs.generated.ts');
+const outputPath = join(frontendRoot, 'src/app/docs/docs.manifest.ts');
 const guides = [
   'README.md',
   'kernel/README.md',
@@ -26,7 +20,7 @@ const guides = [
 ];
 
 if (!existsSync(docsDir)) {
-  console.log('Documentation sources are unavailable; keeping the existing generated docs file.');
+  console.log('Documentation sources are unavailable; keeping the existing docs manifest.');
   process.exit(0);
 }
 
@@ -44,52 +38,7 @@ execFileSync(
   { stdio: 'inherit' },
 );
 
-const githubRepo = 'https://github.com/arlirad/astia';
-let rewrittenLinks = 0;
-
 const normalize = (text) => text.replace(/\u2014/g, ' - ');
-
-const rewriteTarget = (target, sourcePath) => {
-  if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(target)) {
-    return target;
-  }
-
-  const hashIndex = target.indexOf('#');
-  const pathPart = hashIndex >= 0 ? target.slice(0, hashIndex) : target;
-  const hash = hashIndex >= 0 ? target.slice(hashIndex) : '';
-  if (!pathPart) {
-    return target;
-  }
-
-  let decoded = pathPart.replace(/^<|>$/g, '');
-  try {
-    decoded = decodeURIComponent(decoded);
-  } catch {
-    return target;
-  }
-
-  const resolved = posix.normalize(posix.join(posix.dirname(sourcePath), decoded));
-  if (resolved === '..' || resolved.startsWith('../')) {
-    return target;
-  }
-
-  const absolute = join(repoRoot, resolved);
-  if (!existsSync(absolute)) {
-    console.warn(`Unresolved relative link ${target} in ${sourcePath}`);
-    return target;
-  }
-
-  const kind = statSync(absolute).isDirectory() ? 'tree' : 'blob';
-  const encoded = resolved.split('/').map(encodeURIComponent).join('/');
-  rewrittenLinks += 1;
-  return `${githubRepo}/${kind}/main/${encoded}${hash}`;
-};
-
-const rewriteLinks = (content, sourcePath) =>
-  content.replace(
-    /(?<!!)\[([^\]]*)\]\(([^)\s]+)\)/g,
-    (match, text, target) => `[${text}](${rewriteTarget(target, sourcePath)})`,
-  );
 
 const guideTitles = {
   'README.md': 'Project README',
@@ -123,6 +72,13 @@ const summaryOf = (content) => {
   return text.length > 180 ? `${text.slice(0, 177).trimEnd()}...` : text;
 };
 
+const synopsisOf = (content) => {
+  const match = content.match(
+    /## SYNOPSIS\s+(?:```c\n([\s\S]*?)\n```|([^\n]+))/,
+  );
+  return (match?.[1] ?? match?.[2] ?? '').trim();
+};
+
 const slugOf = (path) =>
   path
     .replace(/\.md$/i, '')
@@ -144,17 +100,14 @@ const entries = [
 ];
 
 const basePages = entries.map(({ path, group }) => {
-  const content = rewriteLinks(
-    normalize(readFileSync(join(repoRoot, path), 'utf8')),
-    path,
-  );
+  const content = normalize(readFileSync(join(repoRoot, path), 'utf8'));
   return {
     slug: slugOf(path),
     title: guideTitles[path] ?? titleOf(content, path),
     group,
     summary: summaryOf(content),
-    source: `https://github.com/arlirad/astia/blob/main/${path}`,
-    content,
+    sourcePath: path,
+    contentKind: 'markdown',
   };
 });
 
@@ -187,20 +140,18 @@ if (
 }
 
 const syscallPages = manifest.pages.map((entry) => {
-  const content = rewriteLinks(
-    normalize(readFileSync(join(syscallExportDir, entry.markdown), 'utf8')),
-    entry.source,
-  );
+  const content = normalize(readFileSync(join(syscallExportDir, entry.markdown), 'utf8'));
   return {
     slug: entry.slug,
     title: entry.title,
     group: 'Syscall (2)',
     summary: summaryOf(content),
-    source: `https://github.com/arlirad/astia/blob/main/${entry.source}`,
-    content,
+    sourcePath: entry.source,
+    contentKind: 'source',
     category: entry.category,
     syscallId: entry.id,
     synopsisKind: entry.synopsis_kind,
+    synopsis: normalize(synopsisOf(content)),
   };
 });
 
@@ -212,7 +163,8 @@ const body = pages
       `title: ${JSON.stringify(page.title)}`,
       `group: ${JSON.stringify(page.group)}`,
       `summary: ${JSON.stringify(page.summary)}`,
-      `source: ${JSON.stringify(page.source)}`,
+      `sourcePath: ${JSON.stringify(page.sourcePath)}`,
+      `contentKind: ${JSON.stringify(page.contentKind)}`,
     ];
     if (page.category) {
       fields.push(`category: ${JSON.stringify(page.category)}`);
@@ -223,7 +175,9 @@ const body = pages
     if (page.synopsisKind) {
       fields.push(`synopsisKind: ${JSON.stringify(page.synopsisKind)}`);
     }
-    fields.push(`content: ${JSON.stringify(page.content)}`);
+    if (page.synopsis) {
+      fields.push(`synopsis: ${JSON.stringify(page.synopsis)}`);
+    }
     return `  {
     ${fields.join(',\n    ')},
   }`;
@@ -232,8 +186,8 @@ const body = pages
 
 writeFileSync(
   outputPath,
-  `import type { DocPage } from './docs.model';\n\nexport const GENERATED_DOCS: readonly DocPage[] = [\n${body}\n];\n`,
+  `import type { DocPage } from './docs.model';\n\nexport const DOCS_MANIFEST: readonly DocPage[] = [\n${body}\n];\n`,
 );
 console.log(
-  `Generated ${basePages.length} repository pages and ${syscallPages.length} section-2 syscall pages (${rewrittenLinks} links rewritten).`,
+  `Generated ${basePages.length} repository pages and ${syscallPages.length} section-2 syscall pages as runtime metadata.`,
 );
