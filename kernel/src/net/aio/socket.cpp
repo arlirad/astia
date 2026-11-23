@@ -36,21 +36,22 @@ namespace astia::io::aio::operations {
     } // namespace
 
     struct socket : handler<socket, opcode::socket> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             const astia_sqe& sqe) noexcept {
             const socket_request request = socket_request::from_sqe(sqe);
             if (!request.supported())
-                return cq_post_guarded(ring, sqe.user_data, -EAFNOSUPPORT);
+                co_return -EAFNOSUPPORT;
             proc::process*           current = proc::current_process();
             mm::shptr<fs::open_file> object;
             long rc = fs::create_unix_socket(object, static_cast<u32>(request.type));
             if (rc < 0 || !current)
-                return cq_post_guarded(ring, sqe.user_data, (i32) (rc < 0 ? rc : -ESRCH));
+                co_return (i32)(rc < 0 ? rc : -ESRCH);
             for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
                 if (!current->descriptor(fd_t{fd}) &&
                     current->set_descriptor(fd_t{fd}, object))
-                    return cq_post_guarded(ring, sqe.user_data, fd);
-            return cq_post_guarded(ring, sqe.user_data, -EMFILE);
+                    co_return fd;
+            co_return -EMFILE;
         }
     };
 

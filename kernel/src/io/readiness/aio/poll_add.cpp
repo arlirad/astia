@@ -4,15 +4,16 @@
 namespace astia::io::aio::operations {
 
     struct poll_add : handler<poll_add, opcode::poll_add> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             const astia_sqe& sqe) noexcept {
             const mm::shptr<fs::open_file> object = dispatch::file_for(sqe.fd);
             if (!object)
-                return cq_post_guarded(ring, sqe.user_data, POLLNVAL);
+                co_return POLLNVAL;
             const u64 generation = ready_generation();
             const u32 ready      = object->poll(sqe.aux);
             if (ready != 0)
-                return cq_post_guarded(ring, sqe.user_data, static_cast<i32>(ready));
+                co_return static_cast<i32>(ready);
             parked_op* p          = nullptr;
             u32        park_index = 0;
             for (u32 i = 0; i < parked_operation_slots; ++i)
@@ -22,7 +23,7 @@ namespace astia::io::aio::operations {
                     break;
                 }
             if (p == nullptr)
-                return cq_post_guarded(ring, sqe.user_data, -EBUSY);
+                co_return -EBUSY;
             p->used                 = true;
             p->type                 = parked_op::kind::operation;
             p->done                 = false;
@@ -44,13 +45,13 @@ namespace astia::io::aio::operations {
                     p->pending_user_data = sqe.user_data;
                     p->pending_result    = -ENOMEM;
                 }
-                return true;
+                co_return aio_result::pending;
             }
             p->operation->heap_owned(true);
             publish_waiter_hint(slot, park_index, object->node().get());
             if (ready_generation() != generation)
                 dispatch::resume_parked(proc::current_process(), ring, *p);
-            return true;
+            co_return aio_result::pending;
         }
     };
 

@@ -16,4 +16,10 @@ namespace astia::arch {
         return interrupts_enabled;
     }
 
+    u32 cpu::current_index() {
+        return 0;
+    }
+
+    void cpu::request_local_reschedule() {}
+
 }

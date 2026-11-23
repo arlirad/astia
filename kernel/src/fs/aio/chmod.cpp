@@ -4,44 +4,42 @@
 namespace astia::io::aio::operations {
 
     struct chmod : handler<chmod, opcode::chmod> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             const astia_sqe& sqe) noexcept {
             auto* current = proc::current_process();
             if (current == nullptr)
-                return cq_post_guarded(ring, sqe.user_data, -ESRCH);
+                co_return -ESRCH;
             auto requested = mapper<fs::file_permissions>::from(
                 sqe.address == 0 ? sqe.aux & fs::file_permissions_mask : sqe.aux);
             if (!requested.has_value)
-                return cq_post_guarded(ring, sqe.user_data, -EINVAL);
+                co_return -EINVAL;
             if (sqe.address == 0) {
                 auto mapped_fd = mapper<fd_t>::from(sqe.fd);
                 if (!mapped_fd.has_value)
-                    return cq_post_guarded(ring, sqe.user_data, -EBADF);
+                    co_return -EBADF;
                 auto object = current->descriptor(mapped_fd.value);
                 if (!object)
-                    return cq_post_guarded(ring, sqe.user_data, -EBADF);
+                    co_return -EBADF;
                 if (!object->node())
-                    return cq_post_guarded(ring, sqe.user_data, -ENOSYS);
+                    co_return -ENOSYS;
                 if (current->euid() != 0 &&
                     current->euid() != static_cast<u32>(object->node()->uid()))
-                    return cq_post_guarded(ring, sqe.user_data, -EPERM);
-                return cq_post_guarded(ring, sqe.user_data,
-                                       static_cast<i32>(object->chmod(requested.value)));
+                    co_return -EPERM;
+                co_return static_cast<i32>(object->chmod(requested.value));
             }
             char path[256];
             if (!memory::copy_in_string(span<char>(path, sizeof path),
                                         memory::user_ptr<char>(sqe.address)))
-                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
+                co_return -EFAULT;
             char resolved[256];
             if (current == nullptr ||
                 current->compose_path(path, resolved, sizeof resolved) < 0)
-                return cq_post_guarded(ring, sqe.user_data, -ESRCH);
+                co_return -ESRCH;
             if (current->euid() != 0 &&
                 current->euid() != static_cast<u32>(fs::node_uid(resolved)))
-                return cq_post_guarded(ring, sqe.user_data, -EPERM);
-            return cq_post_guarded(
-                ring, sqe.user_data,
-                static_cast<i32>(fs::chmod_path(resolved, requested.value)));
+                co_return -EPERM;
+            co_return static_cast<i32>(fs::chmod_path(resolved, requested.value));
         }
     };
 

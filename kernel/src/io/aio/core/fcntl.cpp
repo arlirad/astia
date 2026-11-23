@@ -3,36 +3,34 @@
 namespace astia::io::aio::operations {
 
     struct fcntl : handler<fcntl, opcode::fcntl> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             const astia_sqe& sqe) noexcept {
             proc::process* current = proc::current_process();
             auto           mapped  = mapper<fd_t>::from(sqe.fd);
             if (current == nullptr || !mapped.has_value ||
                 !current->descriptor(mapped.value))
-                return cq_post_guarded(ring, sqe.user_data, -EBADF);
+                co_return -EBADF;
             const u32 argument = sqe.aux;
             switch (sqe.op_flags) {
             case ASTIA_F_DUPFD:
             case ASTIA_F_DUPFD_CLOEXEC: {
                 if (static_cast<i32>(argument) < 0)
-                    return cq_post_guarded(ring, sqe.user_data, -EINVAL);
+                    co_return -EINVAL;
                 const u32 flags =
                     sqe.op_flags == ASTIA_F_DUPFD_CLOEXEC ? ASTIA_FD_CLOEXEC : 0;
                 const auto result = current->duplicate_descriptor(
                     mapped.value, fd_t{static_cast<i32>(argument)}, flags);
-                return cq_post_guarded(ring, sqe.user_data,
-                                       result ? result.value.value : -EMFILE);
+                co_return result ? result.value.value : -EMFILE;
             }
             case ASTIA_F_GETFD:
-                return cq_post_guarded(
-                    ring, sqe.user_data,
-                    static_cast<i32>(current->descriptor_flags(mapped.value)));
+                co_return static_cast<i32>(current->descriptor_flags(mapped.value));
             case ASTIA_F_SETFD:
                 if ((argument & ~ASTIA_FD_CLOEXEC) != 0)
-                    return cq_post_guarded(ring, sqe.user_data, -EINVAL);
+                    co_return -EINVAL;
                 if (!current->set_descriptor_flags(mapped.value, argument))
-                    return cq_post_guarded(ring, sqe.user_data, -EBADF);
-                return cq_post_guarded(ring, sqe.user_data, 0);
+                    co_return -EBADF;
+                co_return 0;
             case ASTIA_F_GETFL: {
                 const u32 flags = current->descriptor(mapped.value)->flags();
                 u32       result;
@@ -49,7 +47,7 @@ namespace astia::io::aio::operations {
                     result |= ASTIA_O_APPEND;
                 if (flags & static_cast<u32>(fs::open_file_status_flags::nonblock))
                     result |= ASTIA_O_NONBLOCK;
-                return cq_post_guarded(ring, sqe.user_data, static_cast<i32>(result));
+                co_return static_cast<i32>(result);
             }
             case ASTIA_F_SETFL: {
                 auto object = current->descriptor(mapped.value);
@@ -60,10 +58,10 @@ namespace astia::io::aio::operations {
                     (argument & ASTIA_O_NONBLOCK
                          ? static_cast<u32>(fs::open_file_status_flags::nonblock)
                          : 0u));
-                return cq_post_guarded(ring, sqe.user_data, 0);
+                co_return 0;
             }
             default:
-                return cq_post_guarded(ring, sqe.user_data, -EINVAL);
+                co_return -EINVAL;
             }
         }
     };

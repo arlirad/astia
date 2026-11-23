@@ -4,26 +4,29 @@
 namespace astia::io::aio::operations {
 
     struct recvfrom : handler<recvfrom, opcode::recvfrom> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             const astia_sqe& sqe) noexcept {
             mm::shptr<fs::open_file> object = file_for(sqe.fd);
             if (!object)
-                return cq_post_guarded(ring, sqe.user_data, -EBADF);
+                co_return -EBADF;
             const auto address = memory::user_ptr<astia_sockaddr>(sqe.offset).validate();
             if (!memory::user_span_ok_for(span<u8>::bytes(sqe.address, sqe.length)) ||
                 !address)
-                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
+                co_return -EFAULT;
             if (sqe.length > max_operation_bytes)
-                return cq_post_guarded(ring, sqe.user_data, -EINVAL);
+                co_return -EINVAL;
             if (sqe.length == 0)
-                return cq_post_guarded(ring, sqe.user_data, 0);
+                co_return 0;
             const auto* socket = object->node()->unix_socket_capability();
             long        rc = socket == nullptr ? -EOPNOTSUPP : socket->recvfrom(*object);
             if (rc < 0)
-                return cq_post_guarded(ring, sqe.user_data, static_cast<i32>(rc));
+                co_return static_cast<i32>(rc);
             span<u8> range = span<u8>::bytes(sqe.address, sqe.length);
-            return submit_socket_request(slot, ring, sqe, object, &range, 1,
-                                         ::astia::io::direction::input);
+            co_return submit_socket_request(slot, ring, sqe, object, &range, 1,
+                                            ::astia::io::direction::input)
+                ? aio_result::pending
+                : aio_result::retry;
         }
     };
 

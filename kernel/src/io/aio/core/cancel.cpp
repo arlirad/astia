@@ -3,8 +3,9 @@
 namespace astia::io::aio::operations {
 
     struct cancel : handler<cancel, opcode::cancel> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             const astia_sqe& sqe) noexcept {
             const u64 target       = sqe.offset;
             auto      has_capacity = [ring](u32 count) {
                 const astia_cq_ring* cq = astia_rings_cq(ring);
@@ -20,24 +21,26 @@ namespace astia::io::aio::operations {
                     // Cancellation needs two CQ slots.  Do not consume the
                     // SQE if either completion could be lost.
                     if (!has_capacity(2))
-                        return false;
+                        co_return aio_result::retry;
                     if (!cq_post(ring, target, -ECANCELED))
-                        return false;
+                        co_return aio_result::retry;
                     p.operation->request().cancel_device(false);
                     p.operation->request().acknowledge();
                     p.done = true;
-                    return cq_post(ring, sqe.user_data, 0);
+                    co_return cq_post(ring, sqe.user_data, 0) ? aio_result::pending
+                                                              : aio_result::retry;
                 }
                 if (p.used && p.type == parked_op::kind::oom_completion && !p.done &&
                     p.pending_cqe && p.pending_user_data == target) {
                     if (!has_capacity(2))
-                        return false;
+                        co_return aio_result::retry;
                     if (!publish_pending(ring, p))
-                        return false;
-                    return cq_post(ring, sqe.user_data, 0);
+                        co_return aio_result::retry;
+                    co_return cq_post(ring, sqe.user_data, 0) ? aio_result::pending
+                                                              : aio_result::retry;
                 }
             }
-            return cq_post_guarded(ring, sqe.user_data, -ENOENT);
+            co_return -ENOENT;
         }
     };
 

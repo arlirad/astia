@@ -325,6 +325,8 @@ namespace astia::core {
         return false;
     }
 
+    void cancel_resume(std::coroutine_handle<>, u64) {}
+
 } // namespace astia::core
 
 namespace astia::mm::heap {

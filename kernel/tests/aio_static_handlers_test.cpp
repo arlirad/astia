@@ -25,16 +25,16 @@ namespace {
     namespace aio = astia::io::aio;
 
     struct fake_read : aio::handler<fake_read, aio::opcode::read> {
-        static bool invoke(aio::ring::ring_slot&, astia_rings*,
-                           const astia_sqe&) noexcept {
-            return true;
+        static core::task<aio::aio_result> invoke(aio::ring::ring_slot&, astia_rings*,
+                                                  const astia_sqe&) noexcept {
+            co_return 0;
         }
     };
 
     struct fake_cancel : aio::handler<fake_cancel, aio::opcode::cancel> {
-        static bool invoke(aio::ring::ring_slot&, astia_rings*,
-                           const astia_sqe&) noexcept {
-            return true;
+        static core::task<aio::aio_result> invoke(aio::ring::ring_slot&, astia_rings*,
+                                                  const astia_sqe&) noexcept {
+            co_return 0;
         }
     };
 

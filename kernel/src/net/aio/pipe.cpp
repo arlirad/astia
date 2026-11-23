@@ -4,18 +4,18 @@
 namespace astia::io::aio::operations {
 
     struct pipe : handler<pipe, opcode::pipe> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             const astia_sqe& sqe) noexcept {
             const auto out = memory::user_ptr<i32>(sqe.address).validate(2);
             if (!out)
-                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
+                co_return -EFAULT;
             proc::process* current = proc::current_process();
             if (current == nullptr)
-                return cq_post_guarded(ring, sqe.user_data, -ESRCH);
+                co_return -ESRCH;
             auto pipe = fs::create_pipe();
             if (!pipe)
-                return cq_post_guarded(ring, sqe.user_data,
-                                       static_cast<i32>(-astia::errno_value(pipe.error)));
+                co_return static_cast<i32>(-astia::errno_value(pipe.error));
             auto& read_end  = pipe.value.first;
             auto& write_end = pipe.value.second;
             i32   read_fd   = -1;
@@ -35,15 +35,15 @@ namespace astia::io::aio::operations {
             if (read_fd < 0 || write_fd < 0) {
                 if (read_fd >= 0)
                     current->clear_descriptor(fd_t{read_fd});
-                return cq_post_guarded(ring, sqe.user_data, -EMFILE);
+                co_return -EMFILE;
             }
             i32 result[2] = {read_fd, write_fd};
             if (!memory::copy_out(out.value.bytes(2), result)) {
                 current->clear_descriptor(fd_t{read_fd});
                 current->clear_descriptor(fd_t{write_fd});
-                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
+                co_return -EFAULT;
             }
-            return cq_post_guarded(ring, sqe.user_data, 0);
+            co_return 0;
         }
     };
 

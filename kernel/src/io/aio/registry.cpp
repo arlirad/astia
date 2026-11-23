@@ -23,13 +23,38 @@ namespace astia::io::aio::registry {
         return validate_descriptors(entries(), size());
     }
 
+    namespace {
+        /// Handlers are coroutines, but a submit batch holds the ring lock
+        /// across every operation.  Run the body to its first suspension;
+        /// until the lock-release protocol lands, a suspended body means the
+        /// SQE was not consumed and the frame is discarded.
+        bool run_operation(core::task<aio_result> operation, astia_rings* ring,
+                           const astia_sqe& sqe) {
+            if (!operation.valid())
+                return false;
+            operation.resume();
+            if (!operation.done())
+                return false;
+            const aio_result result = *operation.value();
+            switch (result.kind()) {
+            case aio_result::state::retry:
+                return false;
+            case aio_result::state::pending:
+                return true;
+            case aio_result::state::complete:
+                return ring::cq_post_guarded(ring, sqe.user_data, result.value());
+            }
+            return false;
+        }
+    } // namespace
+
     bool dispatch(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe) {
         if (sqe.op >= opcode_count)
             return ring::cq_post_guarded(ring, sqe.user_data, -ENOSYS);
         for (usize i = 0; i < size(); ++i) {
             const operation_descriptor& entry = entries()[i];
             if (static_cast<u32>(entry.operation) == sqe.op)
-                return entry.invoke(slot, ring, sqe);
+                return run_operation(entry.invoke(slot, ring, sqe), ring, sqe);
         }
         return ring::cq_post_guarded(ring, sqe.user_data, -ENOSYS);
     }

@@ -4,15 +4,15 @@
 namespace astia::io::aio::operations {
 
     struct ftruncate : handler<ftruncate, opcode::ftruncate> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             const astia_sqe& sqe) noexcept {
             auto object = file_for(sqe.fd);
             if (!object)
-                return cq_post_guarded(ring, sqe.user_data, -EBADF);
+                co_return -EBADF;
             if ((object->flags() & fs::open_file_access_mask) == 0)
-                return cq_post_guarded(ring, sqe.user_data, -EBADF);
-            return cq_post_guarded(ring, sqe.user_data,
-                                   static_cast<i32>(object->truncate(sqe.offset)));
+                co_return -EBADF;
+            co_return static_cast<i32>(object->truncate(sqe.offset));
         }
     };
 

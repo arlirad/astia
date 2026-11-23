@@ -4,24 +4,25 @@
 namespace astia::io::aio::operations {
 
     struct readdir : handler<readdir, opcode::readdir> {
-        static bool invoke([[maybe_unused]] ring::ring_slot& slot, astia_rings* ring,
-                           const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             const astia_sqe& sqe) noexcept {
             char path[256];
             if (!memory::copy_in_string(span<char>(path, sizeof path),
                                         memory::user_ptr<char>(sqe.offset)))
-                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
+                co_return -EFAULT;
             auto* current = proc::current_process();
             char  resolved[256];
             if (current == nullptr)
-                return cq_post_guarded(ring, sqe.user_data, -ESRCH);
+                co_return -ESRCH;
             long resolve_rc = current->compose_path(path, resolved, sizeof resolved);
             if (resolve_rc >= 0)
                 resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, true);
             if (resolve_rc < 0)
-                return cq_post_guarded(ring, sqe.user_data, (i32) resolve_rc);
+                co_return (i32) resolve_rc;
             const auto out = memory::user_ptr<astia_dirent>(sqe.address).validate();
             if (!out)
-                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
+                co_return -EFAULT;
             astia_dirent  result{};
             fs::file_type type = fs::directory_unknown;
             long rc = fs::read_directory(resolved, sqe.fd < 0 ? 0 : sqe.fd, result.name,
@@ -34,8 +35,8 @@ namespace astia::io::aio::operations {
                 result.namelen = length;
             }
             if (!memory::copy_out(out.value.bytes(), &result))
-                return cq_post_guarded(ring, sqe.user_data, -EFAULT);
-            return cq_post_guarded(ring, sqe.user_data, static_cast<i32>(rc));
+                co_return -EFAULT;
+            co_return static_cast<i32>(rc);
         }
     };
 

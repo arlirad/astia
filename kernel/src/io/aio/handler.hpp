@@ -2,6 +2,10 @@
 
 #include <astia/api/aio.h>
 #include <astia/common.hpp>
+#include <astia/core/task.hpp>
+#include <astia/mapping.hpp>
+
+#include <type_traits>
 
 namespace astia::io::aio {
 
@@ -62,17 +66,64 @@ namespace astia::io::aio {
         return static_cast<u32>(value) < opcode_count;
     }
 
+    /// What one operation body reports to the dispatcher.  A plain integer
+    /// (negative errno or a non-negative result) completes the SQE now; an
+    /// `error_t` converts to its negative errno.  `retry` leaves the SQE in
+    /// the ring and `pending` consumes it with the completion still to come.
+    class aio_result {
+        public:
+        enum class state : u8 {
+            retry,
+            pending,
+            complete,
+        };
+
+        aio_result() = default;
+
+        template <typename T>
+            requires(std::is_integral_v<T> && !std::is_same_v<T, bool>)
+        aio_result(T value) noexcept
+            : _state(state::complete), _value(static_cast<i32>(value)) {}
+        template <typename T>
+            requires(std::is_enum_v<T> && !std::is_same_v<T, error_t>)
+        aio_result(T value) noexcept
+            : _state(state::complete), _value(static_cast<i32>(value)) {}
+        aio_result(error_t error) noexcept
+            : _state(state::complete), _value(static_cast<i32>(-errno_value(error))) {}
+        aio_result(bool) = delete;
+
+        static const aio_result retry;
+        static const aio_result pending;
+
+        state kind() const noexcept {
+            return _state;
+        }
+        i32 value() const noexcept {
+            return _value;
+        }
+
+        private:
+        constexpr explicit aio_result(state value) noexcept : _state(value), _value(0) {}
+
+        state _state = state::retry;
+        i32   _value = 0;
+    };
+
+    inline const aio_result aio_result::retry{aio_result::state::retry};
+    inline const aio_result aio_result::pending{aio_result::state::pending};
+
     struct operation_descriptor {
         opcode operation;
-        bool (*invoke)(ring::ring_slot&, astia_rings*, const astia_sqe&) noexcept;
+        core::task<aio_result> (*invoke)(ring::ring_slot&, astia_rings*,
+                                         const astia_sqe&) noexcept;
     };
 
     template <typename Derived, opcode Opcode>
     struct handler {
         static constexpr opcode opcode_value = Opcode;
 
-        static bool thunk(ring::ring_slot& slot, astia_rings* ring,
-                          const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> thunk(ring::ring_slot& slot, astia_rings* ring,
+                                            const astia_sqe& sqe) noexcept {
             static_assert(Derived::opcode_value == Opcode);
             static_assert(valid_opcode(Opcode));
             return Derived::invoke(slot, ring, sqe);
