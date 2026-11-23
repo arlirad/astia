@@ -78,9 +78,9 @@ test "$slot_trb" -eq "$cmd_ring"
 test "$slot" -ge 1
 crcr_hex=$(printf '%x' "$crcr")
 slot_trb_hex=$(printf '%x' "$slot_trb")
-grep -q "usb_xhci_oper_write off 0x0018, val 0x0*${crcr_hex}" "$trace"
+grep -qE "usb_xhci_oper_write off 0x0018, val 0x0*${crcr_hex}$" "$trace"
 grep -q "usb_xhci_fetch_trb addr 0x0*${slot_trb_hex}, CR_ENABLE_SLOT" "$trace"
-crcr_line=$(grep -n "usb_xhci_oper_write off 0x0018, val 0x0*${crcr_hex}" "$trace" |
+crcr_line=$(grep -nE "usb_xhci_oper_write off 0x0018, val 0x0*${crcr_hex}$" "$trace" |
     head -n 1 | cut -d: -f1)
 fetch_line=$(grep -n "usb_xhci_fetch_trb addr 0x0*${slot_trb_hex}, CR_ENABLE_SLOT" "$trace" |
     head -n 1 | cut -d: -f1)
@@ -90,7 +90,43 @@ enable_line=$(awk -v n="$fetch_line" -v s="$slot" \
     'NR > n && index($0, "usb_xhci_slot_enable slotid " s) {print NR; exit}' "$trace")
 test -n "$enable_line"
 complete_line=$(awk -v n="$enable_line" -v p="$slot_trb_hex" \
-    'NR > n && /usb_xhci_queue_event/ && /CC_SUCCESS/ && index($0, p) {print NR; exit}' \
+    'NR > n && /usb_xhci_queue_event/ && /ER_COMMAND_COMPLETE/ && /CC_SUCCESS/ && index($0, p) {print NR; exit}' \
     "$trace")
 test -n "$complete_line"
-printf '%s\n' 'QEMU xHCI module CRCR/Enable Slot evidence passed (address/HID remain residual)'
+
+if grep -qF 'usb: xhci enumeration failed' "$log"; then
+    printf '%s\n' 'QEMU xHCI module reported an enumeration failure' >&2
+    exit 1
+fi
+grep -qF 'usb: xhci address device=' "$log"
+grep -qF 'usb: xhci port enumerated=' "$log"
+
+address_line=$(awk -v n="$crcr_line" 'NR > n && /CR_ADDRESS_DEVICE/ {print NR; exit}' \
+    "$trace")
+test -n "$address_line"
+address_record=$(sed -n "${address_line}p" "$trace")
+slot_hex=$(printf '%02x' "$slot")
+case "$address_record" in
+    *"c 0x${slot_hex}"*) ;;
+    *)
+        printf '%s\n' "Address Device TRB does not carry slot ${slot}" >&2
+        exit 1
+        ;;
+esac
+address_trb=$(printf '%s\n' "$address_record" |
+    sed -n 's/.*addr 0x0*\([0-9a-f][0-9a-f]*\), CR_ADDRESS_DEVICE.*/\1/p')
+test -n "$address_trb"
+slot_address_line=$(awk -v n="$address_line" -v s="$slot" \
+    'NR > n && index($0, "usb_xhci_slot_address slotid " s ",") {print NR; exit}' \
+    "$trace")
+test -n "$slot_address_line"
+address_complete=$(awk -v n="$slot_address_line" -v p="$address_trb" \
+    'NR > n && /usb_xhci_queue_event/ && /ER_COMMAND_COMPLETE/ && /CC_SUCCESS/ && index($0, p) {print NR; exit}' \
+    "$trace")
+test -n "$address_complete"
+if awk -v n="$crcr_line" 'NR > n && /CC_TRB_ERROR/ {found = 1} END {exit !found}' \
+    "$trace"; then
+    printf '%s\n' 'xHCI command ring returned CC_TRB_ERROR after module start' >&2
+    exit 1
+fi
+printf '%s\n' 'QEMU xHCI module CRCR/Enable Slot/Address Device/enumeration evidence passed'

@@ -223,14 +223,14 @@ namespace astia::usb::xhci {
                 command_enqueue_ = 0;
             }
 
-            bool enqueue_command(uint64_t parameter, uint32_t control,
+            bool enqueue_command(uint8_t slot, uint64_t parameter, uint32_t control,
                                  uint64_t& address) {
                 auto* command = static_cast<trb*>(command_memory_.data());
                 address       = command_physical_ + command_enqueue_ * sizeof(trb);
                 command[command_enqueue_]           = {};
                 command[command_enqueue_].parameter = parameter;
                 command[command_enqueue_].control =
-                    control | (command_cycle_ ? trb_cycle : 0u);
+                    control | command_slot_bits(slot) | (command_cycle_ ? trb_cycle : 0u);
                 advance_command();
                 memory_barrier();
                 doorbells_.write<uint32_t>(0, 0);
@@ -301,7 +301,7 @@ namespace astia::usb::xhci {
 
             bool enable_slot() {
                 uint64_t command_address = 0;
-                if (!enqueue_command(0, trb_type_bits(trb_type::enable_slot),
+                if (!enqueue_command(0, 0, trb_type_bits(trb_type::enable_slot),
                                      command_address))
                     return false;
                 uint8_t result = 0;
@@ -358,9 +358,12 @@ namespace astia::usb::xhci {
                 uint64_t       command_address = 0;
                 const uint32_t control         = trb_type_bits(trb_type::address_device) |
                                          (block_address ? address_bsr : 0u);
-                if (!enqueue_command(input_memory_.physical(), control, command_address))
+                if (!enqueue_command(slot_, input_memory_.physical(), control,
+                                     command_address) ||
+                    !wait_command(command_address))
                     return false;
-                return wait_command(command_address);
+                astia::module::log_u64("usb", "xhci address device", slot_);
+                return true;
             }
 
             bool reset_port(uint8_t port) {

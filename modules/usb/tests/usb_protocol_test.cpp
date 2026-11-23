@@ -78,9 +78,22 @@ int main() {
     const setup_packet setup     = get_descriptor_request(descriptor_device, 0, 18);
     const trb          setup_trb = astia::usb::xhci::make_setup_trb(setup, true);
     assert(setup_trb.parameter.get() == 0x0012000001000680ull);
-    assert(setup_trb.status.get() == (8u | (3u << 16)));
+    assert(setup_trb.status.get() == 8u);
     assert(((setup_trb.control.get() >> 10) & 0x3fu) ==
            static_cast<uint32_t>(astia::usb::xhci::trb_type::setup_stage));
+    assert((setup_trb.control.get() & (3u << 16)) ==
+           astia::usb::xhci::trb_transfer_type_in);
+    setup_packet out_setup  = setup;
+    out_setup.request_type  = 0x00;
+    const trb out_setup_trb = astia::usb::xhci::make_setup_trb(out_setup, true);
+    assert(out_setup_trb.status.get() == 8u);
+    assert((out_setup_trb.control.get() & (3u << 16)) ==
+           astia::usb::xhci::trb_transfer_type_out);
+    out_setup.length      = 0;
+    const trb no_data_trb = astia::usb::xhci::make_setup_trb(out_setup, true);
+    assert(no_data_trb.status.get() == 8u);
+    assert((no_data_trb.control.get() & (3u << 16)) ==
+           astia::usb::xhci::trb_transfer_type_no_data);
     const trb data_trb = astia::usb::xhci::make_data_trb(0x2000, 18, true, 2, true);
     assert(data_trb.parameter.get() == 0x2000);
     assert((data_trb.status.get() & 0x1ffffu) == 18);
@@ -98,6 +111,9 @@ int main() {
     assert(slot_context_speed(usb_speed::super) == 4);
     assert(slot_context_speed(usb_speed::super_plus) == 5);
     assert(slot_context_speed(static_cast<usb_speed>(0xff)) == 0);
+    assert(astia::usb::xhci::command_slot_bits(0) == 0);
+    assert(astia::usb::xhci::command_slot_bits(1) == 0x01000000u);
+    assert(astia::usb::xhci::command_slot_bits(127) == 0x7f000000u);
 
     trb                                ring_memory[64]{};
     astia::usb::xhci::control_ring<64> ring;
