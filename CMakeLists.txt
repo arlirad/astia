@@ -55,6 +55,18 @@ if(ASTIA_ZSH_SOURCE STREQUAL "")
 endif()
 set(ASTIA_POSIX_TEST_SOURCE "$ENV{POSIX_TEST_SOURCE}" CACHE PATH
         "Clean LTP Open POSIX source tree for external CTest suites")
+set(ASTIA_NCURSES_SOURCE "$ENV{NCURSES_SOURCE}" CACHE PATH
+        "Pinned ncurses source tree for the cross package")
+if(ASTIA_NCURSES_SOURCE STREQUAL "")
+    set(ASTIA_NCURSES_SOURCE "${CMAKE_SOURCE_DIR}/user/ncurses" CACHE PATH
+            "Pinned ncurses source tree for the cross package" FORCE)
+endif()
+set(ASTIA_NCURSES_BUILD "$ENV{NCURSES_BUILD}" CACHE PATH
+        "Cross ncurses build and package directory")
+if(ASTIA_NCURSES_BUILD STREQUAL "")
+    set(ASTIA_NCURSES_BUILD "${CMAKE_BINARY_DIR}/ncurses" CACHE PATH
+            "Cross ncurses build and package directory" FORCE)
+endif()
 
 set(ASTIA_VGA_QEMU "$ENV{QEMU}" CACHE STRING
     "QEMU executable used by the Astia VGA launcher")
@@ -451,6 +463,64 @@ if(ASTIA_BUILD_TESTS)
     endif()
     set_tests_properties(astia_qemu_prepare PROPERTIES DEPENDS astia_libc_cross)
 
+    add_custom_target(astia_ncurses_cross
+        COMMAND ${CMAKE_COMMAND} -E env
+            "NCURSES_SOURCE=${ASTIA_NCURSES_SOURCE}"
+            "NCURSES_BUILD=${ASTIA_NCURSES_BUILD}"
+            "NCURSES_PACKAGE=${ASTIA_NCURSES_BUILD}/package"
+            "ASTIA_CROSS_BUILD=${_astia_cross_build}"
+            "ASTIA_SYSROOT=${_astia_sysroot}"
+            "ASTIA_CRT0=${_astia_crt0}"
+            "${CMAKE_SOURCE_DIR}/toolchain/build-ncurses.sh"
+        DEPENDS
+            "${CMAKE_SOURCE_DIR}/toolchain/build-ncurses.sh"
+            "${CMAKE_SOURCE_DIR}/toolchain/build-init-libc.sh"
+            "${CMAKE_SOURCE_DIR}/kernel/tests/crt0.S"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        USES_TERMINAL)
+    add_test(NAME astia_ncurses_cross
+            COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
+            --target astia_ncurses_cross)
+    set_tests_properties(astia_ncurses_cross PROPERTIES
+            LABELS "ncurses;cross;deterministic"
+            TIMEOUT 600)
+
+    add_custom_target(astia_ncurses_abi
+        COMMAND ${CMAKE_COMMAND} -E env
+            "NCURSES_PACKAGE=${ASTIA_NCURSES_BUILD}/package"
+            "ASTIA_SYSROOT=${_astia_sysroot}"
+            "ASTIA_CRT0=${_astia_crt0}"
+            "NCURSES_ABI_BUILD=${CMAKE_BINARY_DIR}/ncurses-abi"
+            sh "${CMAKE_SOURCE_DIR}/toolchain/tests/run-ncurses-abi.sh"
+        DEPENDS
+            "${CMAKE_SOURCE_DIR}/toolchain/tests/run-ncurses-abi.sh"
+            "${CMAKE_SOURCE_DIR}/toolchain/tests/ncurses_abi_probe.c"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        USES_TERMINAL)
+    add_dependencies(astia_ncurses_abi astia_ncurses_cross)
+    add_test(NAME astia_ncurses_abi
+            COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
+            --target astia_ncurses_abi)
+    set_tests_properties(astia_ncurses_abi PROPERTIES
+            LABELS "ncurses;abi;cross;deterministic"
+            DEPENDS astia_ncurses_cross
+            TIMEOUT 300)
+
+    astia_register_script_test(astia_ncurses_qemu_smoke
+            "ncurses;qemu;external;deterministic"
+            ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/tests/run-ncurses-qemu-smoke.sh
+            EXTERNAL TIMEOUT 120
+            ENV
+                QEMU=${_astia_qemu}
+                ASTIA_KERNEL=${_astia_kernel_runtime}
+                ASTIA_INITRD=${_astia_boot_initrd}
+                NCURSES_PACKAGE=${ASTIA_NCURSES_BUILD}/package
+                ASTIA_SYSROOT=${_astia_sysroot}
+                ASTIA_CRT0=${_astia_crt0}
+                NCURSES_SMOKE_BUILD=${CMAKE_BINARY_DIR}/ncurses-smoke)
+    set_tests_properties(astia_ncurses_qemu_smoke PROPERTIES
+            DEPENDS astia_ncurses_cross)
+
     astia_register_script_test(astia_coreutils_qemu
             "coreutils;qemu;deterministic"
             ${CMAKE_CURRENT_SOURCE_DIR}/coreutils/tests/run.sh
@@ -642,6 +712,7 @@ if(ASTIA_BUILD_TESTS)
             astia_zsh_signal_regression
             astia_zsh_interactive_manual
             astia_nano_pty_smoke
+            astia_ncurses_qemu_smoke
             astia_vga_graphical
             astia_vga_pvh_fallback
             astia_posix_batch
