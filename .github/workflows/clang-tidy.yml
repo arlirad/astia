@@ -128,8 +128,8 @@ jobs:
             -DPLATFORM=virt \
             -DBOOT=virt \
             -DASTIA_BUILD_TESTS=OFF \
-            -DASTIA_AARCH64_VIRT_C_COMPILER=/usr/lib/llvm-${LLVM_VERSION}/bin/clang \
-            -DASTIA_AARCH64_VIRT_CXX_COMPILER=/usr/lib/llvm-${LLVM_VERSION}/bin/clang++ \
+            "-DASTIA_AARCH64_VIRT_C_COMPILER=/usr/lib/llvm-${LLVM_VERSION}/bin/clang" \
+            "-DASTIA_AARCH64_VIRT_CXX_COMPILER=/usr/lib/llvm-${LLVM_VERSION}/bin/clang++" \
             "-DCMAKE_C_FLAGS=--target=aarch64-linux-gnu" \
             "-DCMAKE_CXX_FLAGS=--target=aarch64-linux-gnu" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
