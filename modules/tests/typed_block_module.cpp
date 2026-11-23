@@ -39,7 +39,9 @@ namespace {
 }
 
 int module_main() {
-    astia::io::request request(nullptr, 0, 0, 0, astia::io::direction::input);
+    astia::core::clsource request_source;
+    astia::io::request    request(request_source, nullptr, 0, 0, 0,
+                                  astia::io::direction::input);
     (void) request;
     (void) block;
     (void) buffer;

@@ -1,6 +1,6 @@
-#include <astia/hw/driver.hpp>
 #include <astia/dev/blk/blkdev.hpp>
 #include <astia/dev/chr/chrdev.hpp>
+#include <astia/hw/driver.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/dma_buffer.hpp>
 
@@ -14,6 +14,8 @@ static_assert(std::is_base_of_v<astia::dev::device, astia::dev::blk::blkdev>);
 static_assert(std::is_polymorphic_v<astia::hw::driver>);
 
 int main() {
-    astia::io::request request(nullptr, 0, 0, 0, astia::io::direction::input);
+    astia::core::clsource request_source;
+    astia::io::request    request(request_source, nullptr, 0, 0, 0,
+                                  astia::io::direction::input);
     return request.direction() == astia::io::direction::input ? 0 : 1;
 }

@@ -171,7 +171,9 @@ ASTIA_TEST(device_file_detach_cancels_parked_request_once) {
     parked_device           device;
     astia::dev::device_file file(&device);
     char                    buffer[512]{};
-    astia::io::request request(buffer, sizeof buffer, 0, 0, astia::io::direction::input);
+    astia::core::clsource   request_source;
+    astia::io::request      request(request_source, buffer, sizeof buffer, 0, 0,
+                                    astia::io::direction::input);
 
     ASTIA_CHECK(file.submit(request) == -EAGAIN);
     ASTIA_CHECK(device.pending == nullptr);
@@ -313,10 +315,12 @@ ASTIA_TEST(device_file_quiescence_callback_waits_for_active_submit) {
     blocking_device         device;
     astia::dev::device_file file(&device);
     char                    buffer[1]{};
-    astia::io::request request(buffer, sizeof buffer, 0, 0, astia::io::direction::input);
-    std::atomic<bool>  submit_done{false};
-    std::atomic<bool>  quiesced{false};
-    std::thread        submitter([&] {
+    astia::core::clsource   request_source;
+    astia::io::request      request(request_source, buffer, sizeof buffer, 0, 0,
+                                    astia::io::direction::input);
+    std::atomic<bool>       submit_done{false};
+    std::atomic<bool>       quiesced{false};
+    std::thread             submitter([&] {
         file.submit(request);
         submit_done.store(true, std::memory_order_release);
     });
