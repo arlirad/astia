@@ -109,6 +109,18 @@ grep -Fxq 'console-path: /pl011@9000000' "$log" ||
     die "resolved console path is missing"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: HANDOFF OK' "$log" ||
     die "production boot handoff was not reported"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: MMU ON' "$log" ||
+    die "post-MMU marker was not reported"
+grep -Fxq 'mmu: mair=0x00000000aa44ff04 tcr=0x0000000200903510' "$log" ||
+    die "MAIR_EL1/TCR_EL1 policy line is missing or unexpected"
+grep -Eq '^mmu: sctlr=0x[0-9a-f]{16} m=1 c=1 i=1$' "$log" ||
+    die "SCTLR_EL1 M/C/I state is missing"
+grep -Fxq 'mmu: pl011 write=ok' "$log" ||
+    die "post-MMU PL011 write marker is missing"
+grep -Eq '^mmu: pl011 read=0x[0-9a-f]{8}$' "$log" ||
+    die "post-MMU PL011 read marker is missing"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: PL011 RW OK' "$log" ||
+    die "post-MMU PL011 read/write verification was not reported"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: HALT' "$log" ||
     die "production stage did not halt cleanly"
 

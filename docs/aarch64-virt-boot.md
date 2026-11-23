@@ -34,10 +34,14 @@ The stage does exactly this:
 5. Resolve the boot console from `/chosen/stdout-path` and `arm,pl011`.
 6. Print the DTB size, RAM ranges, reserved ranges, console, and handoff status
    over the PL011.
-7. Halt through PSCI `SYSTEM_OFF`.
+7. Build a bounded, static identity-map page-table arena from the typed
+   handoff, install it in `TTBR0_EL1`, and enable stage 1 translation.
+8. Print the post-MMU marker, MAIR/TCR/SCTLR state, and a PL011 write/read
+   marker, then halt through PSCI `SYSTEM_OFF`.
 
-Explicit non-goals: scheduler, MMU/page tables, caches, GIC/IRQ, timers,
-modules, userspace, SMP, initrd, ACPI, and full generic-kernel boot.
+Explicit non-goals: scheduler, full virtual-memory management, user address
+spaces, cache maintenance policy, GIC/IRQ, timers, modules, userspace, SMP,
+initrd, ACPI, and full generic-kernel boot.
 
 ## Direct ELF boot contract
 
@@ -154,6 +158,122 @@ reported, not acted on.
 standalone PL011 implementation: the production QEMU runner boots the
 production `astiakrn` image through its normal ELF entry and DTB path.
 
+## MMU / identity-map policy
+
+This milestone adds the first production AArch64 stage 1 translation. It is an
+early-boot identity map, not a general virtual-memory manager:
+
+- 4KB translation granule, initial lookup at level 0.
+- 48-bit lower VA range (`TCR_EL1.T0SZ = 16`), translated through `TTBR0_EL1`.
+- 40-bit PA policy (`TCR_EL1.IPS = 0b010`), which covers every address used by
+  the QEMU `virt` image, DTB, RAM, and PL011 and is within the architecturally
+  supported `ID_AA64MMFR0_EL1.PARange` space. Every supplied VA/PA is checked
+  against the policy bounds before a descriptor is written.
+- `TTBR1_EL1` is not used (`TCR_EL1.EPD1 = 1`).
+- All table frames come from a statically allocated, 4KiB-aligned,
+  256-table (1MiB) arena in `.bss`. Allocation is zeroed and checked; the
+  arena is intentionally not a generic frame allocator and is not reusable.
+
+### Exact register policy
+
+| Register | Value / fields | Reason |
+| --- | --- | --- |
+| `MAIR_EL1` | `0x00000000AA44FF04` | Attr0 `0x04` = Device-nGnRE, Attr1 `0xff` = Normal Inner/Outer Write-Back Read-Allocate Write-Allocate, Attr2 `0x44` = Normal Non-cacheable (`cache_disable`), Attr3 `0xaa` = Normal Write-Through (`write_through`) |
+| `TCR_EL1` | `0x0000000200903510` | T0SZ=16, T1SZ=16, EPD1=1, IRGN0=01, ORGN0=01, SH0=11, TG0=00, IPS=010, AS=0, A1=0 |
+| `TTBR0_EL1` | page-table root + ASID 0, CnP=0 | Lower VA range; no ASID use in this stage |
+| `TTBR1_EL1` | 0 | Upper range disabled by `EPD1` |
+| `SCTLR_EL1` | M=1, C=1, I=1; WXN=0, EE=0, E0E=0 | Enable MMU and caches; do not turn writable image pages into execute-never; little-endian |
+
+`TCR_EL1.SH0 = 0b11` makes translation-table walks Inner Shareable;
+`IRGN0/ORGN0 = 0b01` makes the tables Normal Write-Back cacheable. Device
+translation-table memory is not used.
+
+### Descriptor policy
+
+Table descriptors are `next_table[47:12] | table(bit 1) | valid(bit 0)`.
+`APTable`, `XNTable`, and `UXNTable` are zero, so the hierarchy adds no
+permission restrictions; `TCR_EL1` leaves hierarchical permissions enabled
+with no restrictions at table level. Leaf descriptors set AF=1 (the stage does
+not use hardware AF management), nG=0 for all current kernel mappings, and:
+
+| Mapping | AttrIndx | SH | AP[2:1] | PXN | UXN |
+| --- | --- | --- | --- | --- | --- |
+| Usable RAM default | 1 (Normal WBWA) | 11 (Inner Shareable) | 00 (privileged RW) | 1 | 1 |
+| Image (code + data + BSS + arena) | 1 | 11 | 00 (privileged RW) | 0 | 1 |
+| DTB window | 1 | 11 | 10 (privileged RO) | 1 | 1 |
+| Stack | 1 | 11 | 00 (privileged RW) | 1 | 1 |
+| PL011 MMIO | 0 (Device-nGnRE) | 00 | 00 (privileged RW) | 1 | 1 |
+
+`page_flags::device` selects Attr0 and forces PXN=UXN=1 in the backend.
+`page_flags::no_execute` sets both PXN and UXN for Normal mappings.
+`page_flags::user` sets AP[1] and nG; `writable` selects AP[2]=0. The shared API
+has no executable-positive flag, so “device is non-executable” is backend
+policy rather than a rejected flag combination. x86_64 deliberately treats
+`page_flags::device` as a no-op; its mappings and ABI are unchanged.
+
+RAM is mapped first with 2MiB Normal blocks (NX), then the DTB, image, and
+stack ranges are installed with 4KiB leaves; the image leaves are executable
+because text and data currently share pages. The PL011 is a single 4KiB
+Device-nGnRE page. Identity is required for the current PC, SP, page tables,
+DTB, and PL011 across the enable transition.
+
+### Enable sequence
+
+Tables are written with the MMU off using physical addresses that are also
+identity virtual addresses. Activation then performs:
+
+1. `MSR MAIR_EL1`, `MSR TCR_EL1`, `MSR TTBR0_EL1`, `MSR TTBR1_EL1`.
+2. `DSB ISH` (table and system-register writes complete).
+3. `ISB` (context synchronization for the register writes).
+4. `TLBI VMALLE1IS` (discard any stale EL1&0 stage 1 entries).
+5. `DSB ISH`, then `ISB`.
+6. Read `SCTLR_EL1`, set M/C/I, clear WXN/EE/E0E, write it back.
+7. `ISB`; the next instruction fetch and data access use the new map.
+
+The stage performs no cache maintenance instructions: with translation
+disabled, its data accesses are Normal Outer Shareable Inner/Outer
+Non-cacheable, and `DSB ISH` orders the table writes before the enable. Future
+cacheable-table updates must add the appropriate cache maintenance and
+break-before-make/TLBI rules.
+
+**Early-stage limitation:** map mutation after `activate()` is unsupported.
+`map_4k`, `map_2m`, `unmap`, and `protect_4k` may be called only while the map
+is being constructed with the MMU off. When active, the backend orders a
+`TLBI VAE1IS` with a preceding `DSB ISH` and a following `DSB ISH`/`ISB` for
+a single changed 4KiB VA. It still does not implement break-before-make, does
+not invalidate an entire 2MiB block when splitting a Block descriptor, and
+does not provide the cache maintenance that a later cacheable-table update
+would require. Adding those rules is required before using this backend for
+runtime mappings.
+
+### Specification provenance
+
+The requested `D4.2.x`/`D4.3.3` numbering corresponds to the current ARM DDI
+0487 M.c numbering, where the AArch64 VMSA chapter is D8. The implementation
+was written against the complete sections, not summaries:
+
+- D8.1 address translation, D8.1.6 implemented PA size, D8.1.7 output address
+  size, D8.1.9 input address size (`T0SZ`/`T1SZ`).
+- D8.2.1 translation table walk, D8.2.3 TTBR base register, D8.2.4 TTBR0/TTBR1
+  selection, D8.2.6 translation-walk ordering and `DSB` visibility.
+- D8.2.8 VMSAv8-64 4KB granule (lookup levels, initial lookup level, descriptor
+  address calculation), D8.2.12 effects of disabling translation, D8.2.13
+  address translation instructions.
+- D8.3.1 VMSAv8-64 table/block/page descriptor formats.
+- D8.4.1 stage 1 permissions (`AP[2:1]`), D8.4.4 execute-never semantics.
+- D8.5.1 Access flag management.
+- D8.6.1 stage 1 memory type/Cacheability, D8.6.2 stage 1 Shareability.
+- D8.17.1 break-before-make, D8.17.8 ordering/completion of TLB maintenance.
+- D24.2.126 `MAIR_EL1`, D24.2.174 `SCTLR_EL1`, D24.2.193 `TCR_EL1`,
+  D24.2.208 `TTBR0_EL1`; B2.6.1 `ISB`, B2.6.9 `DSB`; C5.5.77
+  `TLBI VMALLE1IS`.
+
+Source: *Arm Architecture Reference Manual for A-profile architecture*, ARM
+DDI 0487 M.c, <https://developer.arm.com/documentation/ddi0487/mc>. QEMU
+`virt` bare-metal contract: RAM at `0x4000_0000`, DTB at the start of RAM for
+bare-metal images, all other device addresses from the DTB,
+<https://www.qemu.org/docs/master/system/arm/virt.html>.
+
 ## Verification
 
 ```sh
@@ -165,9 +285,22 @@ cmake --build kernel/build-tests --target astia_aarch64_fdt_test
 ctest --test-dir kernel/build-tests -R '^astia_aarch64_fdt_test$' \
   --output-on-failure
 
-# Production AArch64 early boot smoke
+# Focused AArch64 descriptor-policy and bounded-arena tests (host)
+cmake --build kernel/build-tests --target astia_aarch64_page_map_test
+ctest --test-dir kernel/build-tests -R '^astia_aarch64_page_map_test$' \
+  --output-on-failure
+
+# x86 page-map regression (device is a documented no-op)
+cmake --build kernel/build-tests --target astia_page_map_test
+ctest --test-dir kernel/build-tests -R '^astia_page_map_test$' \
+  --output-on-failure
+
+# Production AArch64 early boot + MMU smoke
 kernel/scripts/run-aarch64-virt-smoke.sh
 ```
+
+The smoke runner also asserts the post-MMU marker, the exact MAIR/TCR values,
+`SCTLR_EL1.M/C/I`, and a PL011 write followed by a PL011 read.
 
 Kernel CI (`.github/workflows/kernel-ci.yml`) runs the focused host parser
 test, the production AArch64 QEMU smoke, and the existing x86 build/test
@@ -188,8 +321,16 @@ lift must be recorded here with the exact source and rework.
 
 ## Remaining gaps
 
-- No full kernel boot, paging/MMU transition, GIC/IRQ, timer, modules,
-  userspace, SMP, initrd, or ACPI.
+- No full kernel boot, user address spaces, virtual-memory allocator, GIC/IRQ,
+  timer, modules, userspace, SMP, initrd, or ACPI.
+- The identity map is deliberately static and bounded. It is not a frame
+  allocator, cannot be reused for process address spaces, and does not
+  implement break-before-make or cache maintenance for later table updates.
+- `page_map::create(parent)` deep-clones the parent's current tables in this
+  stage; later parent updates are not shared. Process address spaces are out
+  of scope.
+- The image is mapped privileged RWX because current linker sections share
+  pages; W^X section mapping is left to a later stage.
 - EL1 only; no EL2/EL3 normalization.
 - FDT version 17+ only; version 16 backwards compatibility is not implemented.
 - Only static reserved-memory `reg` ranges; no dynamic reserved allocations.

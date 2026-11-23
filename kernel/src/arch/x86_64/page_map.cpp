@@ -107,7 +107,8 @@ namespace astia::arch {
 
         /// Translate the arch-neutral flags into an x86_64 leaf entry. A
         /// mapping is always present; page_flags::present is a call-site
-        /// convention, not a way to make an absent mapping.
+        /// convention, not a way to make an absent mapping. page_flags::device
+        /// has no x86_64 encoding and is intentionally a no-op here.
         u64 to_leaf(page_flags flags) {
             u64 bits = entry_present;
             if (has_flag(flags, page_flags::writable)) {

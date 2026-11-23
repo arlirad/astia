@@ -12,6 +12,7 @@ PHDRS
 SECTIONS
 {
     . = 0x40400000;
+    __image_start = .;
 
     .text : ALIGN(16)
     {
@@ -40,6 +41,8 @@ SECTIONS
         __stack_top = .;
         __bss_end = .;
     } :data
+
+    __image_end = .;
 
     /DISCARD/ :
     {

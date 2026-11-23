@@ -1,8 +1,9 @@
-#include "arena.hpp"
-#include "test.hpp"
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/mm/frame_allocator.hpp>
+
+#include "arena.hpp"
+#include "test.hpp"
 
 namespace {
 
@@ -142,6 +143,26 @@ ASTIA_TEST(page_map_rejects_misaligned_and_non_canonical) {
     const astia::u64 non_canonical = 0x0001000000000000ull;
     ASTIA_CHECK(!pm.map_4k(non_canonical, astia_test::arena_base + 0xa00000, rw));
     ASTIA_CHECK(pm.translate(non_canonical) == page_map::invalid);
+}
+
+ASTIA_TEST(page_map_device_flag_is_noop_on_x86_64) {
+    auto             pm    = make_map();
+    const astia::u64 virt  = 0x610000;
+    const astia::u64 phys  = astia_test::arena_base + 0x410000;
+    const auto       flags = rw | page_flags::user | page_flags::device;
+
+    ASTIA_CHECK(pm.map_4k(virt, phys, flags));
+    ASTIA_CHECK(pm.translate(virt) == phys);
+    ASTIA_CHECK(pm.writable(virt));
+    ASTIA_CHECK(pm.user_accessible(virt));
+    ASTIA_CHECK(pm.executable(virt));
+
+    // device must not stop no_execute from taking effect.
+    ASTIA_CHECK(pm.protect_4k(virt, page_flags::present | page_flags::user |
+                                        page_flags::device | page_flags::no_execute));
+    ASTIA_CHECK(!pm.writable(virt));
+    ASTIA_CHECK(pm.user_accessible(virt));
+    ASTIA_CHECK(!pm.executable(virt));
 }
 
 ASTIA_TEST(page_map_unmap_removes_4k_over_split) {

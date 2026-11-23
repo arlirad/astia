@@ -12,6 +12,9 @@ namespace astia::plat::aarch64_virt {
         void write_line(const char* text) const;
         void write_hex(u64 value, u32 digits) const;
 
+        /// Read UARTFR. Used as the post-MMU MMIO read marker.
+        u32 read_flags() const;
+
         private:
         void write_char(char value) const;
 

@@ -43,4 +43,9 @@ namespace astia::plat::aarch64_virt {
         }
     }
 
+    u32 pl011_uart::read_flags() const {
+        const auto* flags = reinterpret_cast<volatile const u32*>(base_ + flags_register);
+        return *flags;
+    }
+
 } // namespace astia::plat::aarch64_virt

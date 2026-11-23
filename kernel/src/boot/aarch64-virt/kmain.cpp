@@ -1,19 +1,57 @@
+#include <astia/arch/page_map.hpp>
 #include <astia/boot/aarch64/fdt.hpp>
 #include <astia/boot/aarch64/virt.hpp>
 
 #include "board.hpp"
+#include "page_map_policy.hpp"
 #include "pl011.hpp"
 #include "psci.hpp"
 
+extern "C" char __image_start[];
+extern "C" char __image_end[];
+extern "C" char __stack_bottom[];
+extern "C" char __stack_top[];
+
 namespace {
+    using astia::arch::page_flags;
+    using astia::arch::page_map;
     using astia::boot::aarch64::virt::boot_info;
     using astia::boot::aarch64::virt::console_source;
     using astia::plat::aarch64_virt::pl011_uart;
+
+    namespace policy = astia::arch::aarch64::page_map_policy;
+
+    constexpr page_flags ram_flags =
+        page_flags::present | page_flags::writable | page_flags::no_execute;
+    constexpr page_flags image_flags     = page_flags::present | page_flags::writable;
+    constexpr page_flags read_only_flags = page_flags::present | page_flags::no_execute;
+    constexpr page_flags stack_flags =
+        page_flags::present | page_flags::writable | page_flags::no_execute;
+    constexpr page_flags device_flags =
+        page_flags::present | page_flags::writable | page_flags::device;
 
     [[nodiscard]] astia::u64 current_exception_level() {
         astia::u64 value = 0;
         __asm__ volatile("mrs %0, CurrentEL" : "=r"(value));
         return (value >> 2) & 0x3ULL;
+    }
+
+    [[nodiscard]] astia::u64 read_mair() {
+        astia::u64 value = 0;
+        __asm__ volatile("mrs %0, mair_el1" : "=r"(value));
+        return value;
+    }
+
+    [[nodiscard]] astia::u64 read_tcr() {
+        astia::u64 value = 0;
+        __asm__ volatile("mrs %0, tcr_el1" : "=r"(value));
+        return value;
+    }
+
+    [[nodiscard]] astia::u64 read_sctlr() {
+        astia::u64 value = 0;
+        __asm__ volatile("mrs %0, sctlr_el1" : "=r"(value));
+        return value;
     }
 
     void write_field(const pl011_uart& console, const char* name, astia::u64 value,
@@ -29,6 +67,12 @@ namespace {
         console.write_line("");
     }
 
+    void write_bit(const pl011_uart& console, const char* name, astia::u64 value,
+                   astia::u32 bit) {
+        console.write(name);
+        console.write_hex((value >> bit) & 1ULL, 1);
+    }
+
     void print_memory(const pl011_uart& console, const astia::mm::memory_map& regions,
                       const char* label) {
         for (astia::usize index = 0; index < regions.count(); ++index) {
@@ -38,6 +82,129 @@ namespace {
             write_field(console, " size=", region.size, 16);
             console.write_line("");
         }
+    }
+
+    [[nodiscard]] constexpr astia::u64 align_down(astia::u64 value,
+                                                  astia::u64 alignment) {
+        return value & ~(alignment - 1);
+    }
+
+    [[nodiscard]] bool align_up(astia::u64 value, astia::u64 alignment,
+                                astia::u64& result) {
+        if (value > ~astia::u64{0} - (alignment - 1)) {
+            return false;
+        }
+        result = (value + alignment - 1) & ~(alignment - 1);
+        return true;
+    }
+
+    [[nodiscard]] bool add_checked(astia::u64 left, astia::u64 right,
+                                   astia::u64& result) {
+        if (left > ~astia::u64{0} - right) {
+            return false;
+        }
+        result = left + right;
+        return true;
+    }
+
+    [[nodiscard]] bool identity_range_supported(astia::u64 base, astia::u64 size) {
+        if (size == 0) {
+            return false;
+        }
+
+        astia::u64 end = 0;
+        if (!add_checked(base, size, end)) {
+            return false;
+        }
+        return base <= policy::max_virtual_address &&
+               end - 1 <= policy::max_virtual_address &&
+               base <= policy::max_physical_address &&
+               end - 1 <= policy::max_physical_address;
+    }
+
+    [[nodiscard]] bool ranges_overlap(astia::u64 first, astia::u64 first_size,
+                                      astia::u64 second, astia::u64 second_size) {
+        astia::u64 first_end  = 0;
+        astia::u64 second_end = 0;
+        if (!add_checked(first, first_size, first_end) ||
+            !add_checked(second, second_size, second_end)) {
+            return true;
+        }
+        return first < second_end && second < first_end;
+    }
+
+    [[nodiscard]] bool map_identity_pages(page_map& map, astia::u64 base, astia::u64 size,
+                                          page_flags flags) {
+        if ((base & (policy::page_size - 1)) != 0 ||
+            (size & (policy::page_size - 1)) != 0) {
+            return false;
+        }
+
+        astia::u64 end = 0;
+        if (!add_checked(base, size, end)) {
+            return false;
+        }
+        for (astia::u64 address = base; address < end; address += policy::page_size) {
+            if (!map.map_4k(address, address, flags)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool map_identity_ram(page_map& map, astia::u64 base, astia::u64 size) {
+        if ((base & (policy::page_size - 1)) != 0 ||
+            (size & (policy::page_size - 1)) != 0) {
+            return false;
+        }
+
+        astia::u64 end = 0;
+        if (!add_checked(base, size, end)) {
+            return false;
+        }
+
+        astia::u64 address = base;
+        while (address < end && (address & (policy::block_size_2m - 1)) != 0) {
+            if (!map.map_4k(address, address, ram_flags)) {
+                return false;
+            }
+            address += policy::page_size;
+        }
+        while (end - address >= policy::block_size_2m) {
+            if (!map.map_2m(address, address, ram_flags)) {
+                return false;
+            }
+            address += policy::block_size_2m;
+        }
+        while (address < end) {
+            if (!map.map_4k(address, address, ram_flags)) {
+                return false;
+            }
+            address += policy::page_size;
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool range_within(const astia::mm::memory_map& regions, astia::u64 base,
+                                    astia::u64 size) {
+        astia::u64 end = 0;
+        if (!add_checked(base, size, end)) {
+            return false;
+        }
+        for (astia::usize index = 0; index < regions.count(); ++index) {
+            const astia::mm::memory_region& region = regions[index];
+            if (region.type != astia::mm::memory_type::usable) {
+                continue;
+            }
+            astia::u64 region_end = 0;
+            if (!add_checked(region.base, region.size, region_end)) {
+                continue;
+            }
+            if (base >= region.base && end <= region_end) {
+                return true;
+            }
+        }
+        return false;
     }
 
     [[noreturn]] void fail(const pl011_uart& console, const char* reason) {
@@ -96,6 +263,109 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     }
 
     console.write_line("ASTIA AARCH64 VIRT BOOT: HANDOFF OK");
+
+    const astia::u64 image_start =
+        align_down(reinterpret_cast<astia::u64>(__image_start), policy::page_size);
+    astia::u64 image_end = 0;
+    if (!align_up(reinterpret_cast<astia::u64>(__image_end), policy::page_size,
+                  image_end) ||
+        image_end <= image_start) {
+        fail(console, "image range is invalid");
+    }
+    const astia::u64 image_size = image_end - image_start;
+
+    const astia::u64 stack_start =
+        align_down(reinterpret_cast<astia::u64>(__stack_bottom), policy::page_size);
+    astia::u64 stack_end = 0;
+    if (!align_up(reinterpret_cast<astia::u64>(__stack_top), policy::page_size,
+                  stack_end) ||
+        stack_end <= stack_start) {
+        fail(console, "stack range is invalid");
+    }
+    const astia::u64 stack_size = stack_end - stack_start;
+
+    astia::u64 dtb_size = 0;
+    if (!align_up(info.dtb_size, policy::page_size, dtb_size) || dtb_size == 0 ||
+        dtb_size > dtb_window_size) {
+        fail(console, "DTB range is outside the boot window");
+    }
+    if (info.dtb != reinterpret_cast<const astia::u8*>(dtb_address)) {
+        fail(console, "DTB is not at the trusted RAM base");
+    }
+    if (!identity_range_supported(image_start, image_size) ||
+        !identity_range_supported(stack_start, stack_size) ||
+        !identity_range_supported(dtb_address, dtb_size) ||
+        !identity_range_supported(info.console.base, pl011_size)) {
+        fail(console, "identity-map range exceeds the address policy");
+    }
+    if (ranges_overlap(dtb_address, dtb_size, image_start, image_size)) {
+        fail(console, "DTB overlaps the kernel image");
+    }
+    if (ranges_overlap(info.console.base, pl011_size, image_start, image_size)) {
+        fail(console, "PL011 overlaps the kernel image");
+    }
+    if (!range_within(info.memory, image_start, image_size)) {
+        fail(console, "kernel image is outside usable RAM");
+    }
+
+    page_map map = page_map::create();
+    if (!map.valid()) {
+        fail(console, "page-table arena allocation failed");
+    }
+
+    for (astia::usize index = 0; index < info.memory.count(); ++index) {
+        const astia::mm::memory_region& region = info.memory[index];
+        if (region.type != astia::mm::memory_type::usable) {
+            continue;
+        }
+        if (!identity_range_supported(region.base, region.size) ||
+            !map_identity_ram(map, region.base, region.size)) {
+            fail(console, "usable RAM identity mapping failed");
+        }
+    }
+
+    if (!map_identity_pages(map, dtb_address, dtb_size, read_only_flags)) {
+        fail(console, "DTB identity mapping failed");
+    }
+    if (!map_identity_pages(map, image_start, image_size, image_flags)) {
+        fail(console, "kernel image identity mapping failed");
+    }
+    if (!map_identity_pages(map, stack_start, stack_size, stack_flags)) {
+        fail(console, "kernel stack identity mapping failed");
+    }
+    if (!map_identity_pages(map, info.console.base, pl011_size, device_flags)) {
+        fail(console, "PL011 identity mapping failed");
+    }
+
+    if (map.translate(dtb_address) != dtb_address ||
+        map.translate(image_start) != image_start ||
+        map.translate(stack_start) != stack_start ||
+        map.translate(info.console.base) != info.console.base ||
+        !map.writable(info.console.base) || map.executable(info.console.base) ||
+        !map.executable(image_start)) {
+        fail(console, "identity map verification failed");
+    }
+
+    *astia::arch::kernel_page_map() = static_cast<page_map&&>(map);
+    astia::arch::kernel_page_map()->activate();
+
+    console.write_line("ASTIA AARCH64 VIRT BOOT: MMU ON");
+    write_field(console, "mmu: mair=", read_mair(), 16);
+    write_field(console, " tcr=", read_tcr(), 16);
+    console.write_line("");
+
+    const astia::u64 sctlr = read_sctlr();
+    write_field(console, "mmu: sctlr=", sctlr, 16);
+    write_bit(console, " m=", sctlr, 0);
+    write_bit(console, " c=", sctlr, 2);
+    write_bit(console, " i=", sctlr, 12);
+    console.write_line("");
+
+    console.write_line("mmu: pl011 write=ok");
+    write_field(console, "mmu: pl011 read=", console.read_flags(), 8);
+    console.write_line("");
+    console.write_line("ASTIA AARCH64 VIRT BOOT: PL011 RW OK");
+
     console.write_line("ASTIA AARCH64 VIRT BOOT: HALT");
     psci::system_off();
 }
