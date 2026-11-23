@@ -26,30 +26,32 @@ namespace astia::sys {
 
 } // namespace astia::sys
 
-/// The arch entry's C door: the call number, the six argument registers, and
-/// the return image the exit path will use.  The number and arguments travel
-/// as ordinary parameters; the image carries only the caller's return state.
-extern "C" astia::i64 astia_syscall_dispatch(astia::u64 nr, astia::u64 a0, astia::u64 a1,
-                                             astia::u64 a2, astia::u64 a3, astia::u64 a4,
-                                             astia::u64                   a5,
-                                             astia::arch::syscall_return* image) {
-    if (image == nullptr)
-        return -EFAULT;
+namespace {
+    using namespace astia;
 
-    const auto id =
-        astia::mapper<astia::sys::syscall_id>::from(static_cast<astia::i64>(nr));
-    if (!id)
-        return -ENOSYS;
+    /// The arch entry's C door: the call number, the six argument registers, and
+    /// the return image the exit path will use.  The number and arguments travel
+    /// as ordinary parameters; the image carries only the caller's return state.
+    extern "C" i64 astia_syscall_dispatch(u64 nr, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
+                                          u64 a5, arch::syscall_return* image) {
+        if (image == nullptr)
+            return -EFAULT;
 
-    /* The exit path starts as an ordinary return.  A handler or the exit
-       hook may switch it to signal or sigreturn; the syscall result itself
-       is returned to the entry separately. */
-    image->set_mode(astia::arch::return_mode::ordinary);
-    const auto result = astia::sys::dispatch(id.value, a0, a1, a2, a3, a4, a5, *image);
+        const auto id = mapper<sys::syscall_id>::from(static_cast<i64>(nr));
+        if (!id)
+            return -ENOSYS;
 
-    if (astia::sys::exit_hook != nullptr) {
-        astia::sys::exit_hook(*image, result);
+        /* The exit path starts as an ordinary return.  A handler or the exit
+           hook may switch it to signal or sigreturn; the syscall result itself
+           is returned to the entry separately. */
+        image->set_mode(arch::return_mode::ordinary);
+        const auto result =
+            astia::sys::dispatch(id.value, a0, a1, a2, a3, a4, a5, *image);
+
+        if (sys::exit_hook != nullptr) {
+            sys::exit_hook(*image, result);
+        }
+
+        return result;
     }
-
-    return result;
 }
