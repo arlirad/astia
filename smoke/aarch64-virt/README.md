@@ -2,9 +2,11 @@
 
 This directory contains a standalone, bootable AArch64 ELF image for QEMU's
 `virt` machine. It exists only to prove the direct `-kernel` ELF boot contract
-and polled early serial output. It is not part of the production kernel, does
-not include production kernel headers or build targets, and does not touch the
-x86 paths.
+and polled early serial output. It shares the production platform-owned PL011
+and PSCI sources under `kernel/src/plat/aarch64-virt/`, but remains a separate
+standalone build and does not enter the production AArch64 early boot stage.
+The production stage and its smoke runner are documented in
+`docs/aarch64-virt-boot.md`.
 
 ## Scope
 

@@ -15,11 +15,19 @@ set(ASTIA_AARCH64_VIRT_LINKER_SCRIPT
         CACHE FILEPATH
         "Linker script for the standalone AArch64 virt smoke image")
 
+# The standalone smoke shares the production platform layer so the PL011 and
+# PSCI implementations have a single owner.  It remains independent of the
+# production kernel target graph.
+set(ASTIA_AARCH64_PLATFORM_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../kernel/src/plat/aarch64-virt")
+set(ASTIA_AARCH64_KERNEL_INCLUDE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../kernel/include")
+
 add_executable(astia-aarch64-virt-smoke
         src/entry.S
         src/main.cpp
-        src/pl011.cpp
-        src/psci.cpp)
+        ${ASTIA_AARCH64_PLATFORM_DIR}/pl011.cpp
+        ${ASTIA_AARCH64_PLATFORM_DIR}/psci.cpp)
 
 set_target_properties(astia-aarch64-virt-smoke PROPERTIES
         OUTPUT_NAME astia-aarch64-virt-smoke
@@ -29,7 +37,10 @@ set_target_properties(astia-aarch64-virt-smoke PROPERTIES
         CXX_EXTENSIONS NO
         LINK_DEPENDS "${ASTIA_AARCH64_VIRT_LINKER_SCRIPT}")
 
-target_include_directories(astia-aarch64-virt-smoke PRIVATE src)
+target_include_directories(astia-aarch64-virt-smoke PRIVATE
+        src
+        ${ASTIA_AARCH64_PLATFORM_DIR}
+        ${ASTIA_AARCH64_KERNEL_INCLUDE})
 
 target_compile_options(astia-aarch64-virt-smoke PRIVATE
         $<$<COMPILE_LANGUAGE:CXX>:-ffunction-sections>

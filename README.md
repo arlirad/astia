@@ -83,6 +83,17 @@ cmake -S kernel -B kernel/build \
 cmake --build kernel/build
 ```
 
+Build the production AArch64 `virt` early boot stage (not a full kernel boot;
+see `docs/aarch64-virt-boot.md`):
+
+```sh
+cmake -S kernel -B kernel/build/aarch64 -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=kernel/cmake/toolchain-aarch64-virt.cmake \
+  -DARCH=aarch64 -DPLATFORM=virt -DBOOT=virt
+cmake --build kernel/build/aarch64 --target astiakrn
+kernel/scripts/run-aarch64-virt-smoke.sh
+```
+
 Build the repository-level CMake project instead when working with an IDE or
 the repository-level kernel project:
 

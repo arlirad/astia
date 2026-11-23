@@ -16,7 +16,7 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -30,12 +30,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             binutils \
+            build-essential \
             cmake \
+            cpio \
             g++-aarch64-linux-gnu \
+            gzip \
             ninja-build \
-            qemu-system-arm
+            python3 \
+            qemu-system-arm \
+            xxd \
+            zstd
           qemu-system-aarch64 --version
           aarch64-linux-gnu-g++ --version
 
-      - name: Build and run QEMU smoke
+      - name: Build and run focused AArch64 FDT parser tests
+        run: |
+          cmake -S kernel -B "$RUNNER_TEMP/kernel-fdt-tests" -G Ninja \
+            -DARCH=x86_64 \
+            -DPLATFORM=virt \
+            -DBOOT=virt \
+            -DASTIA_BUILD_TESTS=ON \
+            -DASTIA_CROSS_USERSPACE=OFF \
+            -DCMAKE_BUILD_TYPE=Debug
+          cmake --build "$RUNNER_TEMP/kernel-fdt-tests" \
+            --target astia_aarch64_fdt_test --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/kernel-fdt-tests" \
+            -R '^astia_aarch64_fdt_test$' --output-on-failure
+
+      - name: Build and run retained PR105 smoke
         run: smoke/aarch64-virt/run-qemu-smoke.sh
+
+      - name: Build and run production AArch64 virt early boot smoke
+        run: kernel/scripts/run-aarch64-virt-smoke.sh
+
+      - name: Verify x86 kernel target still configures and builds
+        run: kernel/scripts/check-x86-target.sh

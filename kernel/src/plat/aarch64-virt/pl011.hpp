@@ -1,8 +1,8 @@
 #pragma once
 
-#include "types.hpp"
+#include <astia/common.hpp>
 
-namespace astia::smoke {
+namespace astia::plat::aarch64_virt {
 
     class pl011_uart final {
         public:
@@ -18,4 +18,4 @@ namespace astia::smoke {
         u64 base_;
     };
 
-} // namespace astia::smoke
+} // namespace astia::plat::aarch64_virt

@@ -1,5 +1,7 @@
 if (ARCH STREQUAL "x86_64")
     add_subdirectory(x86_64)
+elseif (ARCH STREQUAL "aarch64")
+    add_subdirectory(aarch64)
 else ()
     message(FATAL_ERROR "No production architecture port for ARCH=${ARCH}")
 endif ()

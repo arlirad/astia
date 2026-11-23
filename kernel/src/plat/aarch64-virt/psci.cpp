@@ -1,8 +1,8 @@
 #include "psci.hpp"
 
-#include "types.hpp"
+#include <astia/common.hpp>
 
-namespace astia::smoke::psci {
+namespace astia::plat::aarch64_virt::psci {
     namespace {
         constexpr u64 system_off_function = 0x84000008ULL;
     } // namespace
@@ -17,4 +17,4 @@ namespace astia::smoke::psci {
             __asm__ volatile("wfe");
         }
     }
-} // namespace astia::smoke::psci
+} // namespace astia::plat::aarch64_virt::psci

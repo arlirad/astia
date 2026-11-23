@@ -1,6 +1,6 @@
 #include "pl011.hpp"
 
-namespace astia::smoke {
+namespace astia::plat::aarch64_virt {
     namespace {
         constexpr u32 data_register  = 0x00;
         constexpr u32 flags_register = 0x18;
@@ -43,4 +43,4 @@ namespace astia::smoke {
         }
     }
 
-} // namespace astia::smoke
+} // namespace astia::plat::aarch64_virt
