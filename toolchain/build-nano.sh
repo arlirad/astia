@@ -192,6 +192,12 @@ if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     printf '%s\n' "$config_key" >"$build/.astia-config-key"
 fi
 
+# nano links the libc archive statically and make does not track it as a
+# prerequisite, so an ABI update would otherwise leave the stale binary.
+if [ -e "$sysroot/lib/libastia_libc.a" ] && [ -e "$build/src/nano" ] &&
+    [ "$sysroot/lib/libastia_libc.a" -nt "$build/src/nano" ]; then
+    rm -f "$build/src/nano" "$build/output/nano"
+fi
 make -j "$jobs"
 mkdir -p "$build/output"
 if [ ! -e "$build/output/nano" ] || ! cmp -s "$build/src/nano" "$build/output/nano"; then
