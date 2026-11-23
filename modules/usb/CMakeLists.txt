@@ -14,6 +14,7 @@ add_custom_command(
                 -mcmodel=large -fno-asynchronous-unwind-tables -fno-use-cxa-atexit
                 -Wall -Wextra -Werror -pedantic
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp -o ${ASTIA_USB_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
@@ -36,6 +37,7 @@ add_custom_command(
                 -mcmodel=large -fno-asynchronous-unwind-tables
                 -Wall -Wextra -Werror -pedantic
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
                 -o ${ASTIA_USB_FAILURE_OBJECT}
@@ -53,6 +55,7 @@ add_custom_command(
                 ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_protocol_test.cpp
                 -o ${ASTIA_USB_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/usb_protocol_test.cpp

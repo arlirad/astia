@@ -46,6 +46,38 @@ add_custom_command(
         VERBATIM)
 add_custom_target(astia_typed_module ALL DEPENDS ${ASTIA_TYPED_MODULE_OBJECT})
 
+# A module may include the port-owned context classes.  That view is the
+# generic include root plus the build-selected port overlay, exactly what the
+# module SDK ships for the target.
+set(ASTIA_ARCH_CONTEXT_MODULE_OBJECT
+        ${CMAKE_CURRENT_BINARY_DIR}/arch_context_module.o)
+add_custom_command(
+        OUTPUT ${ASTIA_ARCH_CONTEXT_MODULE_OBJECT}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+                -ffreestanding -fno-pic -fno-pie -fno-exceptions -fno-rtti
+                -fno-threadsafe-statics -fno-stack-protector -fno-omit-frame-pointer
+                -mcmodel=large -fno-asynchronous-unwind-tables
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
+                -c ${CMAKE_CURRENT_SOURCE_DIR}/arch_context_module.cpp
+                -o ${ASTIA_ARCH_CONTEXT_MODULE_OBJECT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/arch_context_module.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/arch/context.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/arch/interrupts.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/arch/signal.hpp
+                ${ASTIA_ARCH_INCLUDE_DIR}/astia/arch/syscall_image.hpp
+                ${ASTIA_ARCH_INCLUDE_DIR}/astia/arch/interrupt_frame.hpp
+        VERBATIM)
+add_custom_target(astia_arch_context_module ALL
+        DEPENDS ${ASTIA_ARCH_CONTEXT_MODULE_OBJECT})
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME astia_arch_context_module_build
+             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
+                     --target astia_arch_context_module)
+    astia_add_test_label(astia_arch_context_module_build
+            "module;abi;deterministic")
+endif()
+
 set(ASTIA_TYPED_LAYOUT ${CMAKE_CURRENT_BINARY_DIR}/typed_contract_layout)
 add_custom_command(
         OUTPUT ${ASTIA_TYPED_LAYOUT}

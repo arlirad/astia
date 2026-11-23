@@ -8,6 +8,7 @@ add_custom_command(
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -pedantic
                 ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_blk_unit.cpp
                 -o ${ASTIA_VIRTIO_BLK_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_blk_unit.cpp
@@ -34,6 +35,7 @@ add_custom_command(
                 -ffunction-sections -fdata-sections
                 ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
                 -I${CMAKE_CURRENT_SOURCE_DIR}/../..
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_teardown_test.cpp
                 -Wl,--gc-sections
@@ -62,6 +64,7 @@ add_custom_command(
                 -mcmodel=large -fno-asynchronous-unwind-tables -fno-use-cxa-atexit
                 -Wall -Wextra -Werror -pedantic
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp -o ${ASTIA_VIRTIO_BLK_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk_protocol.hpp
