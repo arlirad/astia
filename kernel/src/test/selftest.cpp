@@ -326,6 +326,26 @@ namespace astia::test {
             return true;
         }
 
+        bool reserved_socket_checks() {
+            for (u32 id = sys::reserved_socket_syscall_first;
+                 id <= sys::reserved_socket_syscall_last; ++id) {
+                arch::syscall_frame frame{};
+                frame.nr = id;
+                if (sys::dispatch(static_cast<sys::syscall_id>(id), 0, 0, 0, 0, 0, 0,
+                                  frame) != -ENOSYS) {
+                    logs::error("reserved socket id fail: %u", id);
+                    return false;
+                }
+            }
+            if (sys::next_public_syscall_id != 83 ||
+                static_cast<u32>(sys::syscall_id::uname) != 82) {
+                logs::error("syscall reservation identity fail");
+                return false;
+            }
+            logs::info("reserved socket ids ok");
+            return true;
+        }
+
         // SYS_CLOCK_GETTIME is dispatched through the production descriptor registry.
         // The timer tick is the resolution, so samples need only remain in range
         // and must not run backwards.
@@ -1266,6 +1286,9 @@ namespace astia::test {
             return false;
         }
         if (!uname_checks()) {
+            return false;
+        }
+        if (!reserved_socket_checks()) {
             return false;
         }
         if (!aio_capacity_boundary_checks()) {

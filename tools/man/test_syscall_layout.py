@@ -10,6 +10,14 @@ import tempfile
 from pathlib import Path
 
 
+PUBLIC_SYSCALL_IDS = [*range(70), 82]
+RESERVED_SOCKET_IDS = list(range(70, 82))
+SOCKET_SYSCALL_NAMES = {
+    "accept", "bind", "connect", "getsockopt", "listen", "recv", "recvfrom",
+    "send", "sendto", "shutdown", "socket", "socketpair", "read", "write",
+}
+
+
 def check_production_layout(repository: Path) -> None:
     source = repository / "kernel" / "src"
     syscall_header = (source / "sys" / "syscall.hpp").read_text()
@@ -53,9 +61,12 @@ def check_production_layout(repository: Path) -> None:
         assert "sys::syscall_context" not in handler
         assert "syscall_mode::sync" in handler
         assert "co_return sys::invoke_sync" not in handler
-    assert len(handler_files) == 83
-    assert sorted(seen_ids) == list(range(83))
-    assert sum(path.parts[path.parts.index("src") + 1] == "net" for path in handler_files) == 12
+    assert len(handler_files) == 71
+    assert sorted(seen_ids) == PUBLIC_SYSCALL_IDS
+    assert all(handler_id not in RESERVED_SOCKET_IDS for handler_id in seen_ids)
+    assert not any(
+        path.parts[path.parts.index("src") + 1] == "net" for path in handler_files
+    )
     assert all("syscalls" in path.parts for path in handler_files)
     assert not any("aio" in path.parts or "operation" in path.name for path in handler_files)
     assert not any("syscall_handler<" in path.read_text() for path in source.glob("*/syscalls/**/*.hpp"))
@@ -115,38 +126,56 @@ def check_syscall_man_blocks(repository: Path) -> None:
     assert not any(block.search(path.read_text()) for path in source.rglob("*.hpp"))
 
 
-def check_net_socket_manifest(repository: Path) -> None:
-    source = repository / "kernel" / "src" / "net" / "syscalls"
-    expected = {
-        "accept", "bind", "connect", "getsockopt", "listen", "recv", "recvfrom",
-        "send", "sendto", "shutdown", "socket", "socketpair",
-    }
-    handlers = {}
-    for path in source.glob("*.cpp"):
-        text = path.read_text()
-        match = re.search(
-            r"struct ([a-z_0-9]+)\s*:\s*sys::syscall_handler<.*?"
-            r"static_cast<sys::syscall_id>\((\d+)\)",
-            text,
-            re.S,
-        )
+def check_reserved_socket_gap(repository: Path) -> None:
+    source = repository / "kernel" / "src"
+    assert not (source / "net" / "syscalls").exists()
+
+    syscall_header = (source / "sys" / "syscall.hpp").read_text()
+    enum_body = syscall_header.split("enum class syscall_id", 1)[1].split("};", 1)[0]
+    ids: dict[str, int] = {}
+    next_id = 0
+    for line in enum_body.splitlines():
+        match = re.search(r"\b([a-z_0-9]+)\s*(?:=\s*(\d+))?,", line)
         if match:
-            name, number = match.groups()
-            handlers[name] = int(number)
-            assert path.stem == name
-    assert set(handlers) == expected
-    assert sorted(handlers.values()) == list(range(70, 82))
+            if match.group(2):
+                next_id = int(match.group(2))
+            ids[match.group(1)] = next_id
+            next_id += 1
+    assert sorted(ids.values()) == PUBLIC_SYSCALL_IDS
+    assert ids["uname"] == 82
+    assert not SOCKET_SYSCALL_NAMES.intersection(ids)
+    assert not set(RESERVED_SOCKET_IDS).intersection(ids.values())
+
+    assert re.search(r"reserved_socket_syscall_first\s*=\s*70;", syscall_header)
+    assert re.search(r"reserved_socket_syscall_last\s*=\s*81;", syscall_header)
+    assert re.search(r"next_public_syscall_id\s*=\s*83;", syscall_header)
+
+    abi = (repository / "kernel/include/astia/api/syscalls.h").read_text()
+    abi_entries = [
+        (int(number), name.lower())
+        for name, number in re.findall(
+            r"(?m)^\s*SYS_([A-Z0-9_]+)\s*=\s*(\d+)\s*,", abi
+        )
+    ]
+    assert [number for number, _ in sorted(abi_entries)] == PUBLIC_SYSCALL_IDS
+    assert not SOCKET_SYSCALL_NAMES.intersection(
+        name for _, name in abi_entries
+    )
+
+    registry = (source / "sys" / "handler_registry.hpp").read_text()
+    assert "net::syscalls" not in registry
+    assert not any(f"{name}_descriptor" in registry for name in SOCKET_SYSCALL_NAMES)
 
 
 def main() -> int:
     repository = Path(__file__).resolve().parents[2]
     generator = repository / "tools/man/generate.py"
-    if sys.argv[1:] == ["--net-only"]:
-        check_net_socket_manifest(repository)
+    if sys.argv[1:] == ["--reserved-only"]:
+        check_reserved_socket_gap(repository)
         return 0
     check_production_layout(repository)
     check_syscall_man_blocks(repository)
-    check_net_socket_manifest(repository)
+    check_reserved_socket_gap(repository)
     with tempfile.TemporaryDirectory(dir=repository) as directory:
         root = Path(directory)
         source = root / "kernel" / "src"
@@ -216,6 +245,10 @@ def main() -> int:
         assert "FUTEX_WAIT blocks while the word equals value." in (
             production_output / "futex.2.html"
         ).read_text()
+        assert not any(
+            (production_output / f"{name}.2.html").exists()
+            for name in SOCKET_SYSCALL_NAMES
+        )
         abi = (repository / "kernel/include/astia/api/syscalls.h").read_text()
         public_names = {
             name.lower()

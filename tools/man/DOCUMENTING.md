@@ -15,7 +15,6 @@ kernel/src/fs/syscalls/<name>.cpp
 kernel/src/fs/syscalls/<name>.hpp
 kernel/src/ipc/syscalls/<name>.cpp
 kernel/src/mm/syscalls/<name>.hpp
-kernel/src/net/syscalls/<name>.hpp
 kernel/src/sys/syscalls/<name>.cpp
 kernel/src/sys/syscalls/<name>.hpp
 ```

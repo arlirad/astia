@@ -14,10 +14,6 @@
 
 #include <syscall.hpp>
 
-namespace astia::net::syscalls {
-    extern const astia::sys::syscall_descriptor accept_descriptor;
-}
-
 namespace {
     astia::core::completion<astia::i64>* pending_source = nullptr;
 
@@ -141,8 +137,8 @@ namespace {
                                                      const astia::arch::syscall_frame&);
     using frame_by_value_signature  = astia::i64 (*)(astia::arch::syscall_frame);
     using over_arity_signature      = astia::i64 (*)(astia::i64, astia::i64, astia::i64,
-                                                astia::i64, astia::i64, astia::i64,
-                                                astia::i64);
+                                                     astia::i64, astia::i64, astia::i64,
+                                                     astia::i64);
 
     static_assert(
         astia::sys::detail::typed_sync_handler<decltype(&zero_probe::invoke)>::value);
@@ -256,15 +252,16 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
     ASTIA_CHECK(frame_result.await_resume().value == 99);
 }
 
-ASTIA_TEST(private_net_descriptor_uses_typed_handler_without_arguments) {
-    astia::arch::syscall_frame  frame{};
-    astia::sys::syscall_context context{
-        static_cast<astia::sys::syscall_id>(70), {1, 2, 3, 4, 5, 6}, frame, {}, {}};
-    astia::core::completion<astia::i64> result;
-    ASTIA_CHECK(astia::net::syscalls::accept_descriptor.id == context.id);
-    astia::net::syscalls::accept_descriptor.invoke(context, result);
-    ASTIA_CHECK(result.done());
-    ASTIA_CHECK(result.await_resume().value == -ENOSYS);
+ASTIA_TEST(reserved_socket_ids_fall_through_to_enosys) {
+    astia::arch::syscall_frame frame{};
+    for (astia::u32 id = astia::sys::reserved_socket_syscall_first;
+         id <= astia::sys::reserved_socket_syscall_last; ++id) {
+        astia::sys::syscall_context context{
+            static_cast<astia::sys::syscall_id>(id), {0, 0, 0, 0, 0, 0}, frame, {}, {}};
+        astia::core::completion<astia::i64> result;
+        ASTIA_CHECK(!astia::sys::dispatch_async<sync_probe>(context.id, context, result));
+        ASTIA_CHECK(result.await_resume().value == -ENOSYS);
+    }
 }
 
 ASTIA_TEST(async_adapter_cancels_pending_task_exactly_once) {

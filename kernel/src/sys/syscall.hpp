@@ -90,6 +90,21 @@ namespace astia::sys {
         uname                 = 82,
     };
 
+    /// Explicit gap for a future public socket ABI. No descriptor exists for
+    /// these IDs, so generic dispatch falls through to -ENOSYS.
+    inline constexpr u32 reserved_socket_syscall_first = 70;
+    inline constexpr u32 reserved_socket_syscall_last  = 81;
+    /// First unassigned public syscall number after the identity descriptor.
+    inline constexpr u32 next_public_syscall_id = 83;
+
+    static_assert(reserved_socket_syscall_last + 1 ==
+                  static_cast<u32>(syscall_id::uname));
+    static_assert(next_public_syscall_id == static_cast<u32>(syscall_id::uname) + 1);
+
+    constexpr bool is_reserved_socket_syscall(u32 id) {
+        return id >= reserved_socket_syscall_first && id <= reserved_socket_syscall_last;
+    }
+
     /// How many registers the ABI hands every trap — and so the most
     /// arguments any handler can be given.
     inline constexpr u32 syscall_argument_count = 6;

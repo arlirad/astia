@@ -1,10 +1,8 @@
 file(GLOB ASTIA_NET_AIO_SOURCES CONFIGURE_DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/aio/*.cpp)
-file(GLOB_RECURSE ASTIA_NET_SYSCALL_SOURCES CONFIGURE_DEPENDS syscalls/*.cpp)
 
 add_library(net STATIC
         ${ASTIA_NET_AIO_SOURCES}
-        ${ASTIA_NET_SYSCALL_SOURCES}
         net.cpp)
 
 target_include_directories(net PUBLIC

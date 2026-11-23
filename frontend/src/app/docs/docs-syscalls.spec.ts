@@ -7,6 +7,23 @@ const CANONICAL_SYSCALL_IDS = [
   ...Array.from({ length: 70 }, (_, index) => index),
   82,
 ];
+const RESERVED_SOCKET_IDS = Array.from({ length: 12 }, (_, index) => 70 + index);
+const PRIVATE_SOCKET_TITLES = [
+  'accept(2)',
+  'bind(2)',
+  'connect(2)',
+  'getsockopt(2)',
+  'listen(2)',
+  'read(2)',
+  'recv(2)',
+  'recvfrom(2)',
+  'send(2)',
+  'sendto(2)',
+  'shutdown(2)',
+  'socket(2)',
+  'socketpair(2)',
+  'write(2)',
+];
 
 const synopsisOf = (page: (typeof SYSCALL_PAGES)[number]): string => {
   const match = page.content.match(
@@ -34,6 +51,22 @@ describe('Generated section-2 syscall docs', () => {
       expect(page.slug).toBe(
         `syscall-${page.syscallId}-${page.title.replace(/\(2\)$/, '').replace(/_/g, '-')}`,
       );
+    }
+  });
+
+  it('omits reserved socket IDs and private socket pages', () => {
+    const ids = SYSCALL_PAGES.map((page) => page.syscallId).filter(
+      (id): id is number => id !== undefined,
+    );
+
+    for (const id of RESERVED_SOCKET_IDS) {
+      expect(SYSCALL_PAGES.some((page) => page.syscallId === id)).toBeFalse();
+    }
+    expect(Math.max(...ids) + 1).toBe(83);
+
+    const titles = SYSCALL_PAGES.map((page) => page.title);
+    for (const title of PRIVATE_SOCKET_TITLES) {
+      expect(titles).not.toContain(title);
     }
   });
 

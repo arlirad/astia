@@ -12,10 +12,10 @@ add_test(NAME astia_man_generator_layout
                 ${ASTIA_KERNEL_SOURCE_DIR}/../tools/man/test_syscall_layout.py)
 set_tests_properties(astia_man_generator_layout PROPERTIES
         LABELS "docs;deterministic")
-add_test(NAME astia_net_syscall_manifest
+add_test(NAME astia_reserved_socket_gap
         COMMAND ${Python3_EXECUTABLE}
-                ${ASTIA_KERNEL_SOURCE_DIR}/../tools/man/test_syscall_layout.py --net-only)
-set_tests_properties(astia_net_syscall_manifest PROPERTIES
+                ${ASTIA_KERNEL_SOURCE_DIR}/../tools/man/test_syscall_layout.py --reserved-only)
+set_tests_properties(astia_reserved_socket_gap PROPERTIES
         LABELS "docs;abi;deterministic")
 add_test(NAME astia_man_generator_unit
         COMMAND ${Python3_EXECUTABLE}
@@ -158,12 +158,12 @@ target_link_options(astia_time_test PRIVATE -Wl,--gc-sections)
 astia_add_host_test(astia_syscall_handler_prototype_test
         syscall_handler_prototype_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/syscalls/accept.cpp
         support/resume_queue_host.cpp)
 target_compile_options(astia_syscall_handler_prototype_test PRIVATE
         -ffunction-sections -fdata-sections)
 target_link_options(astia_syscall_handler_prototype_test PRIVATE
         -Wl,--gc-sections)
+astia_add_host_test(astia_syscall_reservation_test syscall_reservation_test.cpp)
 astia_add_host_test(astia_console_test
         console_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)

@@ -142,7 +142,8 @@ enum {
     SYS_SHM_OPEN              = 67,
     SYS_SHM_UNLINK            = 68,
     SYS_FCHDIR                = 69,
-    /* 70-81 are reserved for the private socket prototype descriptors. */
+    /* 70-81 are an explicit reserved gap. No socket syscall is public, and
+     * dispatch falls through with -ENOSYS. The next public ID is 83. */
     SYS_UNAME = 82,
 };
 
