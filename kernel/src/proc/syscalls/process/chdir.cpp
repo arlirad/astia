@@ -30,6 +30,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor chdir_descriptor = chdir::descriptor;
-
 } // namespace astia::proc::syscalls

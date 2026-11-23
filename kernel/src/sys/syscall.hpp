@@ -293,7 +293,17 @@ namespace astia::sys {
                 detail::typed_invoker<function>::call(&Impl::invoke, arguments, image)));
         }
 
+        static_assert(static_cast<u32>(Id) < syscall_table_capacity,
+                      "syscall ID must fit the ABI table");
+
         static constexpr syscall_descriptor descriptor{Id, &thunk};
+        [[gnu::used, gnu::section("astia_syscall_handlers")]]
+        inline static const syscall_descriptor* const registration{&descriptor};
+        // clang does not emit a `used` static data member of a class template;
+        // a used function that odr-uses it forces the section entry out.
+        [[gnu::used]] static void keep_registration() {
+            (void) registration;
+        }
     };
 
     template <typename Impl, syscall_id Id>
@@ -331,7 +341,17 @@ namespace astia::sys {
             completion.complete(*operation.value());
         }
 
+        static_assert(static_cast<u32>(Id) < syscall_table_capacity,
+                      "syscall ID must fit the ABI table");
+
         static constexpr syscall_descriptor descriptor{Id, &thunk};
+        [[gnu::used, gnu::section("astia_syscall_handlers")]]
+        inline static const syscall_descriptor* const registration{&descriptor};
+        // clang does not emit a `used` static data member of a class template;
+        // a used function that odr-uses it forces the section entry out.
+        [[gnu::used]] static void keep_registration() {
+            (void) registration;
+        }
     };
 
     namespace detail {
@@ -408,9 +428,11 @@ namespace astia::sys {
             "syscall descriptor IDs must be unique and within ABI table capacity");
         static_assert((detail::valid_descriptor_interface<Descriptors>::value && ...),
                       "syscall descriptors must expose a CRTP handler interface");
+
         if (detail::dispatch_descriptors<Descriptors...>(id, a0, a1, a2, a3, a4, a5,
                                                          image, completion))
             return true;
+
         completion.complete(-ENOSYS);
         return false;
     }
@@ -420,8 +442,8 @@ namespace astia::sys {
     i64 dispatch(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
                  arch::syscall_return& image);
 
-    bool production_dispatch(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
-                             u64 a5, arch::syscall_return& image, i64& result);
+    /// Validate the link-time descriptor set: unique IDs, in range, non-null.
+    bool validate_registry();
 
 } // namespace astia::sys
 

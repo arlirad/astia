@@ -24,6 +24,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor getrlimit_descriptor = getrlimit::descriptor;
-
 } // namespace astia::proc::syscalls

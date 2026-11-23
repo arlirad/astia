@@ -15,7 +15,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor thread_cancel_pending_descriptor =
-        thread_cancel_pending::descriptor;
-
 } // namespace astia::proc::syscalls

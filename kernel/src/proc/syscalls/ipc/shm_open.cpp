@@ -63,6 +63,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor shm_open_descriptor = shm_open::descriptor;
-
 } // namespace astia::proc::syscalls

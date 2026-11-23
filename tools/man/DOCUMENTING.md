@@ -23,8 +23,8 @@ The implementation file owns the behavior. The header owns the public
 kernel-side prototype, CRTP handler, and man-page comment. Handler-only headers
 are valid when behavior is implemented in an existing subsystem source; they
 retain the same subsystem `syscalls/` path so documentation grouping and links
-remain stable. The dispatcher only registers the handler; it must not duplicate
-the documentation.
+remain stable. Each handler's CRTP base registers its descriptor; there is no central
+registration list, and the dispatcher must not duplicate the documentation.
 
 ## Required man-page sections
 

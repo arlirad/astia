@@ -18,6 +18,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor setegid_descriptor = setegid::descriptor;
-
 } // namespace astia::proc::syscalls

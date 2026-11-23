@@ -15,6 +15,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor umask_descriptor = umask::descriptor;
-
 } // namespace astia::proc::syscalls

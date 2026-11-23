@@ -54,6 +54,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor sigprocmask_descriptor = sigprocmask::descriptor;
-
 } // namespace astia::proc::syscalls

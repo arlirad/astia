@@ -28,6 +28,4 @@ namespace astia::fs::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor unmount_descriptor = unmount::descriptor;
-
 } // namespace astia::fs::syscalls

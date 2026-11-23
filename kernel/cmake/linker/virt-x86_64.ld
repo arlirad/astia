@@ -99,6 +99,16 @@ SECTIONS
         __stop_astia_aio_handlers = .;
     }
 
+    /* Syscall descriptors self-register from their handler translation unit
+     * (sys::syscall_handler::registration).  KEEP guards them against
+     * --gc-sections; dispatch walks the bounds. */
+    . = ALIGN(8);
+    .syscall_handlers : AT(ADDR(.syscall_handlers) - kernel_image_base) {
+        __start_astia_syscall_handlers = .;
+        KEEP(*(astia_syscall_handlers))
+        __stop_astia_syscall_handlers = .;
+    }
+
     /* Filled after the final link from this image's own ELF symtab. The
      * reserved bytes keep the linked addresses stable while the build tool
      * writes the exact names and addresses into the loadable image. */

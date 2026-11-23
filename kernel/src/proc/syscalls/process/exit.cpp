@@ -31,6 +31,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor exit_descriptor = exit::descriptor;
-
 } // namespace astia::proc::syscalls

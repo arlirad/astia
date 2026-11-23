@@ -67,6 +67,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor futex_descriptor = futex::descriptor;
-
 } // namespace astia::proc::syscalls

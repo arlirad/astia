@@ -32,7 +32,4 @@ namespace astia::sys::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor clock_getres_descriptor =
-        clock_getres::descriptor;
-
 } // namespace astia::sys::syscalls

@@ -26,6 +26,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor getgroups_descriptor = getgroups::descriptor;
-
 } // namespace astia::proc::syscalls

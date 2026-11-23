@@ -14,6 +14,4 @@ namespace astia::proc::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor geteuid_descriptor = geteuid::descriptor;
-
 } // namespace astia::proc::syscalls

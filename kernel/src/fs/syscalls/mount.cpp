@@ -36,6 +36,4 @@ namespace astia::fs::syscalls {
         }
     };
 
-    extern const sys::syscall_descriptor mount_descriptor = mount::descriptor;
-
 } // namespace astia::fs::syscalls
