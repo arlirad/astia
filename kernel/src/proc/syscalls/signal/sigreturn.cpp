@@ -27,7 +27,7 @@ namespace astia::proc::syscalls {
     ///     -EFAULT: The saved context or its registers are invalid.
     struct sigreturn : sys::syscall_handler<sigreturn, sys::syscall_id::sigreturn,
                                             sys::syscall_mode::sync> {
-        static i64 invoke(const arch::syscall_frame&                   input,
+        static i64 invoke(sys::syscall_trap                            trap,
                           sys::user_ptr<astia_x86_64_signal_context_t> context) {
             const auto range = context.validate();
             if (!range)
@@ -49,23 +49,23 @@ namespace astia::proc::syscalls {
                 }
                 return -ESRCH;
             }
-            auto& frame  = const_cast<arch::syscall_frame&>(input);
-            frame.nr     = ~u64{1};
-            frame.a0     = saved.rdi;
-            frame.a1     = saved.rsi;
-            frame.a2     = saved.rdx;
-            frame.a3     = saved.r10;
-            frame.a4     = saved.r8;
-            frame.a5     = saved.r9;
-            frame.rip    = saved.rip;
-            frame.rflags = saved.rflags;
-            frame.rsp    = saved.rsp;
-            frame.rbx    = saved.rbx;
-            frame.rbp    = saved.rbp;
-            frame.r12    = saved.r12;
-            frame.r13    = saved.r13;
-            frame.r14    = saved.r14;
-            frame.r15    = saved.r15;
+            auto& image  = trap.image;
+            image.mode   = arch::return_mode::sigreturn;
+            image.rdi    = saved.rdi;
+            image.rsi    = saved.rsi;
+            image.rdx    = saved.rdx;
+            image.r10    = saved.r10;
+            image.r8     = saved.r8;
+            image.r9     = saved.r9;
+            image.rip    = saved.rip;
+            image.rflags = saved.rflags;
+            image.rsp    = saved.rsp;
+            image.rbx    = saved.rbx;
+            image.rbp    = saved.rbp;
+            image.r12    = saved.r12;
+            image.r13    = saved.r13;
+            image.r14    = saved.r14;
+            image.r15    = saved.r15;
             if (auto* self = current_thread()) {
                 self->signals().set_blocked(saved.blocked);
                 self->clear_signal_restore_mask();

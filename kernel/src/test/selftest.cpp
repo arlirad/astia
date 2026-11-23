@@ -275,12 +275,10 @@ namespace astia::test {
 
         bool uname_checks() {
             auto call = [](u64 output) -> long {
-                arch::syscall_frame frame{};
-                frame.nr = static_cast<u64>(sys::syscall_id::uname);
-                frame.a0 = output;
+                arch::syscall_return image{};
                 return static_cast<long>(sys::dispatch(sys::syscall_id::uname,
                                                        static_cast<i64>(output), 0, 0, 0,
-                                                       0, 0, frame));
+                                                       0, 0, image));
             };
             auto equal = [](const char* field, const char* value) {
                 for (usize i = 0;; ++i) {
@@ -336,13 +334,10 @@ namespace astia::test {
             // the image, but the image is still the real one a trap for
             // this call would have made.
             auto read = [](i64 id, astia_timespec* out) -> long {
-                arch::syscall_frame frame{};
-                frame.nr = static_cast<u64>(sys::syscall_id::clock_gettime);
-                frame.a0 = static_cast<u64>(id);
-                frame.a1 = reinterpret_cast<u64>(out);
+                arch::syscall_return image{};
                 return static_cast<long>(sys::dispatch(
-                    sys::syscall_id::clock_gettime, static_cast<i64>(frame.a0),
-                    static_cast<i64>(frame.a1), 0, 0, 0, 0, frame));
+                    sys::syscall_id::clock_gettime, id,
+                    static_cast<i64>(reinterpret_cast<u64>(out)), 0, 0, 0, 0, image));
             };
 
             astia_timespec first{};

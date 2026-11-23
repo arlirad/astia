@@ -286,12 +286,12 @@ namespace astia::sys {
     namespace detail {
         template <typename T>
         struct argument_decoder<user_ptr<T>> {
-            static bool valid([[maybe_unused]] i64 raw) {
+            static bool valid([[maybe_unused]] u64 raw) {
                 return true;
             }
 
-            static user_ptr<T> decode(i64 raw) {
-                return user_ptr<T>(static_cast<u64>(raw));
+            static user_ptr<T> decode(u64 raw) {
+                return user_ptr<T>(raw);
             }
         };
 

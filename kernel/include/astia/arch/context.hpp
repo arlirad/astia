@@ -9,13 +9,22 @@ namespace astia::arch {
     struct context;
     void context_set_fs_base(context* value, u64 fs_base);
 
-    /// Register image of a ring-3 caller at syscall time, as the entry
-    /// packs it: the call number, its argument registers, the caller's
-    /// return state, then the callee-saved image.  The selected
+    /// Return-side register image of a ring-3 caller.  The syscall number
+    /// and argument registers are not part of it: the entry hands those to
+    /// the dispatcher directly.  This image carries only what the exit
+    /// path must materialize — the return mode, the caller-saved
+    /// registers sigreturn restores, the ring-3 control state, and the
+    /// callee-saved image the exit path restores explicitly.  The selected
     /// architecture defines the layout and its syscall entry is the one
     /// writer — nothing else may reorder it.
-    struct syscall_frame {
-        u64 nr, a0, a1, a2, a3, a4, a5;
+    struct syscall_return {
+        /// How the exit path returns to ring 3.  Kept at offset zero because
+        /// the entry tests it there; the architecture decides which register
+        /// materializes it.  The syscall result is not stored here.
+        u64 mode;
+        // Caller-saved image.  Not syscall arguments: signal delivery saves
+        // them for the interrupted context and sigreturn restores them.
+        u64 rdi, rsi, rdx, r10, r8, r9;
         u64 rip, rflags, rsp;
         // Callee-saved image: the entry stores it so the exit path can
         // restore it explicitly (no reliance on the compiler's choices
@@ -23,6 +32,18 @@ namespace astia::arch {
         // it — the one call that needs the whole register set.
         u64 rbx, rbp, r12, r13, r14, r15;
     };
+
+    /// Values stored in `syscall_return::mode`.  These are return paths, not
+    /// error codes: the ordinary result travels separately in the return
+    /// register the C door gives back to the entry.
+    namespace return_mode {
+        /// Restore the interrupted user context as-is.
+        inline constexpr u64 ordinary = 0;
+        /// Deliver a pending signal before returning to ring 3.
+        inline constexpr u64 signal = 1;
+        /// Restore the saved image from sigreturn.
+        inline constexpr u64 sigreturn = 2;
+    } // namespace return_mode
 
     /// Register image of a ring-3 caller at syscall time.  The arch
     /// syscall entry packs it from its frame; fork hands the copy to
@@ -50,12 +71,14 @@ namespace astia::arch {
         u64 fs_base = 0; ///< thread pointer the resume loads into %fs
     };
 
-    /// The caller's own state out of a trap image, in the form a context
-    /// is prepared from: what fork hands the child so it returns from the
+    /// The caller's own state out of a syscall return image and the six
+    /// argument registers captured at entry, in the form a context is
+    /// prepared from: what fork hands the child so it returns from the
     /// syscall exactly where the parent sat.  It deliberately does not
     /// carry fs_base — the thread pointer belongs to the address space,
     /// not to the trap, and proc::fork takes it from the parent's.
-    user_context caller_image(const syscall_frame& frame);
+    user_context caller_image(const syscall_return& image, u64 rdi, u64 rsi, u64 rdx,
+                              u64 r10, u64 r8, u64 r9);
 
     context* context_create();
     bool     context_prepare_kernel(context*, u64 stack_top, u64 entry);
@@ -68,8 +91,8 @@ namespace astia::arch {
                                     u64 entry, u64 fs_base, u64 argument0, u64 argument1);
     /// Prepare `value` to enter ring 3 exactly where a forked parent
     /// sat inside its syscall: the register image, thread pointer, and
-    /// FP/SSE state are the parent's, and rax reads 0 — the child's
-    /// fork() return value.  The caller supplies the kernel stack the
+    /// FP/SSE state are the parent's, and the child's fork() return value
+    /// reads 0.  The caller supplies the kernel stack the
     /// resume trampoline builds its iretq frame on.
     bool context_prepare_fork(context*, u64 kernel_stack_top, const user_context* image);
     void context_destroy(context*);

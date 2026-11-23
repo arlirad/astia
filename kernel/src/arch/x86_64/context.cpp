@@ -1,5 +1,6 @@
-#include "gdt.hpp"
 #include <astia/arch/context.hpp>
+
+#include "gdt.hpp"
 
 namespace astia::arch {
 
@@ -123,24 +124,25 @@ namespace astia::arch {
         return true;
     }
 
-    user_context caller_image(const syscall_frame& frame) {
-        user_context image;
-        image.rip    = frame.rip;
-        image.rflags = frame.rflags;
-        image.rsp    = frame.rsp;
-        image.rbx    = frame.rbx;
-        image.rbp    = frame.rbp;
-        image.r12    = frame.r12;
-        image.r13    = frame.r13;
-        image.r14    = frame.r14;
-        image.r15    = frame.r15;
-        image.rdi    = frame.a0;
-        image.rsi    = frame.a1;
-        image.rdx    = frame.a2;
-        image.r10    = frame.a3;
-        image.r8     = frame.a4;
-        image.r9     = frame.a5;
-        return image;
+    user_context caller_image(const syscall_return& image, u64 rdi, u64 rsi, u64 rdx,
+                              u64 r10, u64 r8, u64 r9) {
+        user_context result;
+        result.rip    = image.rip;
+        result.rflags = image.rflags;
+        result.rsp    = image.rsp;
+        result.rbx    = image.rbx;
+        result.rbp    = image.rbp;
+        result.r12    = image.r12;
+        result.r13    = image.r13;
+        result.r14    = image.r14;
+        result.r15    = image.r15;
+        result.rdi    = rdi;
+        result.rsi    = rsi;
+        result.rdx    = rdx;
+        result.r10    = r10;
+        result.r8     = r8;
+        result.r9     = r9;
+        return result;
     }
 
     bool context_prepare_fork(context* value, u64 kernel_stack_top,

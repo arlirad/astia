@@ -23,7 +23,8 @@ namespace astia::proc {
         /// This module's log source: the same one proc.cpp logs under.
         using logs = astia::log::context<"proc">;
 
-        void deliver_default_signal(arch::syscall_frame& raw_frame, i64 result) {
+        void deliver_default_signal(arch::syscall_return& raw_frame, u64 a0, u64 a1,
+                                    u64 a2, u64 a3, u64 a4, u64 a5, i64 result) {
             auto* owner = current_process();
             auto* self  = current_thread();
             if (owner == nullptr || self == nullptr) {
@@ -84,12 +85,12 @@ namespace astia::proc {
                 astia_x86_64_signal_context_t saved{static_cast<u64>(result),
                                                     frame.rbx,
                                                     frame.rip,
-                                                    frame.a2,
-                                                    frame.a1,
-                                                    frame.a0,
-                                                    frame.a4,
-                                                    frame.a5,
-                                                    frame.a3,
+                                                    a2,
+                                                    a1,
+                                                    a0,
+                                                    a4,
+                                                    a5,
+                                                    a3,
                                                     frame.rflags,
                                                     frame.r12,
                                                     frame.r13,
@@ -110,11 +111,12 @@ namespace astia::proc {
                 const signal_mask automatic_mask =
                     (disposition.flags & ASTIA_SA_NODEFER) != 0 ? 0 : signal_bit(signal);
                 self->signals().block(automatic_mask | disposition.mask);
-                frame.nr = ~u64{0};
-                frame.a0 = static_cast<u64>(signal);
-                frame.a1 = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0;
-                frame.a2 = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? context : 0;
-                frame.a3 = frame.a4 = frame.a5 = 0;
+                frame.mode = arch::return_mode::signal;
+                frame.rdi  = static_cast<u64>(signal);
+                frame.rsi =
+                    (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0;
+                frame.rdx = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? context : 0;
+                frame.r10 = frame.r8 = frame.r9 = 0;
                 frame.rip = reinterpret_cast<u64>(disposition.handler);
                 frame.rsp = retaddr;
                 frame.rbx = frame.rbp = frame.r12 = frame.r13 = frame.r14 = frame.r15 = 0;

@@ -19,11 +19,10 @@ namespace astia::proc::syscalls::detail {
             argument_staging         staging;
             core::task<i64>          runner;
 
-            spawn_continuation(const arch::syscall_frame&      input,
-                               const mm::shptr<process>&       process_value,
+            spawn_continuation(const mm::shptr<process>&       process_value,
                                const mm::shptr<thread>&        thread_value,
                                const mm::shptr<fs::open_file>& file_value)
-                : syscall(input, process_value, thread_value), file(file_value) {}
+                : syscall(process_value, thread_value), file(file_value) {}
         };
 
         core::task<i64> drive_spawn(const mm::shptr<spawn_continuation>& continuation) {
@@ -55,8 +54,7 @@ namespace astia::proc::syscalls::detail {
         }
 
         auto staging = mm::share<spawn_continuation>(
-            arch::syscall_frame{}, mm::shptr<process>{}, mm::shptr<thread>{},
-            mm::shptr<fs::open_file>{});
+            mm::shptr<process>{}, mm::shptr<thread>{}, mm::shptr<fs::open_file>{});
         if (!staging)
             return -ENOMEM;
         if (!staging->staging.allocate())
