@@ -298,7 +298,12 @@ namespace astia::sys {
 
         static constexpr syscall_descriptor descriptor{Id, &thunk};
         [[gnu::used, gnu::section("astia_syscall_handlers")]]
-        inline static const syscall_descriptor registration{descriptor};
+        inline static const syscall_descriptor* const registration{&descriptor};
+        // clang does not emit a `used` static data member of a class template;
+        // a used function that odr-uses it forces the section entry out.
+        [[gnu::used]] static void keep_registration() {
+            (void) registration;
+        }
     };
 
     template <typename Impl, syscall_id Id>
@@ -341,7 +346,12 @@ namespace astia::sys {
 
         static constexpr syscall_descriptor descriptor{Id, &thunk};
         [[gnu::used, gnu::section("astia_syscall_handlers")]]
-        inline static const syscall_descriptor registration{descriptor};
+        inline static const syscall_descriptor* const registration{&descriptor};
+        // clang does not emit a `used` static data member of a class template;
+        // a used function that odr-uses it forces the section entry out.
+        [[gnu::used]] static void keep_registration() {
+            (void) registration;
+        }
     };
 
     namespace detail {
