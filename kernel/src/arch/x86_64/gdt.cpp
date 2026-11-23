@@ -3,9 +3,8 @@
 #include "io.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/platform.hpp>
+#include <astia/arch/x86_64/cpu_local.hpp>
 #include <astia/mm/heap.hpp>
-
-#include <cstddef>
 
 namespace astia::arch::x86_64 {
 
@@ -44,20 +43,8 @@ namespace astia::arch::x86_64 {
         alignas(16) tss task_state[max_cpus];
         gdtr  descriptor[max_cpus];
         void* kernel_stack[max_cpus];
-        // GS points at one of these anchors.  Keep the offsets stable: the
-        // syscall entry path uses index 0, stack_top 8, saved_r12 16 before
-        // it has a C frame in which to recover a CPU-local pointer.
-        struct alignas(cache_line_bytes) cpu_local {
-            u32 index;
-            u32 reserved;
-            u64 syscall_stack_top;
-            u64 syscall_saved_r12;
-            u32 interrupt_depth;
-            u32 should_yield;
-        };
-        static_assert(offsetof(cpu_local, index) == 0);
-        static_assert(offsetof(cpu_local, syscall_stack_top) == 8);
-        static_assert(offsetof(cpu_local, syscall_saved_r12) == 16);
+        // GS points at one of these anchors.  The struct and the %%gs offsets
+        // the assembly uses live in astia/arch/x86_64/cpu_local.hpp.
         cpu_local cpu_locals[max_cpus]{};
 
         extern "C" void astia_load_gdt_tss(const gdtr*, u16 selector);
