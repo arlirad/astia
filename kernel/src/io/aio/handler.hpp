@@ -29,7 +29,6 @@ namespace astia::io::aio {
         sleep          = OP_SLEEP,
         wait           = OP_WAIT,
         poll_add       = OP_POLL_ADD,
-        spawn          = OP_SPAWN,
         cancel         = OP_CANCEL,
         accept         = OP_ACCEPT,
         connect        = OP_CONNECT,
@@ -115,7 +114,7 @@ namespace astia::io::aio {
     struct operation_descriptor {
         opcode operation;
         core::task<aio_result> (*invoke)(ring::ring_slot&, astia_rings*,
-                                         const astia_sqe&) noexcept;
+                                         astia_sqe) noexcept;
     };
 
     template <typename Derived, opcode Opcode>
@@ -123,7 +122,7 @@ namespace astia::io::aio {
         static constexpr opcode opcode_value = Opcode;
 
         static core::task<aio_result> thunk(ring::ring_slot& slot, astia_rings* ring,
-                                            const astia_sqe& sqe) noexcept {
+                                            astia_sqe sqe) noexcept {
             static_assert(Derived::opcode_value == Opcode);
             static_assert(valid_opcode(Opcode));
             return Derived::invoke(slot, ring, sqe);

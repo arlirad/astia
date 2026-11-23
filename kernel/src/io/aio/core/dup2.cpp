@@ -5,7 +5,7 @@ namespace astia::io::aio::operations {
     struct dup2 : handler<dup2, opcode::dup2> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             proc::process* current = proc::current_process();
             auto           old_fd  = mapper<fd_t>::from(sqe.fd);
             auto           new_fd  = mapper<fd_t>::from(static_cast<i64>(sqe.offset));

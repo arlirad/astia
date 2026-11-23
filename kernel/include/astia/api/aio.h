@@ -260,7 +260,8 @@ ASTIA_STATIC_ASSERT(offsetof(astia_cq_ring, head) == 0, "cq head line");
 ASTIA_STATIC_ASSERT(offsetof(astia_cq_ring, tail) == 64, "cq tail line");
 
 /* ------------------------------------------------------------------ */
-/* opcodes — append-only; renumbering is an ABI break                  */
+/* opcodes — append-only after the OP_SPAWN removal; this tree owns      */
+/* the ABI, so the former spawn slot was freed and later IDs moved down. */
 /* ------------------------------------------------------------------ */
 
 enum {
@@ -279,38 +280,37 @@ enum {
     OP_SLEEP    = 12,
     OP_WAIT     = 13,
     OP_POLL_ADD = 14,
-    OP_SPAWN    = 15,
-    OP_CANCEL   = 16,
+    OP_CANCEL   = 15,
     /* networking — numbers reserved now so growth never shifts them */
-    OP_ACCEPT  = 17,
-    OP_CONNECT = 18,
-    OP_SEND    = 19,
-    OP_RECV    = 20,
-    OP_DUP     = 21,
-    OP_DUP2    = 22,
-    OP_READDIR = 23,
+    OP_ACCEPT  = 16,
+    OP_CONNECT = 17,
+    OP_SEND    = 18,
+    OP_RECV    = 19,
+    OP_DUP     = 20,
+    OP_DUP2    = 21,
+    OP_READDIR = 22,
     /* Fence: dispatch waits for all older parked operations before applying
        the control request; later SQEs are ordered after its completion. */
-    OP_IOCTL = 24,
-    OP_PIPE  = 25,
-    OP_CHMOD = 26,
+    OP_IOCTL = 23,
+    OP_PIPE  = 24,
+    OP_CHMOD = 25,
     /* Update pathname mtime to kernel CLOCK_REALTIME; address is pathname. */
-    OP_UTIMENSAT      = 27,
-    OP_SYMLINKAT      = 28,
-    OP_READLINKAT     = 29,
-    OP_CHOWN          = 30,
-    OP_SOCKET         = 31,
-    OP_BIND           = 32,
-    OP_LISTEN         = 33,
-    OP_SOCKETPAIR     = 34,
-    OP_SHUTDOWN       = 35,
-    OP_FCNTL          = 36,
-    OP_SENDTO         = 37,
-    OP_RECVFROM       = 38,
-    OP_EVENTFD_CREATE = 39,
-    OP_LINKAT         = 40,
-    OP_FTRUNCATE      = 41,
-    OP_GETSOCKOPT     = 42,
+    OP_UTIMENSAT      = 26,
+    OP_SYMLINKAT      = 27,
+    OP_READLINKAT     = 28,
+    OP_CHOWN          = 29,
+    OP_SOCKET         = 30,
+    OP_BIND           = 31,
+    OP_LISTEN         = 32,
+    OP_SOCKETPAIR     = 33,
+    OP_SHUTDOWN       = 34,
+    OP_FCNTL          = 35,
+    OP_SENDTO         = 36,
+    OP_RECVFROM       = 37,
+    OP_EVENTFD_CREATE = 38,
+    OP_LINKAT         = 39,
+    OP_FTRUNCATE      = 40,
+    OP_GETSOCKOPT     = 41,
 };
 
 /* OP_EVENTFD_CREATE flags.  The initial counter is in SQE::offset. */

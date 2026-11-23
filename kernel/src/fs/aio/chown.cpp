@@ -6,7 +6,7 @@ namespace astia::io::aio::operations {
     struct chown : handler<chown, opcode::chown> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             auto* current = proc::current_process();
             auto  owner   = mapper<uid_t>::from(static_cast<i64>(sqe.aux));
             auto  group   = mapper<gid_t>::from(static_cast<i64>(sqe.offset));

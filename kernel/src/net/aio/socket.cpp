@@ -38,7 +38,7 @@ namespace astia::io::aio::operations {
     struct socket : handler<socket, opcode::socket> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             const socket_request request = socket_request::from_sqe(sqe);
             if (!request.supported())
                 co_return -EAFNOSUPPORT;

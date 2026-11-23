@@ -42,7 +42,7 @@ foreach (_retired_dispatch
     endif ()
 endforeach ()
 
-set(_enosys_handlers spawn wait)
+set(_enosys_handlers wait)
 
 function(astia_aio_check_handler _file _stem)
     file(READ "${_file}" _contents)
@@ -67,7 +67,7 @@ function(astia_aio_check_handler _file _stem)
 endfunction()
 
 set(_owners
-        "${_aio}/core|15"
+        "${_aio}/core|14"
         "${_src}/fs/aio|15"
         "${_src}/net/aio|11"
         "${_src}/io/readiness/aio|2")
@@ -191,4 +191,4 @@ endif ()
 
 list(LENGTH _scan _scan_count)
 message(STATUS
-        "AIO handler ownership: 43 descriptors across 4 owner directories; production bodies are owner-local; shared submission/publication core retained; no registration macros (${_scan_count} files)")
+        "AIO handler ownership: 42 descriptors across 4 owner directories; production bodies are owner-local; shared submission/publication core retained; no registration macros (${_scan_count} files)")

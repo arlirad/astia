@@ -1,3 +1,5 @@
+#include <astia/core/completion.hpp>
+
 #include "aio_registry_test_support.hpp"
 #include "support/aio_test_file.hpp"
 #include "support/test.hpp"
@@ -13,6 +15,7 @@ using namespace astia;
 #include <io/aio/operation.hpp>
 #include <io/aio/registry.hpp>
 #include <io/aio/ring.hpp>
+#include <io/aio/runner.hpp>
 
 #if defined(ASTIA_AIO_REGISTER_HANDLER) || defined(ASTIA_AIO_REGISTER_CORE) ||         \
     defined(ASTIA_AIO_REGISTER_FILESYSTEM) || defined(ASTIA_AIO_REGISTER_READINESS) || \
@@ -26,14 +29,14 @@ namespace {
 
     struct fake_read : aio::handler<fake_read, aio::opcode::read> {
         static core::task<aio::aio_result> invoke(aio::ring::ring_slot&, astia_rings*,
-                                                  const astia_sqe&) noexcept {
+                                                  astia_sqe) noexcept {
             co_return 0;
         }
     };
 
     struct fake_cancel : aio::handler<fake_cancel, aio::opcode::cancel> {
         static core::task<aio::aio_result> invoke(aio::ring::ring_slot&, astia_rings*,
-                                                  const astia_sqe&) noexcept {
+                                                  astia_sqe) noexcept {
             co_return 0;
         }
     };
@@ -53,8 +56,40 @@ namespace {
 
 } // namespace
 
+namespace {
+
+    astia::core::task<aio::aio_result>
+    suspend_until(astia::core::completion<aio::aio_result>& pending) {
+        const auto value = co_await pending;
+        co_return value ? value.value : aio::aio_result(astia::error_t::eio);
+    }
+
+} // namespace
+
+ASTIA_TEST(aio_suspended_operation_posts_when_its_await_completes) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe{};
+    sqe.user_data = 0x5151;
+
+    astia::core::completion<aio::aio_result> pending;
+    ASTIA_CHECK(aio::runner::launch(suspend_until(pending), slot, &capture.ring, sqe));
+    ASTIA_CHECK(!pending.done());
+    ASTIA_CHECK(slot.detached_ops.load() == 1);
+    ASTIA_CHECK(capture.count() == 0);
+
+    ASTIA_CHECK(pending.complete(aio::aio_result{7}));
+    ASTIA_CHECK(capture.count() == 1);
+    ASTIA_CHECK(capture.result(0) == 7);
+    ASTIA_CHECK(capture.user_data(0) == 0x5151);
+    ASTIA_CHECK(slot.detached_ops.load() == 0);
+}
+
 ASTIA_TEST(aio_production_handler_manifest_covers_abi_range) {
-    ASTIA_CHECK(aio::opcode_count == 43);
+    ASTIA_CHECK(aio::opcode_count == 42);
     ASTIA_CHECK(aio::registry::size() == aio::opcode_count);
     ASTIA_CHECK(aio::registry::valid());
     ASTIA_CHECK(aio::valid_opcode(aio::opcode::nop));
@@ -127,15 +162,10 @@ ASTIA_TEST(aio_production_nop_and_intentional_enosys_handlers) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.result(0) == 0);
 
-    sqe.op        = OP_SPAWN;
+    sqe.op        = OP_WAIT;
     sqe.user_data = 2;
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.result(1) == -ENOSYS);
-
-    sqe.op        = OP_WAIT;
-    sqe.user_data = 3;
-    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
-    ASTIA_CHECK(capture.result(2) == -ENOSYS);
 }
 
 ASTIA_TEST(aio_production_cq_full_refuses_completion) {

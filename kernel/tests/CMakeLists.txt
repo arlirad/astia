@@ -191,6 +191,7 @@ set(ASTIA_AIO_REGISTRY_TEST_SOURCES
         support/interrupts_host.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/dispatch.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/runner.cpp
         ${ASTIA_AIO_HANDLER_TEST_SOURCES})
 astia_add_host_test(astia_aio_static_handlers_test
         aio_static_handlers_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})

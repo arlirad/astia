@@ -6,7 +6,7 @@ namespace astia::io::aio::operations {
     struct pipe : handler<pipe, opcode::pipe> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             const auto out = memory::user_ptr<i32>(sqe.address).validate(2);
             if (!out)
                 co_return -EFAULT;

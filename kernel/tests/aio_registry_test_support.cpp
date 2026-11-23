@@ -277,6 +277,41 @@ namespace astia::io::aio {
 
 namespace astia::io::aio::ring {
 
+    void ring_lock::acquire() {
+        const u32 cpu = arch::cpu::current_index();
+        if (cpu < cpu_slots)
+            ++depth[cpu];
+    }
+
+    void ring_lock::release() {
+        const u32 cpu = arch::cpu::current_index();
+        if (cpu < cpu_slots && depth[cpu] != 0)
+            --depth[cpu];
+    }
+
+    ring_guard::ring_guard(ring_lock& value) : _lock(value) {
+        _lock.acquire();
+    }
+
+    ring_guard::~ring_guard() {
+        if (_held)
+            _lock.release();
+    }
+
+    void ring_guard::unlock() {
+        if (_held) {
+            _lock.release();
+            _held = false;
+        }
+    }
+
+    void ring_guard::release_lock() {
+        if (_held) {
+            _lock.release();
+            _held = false;
+        }
+    }
+
     bool cq_post(astia_rings* ring, u64 user_data, i32 result) {
         astia_cq_ring* cq   = astia_rings_cq(ring);
         astia_cqe*     cqes = astia_rings_cqes(ring);

@@ -6,7 +6,7 @@ namespace astia::io::aio::operations {
     struct socketpair : handler<socketpair, opcode::socketpair> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             if (sqe.fd != AF_UNIX)
                 co_return -EAFNOSUPPORT;
             if (sqe.aux != 0)

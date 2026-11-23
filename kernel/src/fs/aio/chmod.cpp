@@ -6,7 +6,7 @@ namespace astia::io::aio::operations {
     struct chmod : handler<chmod, opcode::chmod> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             auto* current = proc::current_process();
             if (current == nullptr)
                 co_return -ESRCH;

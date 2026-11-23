@@ -3,6 +3,7 @@
 #include <astia/api/errno.h>
 
 #include "ring.hpp"
+#include "runner.hpp"
 
 namespace astia::io::aio::registry {
 
@@ -44,36 +45,12 @@ namespace astia::io::aio::registry {
             registry_ready = true;
             return true;
         }
+
     } // namespace
 
     bool valid() {
         return registry_ready || build_table();
     }
-
-    namespace {
-        /// Handlers are coroutines, but a submit batch holds the ring lock
-        /// across every operation.  Run the body to its first suspension;
-        /// until the lock-release protocol lands, a suspended body means the
-        /// SQE was not consumed and the frame is discarded.
-        bool run_operation(core::task<aio_result> operation, astia_rings* ring,
-                           const astia_sqe& sqe) {
-            if (!operation.valid())
-                return false;
-            operation.resume();
-            if (!operation.done())
-                return false;
-            const aio_result result = *operation.value();
-            switch (result.kind()) {
-            case aio_result::state::retry:
-                return false;
-            case aio_result::state::pending:
-                return true;
-            case aio_result::state::complete:
-                return ring::cq_post_guarded(ring, sqe.user_data, result.value());
-            }
-            return false;
-        }
-    } // namespace
 
     bool dispatch(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe) {
         if (!registry_ready && !build_table())
@@ -83,7 +60,7 @@ namespace astia::io::aio::registry {
         const operation_descriptor* entry = table[sqe.op];
         if (entry == nullptr)
             return ring::cq_post_guarded(ring, sqe.user_data, -ENOSYS);
-        return run_operation(entry->invoke(slot, ring, sqe), ring, sqe);
+        return runner::launch(entry->invoke(slot, ring, sqe), slot, ring, sqe);
     }
 
 } // namespace astia::io::aio::registry

@@ -6,7 +6,7 @@ namespace astia::io::aio::operations {
     struct recvfrom : handler<recvfrom, opcode::recvfrom> {
         static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
                                              [[maybe_unused]] astia_rings*     ring,
-                                             const astia_sqe& sqe) noexcept {
+                                             astia_sqe sqe) noexcept {
             mm::shptr<fs::open_file> object = file_for(sqe.fd);
             if (!object)
                 co_return -EBADF;

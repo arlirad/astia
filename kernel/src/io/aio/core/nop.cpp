@@ -3,9 +3,9 @@
 namespace astia::io::aio::operations {
 
     struct nop : handler<nop, opcode::nop> {
-        static core::task<aio_result>
-        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
-               [[maybe_unused]] const astia_sqe& sqe) noexcept {
+        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
+                                             [[maybe_unused]] astia_rings*     ring,
+                                             [[maybe_unused]] astia_sqe sqe) noexcept {
             co_return 0;
         }
     };
