@@ -46,15 +46,15 @@ set(BOOT "virt" CACHE STRING "Target boot: virt, pc")
 set_property(CACHE BOOT PROPERTY STRINGS virt pc)
 
 if (ARCH STREQUAL "aarch64")
-    message(FATAL_ERROR
-            "Unsupported AArch64 kernel target (ARCH=${ARCH}, PLATFORM=${PLATFORM}, BOOT=${BOOT}): "
-            "the AArch64 port is bring-up only and has no complete boot, linker, or cross-toolchain target")
-endif ()
-
-if (NOT ARCH STREQUAL "x86_64" OR NOT PLATFORM STREQUAL "virt" OR NOT BOOT STREQUAL "virt")
+    if (NOT PLATFORM STREQUAL "virt" OR NOT BOOT STREQUAL "virt")
+        message(FATAL_ERROR
+                "Unsupported AArch64 kernel target (ARCH=${ARCH}, PLATFORM=${PLATFORM}, BOOT=${BOOT}); "
+                "the supported AArch64 target is ARCH=aarch64, PLATFORM=virt, BOOT=virt")
+    endif ()
+elseif (NOT ARCH STREQUAL "x86_64" OR NOT PLATFORM STREQUAL "virt" OR NOT BOOT STREQUAL "virt")
     message(FATAL_ERROR
             "Unsupported kernel target (ARCH=${ARCH}, PLATFORM=${PLATFORM}, BOOT=${BOOT}); "
-            "the supported target is ARCH=x86_64, PLATFORM=virt, BOOT=virt")
+            "the supported targets are ARCH=x86_64 and ARCH=aarch64 with PLATFORM=virt, BOOT=virt")
 endif ()
 
 set(ASTIA_LINKER_SCRIPT
@@ -81,7 +81,7 @@ include(cmake/Compilers.cmake)
 # Include module CMake files
 add_subdirectory(src)
 
-if (ASTIA_EXPERIMENTAL_AARCH64)
+if (ASTIA_EXPERIMENTAL_AARCH64 AND NOT ARCH STREQUAL "aarch64")
     add_subdirectory(src/arch/aarch64)
 endif ()
 

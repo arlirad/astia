@@ -96,6 +96,8 @@ astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/multiboot2.cpp)
 astia_add_host_test(astia_boot_init_test boot_init_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/init.cpp)
+astia_add_host_test(astia_aarch64_fdt_test aarch64_fdt_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/aarch64-virt/fdt.cpp)
 add_test(NAME astia_init_launch_shape
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_launch_shape.py

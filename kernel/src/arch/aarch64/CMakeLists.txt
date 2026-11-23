@@ -1,3 +1,10 @@
+if (ARCH STREQUAL "aarch64")
+    add_library(arch_aarch64 OBJECT start.S)
+    target_include_directories(arch_aarch64 PUBLIC
+            ${ASTIA_KERNEL_SOURCE_DIR}/include)
+endif ()
+
+if (ASTIA_EXPERIMENTAL_AARCH64)
 set(_astia_aarch64_experimental_dir
         "${CMAKE_CURRENT_BINARY_DIR}/experimental-aarch64")
 set(_astia_aarch64_experimental_sources
@@ -54,3 +61,4 @@ endforeach ()
 add_custom_target(astia_experimental_aarch64
         DEPENDS ${_astia_aarch64_experimental_objects})
 set_property(TARGET astia_experimental_aarch64 PROPERTY EXCLUDE_FROM_ALL TRUE)
+endif ()
