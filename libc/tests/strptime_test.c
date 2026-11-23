@@ -29,9 +29,9 @@ static void test_full_timestamp(void) {
 }
 
 static void test_partial_input(void) {
-    struct tm value;
+    struct tm   value;
     const char* input = "2026-11-23tail";
-    char*     end;
+    char*       end;
 
     memset(&value, 0, sizeof value);
     end = strptime(input, "%Y-%m-%d", &value);
@@ -96,7 +96,7 @@ static void test_unspecified_fields_preserved(void) {
     value.tm_wday  = 3;
     value.tm_yday  = 77;
     value.tm_isdst = 1;
-    end = strptime("2026-11-23", "%Y-%m-%d", &value);
+    end            = strptime("2026-11-23", "%Y-%m-%d", &value);
     CHECK(end != NULL && *end == '\0');
     CHECK(value.tm_hour == 7 && value.tm_min == 8 && value.tm_sec == 9);
     CHECK(value.tm_wday == 3 && value.tm_yday == 77 && value.tm_isdst == 1);
