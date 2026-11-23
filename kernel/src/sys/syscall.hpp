@@ -4,8 +4,8 @@
 #include <astia/arch/context.hpp>
 #include <astia/arch/syscall_image.hpp>
 #include <astia/common.hpp>
-#include <astia/core/completion.hpp>
 #include <astia/core/task.hpp>
+#include <astia/error.hpp>
 #include <astia/mapping.hpp>
 #include <astia/resource_limits.hpp>
 
@@ -97,23 +97,32 @@ namespace astia::sys {
 
     /// The trap state for the three handlers that need more than their
     /// decoded arguments: fork builds the child's resume image from the
-    /// caller-saved registers, execve rewrites the resume point, and
-    /// sigreturn replaces the whole return image.  `arguments` is the same
-    /// six registers the dispatcher decodes, borrowed for the call.
+    /// caller-saved registers, and execve/sigreturn rewrite the return image.
+    /// The six registers are owned by value so an async handler can carry the
+    /// trap in its coroutine frame past the thunk that decoded it.
     struct syscall_trap {
-        const u64 (&arguments)[syscall_argument_count];
+        u64                   arguments[syscall_argument_count];
         arch::syscall_return& image;
     };
 
     using syscall_exit_hook = void (*)(arch::syscall_return& image, i64 result);
 
-    using syscall_handler_fn = void (*)(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                                        arch::syscall_return&  image,
-                                        core::completion<i64>& completion);
+    /// How an async syscall body is driven: the process layer parks the
+    /// calling thread until the task completes.
+    using task_runner = i64 (*)(core::task<i64> operation);
 
+    using syscall_sync_handler  = i64 (*)(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                                         arch::syscall_return& image);
+    using syscall_async_handler = core::task<i64> (*)(u64 a0, u64 a1, u64 a2, u64 a3,
+                                                      u64 a4, u64 a5,
+                                                      arch::syscall_return& image);
+
+    /// One of the two entry points is set: dispatch calls sync directly, or
+    /// runs async through the task runner.
     struct syscall_descriptor {
-        syscall_id         id;
-        syscall_handler_fn invoke;
+        syscall_id            id;
+        syscall_sync_handler  sync;
+        syscall_async_handler async;
     };
 
     bool register_exit_hook(syscall_exit_hook hook);
@@ -225,7 +234,9 @@ namespace astia::sys {
                           arch::syscall_return& image) {
                 const auto indices =
                     typename make_index_sequence<sizeof...(Args)>::type{};
-                syscall_trap trap{arguments, image};
+                syscall_trap trap{{arguments[0], arguments[1], arguments[2], arguments[3],
+                                   arguments[4], arguments[5]},
+                                  image};
                 return call_arguments(function, trap, arguments, indices);
             }
 
@@ -277,26 +288,23 @@ namespace astia::sys {
         using syscall_descriptor_marker = void;
 
         static constexpr syscall_id id = Id;
-        static void                 thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                                          arch::syscall_return&  image,
-                                          core::completion<i64>& completion) {
+        static i64                  thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                                          arch::syscall_return& image) {
             using function = decltype(&Impl::invoke);
             static_assert(
                 detail::typed_sync_handler<function>::value,
                 "sync syscall handlers must return i64 from invoke(typed arguments)");
             const u64 arguments[syscall_argument_count]{a0, a1, a2, a3, a4, a5};
-            if (!detail::decoded_arguments_valid<function>::check(arguments)) {
-                completion.complete(-EFAULT);
-                return;
-            }
-            completion.complete(static_cast<i64>(
-                detail::typed_invoker<function>::call(&Impl::invoke, arguments, image)));
+            if (!detail::decoded_arguments_valid<function>::check(arguments))
+                return -EFAULT;
+            return static_cast<i64>(
+                detail::typed_invoker<function>::call(&Impl::invoke, arguments, image));
         }
 
         static_assert(static_cast<u32>(Id) < syscall_table_capacity,
                       "syscall ID must fit the ABI table");
 
-        static constexpr syscall_descriptor descriptor{Id, &thunk};
+        static constexpr syscall_descriptor descriptor{Id, &thunk, nullptr};
         [[gnu::used, gnu::section("astia_syscall_handlers")]]
         inline static const syscall_descriptor* const registration{&descriptor};
         // clang does not emit a `used` static data member of a class template;
@@ -311,40 +319,22 @@ namespace astia::sys {
         using syscall_descriptor_marker = void;
 
         static constexpr syscall_id id = Id;
-        static void                 thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                                          arch::syscall_return&  image,
-                                          core::completion<i64>& completion) {
+        static core::task<i64>      thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                                          arch::syscall_return& image) {
             using function = decltype(&Impl::invoke);
             static_assert(detail::typed_task_handler<function>::value,
                           "async syscall handlers must return core::task<i64> from "
-                                          "invoke(typed arguments)");
+                               "invoke(typed arguments)");
             const u64 arguments[syscall_argument_count]{a0, a1, a2, a3, a4, a5};
-            if (!detail::decoded_arguments_valid<function>::check(arguments)) {
-                completion.complete(-EFAULT);
-                return;
-            }
-            auto operation =
-                detail::typed_invoker<function>::call(&Impl::invoke, arguments, image);
-            if (!operation.valid()) {
-                completion.fail(operation.error());
-                return;
-            }
-            operation.resume();
-            if (!operation.done()) {
-                completion.cancel();
-                return;
-            }
-            if (operation.failed()) {
-                completion.fail(operation.error());
-                return;
-            }
-            completion.complete(*operation.value());
+            if (!detail::decoded_arguments_valid<function>::check(arguments))
+                return core::task<i64>(error_t::efault);
+            return detail::typed_invoker<function>::call(&Impl::invoke, arguments, image);
         }
 
         static_assert(static_cast<u32>(Id) < syscall_table_capacity,
                       "syscall ID must fit the ABI table");
 
-        static constexpr syscall_descriptor descriptor{Id, &thunk};
+        static constexpr syscall_descriptor descriptor{Id, nullptr, &thunk};
         [[gnu::used, gnu::section("astia_syscall_handlers")]]
         inline static const syscall_descriptor* const registration{&descriptor};
         // clang does not emit a `used` static data member of a class template;
@@ -383,11 +373,12 @@ namespace astia::sys {
         struct valid_descriptor_interface<
             Descriptor,
             decltype((void) typename Descriptor::syscall_descriptor_marker{},
-                     (void) Descriptor::descriptor, (void) Descriptor::descriptor.invoke,
-                     (void) &Descriptor::invoke)> {
+                     (void) Descriptor::descriptor.sync, (void) &Descriptor::invoke)> {
             static constexpr bool value =
-                std::is_same_v<decltype(Descriptor::descriptor.invoke),
-                               syscall_handler_fn> &&
+                std::is_same_v<decltype(Descriptor::descriptor.sync),
+                               syscall_sync_handler> &&
+                std::is_same_v<decltype(Descriptor::descriptor.async),
+                               syscall_async_handler> &&
                 (typed_sync_handler<decltype(&Descriptor::invoke)>::value ||
                  typed_task_handler<decltype(&Descriptor::invoke)>::value);
         };
@@ -398,22 +389,28 @@ namespace astia::sys {
 
         template <typename Descriptor>
         bool dispatch_descriptor(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
-                                 u64 a5, arch::syscall_return& image,
-                                 core::completion<i64>& completion) {
-            if (Descriptor::descriptor.id != id)
+                                 u64 a5, arch::syscall_return& image, i64& result,
+                                 task_runner run) {
+            const auto& entry = Descriptor::descriptor;
+            if (entry.id != id)
                 return false;
-            Descriptor::descriptor.invoke(a0, a1, a2, a3, a4, a5, image, completion);
+            if (entry.sync != nullptr)
+                result = entry.sync(a0, a1, a2, a3, a4, a5, image);
+            else if (entry.async != nullptr)
+                result = run(entry.async(a0, a1, a2, a3, a4, a5, image));
+            else
+                result = -ENOSYS;
             return true;
         }
 
         template <typename... Descriptors>
         bool dispatch_descriptors(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
-                                  u64 a5, arch::syscall_return& image,
-                                  core::completion<i64>& completion) {
+                                  u64 a5, arch::syscall_return& image, i64& result,
+                                  task_runner run) {
             bool dispatched = false;
             ((dispatched =
                   dispatched || dispatch_descriptor<Descriptors>(id, a0, a1, a2, a3, a4,
-                                                                 a5, image, completion)),
+                                                                 a5, image, result, run)),
              ...);
             return dispatched;
         }
@@ -422,7 +419,7 @@ namespace astia::sys {
 
     template <typename... Descriptors>
     bool dispatch_async(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                        arch::syscall_return& image, core::completion<i64>& completion) {
+                        arch::syscall_return& image, i64& result, task_runner run) {
         static_assert(
             detail::valid_descriptor_ids<Descriptors...>(),
             "syscall descriptor IDs must be unique and within ABI table capacity");
@@ -430,10 +427,10 @@ namespace astia::sys {
                       "syscall descriptors must expose a CRTP handler interface");
 
         if (detail::dispatch_descriptors<Descriptors...>(id, a0, a1, a2, a3, a4, a5,
-                                                         image, completion))
+                                                         image, result, run))
             return true;
 
-        completion.complete(-ENOSYS);
+        result = -ENOSYS;
         return false;
     }
 

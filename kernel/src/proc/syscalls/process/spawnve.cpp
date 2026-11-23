@@ -1,103 +1,11 @@
 #include <astia/api/errno.h>
-#include <astia/arch/context.hpp>
 #include <astia/fs.hpp>
 #include <astia/mapping.hpp>
-#include <astia/mm/share.hpp>
 
 #include "../../proc.hpp"
-#include "../../scheduler.hpp"
-#include "../syscall_continuation.hpp"
 #include "argv.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
-namespace astia::proc::syscalls::detail {
-
-    namespace {
-        struct spawn_continuation {
-            syscall_continuation     syscall;
-            mm::shptr<fs::open_file> file;
-            argument_staging         staging;
-            core::task<i64>          runner;
-
-            spawn_continuation(const mm::shptr<process>&       process_value,
-                               const mm::shptr<thread>&        thread_value,
-                               const mm::shptr<fs::open_file>& file_value)
-                : syscall(process_value, thread_value), file(file_value) {}
-        };
-
-        core::task<i64> drive_spawn(const mm::shptr<spawn_continuation>& continuation) {
-            auto result = co_await proc::spawnve(
-                continuation->syscall.owner(), continuation->file,
-                static_cast<usize>(continuation->file->size()),
-                continuation->staging.argv(), continuation->staging.envp());
-            if (!result) {
-                const i64 error = -astia::errno_value(result.error);
-                continuation->syscall.complete(error);
-                co_return result.error;
-            }
-            const i64 pid = static_cast<i64>(raw_id(result.value->pid()));
-            continuation->syscall.complete(pid);
-            co_return pid;
-        }
-    }
-
-    i64 spawnve(sys::user_ptr<char> path_ptr, sys::user_ptr<const u64> argv_ptr,
-                sys::user_ptr<const u64> envp_ptr) {
-        auto* owner = current_process();
-        auto* self  = current_thread();
-        if (owner == nullptr || self == nullptr)
-            return -ESRCH;
-
-        char path[path_cap];
-        if (!sys::copy_in_string(span<char>(path, sizeof path), path_ptr)) {
-            return -EFAULT;
-        }
-
-        auto staging = mm::share<spawn_continuation>(
-            mm::shptr<process>{}, mm::shptr<thread>{}, mm::shptr<fs::open_file>{});
-        if (!staging)
-            return -ENOMEM;
-        if (!staging->staging.allocate())
-            return -ENOMEM;
-        i64 result = staging->staging.copy(argv_ptr.address(), envp_ptr.address());
-        if (result != 0)
-            return result;
-
-        const fs::file_mode image_mode = fs::node_mode(path);
-        if (image_mode.exists() &&
-            !owner->can_access(image_mode, fs::node_uid(path), fs::node_gid(path),
-                               fs::permission_bits::execute))
-            return -EACCES;
-        auto file = fs::open_path(path);
-        if (!file)
-            return -ENOENT;
-        const long image_size = file->size();
-        if (image_size <= 0)
-            return -EINVAL;
-
-        auto owner_ref = retain_process(owner->pid());
-        auto self_ref  = owner->retain_thread(self);
-        if (!owner_ref || !self_ref)
-            return -ESRCH;
-        staging->syscall.bind(owner_ref, self_ref);
-        staging->file = file;
-
-        staging->runner = drive_spawn(staging);
-        if (!staging->runner.valid())
-            return -ENOMEM;
-        staging->runner.resume();
-        if (!staging->runner.done() && !staging->syscall.wait()) {
-            staging->runner.reset();
-            return staging->syscall.result();
-        }
-        while (!staging->runner.done())
-            scheduler::yield();
-
-        result = staging->syscall.result();
-        staging->runner.reset();
-        return result;
-    }
-}
 
 namespace astia::proc::syscalls {
 
@@ -121,10 +29,43 @@ namespace astia::proc::syscalls {
     ///     -ENOMEM: The image or process cannot be allocated.
     ///     -EAGAIN: The process or thread registry is full.
     struct spawnve : sys::syscall_handler<spawnve, sys::syscall_id::spawnve,
-                                          sys::syscall_mode::sync> {
-        static i64 invoke(sys::user_ptr<char> path_ptr, sys::user_ptr<const u64> argv_ptr,
-                          sys::user_ptr<const u64> envp_ptr) {
-            return ::astia::proc::syscalls::detail::spawnve(path_ptr, argv_ptr, envp_ptr);
+                                          sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::user_ptr<char>      path_ptr,
+                                      sys::user_ptr<const u64> argv_ptr,
+                                      sys::user_ptr<const u64> envp_ptr) {
+            auto* owner = current_process();
+            if (owner == nullptr || current_thread() == nullptr)
+                co_return -ESRCH;
+
+            char path[detail::path_cap];
+            if (!sys::copy_in_string(span<char>(path, sizeof path), path_ptr))
+                co_return -EFAULT;
+
+            detail::argument_staging staging;
+            if (!staging.allocate())
+                co_return -ENOMEM;
+            const i64 copied = staging.copy(argv_ptr.address(), envp_ptr.address());
+            if (copied != 0)
+                co_return copied;
+
+            const fs::file_mode image_mode = fs::node_mode(path);
+            if (image_mode.exists() &&
+                !owner->can_access(image_mode, fs::node_uid(path), fs::node_gid(path),
+                                   fs::permission_bits::execute))
+                co_return -EACCES;
+            auto file = fs::open_path(path);
+            if (!file)
+                co_return -ENOENT;
+            const long image_size = file->size();
+            if (image_size <= 0)
+                co_return -EINVAL;
+
+            auto child = co_await astia::proc::spawnve(
+                owner, static_cast<mm::shptr<fs::open_file>&&>(file),
+                static_cast<usize>(image_size), staging.argv(), staging.envp());
+            if (!child)
+                co_return -astia::errno_value(child.error);
+            co_return static_cast<i64>(raw_id(child.value->pid()));
         }
     };
 
