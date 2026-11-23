@@ -1,8 +1,10 @@
 #include "cwd_context.hpp"
 
-#include "../fs/path_service.hpp"
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/spinlock_guard.hpp>
+
+#include "../fs/path_service.hpp"
 
 namespace astia::proc {
 

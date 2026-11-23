@@ -108,7 +108,7 @@ namespace {
         using syscall_descriptor_marker = probe_marker;
 
         static astia::i64 invoke(astia::sys::syscall_trap trap) {
-            trap.image.mode = 0xfeed;
+            trap.image.set_mode(astia::arch::return_mode::signal);
             return trap.arguments[1];
         }
     };
@@ -202,7 +202,7 @@ ASTIA_TEST(syscall_mode_specializations_dispatch_sync_and_async_handlers) {
         static_cast<astia::sys::syscall_id>(116), 2, 0, 0, 0, 0, 0, image,
         trap_async_result));
     ASTIA_CHECK(trap_async_result.await_resume().value == 2);
-    ASTIA_CHECK(image.mode == 0);
+    ASTIA_CHECK(image.mode() == astia::arch::return_mode::ordinary);
 }
 
 ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi) {
@@ -248,7 +248,7 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
         static_cast<astia::sys::syscall_id>(124), 0, 99, 0, 0, 0, 0, trait_image,
         trap_result));
     ASTIA_CHECK(trap_result.await_resume().value == 99);
-    ASTIA_CHECK(trait_image.mode == 0xfeed);
+    ASTIA_CHECK(trait_image.mode() == astia::arch::return_mode::signal);
 }
 
 ASTIA_TEST(generic_syscall_dispatch_returns_enosys_for_unhandled_id) {

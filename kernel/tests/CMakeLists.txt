@@ -36,6 +36,7 @@ find_program(ASTIA_ZSTD zstd REQUIRED)
 add_library(astia_test_support STATIC
         support/main.cpp
         support/arena.cpp
+        support/cpu_relax_host.cpp
 )
 set_source_files_properties(support/main.cpp
         PROPERTIES COMPILE_OPTIONS "-fno-threadsafe-statics")

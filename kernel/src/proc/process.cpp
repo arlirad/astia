@@ -1,17 +1,19 @@
 #include "process.hpp"
 
+#include <astia/api/signal.h>
+#include <astia/api/syscalls.h>
+#include <astia/api/termios.h>
+#include <astia/arch/cpu.hpp>
+#include <astia/arch/spinlock_guard.hpp>
+#include <astia/core/spinlock.hpp>
+#include <astia/mm/frame_allocator.hpp>
+#include <astia/mm/share.hpp>
+
 #include "../fs/path_service.hpp"
 #include "../ipc/futex.hpp"
 #include "../sys/aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
-#include <astia/api/signal.h>
-#include <astia/api/syscalls.h>
-#include <astia/api/termios.h>
-#include <astia/arch/cpu.hpp>
-#include <astia/core/spinlock.hpp>
-#include <astia/mm/frame_allocator.hpp>
-#include <astia/mm/share.hpp>
 
 void* operator new[](astia::usize size, void* where) noexcept;
 

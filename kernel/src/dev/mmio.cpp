@@ -2,6 +2,7 @@
 #include <astia/arch/layout.hpp>
 #include <astia/arch/mmio.hpp>
 #include <astia/arch/page_map.hpp>
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/common.hpp>
 #include <astia/error.hpp>
 #include <astia/hw/mmio.hpp>

@@ -210,7 +210,7 @@ namespace astia::core {
                 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
             if (!detached) {
                 while (__atomic_load_n(&deferred_inflight_, __ATOMIC_ACQUIRE) != 0)
-                    ASTIA_CPU_RELAX();
+                    arch::cpu::relax();
             }
             cancel_resume(continuation, generation);
         }

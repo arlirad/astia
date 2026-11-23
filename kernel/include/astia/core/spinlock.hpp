@@ -1,12 +1,7 @@
 #pragma once
 
+#include <astia/arch/cpu.hpp>
 #include <astia/common.hpp>
-
-#if defined(__x86_64__) || defined(__i386__)
-#define ASTIA_CPU_RELAX() __builtin_ia32_pause()
-#else
-#define ASTIA_CPU_RELAX() ((void) 0)
-#endif
 
 #if defined(__SANITIZE_THREAD__)
 extern "C" void __tsan_acquire(void const*);
@@ -45,7 +40,7 @@ namespace astia::core {
 
         void lock() {
             while (__atomic_exchange_n(&_flag, true, __ATOMIC_ACQUIRE)) {
-                ASTIA_CPU_RELAX();
+                arch::cpu::relax();
             }
             ASTIA_TSAN_ACQUIRE(&_flag);
         }

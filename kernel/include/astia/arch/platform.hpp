@@ -23,6 +23,10 @@ namespace astia::arch {
 
         u32 online_cpu_count();
 
+        /// Terminate the emulator through the port's debug-exit device.
+        /// Ports without one may leave this as a no-op.
+        void debug_exit(u32 status);
+
     } // namespace platform
 
 } // namespace astia::arch

@@ -104,8 +104,7 @@ namespace astia::sys {
         arch::syscall_return& image;
     };
 
-    using syscall_exit_hook = void (*)(arch::syscall_return& image, u64 a0, u64 a1,
-                                       u64 a2, u64 a3, u64 a4, u64 a5, i64 result);
+    using syscall_exit_hook = void (*)(arch::syscall_return& image, i64 result);
 
     using syscall_handler_fn = void (*)(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
                                         arch::syscall_return&  image,

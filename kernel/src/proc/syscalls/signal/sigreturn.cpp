@@ -14,10 +14,6 @@
 
 namespace astia::proc::syscalls {
 
-    namespace {
-        inline constexpr u64 user_interrupt_flag = 1u << 9;
-    }
-
     /// sigreturn - restore a saved signal execution context.
     ///
     /// Synopsis:
@@ -27,19 +23,18 @@ namespace astia::proc::syscalls {
     ///     -EFAULT: The saved context or its registers are invalid.
     struct sigreturn : sys::syscall_handler<sigreturn, sys::syscall_id::sigreturn,
                                             sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_trap                            trap,
-                          sys::user_ptr<astia_x86_64_signal_context_t> context) {
-            const auto range = context.validate();
-            if (!range)
+        static i64 invoke(sys::syscall_trap trap, sys::user_ptr<u8> context) {
+            constexpr usize capacity = arch::max_signal_context_bytes;
+            alignas(16) u8  storage[capacity]{};
+            const usize     bytes = arch::signal_context_bytes();
+            if (bytes == 0 || bytes > capacity || context.null())
                 return -EFAULT;
-            astia_x86_64_signal_context_t saved{};
-            if (!sys::copy_in(&saved, range.value.bytes()))
+            if (!sys::copy_in(storage, span<u8>::bytes(context.address(), bytes)))
                 return -EFAULT;
-            if (saved.rip == 0 || saved.rsp == 0 || saved.rip >= arch::kernel_base ||
-                saved.rsp >= arch::kernel_base ||
-                (saved.rflags & user_interrupt_flag) == 0)
+            const auto state = arch::validate_signal_context(storage);
+            if (!state.valid)
                 return -EFAULT;
-            if ((saved.reserved & 2u) != 0 && saved.rip == saved.fault_rip) {
+            if (state.faults) {
                 if (auto* self = current_thread()) {
                     if (auto* owner = self->owner())
                         owner->signal_termination(signal_number::segv);
@@ -49,29 +44,13 @@ namespace astia::proc::syscalls {
                 }
                 return -ESRCH;
             }
-            auto& image  = trap.image;
-            image.mode   = arch::return_mode::sigreturn;
-            image.rdi    = saved.rdi;
-            image.rsi    = saved.rsi;
-            image.rdx    = saved.rdx;
-            image.r10    = saved.r10;
-            image.r8     = saved.r8;
-            image.r9     = saved.r9;
-            image.rip    = saved.rip;
-            image.rflags = saved.rflags;
-            image.rsp    = saved.rsp;
-            image.rbx    = saved.rbx;
-            image.rbp    = saved.rbp;
-            image.r12    = saved.r12;
-            image.r13    = saved.r13;
-            image.r14    = saved.r14;
-            image.r15    = saved.r15;
+            const i64 resumed = trap.image.restore_signal(storage);
             if (auto* self = current_thread()) {
-                self->signals().set_blocked(saved.blocked);
+                self->signals().set_blocked(state.blocked);
                 self->clear_signal_restore_mask();
-                self->signal_stack_on_alt((saved.reserved & 1u) != 0);
+                self->signal_stack_on_alt(state.alt_stack);
             }
-            return static_cast<i64>(saved.rax);
+            return resumed;
         }
     };
 

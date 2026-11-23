@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/spinlock_guard.hpp>
 
 #include "../../proc/proc.hpp"
 

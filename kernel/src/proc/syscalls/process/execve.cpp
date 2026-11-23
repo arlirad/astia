@@ -105,10 +105,7 @@ namespace astia::proc::syscalls::detail {
             self->user_stack_metadata(user_stack_top - user_stack_bytes,
                                       user_stack_bytes);
             arch::context_set_fs_base(self->context(), owner->tls_tp());
-            auto& next  = trap.image;
-            next.rip    = staging->entry;
-            next.rsp    = staging->stack;
-            next.rflags = 0x202;
+            trap.image.set_resume_point(staging->entry, staging->stack, 0x202);
         }
         return result;
     }

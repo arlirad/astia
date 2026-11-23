@@ -1,6 +1,7 @@
-#include "proc.hpp"
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
+
+#include "proc.hpp"
 
 namespace astia::proc {
 
@@ -37,12 +38,6 @@ namespace astia::proc {
             stack_size = 0;
         }
 
-        // The trap image carries registers but not the thread pointer —
-        // the address space owns that, so the child's copy of the image
-        // gains it here.
-        arch::user_context child_image = uctx;
-        child_image.fs_base            = parent->tls_tp();
-
         auto child = mm::share<process>(allocate_pid(), parent->pid(), parent->name());
         if (!child) {
             return -ENOMEM;
@@ -58,7 +53,7 @@ namespace astia::proc {
             // backing reference and descriptor its failed clone took.
             return -EAGAIN;
         }
-        if (!child->create_fork_thread(child_image, parent_thread->signals().blocked(),
+        if (!child->create_fork_thread(uctx, parent_thread->signals().blocked(),
                                        stack_base, stack_size)) {
             (void) unregister_process(child.get());
             parent->wake_waiters();

@@ -23,13 +23,15 @@ namespace astia::proc {
         /// This module's log source: the same one proc.cpp logs under.
         using logs = astia::log::context<"proc">;
 
-        void deliver_default_signal(arch::syscall_return& raw_frame, u64 a0, u64 a1,
-                                    u64 a2, u64 a3, u64 a4, u64 a5, i64 result) {
+        void deliver_default_signal(arch::syscall_return& image, i64 result) {
             auto* owner = current_process();
             auto* self  = current_thread();
             if (owner == nullptr || self == nullptr) {
                 return;
             }
+            constexpr usize capacity = arch::max_signal_context_bytes;
+            alignas(16) u8  storage[capacity]{};
+            const usize     saved_bytes = arch::signal_context_bytes();
             if (owner->process_exit_requested() && self->exit_requested()) {
                 self->exit(reinterpret_cast<void*>(
                     static_cast<usize>(owner->requested_exit_status())));
@@ -50,10 +52,9 @@ namespace astia::proc {
             const u32  restore_mask =
                 suspended ? self->signal_restore_mask() : self->signals().blocked();
             if (disposition.action == signal_action::handler) {
-                auto&           frame = raw_frame;
-                constexpr usize bytes =
-                    sizeof(astia_x86_64_signal_context_t) + sizeof(astia_siginfo_t) + 8;
-                if (frame.rsp < bytes || disposition.restorer == 0)
+                const usize bytes = saved_bytes + sizeof(astia_siginfo_t) + 8;
+                const u64   stack = image.stack_pointer();
+                if (stack < bytes || disposition.restorer == 0)
                     goto fatal_signal;
                 const bool use_alt_stack = (disposition.flags & ASTIA_SA_ONSTACK) != 0 &&
                                            !self->signal_stack_on_alt() &&
@@ -66,9 +67,9 @@ namespace astia::proc {
                     context = (top - bytes) & ~u64{0xf};
                 }
                 else {
-                    context = (frame.rsp - bytes) & ~u64{0xf};
+                    context = (stack - bytes) & ~u64{0xf};
                 }
-                const u64 info_address = context + sizeof(astia_x86_64_signal_context_t);
+                const u64 info_address = context + saved_bytes;
                 const u64 retaddr      = context - 8;
                 if (!sys::user_span_ok(span<u8>::bytes(retaddr, bytes)) ||
                     !sys::user_span_ok(
@@ -82,28 +83,11 @@ namespace astia::proc {
                     !sys::copy_out(span<u8>::bytes(info_address, sizeof(user_info)),
                                    &user_info))
                     goto fatal_signal;
-                astia_x86_64_signal_context_t saved{static_cast<u64>(result),
-                                                    frame.rbx,
-                                                    frame.rip,
-                                                    a2,
-                                                    a1,
-                                                    a0,
-                                                    a4,
-                                                    a5,
-                                                    a3,
-                                                    frame.rflags,
-                                                    frame.r12,
-                                                    frame.r13,
-                                                    frame.r14,
-                                                    frame.r15,
-                                                    frame.rbp,
-                                                    frame.rip,
-                                                    frame.rsp,
-                                                    frame.rflags,
-                                                    restore_mask,
-                                                    self->signal_stack_on_alt() ? 1u : 0u,
-                                                    0};
-                if (!sys::copy_out(span<u8>::bytes(context, sizeof saved), &saved) ||
+                if (saved_bytes > capacity)
+                    goto fatal_signal;
+                arch::capture_signal_context(storage, image, result, restore_mask,
+                                             self->signal_stack_on_alt());
+                if (!sys::copy_out(span<u8>::bytes(context, saved_bytes), storage) ||
                     !sys::copy_out(span<u8>::bytes(retaddr, 8), &disposition.restorer))
                     goto fatal_signal;
                 if ((disposition.flags & ASTIA_SA_RESETHAND) != 0)
@@ -111,15 +95,11 @@ namespace astia::proc {
                 const signal_mask automatic_mask =
                     (disposition.flags & ASTIA_SA_NODEFER) != 0 ? 0 : signal_bit(signal);
                 self->signals().block(automatic_mask | disposition.mask);
-                frame.mode = arch::return_mode::signal;
-                frame.rdi  = static_cast<u64>(signal);
-                frame.rsi =
-                    (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0;
-                frame.rdx = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? context : 0;
-                frame.r10 = frame.r8 = frame.r9 = 0;
-                frame.rip = reinterpret_cast<u64>(disposition.handler);
-                frame.rsp = retaddr;
-                frame.rbx = frame.rbp = frame.r12 = frame.r13 = frame.r14 = frame.r15 = 0;
+                image.enter_signal(
+                    reinterpret_cast<u64>(disposition.handler), retaddr,
+                    static_cast<u64>(signal),
+                    (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0,
+                    (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? context : 0);
                 if (use_alt_stack)
                     self->signal_stack_on_alt(true);
                 return;
@@ -209,9 +189,14 @@ namespace astia::proc {
                 return fatal_signal();
             }
 
-            constexpr usize bytes =
-                sizeof(astia_x86_64_signal_context_t) + sizeof(astia_siginfo_t) + 8;
-            if (raw_frame->rsp < bytes || disposition.restorer == 0)
+            constexpr usize capacity    = arch::max_signal_context_bytes;
+            const usize     saved_bytes = arch::signal_context_bytes();
+            if (saved_bytes == 0 || saved_bytes > capacity)
+                return fatal_signal();
+            alignas(16) u8 storage[capacity]{};
+            const usize    bytes = saved_bytes + sizeof(astia_siginfo_t) + 8;
+            const u64      stack = arch::interrupt_stack_pointer(raw_frame);
+            if (stack < bytes || disposition.restorer == 0)
                 return fatal_signal();
             const bool use_alt_stack = (disposition.flags & ASTIA_SA_ONSTACK) != 0 &&
                                        !self->signal_stack_on_alt() &&
@@ -224,9 +209,9 @@ namespace astia::proc {
                 context = (top - bytes) & ~u64{0xf};
             }
             else {
-                context = (raw_frame->rsp - bytes) & ~u64{0xf};
+                context = (stack - bytes) & ~u64{0xf};
             }
-            const u64 info_address = context + sizeof(astia_x86_64_signal_context_t);
+            const u64 info_address = context + saved_bytes;
             const u64 retaddr      = context - 8;
             if (!sys::user_span_ok(span<u8>::bytes(retaddr, bytes)) ||
                 !sys::user_code_ptr_ok(reinterpret_cast<u64>(disposition.handler)))
@@ -240,30 +225,10 @@ namespace astia::proc {
                                &user_info))
                 return fatal_signal();
 
-            astia_x86_64_signal_context_t saved;
-            fill_zero(&saved, sizeof saved);
-            saved.rax      = raw_frame->rax;
-            saved.rbx      = raw_frame->rbx;
-            saved.rcx      = raw_frame->rcx;
-            saved.rdx      = raw_frame->rdx;
-            saved.rsi      = raw_frame->rsi;
-            saved.rdi      = raw_frame->rdi;
-            saved.r8       = raw_frame->r8;
-            saved.r9       = raw_frame->r9;
-            saved.r10      = raw_frame->r10;
-            saved.r11      = raw_frame->r11;
-            saved.r12      = raw_frame->r12;
-            saved.r13      = raw_frame->r13;
-            saved.r14      = raw_frame->r14;
-            saved.r15      = raw_frame->r15;
-            saved.rbp      = raw_frame->rbp;
-            saved.rip      = raw_frame->rip;
-            saved.rsp      = raw_frame->rsp;
-            saved.rflags   = raw_frame->rflags;
-            saved.blocked  = self->signals().blocked();
-            saved.reserved = static_cast<u32>(self->signal_stack_on_alt() ? 1u : 0u) | 2u;
-            saved.fault_rip = raw_frame->rip;
-            if (!sys::copy_out(span<u8>::bytes(context, sizeof saved), &saved) ||
+            arch::capture_fault_signal_context(storage, *raw_frame,
+                                               self->signals().blocked(),
+                                               self->signal_stack_on_alt());
+            if (!sys::copy_out(span<u8>::bytes(context, saved_bytes), storage) ||
                 !sys::copy_out(span<u8>::bytes(retaddr, 8), &disposition.restorer))
                 return fatal_signal();
             if ((disposition.flags & ASTIA_SA_RESETHAND) != 0)
@@ -271,12 +236,11 @@ namespace astia::proc {
             const signal_mask automatic_mask =
                 (disposition.flags & ASTIA_SA_NODEFER) != 0 ? 0 : signal_bit(signal);
             self->signals().block(automatic_mask | disposition.mask);
-            raw_frame->rdi = static_cast<u64>(signal);
-            raw_frame->rsi =
-                (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0;
-            raw_frame->rdx = (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? context : 0;
-            raw_frame->rip = reinterpret_cast<u64>(disposition.handler);
-            raw_frame->rsp = retaddr;
+            arch::interrupt_enter_signal(
+                raw_frame, reinterpret_cast<u64>(disposition.handler), retaddr,
+                static_cast<u64>(signal),
+                (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? info_address : 0,
+                (disposition.flags & ASTIA_SA_SIGINFO) != 0 ? context : 0);
             if (use_alt_stack)
                 self->signal_stack_on_alt(true);
             return true;

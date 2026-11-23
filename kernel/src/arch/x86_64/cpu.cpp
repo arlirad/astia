@@ -10,6 +10,10 @@ namespace astia::arch {
         asm volatile("hlt");
     }
 
+    void cpu::relax() noexcept {
+        asm volatile("pause" ::: "memory");
+    }
+
     void cpu::interrupts() {
         // "memory" so surrounding loads/stores cannot be hoisted across the
         // point interrupts become visible again.

@@ -118,7 +118,7 @@ namespace astia::core {
             if (!__atomic_compare_exchange_n(&initialized_, &expected, 1, false,
                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
                 while (__atomic_load_n(&initialized_, __ATOMIC_ACQUIRE) == 1)
-                    ASTIA_CPU_RELAX();
+                    arch::cpu::relax();
                 return;
             }
             __atomic_store_n(&enqueue_position_, u64{0}, __ATOMIC_RELAXED);

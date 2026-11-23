@@ -44,11 +44,11 @@ extern "C" astia::i64 astia_syscall_dispatch(astia::u64 nr, astia::u64 a0, astia
     /* The exit path starts as an ordinary return.  A handler or the exit
        hook may switch it to signal or sigreturn; the syscall result itself
        is returned to the entry separately. */
-    image->mode       = astia::arch::return_mode::ordinary;
+    image->set_mode(astia::arch::return_mode::ordinary);
     const auto result = astia::sys::dispatch(id.value, a0, a1, a2, a3, a4, a5, *image);
 
     if (astia::sys::exit_hook != nullptr) {
-        astia::sys::exit_hook(*image, a0, a1, a2, a3, a4, a5, result);
+        astia::sys::exit_hook(*image, result);
     }
 
     return result;

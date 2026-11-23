@@ -1,4 +1,5 @@
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/init.hpp>
 #include <astia/memory.hpp>
