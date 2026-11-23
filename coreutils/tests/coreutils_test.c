@@ -228,73 +228,73 @@ int main(void) {
         return 1;
     if (chdir("/bin") != 0)
         return fail("runner chdir");
-    char* cat_stdin[]     = {"cat", NULL};
-    char* cat_files[]     = {"cat", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
-    char* cat_missing[]   = {"cat", "/tmp/coreutils_missing", NULL};
-    char* head_lines[]    = {"head", "-n", "2", "/tmp/coreutils_lines", NULL};
-    char* head_bad[]      = {"head", "-n", NULL};
-    char* head_bad_text[] = {"head", "-n", "not-a-number", NULL};
-    char* wc_files[]      = {"wc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
-    char* wc_bad[]        = {"wc", "--bad", NULL};
-    char* ls_dir[]        = {"ls", "/bin", NULL};
-    char* ls_long[]       = {"ls", "-l", "/tmp/coreutils_link", NULL};
-    char* ls_multi[]      = {"ls", "/bin", "/sbin", NULL};
-    char* ls_bad[]        = {"ls", "--bad", NULL};
-    char* pwd[]           = {"pwd", NULL};
-    char* pwd_bad[]       = {"pwd", "extra", NULL};
-    char* echo[]          = {"echo", "hello", "Astia", NULL};
-    char* echo_n[]        = {"echo", "-n", "hello", NULL};
-    char* env[]           = {"env", NULL};
-    char* env_bad[]       = {"env", "extra", NULL};
-    char* uname[]         = {"uname", NULL};
-    char* uname_all[]     = {"uname", "-a", NULL};
-    char* uname_bad[]     = {"uname", "--bad", NULL};
-    char* true_args[]     = {"true", "ignored", NULL};
-    char* false_args[]    = {"false", "ignored", NULL};
-    char* mkdir_one[]     = {"mkdir", "/tmp/coreutils_dir", NULL};
-    char* mkdir_parents[] = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
-    char* mkdir_existing[] = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
-    char* mkdir_bad[]     = {"mkdir", "/tmp/coreutils_parent/missing/child", NULL};
+    char* cat_stdin[]         = {"cat", NULL};
+    char* cat_files[]         = {"cat", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
+    char* cat_missing[]       = {"cat", "/tmp/coreutils_missing", NULL};
+    char* head_lines[]        = {"head", "-n", "2", "/tmp/coreutils_lines", NULL};
+    char* head_bad[]          = {"head", "-n", NULL};
+    char* head_bad_text[]     = {"head", "-n", "not-a-number", NULL};
+    char* wc_files[]          = {"wc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
+    char* wc_bad[]            = {"wc", "--bad", NULL};
+    char* ls_dir[]            = {"ls", "/bin", NULL};
+    char* ls_long[]           = {"ls", "-l", "/tmp/coreutils_link", NULL};
+    char* ls_multi[]          = {"ls", "/bin", "/sbin", NULL};
+    char* ls_bad[]            = {"ls", "--bad", NULL};
+    char* pwd[]               = {"pwd", NULL};
+    char* pwd_bad[]           = {"pwd", "extra", NULL};
+    char* echo[]              = {"echo", "hello", "Astia", NULL};
+    char* echo_n[]            = {"echo", "-n", "hello", NULL};
+    char* env[]               = {"env", NULL};
+    char* env_bad[]           = {"env", "extra", NULL};
+    char* uname[]             = {"uname", NULL};
+    char* uname_all[]         = {"uname", "-a", NULL};
+    char* uname_bad[]         = {"uname", "--bad", NULL};
+    char* true_args[]         = {"true", "ignored", NULL};
+    char* false_args[]        = {"false", "ignored", NULL};
+    char* mkdir_one[]         = {"mkdir", "/tmp/coreutils_dir", NULL};
+    char* mkdir_parents[]     = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
+    char* mkdir_existing[]    = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
+    char* mkdir_bad[]         = {"mkdir", "/tmp/coreutils_parent/missing/child", NULL};
     char* mkdir_file_parent[] = {"mkdir", "-p", "/tmp/coreutils_a/child", NULL};
-    char* touch_create[]  = {"touch", "/tmp/coreutils_touch", NULL};
-    char* touch_no_create[] = {"touch", "-c", "/tmp/coreutils_touch_missing", NULL};
+    char* touch_create[]      = {"touch", "/tmp/coreutils_touch", NULL};
+    char* touch_no_create[]   = {"touch", "-c", "/tmp/coreutils_touch_missing", NULL};
     char* touch_access_only[] = {"touch", "-a", "/tmp/coreutils_touch", NULL};
-    char* touch_modify[]  = {"touch", "-m", "/tmp/coreutils_touch", NULL};
-    char* touch_both[]    = {"touch", "-a", "-m", "/tmp/coreutils_touch", NULL};
-    char* cp_file[]       = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_copy", NULL};
+    char* touch_modify[]      = {"touch", "-m", "/tmp/coreutils_touch", NULL};
+    char* touch_both[]        = {"touch", "-a", "-m", "/tmp/coreutils_touch", NULL};
+    char* cp_file[]           = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_copy", NULL};
     char* cp_directory[] = {"cp", "-r", "/tmp/coreutils_tree", "/tmp/coreutils_tree_copy",
                             NULL};
     char* cp_directory_bad[] = {"cp", "/tmp/coreutils_tree", "/tmp/coreutils_tree_bad",
                                 NULL};
     char* cp_stdin[]         = {"cp", "-", "/tmp/coreutils_from_stdin", NULL};
-    char* mv_file[]      = {"mv", "/tmp/coreutils_copy", "/tmp/coreutils_moved", NULL};
-    char* mv_replace[]   = {"mv", "/tmp/coreutils_a", "/tmp/coreutils_moved", NULL};
-    char* mv_missing[]   = {"mv", "/tmp/coreutils_missing", "/tmp/coreutils_moved", NULL};
-    char* rm_file[]      = {"rm", "/tmp/coreutils_moved", NULL};
-    char* rm_missing[]   = {"rm", "/tmp/coreutils_moved", NULL};
-    char* rm_force[]     = {"rm", "-f", "/tmp/coreutils_moved", NULL};
-    char* rm_force_empty[] = {"rm", "-f", NULL};
-    char* rm_dangling[]  = {"rm", "/tmp/coreutils_dangling", NULL};
-    char* rm_recursive[] = {"rm", "-r", "/tmp/coreutils_dir", NULL};
-    char* rm_tree[]      = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
-    char* rm_tree_bad[]  = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
-    char* chmod_octal[]   = {"chmod", "600", "/tmp/coreutils_mode", NULL};
-    char* chmod_symbolic[] = {"chmod", "u+x,g-w,o=rx", "/tmp/coreutils_mode", NULL};
-    char* chmod_recursive[] = {"chmod", "-R", "640", "/tmp/coreutils_tree", NULL};
-    char* chmod_bad[]     = {"chmod", "not-a-mode", "/tmp/coreutils_mode", NULL};
-    char* basename_path[] = {"basename", "/usr/local/bin/astia", NULL};
-    char* basename_suffix[] = {"basename", "/usr/local/bin/astia.c", ".c", NULL};
-    char* basename_root[] = {"basename", "///", NULL};
+    char* mv_file[]    = {"mv", "/tmp/coreutils_copy", "/tmp/coreutils_moved", NULL};
+    char* mv_replace[] = {"mv", "/tmp/coreutils_a", "/tmp/coreutils_moved", NULL};
+    char* mv_missing[] = {"mv", "/tmp/coreutils_missing", "/tmp/coreutils_moved", NULL};
+    char* rm_file[]    = {"rm", "/tmp/coreutils_moved", NULL};
+    char* rm_missing[] = {"rm", "/tmp/coreutils_moved", NULL};
+    char* rm_force[]   = {"rm", "-f", "/tmp/coreutils_moved", NULL};
+    char* rm_force_empty[]       = {"rm", "-f", NULL};
+    char* rm_dangling[]          = {"rm", "/tmp/coreutils_dangling", NULL};
+    char* rm_recursive[]         = {"rm", "-r", "/tmp/coreutils_dir", NULL};
+    char* rm_tree[]              = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
+    char* rm_tree_bad[]          = {"rm", "-r", "/tmp/coreutils_tree_copy", NULL};
+    char* chmod_octal[]          = {"chmod", "600", "/tmp/coreutils_mode", NULL};
+    char* chmod_symbolic[]       = {"chmod", "u+x,g-w,o=rx", "/tmp/coreutils_mode", NULL};
+    char* chmod_recursive[]      = {"chmod", "-R", "640", "/tmp/coreutils_tree", NULL};
+    char* chmod_bad[]            = {"chmod", "not-a-mode", "/tmp/coreutils_mode", NULL};
+    char* basename_path[]        = {"basename", "/usr/local/bin/astia", NULL};
+    char* basename_suffix[]      = {"basename", "/usr/local/bin/astia.c", ".c", NULL};
+    char* basename_root[]        = {"basename", "///", NULL};
     char* basename_same_suffix[] = {"basename", "name", "name", NULL};
-    char* dirname_path[]  = {"dirname", "/usr/local/bin/astia", NULL};
-    char* dirname_plain[] = {"dirname", "astia", NULL};
-    char* dirname_trailing[] = {"dirname", "/usr/local/bin///", NULL};
-    char* dirname_root[] = {"dirname", "///", NULL};
-    char* find_tree[]    = {"find", "/tmp/coreutils_tree", NULL};
-    char* ls_tree[]      = {"ls", "/tmp/coreutils_tree", NULL};
-    char* grep_match[]   = {"grep", "beta", NULL};
-    char* grep_numbered[]          = {"grep", "-n", "beta", NULL};
-    char* grep_insensitive[]       = {"grep", "-i", "BETA", NULL};
+    char* dirname_path[]         = {"dirname", "/usr/local/bin/astia", NULL};
+    char* dirname_plain[]        = {"dirname", "astia", NULL};
+    char* dirname_trailing[]     = {"dirname", "/usr/local/bin///", NULL};
+    char* dirname_root[]         = {"dirname", "///", NULL};
+    char* find_tree[]            = {"find", "/tmp/coreutils_tree", NULL};
+    char* ls_tree[]              = {"ls", "/tmp/coreutils_tree", NULL};
+    char* grep_match[]           = {"grep", "beta", NULL};
+    char* grep_numbered[]        = {"grep", "-n", "beta", NULL};
+    char* grep_insensitive[]     = {"grep", "-i", "BETA", NULL};
     char* grep_empty_insensitive[] = {"grep", "-i", "", NULL};
     char* grep_inverted[]          = {"grep", "-v", "beta", NULL};
     char* grep_none[]              = {"grep", "missing", NULL};
@@ -441,10 +441,10 @@ int main(void) {
         !file_equals("/tmp/coreutils_tee", "tee input\n") || 0)
         return 1;
 
-    const char* help[] = {"cat",  "head", "wc",   "ls",    "find",  "pwd", "uname",
-                          "echo", "env",  "true", "false", "mkdir", "rm",  "cp",
-                          "mv",   "grep", "sort", "cut",   "tee",   "touch", "chmod",
-                          "basename", "dirname", NULL};
+    const char* help[] = {"cat",   "head",  "wc",    "ls",       "find",    "pwd",
+                          "uname", "echo",  "env",   "true",     "false",   "mkdir",
+                          "rm",    "cp",    "mv",    "grep",     "sort",    "cut",
+                          "tee",   "touch", "chmod", "basename", "dirname", NULL};
     for (int i = 0; help[i] != NULL; ++i) {
         char* args[] = {(char*) help[i], "--help", NULL};
         if (check("--help", args, NULL, 0, "Usage: ", 0))
