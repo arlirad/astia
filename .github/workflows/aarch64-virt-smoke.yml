@@ -1,0 +1,41 @@
+name: AArch64 virt smoke
+
+on:
+  pull_request:
+    branches:
+      - main
+  merge_group:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install cross compiler and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            binutils \
+            cmake \
+            g++-aarch64-linux-gnu \
+            ninja-build \
+            qemu-system-arm
+          qemu-system-aarch64 --version
+          aarch64-linux-gnu-g++ --version
+
+      - name: Build and run QEMU smoke
+        run: smoke/aarch64-virt/run-qemu-smoke.sh
