@@ -4,7 +4,8 @@ add_library(sys STATIC
         aio.cpp
         syscall.cpp
         handler_registry.cpp
-        time.cpp)
+        time.cpp
+        arch_syscall.cpp)
 
 target_include_directories(sys PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}

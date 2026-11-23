@@ -117,6 +117,10 @@ namespace astia::sys {
 
     bool register_exit_hook(syscall_exit_hook hook);
 
+    /// Run the registered exit hook, if any.  The arch entry door calls this
+    /// after dispatch; the hook pointer itself stays private to syscall.cpp.
+    void invoke_exit_hook(arch::syscall_return& image, i64 result);
+
     namespace detail {
 
         template <usize... I>
