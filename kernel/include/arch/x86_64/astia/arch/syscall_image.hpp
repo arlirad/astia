@@ -2,6 +2,8 @@
 
 #include <astia/common.hpp>
 
+#include <concepts>
+
 namespace astia::arch {
 
     class user_context;
@@ -98,5 +100,18 @@ namespace astia::arch {
     };
 
     static_assert(sizeof(syscall_return) == syscall_return::bytes);
+
+    /// Operations the generic exit path needs from the port's return image.
+    template <typename Image>
+    concept syscall_return_image = requires(Image image) {
+        { image.set_mode(return_mode::ordinary) };
+        { image.mode() } -> std::same_as<return_mode>;
+        { image.stack_pointer() } -> std::convertible_to<u64>;
+        { image.set_resume_point(u64{}, u64{}, u64{}) };
+        { image.enter_signal(u64{}, u64{}, u64{}, u64{}, u64{}) };
+        { image.restore_signal(static_cast<const void*>(nullptr)) } -> std::same_as<i64>;
+    };
+
+    static_assert(syscall_return_image<syscall_return>);
 
 } // namespace astia::arch

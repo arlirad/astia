@@ -3,6 +3,7 @@
 #include <astia/arch/interrupt_frame.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
+#include <astia/arch/syscall_image.hpp>
 
 #include "gdt.hpp"
 

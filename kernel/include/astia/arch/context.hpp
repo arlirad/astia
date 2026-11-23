@@ -1,10 +1,7 @@
 #pragma once
 
 #include <astia/arch/signal.hpp>
-#include <astia/arch/syscall_image.hpp>
 #include <astia/common.hpp>
-
-#include <concepts>
 
 namespace astia::arch {
 
@@ -39,19 +36,6 @@ namespace astia::arch {
         private:
         alignas(16) u8 storage_[max_user_context_bytes]{};
     };
-
-    /// Operations the generic exit path needs from the port's return image.
-    template <typename Image>
-    concept syscall_return_image = requires(Image image) {
-        { image.set_mode(return_mode::ordinary) };
-        { image.mode() } -> std::same_as<return_mode>;
-        { image.stack_pointer() } -> std::convertible_to<u64>;
-        { image.set_resume_point(u64{}, u64{}, u64{}) };
-        { image.enter_signal(u64{}, u64{}, u64{}, u64{}, u64{}) };
-        { image.restore_signal(static_cast<const void*>(nullptr)) } -> std::same_as<i64>;
-    };
-
-    static_assert(syscall_return_image<syscall_return>);
 
     /// The caller's own state out of a syscall return image and the six
     /// argument registers captured at entry, in the form a context is

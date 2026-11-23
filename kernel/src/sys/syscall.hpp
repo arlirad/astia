@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/context.hpp>
+#include <astia/arch/syscall_image.hpp>
 #include <astia/common.hpp>
 #include <astia/core/completion.hpp>
 #include <astia/core/task.hpp>

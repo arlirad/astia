@@ -4,6 +4,7 @@
 
 #include <astia/arch/context.hpp>
 #include <astia/arch/interrupts.hpp>
+#include <astia/arch/syscall_image.hpp>
 #include <astia/module.hpp>
 
 extern "C" astia::u64
