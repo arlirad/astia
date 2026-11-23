@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 
 namespace astia::core {
@@ -21,6 +22,10 @@ namespace astia::core {
 
     class clsource;
 
+    /// A read-only cancellation stamp.  It observes its own source and every
+    /// ancestor, so cancelling a process-wide source cancels all operation
+    /// tokens created beneath it.  The nearest cancelled source supplies the
+    /// reason.
     class cltoken {
         const clsource* _source     = nullptr;
         u64             _generation = 0;
@@ -35,6 +40,9 @@ namespace astia::core {
 
         bool attached() const {
             return _source != nullptr;
+        }
+        const clsource* source() const {
+            return _source;
         }
         u64 generation() const {
             return _generation;
@@ -56,30 +64,44 @@ namespace astia::core {
         cancel_reason reason() const;
     };
 
+    /// One cancellation source.  A source created from another becomes its
+    /// child; cancellation is observed lazily by walking to the root, so a
+    /// child created after the parent was cancelled sees it immediately and
+    /// no child list has to be maintained.
+    ///
+    /// A parent must outlive its children.  Resetting a source bumps its
+    /// generation, which makes tokens of every descendant stale.
     class clsource {
-        volatile u32 _state      = 0;
-        volatile u64 _generation = 1;
+        atomic<u32>     _state{0};
+        atomic<u64>     _generation{1};
+        const clsource* _parent            = nullptr;
+        u64             _parent_generation = 0;
 
         friend class cltoken;
 
         public:
-        clsource()                           = default;
+        clsource() = default;
+        explicit clsource(clsource& parent)
+            : _parent(&parent), _parent_generation(parent.generation()) {}
         clsource(const clsource&)            = delete;
         clsource& operator=(const clsource&) = delete;
 
         cltoken token() const {
-            return cltoken(this, __atomic_load_n(&_generation, __ATOMIC_ACQUIRE));
+            return cltoken(this, generation());
         }
 
         u64 generation() const {
-            return __atomic_load_n(&_generation, __ATOMIC_ACQUIRE);
+            return _generation.load(memory_order::acquire);
+        }
+
+        const clsource* parent() const {
+            return _parent;
         }
 
         bool cancel(cancel_reason reason = cancel_reason::request) {
             u32       expected = 0;
             const u32 value    = 1u | (static_cast<u32>(reason) << 1);
-            return __atomic_compare_exchange_n(&_state, &expected, value, false,
-                                               __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+            return _state.compare_exchange_strong(expected, value);
         }
 
         bool request(cancel_reason reason = cancel_reason::request) {
@@ -87,41 +109,62 @@ namespace astia::core {
         }
 
         void reset() {
-            __atomic_store_n(&_state, 0, __ATOMIC_RELEASE);
-            u64 generation = __atomic_load_n(&_generation, __ATOMIC_RELAXED);
+            _state.store(0, memory_order::release);
+            u64 generation = _generation.load(memory_order::relaxed);
             generation     = generation == ~u64{0} ? 1 : generation + 1;
-            __atomic_store_n(&_generation, generation, __ATOMIC_RELEASE);
+            _generation.store(generation, memory_order::release);
         }
 
         private:
-        bool current(u64 generation) const {
-            return generation != 0 &&
-                   __atomic_load_n(&_generation, __ATOMIC_ACQUIRE) == generation;
+        bool _current(u64 generation) const {
+            return generation != 0 && this->generation() == generation;
         }
 
-        bool requested(u64 generation) const {
-            return current(generation) &&
-                   (__atomic_load_n(&_state, __ATOMIC_ACQUIRE) & 1u) != 0;
+        /// True when no ancestor has been reset since this source was created.
+        bool _chain_current() const {
+            const clsource* child = this;
+            while (child->_parent != nullptr) {
+                if (child->_parent->generation() != child->_parent_generation)
+                    return false;
+                child = child->_parent;
+            }
+            return true;
         }
 
-        cancel_reason reason(u64 generation) const {
-            return current(generation)
-                       ? static_cast<cancel_reason>(
-                             __atomic_load_n(&_state, __ATOMIC_ACQUIRE) >> 1)
-                       : cancel_reason::none;
+        bool _requested() const {
+            return (_state.load(memory_order::acquire) & 1u) != 0;
+        }
+
+        cancel_reason _reason() const {
+            return static_cast<cancel_reason>(_state.load(memory_order::acquire) >> 1);
         }
     };
 
     inline bool cltoken::stale() const {
-        return _source == nullptr || !_source->current(_generation);
+        return _source == nullptr || !_source->_current(_generation) ||
+               !_source->_chain_current();
     }
 
     inline bool cltoken::cancellation_requested() const {
-        return _source != nullptr && _source->requested(_generation);
+        if (stale())
+            return false;
+        for (const clsource* source = _source; source != nullptr;
+             source                 = source->_parent) {
+            if (source->_requested())
+                return true;
+        }
+        return false;
     }
 
     inline cancel_reason cltoken::reason() const {
-        return _source == nullptr ? cancel_reason::none : _source->reason(_generation);
+        if (stale())
+            return cancel_reason::none;
+        for (const clsource* source = _source; source != nullptr;
+             source                 = source->_parent) {
+            if (source->_requested())
+                return source->_reason();
+        }
+        return cancel_reason::none;
     }
 
 } // namespace astia::core

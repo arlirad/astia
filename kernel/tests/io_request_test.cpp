@@ -29,6 +29,57 @@ int main() {
     assert(initial_token.reason() == astia::core::cancel_reason::none);
     assert(!fresh_token.cancellation_requested());
 
+    // Child sources observe their own cancellation and every ancestor's,
+    // while siblings stay independent.
+    astia::core::clsource root;
+    astia::core::clsource first_op{root};
+    astia::core::clsource second_op{root};
+    const auto            root_token   = root.token();
+    const auto            first_token  = first_op.token();
+    const auto            second_token = second_op.token();
+
+    assert(first_op.parent() == &root);
+    assert(first_token.valid() && second_token.valid());
+    assert(!first_token.cancellation_requested());
+
+    assert(first_op.cancel(astia::core::cancel_reason::timeout));
+    assert(first_token.cancellation_requested());
+    assert(first_token.reason() == astia::core::cancel_reason::timeout);
+    assert(!second_token.cancellation_requested());
+    assert(!root_token.cancellation_requested());
+
+    assert(root.cancel(astia::core::cancel_reason::shutdown));
+    assert(root_token.cancellation_requested());
+    assert(root_token.reason() == astia::core::cancel_reason::shutdown);
+    assert(second_token.cancellation_requested());
+    assert(second_token.reason() == astia::core::cancel_reason::shutdown);
+    // The nearest cancelled source supplies the reason.
+    assert(first_token.reason() == astia::core::cancel_reason::timeout);
+
+    // A child created after the parent was cancelled sees it immediately.
+    astia::core::clsource late{root};
+    const auto            late_token = late.token();
+    assert(late_token.cancellation_requested());
+    assert(late_token.reason() == astia::core::cancel_reason::shutdown);
+
+    // Resetting an ancestor stales every descendant token.
+    root.reset();
+    assert(root_token.stale());
+    assert(first_token.stale());
+    assert(second_token.stale());
+    assert(late_token.stale());
+    assert(!first_token.cancellation_requested());
+
+    // Resetting a child only stales that child.
+    astia::core::clsource local;
+    astia::core::clsource child{local};
+    const auto            local_token = local.token();
+    const auto            child_token = child.token();
+    child.reset();
+    assert(child_token.stale());
+    assert(local_token.valid());
+    assert(child.token().valid());
+
     astia::core::clsource pre_canceled_source;
 
     astia::io::request pre_canceled(pre_canceled_source, nullptr, 0, 0, 0,
