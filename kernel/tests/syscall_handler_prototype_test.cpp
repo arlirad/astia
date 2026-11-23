@@ -137,8 +137,8 @@ namespace {
                                                      const astia::arch::syscall_frame&);
     using frame_by_value_signature  = astia::i64 (*)(astia::arch::syscall_frame);
     using over_arity_signature      = astia::i64 (*)(astia::i64, astia::i64, astia::i64,
-                                                     astia::i64, astia::i64, astia::i64,
-                                                     astia::i64);
+                                                astia::i64, astia::i64, astia::i64,
+                                                astia::i64);
 
     static_assert(
         astia::sys::detail::typed_sync_handler<decltype(&zero_probe::invoke)>::value);
