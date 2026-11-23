@@ -60,7 +60,7 @@ namespace astia::sys {
 
         async_start_result start() noexcept;
         bool               request_cancel(
-            core::cancel_reason reason = core::cancel_reason::request) noexcept;
+                          core::cancel_reason reason = core::cancel_reason::request) noexcept;
 
         async_operation_state state() const noexcept;
         bool                  terminal() const noexcept;

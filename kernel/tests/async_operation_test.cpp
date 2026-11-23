@@ -576,7 +576,7 @@ ASTIA_TEST(async_operation_reap_vs_owner_exit_is_serialized) {
         std::atomic<bool> cancel_done{false};
         std::thread       canceller([process_id, thread_id, &cancel_done] {
             astia::core::cancel_operations_for_thread(process_id, thread_id,
-                                                      astia::core::cancel_reason::owner);
+                                                            astia::core::cancel_reason::owner);
             cancel_done.store(true, std::memory_order_release);
         });
         std::thread       reaper([&cancel_done] {
@@ -612,7 +612,7 @@ ASTIA_TEST(async_operation_start_teardown_race_is_serialized) {
     std::atomic<int> start_result{0};
     std::thread      starter([&operation, &start_result] {
         start_result.store(static_cast<int>(operation->start()),
-                           std::memory_order_release);
+                                std::memory_order_release);
     });
     while (!start_entered.load(std::memory_order_acquire))
         std::this_thread::yield();

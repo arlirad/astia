@@ -247,7 +247,7 @@ ASTIA_TEST(coroutine_lifecycle_capacity_is_explicit_and_released) {
     std::vector<astia::u64> storage((static_cast<astia::usize>(capacity) + 1) * 2, 0);
     auto                    address = [&storage](astia::u32 index) {
         return reinterpret_cast<void*>(reinterpret_cast<astia::usize>(storage.data()) +
-                                       static_cast<astia::usize>(index) * 16);
+                                                          static_cast<astia::usize>(index) * 16);
     };
 
     astia::u32 accepted = 0;
@@ -273,7 +273,7 @@ ASTIA_TEST(coroutine_destroy_capacity_exhaustion_is_explicit) {
     std::vector<astia::u64> storage((static_cast<astia::usize>(capacity) + 1) * 2, 0);
     auto                    address = [&storage](astia::u32 index) {
         return reinterpret_cast<void*>(reinterpret_cast<astia::usize>(storage.data()) +
-                                       static_cast<astia::usize>(index) * 16);
+                                                          static_cast<astia::usize>(index) * 16);
     };
     for (astia::u32 i = 0; i < capacity; ++i)
         ASTIA_CHECK(
