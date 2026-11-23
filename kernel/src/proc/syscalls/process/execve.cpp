@@ -27,11 +27,10 @@ namespace astia::proc::syscalls::detail {
             u64                      stack = 0;
             core::task<exec_result>  runner;
 
-            exec_continuation(const arch::syscall_frame&      input,
-                              const mm::shptr<process>&       process_value,
+            exec_continuation(const mm::shptr<process>&       process_value,
                               const mm::shptr<thread>&        thread_value,
                               const mm::shptr<fs::open_file>& file_value)
-                : syscall(input, process_value, thread_value), file(file_value) {}
+                : syscall(process_value, thread_value), file(file_value) {}
 
             void complete(i64 value, const exec_result* image = nullptr) {
                 if (image != nullptr) {
@@ -57,14 +56,13 @@ namespace astia::proc::syscalls::detail {
         }
     }
 
-    i64 execve(const arch::syscall_frame& frame, sys::user_ptr<char> path_ptr,
+    i64 execve(sys::syscall_trap trap, sys::user_ptr<char> path_ptr,
                sys::user_ptr<const u64> argv_ptr, sys::user_ptr<const u64> envp_ptr) {
-        const arch::syscall_frame saved_frame = frame;
-        char                      path[path_cap];
+        char path[path_cap];
         if (!sys::copy_in_string(span<char>(path, sizeof path), path_ptr))
             return -EFAULT;
         auto staging =
-            mm::share<exec_continuation>(saved_frame, mm::shptr<process>{},
+            mm::share<exec_continuation>(mm::shptr<process>{},
                                          mm::shptr<thread>{}, mm::shptr<fs::open_file>{});
         if (!staging)
             return -ENOMEM;
@@ -108,7 +106,7 @@ namespace astia::proc::syscalls::detail {
             self->user_stack_metadata(user_stack_top - user_stack_bytes,
                                       user_stack_bytes);
             arch::context_set_fs_base(self->context(), owner->tls_tp());
-            auto& next  = const_cast<arch::syscall_frame&>(frame);
+            auto& next  = trap.image;
             next.rip    = staging->entry;
             next.rsp    = staging->stack;
             next.rflags = 0x202;
@@ -143,10 +141,10 @@ namespace astia::proc::syscalls {
     ///     Relative paths are resolved against the caller's working directory.
     struct execve
         : sys::syscall_handler<execve, sys::syscall_id::execve, sys::syscall_mode::sync> {
-        static i64 invoke(const arch::syscall_frame& frame, sys::user_ptr<char> path_ptr,
+        static i64 invoke(sys::syscall_trap trap, sys::user_ptr<char> path_ptr,
                           sys::user_ptr<const u64> argv_ptr,
                           sys::user_ptr<const u64> envp_ptr) {
-            return ::astia::proc::syscalls::detail::execve(frame, path_ptr, argv_ptr,
+            return ::astia::proc::syscalls::detail::execve(trap, path_ptr, argv_ptr,
                                                            envp_ptr);
         }
     };

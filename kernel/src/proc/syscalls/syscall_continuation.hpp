@@ -1,7 +1,6 @@
 #pragma once
 
 #include <astia/api/errno.h>
-#include <astia/arch/context.hpp>
 
 #include "../proc.hpp"
 #include "../scheduler.hpp"
@@ -17,7 +16,6 @@ namespace astia::proc::syscalls::detail {
             canceled,
         };
 
-        arch::syscall_frame _frame{};
         mm::shptr<process>  _owner;
         mm::shptr<thread>   _waiter;
         i64                 _result = -EINTR;
@@ -75,10 +73,9 @@ namespace astia::proc::syscalls::detail {
         }
 
         public:
-        syscall_continuation(const arch::syscall_frame& frame,
-                             const mm::shptr<process>&  owner  = {},
-                             const mm::shptr<thread>&   waiter = {})
-            : _frame(frame), _owner(owner), _waiter(waiter) {}
+        syscall_continuation(const mm::shptr<process>& owner  = {},
+                             const mm::shptr<thread>&  waiter = {})
+            : _owner(owner), _waiter(waiter) {}
 
         ~syscall_continuation() {
             (void) finish(phase::canceled, -EINTR, false);
@@ -90,10 +87,6 @@ namespace astia::proc::syscalls::detail {
         void bind(const mm::shptr<process>& owner, const mm::shptr<thread>& waiter) {
             _owner  = owner;
             _waiter = waiter;
-        }
-
-        const arch::syscall_frame& frame() const {
-            return _frame;
         }
 
         process* owner() const {

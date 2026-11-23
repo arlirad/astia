@@ -94,50 +94,31 @@ namespace astia::sys {
     /// arguments any handler can be given.
     inline constexpr u32 syscall_argument_count = 6;
 
-    using syscall_exit_hook = void (*)(arch::syscall_frame& frame, i64 result);
-
-    /// Identity of a kernel-owned syscall operation; not the public syscall ID.
-    struct operation_id {
-        u64 value;
+    /// The trap state for the three handlers that need more than their
+    /// decoded arguments: fork builds the child's resume image from the
+    /// caller-saved registers, execve rewrites the resume point, and
+    /// sigreturn replaces the whole return image.  `arguments` is the same
+    /// six registers the dispatcher decodes, borrowed for the call.
+    struct syscall_trap {
+        const u64 (&arguments)[syscall_argument_count];
+        arch::syscall_return& image;
     };
 
-    /// Opaque metadata carried with a syscall operation; not an ABI argument.
-    struct syscall_user_data {
-        u64 value;
-    };
+    using syscall_exit_hook = void (*)(arch::syscall_return& image, u64 a0, u64 a1,
+                                       u64 a2, u64 a3, u64 a4, u64 a5, i64 result);
 
-    struct syscall_context {
-        syscall_id                 id;
-        i64                        arguments[syscall_argument_count];
-        const arch::syscall_frame& frame;
-        /// Internal continuation identity, separate from `id`.
-        operation_id operation;
-        /// Internal continuation metadata, separate from ABI arguments.
-        syscall_user_data user_data;
-    };
-
-    using async_syscall_handler = void (*)(syscall_context&       context,
-                                           core::completion<i64>& completion);
-    using task_syscall_handler  = core::task<i64> (*)(syscall_context& context);
+    using syscall_handler_fn = void (*)(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                                        arch::syscall_return&  image,
+                                        core::completion<i64>& completion);
 
     struct syscall_descriptor {
-        syscall_id            id;
-        async_syscall_handler invoke;
+        syscall_id       id;
+        syscall_handler_fn invoke;
     };
 
     bool register_exit_hook(syscall_exit_hook hook);
 
     namespace detail {
-
-        template <typename T>
-        struct is_async_handler {
-            static constexpr bool value = false;
-        };
-
-        template <>
-        struct is_async_handler<async_syscall_handler> {
-            static constexpr bool value = true;
-        };
 
         template <usize... I>
         struct index_sequence {};
@@ -155,32 +136,25 @@ namespace astia::sys {
         /// it (see user_mem.hpp for validated user pointers).
         template <typename T>
         struct argument_decoder {
-            static bool valid([[maybe_unused]] i64 raw) {
+            static bool valid([[maybe_unused]] u64 raw) {
                 return true;
             }
 
-            static T decode(i64 raw) {
+            static T decode(u64 raw) {
                 return static_cast<T>(raw);
             }
         };
 
         template <typename T>
-        struct is_frame_argument : std::false_type {};
+        struct is_trap_argument : std::false_type {};
 
         template <>
-        struct is_frame_argument<arch::syscall_frame> : std::true_type {};
-
-        template <typename... Args>
-        struct has_frame_prefix : std::false_type {};
-
-        template <typename First, typename... Rest>
-        struct has_frame_prefix<First, Rest...>
-            : is_frame_argument<std::remove_cvref_t<First>> {};
+        struct is_trap_argument<syscall_trap> : std::true_type {};
 
         template <typename First, typename... Rest>
         inline constexpr usize abi_argument_count =
             sizeof...(Rest) +
-            (is_frame_argument<std::remove_cvref_t<First>>::value ? 0 : 1);
+            (is_trap_argument<std::remove_cvref_t<First>>::value ? 0 : 1);
 
         template <typename... Args>
         struct valid_typed_arguments : std::false_type {};
@@ -191,12 +165,9 @@ namespace astia::sys {
         template <typename First, typename... Rest>
         struct valid_typed_arguments<First, Rest...>
             : std::bool_constant<
-                  !std::is_same_v<std::remove_cvref_t<First>, syscall_context> &&
-                  (!is_frame_argument<std::remove_cvref_t<First>>::value ||
-                   std::is_same_v<First, const arch::syscall_frame&>) &&
-                  ((!std::is_same_v<std::remove_cvref_t<Rest>, syscall_context> &&
-                    !is_frame_argument<std::remove_cvref_t<Rest>>::value) &&
-                   ...) &&
+                  (!is_trap_argument<std::remove_cvref_t<First>>::value ||
+                   std::is_same_v<First, syscall_trap>) &&
+                  ((!is_trap_argument<std::remove_cvref_t<Rest>>::value) && ...) &&
                   (abi_argument_count<First, Rest...> <= syscall_argument_count)> {};
 
         template <typename Fn>
@@ -205,64 +176,85 @@ namespace astia::sys {
         template <typename... Args>
         struct typed_sync_handler<i64 (*)(Args...)> : valid_typed_arguments<Args...> {};
 
+        template <typename Fn>
+        struct typed_task_handler : std::false_type {};
+
+        template <typename... Args>
+        struct typed_task_handler<core::task<i64> (*)(Args...)>
+            : valid_typed_arguments<Args...> {};
+
         template <typename... Args, usize... I>
-        bool valid_arguments(const syscall_context& context, index_sequence<I...>) {
-            return (argument_decoder<Args>::valid(context.arguments[I]) && ...);
+        bool valid_arguments(const u64 (&arguments)[syscall_argument_count],
+                             index_sequence<I...>) {
+            return (argument_decoder<Args>::valid(arguments[I]) && ...);
         }
 
-        template <typename Fn>
-        struct frame_invoker;
-
-        template <typename R, typename... Args>
-        struct frame_invoker<R (*)(const arch::syscall_frame&, Args...)> {
-            static i64 call(R (*function)(const arch::syscall_frame&, Args...),
-                            syscall_context& context) {
-                const auto indices =
-                    typename make_index_sequence<sizeof...(Args)>::type{};
-                if (!valid_arguments<Args...>(context, indices))
-                    return -EFAULT;
-                return call_rest(function, context, indices);
-            }
-
-            private:
-            template <usize... I>
-            static i64 call_rest(R (*function)(const arch::syscall_frame&, Args...),
-                                 syscall_context& context, index_sequence<I...>) {
-                return static_cast<i64>(
-                    function(context.frame,
-                             argument_decoder<Args>::decode(context.arguments[I])...));
-            }
-        };
-
+        /// Decode the register arguments and invoke a handler.  A handler may
+        /// lead with `syscall_trap` to receive the trap image; that parameter
+        /// is not an ABI argument and does not consume a register.
         template <typename Fn>
         struct typed_invoker;
 
         template <typename R, typename... Args>
         struct typed_invoker<R (*)(Args...)> {
-            static constexpr usize argument_count =
-                sizeof...(Args) - (has_frame_prefix<Args...>::value ? 1 : 0);
-            static_assert(argument_count <= syscall_argument_count,
-                          "syscall handlers may declare at most six ABI arguments");
-
-            static i64 call(R (*function)(Args...), syscall_context& context) {
-                if constexpr (has_frame_prefix<Args...>::value) {
-                    return frame_invoker<R (*)(Args...)>::call(function, context);
-                }
-                else {
-                    const auto indices =
-                        typename make_index_sequence<sizeof...(Args)>::type{};
-                    if (!valid_arguments<Args...>(context, indices))
-                        return -EFAULT;
-                    return call_arguments(function, context, indices);
-                }
+            static R call(R (*function)(Args...),
+                          const u64 (&arguments)[syscall_argument_count],
+                          [[maybe_unused]] arch::syscall_return& image) {
+                const auto indices =
+                    typename make_index_sequence<sizeof...(Args)>::type{};
+                return call_arguments(function, arguments, indices);
             }
 
             private:
             template <usize... I>
-            static i64 call_arguments(R (*function)(Args...), syscall_context& context,
-                                      index_sequence<I...>) {
-                return static_cast<i64>(
-                    function(argument_decoder<Args>::decode(context.arguments[I])...));
+            static R call_arguments(R (*function)(Args...),
+                                    const u64 (&arguments)[syscall_argument_count],
+                                    index_sequence<I...>) {
+                return function(argument_decoder<Args>::decode(arguments[I])...);
+            }
+        };
+
+        template <typename R, typename... Args>
+        struct typed_invoker<R (*)(syscall_trap, Args...)> {
+            static R call(R (*function)(syscall_trap, Args...),
+                          const u64 (&arguments)[syscall_argument_count],
+                          arch::syscall_return& image) {
+                const auto  indices =
+                    typename make_index_sequence<sizeof...(Args)>::type{};
+                syscall_trap trap{arguments, image};
+                return call_arguments(function, trap, arguments, indices);
+            }
+
+            private:
+            template <usize... I>
+            static R call_arguments(R (*function)(syscall_trap, Args...),
+                                    syscall_trap trap,
+                                    const u64 (&arguments)[syscall_argument_count],
+                                    index_sequence<I...>) {
+                return function(trap, argument_decoder<Args>::decode(arguments[I])...);
+            }
+        };
+
+        /// Whether every semantic argument accepts the register values.  The
+        /// leading trap parameter, when present, is not decoded.
+        template <typename Fn>
+        struct decoded_arguments_valid;
+
+        template <typename R, typename... Args>
+        struct decoded_arguments_valid<R (*)(Args...)> {
+            static bool check(const u64 (&arguments)[syscall_argument_count]) {
+                const auto indices =
+                    typename make_index_sequence<sizeof...(Args)>::type{};
+                return valid_arguments<Args...>(arguments, indices);
+            }
+        };
+
+        template <typename R, typename... Args>
+        struct decoded_arguments_valid<R (*)(syscall_trap, Args...)> {
+            static bool check(const u64 (&arguments)[syscall_argument_count]) {
+                const auto indices =
+                    typename make_index_sequence<sizeof...(Args)>::type{};
+                return valid_arguments<Args...>(arguments, indices);
             }
         };
 
@@ -281,13 +273,20 @@ namespace astia::sys {
         using syscall_descriptor_marker = void;
 
         static constexpr syscall_id id = Id;
-        static void thunk(syscall_context& context, core::completion<i64>& completion) {
+        static void thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                          arch::syscall_return&  image,
+                          core::completion<i64>& completion) {
+            using function = decltype(&Impl::invoke);
             static_assert(
-                detail::typed_sync_handler<decltype(&Impl::invoke)>::value,
-                "sync syscall handlers must return i64 from invoke(typed arguments); "
-                "syscall_context belongs to the dispatcher");
-            completion.complete(detail::typed_invoker<decltype(&Impl::invoke)>::call(
-                &Impl::invoke, context));
+                detail::typed_sync_handler<function>::value,
+                "sync syscall handlers must return i64 from invoke(typed arguments)");
+            const u64 arguments[syscall_argument_count]{a0, a1, a2, a3, a4, a5};
+            if (!detail::decoded_arguments_valid<function>::check(arguments)) {
+                completion.complete(-EFAULT);
+                return;
+            }
+            completion.complete(static_cast<i64>(
+                detail::typed_invoker<function>::call(&Impl::invoke, arguments, image)));
         }
 
         static constexpr syscall_descriptor descriptor{Id, &thunk};
@@ -298,11 +297,21 @@ namespace astia::sys {
         using syscall_descriptor_marker = void;
 
         static constexpr syscall_id id = Id;
-        static void thunk(syscall_context& context, core::completion<i64>& completion) {
-            static_assert(std::is_same_v<decltype(&Impl::invoke), task_syscall_handler>,
-                          "async syscall handlers must return core::task<i64> from "
-                          "invoke(syscall_context&)");
-            auto operation = Impl::invoke(context);
+        static void thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                          arch::syscall_return&  image,
+                          core::completion<i64>& completion) {
+            using function = decltype(&Impl::invoke);
+            static_assert(
+                detail::typed_task_handler<function>::value,
+                "async syscall handlers must return core::task<i64> from "
+                "invoke(typed arguments)");
+            const u64 arguments[syscall_argument_count]{a0, a1, a2, a3, a4, a5};
+            if (!detail::decoded_arguments_valid<function>::check(arguments)) {
+                completion.complete(-EFAULT);
+                return;
+            }
+            auto operation =
+                detail::typed_invoker<function>::call(&Impl::invoke, arguments, image);
             if (!operation.valid()) {
                 completion.fail(operation.error());
                 return;
@@ -354,9 +363,10 @@ namespace astia::sys {
                      (void) Descriptor::descriptor, (void) Descriptor::descriptor.invoke,
                      (void) &Descriptor::invoke)> {
             static constexpr bool value =
-                is_async_handler<decltype(&Descriptor::invoke)>::value ||
-                std::is_same_v<decltype(&Descriptor::invoke), task_syscall_handler> ||
-                typed_sync_handler<decltype(&Descriptor::invoke)>::value;
+                std::is_same_v<decltype(Descriptor::descriptor.invoke),
+                               syscall_handler_fn> &&
+                (typed_sync_handler<decltype(&Descriptor::invoke)>::value ||
+                 typed_task_handler<decltype(&Descriptor::invoke)>::value);
         };
 
     } // namespace detail
@@ -364,20 +374,23 @@ namespace astia::sys {
     namespace detail {
 
         template <typename Descriptor>
-        bool dispatch_descriptor(syscall_id id, syscall_context& context,
+        bool dispatch_descriptor(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
+                                 u64 a5, arch::syscall_return& image,
                                  core::completion<i64>& completion) {
             if (Descriptor::descriptor.id != id)
                 return false;
-            Descriptor::descriptor.invoke(context, completion);
+            Descriptor::descriptor.invoke(a0, a1, a2, a3, a4, a5, image, completion);
             return true;
         }
 
         template <typename... Descriptors>
-        bool dispatch_descriptors(syscall_id id, syscall_context& context,
+        bool dispatch_descriptors(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
+                                  u64 a5, arch::syscall_return& image,
                                   core::completion<i64>& completion) {
             bool dispatched = false;
             ((dispatched = dispatched ||
-                           dispatch_descriptor<Descriptors>(id, context, completion)),
+                           dispatch_descriptor<Descriptors>(id, a0, a1, a2, a3, a4, a5,
+                                                            image, completion)),
              ...);
             return dispatched;
         }
@@ -385,26 +398,45 @@ namespace astia::sys {
     } // namespace detail
 
     template <typename... Descriptors>
-    bool dispatch_async(syscall_id id, syscall_context& context,
+    bool dispatch_async(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                        arch::syscall_return& image,
                         core::completion<i64>& completion) {
         static_assert(
             detail::valid_descriptor_ids<Descriptors...>(),
             "syscall descriptor IDs must be unique and within ABI table capacity");
         static_assert((detail::valid_descriptor_interface<Descriptors>::value && ...),
                       "syscall descriptors must expose a CRTP handler interface");
-        if (detail::dispatch_descriptors<Descriptors...>(id, context, completion))
+        if (detail::dispatch_descriptors<Descriptors...>(id, a0, a1, a2, a3, a4, a5,
+                                                         image, completion))
             return true;
         completion.complete(-ENOSYS);
         return false;
     }
 
     /// Dispatch a system call: the number the caller trapped with, the six
-    /// registers it passed, and the image the entry packed them into.  The
-    /// registers travel as registers, as they did into the entry; the
-    /// image travels for the one handler that reads it.
-    i64 dispatch(syscall_id id, i64 a0, i64 a1, i64 a2, i64 a3, i64 a4, i64 a5,
-                 const arch::syscall_frame& frame);
+    /// registers it passed, and the return image the exit path will use.
+    i64 dispatch(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                 arch::syscall_return& image);
 
-    bool production_dispatch(syscall_context& context, i64& result);
+    bool production_dispatch(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                             arch::syscall_return& image, i64& result);
 
 } // namespace astia::sys
+
+namespace astia {
+
+    /// The ABI's call number is an unchecked register; map it into the
+    /// dispatcher's domain before anything casts it.  Numbers outside the
+    /// table are absent calls, not a different syscall.
+    template <>
+    struct mapper<sys::syscall_id> {
+        static optional<sys::syscall_id> from(i64 raw) {
+            if (raw < 0 || static_cast<u64>(raw) >= sys::syscall_table_capacity)
+                return optional<sys::syscall_id>(error_t::enosys);
+            return optional<sys::syscall_id>(
+                static_cast<sys::syscall_id>(static_cast<u32>(raw)));
+        }
+    };
+
+} // namespace astia
+
