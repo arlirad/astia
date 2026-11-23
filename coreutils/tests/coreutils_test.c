@@ -1,3 +1,5 @@
+#include <astia/version.h>
+
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -10,9 +12,16 @@
 #include <string.h>
 #include <unistd.h>
 
+#define UNAME_ALL_EXPECTED \
+    "Astia astia " ASTIA_VERSION_STRING " Astia " ASTIA_VERSION_STRING " x86_64\n"
+
 static int fail(const char* what) {
     printf("coreutils test failed: %s\n", what);
     return 1;
+}
+
+static int uname_expected_is_current(void) {
+    return strcmp(UNAME_ALL_EXPECTED, "Astia astia 0.1 Astia kernel x86_64\n") != 0;
 }
 
 static int put_file(const char* path, const char* text) {
@@ -211,6 +220,8 @@ static int check(const char* name, char* const argv[], const char* input, int st
 }
 
 int main(void) {
+    if (!uname_expected_is_current())
+        return fail("uname expected output stale");
     if (credential_checks() != 0)
         return 1;
     if (account_checks() != 0)
@@ -359,8 +370,7 @@ int main(void) {
         check("env", env, NULL, 0, "COREUTILS_TEST=present\n", 0) ||
         check("env invalid", env_bad, NULL, 2, NULL, 0) ||
         check("uname", uname, NULL, 0, "Astia\n", 1) ||
-        check("uname -a", uname_all, NULL, 0, "Astia astia 0.1 Astia kernel x86_64\n",
-              1) ||
+        check("uname -a", uname_all, NULL, 0, UNAME_ALL_EXPECTED, 1) ||
         check("uname invalid", uname_bad, NULL, 1, NULL, 0) ||
         check("true", true_args, NULL, 0, NULL, 0) ||
         check("false", false_args, NULL, 1, NULL, 0) ||
