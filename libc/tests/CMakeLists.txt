@@ -30,6 +30,18 @@ add_test(NAME libc_installed_headers
 set_tests_properties(libc_installed_headers
   PROPERTIES LABELS "libc;headers;deterministic")
 
+add_test(NAME libc_feature_macros
+  COMMAND ${CMAKE_COMMAND}
+    -DASTIA_CMAKE_COMMAND=${CMAKE_COMMAND}
+    -DASTIA_BUILD_DIR=${CMAKE_BINARY_DIR}
+    -DASTIA_C_COMPILER=${CMAKE_C_COMPILER}
+    -DASTIA_LIBC_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/..
+    -DASTIA_FEATURE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/feature_macros.c
+    -DASTIA_FEATURE_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/feature-macros
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/feature_macros_test.cmake)
+set_tests_properties(libc_feature_macros
+  PROPERTIES LABELS "libc;headers;deterministic" TIMEOUT 120)
+
 # astia_libc deliberately hides its internal port references.  Give the
 # host seams the same visibility so the linker resolves those references to
 # the test port instead of extracting the real syscall backend from the
