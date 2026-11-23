@@ -58,6 +58,7 @@ set(ASTIA_LIBC_SOURCES
   src/stdlib.c
   src/string.c
   src/stat.c
+  src/strptime.c
   src/termcap.c
   src/termios.c
   src/time.c
