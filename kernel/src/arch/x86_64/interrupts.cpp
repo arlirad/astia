@@ -1,15 +1,18 @@
+#include <astia/arch/cpu.hpp>
+#include <astia/arch/interrupt_frame.hpp>
+#include <astia/arch/interrupts.hpp>
+#include <astia/arch/spinlock_guard.hpp>
+#include <astia/common.hpp>
+#include <astia/log.hpp>
+
 #include "../../dbg/stacktrace.hpp"
 #include "../../dev/chr/tty/uart16550.hpp"
+#include "../../proc/proc.hpp"
 #include "debug_exit.hpp"
 #include "lapic.hpp"
 #include "pic.hpp"
 #include "pit.hpp"
 #include "smp.hpp"
-#include "../../proc/proc.hpp"
-#include <astia/arch/cpu.hpp>
-#include <astia/arch/interrupts.hpp>
-#include <astia/common.hpp>
-#include <astia/log.hpp>
 
 // x86_64 interrupt delivery: the IDT and the dispatch loop; the device
 // drivers (pic.hpp, pit.hpp, lapic.hpp) live beside this file.
@@ -32,6 +35,21 @@
 // on purpose: init_interrupts() returns with interrupts still masked.
 
 namespace astia::arch {
+
+    u64 interrupt_stack_pointer(const interrupt_frame* frame) {
+        return frame == nullptr ? 0 : frame->rsp;
+    }
+
+    void interrupt_enter_signal(interrupt_frame* frame, u64 handler, u64 stack, u64 signo,
+                                u64 info, u64 context) {
+        if (frame == nullptr)
+            return;
+        frame->rdi = signo;
+        frame->rsi = info;
+        frame->rdx = context;
+        frame->rip = handler;
+        frame->rsp = stack;
+    }
 
     namespace {
 
@@ -79,22 +97,22 @@ namespace astia::arch {
         constexpr u32 last_device_vector  = 254;
 
         struct vector_slot {
-            interrupt_vector_handler handler = nullptr;
-            void*                    context = nullptr;
-            u32                      owner   = 0;
-            bool                     masked  = true;
+            interrupt_vector_handler handler     = nullptr;
+            void*                    context     = nullptr;
+            u32                      owner       = 0;
+            bool                     masked      = true;
             u32                      destination = 0;
             u32                      in_flight   = 0;
         };
 
-        vector_slot vector_slots[256]{};
+        vector_slot    vector_slots[256]{};
         core::spinlock vector_lock;
-        u32 next_vector_owner = 1;
-        bool vector_router_ready = false;
+        u32            next_vector_owner   = 1;
+        bool           vector_router_ready = false;
 
         // The process layer's copy-on-write resolver; null until proc
         // registers one (no user processes can fault before then).
-        user_fault_handler page_fault_resolver = nullptr;
+        user_fault_handler        page_fault_resolver       = nullptr;
         user_fault_signal_handler page_fault_signal_handler = nullptr;
 
         /// This module's log source.
@@ -223,12 +241,12 @@ namespace astia::arch {
         }
         if (vector >= first_device_vector && vector <= last_device_vector) {
             interrupt_vector_handler handler = nullptr;
-            void* context = nullptr;
-            u32 owner = 0;
+            void*                    context = nullptr;
+            u32                      owner   = 0;
             {
                 interrupt_spinlock_guard guard(vector_lock);
-                vector_slot& slot = vector_slots[vector];
-                owner = slot.owner;
+                vector_slot&             slot = vector_slots[vector];
+                owner                         = slot.owner;
                 if (owner != 0 && !slot.masked && slot.handler != nullptr) {
                     handler = slot.handler;
                     context = slot.context;
@@ -240,7 +258,7 @@ namespace astia::arch {
                     handler(context);
                 if (handler != nullptr) {
                     interrupt_spinlock_guard guard(vector_lock);
-                    vector_slot& slot = vector_slots[vector];
+                    vector_slot&             slot = vector_slots[vector];
                     if (slot.owner == owner && slot.in_flight != 0)
                         --slot.in_flight;
                 }
@@ -277,7 +295,7 @@ namespace astia::arch {
 
         x86_64::pic::remap();
         if (x86_64::lapic::start(tick_hz)) {
-            current_source = timer_source::lapic;
+            current_source      = timer_source::lapic;
             vector_router_ready = true;
         }
         else {
@@ -325,7 +343,7 @@ namespace astia::arch {
             u32 owner = next_vector_owner++;
             if (owner == 0)
                 owner = next_vector_owner++;
-            slot = {handler, context, owner, true, x86_64::lapic::id(), 0};
+            slot  = {handler, context, owner, true, x86_64::lapic::id(), 0};
             route = {vector, owner};
             return true;
         }
@@ -336,7 +354,7 @@ namespace astia::arch {
         if (!route.valid() || route.vector > 255)
             return false;
         interrupt_spinlock_guard guard(vector_lock);
-        vector_slot& slot = vector_slots[route.vector];
+        vector_slot&             slot = vector_slots[route.vector];
         if (slot.owner != route.owner || slot.in_flight != 0)
             return false;
         slot = {};
@@ -347,7 +365,7 @@ namespace astia::arch {
         if (!route.valid() || route.vector > 255)
             return false;
         interrupt_spinlock_guard guard(vector_lock);
-        vector_slot& slot = vector_slots[route.vector];
+        vector_slot&             slot = vector_slots[route.vector];
         if (slot.owner != route.owner)
             return false;
         slot.masked = true;
@@ -358,7 +376,7 @@ namespace astia::arch {
         if (!route.valid() || route.vector > 255)
             return false;
         interrupt_spinlock_guard guard(vector_lock);
-        vector_slot& slot = vector_slots[route.vector];
+        vector_slot&             slot = vector_slots[route.vector];
         if (slot.owner != route.owner)
             return false;
         slot.masked = false;
@@ -370,12 +388,12 @@ namespace astia::arch {
             route.vector > last_device_vector || !x86_64::lapic::msi_available())
             return false;
         interrupt_spinlock_guard guard(vector_lock);
-        const vector_slot& slot = vector_slots[route.vector];
+        const vector_slot&       slot = vector_slots[route.vector];
         if (slot.owner != route.owner)
             return false;
-        message.address_low = 0xFEE00000u | ((slot.destination & 0xffu) << 12);
+        message.address_low  = 0xFEE00000u | ((slot.destination & 0xffu) << 12);
         message.address_high = 0;
-        message.data = route.vector;
+        message.data         = route.vector;
         return true;
     }
 

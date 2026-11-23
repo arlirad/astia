@@ -1,8 +1,10 @@
 #include "pty.hpp"
 
-#include "../../../sys/aio.hpp"
-#include <astia/arch/cpu.hpp>
 #include <astia/api/errno.h>
+#include <astia/arch/cpu.hpp>
+#include <astia/arch/spinlock_guard.hpp>
+
+#include "../../../sys/aio.hpp"
 
 namespace astia::sys {
     void io_device_ready_context(const io_device*) __attribute__((weak));
@@ -46,7 +48,7 @@ namespace astia::dev {
             arch::interrupt_spinlock_guard guard(_pty_lock);
             if (_master_open) {
                 _master_open = false;
-                slave = _slave_file;
+                slave        = _slave_file;
                 _master_file = nullptr;
             }
         }
@@ -77,7 +79,7 @@ namespace astia::dev {
     }
 
     void pty::close(u32) {
-        bool notify = false;
+        bool      notify = false;
         fs::file* master = nullptr;
         {
             arch::interrupt_spinlock_guard guard(_pty_lock);
@@ -111,12 +113,12 @@ namespace astia::dev {
     long pty::master_read(void* buffer, u32 length) {
         if (buffer == nullptr && length != 0)
             return -EFAULT;
-        u32 count = 0;
+        u32       count = 0;
         fs::file* slave = nullptr;
         {
             arch::interrupt_spinlock_guard guard(_pty_lock);
-            const u32 available = _master_head - _master_tail;
-            count = available < length ? available : length;
+            const u32                      available = _master_head - _master_tail;
+            count     = available < length ? available : length;
             auto* out = static_cast<u8*>(buffer);
             for (u32 i = 0; i < count; ++i)
                 out[i] = _master_queue[(_master_tail + i) & (queue_capacity - 1)];
@@ -137,7 +139,7 @@ namespace astia::dev {
         if (!master_open() || !slave_open())
             return -EIO;
         const auto* input = static_cast<const u8*>(buffer);
-        u32 count = 0;
+        u32         count = 0;
         for (; count < length; ++count) {
             const bool ready = tty_receive(input[count]);
             if (ready)
@@ -210,7 +212,8 @@ namespace astia::dev {
         if (request.direction() == io::direction::output && !master_open())
             return -EIO;
         if (request.direction() == io::direction::input && !master_open()) {
-            const long result = tty::read(request.buffer(), request.length(), request.offset());
+            const long result =
+                tty::read(request.buffer(), request.length(), request.offset());
             return result == 0 ? -EIO : result;
         }
         return tty::submit(request);
@@ -246,8 +249,8 @@ namespace astia::dev {
     }
 
     bool pty::tty_putc(u8 byte) {
-        bool inserted = false;
-        fs::file* master = nullptr;
+        bool      inserted = false;
+        fs::file* master   = nullptr;
         {
             arch::interrupt_spinlock_guard guard(_pty_lock);
             if (!_master_open)
@@ -257,7 +260,7 @@ namespace astia::dev {
             _master_queue[_master_head & (queue_capacity - 1)] = byte;
             ++_master_head;
             inserted = true;
-            master = _master_file;
+            master   = _master_file;
         }
         if (inserted && master != nullptr)
             sys::io_device_ready_context(master);

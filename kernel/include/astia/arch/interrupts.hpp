@@ -2,14 +2,26 @@
 
 #include <astia/common.hpp>
 
+#include <concepts>
+
 namespace astia::arch {
 
-    struct interrupt_frame {
-        u64 r15, r14, r13, r12, r11, r10, r9, r8;
-        u64 rdi, rsi, rbp, rbx, rdx, rcx, rax;
-        u64 vector, error;
-        u64 rip, cs, rflags, rsp, ss;
+    struct interrupt_frame;
+
+    /// Stack pointer of the interrupted ring-3 context (fault path).
+    u64 interrupt_stack_pointer(const interrupt_frame* frame);
+
+    /// Redirect a faulting ring-3 context at a signal handler.
+    void interrupt_enter_signal(interrupt_frame* frame, u64 handler, u64 stack, u64 signo,
+                                u64 info, u64 context);
+
+    template <typename T>
+    concept interrupt_frame_image = requires(T* frame) {
+        { interrupt_stack_pointer(frame) } -> std::convertible_to<u64>;
+        { interrupt_enter_signal(frame, u64{}, u64{}, u64{}, u64{}, u64{}) };
     };
+
+    static_assert(interrupt_frame_image<interrupt_frame>);
 
     /// Arm maskable-interrupt delivery on the boot CPU, provided by the
     /// selected arch (src/arch/<arch>/interrupts.cpp): install the arch's

@@ -1,5 +1,6 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/platform.hpp>
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/core/resume_queue.hpp>
 #include <astia/resource_limits.hpp>
 
@@ -168,7 +169,7 @@ namespace astia::core {
                     }
                     if (!running)
                         break;
-                    ASTIA_CPU_RELAX();
+                    arch::cpu::relax();
                 }
             }
         }

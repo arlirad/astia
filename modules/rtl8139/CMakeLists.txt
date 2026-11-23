@@ -14,6 +14,7 @@ add_custom_command(
                 -mcmodel=large -fno-asynchronous-unwind-tables -fno-use-cxa-atexit
                 -Wall -Wextra -Werror -pedantic
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139.cpp -o ${ASTIA_RTL8139_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139.cpp
@@ -29,6 +30,7 @@ add_custom_command(
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
                 ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/rtl8139_protocol_test.cpp
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}

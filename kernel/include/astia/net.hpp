@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/api/errno.h>
+#include <astia/arch/cpu.hpp>
 #include <astia/common.hpp>
 #include <astia/mm/shptr.hpp>
 
@@ -201,7 +202,7 @@ namespace astia::net {
             while (!__atomic_compare_exchange_n(&_consumer_lock, &expected, 1, false,
                                                 __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
                 expected = 0;
-                asm volatile("pause");
+                arch::cpu::relax();
             }
         }
 
@@ -221,7 +222,7 @@ namespace astia::net {
             __atomic_store_n(&_accepting, 0, __ATOMIC_RELEASE);
             while (__atomic_load_n(&_submitters, __ATOMIC_ACQUIRE) != 0 ||
                    __atomic_load_n(&_completers, __ATOMIC_ACQUIRE) != 0)
-                asm volatile("pause");
+                arch::cpu::relax();
         }
 
         void start_accepting() {

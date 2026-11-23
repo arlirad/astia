@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/mm/heap.hpp>
 
 #include "proc.hpp"
@@ -159,7 +160,7 @@ namespace astia::proc {
         if (!allocate_kernel_stack()) {
             return false;
         }
-        _user_stack_top = uctx.rsp;
+        _user_stack_top = uctx.stack_pointer();
         user_stack_metadata_unsupported();
         if (!arch::context_prepare_fork(_context, _kernel_stack_top, &uctx)) {
             release_kernel_stack();

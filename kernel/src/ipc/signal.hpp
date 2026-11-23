@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/signal.hpp>
 

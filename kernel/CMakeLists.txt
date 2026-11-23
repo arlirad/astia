@@ -71,6 +71,12 @@ endif ()
 # Generate compile_commands.json for tooling
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Port-selected header overlay.  include/arch/${ARCH}/ comes before include/,
+# so a header such as <astia/arch/signal.hpp> resolves to the port's copy
+# chosen by the build instead of by the compiler's predefined macros.  Adding
+# a port means adding that directory, not editing generic headers.
+include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/include/arch/${ARCH})
+
 # Compiler-specific settings
 include(cmake/Compilers.cmake)
 

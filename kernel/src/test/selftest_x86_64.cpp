@@ -1,13 +1,14 @@
-#include "selftest_arch.hpp"
-
-#include "../arch/x86_64/smp.hpp"
-#include "proc.hpp"
-#include "scheduler.hpp"
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/interrupt_frame.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
 #include <astia/common.hpp>
 #include <astia/log.hpp>
+
+#include "../arch/x86_64/smp.hpp"
+#include "proc.hpp"
+#include "scheduler.hpp"
+#include "selftest_arch.hpp"
 
 namespace astia::test {
 
@@ -172,7 +173,8 @@ namespace astia::test {
             if (arch::current_timer_source() == arch::timer_source::lapic) {
                 arch::interrupt_vector route{};
                 vector_test_hits = 0;
-                if (!arch::register_interrupt_vector(vector_test_handler, nullptr, route)) {
+                if (!arch::register_interrupt_vector(vector_test_handler, nullptr,
+                                                     route)) {
                     logs::error("interrupt vectors fail (register)");
                     return false;
                 }
@@ -189,10 +191,12 @@ namespace astia::test {
                 arch::interrupt_frame frame{};
                 frame.vector = route.vector;
                 interrupt_dispatch(&frame);
-                const u32 first_hits = __atomic_load_n(&vector_test_hits, __ATOMIC_RELAXED);
+                const u32 first_hits =
+                    __atomic_load_n(&vector_test_hits, __ATOMIC_RELAXED);
                 const bool masked = arch::mask_interrupt_vector(route);
                 if (first_hits != 1 || !masked) {
-                    logs::error("interrupt vectors fail (dispatch/mask) vec=%u owner=%u hits=%u masked=%u",
+                    logs::error("interrupt vectors fail (dispatch/mask) vec=%u owner=%u "
+                                "hits=%u masked=%u",
                                 route.vector, route.owner, first_hits, masked ? 1u : 0u);
                     return false;
                 }
@@ -211,7 +215,8 @@ namespace astia::test {
                     return false;
                 }
                 arch::interrupt_vector reused{};
-                if (!arch::register_interrupt_vector(vector_test_handler, nullptr, reused) ||
+                if (!arch::register_interrupt_vector(vector_test_handler, nullptr,
+                                                     reused) ||
                     reused.vector != route.vector || reused.owner == route.owner ||
                     !arch::unregister_interrupt_vector(reused)) {
                     logs::error("interrupt vectors fail (reuse)");

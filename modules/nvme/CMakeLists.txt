@@ -31,6 +31,7 @@ function(astia_nvme_add_variant target output)
                         -Wall -Wextra -Werror -pedantic
                         ${ARGN}
                         -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                        -I${ASTIA_ARCH_INCLUDE_DIR}
                         -c ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp -o ${output}
                 DEPENDS ${ASTIA_NVME_COMMON_DEPENDS}
                 COMMENT "Compiling NVMe ${target} loadable module"
@@ -56,6 +57,7 @@ add_custom_command(
                 -ffunction-sections -fdata-sections
                 ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
                 -I${CMAKE_CURRENT_SOURCE_DIR}/../..
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/nvme_teardown_test.cpp
                 -Wl,--gc-sections

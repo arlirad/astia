@@ -1,12 +1,7 @@
 #pragma once
 
-#include "../ipc/signal.hpp"
-#include "cwd_context.hpp"
-#include "fd_table.hpp"
-#include "mmap_region.hpp"
-#include "signal_waiter_registry.hpp"
-#include "thread.hpp"
 #include <astia/api/syscalls.h>
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
@@ -18,6 +13,13 @@
 #include <astia/resource_limits.hpp>
 #include <astia/span.hpp>
 #include <astia/wait.hpp>
+
+#include "../ipc/signal.hpp"
+#include "cwd_context.hpp"
+#include "fd_table.hpp"
+#include "mmap_region.hpp"
+#include "signal_waiter_registry.hpp"
+#include "thread.hpp"
 
 namespace astia::proc {
 

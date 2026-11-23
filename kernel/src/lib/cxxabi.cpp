@@ -2,6 +2,8 @@
  * Kernel lifetime is explicit; module static-destructor registration is
  * replayed by the module lifecycle rather than process shutdown.
  */
+#include <astia/arch/cpu.hpp>
+
 extern "C" int  astia_module_register_atexit(void (*)(void));
 extern "C" int  astia_module_register_cxa_atexit(void (*)(void*), void*, void*);
 extern "C" void astia_module_finalize_cxa(void*);
@@ -30,7 +32,7 @@ int __cxa_guard_acquire(long long* guard) {
                                     __ATOMIC_ACQUIRE))
         return 1;
     while (__atomic_load_n(state, __ATOMIC_ACQUIRE) == 1)
-        asm volatile("pause" ::: "memory");
+        astia::arch::cpu::relax();
     return 0;
 }
 
@@ -46,7 +48,7 @@ void __cxa_guard_abort(long long* guard) {
 
 [[noreturn]] void __cxa_pure_virtual() {
     for (;;) {
-        asm volatile("cli; hlt");
+        astia::arch::cpu::halt();
     }
 }
 }

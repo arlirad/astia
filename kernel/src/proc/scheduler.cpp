@@ -1,15 +1,17 @@
 #include "scheduler.hpp"
-#include "../ipc/futex.hpp"
-#include <astia/core/rcu_runtime.hpp>
-#include <astia/core/resume_queue.hpp>
 
-#include "proc.hpp"
-#include "../sys/aio.hpp"
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
+#include <astia/arch/spinlock_guard.hpp>
+#include <astia/core/rcu_runtime.hpp>
+#include <astia/core/resume_queue.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
+
+#include "../ipc/futex.hpp"
+#include "../sys/aio.hpp"
+#include "proc.hpp"
 
 namespace astia::proc::scheduler {
 
