@@ -3,6 +3,7 @@
 #include <astia/api/syscalls.h>
 #include <astia/arch/spinlock_guard.hpp>
 #include <astia/common.hpp>
+#include <astia/core/cancellation.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
 #include <astia/mm/address_space.hpp>
@@ -232,6 +233,15 @@ namespace astia::proc {
         }
         signal_number termination_signal() const {
             return static_cast<signal_number>(_termination_signal);
+        }
+
+        /// Process-wide cancellation root.  Cancelling it stops every token
+        /// created beneath it, across every subsystem that opts in.
+        core::clsource& cancellation_root() {
+            return _cancellation_root;
+        }
+        const core::clsource& cancellation_root() const {
+            return _cancellation_root;
         }
 
         signal_state& signals() {
@@ -510,6 +520,7 @@ namespace astia::proc {
         u64                    _mapped_bytes = 0;
         cwd_context            _cwd{};
         mmap_region*           _mmap_regions = nullptr; // base-sorted
+        core::clsource         _cancellation_root{};
         // Lifecycle/thread state is process-local; keeping this lock on the
         // object avoids serializing unrelated processes.
         core::spinlock _lifecycle_lock{};

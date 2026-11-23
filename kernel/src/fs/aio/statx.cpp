@@ -4,9 +4,9 @@
 namespace astia::io::aio::operations {
 
     struct statx : handler<statx, opcode::statx> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             // Footnote ‡ of <astia/api/aio.h>: address NULL means fd is
             // the stat target (fstat), otherwise address is a pathname
             // and fd is the dirfd. The VFS still has one exact-path

@@ -4,9 +4,9 @@
 namespace astia::io::aio::operations {
 
     struct symlinkat : handler<symlinkat, opcode::symlinkat> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             char target[256], path[256];
             if (!memory::copy_in_string(span<char>(target, sizeof target),
                                         memory::user_ptr<char>(sqe.address)) ||

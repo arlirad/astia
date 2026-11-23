@@ -515,6 +515,9 @@ namespace astia::proc {
                                         signal_number::hup);
             controlling_terminal({});
         }
+        // Retire every token created under this process.  Subsystems see it
+        // through their child sources; AIO uses it to abort in-flight ops.
+        _cancellation_root.cancel(core::cancel_reason::shutdown);
         // Release a child's private ring at exit rather than waiting for
         // waitpid: the parent and subsequent children may still need slots.
         sys::io_exit_process(this);
@@ -1063,6 +1066,10 @@ namespace astia::proc {
             co_return error_t::einval;
 
         close_on_exec_descriptors();
+        // Retire the old image's tokens and start a fresh epoch: old children
+        // go stale (and abort), new submissions are unaffected.
+        _cancellation_root.cancel(core::cancel_reason::shutdown);
+        _cancellation_root.reset();
         sys::io_exec_process(this);
         replace_image(staging);
         _signals.reset_caught_for_exec();

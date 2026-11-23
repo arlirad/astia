@@ -3,9 +3,9 @@
 namespace astia::io::aio::operations {
 
     struct dup : handler<dup, opcode::dup> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             proc::process*           current = proc::current_process();
             mm::shptr<fs::open_file> source  = file_for(sqe.fd);
             if (current == nullptr || !source) {

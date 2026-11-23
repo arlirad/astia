@@ -14,6 +14,10 @@
 #include "aio.hpp"
 #include "memory.hpp"
 
+namespace astia::io::aio::runner {
+    struct detached_state;
+}
+
 namespace astia::io::aio::ring {
 
     inline constexpr u32 slot_count = resource_limits::queue::aio_ring_slots;
@@ -143,6 +147,9 @@ namespace astia::io::aio::ring {
         u32                      cq_entries;
         u32                      waiters;
         atomic<u32>              detached_ops;
+        runner::detached_state*  detached_head;
+        bool                     detached_reclaim;
+        atomic<bool>             reclaiming;
         bool                     notify_pending;
         u32                      notify_signaled;
         u32                      pool_index;

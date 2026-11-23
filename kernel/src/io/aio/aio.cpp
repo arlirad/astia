@@ -130,7 +130,39 @@ namespace astia::io::aio {
             ::astia::arch::cpu::request_local_reschedule();
     }
 
+    namespace {
+        /// A process that exited with detached operations left the ring in
+        /// place until they finish.  Once the last one publishes, tear the
+        /// slot down from task context.
+        void reclaim_detached_slots() {
+            for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+                ring_guard pool_guard(g_ring_pool_lock);
+                ring_slot* slot = g_slots[i];
+                if (slot == nullptr || !slot->used || !slot->detached_reclaim)
+                    continue;
+                ring_guard ring_lock_guard(slot->lock);
+                pool_guard.release_lock();
+                if (slot->detached_ops.load(astia::memory_order::acquire) != 0)
+                    continue;
+                slot->reclaiming.store(true, astia::memory_order::release);
+                parked_cleanup& cleanup = slot->cleanup;
+                reap_completed(*slot, cleanup);
+                unmap_ring_user(*slot, slot->owner.get());
+                clear_slot(*slot, cleanup);
+                ring_lock_guard.unlock();
+                cleanup.release();
+                {
+                    ring_guard pool_flip(g_ring_pool_lock);
+                    slot->used = false;
+                    slot->reclaiming.store(false, astia::memory_order::release);
+                    g_slots[i] = nullptr;
+                }
+            }
+        }
+    } // namespace
+
     void io_process_deferred_ready() {
+        reclaim_detached_slots();
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 ring_guard pool_guard(g_ring_pool_lock);
@@ -225,12 +257,20 @@ namespace astia::io::aio {
                 continue;
             ring_guard ring_lock_guard(slot->lock);
             pool_guard.release_lock();
+            if (slot->detached_ops.load(astia::memory_order::acquire) != 0) {
+                slot->detached_reclaim = true;
+                continue;
+            }
+            slot->reclaiming.store(true, astia::memory_order::release);
             parked_cleanup& cleanup = slot->cleanup;
             reap_completed(*slot, cleanup);
             unmap_ring_user(*slot, owner);
             clear_slot(*slot, cleanup);
             ring_lock_guard.unlock();
             cleanup.release();
+            ring_guard pool_flip(g_ring_pool_lock);
+            slot->used = false;
+            slot->reclaiming.store(false, astia::memory_order::release);
         }
     }
 
@@ -244,6 +284,11 @@ namespace astia::io::aio {
                 continue;
             ring_guard ring_lock_guard(slot->lock);
             pool_guard.release_lock();
+            if (slot->detached_ops.load(astia::memory_order::acquire) != 0) {
+                slot->detached_reclaim = true;
+                continue;
+            }
+            slot->reclaiming.store(true, astia::memory_order::release);
             parked_cleanup& cleanup = slot->cleanup;
             reap_completed(*slot, cleanup);
             // No operation may outlive its process.  In particular, a parked
@@ -253,10 +298,14 @@ namespace astia::io::aio {
             // all parked operations while the slot is still owned by it.
             unmap_ring_user(*slot, owner);
             clear_slot(*slot, cleanup);
-            g_slots[i] = nullptr;
             ring_lock_guard.unlock();
             cleanup.release();
-            slot->~ring_slot();
+            {
+                ring_guard pool_flip(g_ring_pool_lock);
+                slot->used = false;
+                slot->reclaiming.store(false, astia::memory_order::release);
+                g_slots[i] = nullptr;
+            }
         }
     }
 

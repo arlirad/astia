@@ -60,7 +60,15 @@ namespace astia::io::aio::registry {
         const operation_descriptor* entry = table[sqe.op];
         if (entry == nullptr)
             return ring::cq_post_guarded(ring, sqe.user_data, -ENOSYS);
-        return runner::launch(entry->invoke(slot, ring, sqe), slot, ring, sqe);
+        auto state = runner::make_state(slot, sqe.user_data);
+        if (!state)
+            return false;
+        const core::cltoken token = runner::token(state.get());
+        if (token.cancellation_requested())
+            return ring::cq_post_guarded(ring, sqe.user_data, -ECANCELED);
+        return runner::launch(entry->invoke(slot, ring, sqe, token),
+                              static_cast<mm::shptr<runner::detached_state>&&>(state),
+                              slot, ring, sqe);
     }
 
 } // namespace astia::io::aio::registry

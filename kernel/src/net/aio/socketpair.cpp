@@ -4,9 +4,9 @@
 namespace astia::io::aio::operations {
 
     struct socketpair : handler<socketpair, opcode::socketpair> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             if (sqe.fd != AF_UNIX)
                 co_return -EAFNOSUPPORT;
             if (sqe.aux != 0)

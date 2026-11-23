@@ -3,9 +3,9 @@
 namespace astia::io::aio::operations {
 
     struct fcntl : handler<fcntl, opcode::fcntl> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe sqe) noexcept {
+        static core::task<aio_result>
+        invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
+               astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             proc::process* current = proc::current_process();
             auto           mapped  = mapper<fd_t>::from(sqe.fd);
             if (current == nullptr || !mapped.has_value ||
