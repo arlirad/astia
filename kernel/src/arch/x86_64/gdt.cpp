@@ -1,10 +1,11 @@
 #include "gdt.hpp"
 
-#include "io.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/platform.hpp>
 #include <astia/arch/x86_64/cpu_local.hpp>
 #include <astia/mm/heap.hpp>
+
+#include "io.hpp"
 
 namespace astia::arch::x86_64 {
 

@@ -1,7 +1,8 @@
-#include "gdt.hpp"
-#include "smp.hpp"
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/x86_64/cpu_local.hpp>
+
+#include "gdt.hpp"
+#include "smp.hpp"
 
 namespace astia::arch {
 
