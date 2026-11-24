@@ -8,12 +8,16 @@ add_library(fs STATIC
         fs_io.cpp
         fs.cpp
         path_service.cpp
-        devfs.cpp
-        initrd_fs.cpp
+        filesystems/devfs/devfs.cpp
+        filesystems/initrd/initrd.cpp
         initrd_init.cpp
-        ext4/ext4.cpp
-        ext4/ext4_reader.cpp
-        tmpfs.cpp
+        filesystems/ext4/ext4_file.cpp
+        filesystems/ext4/ext4_mount.cpp
+        filesystems/ext4/ext4_reader.cpp
+        filesystems/tmpfs/tmpfs_file.cpp
+        filesystems/tmpfs/tmpfs_mount.cpp
+        filesystems/tmpfs/tmpfs_metadata.cpp
+        filesystems/tmpfs/tmpfs_shared_memory.cpp
         unix_pathname.cpp
         init.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/pipe.cpp

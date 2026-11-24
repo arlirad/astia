@@ -3,10 +3,10 @@
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
 
-#include "../dev/chr/tty/pty.hpp"
-#include "../proc/proc.hpp"
+#include "../../../dev/chr/tty/pty.hpp"
+#include "../../../proc/proc.hpp"
 
-namespace astia::fs {
+namespace astia::fs::filesystems {
 
     namespace {
         bool equal(const char* lhs, const char* rhs) {
@@ -158,4 +158,4 @@ namespace astia::fs {
         return _instance;
     }
 
-} // namespace astia::fs
+} // namespace astia::fs::filesystems
