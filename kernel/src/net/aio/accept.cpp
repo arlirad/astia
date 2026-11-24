@@ -11,7 +11,7 @@ namespace astia::io::aio::operations {
             auto object = file_for(sqe.fd);
             if (!object)
                 co_return -EBADF;
-            if (object->node()->unix_socket_capability() == nullptr)
+            if (object->parent()->unix_socket_capability() == nullptr)
                 co_return -EOPNOTSUPP;
             co_return dispatch::submit_socket_request(slot, ring, sqe, object, nullptr, 0,
                                                       ::astia::io::direction::input, true,

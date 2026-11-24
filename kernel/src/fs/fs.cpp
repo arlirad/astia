@@ -1,14 +1,15 @@
+#include <astia/api/errno.h>
+#include <astia/core/rcu_vector.hpp>
+#include <astia/core/spinlock.hpp>
+#include <astia/fs.hpp>
+#include <astia/mm/share.hpp>
+
 #include "devfs.hpp"
 #include "ext4/ext4.hpp"
 #include "initrd_fs.hpp"
 #include "path_service.hpp"
 #include "tmpfs.hpp"
 #include "unix_pathname.hpp"
-#include <astia/api/errno.h>
-#include <astia/core/rcu_vector.hpp>
-#include <astia/core/spinlock.hpp>
-#include <astia/fs.hpp>
-#include <astia/mm/share.hpp>
 
 void* operator new(astia::usize size, void* where) noexcept;
 
@@ -949,7 +950,7 @@ namespace astia::fs {
             operation.instance()->open(relative_path(*operation.entry(), path), 0);
         if (!object)
             return -ENOENT;
-        return object->node()->touch(sec, nsec);
+        return object->parent()->touch(sec, nsec);
     }
 
     // The remaining file/open-file implementation stays in this TU.

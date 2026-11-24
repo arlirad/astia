@@ -107,13 +107,13 @@ namespace astia::io::aio::operations {
             auto* stat_out = reinterpret_cast<astia_stat*>(out.value.get());
             __builtin_memset(stat_out, 0, sizeof *stat_out);
             stat_out->dev        = 1;
-            stat_out->ino        = object->node()->inode();
-            stat_out->nlink      = object->node()->nlink();
+            stat_out->ino        = object->parent()->inode();
+            stat_out->nlink      = object->parent()->nlink();
             stat_out->size       = static_cast<u64>(size);
             stat_out->blocks     = (static_cast<u64>(size) + 511u) / 512u;
             stat_out->mode       = mapper<fs::file_mode>::to(object->mode());
-            stat_out->uid        = static_cast<u32>(object->node()->uid());
-            stat_out->gid        = static_cast<u32>(object->node()->gid());
+            stat_out->uid        = static_cast<u32>(object->parent()->uid());
+            stat_out->gid        = static_cast<u32>(object->parent()->gid());
             stat_out->mtime_sec  = object->mtime_sec();
             stat_out->mtime_nsec = object->mtime_nsec();
             co_return 0;

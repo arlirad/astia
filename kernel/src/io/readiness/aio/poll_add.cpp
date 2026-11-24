@@ -49,7 +49,7 @@ namespace astia::io::aio::operations {
                 co_return aio_result::pending;
             }
             p->operation->heap_owned(true);
-            publish_waiter_hint(slot, park_index, object->node().get());
+            publish_waiter_hint(slot, park_index, object->parent().get());
             if (ready_generation() != generation)
                 dispatch::resume_parked(proc::current_process(), ring, *p);
             co_return aio_result::pending;

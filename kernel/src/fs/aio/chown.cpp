@@ -22,12 +22,12 @@ namespace astia::io::aio::operations {
                 if (!object)
                     co_return -EBADF;
                 if (current->euid() != 0 &&
-                    (current->euid() != static_cast<u32>(object->node()->uid()) ||
-                     owner.value != object->node()->uid() ||
+                    (current->euid() != static_cast<u32>(object->parent()->uid()) ||
+                     owner.value != object->parent()->uid() ||
                      !current->in_group(group.value)))
                     co_return -EPERM;
                 co_return static_cast<i32>(
-                    object->node()->chown(owner.value, group.value));
+                    object->parent()->chown(owner.value, group.value));
             }
             char path[256];
             if (!memory::copy_in_string(span<char>(path, sizeof path),

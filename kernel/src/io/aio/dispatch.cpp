@@ -198,7 +198,7 @@ namespace astia::io::aio::dispatch {
                     return io_outcome::completed;
                 }
                 if (op.socket_accept) {
-                    const auto* socket = op.object->node()->unix_socket_capability();
+                    const auto* socket = op.object->parent()->unix_socket_capability();
                     n                  = socket == nullptr
                                              ? -EOPNOTSUPP
                                              : socket->accept(*op.object, op.operation->request());
@@ -258,7 +258,7 @@ namespace astia::io::aio::dispatch {
                                                 static_cast<u32>(op.entries.chunk()),
                                                 op.operation->request().offset());
                 op.operation->request().wake_handler_set(wake_request,
-                                                         op.object->node().get());
+                                                         op.object->parent().get());
                 op.operation->request().updates_position(updates_position);
                 if (has_append_length)
                     op.operation->request().append_length(append_length);
@@ -270,7 +270,7 @@ namespace astia::io::aio::dispatch {
                                        long& result) {
             if (op.recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
-                const auto*    socket = op.object->node()->unix_socket_capability();
+                const auto*    socket = op.object->parent()->unix_socket_capability();
                 const auto     destination =
                     memory::user_ptr<astia_sockaddr>(op.recvfrom_address_user)
                         .validate_for(owner);
@@ -408,7 +408,7 @@ namespace astia::io::aio::dispatch {
             p->generation = issue_request_generation();
             p->operation->request().generation(p->generation);
             p->operation->request().wake_handler_set(wake_request,
-                                                     p->object->node().get());
+                                                     p->object->parent().get());
             p->operation->request().append_length(static_cast<u32>(p->entries.bytes()));
             p->operation->request().updates_position(
                 (s.op_flags & ASTIA_AIO_POSITIONED) == 0);
@@ -419,7 +419,7 @@ namespace astia::io::aio::dispatch {
             const auto outcome    = pump(*p, result);
             if (outcome == io_outcome::parked) {
                 arm_request_timeout(*p);
-                publish_waiter_hint(slot, park_index, p->object->node().get());
+                publish_waiter_hint(slot, park_index, p->object->parent().get());
                 if (ready_generation() != generation)
                     p->device_ready = true;
                 return true; // parked: a device resume completes it

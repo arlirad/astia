@@ -19,7 +19,7 @@ namespace astia::io::aio::operations {
                 co_return -EINVAL;
             if (sqe.length == 0)
                 co_return 0;
-            const auto* socket = object->node()->unix_socket_capability();
+            const auto* socket = object->parent()->unix_socket_capability();
             long        rc = socket == nullptr ? -EOPNOTSUPP : socket->recvfrom(*object);
             if (rc < 0)
                 co_return static_cast<i32>(rc);

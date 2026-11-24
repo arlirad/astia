@@ -25,7 +25,7 @@ namespace astia::io::aio::operations {
                 co_return static_cast<i32>(path_rc);
             if (!parent_writable(proc::current_process(), canonical))
                 co_return -EACCES;
-            const auto* socket = object->node()->unix_socket_capability();
+            const auto* socket = object->parent()->unix_socket_capability();
             long        rc = socket == nullptr ? -EOPNOTSUPP : socket->bind(*object, a);
             co_return static_cast<i32>(rc);
         }

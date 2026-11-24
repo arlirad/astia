@@ -21,10 +21,10 @@ namespace astia::io::aio::operations {
                 auto object = current->descriptor(mapped_fd.value);
                 if (!object)
                     co_return -EBADF;
-                if (!object->node())
+                if (!object->parent())
                     co_return -ENOSYS;
                 if (current->euid() != 0 &&
-                    current->euid() != static_cast<u32>(object->node()->uid()))
+                    current->euid() != static_cast<u32>(object->parent()->uid()))
                     co_return -EPERM;
                 co_return static_cast<i32>(object->chmod(requested.value));
             }

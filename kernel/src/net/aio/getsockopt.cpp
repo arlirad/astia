@@ -19,7 +19,7 @@ namespace astia::io::aio::operations {
                 co_return -EFAULT;
             if (capacity > max_operation_bytes)
                 co_return -EINVAL;
-            const auto* socket = object->node()->unix_socket_capability();
+            const auto* socket = object->parent()->unix_socket_capability();
             if (socket == nullptr)
                 co_return -ENOTSOCK;
             u32  value = 0;

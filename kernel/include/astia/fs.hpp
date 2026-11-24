@@ -283,7 +283,7 @@ namespace astia::fs {
 
     /// One open file description.  Separate opens create separate
     /// instances; dup/dup2 in the ABI layer share this object.  The
-    /// underlying node/device file remains shared by all opens.
+    /// underlying file/device object remains shared by all opens.
     class open_file {
         public:
         open_file(const mm::shptr<file>& object, u32 flags)
@@ -353,7 +353,7 @@ namespace astia::fs {
         mount* mount_owner() const {
             return _mount;
         }
-        mm::shptr<file> node() const {
+        mm::shptr<file> parent() const {
             return _object;
         }
         u64 mtime_sec() const;

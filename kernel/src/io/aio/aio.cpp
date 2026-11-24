@@ -94,7 +94,7 @@ namespace astia::io::aio {
         if (!current_object) {
             return;
         }
-        io_device_ready_context(current_object->node().get());
+        io_device_ready_context(current_object->parent().get());
     }
 
     void io_device_ready_context(const io_device* dev) {
@@ -121,7 +121,7 @@ namespace astia::io::aio {
                 pool_guard.release_lock();
                 parked_op& op = slot.park[p];
                 if (op.used && op.type == parked_op::kind::operation && !op.done &&
-                    op.object && op.object->node().get() == dev &&
+                    op.object && op.object->parent().get() == dev &&
                     op.operation->request().user_data() != excluded_user_data)
                     op.device_ready = true;
             }

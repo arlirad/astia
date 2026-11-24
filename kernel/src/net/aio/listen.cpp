@@ -10,7 +10,7 @@ namespace astia::io::aio::operations {
             auto object = file_for(sqe.fd);
             if (!object)
                 co_return -EBADF;
-            const auto* socket = object->node()->unix_socket_capability();
+            const auto* socket = object->parent()->unix_socket_capability();
             co_return static_cast<i32>(
                 socket == nullptr ? -EOPNOTSUPP : socket->listen(*object, sqe.aux));
         }

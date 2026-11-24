@@ -29,7 +29,7 @@ namespace astia::io::aio::operations {
                 co_return static_cast<i32>(path_rc);
             if (!socket_node_writable(proc::current_process(), canonical))
                 co_return -EACCES;
-            const auto* socket = object->node()->unix_socket_capability();
+            const auto* socket = object->parent()->unix_socket_capability();
             long rc = socket == nullptr ? -EOPNOTSUPP : socket->sendto(*object, &a);
             if (rc < 0)
                 co_return static_cast<i32>(rc);
