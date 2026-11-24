@@ -133,6 +133,7 @@ astia_add_host_test(astia_fs_async_test
         fs_async_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
         support/file_host.cpp
+        support/device_ready_host.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         support/resume_queue_host.cpp
 )
@@ -861,6 +862,7 @@ astia_add_arena_test(astia_ext4_vfs_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
         support/pty_vfs_host.cpp
         support/interrupts_host.cpp
 )

@@ -1,6 +1,8 @@
 #include <astia/fs.hpp>
 #include <astia/mapping.hpp>
 
+#include "../sys/aio.hpp"
+
 namespace astia::fs {
 
     namespace {
@@ -21,6 +23,11 @@ namespace astia::fs {
                 operation->release_owner();
             }
         };
+
+        void wake_file(void* context) {
+            if (context != nullptr)
+                sys::io_device_ready_context(static_cast<file*>(context));
+        }
 
         bool buffer_bytes(span<const buffer> buffers, u64& total) {
             total = 0;
@@ -76,6 +83,7 @@ namespace astia::fs {
                 pending_operation pending(operation, node);
 
                 auto& request = operation->request();
+                request.wake_handler_set(wake_file, node);
                 if (!request.park_device()) {
                     if (total != 0)
                         co_return total;
@@ -96,6 +104,10 @@ namespace astia::fs {
                             co_return total;
                         co_return error_t::ebusy;
                     }
+                    // A poll-driven backend needs the queue re-driven even
+                    // when it cannot raise an interrupt; keep the file in the
+                    // deferred-ready set until the queue drains.
+                    sys::io_device_ready_context(node);
                     auto result = co_await *request.completion();
                     request.acknowledge();
                     if (!result) {

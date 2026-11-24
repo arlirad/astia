@@ -41,8 +41,13 @@ namespace astia::io::aio {
                 g_ready_count = 0;
             }
             for (u32 i = 0; i < count; ++i) {
-                if (ready[i] != nullptr)
-                    const_cast<io_device*>(ready[i])->service_ready();
+                if (ready[i] == nullptr)
+                    continue;
+                const_cast<io_device*>(ready[i])->service_ready();
+                // A queue that still has parked work must run again on the
+                // next task tick: poll-driven backends make progress only
+                // when submit() is called again.
+                note_ready_file(ready[i]);
             }
         }
     }

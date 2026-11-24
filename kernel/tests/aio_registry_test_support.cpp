@@ -342,6 +342,12 @@ namespace astia::io::aio {
 
 } // namespace astia::io::aio
 
+namespace astia::sys {
+
+    void io_device_ready_context(const ::astia::io::aio::io_device*) {}
+
+} // namespace astia::sys
+
 namespace astia::arch {
 
     u64 timer_ticks() {

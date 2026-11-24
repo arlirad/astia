@@ -192,7 +192,8 @@ ASTIA_TEST(fs_async_cancels_parked_device_flight) {
     ASTIA_CHECK(parked_request != nullptr);
     task.reset();
     ASTIA_CHECK(parked_request->cancellation_requested());
-    parked_request->acknowledge();
+    if (parked_request != nullptr)
+        parked_request->acknowledge();
 }
 
 ASTIA_TEST(fs_async_completion_first_keeps_parked_request_stable) {
