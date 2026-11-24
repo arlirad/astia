@@ -6,10 +6,12 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <pty.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 
 #define UNAME_ALL_EXPECTED \
@@ -113,8 +115,9 @@ static int account_checks(void) {
 /* Run one real utility, collecting stdout and checking its exit status and
  * output.  The test input is a file because it also keeps the runner
  * independent of the terminal and serial-device setup used by QEMU. */
-static int run(const char* name, char* const argv[], const char* input,
-               int expected_status, const char* expected_output, int exact) {
+static int run_env(const char* name, char* const argv[], const char* input,
+                   int expected_status, const char* expected_output, int exact,
+                   char* const envp[]) {
     int saved_stdin = -1;
     if (input != NULL) {
         if (put_file("/tmp/coreutils_stdin", input) != 0)
@@ -164,8 +167,8 @@ static int run(const char* name, char* const argv[], const char* input,
         }
         close(output_fd);
     }
-    char* const envp[] = {"PATH=/bin", "COREUTILS_TEST=present", NULL};
-    int         child  = spawnve(path, argv, envp);
+    char* const default_envp[] = {"PATH=/bin", "COREUTILS_TEST=present", NULL};
+    int         child          = spawnve(path, argv, envp == NULL ? default_envp : envp);
     if (child < 0) {
         if (saved_stdout >= 0)
             (void) dup2(saved_stdout, 1);
@@ -214,9 +217,112 @@ static int run(const char* name, char* const argv[], const char* input,
     return 0;
 }
 
+static int run(const char* name, char* const argv[], const char* input,
+               int expected_status, const char* expected_output, int exact) {
+    return run_env(name, argv, input, expected_status, expected_output, exact, NULL);
+}
+
+static int read_all(int fd, char* buffer, size_t capacity) {
+    size_t used = 0;
+    while (used + 1 < capacity) {
+        long count = read(fd, buffer + used, capacity - 1 - used);
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0)
+            break;
+        used += (size_t) count;
+    }
+    buffer[used] = '\0';
+    return 0;
+}
+
+static int is_kernel_log_line(const char* line, size_t length) {
+    if (length == 0 || line[0] != '[')
+        return 0;
+    static const char* const markers[] = {" INFO] ", " WARN] ", "ERROR] ", "DEBUG] ",
+                                          "PANIC] "};
+    const char*              end       = line + length;
+    for (size_t marker = 0; marker < sizeof markers / sizeof markers[0]; ++marker) {
+        size_t marker_length = strlen(markers[marker]);
+        for (const char* cursor = line; cursor + marker_length <= end; ++cursor)
+            if (memcmp(cursor, markers[marker], marker_length) == 0)
+                return 1;
+    }
+    return 0;
+}
+
+static void strip_kernel_log(char* text) {
+    char* read  = text;
+    char* write = text;
+    while (*read != '\0') {
+        char*  newline = strchr(read, '\n');
+        size_t length  = newline != NULL ? (size_t) (newline - read) + 1 : strlen(read);
+        if (!is_kernel_log_line(read, length)) {
+            memmove(write, read, length);
+            write += length;
+        }
+        read += length;
+    }
+    *write = '\0';
+}
+
+static int run_pty(const char* name, char* const argv[], char* const envp[],
+                   unsigned short columns, const char* expected_output) {
+    int            master = -1;
+    int            slave  = -1;
+    struct winsize window = {24, columns, 0, 0};
+    char           output[512];
+    char           path[64];
+    if (openpty(&master, &slave, NULL, NULL, &window) != 0)
+        return fail(name);
+    struct termios settings;
+    if (tcgetattr(slave, &settings) == 0) {
+        settings.c_oflag &= ~OPOST;
+        settings.c_lflag &= ~(ECHO | ICANON);
+        (void) tcsetattr(slave, TCSANOW, &settings);
+    }
+    snprintf(path, sizeof path, "/bin/%s", argv[0]);
+    int saved_stdout = dup(1);
+    if (saved_stdout < 0 || dup2(slave, 1) < 0) {
+        if (saved_stdout >= 0)
+            close(saved_stdout);
+        close(master);
+        close(slave);
+        return fail(name);
+    }
+    close(slave);
+    int child = spawnve(path, argv, envp);
+    (void) dup2(saved_stdout, 1);
+    close(saved_stdout);
+    if (child < 0) {
+        close(master);
+        return fail(name);
+    }
+    read_all(master, output, sizeof output);
+    strip_kernel_log(output);
+    int status = 0;
+    int ok     = waitpid(child, &status, 0) == child && ((status >> 8) & 255) == 0;
+    close(master);
+    if (!ok || strcmp(output, expected_output) != 0) {
+        printf("run %s: status=%d output=[%s]\n", name, status >> 8 & 255, output);
+        return fail(name);
+    }
+    return 0;
+}
+
 static int check(const char* name, char* const argv[], const char* input, int status,
                  const char* output, int exact) {
     return run(name, argv, input, status, output, exact) == 0 ? 0 : fail(name);
+}
+
+static int check_env(const char* name, char* const argv[], char* const envp[], int status,
+                     const char* output, int exact) {
+    return run_env(name, argv, NULL, status, output, exact, envp) == 0 ? 0 : fail(name);
+}
+
+static int check_pty(const char* name, char* const argv[], char* const envp[],
+                     unsigned short columns, const char* output) {
+    return run_pty(name, argv, envp, columns, output) == 0 ? 0 : fail(name);
 }
 
 int main(void) {
@@ -292,6 +398,12 @@ int main(void) {
     char* dirname_root[]         = {"dirname", "///", NULL};
     char* find_tree[]            = {"find", "/tmp/coreutils_tree", NULL};
     char* ls_tree[]              = {"ls", "/tmp/coreutils_tree", NULL};
+    char* ls_col_dir[]           = {"ls", "/tmp/coreutils_ls_col", NULL};
+    char* ls_color_dir[]         = {"ls", "/tmp/coreutils_ls_color", NULL};
+    char* ls_wide_dir[]          = {"ls", "/tmp/coreutils_ls_wide", NULL};
+    char* ls_empty_dir[]         = {"ls", "/tmp/coreutils_ls_empty", NULL};
+    char* ls_plain_env[]         = {"PATH=/bin", NULL};
+    char* ls_no_color_env[]      = {"PATH=/bin", "NO_COLOR=1", NULL};
     char* grep_match[]           = {"grep", "beta", NULL};
     char* grep_numbered[]        = {"grep", "-n", "beta", NULL};
     char* grep_insensitive[]     = {"grep", "-i", "BETA", NULL};
@@ -342,6 +454,18 @@ int main(void) {
         put_file("/tmp/coreutils_tree/nested/file", "tree\n") != 0)
         return fail("recursive fixture setup");
 
+    if (mkdir("/tmp/coreutils_ls_col", 0777) != 0 ||
+        put_file("/tmp/coreutils_ls_col/gamma", "x\n") != 0 ||
+        put_file("/tmp/coreutils_ls_col/alpha", "x\n") != 0 ||
+        put_file("/tmp/coreutils_ls_col/delta", "x\n") != 0 ||
+        put_file("/tmp/coreutils_ls_col/beta", "x\n") != 0 ||
+        mkdir("/tmp/coreutils_ls_color", 0777) != 0 ||
+        mkdir("/tmp/coreutils_ls_color/sub", 0777) != 0 ||
+        mkdir("/tmp/coreutils_ls_wide", 0777) != 0 ||
+        put_file("/tmp/coreutils_ls_wide/abcdefghijklmnopqrstuvwxyz0123", "x\n") != 0 ||
+        mkdir("/tmp/coreutils_ls_empty", 0777) != 0)
+        return fail("ls fixture setup");
+
     if (check("cat files", cat_files, NULL, 0, "alpha\nbeta\ngamma\n", 1) ||
         check("cat missing", cat_missing, NULL, 1, NULL, 0) ||
         check("head -n", head_lines, NULL, 0, "one\ntwo\n", 1) ||
@@ -391,6 +515,22 @@ int main(void) {
         check("cp", cp_file, NULL, 0, NULL, 0) || !is_file("/tmp/coreutils_copy") ||
         check("cp directory without -r", cp_directory_bad, NULL, 1, NULL, 0) ||
         check("ls recursive fixture", ls_tree, NULL, 0, "nested\n", 0) ||
+        check("ls sorted pipe", ls_col_dir, NULL, 0,
+              "/tmp/coreutils_ls_col:\nalpha\nbeta\ndelta\ngamma\n", 1) ||
+        check_pty("ls tty columns", ls_col_dir, ls_plain_env, 16,
+                  "/tmp/coreutils_ls_col:\nalpha  delta\nbeta   gamma\n") ||
+        check_pty("ls tty zero width fallback", ls_col_dir, ls_plain_env, 0,
+                  "/tmp/coreutils_ls_col:\nalpha\nbeta\ndelta\ngamma\n") ||
+        check_pty("ls tty long name", ls_wide_dir, ls_plain_env, 20,
+                  "/tmp/coreutils_ls_wide:\nabcdefghijklmnopqrstuvwxyz0123\n") ||
+        check_pty("ls tty color", ls_color_dir, ls_plain_env, 80,
+                  "/tmp/coreutils_ls_color:\n\033[34msub\033[0m\n") ||
+        check_pty("ls tty no_color", ls_color_dir, ls_no_color_env, 80,
+                  "/tmp/coreutils_ls_color:\nsub\n") ||
+        check_env("ls pipe no color", ls_color_dir, ls_plain_env, 0,
+                  "/tmp/coreutils_ls_color:\nsub\n", 1) ||
+        check("ls empty directory", ls_empty_dir, NULL, 0, "/tmp/coreutils_ls_empty:\n",
+              1) ||
         check("cp -r directory", cp_directory, NULL, 0, NULL, 0) ||
         (!is_directory("/tmp/coreutils_tree_copy/nested") &&
          fail("cp -r nested directory")) ||
