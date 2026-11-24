@@ -113,7 +113,7 @@ check_vector_slot __vector_lower_el_aarch32_serror 0x780
 log="${build}/qemu-smoke.log"
 set +e
 timeout "$timeout_seconds" "$qemu" \
-    -machine virt,secure=off,virtualization=off \
+    -machine virt,secure=off,virtualization=off,gic-version=3 \
     -cpu cortex-a57 \
     -m 256M \
     -smp 1 \
@@ -177,6 +177,36 @@ vbar_hex="$(sed -nE 's/^exception: vbar=0x([0-9a-f]{16})$/\1/p' "$log" |
     die "VBAR_EL1 diagnostic is missing or malformed"
 (( 0x${vbar_hex} == vector_table_value )) ||
     die "VBAR_EL1 was not installed with the vector-table base"
+grep -Fxq 'gic: gicd=0x0000000008000000 size=0x00010000' "$log" ||
+    die "GICv3 distributor range is missing or unexpected"
+grep -Fxq 'gic: gicr=0x00000000080a0000 size=0x00f60000' "$log" ||
+    die "GICv3 redistributor range is missing or unexpected"
+grep -Fxq 'gic: redistributor=0x00000000080a0000 affinity=0x00000000' "$log" ||
+    die "GICv3 boot redistributor was not matched by affinity"
+grep -Fxq 'gic: gicd-ctlr=0x00000052' "$log" ||
+    die "GICD_CTLR ARE_NS/EnableGrp1NS state is missing or unexpected"
+grep -Fxq 'gic: sre=1 pmr=0xf0 bpr1=0x3 eoimode=1 igrpen1=1' "$log" ||
+    die "GICv3 CPU-interface configuration is missing or unexpected"
+grep -Fxq 'gic: self-sgi=0x0000000f' "$log" ||
+    die "reserved self-SGI ID is missing or unexpected"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: GIC READY' "$log" ||
+    die "GICv3 initialization did not complete"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: IRQ ENABLED' "$log" ||
+    die "IRQ enable marker is missing"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: IRQ SELF-SGI' "$log" ||
+    die "self-SGI trigger marker is missing"
+grep -Fxq 'irq: iar=0x0000000f' "$log" ||
+    die "IRQ handler did not acknowledge the reserved SGI"
+grep -Fxq 'irq: eoi=0x0000000f' "$log" ||
+    die "IRQ handler did not write EOIR1 for the reserved SGI"
+grep -Fxq 'irq: dir=0x0000000f' "$log" ||
+    die "IRQ handler did not deactivate the reserved SGI"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: IRQ HANDLED' "$log" ||
+    die "IRQ handler completion marker is missing"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: IRQ RETURNED' "$log" ||
+    die "IRQ handler did not return to the interrupted context"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: GIC SELF-SGI OK' "$log" ||
+    die "GICv3 self-SGI verification did not complete"
 grep -Fxq 'exception: vector=current-el-spx-sync' "$log" ||
     die "synchronous exception did not enter the current-EL SPx slot"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC' "$log" ||
