@@ -41,6 +41,9 @@ add_library(astia_test_support STATIC
 )
 set_source_files_properties(support/main.cpp
         PROPERTIES COMPILE_OPTIONS "-fno-threadsafe-statics")
+set_source_files_properties(
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/request_queue.cpp
+        PROPERTIES COMPILE_OPTIONS "-fno-sanitize=vptr")
 astia_apply_host_sanitizers(astia_test_support)
 target_include_directories(astia_test_support PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/support

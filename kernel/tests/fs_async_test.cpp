@@ -191,6 +191,8 @@ ASTIA_TEST(fs_async_cancels_parked_device_flight) {
     ASTIA_CHECK(parked_completion != nullptr);
     ASTIA_CHECK(parked_request != nullptr);
     task.reset();
+    ASTIA_CHECK(parked_request->cancellation_requested());
+    parked_request->acknowledge();
 }
 
 ASTIA_TEST(fs_async_completion_first_keeps_parked_request_stable) {
@@ -231,9 +233,14 @@ ASTIA_TEST(fs_async_active_cancel_releases_device_reference_once) {
         ASTIA_CHECK(request->begin_device());
         task.reset();
         ASTIA_CHECK(request->cancellation_requested());
-        if ((cycle & 1) != 0)
+        if ((cycle & 1) != 0) {
             request->acknowledge();
-        request->end_device();
+            request->end_device();
+        }
+        else {
+            request->end_device();
+            request->acknowledge();
+        }
     }
 }
 
@@ -366,6 +373,7 @@ ASTIA_TEST(fs_async_cancel_end_device_race_is_linearized) {
         start.store(true, std::memory_order_release);
         cancel.join();
         end.join();
+        packet.request().acknowledge();
     }
 }
 
