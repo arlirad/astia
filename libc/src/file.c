@@ -47,23 +47,23 @@ struct astia_memstream {
 };
 
 struct astia_file {
-    int                fd;
-    int                io_flags;  /* FIO_READ | FIO_WRITE | FIO_APPEND */
-    unsigned           state;     /* ST_EOF | ST_ERR */
-    int                buf_mode;  /* _IOFBF | _IOLBF | _IONBF */
-    int                heap;      /* the struct itself came from fopen */
-    int                buf_owned; /* the buffer came from malloc (not static/user) */
-    int                reading;   /* buffer currently holds read-ahead, not writes */
-    long               pos;       /* logical position: what ftell reports */
-    unsigned char*     buf;
-    size_t             cap; /* buffer capacity; 0 == unbuffered */
-    size_t             len; /* read: valid bytes; write: pending bytes */
-    size_t             cur; /* read cursor inside buf */
-    int                has_pushback;
-    unsigned char      pushback;
+    int                    fd;
+    int                    io_flags;  /* FIO_READ | FIO_WRITE | FIO_APPEND */
+    unsigned               state;     /* ST_EOF | ST_ERR */
+    int                    buf_mode;  /* _IOFBF | _IOLBF | _IONBF */
+    int                    heap;      /* the struct itself came from fopen */
+    int                    buf_owned; /* the buffer came from malloc (not static/user) */
+    int                    reading;   /* buffer currently holds read-ahead, not writes */
+    long                   pos;       /* logical position: what ftell reports */
+    unsigned char*         buf;
+    size_t                 cap; /* buffer capacity; 0 == unbuffered */
+    size_t                 len; /* read: valid bytes; write: pending bytes */
+    size_t                 cur; /* read cursor inside buf */
+    int                    has_pushback;
+    unsigned char          pushback;
     enum astia_file_kind   kind;
     struct astia_memstream mem;
-    struct astia_file* next; /* open-file list, for fflush(NULL) */
+    struct astia_file*     next; /* open-file list, for fflush(NULL) */
 };
 
 /* Standard streams: static storage, freed by nobody. */
@@ -289,8 +289,7 @@ static size_t stream_read(FILE* f, void* dst, size_t n) {
             if (f->cap == 0 || n - got >= f->cap) {
                 /* big request (or unbuffered): read straight past the
                    buffer into the caller's memory */
-                r = __astia_fio_read(f->fd, (uint64_t) f->pos, d + got,
-                                     io_cap(n - got));
+                r = __astia_fio_read(f->fd, (uint64_t) f->pos, d + got, io_cap(n - got));
                 if (r < 0) {
                     errno = (int) -r;
                     f->state |= ST_ERR;
@@ -523,7 +522,7 @@ FILE* fdopen(int fd, const char* mode) {
         errno = (int) -status;
         return NULL;
     }
-    access   = (int) status & O_ACCMODE;
+    access    = (int) status & O_ACCMODE;
     requested = flags & (FIO_READ | FIO_WRITE);
     if ((requested == FIO_READ && access == O_WRONLY) ||
         (requested == FIO_WRITE && access == O_RDONLY) ||
@@ -698,9 +697,9 @@ int __astia_stdio_dup2(int old_fd, int new_fd) {
     new_status = __astia_fio_fcntl(new_fd, F_GETFL, 0);
     if (new_status < 0)
         new_status = source_status;
-    stream_flags = ((int) new_status & O_ACCMODE) == O_RDWR
-                       ? FIO_READ | FIO_WRITE
-                       : ((int) new_status & O_ACCMODE) == O_WRONLY ? FIO_WRITE : FIO_READ;
+    stream_flags = ((int) new_status & O_ACCMODE) == O_RDWR     ? FIO_READ | FIO_WRITE
+                   : ((int) new_status & O_ACCMODE) == O_WRONLY ? FIO_WRITE
+                                                                : FIO_READ;
     if ((new_status & O_APPEND) != 0)
         stream_flags |= FIO_APPEND;
     position = __astia_fio_lseek(new_fd, 0, SEEK_CUR);
