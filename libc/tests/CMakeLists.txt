@@ -142,6 +142,13 @@ add_executable(libc_file_test file_test.c backend_host.c)
 target_link_libraries(libc_file_test PRIVATE astia_libc)
 add_test(NAME libc_file_test COMMAND libc_file_test)
 
+# open_memstream() is the same stream machinery with a memory sink; it
+# still links the POSIX port because file.c shares one translation unit,
+# but no descriptor call is made by these tests.
+add_executable(libc_memstream_test memstream_test.c backend_host.c)
+target_link_libraries(libc_memstream_test PRIVATE astia_libc)
+add_test(NAME libc_memstream_test COMMAND libc_memstream_test)
+
 # <sys/uio.h>: the position-based vector pair, same object trick.  The
 # port's readv/writev go by raw syscall there, because this libc is the
 # definition the binary would otherwise resolve them to.

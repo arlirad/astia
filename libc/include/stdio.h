@@ -80,6 +80,7 @@ FILE*  fopen(const char* path, const char* mode);
 char*  cuserid(char* buffer);
 FILE*  fdopen(int fd, const char* mode);
 FILE*  popen(const char* command, const char* mode);
+FILE*  open_memstream(char** bufp, size_t* sizep);
 int    pclose(FILE* stream);
 int    fclose(FILE* stream);
 int    fileno(FILE* stream);
