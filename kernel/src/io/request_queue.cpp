@@ -101,12 +101,18 @@ namespace astia::io {
                 continue;
 
             core::spinlock_guard guard(_lock);
+            // Keep FIFO order: a request that is not ready stays at the
+            // head, not the tail.  Otherwise every idle poll would rotate
+            // the queue and reorder completions.
+            entry->_queue_next = _head;
+            _head              = entry;
             if (_tail == nullptr)
-                _head = entry;
-            else
-                _tail->_queue_next = entry;
-            _tail = entry;
+                _tail = entry;
             ++_count;
+            // The backend is not ready.  Stop here instead of immediately
+            // retrying the same entry: the readiness path re-notes the file
+            // and the next task tick drives the queue again.
+            return;
         }
     }
 
