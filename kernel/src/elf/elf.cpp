@@ -7,9 +7,9 @@
 
 #include <astia/strings.hpp>
 
-#include "elf_internal.hpp"
+#include "loader/internal.hpp"
 
-namespace astia::elf {
+namespace astia::elf::loader {
 
     using namespace detail;
 
@@ -203,4 +203,4 @@ namespace astia::elf {
         }
     }
 
-} // namespace astia::elf
+} // namespace astia::elf::loader

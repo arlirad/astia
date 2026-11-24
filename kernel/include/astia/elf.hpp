@@ -26,7 +26,7 @@
 // binding against a runtime libc) is a separate, larger concern. COMMON symbols
 // are likewise rejected.
 
-namespace astia::elf {
+namespace astia::elf::loader {
 
     /// ELF identification bytes required by the System V ELF format.
     inline constexpr u8 elf_magic[] = {0x7f, 'E', 'L', 'F'};
@@ -181,4 +181,4 @@ namespace astia::elf {
         return load(span<const u8>(static_cast<const u8*>(bytes), len), e, out);
     }
 
-} // namespace astia::elf
+} // namespace astia::elf::loader

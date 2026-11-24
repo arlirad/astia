@@ -16,8 +16,8 @@ namespace astia::mod {
 #ifdef ASTIA_MODULE_HOST_TEST
     namespace host_test {
         int  invoke_entry(int (*entry)());
-        void invoke_initializer(elf::init_fn initializer);
-        void invoke_finalizer(elf::init_fn finalizer);
+        void invoke_initializer(elf::loader::init_fn initializer);
+        void invoke_finalizer(elf::loader::init_fn finalizer);
     }
 #endif
 
@@ -70,7 +70,7 @@ namespace astia::mod {
         }
 
         /// Backs the loader's undefined-symbol resolution with the linked
-        /// kernel symbol table. Signature must match elf::resolve_fn.
+        /// kernel symbol table. Signature must match elf::loader::resolve_fn.
         u64 image_resolve(void* context, const char* name) {
             if (name != nullptr && name_equals(name, "__dso_handle") &&
                 context != nullptr)
@@ -82,7 +82,7 @@ namespace astia::mod {
 
     const loaded_module* load_module(span<const u8> image) {
         production_load_state = {};
-        elf::env e{};
+        elf::loader::env e{};
         e.ctx     = &production_load_state;
         e.map     = image_map;
         e.unmap   = image_unmap;
@@ -90,13 +90,13 @@ namespace astia::mod {
         return load_module(image, e);
     }
 
-    const loaded_module* load_module(span<const u8> image, const elf::env& e) {
+    const loaded_module* load_module(span<const u8> image, const elf::loader::env& e) {
         if (image.data() == nullptr || image.size() == 0 || used >= max_modules) {
             return nullptr;
         }
 
-        elf::image img;
-        if (!elf::load(image, e, img)) {
+        elf::loader::image img;
+        if (!elf::loader::load(image, e, img)) {
             return nullptr;
         }
 

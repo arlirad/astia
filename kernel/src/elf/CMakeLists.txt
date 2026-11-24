@@ -1,7 +1,7 @@
 add_library(elf STATIC
         elf.cpp
-        exec_loader.cpp
-        reloc_loader.cpp
+        loader/exec.cpp
+        loader/reloc.cpp
 )
 
 target_include_directories(elf
