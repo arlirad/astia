@@ -321,23 +321,23 @@ astia_add_test_label(astia_device_test "sanitizer-host-partial")
 
 astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw_pci.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/driver.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/pci.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
 target_include_directories(astia_pci_core_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 astia_add_host_test(astia_pci_test
         pci_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw_pci.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/driver.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/pci.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/mmio.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/mmio.cpp)
 target_compile_definitions(astia_pci_test PRIVATE ASTIA_HOST_TEST=1)
 target_include_directories(astia_pci_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 astia_add_host_test(astia_driver_manager_test
         driver_manager_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/driver.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
 target_include_directories(astia_driver_manager_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
