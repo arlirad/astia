@@ -165,8 +165,10 @@ char* realpath(const char* path, char* resolved_path) {
 
     if (resolved_path == NULL) {
         resolved_path = malloc(astia_path_buffer_capacity);
-        if (resolved_path == NULL)
+        if (resolved_path == NULL) {
+            errno = ENOMEM;
             return NULL;
+        }
     }
     memcpy(resolved_path, resolved, length + 1);
     return resolved_path;
