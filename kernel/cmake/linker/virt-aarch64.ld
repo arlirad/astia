@@ -17,6 +17,8 @@ SECTIONS
     .text : ALIGN(16)
     {
         KEEP(*(.text.boot))
+        . = ALIGN(2048);
+        KEEP(*(.vectors))
         *(.text .text.*)
     } :text
 

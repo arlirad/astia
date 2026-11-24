@@ -7,10 +7,14 @@
 #include "pl011.hpp"
 #include "psci.hpp"
 
-extern "C" char __image_start[];
-extern "C" char __image_end[];
-extern "C" char __stack_bottom[];
-extern "C" char __stack_top[];
+extern "C" char              __image_start[];
+extern "C" char              __image_end[];
+extern "C" char              __stack_bottom[];
+extern "C" char              __stack_top[];
+extern "C" char              __vector_table[];
+extern "C" void              astia_aarch64_install_exception_vectors();
+extern "C" void              astia_aarch64_seed_far_el1(astia::u64 value);
+extern "C" [[noreturn]] void astia_aarch64_brk_probe();
 
 namespace {
     using astia::arch::page_flags;
@@ -274,6 +278,13 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     }
     const astia::u64 image_size = image_end - image_start;
 
+    const astia::u64 vector_start =
+        align_down(reinterpret_cast<astia::u64>(__vector_table), policy::page_size);
+    if (reinterpret_cast<astia::u64>(__vector_table) < image_start ||
+        reinterpret_cast<astia::u64>(__vector_table) >= image_end) {
+        fail(console, "exception vector table is outside the kernel image");
+    }
+
     const astia::u64 stack_start =
         align_down(reinterpret_cast<astia::u64>(__stack_bottom), policy::page_size);
     astia::u64 stack_end = 0;
@@ -339,10 +350,11 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
 
     if (map.translate(dtb_address) != dtb_address ||
         map.translate(image_start) != image_start ||
+        map.translate(vector_start) != vector_start ||
         map.translate(stack_start) != stack_start ||
         map.translate(info.console.base) != info.console.base ||
         !map.writable(info.console.base) || map.executable(info.console.base) ||
-        !map.executable(image_start)) {
+        !map.executable(image_start) || !map.executable(vector_start)) {
         fail(console, "identity map verification failed");
     }
 
@@ -366,6 +378,12 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     console.write_line("");
     console.write_line("ASTIA AARCH64 VIRT BOOT: PL011 RW OK");
 
-    console.write_line("ASTIA AARCH64 VIRT BOOT: HALT");
-    psci::system_off();
+    constexpr astia::u64 brk_far_sentinel = 0x5a5a5a5a5a5a5a5aULL;
+    astia_aarch64_install_exception_vectors();
+    console.write_line("ASTIA AARCH64 VIRT BOOT: EXCEPTION VECTORS");
+    write_line_field(
+        console, "exception: vbar=", reinterpret_cast<astia::u64>(__vector_table), 16);
+    write_line_field(console, "exception: far-seed=", brk_far_sentinel, 16);
+    astia_aarch64_seed_far_el1(brk_far_sentinel);
+    astia_aarch64_brk_probe();
 }

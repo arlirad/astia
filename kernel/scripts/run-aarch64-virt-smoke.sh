@@ -62,6 +62,54 @@ while IFS= read -r address; do
         die "LOAD segment $address overlaps the 1 MiB QEMU DTB area"
 done <<<"$load_addresses"
 
+symbol_address() {
+    local symbol="$1"
+    local value
+    value="$("$readelf" -sW "$image" |
+        awk -v name="$symbol" '$8 == name { print $2; exit }')"
+    [[ "$value" =~ ^[0-9a-fA-F]+$ ]] ||
+        die "symbol '$symbol' is missing from $image"
+    printf '%s\n' "$value"
+}
+
+vector_table="$(symbol_address __vector_table)"
+vector_table_end="$(symbol_address __vector_table_end)"
+brk_probe="$(symbol_address astia_aarch64_brk_probe)"
+vector_table_value=$((0x${vector_table}))
+vector_table_end_value=$((0x${vector_table_end}))
+brk_probe_value=$((0x${brk_probe}))
+
+(( (vector_table_value & 0x7ff) == 0 )) ||
+    die "vector table 0x$(printf '%x' "$vector_table_value") is not 2 KiB aligned"
+(( vector_table_end_value - vector_table_value == 0x800 )) ||
+    die "vector table size is not 0x800 bytes"
+
+check_vector_slot() {
+    local name="$1"
+    local offset="$2"
+    local address
+    address="$(symbol_address "$name")"
+    (( 0x${address} == vector_table_value + offset )) ||
+        die "$name is at 0x${address}, expected vector base + $offset"
+}
+
+check_vector_slot __vector_current_el_sp0_sync 0x000
+check_vector_slot __vector_current_el_sp0_irq 0x080
+check_vector_slot __vector_current_el_sp0_fiq 0x100
+check_vector_slot __vector_current_el_sp0_serror 0x180
+check_vector_slot __vector_current_el_spx_sync 0x200
+check_vector_slot __vector_current_el_spx_irq 0x280
+check_vector_slot __vector_current_el_spx_fiq 0x300
+check_vector_slot __vector_current_el_spx_serror 0x380
+check_vector_slot __vector_lower_el_aarch64_sync 0x400
+check_vector_slot __vector_lower_el_aarch64_irq 0x480
+check_vector_slot __vector_lower_el_aarch64_fiq 0x500
+check_vector_slot __vector_lower_el_aarch64_serror 0x580
+check_vector_slot __vector_lower_el_aarch32_sync 0x600
+check_vector_slot __vector_lower_el_aarch32_irq 0x680
+check_vector_slot __vector_lower_el_aarch32_fiq 0x700
+check_vector_slot __vector_lower_el_aarch32_serror 0x780
+
 log="${build}/qemu-smoke.log"
 set +e
 timeout "$timeout_seconds" "$qemu" \
@@ -121,7 +169,37 @@ grep -Eq '^mmu: pl011 read=0x[0-9a-f]{8}$' "$log" ||
     die "post-MMU PL011 read marker is missing"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: PL011 RW OK' "$log" ||
     die "post-MMU PL011 read/write verification was not reported"
-grep -Fxq 'ASTIA AARCH64 VIRT BOOT: HALT' "$log" ||
-    die "production stage did not halt cleanly"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: EXCEPTION VECTORS' "$log" ||
+    die "exception vector installation was not reported"
+vbar_hex="$(sed -nE 's/^exception: vbar=0x([0-9a-f]{16})$/\1/p' "$log" |
+    head -n 1)"
+[[ "$vbar_hex" =~ ^[0-9a-f]{16}$ ]] ||
+    die "VBAR_EL1 diagnostic is missing or malformed"
+(( 0x${vbar_hex} == vector_table_value )) ||
+    die "VBAR_EL1 was not installed with the vector-table base"
+grep -Fxq 'exception: vector=current-el-spx-sync' "$log" ||
+    die "synchronous exception did not enter the current-EL SPx slot"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC' "$log" ||
+    die "synchronous exception marker was not reported"
+grep -Fxq 'exception: esr=0x00000000f2001234 ec=0x3c il=1 iss=0x00001234' "$log" ||
+    die "BRK64 ESR_EL1 syndrome is missing or unexpected"
+grep -Fxq 'exception: brk64 imm=0x1234' "$log" ||
+    die "BRK64 immediate was not reported"
+elr_hex="$(sed -nE 's/^exception: elr=0x([0-9a-f]{16})$/\1/p' "$log" |
+    head -n 1)"
+[[ "$elr_hex" =~ ^[0-9a-f]{16}$ ]] ||
+    die "ELR_EL1 diagnostic is missing or malformed"
+(( 0x${elr_hex} == brk_probe_value )) ||
+    die "ELR_EL1 does not point at the deliberate BRK probe"
+far_hex="$(sed -nE 's/^exception: far=0x([0-9a-f]{16})$/\1/p' "$log" |
+    head -n 1)"
+[[ "$far_hex" =~ ^[0-9a-f]{16}$ ]] ||
+    die "FAR_EL1 diagnostic is missing or malformed"
+[[ "$far_hex" == '5a5a5a5a5a5a5a5a' ]] ||
+    die "FAR_EL1 was not captured from the seeded value"
+grep -Eq '^exception: spsr=0x[0-9a-f]{16}$' "$log" ||
+    die "SPSR_EL1 diagnostic is missing or malformed"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: EXCEPTION HALT' "$log" ||
+    die "synchronous exception did not halt cleanly"
 
 printf '%s\n' 'aarch64 virt kernel smoke: PASS'

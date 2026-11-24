@@ -104,6 +104,10 @@ astia_add_host_test(astia_aarch64_page_map_test
 target_include_directories(astia_aarch64_page_map_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64)
 target_compile_definitions(astia_aarch64_page_map_test PRIVATE ASTIA_HOST_TEST=1)
+astia_add_host_test(astia_aarch64_exception_frame_test
+        aarch64_exception_frame_test.cpp)
+target_include_directories(astia_aarch64_exception_frame_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/arch/aarch64)
 add_test(NAME astia_init_launch_shape
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_launch_shape.py
