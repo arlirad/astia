@@ -25,8 +25,7 @@ namespace astia::proc::syscalls {
                 (modes != MS_SYNC && modes != MS_ASYNC)) {
                 co_return -EINVAL;
             }
-            auto result =
-                co_await process->msync_async(addr, static_cast<usize>(len), flags);
+            auto result = co_await process->msync(addr, static_cast<usize>(len), flags);
             if (!result)
                 co_return error_errno(result.error);
             co_return result.value;

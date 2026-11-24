@@ -369,8 +369,11 @@ namespace astia::proc {
         /// writes land on the private copy, and the mapping keeps the
         /// open file description alive across close().  `fd` resolves
         /// in this process' table; `off` must be page-aligned.
-        u64 map_file(fd_t fd, vaddr_t addr, bytes_t len, map_protection prot,
-                     map_flags flags, offset_t off);
+        core::task<u64> map_file(fd_t fd, vaddr_t addr, bytes_t len,
+                                 map_protection prot, map_flags flags, offset_t off);
+        u64             map_file_sync(fd_t fd, vaddr_t addr, bytes_t len,
+                                      map_protection prot, map_flags flags,
+                                      offset_t off);
 
         /// munmap: drop [addr, addr + len) rounded up to pages; parts
         /// of mapped regions outside the range are kept.  Returns 0,
@@ -379,8 +382,8 @@ namespace astia::proc {
 
         i32 protect(u64 addr, usize len, map_protection prot);
 
-        i32             msync(u64 addr, usize len, u32 flags);
-        core::task<i32> msync_async(u64 addr, usize len, u32 flags);
+        core::task<i32> msync(u64 addr, usize len, u32 flags);
+        i32             msync_sync(u64 addr, usize len, u32 flags);
 
         /// The mmap_region covering `addr`, or nullptr — the entry
         /// point for the future user page-fault path.

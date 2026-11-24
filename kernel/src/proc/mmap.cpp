@@ -406,8 +406,9 @@ namespace astia::proc {
         return base;
     }
 
-    u64 process::map_file(fd_t fd, vaddr_t addr, bytes_t len, map_protection prot,
-                          map_flags flags, offset_t off) {
+    core::task<u64> process::map_file(fd_t fd, vaddr_t addr, bytes_t len,
+                                      map_protection prot, map_flags flags,
+                                      offset_t off) {
         // File mappings: private mappings capture bytes into
         // fresh frames at map time — snapshot semantics, the same
         // kernel-side read the ELF loader trusts.  Writes land on the
@@ -416,87 +417,87 @@ namespace astia::proc {
         // merge/replacement rules.
         if ((!has(flags, map_flags::priv) && !has(flags, map_flags::shared)) ||
             (has(flags, map_flags::priv) && has(flags, map_flags::shared))) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         if (has(flags, map_flags::anonymous)) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         if (has(flags, map_flags::stack)) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         if (has(flags, map_flags::fixed)) {
-            return -ENOSYS;
+            co_return -ENOSYS;
         }
         if (!_address_space.attached() || len == 0) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         if (static_cast<u64>(len) > ~u64{0} - mm::page_mask) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         const u64 page_bytes = mm::phys_region::frame_size;
         if ((off % page_bytes) != 0) { // POSIX: file offset page-aligned
-            return -EINVAL;
+            co_return -EINVAL;
         }
         const u64 pages = (static_cast<u64>(len) + page_bytes - 1) / page_bytes;
         if (pages > (u64{1} << 20)) {
-            return -ENOMEM;
+            co_return -ENOMEM;
         }
         const u64    want = pages * page_bytes;
         astia_rlimit address_limit{};
         (void) get_rlimit(RLIMIT_AS, &address_limit);
         if (want > address_limit.current || _mapped_bytes > address_limit.current - want)
-            return -ENOMEM;
+            co_return -ENOMEM;
         if (off + want < off) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
 
         auto file = _descriptors.get(fd);
         if (!file) {
-            return -EBADF;
+            co_return -EBADF;
         }
         const long file_size = file->size();
         if (file_size < 0) { // devices have no contents to map
             if (!has(flags, map_flags::priv) || !file->mode().is_character_device() ||
                 !is_zero_device(*file)) {
-                return -ENODEV;
+                co_return -ENODEV;
             }
             const u32 access_mode = file->flags() & fs::open_file_access_mask;
             if (has(prot, map_protection::read) &&
                 access_mode == static_cast<u32>(fs::open_file_status_flags::write)) {
-                return -EACCES;
+                co_return -EACCES;
             }
             auto* region = mm::phys_region::create(pages, true);
             if (region == nullptr)
-                return -ENOMEM;
+                co_return -ENOMEM;
             u64 base = 0;
             if (!install_mapping(addr, pages, prot, region, {}, 0, base)) {
                 region->release();
-                return -ENOMEM;
+                co_return -ENOMEM;
             }
-            return base;
+            co_return base;
         }
         const u32 access_mode = file->flags() & fs::open_file_access_mask;
         if (has(prot, map_protection::read) &&
             access_mode == static_cast<u32>(fs::open_file_status_flags::write)) {
-            return -EACCES;
+            co_return -EACCES;
         }
         if (has(flags, map_flags::shared) && has(prot, map_protection::write) &&
             access_mode == 0) {
-            return -EACCES;
+            co_return -EACCES;
         }
 
         if (has(flags, map_flags::shared)) {
             auto* shared_region = file->mapping();
             if (off >= static_cast<u64>(file_size) && prot != map_protection::none) {
-                return -ENXIO;
+                co_return -ENXIO;
             }
             if (shared_region == nullptr || off + want < off ||
                 off / page_bytes + pages > shared_region->pages()) {
-                return -ENOSYS;
+                co_return -ENOSYS;
             }
             if (!shared_region->share_range(static_cast<usize>(off / page_bytes),
                                             static_cast<usize>(pages))) {
-                return -EAGAIN;
+                co_return -EAGAIN;
             }
             u64        base = 0;
             const bool installed =
@@ -505,14 +506,14 @@ namespace astia::proc {
             if (!installed) {
                 shared_region->release_range(static_cast<usize>(off / page_bytes),
                                              static_cast<usize>(pages));
-                return -ENOMEM;
+                co_return -ENOMEM;
             }
-            return base;
+            co_return base;
         }
         // Zeroed frames: the tail past EOF stays zero per POSIX.
         auto* region = mm::phys_region::create(pages, true);
         if (region == nullptr) {
-            return -ENOMEM;
+            co_return -ENOMEM;
         }
         bool io_ok = true;
         for (u64 page = 0; page < pages && io_ok; ++page) {
@@ -524,22 +525,35 @@ namespace astia::proc {
             if (static_cast<u64>(file_size) - at < chunk) {
                 chunk = static_cast<u64>(file_size) - at;
             }
-            const long got =
-                file->read(region->page_direct(page), static_cast<u32>(chunk), at);
-            io_ok = got >= 0 && static_cast<u64>(got) == chunk;
+            auto got =
+                co_await file->read(span<u8>(static_cast<u8*>(region->page_direct(page)),
+                                             static_cast<usize>(chunk)),
+                                    at, {});
+            io_ok = got && got.value >= 0 && static_cast<u64>(got.value) == chunk;
         }
         if (!io_ok) {
             region->release();
-            return -EIO;
+            co_return -EIO;
         }
         u64        base = 0;
         const bool installed =
             install_mapping(addr, pages, prot, region, file, off, base);
         if (!installed) {
             region->release();
-            return -ENOMEM;
+            co_return -ENOMEM;
         }
-        return base;
+        co_return base;
+    }
+
+    u64 process::map_file_sync(fd_t fd, vaddr_t addr, bytes_t len, map_protection prot,
+                               map_flags flags, offset_t off) {
+        auto task = map_file(fd, addr, len, prot, flags, off);
+        task.resume();
+        if (!task.done())
+            return static_cast<u64>(-EAGAIN);
+        if (task.failed())
+            return static_cast<u64>(error_errno(task.error()));
+        return *task.value();
     }
 
     i32 process::unmap(u64 addr, usize len) {
@@ -872,7 +886,7 @@ namespace astia::proc {
         }
     }
 
-    core::task<i32> process::msync_async(u64 addr, usize len, u32 flags) {
+    core::task<i32> process::msync(u64 addr, usize len, u32 flags) {
         const u64 page_bytes = mm::phys_region::frame_size;
         const u32 modes      = flags & (MS_SYNC | MS_ASYNC);
         if ((flags & ~(MS_SYNC | MS_ASYNC | MS_INVALIDATE)) != 0 ||
@@ -1001,8 +1015,8 @@ namespace astia::proc {
         co_return result;
     }
 
-    i32 process::msync(u64 addr, usize len, u32 flags) {
-        auto task = msync_async(addr, len, flags);
+    i32 process::msync_sync(u64 addr, usize len, u32 flags) {
+        auto task = msync(addr, len, flags);
         task.resume();
         if (!task.done())
             return -EAGAIN;
