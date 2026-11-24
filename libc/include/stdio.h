@@ -35,9 +35,10 @@
  * audits every format string in the tree.
  */
 
+#include <sys/types.h>
+
 #include <stdarg.h>
 #include <stddef.h>
-#include <sys/types.h>
 
 #if defined(__GNUC__)
 #define ASTIA_PRINTF_FMT(fmt_idx, first_arg) \
@@ -80,6 +81,7 @@ FILE*  fopen(const char* path, const char* mode);
 char*  cuserid(char* buffer);
 FILE*  fdopen(int fd, const char* mode);
 FILE*  popen(const char* command, const char* mode);
+FILE*  open_memstream(char** bufp, size_t* sizep);
 int    pclose(FILE* stream);
 int    fclose(FILE* stream);
 int    fileno(FILE* stream);
@@ -107,19 +109,19 @@ int    fputs(const char* s, FILE* stream);
 int    setvbuf(FILE* stream, char* buf, int mode, size_t size);
 
 /* formatted output, implemented on top of vsnprintf and FILE streams */
-int vprintf(const char* format, va_list ap) ASTIA_PRINTF_FMT(1, 0);
-int vfprintf(FILE* stream, const char* format, va_list ap) ASTIA_PRINTF_FMT(2, 0);
-int printf(const char* format, ...) ASTIA_PRINTF_FMT(1, 2);
-int fprintf(FILE* stream, const char* format, ...) ASTIA_PRINTF_FMT(2, 3);
-int puts(const char* s);
-int putchar(int c);
+int  vprintf(const char* format, va_list ap) ASTIA_PRINTF_FMT(1, 0);
+int  vfprintf(FILE* stream, const char* format, va_list ap) ASTIA_PRINTF_FMT(2, 0);
+int  printf(const char* format, ...) ASTIA_PRINTF_FMT(1, 2);
+int  fprintf(FILE* stream, const char* format, ...) ASTIA_PRINTF_FMT(2, 3);
+int  puts(const char* s);
+int  putchar(int c);
 void perror(const char* s);
-int vscanf(const char* format, va_list ap);
-int vsscanf(const char* input, const char* format, va_list ap);
-int vfscanf(FILE* stream, const char* format, va_list ap);
-int scanf(const char* format, ...);
-int sscanf(const char* input, const char* format, ...);
-int fscanf(FILE* stream, const char* format, ...);
+int  vscanf(const char* format, va_list ap);
+int  vsscanf(const char* input, const char* format, va_list ap);
+int  vfscanf(FILE* stream, const char* format, va_list ap);
+int  scanf(const char* format, ...);
+int  sscanf(const char* input, const char* format, ...);
+int  fscanf(FILE* stream, const char* format, ...);
 
 #ifdef __cplusplus
 } /* extern "C" */
