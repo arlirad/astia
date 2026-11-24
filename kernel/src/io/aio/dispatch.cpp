@@ -296,6 +296,14 @@ namespace astia::io::aio::dispatch {
         }
 
         void retry_pending(ring_slot& slot, astia_rings* ring) {
+            for (u32 i = 0; i < kernel_ring_max_entries; ++i) {
+                auto& pending = slot.pending_detached[i];
+                if (!pending.used)
+                    continue;
+                if (!cq_post(ring, pending.user_data, pending.result))
+                    break;
+                pending = {};
+            }
             for (u32 i = 0; i < parked_operation_slots; ++i) {
                 parked_op& op = slot.park[i];
                 if (op.used && op.pending_cqe && !publish_pending(ring, op))
@@ -381,9 +389,14 @@ namespace astia::io::aio::dispatch {
             // folds in the caller's byte offset inside the first page, so the
             // device works on the range the SQE named rather than on the page
             // it happens to sit on.
+            core::clsource* cancel_parent = slot.owner ? &slot.owner->cancellation_root()
+                                                       : &core::unrestricted_source;
+            p->cancel = mm::uptr<core::clsource>(new core::clsource(*cancel_parent));
+            const core::cltoken cancel_token =
+                p->cancel ? p->cancel->token() : core::cltoken{};
             p->operation = new ::astia::io::operation(
                 p->entries.window(), static_cast<u32>(p->entries.chunk()), s.offset,
-                s.user_data, direction);
+                s.user_data, direction, {}, cancel_token);
             if (p->operation == nullptr) {
                 p->type = parked_op::kind::oom_completion;
                 if (cq_post(ring, s.user_data, -ENOMEM))
@@ -625,7 +638,84 @@ namespace astia::io::aio::dispatch {
                                   direction, false, false, token);
         }
 
+        optional<pinned_io> prepare_file_io(ring_slot&                    slot,
+                                            [[maybe_unused]] astia_rings* ring,
+                                            const astia_sqe&              s,
+                                            ::astia::io::direction        direction,
+                                            bool                          vectored) {
+            pinned_io                out;
+            mm::shptr<fs::open_file> handle = file_for(s.fd);
+            if (!handle)
+                return error_t::ebadf;
+            const u32 access = handle->flags() & fs::open_file_access_mask;
+            if ((direction == ::astia::io::direction::output && access == 0 &&
+                 (handle->flags() & fs::pipe_write_endpoint_flag) == 0 &&
+                 handle->mode().is_regular()) ||
+                (direction == ::astia::io::direction::input &&
+                 access == ASTIA_AIO_O_WRONLY))
+                return error_t::ebadf;
+
+            span<u8> ranges[mm::iovec::max_segments];
+            u32      count = 0;
+            if (!vectored) {
+                ranges[0] = span<u8>::bytes(s.address, s.length);
+                count     = 1;
+            }
+            else {
+                if (s.length > mm::iovec::max_segments)
+                    return error_t::einval;
+                astia_iovec raw[mm::iovec::max_segments];
+                if (s.length != 0 &&
+                    !memory::copy_in(
+                        raw, span<u8>::bytes(s.address, static_cast<usize>(s.length) *
+                                                            sizeof(astia_iovec))))
+                    return error_t::efault;
+                for (u64 i = 0; i < s.length; ++i)
+                    ranges[i] = span<u8>::bytes(reinterpret_cast<u64>(raw[i].base),
+                                                static_cast<usize>(raw[i].len));
+                count = static_cast<u32>(s.length);
+            }
+
+            usize total = 0;
+            for (u32 i = 0; i < count; ++i) {
+                const bool kernel_buffer =
+                    slot.kernel_buffers && memory::kernel_span_ok(ranges[i]);
+                if (!kernel_buffer &&
+                    !memory::user_span_ok_for(slot.owner.get(), ranges[i]))
+                    return error_t::efault;
+                if (ranges[i].length() > max_operation_bytes ||
+                    total > max_operation_bytes - ranges[i].length())
+                    return error_t::einval;
+                total += ranges[i].length();
+                const long pinned =
+                    memory::pin_user_span_for(slot.owner.get(), ranges[i], direction,
+                                              out.entries, slot.kernel_buffers);
+                if (pinned < 0)
+                    return error_from_errno(-pinned);
+            }
+            out.handle = handle;
+            out.bytes  = total;
+            if (total == 0)
+                return optional<pinned_io>(static_cast<pinned_io&&>(out));
+
+            while (!out.entries.done()) {
+                void* window = out.entries.window();
+                usize chunk  = out.entries.chunk();
+                if (window == nullptr || chunk == 0)
+                    break;
+                out.buffers[out.buffered++] = {window, chunk};
+                out.entries.advance(chunk);
+            }
+            return optional<pinned_io>(static_cast<pinned_io&&>(out));
+        }
+
     } // namespace detail
+
+    optional<pinned_io> prepare_file_io(ring::ring_slot& slot, astia_rings* ring,
+                                        const astia_sqe&       sqe,
+                                        ::astia::io::direction direction, bool vectored) {
+        return detail::prepare_file_io(slot, ring, sqe, direction, vectored);
+    }
 
     mm::shptr<fs::open_file> file_for(proc::process* current, i32 fd) {
         return detail::file_for(current, fd);
