@@ -275,6 +275,12 @@ namespace astia::fs {
     long dispatch_ioctl(file* object, u64 request, void* argp, usize size);
     mm::phys_region* dispatch_mapping(const file* object);
 
+    /// One kernel-visible buffer in an async vector operation.
+    struct buffer {
+        void* data   = nullptr;
+        usize length = 0;
+    };
+
     /// One open file description.  Separate opens create separate
     /// instances; dup/dup2 in the ABI layer share this object.  The
     /// underlying node/device file remains shared by all opens.
@@ -309,10 +315,17 @@ namespace astia::fs {
         /// callers that may wait use read()/write() below instead.
         long read(void* buf, u32 len, u64 offset = offset_current);
         long write(const void* buf, u32 len, u64 offset = offset_current);
-        long seek(i64 offset, i32 whence);
-        long submit(io::request& request);
-        u32  poll(u32 events) const;
-        u32  flags() const {
+        /// Async vector I/O.  Resolves offset_current/append once, walks the
+        /// buffer list through the node's device-facing submit, and advances
+        /// the shared position by the bytes moved.
+        core::task<i64> readv(span<const buffer> buffers, u64 offset = offset_current,
+                              core::cltoken token = {});
+        core::task<i64> writev(span<const buffer> buffers, u64 offset = offset_current,
+                               core::cltoken token = {});
+        long            seek(i64 offset, i32 whence);
+        long            submit(io::request& request);
+        u32             poll(u32 events) const;
+        u32             flags() const {
             return _flags;
         }
         void set_status_flags(u32 flags) {

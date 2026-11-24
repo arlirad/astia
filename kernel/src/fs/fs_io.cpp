@@ -4,21 +4,24 @@
 namespace astia::fs {
 
     namespace {
-        core::task<i64> submit_async(const mm::shptr<open_file>& file, void* buffer,
-                                     u32 length, u64 offset, io::direction direction,
-                                     core::cltoken token) {
+        /// Submit one concrete stretch to the node behind the open file.  The
+        /// request offset is already resolved, so the open-file position is
+        /// advanced once by readv()/writev() when the whole vector is done.
+        core::task<i64> submit_segment(const mm::shptr<open_file>& file,
+                                       const buffer& entry, u64 offset,
+                                       io::direction direction, core::cltoken token) {
             if (token.canceled())
                 co_return error_t::ecanceled;
-            if (!file)
-                co_return error_t::ebadf;
             auto completion =
                 mm::uptr<core::completion<i64>>(new core::completion<i64>());
             if (!completion)
                 co_return error_t::enomem;
-            io_packet packet(file, buffer, length, offset, direction,
+            io_packet packet(file, entry.data, static_cast<u32>(entry.length), offset,
+                             direction,
                              static_cast<mm::uptr<core::completion<i64>>&&>(completion));
             if (!packet)
                 co_return error_t::enomem;
+            packet.request().updates_position(false);
             core::completion<i64>* pending_completion = packet.completion();
             if (!packet.request().park_device())
                 co_return error_t::eagain;
@@ -52,11 +55,104 @@ namespace astia::fs {
                 co_return result.error;
             co_return result.value;
         }
+
+        bool buffer_bytes(span<const buffer> buffers, u64& total) {
+            total = 0;
+            for (usize i = 0; i < buffers.size(); ++i) {
+                const buffer& entry = buffers[i];
+                if (entry.length > static_cast<usize>(~u32{0}))
+                    return false;
+                if (total > ~u64{0} - entry.length)
+                    return false;
+                total += entry.length;
+            }
+            return true;
+        }
+    } // namespace
+
+    core::task<i64> open_file::readv(span<const buffer> buffers, u64 offset,
+                                     core::cltoken token) {
+        u64 sized = 0;
+        if (!buffer_bytes(buffers, sized))
+            co_return error_t::erange;
+        if (sized == 0)
+            co_return i64{0};
+        const bool current = offset == offset_current;
+        const u64  actual  = current ? current_position() : offset;
+        i64        total   = 0;
+        const auto self    = mm::shptr<open_file>::borrowed(this);
+        for (usize i = 0; i < buffers.size(); ++i) {
+            const buffer& entry = buffers[i];
+            if (entry.length == 0)
+                continue;
+            auto result =
+                co_await submit_segment(self, entry, actual + static_cast<u64>(total),
+                                        io::direction::input, token);
+            if (!result) {
+                if (total != 0)
+                    co_return total;
+                co_return result.error;
+            }
+            total += result.value;
+            if (result.value < static_cast<i64>(entry.length))
+                break;
+        }
+        if (total > 0 && current)
+            set_position(actual + static_cast<u64>(total));
+        co_return total;
     }
 
-    core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,
+    core::task<i64> open_file::writev(span<const buffer> buffers, u64 offset,
+                                      core::cltoken token) {
+        u64 sized = 0;
+        if (!buffer_bytes(buffers, sized))
+            co_return error_t::erange;
+        if (sized == 0)
+            co_return i64{0};
+        const bool current = offset == offset_current;
+        const bool append =
+            (_flags & static_cast<u32>(open_file_status_flags::append)) != 0;
+        u64 actual = current ? current_position() : offset;
+        if (append) {
+            const long reserved = reserve_append(static_cast<u32>(sized), &actual);
+            if (reserved < 0)
+                co_return error_from_errno(-reserved);
+        }
+        i64        total = 0;
+        const auto self  = mm::shptr<open_file>::borrowed(this);
+        for (usize i = 0; i < buffers.size(); ++i) {
+            const buffer& entry = buffers[i];
+            if (entry.length == 0)
+                continue;
+            auto result =
+                co_await submit_segment(self, entry, actual + static_cast<u64>(total),
+                                        io::direction::output, token);
+            if (!result) {
+                if (total != 0)
+                    co_return total;
+                co_return result.error;
+            }
+            total += result.value;
+            if (result.value < static_cast<i64>(entry.length))
+                break;
+        }
+        if (total > 0 && (current || append))
+            set_position(actual + static_cast<u64>(total));
+        co_return total;
+    }
+
+    core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer_ptr, u32 length,
                            u64 offset, io::direction direction, core::cltoken token) {
-        return submit_async(file, buffer, length, offset, direction, token);
+        if (!file)
+            co_return error_t::ebadf;
+        buffer entry{buffer_ptr, length};
+        auto   result =
+            direction == io::direction::input
+                  ? co_await file->readv(span<const buffer>(&entry, 1), offset, token)
+                  : co_await file->writev(span<const buffer>(&entry, 1), offset, token);
+        if (!result)
+            co_return result.error;
+        co_return result.value;
     }
 
     core::task<i64> read(const mm::shptr<open_file>& file, span<u8> buffer, u64 offset,
