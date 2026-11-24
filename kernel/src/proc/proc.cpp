@@ -395,8 +395,11 @@ namespace astia::proc {
             return terminal_access_result::denied;
         if (foreground == pgrp_t{} || owner->process_group() == foreground)
             return terminal_access_result::allowed;
-        const signal_mask bit = signal_bit(signal_number::ttou);
-        if ((owner->signals().blocked() & bit) != 0 ||
+        const signal_mask bit  = signal_bit(signal_number::ttou);
+        auto*             self = current_thread();
+        const signal_mask blocked =
+            self != nullptr ? self->signals().blocked() : owner->signals().blocked();
+        if ((blocked & bit) != 0 ||
             owner->signals().disposition(signal_number::ttou).action ==
                 signal_action::ignore)
             return terminal_access_result::allowed;
