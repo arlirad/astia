@@ -31,6 +31,8 @@ namespace astia::arch::aarch64 {
 
     inline constexpr u64 exception_vector_current_el_spx_sync_offset = 0x200;
     inline constexpr u64 exception_vector_current_el_spx_sync        = 4;
+    inline constexpr u64 exception_vector_current_el_spx_irq_offset  = 0x280;
+    inline constexpr u64 exception_vector_current_el_spx_irq         = 5;
 
     static_assert(sizeof(exception_frame) == exception_frame_size);
     static_assert(alignof(exception_frame) == 8);

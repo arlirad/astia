@@ -1,6 +1,7 @@
 #include <astia/arch/exception_frame.hpp>
 
 #include "board.hpp"
+#include "gic.hpp"
 #include "pl011.hpp"
 #include "psci.hpp"
 
@@ -80,6 +81,33 @@ extern "C" void astia_aarch64_install_exception_vectors() {
 extern "C" void astia_aarch64_seed_far_el1(astia::u64 value) {
     __asm__ volatile("msr far_el1, %0" : : "r"(value) : "memory");
     __asm__ volatile("isb" : : : "memory");
+}
+
+extern "C" void astia_aarch64_irq_entry(const exception_frame* frame) {
+    namespace gicv3 = astia::arch::aarch64::gicv3;
+
+    const gicv3::irq_result result = gicv3::acknowledge_and_complete();
+    const pl011_uart        console{astia::plat::aarch64_virt::pl011_base};
+
+    if (result.action == gicv3::irq_action::handled) {
+        write_line_field(console, "irq: iar=", result.iar, 8);
+        write_line_field(console, "irq: eoi=", result.intid, 8);
+        write_line_field(console, "irq: dir=", result.intid, 8);
+        console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ HANDLED");
+        return;
+    }
+    if (result.action == gicv3::irq_action::spurious) {
+        console.write_line("irq: spurious");
+        return;
+    }
+
+    console.write_line("");
+    console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ FATAL");
+    write_line_field(console, "irq: intid=", result.intid, 8);
+    write_line_field(console, "exception: elr=", frame->elr_el1, 16);
+    write_line_field(console, "exception: spsr=", frame->spsr_el1, 16);
+    console.write_line("ASTIA AARCH64 VIRT BOOT: EXCEPTION HALT");
+    astia::plat::aarch64_virt::psci::system_off();
 }
 
 extern "C" [[noreturn]] void astia_aarch64_exception_entry(const exception_frame* frame,

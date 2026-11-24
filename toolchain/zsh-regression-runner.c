@@ -1,3 +1,4 @@
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 #include <errno.h>
@@ -7,6 +8,8 @@
 
 #define ZSH_LSTAT_TARGET "/tmp/zsh-lstat-target"
 #define ZSH_LSTAT_LINK "/tmp/zsh-lstat-link"
+#define ZSH_REALPATH_DIR "/tmp/zsh-realpath-dir"
+#define ZSH_REALPATH_LINK "/tmp/zsh-realpath-link"
 
 static int run_zsh(const char* command) {
     char* argv[] = {"/bin/zsh", "-f", "-c", (char*) command, NULL};
@@ -47,6 +50,24 @@ static int remove_link_fixture(void) {
     if (unlink(ZSH_LSTAT_LINK) != 0)
         result = 1;
     if (unlink(ZSH_LSTAT_TARGET) != 0)
+        result = 1;
+    return result;
+}
+
+static int create_realpath_fixture(void) {
+    (void) unlink(ZSH_REALPATH_LINK);
+    (void) rmdir(ZSH_REALPATH_DIR);
+    if (mkdir(ZSH_REALPATH_DIR, 0755) != 0)
+        return -1;
+    return symlink(ZSH_REALPATH_DIR, ZSH_REALPATH_LINK);
+}
+
+static int remove_realpath_fixture(void) {
+    int result = 0;
+
+    if (unlink(ZSH_REALPATH_LINK) != 0)
+        result = 1;
+    if (rmdir(ZSH_REALPATH_DIR) != 0)
         result = 1;
     return result;
 }
@@ -102,5 +123,18 @@ int main(void) {
               "(( (st[3] & 8#170000) == 8#120000 ))");
     if (remove_link_fixture() != 0 && result == 0)
         result = 35;
+
+    if (create_realpath_fixture() != 0) {
+        (void) remove_realpath_fixture();
+        return 36;
+    }
+    check_zsh(&result, 37,
+              "cd -L " ZSH_REALPATH_LINK " && "
+              "[[ ${PWD:A} = " ZSH_REALPATH_DIR " ]]");
+    check_zsh(&result, 38,
+              "cd -L " ZSH_REALPATH_LINK " && "
+              "[[ ${PWD:P} = " ZSH_REALPATH_DIR " ]]");
+    if (remove_realpath_fixture() != 0 && result == 0)
+        result = 39;
     return result;
 }

@@ -3,6 +3,7 @@
 #include <astia/boot/aarch64/virt.hpp>
 
 #include "board.hpp"
+#include "gic.hpp"
 #include "page_map_policy.hpp"
 #include "pl011.hpp"
 #include "psci.hpp"
@@ -24,6 +25,7 @@ namespace {
     using astia::plat::aarch64_virt::pl011_uart;
 
     namespace policy = astia::arch::aarch64::page_map_policy;
+    namespace gicv3  = astia::arch::aarch64::gicv3;
 
     constexpr page_flags ram_flags =
         page_flags::present | page_flags::writable | page_flags::no_execute;
@@ -211,6 +213,34 @@ namespace {
         return false;
     }
 
+    [[nodiscard]] bool gic_conflicts_with_ram(const astia::mm::memory_map& regions,
+                                              astia::u64 base, astia::u64 size) {
+        for (astia::usize index = 0; index < regions.count(); ++index) {
+            const astia::mm::memory_region& region = regions[index];
+            if (region.type != astia::mm::memory_type::usable) {
+                continue;
+            }
+            if (ranges_overlap(base, size, region.base, region.size)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool
+    gic_ranges_supported(const astia::boot::aarch64::virt::gic_info& gic) {
+        constexpr astia::u64 gicd_size_limit = 0x00100000;
+        constexpr astia::u64 gicr_size_limit = 0x01000000;
+        return gic.present && gic.distributor_size >= gicv3::minimum_distributor_size &&
+               gic.distributor_size <= gicd_size_limit &&
+               gic.redistributor_size >= gicv3::minimum_redistributor_size &&
+               gic.redistributor_size <= gicr_size_limit &&
+               (gic.distributor_base & (policy::page_size - 1)) == 0 &&
+               (gic.distributor_size & (policy::page_size - 1)) == 0 &&
+               (gic.redistributor_base & (policy::page_size - 1)) == 0 &&
+               (gic.redistributor_size & (policy::page_size - 1)) == 0;
+    }
+
     [[noreturn]] void fail(const pl011_uart& console, const char* reason) {
         console.write("reason: ");
         console.write_line(reason);
@@ -348,13 +378,62 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
         fail(console, "PL011 identity mapping failed");
     }
 
+    if (!gic_ranges_supported(info.gic)) {
+        fail(console, "GICv3 ranges are missing or invalid");
+    }
+    if (!identity_range_supported(info.gic.distributor_base, info.gic.distributor_size) ||
+        !identity_range_supported(info.gic.redistributor_base,
+                                  info.gic.redistributor_size)) {
+        fail(console, "GICv3 range exceeds the address policy");
+    }
+    if (gic_conflicts_with_ram(info.memory, info.gic.distributor_base,
+                               info.gic.distributor_size) ||
+        gic_conflicts_with_ram(info.memory, info.gic.redistributor_base,
+                               info.gic.redistributor_size)) {
+        fail(console, "GICv3 range overlaps usable RAM");
+    }
+    if (ranges_overlap(info.gic.distributor_base, info.gic.distributor_size,
+                       info.gic.redistributor_base, info.gic.redistributor_size)) {
+        fail(console, "GICv3 distributor overlaps the redistributor");
+    }
+    if (ranges_overlap(info.gic.distributor_base, info.gic.distributor_size, image_start,
+                       image_size) ||
+        ranges_overlap(info.gic.redistributor_base, info.gic.redistributor_size,
+                       image_start, image_size) ||
+        ranges_overlap(info.gic.distributor_base, info.gic.distributor_size, dtb_address,
+                       dtb_size) ||
+        ranges_overlap(info.gic.redistributor_base, info.gic.redistributor_size,
+                       dtb_address, dtb_size) ||
+        ranges_overlap(info.gic.distributor_base, info.gic.distributor_size, stack_start,
+                       stack_size) ||
+        ranges_overlap(info.gic.redistributor_base, info.gic.redistributor_size,
+                       stack_start, stack_size) ||
+        ranges_overlap(info.gic.distributor_base, info.gic.distributor_size,
+                       info.console.base, pl011_size) ||
+        ranges_overlap(info.gic.redistributor_base, info.gic.redistributor_size,
+                       info.console.base, pl011_size)) {
+        fail(console, "GICv3 range overlaps a trusted boot range");
+    }
+    if (!map_identity_pages(map, info.gic.distributor_base, info.gic.distributor_size,
+                            device_flags) ||
+        !map_identity_pages(map, info.gic.redistributor_base, info.gic.redistributor_size,
+                            device_flags)) {
+        fail(console, "GICv3 identity mapping failed");
+    }
+
     if (map.translate(dtb_address) != dtb_address ||
         map.translate(image_start) != image_start ||
         map.translate(vector_start) != vector_start ||
         map.translate(stack_start) != stack_start ||
         map.translate(info.console.base) != info.console.base ||
+        map.translate(info.gic.distributor_base) != info.gic.distributor_base ||
+        map.translate(info.gic.redistributor_base) != info.gic.redistributor_base ||
         !map.writable(info.console.base) || map.executable(info.console.base) ||
-        !map.executable(image_start) || !map.executable(vector_start)) {
+        !map.writable(info.gic.distributor_base) ||
+        map.executable(info.gic.distributor_base) ||
+        !map.writable(info.gic.redistributor_base) ||
+        map.executable(info.gic.redistributor_base) || !map.executable(image_start) ||
+        !map.executable(vector_start)) {
         fail(console, "identity map verification failed");
     }
 
@@ -378,11 +457,70 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     console.write_line("");
     console.write_line("ASTIA AARCH64 VIRT BOOT: PL011 RW OK");
 
-    constexpr astia::u64 brk_far_sentinel = 0x5a5a5a5a5a5a5a5aULL;
     astia_aarch64_install_exception_vectors();
     console.write_line("ASTIA AARCH64 VIRT BOOT: EXCEPTION VECTORS");
     write_line_field(
         console, "exception: vbar=", reinterpret_cast<astia::u64>(__vector_table), 16);
+
+    write_field(console, "gic: gicd=", info.gic.distributor_base, 16);
+    write_field(console, " size=", info.gic.distributor_size, 8);
+    console.write_line("");
+    write_field(console, "gic: gicr=", info.gic.redistributor_base, 16);
+    write_field(console, " size=", info.gic.redistributor_size, 8);
+    console.write_line("");
+
+    const gicv3::boot_config gic_config{
+        {info.gic.distributor_base, info.gic.distributor_size},
+        {info.gic.redistributor_base, info.gic.redistributor_size}};
+    gicv3::init_result gic{};
+    const gicv3::error gic_error = gicv3::initialize(gic_config, gic);
+    if (gic_error != gicv3::error::none) {
+        console.write("gic: error=");
+        console.write_line(gicv3::describe(gic_error));
+        fail(console, "GICv3 initialization failed");
+    }
+
+    write_field(console, "gic: redistributor=", gic.redistributor_base, 16);
+    write_field(console, " affinity=", gic.affinity, 8);
+    console.write_line("");
+    write_line_field(console, "gic: gicd-ctlr=", gic.distributor_ctlr, 8);
+    console.write("gic: sre=");
+    console.write_hex(gic.sre & 1, 1);
+    console.write(" dib=");
+    console.write_hex((gic.sre >> 2) & 1, 1);
+    console.write(" dfb=");
+    console.write_hex((gic.sre >> 1) & 1, 1);
+    console.write(" pmr=0x");
+    console.write_hex(gic.pmr & 0xff, 2);
+    console.write(" bpr1=0x");
+    console.write_hex(gic.bpr1 & 7, 1);
+    console.write(" eoimode=");
+    console.write_hex((gic.ctlr_el1 >> 1) & 1, 1);
+    console.write(" igrpen1=");
+    console.write_hex(gic.igrpen1 & 1, 1);
+    console.write_line("");
+    write_line_field(console, "gic: self-sgi=", gicv3::self_sgi_id, 8);
+    console.write_line("ASTIA AARCH64 VIRT BOOT: GIC READY");
+
+    console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ ENABLED");
+    __asm__ volatile("msr daifclr, #2" : : : "memory");
+    console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ SELF-SGI");
+    gicv3::trigger_self_sgi();
+
+    constexpr astia::u32 self_sgi_spin_limit = 10000000;
+    astia::u32           spin                = 0;
+    while (gicv3::self_sgi_count() == 0 && spin < self_sgi_spin_limit) {
+        __asm__ volatile("yield" : : : "memory");
+        ++spin;
+    }
+    __asm__ volatile("msr daifset, #2" : : : "memory");
+    if (gicv3::self_sgi_count() != 1) {
+        fail(console, "self-SGI was not handled");
+    }
+    console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ RETURNED");
+    console.write_line("ASTIA AARCH64 VIRT BOOT: GIC SELF-SGI OK");
+
+    constexpr astia::u64 brk_far_sentinel = 0x5a5a5a5a5a5a5a5aULL;
     write_line_field(console, "exception: far-seed=", brk_far_sentinel, 16);
     astia_aarch64_seed_far_el1(brk_far_sentinel);
     astia_aarch64_brk_probe();

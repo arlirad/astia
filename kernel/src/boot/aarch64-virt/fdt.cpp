@@ -11,8 +11,11 @@ namespace astia::boot::aarch64::fdt {
         constexpr usize max_aliases                = 16;
         constexpr usize alias_name_size            = 32;
         constexpr usize max_memory_ranges_per_node = 4;
+        constexpr usize max_register_pairs         = 2;
         constexpr usize max_console_nodes          = 8;
         constexpr usize console_path_size          = virt::console_path_capacity;
+        constexpr u32   gic_interrupt_cells        = 3;
+        constexpr u32   gic_redistributor_regions  = 1;
 
         constexpr u32 token_begin_node = 0x00000001;
         constexpr u32 token_end_node   = 0x00000002;
@@ -29,6 +32,22 @@ namespace astia::boot::aarch64::fdt {
             }
             result = left + right;
             return true;
+        }
+
+        struct address_range {
+            u64 base = 0;
+            u64 size = 0;
+        };
+
+        [[nodiscard]] bool ranges_overlap(const address_range& first,
+                                          const address_range& second) {
+            u64 first_end  = 0;
+            u64 second_end = 0;
+            if (!add_checked(first.base, first.size, first_end) ||
+                !add_checked(second.base, second.size, second_end)) {
+                return true;
+            }
+            return first.base < second_end && second.base < first_end;
         }
 
         [[nodiscard]] bool align_up4(u32 value, u32& result) {
@@ -148,23 +167,26 @@ namespace astia::boot::aarch64::fdt {
             return true;
         }
 
-        struct memory_range {
-            u64 base = 0;
-            u64 size = 0;
-        };
-
         struct node_frame {
-            u32          path_length        = 0;
-            u32          address_cells      = 2;
-            u32          size_cells         = 1;
-            u64          register_base      = 0;
-            u64          register_size      = 0;
-            bool         has_register       = false;
-            bool         is_pl011           = false;
-            bool         is_memory          = false;
-            bool         device_type_memory = false;
-            memory_range memory_ranges[max_memory_ranges_per_node]{};
-            u32          memory_range_count = 0;
+            u32           path_length             = 0;
+            u32           address_cells           = 2;
+            u32           size_cells              = 1;
+            u64           register_base           = 0;
+            u64           register_size           = 0;
+            bool          has_register            = false;
+            bool          is_pl011                = false;
+            bool          is_gic                  = false;
+            bool          is_legacy_gic           = false;
+            bool          is_interrupt_controller = false;
+            bool          is_memory               = false;
+            bool          device_type_memory      = false;
+            u32           interrupt_cells         = 0;
+            u32           redistributor_regions   = gic_redistributor_regions;
+            address_range memory_ranges[max_memory_ranges_per_node]{};
+            u32           memory_range_count = 0;
+            address_range registers[max_register_pairs]{};
+            u32           register_count = 0;
+            u32           register_total = 0;
         };
 
         struct alias_entry {
@@ -393,16 +415,23 @@ namespace astia::boot::aarch64::fdt {
                     return error::bad_structure;
                 }
 
-                node_frame& frame        = frames_[depth_];
-                frame.path_length        = path_length_;
-                frame.address_cells      = 2;
-                frame.size_cells         = 1;
-                frame.register_base      = 0;
-                frame.register_size      = 0;
-                frame.has_register       = false;
-                frame.is_pl011           = false;
-                frame.device_type_memory = false;
-                frame.memory_range_count = 0;
+                node_frame& frame             = frames_[depth_];
+                frame.path_length             = path_length_;
+                frame.address_cells           = 2;
+                frame.size_cells              = 1;
+                frame.register_base           = 0;
+                frame.register_size           = 0;
+                frame.has_register            = false;
+                frame.is_pl011                = false;
+                frame.is_gic                  = false;
+                frame.is_legacy_gic           = false;
+                frame.is_interrupt_controller = false;
+                frame.device_type_memory      = false;
+                frame.interrupt_cells         = 0;
+                frame.redistributor_regions   = gic_redistributor_regions;
+                frame.memory_range_count      = 0;
+                frame.register_count          = 0;
+                frame.register_total          = 0;
 
                 if (depth_ == 0) {
                     if (name_length != 0) {
@@ -437,12 +466,50 @@ namespace astia::boot::aarch64::fdt {
                 return error::none;
             }
 
+            [[nodiscard]] error parse_gic_node(const node_frame& frame) {
+                if (!frame.is_interrupt_controller ||
+                    frame.interrupt_cells != gic_interrupt_cells ||
+                    frame.redistributor_regions != gic_redistributor_regions ||
+                    frame.register_total != max_register_pairs ||
+                    frame.register_count != max_register_pairs || info_.gic.present) {
+                    return error::bad_gic;
+                }
+
+                for (u32 index = 0; index < frame.register_count; ++index) {
+                    const address_range& range = frame.registers[index];
+                    if (range.size == 0 || (range.base & 0xfffULL) != 0 ||
+                        (range.size & 0xfffULL) != 0) {
+                        return error::bad_gic;
+                    }
+                }
+                if (ranges_overlap(frame.registers[0], frame.registers[1])) {
+                    return error::bad_gic;
+                }
+
+                info_.gic.distributor_base      = frame.registers[0].base;
+                info_.gic.distributor_size      = frame.registers[0].size;
+                info_.gic.redistributor_base    = frame.registers[1].base;
+                info_.gic.redistributor_size    = frame.registers[1].size;
+                info_.gic.redistributor_regions = frame.redistributor_regions;
+                info_.gic.present               = true;
+                return error::none;
+            }
+
             [[nodiscard]] error end_node() {
                 if (depth_ == 0) {
                     return error::bad_structure;
                 }
 
                 node_frame& frame = frames_[depth_ - 1];
+                if (frame.is_legacy_gic && frame.is_interrupt_controller) {
+                    return error::bad_gic;
+                }
+                if (frame.is_gic) {
+                    const error status = parse_gic_node(frame);
+                    if (status != error::none) {
+                        return status;
+                    }
+                }
                 if (path_is_memory() && frame.device_type_memory) {
                     for (u32 index = 0; index < frame.memory_range_count; ++index) {
                         if (info_.memory.count() >= mm::memory_map::max_regions) {
@@ -568,7 +635,29 @@ namespace astia::boot::aarch64::fdt {
                 if (equal_bytes(reinterpret_cast<const u8*>(name), name_length,
                                 "compatible")) {
                     frame.is_pl011 = string_list_contains(value, length, "arm,pl011");
+                    frame.is_gic   = string_list_contains(value, length, "arm,gic-v3");
+                    frame.is_legacy_gic =
+                        string_list_contains(value, length, "arm,cortex-a15-gic") ||
+                        string_list_contains(value, length, "arm,gic-400") ||
+                        string_list_contains(value, length, "arm,gic-v2");
                     return error::none;
+                }
+                if (equal_bytes(reinterpret_cast<const u8*>(name), name_length,
+                                "interrupt-controller")) {
+                    if (length != 0) {
+                        return error::bad_cells;
+                    }
+                    frame.is_interrupt_controller = true;
+                    return error::none;
+                }
+                if (equal_bytes(reinterpret_cast<const u8*>(name), name_length,
+                                "#interrupt-cells")) {
+                    return parse_cells_property(value, length, frame.interrupt_cells);
+                }
+                if (equal_bytes(reinterpret_cast<const u8*>(name), name_length,
+                                "#redistributor-regions")) {
+                    return parse_cells_property(value, length,
+                                                frame.redistributor_regions);
                 }
                 if (equal_bytes(reinterpret_cast<const u8*>(name), name_length, "reg")) {
                     return parse_register(value, length, frame);
@@ -645,6 +734,11 @@ namespace astia::boot::aarch64::fdt {
                     u64 end = 0;
                     if (!add_checked(base, size, end)) {
                         return error::bad_cells;
+                    }
+
+                    ++frame.register_total;
+                    if (frame.register_count < max_register_pairs) {
+                        frame.registers[frame.register_count++] = {base, size};
                     }
 
                     if (memory_node && size != 0) {
@@ -802,6 +896,8 @@ namespace astia::boot::aarch64::fdt {
             return "too-many-regions";
         case error::no_memory:
             return "no-memory";
+        case error::bad_gic:
+            return "bad-gic";
         }
         return "unknown";
     }

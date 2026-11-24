@@ -41,4 +41,8 @@ ASTIA_TEST(aarch64_exception_vector_layout) {
     ASTIA_CHECK(layout::exception_vector_current_el_spx_sync ==
                 layout::exception_vector_current_el_spx_sync_offset /
                     layout::exception_vector_slot_size);
+    ASTIA_CHECK(layout::exception_vector_current_el_spx_irq_offset == 0x280);
+    ASTIA_CHECK(layout::exception_vector_current_el_spx_irq ==
+                layout::exception_vector_current_el_spx_irq_offset /
+                    layout::exception_vector_slot_size);
 }

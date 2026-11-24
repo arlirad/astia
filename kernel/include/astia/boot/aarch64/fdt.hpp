@@ -19,6 +19,7 @@ namespace astia::boot::aarch64::fdt {
         bad_cells,
         too_many_regions,
         no_memory,
+        bad_gic,
     };
 
     const char* describe(error value);
