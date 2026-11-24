@@ -37,9 +37,13 @@ add_library(astia_test_support STATIC
         support/main.cpp
         support/arena.cpp
         support/cpu_relax_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/request_queue.cpp
 )
 set_source_files_properties(support/main.cpp
         PROPERTIES COMPILE_OPTIONS "-fno-threadsafe-statics")
+set_source_files_properties(
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/io/request_queue.cpp
+        PROPERTIES COMPILE_OPTIONS "-fno-sanitize=vptr")
 astia_apply_host_sanitizers(astia_test_support)
 target_include_directories(astia_test_support PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/support
@@ -108,6 +112,9 @@ astia_add_host_test(astia_aarch64_exception_frame_test
         aarch64_exception_frame_test.cpp)
 target_include_directories(astia_aarch64_exception_frame_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/include/arch/aarch64)
+astia_add_host_test(astia_aarch64_gic_test aarch64_gic_test.cpp)
+target_include_directories(astia_aarch64_gic_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64)
 add_test(NAME astia_init_launch_shape
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_launch_shape.py
@@ -128,6 +135,8 @@ astia_add_host_test(astia_task_test
 astia_add_host_test(astia_fs_async_test
         fs_async_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
+        support/file_host.cpp
+        support/device_ready_host.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         support/resume_queue_host.cpp
 )
@@ -204,6 +213,7 @@ set(ASTIA_AIO_REGISTRY_TEST_SOURCES
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/dispatch.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/runner.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
         ${ASTIA_AIO_HANDLER_TEST_SOURCES})
 astia_add_host_test(astia_aio_static_handlers_test
         aio_static_handlers_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
@@ -213,6 +223,14 @@ astia_add_host_test(astia_aio_readiness_test
         aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 astia_add_host_test(astia_aio_socket_test
         aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+foreach(_astia_aio_test IN ITEMS astia_aio_static_handlers_test astia_aio_filesystem_test
+        astia_aio_readiness_test astia_aio_socket_test)
+    target_compile_options(${_astia_aio_test} PRIVATE -fno-pie)
+    target_link_options(${_astia_aio_test} PRIVATE
+            "-Wl,-no-pie"
+            "-Wl,--defsym=__kernel_start=0x08000000"
+            "-Wl,--defsym=__kernel_end=0x08002000")
+endforeach()
 add_test(NAME astia_aio_handler_ownership
         COMMAND ${CMAKE_COMMAND}
         -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
@@ -287,7 +305,10 @@ astia_add_host_test(astia_device_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
-        support/device_ready_host.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
+        support/resume_queue_host.cpp)
 target_sources(astia_device_test PRIVATE
         $<TARGET_OBJECTS:astia_host_file_runtime>)
 target_compile_options(astia_device_test PRIVATE
@@ -843,6 +864,8 @@ astia_add_arena_test(astia_ext4_vfs_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
         support/pty_vfs_host.cpp
         support/interrupts_host.cpp
 )

@@ -60,6 +60,10 @@ namespace {
             property(name, reinterpret_cast<const u8*>(value), length + 1);
         }
 
+        void property_empty(const char* name) {
+            property(name, nullptr, 0);
+        }
+
         void property_cells(const char* name, u32 address_cells, u32 size_cells,
                             u64 address, u64 size) {
             u8  bytes[(2 + 2) * 4]{};
@@ -76,6 +80,20 @@ namespace {
                 offset += 4;
             }
             property(name, bytes, offset);
+        }
+
+        void property_reg_pair(const char* name, u64 first_base, u64 first_size,
+                               u64 second_base, u64 second_size) {
+            u8 bytes[32]{};
+            store_be32(bytes + 0, static_cast<u32>(first_base >> 32));
+            store_be32(bytes + 4, static_cast<u32>(first_base));
+            store_be32(bytes + 8, static_cast<u32>(first_size >> 32));
+            store_be32(bytes + 12, static_cast<u32>(first_size));
+            store_be32(bytes + 16, static_cast<u32>(second_base >> 32));
+            store_be32(bytes + 20, static_cast<u32>(second_base));
+            store_be32(bytes + 24, static_cast<u32>(second_size >> 32));
+            store_be32(bytes + 28, static_cast<u32>(second_size));
+            property(name, bytes, sizeof(bytes));
         }
 
         void reserve(u64 address, u64 size) {
@@ -609,6 +627,224 @@ namespace {
         virt::boot_info info{};
         ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
                     fdt::error::depth_overflow);
+    }
+
+    struct gic_options {
+        const char* compatible              = "arm,gic-v3";
+        bool        interrupt_controller    = true;
+        bool        interrupt_cells_present = true;
+        u32         interrupt_cells         = 3;
+        bool        regions_present         = true;
+        u32         redistributor_regions   = 1;
+        bool        two_pairs               = true;
+        bool        reg_before_compatible   = false;
+        bool        include_its             = false;
+        bool        duplicate               = false;
+        u64         distributor_size        = 0x10000ULL;
+        u64         redistributor_size      = 0xf60000ULL;
+    };
+
+    u32 build_gic_tree(u8* blob, const gic_options& options = {}) {
+        dtb_builder builder;
+        builder.begin_node("");
+        builder.property_u32("#address-cells", 2);
+        builder.property_u32("#size-cells", 2);
+
+        builder.begin_node("memory@40000000");
+        builder.property_string("device_type", "memory");
+        builder.property_cells("reg", 2, 2, 0x40000000ULL, 0x10000000ULL);
+        builder.end_node();
+
+        for (u32 instance = 0; instance < (options.duplicate ? 2U : 1U); ++instance) {
+            builder.begin_node("intc@8000000");
+            if (options.reg_before_compatible) {
+                if (options.two_pairs) {
+                    builder.property_reg_pair("reg", 0x08000000ULL,
+                                              options.distributor_size, 0x080a0000ULL,
+                                              options.redistributor_size);
+                }
+                else {
+                    builder.property_cells("reg", 2, 2, 0x08000000ULL,
+                                           options.distributor_size);
+                }
+            }
+            builder.property_string("compatible", options.compatible);
+            if (options.interrupt_controller) {
+                builder.property_empty("interrupt-controller");
+            }
+            if (options.interrupt_cells_present) {
+                builder.property_u32("#interrupt-cells", options.interrupt_cells);
+            }
+            if (options.regions_present) {
+                builder.property_u32("#redistributor-regions",
+                                     options.redistributor_regions);
+            }
+            if (!options.reg_before_compatible) {
+                if (options.two_pairs) {
+                    builder.property_reg_pair("reg", 0x08000000ULL,
+                                              options.distributor_size, 0x080a0000ULL,
+                                              options.redistributor_size);
+                }
+                else {
+                    builder.property_cells("reg", 2, 2, 0x08000000ULL,
+                                           options.distributor_size);
+                }
+            }
+            if (options.include_its) {
+                builder.begin_node("its@8080000");
+                builder.property_string("compatible", "arm,gic-v3-its");
+                builder.property_cells("reg", 2, 2, 0x08080000ULL, 0x20000ULL);
+                builder.end_node();
+            }
+            builder.end_node();
+        }
+
+        builder.end_node();
+        builder.end_structure();
+        return builder.build(blob);
+    }
+
+    ASTIA_TEST(aarch64_fdt_parses_gicv3) {
+        alignas(8) u8 blob[blob_capacity]{};
+        (void) build_gic_tree(blob);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::none);
+        ASTIA_CHECK(info.gic.present);
+        ASTIA_CHECK(info.gic.distributor_base == 0x08000000ULL);
+        ASTIA_CHECK(info.gic.distributor_size == 0x10000ULL);
+        ASTIA_CHECK(info.gic.redistributor_base == 0x080a0000ULL);
+        ASTIA_CHECK(info.gic.redistributor_size == 0xf60000ULL);
+        ASTIA_CHECK(info.gic.redistributor_regions == 1);
+    }
+
+    ASTIA_TEST(aarch64_fdt_gicv3_is_order_independent) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.reg_before_compatible = true;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::none);
+        ASTIA_CHECK(info.gic.present);
+        ASTIA_CHECK(info.gic.distributor_base == 0x08000000ULL);
+        ASTIA_CHECK(info.gic.redistributor_base == 0x080a0000ULL);
+    }
+
+    ASTIA_TEST(aarch64_fdt_gicv3_defaults_single_redistributor_region) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.regions_present = false;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::none);
+        ASTIA_CHECK(info.gic.present);
+        ASTIA_CHECK(info.gic.redistributor_regions == 1);
+    }
+
+    ASTIA_TEST(aarch64_fdt_gicv3_its_child_is_ignored) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.include_its = true;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::none);
+        ASTIA_CHECK(info.gic.present);
+        ASTIA_CHECK(info.gic.distributor_base == 0x08000000ULL);
+    }
+
+    ASTIA_TEST(aarch64_fdt_rejects_gicv3_without_interrupt_controller) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.interrupt_controller = false;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::bad_gic);
+    }
+
+    ASTIA_TEST(aarch64_fdt_rejects_gicv3_wrong_interrupt_cells) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.interrupt_cells = 2;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::bad_gic);
+    }
+
+    ASTIA_TEST(aarch64_fdt_rejects_gicv3_missing_interrupt_cells) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.interrupt_cells_present = false;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::bad_gic);
+    }
+
+    ASTIA_TEST(aarch64_fdt_rejects_gicv3_multiple_redistributor_regions) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.redistributor_regions = 2;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::bad_gic);
+    }
+
+    ASTIA_TEST(aarch64_fdt_rejects_gicv3_single_register_pair) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.two_pairs = false;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::bad_gic);
+    }
+
+    ASTIA_TEST(aarch64_fdt_rejects_gicv3_unaligned_region) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.distributor_size = 0x1001;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::bad_gic);
+    }
+
+    ASTIA_TEST(aarch64_fdt_rejects_legacy_gic) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.compatible = "arm,cortex-a15-gic";
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::bad_gic);
+    }
+
+    ASTIA_TEST(aarch64_fdt_rejects_duplicate_gicv3) {
+        alignas(8) u8 blob[blob_capacity]{};
+        gic_options   options;
+        options.duplicate = true;
+        (void) build_gic_tree(blob, options);
+
+        virt::boot_info info{};
+        ASTIA_CHECK(fdt::parse(blob, blob_capacity, trusted_console, info) ==
+                    fdt::error::bad_gic);
     }
 
 } // namespace

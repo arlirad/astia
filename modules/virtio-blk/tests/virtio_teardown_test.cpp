@@ -37,24 +37,13 @@ namespace astia::mm {
 #include "../virtio_blk.cpp"
 }
 
-namespace {
-
-    void retain_cancel(astia::io::request&) {}
-
-    void count_ack(astia::io::request&, void* context) {
-        ++*static_cast<unsigned*>(context);
-    }
-
-}
+namespace {}
 
 int main() {
     controller            value{};
     astia::core::clsource request_source;
     astia::io::request    request(request_source, nullptr, 512, 0, 0,
                                   astia::io::direction::input);
-    unsigned              acknowledgements = 0;
-    request.cancel_observer_set(count_ack, &acknowledgements);
-    request.cancel_handler_set(retain_cancel);
     value.pending.active = true;
     value.pending.io     = &request;
 
@@ -63,18 +52,14 @@ int main() {
     const unsigned before_release = dma_release_count;
     value.release();
     assert(dma_release_count == before_release);
-    assert(acknowledgements == 0);
 
     long result = 0;
     assert(value.complete_async(request, result));
     assert(result == -19);
-    assert(acknowledgements == 1);
     assert(!value.complete_async(request, result));
 
     value.release();
     assert(dma_release_count == before_release + 3);
-    request.cancel_acknowledge();
-    assert(acknowledgements == 1);
 
     {
         controller                               unsafe{};

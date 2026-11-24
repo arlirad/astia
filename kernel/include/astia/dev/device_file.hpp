@@ -7,7 +7,7 @@
 
 namespace astia::dev {
 
-    class device_file : public fs::file, private io::cancellation_observer {
+    class device_file : public fs::file {
         public:
         constexpr explicit device_file(device* device) : borrowed_(device) {}
         explicit device_file(const mm::shptr<device>& device) : owner_(device) {}
@@ -60,7 +60,6 @@ namespace astia::dev {
         bool    track_request(io::request& request) const;
         bool    tracked_request(const io::request& request) const;
         void    untrack_request(io::request& request) const;
-        void    cancellation_acknowledged(io::request& request) override;
     };
 
 } // namespace astia::dev

@@ -205,11 +205,23 @@ namespace astia::io::aio::ring {
         slot.detached_ops.store(0, memory_order::relaxed);
         slot.detached_head    = nullptr;
         slot.detached_reclaim = false;
-        slot.notify_pending   = false;
-        slot.notify_signaled  = 0;
-        slot.kernel_buffers   = false;
-        slot.owner            = {};
-        slot.used             = false;
+        for (u32 i = 0; i < aio::kernel_ring_max_entries; ++i)
+            slot.pending_detached[i] = {};
+        slot.notify_pending  = false;
+        slot.notify_signaled = 0;
+        slot.kernel_buffers  = false;
+        slot.owner           = {};
+        slot.used            = false;
+    }
+
+    bool park_detached_cqe(ring_slot& slot, u64 user_data, i32 result) {
+        for (u32 i = 0; i < aio::kernel_ring_max_entries; ++i) {
+            if (slot.pending_detached[i].used)
+                continue;
+            slot.pending_detached[i] = {user_data, result, true};
+            return true;
+        }
+        return false;
     }
 
     void reap_completed(ring_slot& slot, parked_cleanup& cleanup) {

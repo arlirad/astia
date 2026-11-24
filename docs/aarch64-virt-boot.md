@@ -2,9 +2,10 @@
 
 This document describes the production AArch64 `virt` early boot target added
 for `ARCH=aarch64 PLATFORM=virt BOOT=virt`. It is deliberately a **stage**, not
-a full kernel boot. The generic `kernel/src/kmain.cpp` graph requires paging,
-IRQ/GIC, devices, and the scheduler, none of which exist for AArch64 in this
-milestone.
+a full kernel boot. The generic `kernel/src/kmain.cpp` graph requires a full
+driver model, generic IRQ registration, timers, and the scheduler, none of
+which exist for AArch64 in this milestone. The stage now owns a bounded GICv3
+boot-CPU self-SGI path, but it does not expose a generic interrupt subsystem.
 
 ## Target and boundary
 
@@ -39,13 +40,24 @@ The stage does exactly this:
 8. Print the post-MMU marker, MAIR/TCR/SCTLR state, and a PL011 write/read
    marker.
 9. Install the 2 KiB-aligned EL1 vector table in `VBAR_EL1`.
-10. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
+10. Map the validated GICv3 distributor and redistributor windows as
+    Device-nGnRE and initialize the boot CPU's GICv3 path: distributor
+    `ARE_NS`/`EnableGrp1NS`, matching redistributor wake, SGI/PPI Group-1
+    defaults, and the EL1 CPU interface.
+11. Trigger one reserved self-SGI through `ICC_SGI1R_EL1`, take the IRQ
+    through the current-EL `SP_ELx` IRQ slot, acknowledge it with
+    `ICC_IAR1_EL1`, complete it with `ICC_EOIR1_EL1` plus `ICC_DIR_EL1`
+    (`EOImode == 1`), return with `ERET`, and verify the handler ran exactly
+    once.
+12. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
     exception through the C++ fatal reporter, and halt through PSCI
     `SYSTEM_OFF`.
 
 Explicit non-goals: scheduler, full virtual-memory management, user address
-spaces, cache maintenance policy, GIC/IRQ, timers, modules, userspace, SMP,
-initrd, ACPI, and full generic-kernel boot.
+spaces, cache maintenance policy, generic IRQ registration/dispatch, timer or
+other PPI/SPI drivers, external device interrupts, modules, userspace, SMP,
+secondary redistributors, PSCI CPU bring-up, initrd, ACPI, and full
+generic-kernel boot.
 
 ## Direct ELF boot contract
 
@@ -92,6 +104,9 @@ into `kernel/include/astia/boot/aarch64/virt.hpp`:
   `/reserved-memory` children
 - boot console base/size/source/path from `/chosen/stdout-path`
   (or deprecated `linux,stdout-path`) and `/aliases`
+- the GICv3 distributor and redistributor windows from the node whose
+  `compatible` list contains exactly `arm,gic-v3` and which carries the
+  `interrupt-controller` property
 
 The DTB is untrusted input. The parser enforces:
 
@@ -111,6 +126,18 @@ The DTB is untrusted input. The parser enforces:
   translated `reg` properties, with checked base+size overflow
 - root `reg` ignored before any parent-frame lookup
 - maximum RAM/reserved/alias/console-candidate counts
+- GICv3 nodes require `interrupt-controller`, `#interrupt-cells = <3>`,
+  `#redistributor-regions = <1>` (the property is optional and defaults to
+  one), exactly two `reg` pairs, non-zero 4 KiB-aligned windows, no
+  base+size overflow, and no distributor/redistributor overlap
+- a node whose compatible list contains a known legacy GIC string
+  (`arm,cortex-a15-gic`, `arm,gic-400`, or `arm,gic-v2`) and the
+  `interrupt-controller` property is rejected as `bad-gic`
+- a second GICv3 node is rejected; a GICv3-ITS child (`arm,gic-v3-its`) is
+  ignored because it is not an `interrupt-controller` and does not match the
+  exact `arm,gic-v3` compatible string
+- the GIC node is located by its properties, not by a hard-coded node path or
+  unit address, so property order does not matter
 
 All big-endian reads use Astia's existing `astia::core::be<T>::load(const void*)`
 and `store(void*)`. `core::endian.hpp` copies bytes one at a time before
@@ -207,6 +234,8 @@ not use hardware AF management), nG=0 for all current kernel mappings, and:
 | DTB window | 1 | 11 | 10 (privileged RO) | 1 | 1 |
 | Stack | 1 | 11 | 00 (privileged RW) | 1 | 1 |
 | PL011 MMIO | 0 (Device-nGnRE) | 00 | 00 (privileged RW) | 1 | 1 |
+| GICD MMIO | 0 (Device-nGnRE) | 00 | 00 (privileged RW) | 1 | 1 |
+| GICR MMIO | 0 (Device-nGnRE) | 00 | 00 (privileged RW) | 1 | 1 |
 
 `page_flags::device` selects Attr0 and forces PXN=UXN=1 in the backend.
 `page_flags::no_execute` sets both PXN and UXN for Normal mappings.
@@ -217,9 +246,19 @@ policy rather than a rejected flag combination. x86_64 deliberately treats
 
 RAM is mapped first with 2MiB Normal blocks (NX), then the DTB, image, and
 stack ranges are installed with 4KiB leaves; the image leaves are executable
-because text and data currently share pages. The PL011 is a single 4KiB
-Device-nGnRE page. Identity is required for the current PC, SP, page tables,
-DTB, and PL011 across the enable transition.
+because text and data currently share pages. The PL011, GICD, and GICR windows
+are 4KiB Device-nGnRE leaves. Identity is required for the current PC, SP,
+page tables, DTB, PL011, and GIC across the enable transition.
+
+The GIC windows come from the validated DTB node, not from a platform
+fallback. Before mapping, the stage rejects a missing GIC, a window larger
+than the platform sanity caps (`1 MiB` for GICD, `16 MiB` for GICR), a window
+outside the 40-bit PA policy, a window overlapping usable RAM, the image, the
+DTB, the stack, the PL011, or the other GIC window. This keeps a hostile DTB
+from turning RAM into Device memory or overlapping a trusted boot range. The
+QEMU `virt` GICv3 windows are GICD `0x0800_0000`/`0x1_0000` and GICR
+`0x080A_0000`/`0xF6_0000`; the 16 MiB cap covers 128 redistributor frames at
+the GICv3 `0x2_0000` stride.
 
 ### Enable sequence
 
@@ -280,9 +319,10 @@ bare-metal images, all other device addresses from the DTB,
 
 ## Synchronous exception entry (BRK64)
 
-This milestone adds the first production AArch64 exception path. It is a
-fatal diagnostic path only: there is no exception return, recovery, IRQ/FIQ,
-or SError handling.
+This section describes the synchronous exception path. It is a fatal
+diagnostic path only: there is no synchronous-exception return or recovery,
+and FIQ/SError handling remains fatal. The current-EL `SP_ELx` IRQ slot is
+the separate returnable path described under "GICv3 boot-CPU self-SGI".
 
 ### Vector table layout and VBAR_EL1
 
@@ -371,15 +411,16 @@ with `0x5a5a5a5a5a5a5a5a` immediately before the probe. The reporter must
 print that exact value, which proves the frame saves and reports `FAR_EL1`
 without claiming a fault address that the architecture does not provide.
 
-### No exception return
+### No synchronous-exception return
 
-The reporter is `[[noreturn]]` and calls the existing PSCI `SYSTEM_OFF`. No
-`ERET` is executed. `ERET` restores `PSTATE` from `SPSR_EL1` and branches to
-`ELR_EL1`; recovery would additionally require legal-return validation and a
-real handler policy. Both are out of scope for this fatal diagnostic stage.
-The other 15 vector slots use the same fixed frame and reporter with their
-vector index and therefore halt deterministically rather than falling through
-or returning.
+The synchronous reporter is `[[noreturn]]` and calls the existing PSCI
+`SYSTEM_OFF`. No `ERET` is executed on that path. `ERET` restores `PSTATE`
+from `SPSR_EL1` and branches to `ELR_EL1`; recovery would additionally require
+legal-return validation and a real handler policy. Both are out of scope for
+the fatal synchronous diagnostic path. The 14 vector slots other than the
+current-EL `SP_ELx` synchronous and IRQ slots use the same fixed frame and
+fatal reporter with their vector index and therefore halt deterministically
+rather than falling through or returning.
 
 ### Specification provenance (exceptions)
 
@@ -417,6 +458,266 @@ and the Arm Learn the Architecture exception-model guide, not summaries:
   offsets).
   <https://developer.arm.com/-/media/Arm%20Developer%20Community/PDF/Learn%20the%20Architecture/Exception%20model.pdf>
 
+## GICv3 boot-CPU self-SGI
+
+This milestone adds a single, bounded GICv3 path for the boot CPU. It is not a
+generic interrupt subsystem: only the current-EL `SP_ELx` IRQ slot is
+returnable, only one reserved SGI INTID is accepted, and every other vector or
+INTID remains fatal.
+
+### Security-state and platform assumptions
+
+The stage runs at Non-secure EL1. It requires a single-security-state GIC
+(`GICD_CTLR.DS == 1`), which is what QEMU `virt,secure=off` provides. The
+initial `GICD_CTLR` read must have `DS == 1`; otherwise initialization fails
+with `not-single-security-state` instead of writing a two-security-state
+Distributor by accident. In a two-security-state system, `GICR_WAKER` is a
+Secure register and is RAZ/WI to Non-secure accesses (IHI 0069G §12.11.40);
+the wake poll would time out deterministically rather than silently
+continuing. The QEMU runner therefore uses
+`-machine virt,secure=off,virtualization=off,gic-version=3`. Without
+`gic-version=3`, QEMU's `virt` machine emits a GICv2 DTB
+(`arm,cortex-a15-gic`), which this parser rejects as `bad-gic`.
+
+### Distributor: ARE_NS, Group 1, and RWP
+
+The Distributor control sequence is:
+
+1. Read `GICD_CTLR`; require `DS == 1` (single Security state).
+2. Clear `EnableGrp0` (bit 0) and `EnableGrp1NS` (bit 1), write back.
+3. `DSB SY`, then poll `GICD_CTLR.RWP` (bit 31) until it reads 0.
+4. Read `GICD_CTLR`, require both Group enables to read 0.
+5. Set `ARE_NS` (bit 4), write back.
+6. `DSB SY`, then poll `RWP` until 0.
+7. Read `GICD_CTLR`, require `ARE_NS == 1`.
+8. Set `EnableGrp1NS`, write back.
+9. `DSB SY`, then poll `RWP` until 0.
+10. Read `GICD_CTLR`, require `EnableGrp1NS == 1`.
+
+With `DS == 1`, bits 0 and 1 are the Group 0 and Group 1 enables; both are
+disabled before `ARE_NS` is changed. Clearing the Group enables first follows
+the architectural constraint that changing `ARE_NS` from 0 to 1 is
+UNPREDICTABLE unless the Group 1 Non-secure enable is 0 (IHI 0069G §12.9.4);
+this implementation is stricter and disables both groups before touching
+affinity routing. The QEMU value printed by the runner is `0x0000_0052`:
+`DS == 1`, `ARE_NS == 1`, `EnableGrp1NS == 1`, `EnableGrp0 == 0`. The code
+does not infer `DS` from a two-security-state layout; it reads the bit and
+fails with `not-single-security-state` when it is clear.
+
+`RWP` is read-only and indicates that a previous write to the Group enables,
+the ARE bits, or `GICD_ICENABLER<n>` is still propagating (IHI 0069G
+§12.9.4). The stage waits after each of the three `GICD_CTLR` writes and fails
+with `distributor-rwp-timeout` rather than proceeding with a partially visible
+configuration. `DSB SY` is used because the GIC MMIO pages are mapped as
+Device-nGnRE, which is non-shareable; a system-wide `DSB` is the conservative
+completion barrier.
+
+### Matching and waking the boot redistributor
+
+The GICR window is scanned in `0x2_0000`-byte GICv3 redistributor frames. For
+each frame, `GICR_TYPER[63:32]` is compared with the boot PE's affinity built
+from `MPIDR_EL1` (`Aff3.Aff2.Aff1.Aff0`). Scanning stops after the frame whose
+`GICR_TYPER.Last` bit (bit 4) is set. If no frame matches, the stage fails
+with `no-redistributor`; it never assumes frame zero.
+
+The matching frame is woken by clearing `GICR_WAKER.ProcessorSleep` (bit 1),
+executing `DSB SY`, and polling `GICR_WAKER.ChildrenAsleep` (bit 2) until it
+reads 0, as required by the GICv3 software overview §5.2.1 and IHI 0069G
+§12.11.40. The poll is bounded and fails with
+`redistributor-wake-timeout`. This wake happens before the CPU interface is
+configured, which the software overview requires to avoid UNPREDICTABLE
+behavior.
+
+### SGI/PPI Group-1 defaults
+
+For the matching redistributor's SGI frame (`GICR` base + `0x1_0000`):
+
+- `GICR_IGROUPR0` is written `0xFFFF_FFFF`, assigning SGIs 0-15 and PPIs 16-31
+  to Non-secure Group 1.
+- `GICR_IPRIORITYR0..7` are written `0xA0A0A0A0`, giving every SGI/PPI the
+  same mid-range priority. `ICC_PMR_EL1` is later set to `0xF0`, so the
+  self-SGI is not masked.
+- `GICR_ICFGR1` is written 0, leaving PPIs level-sensitive. `GICR_ICFGR0`
+  (SGIs) is not programmed because SGIs are always edge-triggered and the
+  register is RAO/WI for them (DAI 0492 §5.2.4).
+- `GICR_ISENABLER0` enables only the reserved self-SGI bit. No PPI is
+  enabled. The stage reads the set-enable register back and requires the
+  self-SGI bit, failing with `sgi-not-enabled` otherwise.
+
+The reserved self-SGI INTID is 15 (`gicv3::self_sgi_id`). It is the only SGI
+the IRQ handler accepts.
+
+### CPU interface
+
+The CPU interface is enabled in this order:
+
+| Register | Value | Verification |
+| --- | --- | --- |
+| `ICC_SRE_EL1` | `SRE = 1`, `DIB = 1`, `DFB = 1`, other bits preserved | read back `SRE == 1`, `DIB == 1`, `DFB == 1` |
+| `ICC_PMR_EL1` | `0xF0` | read back and print |
+| `ICC_BPR1_EL1` | `0` | read back and print |
+| `ICC_CTLR_EL1` | `EOImode = 1`, other bits preserved | read back `EOImode == 1` |
+| `ICC_IGRPEN1_EL1` | `Enable = 1` | read back `Enable == 1` |
+
+`ICC_SRE_EL1.SRE` must be 1 before the other `ICC_*` system registers are
+usable (IHI 0069G §12.1.7, §12.2.22). `DIB` disables IRQ bypass and `DFB`
+disables FIQ bypass (IHI 0069G §3.2, §12.2.22). Disabling IRQ bypass is
+required before enabling Group 1 signaling: the architecture states that
+`ICC_IGRPEN1_EL1.Enable` must be 0 when `ICC_SRE_ELx.DIB == 0`, otherwise the
+behavior is UNPREDICTABLE. The stage therefore sets `SRE`, `DIB`, and `DFB`,
+then reads the register back and requires all three before it programs
+`ICC_PMR_EL1`, `ICC_BPR1_EL1`, `ICC_CTLR_EL1`, or `ICC_IGRPEN1_EL1`. The
+QEMU `secure=off` single-security-state/no-EL2 configuration makes these
+fields writable at EL1; a system where they are read-only aliases would fail
+deterministically with `sre-bypass-not-disabled`.
+
+`ICC_PMR_EL1` sets the priority mask; `0xF0` allows the priority-`0xA0`
+self-SGI. `ICC_BPR1_EL1` is written 0; QEMU implements five priority bits and
+reads back the architectural minimum `3`, so the runner asserts the observed
+`3` while the code's requested value remains 0. `ICC_CTLR_EL1.EOImode = 1`
+separates priority drop from deactivation (DAI 0492 §6.4, IHI 0069G
+§12.2.6). `ICC_IGRPEN1_EL1` enables Group 1 signaling for the current
+Security state (DAI 0492 §5.2.2, IHI 0069G §12.2.16).
+
+### Required ordering and barriers
+
+The GIC architecture makes system-register writes visible to the Redistributor
+only under explicit ordering (IHI 0069G §12.1.6):
+
+- `ICC_PMR_EL1` writes are self-synchronizing.
+- A `DSB` guarantees that the last `ICC_SGI1R_EL1`, `ICC_IGRPEN1_EL1`, and
+  `ICC_EOIR1_EL1`/`ICC_DIR_EL1` writes are observed by the associated
+  Redistributor.
+- An `ISB` must precede the `DSB` so the system-register writes are visible
+  to it.
+
+The implementation therefore uses:
+
+- `ISB` after `ICC_SRE_EL1`, `ICC_PMR_EL1`, `ICC_BPR1_EL1`, and
+  `ICC_CTLR_EL1` writes.
+- `ISB; DSB SY; ISB` after enabling `ICC_IGRPEN1_EL1`.
+- `ISB; DSB SY; ISB` after writing `ICC_SGI1R_EL1`.
+- `ISB; DSB SY; ISB` after `ICC_EOIR1_EL1` and `ICC_DIR_EL1`.
+- `DSB SY` after `GICD_CTLR` writes, after the redistributor configuration
+  writes, and after clearing `GICR_WAKER.ProcessorSleep`, before reading back
+  or polling.
+
+The GIC MMIO pages are Device-nGnRE, which is non-shareable. A system-wide
+`DSB SY` is therefore the conservative completion barrier for the
+Distributor, Redistributor, and wake sequencing. `ISB` is retained only where
+the architecture requires context synchronization for system-register writes
+(`ICC_SRE_EL1`, `ICC_PMR_EL1`, `ICC_BPR1_EL1`, `ICC_CTLR_EL1`,
+`ICC_IGRPEN1_EL1`, `ICC_SGI1R_EL1`, `ICC_EOIR1_EL1`, `ICC_DIR_EL1`).
+
+### Self-SGI encoding
+
+`ICC_SGI1R_EL1` is encoded for the boot PE with `IRM = 0` (target by
+affinity, not "all except self"):
+
+- `TargetList[15:0]` has the bit for the PE's `Aff0` low nibble.
+- `RS[47:44]` selects the 16-`Aff0` group for `Aff0 >= 16`.
+- `Aff1[23:16]`, `Aff2[39:32]`, and `Aff3[55:48]` carry the PE's affinity.
+- `INTID[27:24]` is the reserved SGI ID 15.
+
+This follows DAI 0492 §7.1.2 and IHI 0069G §12.2.21. The QEMU boot PE has
+`MPIDR_EL1 = 0x8000_0000`, so the encoded value is
+`0x0F00_0001` (INTID 15, target list bit 0). The handler prints the actual
+`ICC_IAR1_EL1` value to prove the ack.
+
+### Current-EL `SP_ELx` IRQ entry and return
+
+The vector table keeps the architectural 16-slot layout. Only the
+current-EL-with-`SP_ELx` IRQ slot at `0x280` is changed: it branches to an
+out-of-line trampoline because the full save/call/restore sequence does not
+fit in the 128-byte slot. The trampoline:
+
+1. Saves the same fixed 288-byte `exception_frame` used by the fatal paths.
+2. Calls `astia_aarch64_irq_entry(frame)`.
+3. Restores `x0`-`x30`, `ELR_EL1`, and `SPSR_EL1`, adjusts `SP_EL1`, and
+   executes `ERET`.
+
+The IRQ handler reads `ICC_IAR1_EL1`. It accepts exactly one INTID, the
+reserved self-SGI 15. For that INTID it writes `ICC_EOIR1_EL1` (priority drop)
+and `ICC_DIR_EL1` (deactivation), then returns. INTID 1023 is the
+architectural spurious value and returns without EOI; every other INTID,
+including 1020-1022, is fatal and halts through PSCI `SYSTEM_OFF`. All other
+vector slots remain the existing deterministic fatal stubs.
+
+The main path unmasks `PSTATE.I` with `MSR DAIFClr, #2`, triggers the SGI,
+busy-waits with a bounded `YIELD` loop for the handler counter, then masks
+`PSTATE.I` again with `MSR DAIFSet, #2`. It does not use `WFI`: a lost-wakeup
+between the counter check and `WFI` would hang the boot CPU. The bounded loop
+turns a missing interrupt into a printed failure.
+
+### Timer/PPI deferral
+
+The Generic Timer is deliberately not enabled in this milestone:
+
+- The EL1 physical timer is programmed through `CNTPCT_EL0`,
+  `CNTP_CVAL_EL0`, `CNTP_TVAL_EL0`, and `CNTP_CTL_EL0`; the timer condition is
+  `(PhysicalCount - CompareValue) >= 0`, and the interrupt is asserted when
+  `CNTP_CTL_EL0.ENABLE == 1`, `IMASK == 0`, and the condition is met
+  (DDI 0487 M.c §D12.2.4, §D12.2.4.1, §D24.10.22).
+- Timer outputs are PPIs; PPIs occupy INTIDs 16-31 and are configured per
+  redistributor through `GICR_*` registers (IHI 0069G Table 2-1; DAI 0492
+  §5.2.4). The Non-secure EL1 physical timer is the recommended PPI INTID 30
+  in the Arm SBSA recommended PPI assignments.
+- Enabling that PPI without a timer handler would route the first expiry into
+  the fatal IRQ path. A correct timer path would additionally need
+  `CNTFRQ_EL0` validation, compare-value programming, PPI 30 configuration,
+  and a repeat/disable policy. Those are outside the approved scope.
+- QEMU's DTB does not describe the Generic Timer PPI in the typed boot info,
+  so the stage has no parsed timer source to trust. The boot stage therefore
+  leaves `CNTP_CTL_EL0.ENABLE = 0`, leaves PPI 30 disabled, and uses a bounded
+  busy-wait rather than `WFI` for the self-SGI.
+
+### Specification provenance (GICv3/IRQ)
+
+The implementation was written against the complete documents, not
+summaries:
+
+- Arm, *GICv3 and GICv4 Software Overview*, DAI 0492 version 3.0,
+  <https://developer.arm.com/documentation/dai0492>:
+  §4.5.2 Redistributors; §4.5.3 CPU interfaces; §5.1 Global settings;
+  §5.2.1 Redistributor configuration (`GICR_WAKER`); §5.2.2 CPU interface
+  configuration (`ICC_SRE_ELn`, `ICC_PMR_EL1`, `ICC_BPRn_EL1`,
+  `ICC_CTLR_ELn.EOImode`, `ICC_IGRPEN1_EL1`); §5.2.3 PE configuration
+  (`PSTATE` masks, `VBAR_ELn`); §5.2.4 SPI/PPI/SGI configuration; §6.2 Taking
+  an interrupt (`ICC_IAR0/1_EL1`, special INTIDs 1020-1023); §6.4 End of
+  interrupt (`EOImode`); §7.1 Generating SGIs; §7.1.1 SGI ID; §7.1.2
+  `IRM`/TargetList; §7.1.3 SGI grouping.
+- Arm, *Generic Interrupt Controller Architecture Specification, GIC
+  architecture version 3 and version 4*, IHI 0069G (ID011821),
+  <https://developer.arm.com/documentation/ihi0069>:
+  §2.2 and Table 2-1 (INTID partitioning); §2.2.1 Special INTIDs; §2.3
+  Affinity routing; §3.2 Interrupt bypass support (`DIB`/`DFB`); §4.1
+  Interrupt lifecycle; §4.4 SGIs; §4.6 Interrupt grouping; §4.7 Enabling the
+  distribution of interrupts; §4.8 Interrupt prioritization; §11.1 Power
+  management; §12.1.6 Observability of the
+  effects of accesses to the GIC registers; §12.1.7 GIC System register
+  access; §12.2.5 `ICC_BPR1_EL1`; §12.2.6 `ICC_CTLR_EL1`; §12.2.8
+  `ICC_DIR_EL1`; §12.2.10 `ICC_EOIR1_EL1`; §12.2.14 `ICC_IAR1_EL1`;
+  §12.2.16 `ICC_IGRPEN1_EL1`; §12.2.18 `ICC_PMR_EL1`; §12.2.21
+  `ICC_SGI1R_EL1`; §12.2.22 `ICC_SRE_EL1`; §12.9.4 `GICD_CTLR`;
+  §12.11.2 `GICR_CTLR`; §12.11.7 `GICR_ICFGR0`; §12.11.8 `GICR_ICFGR1`;
+  §12.11.12 `GICR_IGROUPR0`; §12.11.19 `GICR_IPRIORITYR<n>`; §12.11.23
+  `GICR_ISENABLER0`; §12.11.35 `GICR_TYPER`; §12.11.40 `GICR_WAKER`;
+  Table 12-14 Forwarding an SGI to a target PE.
+- Arm, *Arm Architecture Reference Manual for A-profile architecture*, DDI
+  0487 M.c, <https://developer.arm.com/documentation/ddi0487/mc>:
+  §D12.1 About the Generic Timer; §D12.2.4 Timers (the timer output is a
+  PPI); §D12.2.4.1 Operation of the CompareValue views; §D24.10.22
+  `CNTP_CTL_EL0` (`ENABLE`, `IMASK`, `ISTATUS`); the `D24.10` Generic Timer
+  register descriptions for `CNTPCT_EL0`, `CNTP_CVAL_EL0`, and
+  `CNTP_TVAL_EL0`.
+- Arm, *Server Base System Architecture* (SBSA), recommended PPI INTID
+  assignments: Non-secure EL1 physical timer on PPI 30.
+- QEMU `virt` machine documentation and the generated DTB contract,
+  <https://www.qemu.org/docs/master/system/arm/virt.html>:
+  `gic-version=3` selects the GICv3 node with GICD `0x0800_0000`/`0x1_0000`,
+  GICR `0x080A_0000`/`0xF6_0000`, `#redistributor-regions = <1>`,
+  `compatible = "arm,gic-v3"`, and `#interrupt-cells = <3>`.
+
 ## Verification
 
 ```sh
@@ -438,6 +739,11 @@ cmake --build kernel/build-tests --target astia_aarch64_exception_frame_test
 ctest --test-dir kernel/build-tests -R '^astia_aarch64_exception_frame_test$' \
   --output-on-failure
 
+# Focused GICv3 SGI/IRQ policy test (host)
+cmake --build kernel/build-tests --target astia_aarch64_gic_test
+ctest --test-dir kernel/build-tests -R '^astia_aarch64_gic_test$' \
+  --output-on-failure
+
 # x86 page-map regression (device is a documented no-op)
 cmake --build kernel/build-tests --target astia_page_map_test
 ctest --test-dir kernel/build-tests -R '^astia_page_map_test$' \
@@ -449,13 +755,19 @@ kernel/scripts/run-aarch64-virt-smoke.sh
 
 The smoke runner also asserts the post-MMU marker, the exact MAIR/TCR values,
 `SCTLR_EL1.M/C/I`, a PL011 write followed by a PL011 read, the 2 KiB-aligned
-vector-table base and all 16 slot offsets, the BRK64 `ESR_EL1` syndrome,
-`ELR_EL1`, the seeded `FAR_EL1`, and the clean exception halt.
+vector-table base and all 16 slot offsets, the GICv3 DTB windows, the matched
+redistributor affinity, `GICD_CTLR` `DS`/`ARE_NS`/`EnableGrp1NS`, the
+CPU-interface `SRE`/`DIB`/`DFB`/`PMR`/`BPR1`/`EOImode`/`IGRPEN1` state, the
+reserved self-SGI ID, the
+IRQ handler's `IAR1`/`EOIR1`/`DIR` values, the IRQ return, the BRK64
+`ESR_EL1` syndrome, `ELR_EL1`, the seeded `FAR_EL1`, and the clean exception
+halt. It runs QEMU with `-machine virt,secure=off,virtualization=off,gic-version=3`
+so the DTB describes GICv3 rather than QEMU's default GICv2.
 
 Kernel CI (`.github/workflows/kernel-ci.yml`) runs the focused host parser
 test, the production AArch64 QEMU smoke, and the existing x86 build/test
 pipeline. The full host CTest suite includes the exception frame/vector layout
-test.
+test and the GICv3 policy test.
 
 ## Provenance
 
@@ -472,11 +784,23 @@ lift must be recorded here with the exact source and rework.
 
 ## Remaining gaps
 
-- No full kernel boot, user address spaces, virtual-memory allocator, GIC/IRQ,
-  timer, modules, userspace, SMP, initrd, or ACPI.
-- The exception path is fatal diagnostics only. It has no recovery, no
-  `ERET`, no IRQ/FIQ/SError dispatch, and no user fault handling; the 15
-  non-synchronous-current-EL slots are deterministic fatal stubs.
+- No full kernel boot, user address spaces, virtual-memory allocator, generic
+  IRQ subsystem, timer, modules, userspace, SMP, initrd, or ACPI.
+- The returnable exception path is limited to the current-EL `SP_ELx` IRQ
+  slot and one reserved SGI. The synchronous slot is fatal diagnostics only,
+  and the remaining 14 vector slots are deterministic fatal stubs. There is
+  no recovery, no user fault handling, and no FIQ/SError dispatch.
+- No external SPI, PPI, or device driver interrupts. No timer/CNTP path, no
+  PPI 30 enable, and no generic IRQ registration/dispatch.
+- No SMP, secondary redistributor wake, or PSCI CPU bring-up. The
+  redistributor scan is bounded to the boot CPU's matching frame.
+- The GIC path requires a single-security-state GIC (`GICD_CTLR.DS == 1`) at
+  Non-secure EL1; a two-security-state system would need Secure-side
+  redistributor wake.
+- GICv4 VLPI/ITS and LPI support are out of scope; the GICv3-ITS child node is
+  parsed only enough to ignore it.
+- The GIC MMIO sanity caps are 1 MiB for GICD and 16 MiB for GICR; larger
+  windows are rejected rather than mapped.
 - `FAR_EL1` is architecturally UNKNOWN for BRK64; the probe seeds it so the
   runner can verify frame capture, not a fault address.
 - The identity map is deliberately static and bounded. It is not a frame
