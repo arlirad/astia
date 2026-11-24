@@ -4,11 +4,11 @@
 #include <astia/fs.hpp>
 #include <astia/mm/share.hpp>
 
-#include "devfs.hpp"
-#include "ext4/ext4.hpp"
-#include "initrd_fs.hpp"
+#include "filesystems/devfs/devfs.hpp"
+#include "filesystems/ext4/ext4.hpp"
+#include "filesystems/initrd/initrd.hpp"
+#include "filesystems/tmpfs/tmpfs.hpp"
 #include "path_service.hpp"
-#include "tmpfs.hpp"
 #include "unix_pathname.hpp"
 
 void* operator new(astia::usize size, void* where) noexcept;
@@ -295,10 +295,11 @@ namespace astia::fs {
             return *relative == '\0' ? "/" : relative;
         }
 
-        devfs devfs_type;
-        tmpfs tmpfs_type_instance;
-        alignas(devfs_mount) u8 devfs_storage[sizeof(devfs_mount)];
-        devfs_mount* devfs_instance;
+        filesystems::devfs devfs_type;
+        filesystems::tmpfs tmpfs_type_instance;
+        alignas(filesystems::devfs_mount) u8
+            devfs_storage[sizeof(filesystems::devfs_mount)];
+        filesystems::devfs_mount* devfs_instance;
 
     } // namespace
 
@@ -389,13 +390,14 @@ namespace astia::fs {
         ready                     = true;
         bootstrapping             = true;
 
-        devfs_instance = ::new (devfs_storage) devfs_mount{};
+        devfs_instance = ::new (devfs_storage) filesystems::devfs_mount{};
         devfs_type.attach(devfs_instance);
-        const bool ok =
-            register_type(&devfs_type) == 0 && register_type(&initrd_type()) == 0 &&
-            register_type(&ext4_type()) == 0 &&
-            register_type(&tmpfs_type_instance) == 0 &&
-            mount_type("devfs", "/dev") == 0 && mount_type("tmpfs", "/tmp") == 0;
+        const bool ok = register_type(&devfs_type) == 0 &&
+                        register_type(&filesystems::initrd_type()) == 0 &&
+                        register_type(&filesystems::ext4_type()) == 0 &&
+                        register_type(&tmpfs_type_instance) == 0 &&
+                        mount_type("devfs", "/dev") == 0 &&
+                        mount_type("tmpfs", "/tmp") == 0;
         bootstrapping = false;
         return ok;
     }

@@ -3,9 +3,9 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/phys_region.hpp>
 
-#include "filesystem.hpp"
+#include "../../filesystem.hpp"
 
-namespace astia::fs {
+namespace astia::fs::filesystems {
 
     inline constexpr u32   tmpfs_max_entries = 32;
     inline constexpr usize tmpfs_max_pages   = 16;
@@ -177,9 +177,4 @@ namespace astia::fs {
         }
     };
 
-    long open_shared_memory(const char* path, u32 flags, file_mode mode, uid_t uid,
-                            gid_t gid, uid_t euid, gid_t egid, bool privileged,
-                            mm::shptr<open_file>& result);
-    long unlink_shared_memory(const char* path);
-
-} // namespace astia::fs
+} // namespace astia::fs::filesystems

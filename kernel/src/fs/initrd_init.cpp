@@ -1,9 +1,10 @@
-#include "filesystem.hpp"
-#include "initrd_fs.hpp"
 #include <astia/boot.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/frame_allocator.hpp>
+
+#include "filesystem.hpp"
+#include "filesystems/initrd/initrd.hpp"
 
 namespace astia::fs {
 
@@ -37,7 +38,8 @@ namespace astia::fs {
             logs::error("ramdisk is not an uncompressed cpio archive");
             return false;
         }
-        return initrd_type().attach(archive) && mount_type("initrd", "/") == 0;
+        return filesystems::initrd_type().attach(archive) &&
+               mount_type("initrd", "/") == 0;
     }
 
 } // namespace astia::fs
