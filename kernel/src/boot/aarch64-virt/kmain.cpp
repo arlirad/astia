@@ -486,6 +486,10 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     write_line_field(console, "gic: gicd-ctlr=", gic.distributor_ctlr, 8);
     console.write("gic: sre=");
     console.write_hex(gic.sre & 1, 1);
+    console.write(" dib=");
+    console.write_hex((gic.sre >> 2) & 1, 1);
+    console.write(" dfb=");
+    console.write_hex((gic.sre >> 1) & 1, 1);
     console.write(" pmr=0x");
     console.write_hex(gic.pmr & 0xff, 2);
     console.write(" bpr1=0x");

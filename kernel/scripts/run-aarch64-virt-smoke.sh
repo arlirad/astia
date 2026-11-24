@@ -185,7 +185,7 @@ grep -Fxq 'gic: redistributor=0x00000000080a0000 affinity=0x00000000' "$log" ||
     die "GICv3 boot redistributor was not matched by affinity"
 grep -Fxq 'gic: gicd-ctlr=0x00000052' "$log" ||
     die "GICD_CTLR ARE_NS/EnableGrp1NS state is missing or unexpected"
-grep -Fxq 'gic: sre=1 pmr=0xf0 bpr1=0x3 eoimode=1 igrpen1=1' "$log" ||
+grep -Fxq 'gic: sre=1 dib=1 dfb=1 pmr=0xf0 bpr1=0x3 eoimode=1 igrpen1=1' "$log" ||
     die "GICv3 CPU-interface configuration is missing or unexpected"
 grep -Fxq 'gic: self-sgi=0x0000000f' "$log" ||
     die "reserved self-SGI ID is missing or unexpected"

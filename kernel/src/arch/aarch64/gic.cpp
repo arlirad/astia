@@ -28,8 +28,8 @@ namespace astia::arch::aarch64::gicv3 {
             return value;
         }
 
-        void dsb_ish() {
-            __asm__ volatile("dsb ish" : : : "memory");
+        void dsb_sy() {
+            __asm__ volatile("dsb sy" : : : "memory");
         }
 
         void isb() {
@@ -149,7 +149,7 @@ namespace astia::arch::aarch64::gicv3 {
             }
             write32(sgi, gicr_icfgr1_offset, 0);
             write32(sgi, gicr_isenabler0_offset, 1u << self_sgi_id);
-            dsb_ish();
+            dsb_sy();
         }
     } // namespace
 
@@ -159,8 +159,12 @@ namespace astia::arch::aarch64::gicv3 {
             return "none";
         case error::bad_region:
             return "bad-region";
+        case error::not_single_security_state:
+            return "not-single-security-state";
         case error::distributor_rwp_timeout:
             return "distributor-rwp-timeout";
+        case error::distributor_groups_not_disabled:
+            return "distributor-groups-not-disabled";
         case error::are_not_enabled:
             return "are-not-enabled";
         case error::distributor_group1_not_enabled:
@@ -173,6 +177,8 @@ namespace astia::arch::aarch64::gicv3 {
             return "sgi-not-enabled";
         case error::sre_not_enabled:
             return "sre-not-enabled";
+        case error::sre_bypass_not_disabled:
+            return "sre-bypass-not-disabled";
         case error::eoimode_not_set:
             return "eoimode-not-set";
         case error::group1_not_enabled:
@@ -189,10 +195,24 @@ namespace astia::arch::aarch64::gicv3 {
         }
 
         u32 ctlr = read32(config.distributor.base, gicd_ctlr_offset);
-        ctlr &= ~gicd_ctlr_enable_grp1ns;
+        if ((ctlr & gicd_ctlr_ds) == 0) {
+            return error::not_single_security_state;
+        }
+
+        ctlr &= ~gicd_ctlr_group_enables;
+        write32(config.distributor.base, gicd_ctlr_offset, ctlr);
+        dsb_sy();
+        if (!wait_for_rwp(config.distributor.base)) {
+            return error::distributor_rwp_timeout;
+        }
+        ctlr = read32(config.distributor.base, gicd_ctlr_offset);
+        if ((ctlr & gicd_ctlr_group_enables) != 0) {
+            return error::distributor_groups_not_disabled;
+        }
+
         ctlr |= gicd_ctlr_are_ns;
         write32(config.distributor.base, gicd_ctlr_offset, ctlr);
-        dsb_ish();
+        dsb_sy();
         if (!wait_for_rwp(config.distributor.base)) {
             return error::distributor_rwp_timeout;
         }
@@ -203,7 +223,7 @@ namespace astia::arch::aarch64::gicv3 {
 
         ctlr |= gicd_ctlr_enable_grp1ns;
         write32(config.distributor.base, gicd_ctlr_offset, ctlr);
-        dsb_ish();
+        dsb_sy();
         if (!wait_for_rwp(config.distributor.base)) {
             return error::distributor_rwp_timeout;
         }
@@ -221,7 +241,7 @@ namespace astia::arch::aarch64::gicv3 {
         u32 waker = read32(redistributor, gicr_waker_offset);
         waker &= ~gicr_waker_processor_sleep;
         write32(redistributor, gicr_waker_offset, waker);
-        dsb_ish();
+        dsb_sy();
         if (!wait_for_children_asleep(redistributor)) {
             return error::redistributor_wake_timeout;
         }
@@ -234,12 +254,15 @@ namespace astia::arch::aarch64::gicv3 {
         }
 
         u64 sre = read_icc_sre_el1();
-        sre |= icc_sre_sre;
+        sre |= icc_sre_sre | icc_sre_bypass_disabled;
         write_icc_sre_el1(sre);
         isb();
         sre = read_icc_sre_el1();
         if ((sre & icc_sre_sre) == 0) {
             return error::sre_not_enabled;
+        }
+        if ((sre & icc_sre_bypass_disabled) != icc_sre_bypass_disabled) {
+            return error::sre_bypass_not_disabled;
         }
 
         write_icc_pmr_el1(pmr_allow_priorities);
@@ -258,7 +281,7 @@ namespace astia::arch::aarch64::gicv3 {
 
         write_icc_igrpen1_el1(icc_igrpen1_enable);
         isb();
-        dsb_ish();
+        dsb_sy();
         isb();
         const u64 igrpen1 = read_icc_igrpen1_el1();
         if ((igrpen1 & icc_igrpen1_enable) == 0) {
@@ -280,7 +303,7 @@ namespace astia::arch::aarch64::gicv3 {
         const u32 affinity = affinity_from_mpidr(read_mpidr_el1());
         write_icc_sgi1r_el1(self_sgi1r_value(affinity, self_sgi_id));
         isb();
-        dsb_ish();
+        dsb_sy();
         isb();
     }
 
@@ -292,7 +315,7 @@ namespace astia::arch::aarch64::gicv3 {
             write_icc_eoir1_el1(intid);
             write_icc_dir_el1(intid);
             isb();
-            dsb_ish();
+            dsb_sy();
             isb();
             handled_sgi_count = handled_sgi_count + 1;
         }

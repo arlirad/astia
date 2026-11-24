@@ -40,8 +40,11 @@ ASTIA_TEST(aarch64_gic_register_policy) {
     ASTIA_CHECK(gicv3::sgi_base_offset == 0x10000ULL);
     ASTIA_CHECK(gicv3::minimum_distributor_size == 0x10000ULL);
     ASTIA_CHECK(gicv3::minimum_redistributor_size == 0x20000ULL);
+    ASTIA_CHECK(gicv3::gicd_ctlr_enable_grp0 == 0x1U);
     ASTIA_CHECK(gicv3::gicd_ctlr_enable_grp1ns == 0x2U);
+    ASTIA_CHECK(gicv3::gicd_ctlr_group_enables == 0x3U);
     ASTIA_CHECK(gicv3::gicd_ctlr_are_ns == 0x10U);
+    ASTIA_CHECK(gicv3::gicd_ctlr_ds == 0x40U);
     ASTIA_CHECK(gicv3::gicd_ctlr_rwp == 0x80000000U);
     ASTIA_CHECK(gicv3::gicr_waker_processor_sleep == 0x2U);
     ASTIA_CHECK(gicv3::gicr_waker_children_asleep == 0x4U);
@@ -51,6 +54,9 @@ ASTIA_TEST(aarch64_gic_register_policy) {
     ASTIA_CHECK(gicv3::bpr1_no_grouping == 0U);
     ASTIA_CHECK(gicv3::icc_ctlr_eoimode == 0x2U);
     ASTIA_CHECK(gicv3::icc_sre_sre == 0x1U);
+    ASTIA_CHECK(gicv3::icc_sre_dfb == 0x2U);
+    ASTIA_CHECK(gicv3::icc_sre_dib == 0x4U);
+    ASTIA_CHECK(gicv3::icc_sre_bypass_disabled == 0x6U);
     ASTIA_CHECK(gicv3::icc_igrpen1_enable == 0x1U);
 }
 

@@ -15,8 +15,12 @@ namespace astia::arch::aarch64::gicv3 {
     inline constexpr u64 minimum_distributor_size   = 0x00010000;
     inline constexpr u64 minimum_redistributor_size = redistributor_stride;
 
-    inline constexpr u32 gicd_ctlr_enable_grp1ns    = 1u << 1;
-    inline constexpr u32 gicd_ctlr_are_ns           = 1u << 4;
+    inline constexpr u32 gicd_ctlr_enable_grp0   = 1u << 0;
+    inline constexpr u32 gicd_ctlr_enable_grp1ns = 1u << 1;
+    inline constexpr u32 gicd_ctlr_are_ns        = 1u << 4;
+    inline constexpr u32 gicd_ctlr_ds            = 1u << 6;
+    inline constexpr u32 gicd_ctlr_group_enables =
+        gicd_ctlr_enable_grp0 | gicd_ctlr_enable_grp1ns;
     inline constexpr u32 gicd_ctlr_rwp              = 1u << 31;
     inline constexpr u32 gicr_waker_processor_sleep = 1u << 1;
     inline constexpr u32 gicr_waker_children_asleep = 1u << 2;
@@ -28,18 +32,24 @@ namespace astia::arch::aarch64::gicv3 {
     inline constexpr u32 bpr1_no_grouping           = 0;
     inline constexpr u32 icc_ctlr_eoimode           = 1u << 1;
     inline constexpr u32 icc_sre_sre                = 1u << 0;
+    inline constexpr u32 icc_sre_dfb                = 1u << 1;
+    inline constexpr u32 icc_sre_dib                = 1u << 2;
+    inline constexpr u32 icc_sre_bypass_disabled    = icc_sre_dfb | icc_sre_dib;
     inline constexpr u32 icc_igrpen1_enable         = 1u << 0;
 
     enum class error : u8 {
         none,
         bad_region,
+        not_single_security_state,
         distributor_rwp_timeout,
+        distributor_groups_not_disabled,
         are_not_enabled,
         distributor_group1_not_enabled,
         no_redistributor,
         redistributor_wake_timeout,
         sgi_not_enabled,
         sre_not_enabled,
+        sre_bypass_not_disabled,
         eoimode_not_set,
         group1_not_enabled,
     };

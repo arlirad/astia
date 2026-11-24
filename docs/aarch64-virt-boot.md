@@ -468,11 +468,14 @@ INTID remains fatal.
 ### Security-state and platform assumptions
 
 The stage runs at Non-secure EL1. It requires a single-security-state GIC
-(`GICD_CTLR.DS == 1`), which is what QEMU `virt,secure=off` provides. In a
-two-security-state system, `GICR_WAKER` is a Secure register and is RAZ/WI to
-Non-secure accesses (IHI 0069G §12.11.40); the wake poll would time out
-deterministically rather than silently continuing. The QEMU runner therefore
-uses `-machine virt,secure=off,virtualization=off,gic-version=3`. Without
+(`GICD_CTLR.DS == 1`), which is what QEMU `virt,secure=off` provides. The
+initial `GICD_CTLR` read must have `DS == 1`; otherwise initialization fails
+with `not-single-security-state` instead of writing a two-security-state
+Distributor by accident. In a two-security-state system, `GICR_WAKER` is a
+Secure register and is RAZ/WI to Non-secure accesses (IHI 0069G §12.11.40);
+the wake poll would time out deterministically rather than silently
+continuing. The QEMU runner therefore uses
+`-machine virt,secure=off,virtualization=off,gic-version=3`. Without
 `gic-version=3`, QEMU's `virt` machine emits a GICv2 DTB
 (`arm,cortex-a15-gic`), which this parser rejects as `bad-gic`.
 
@@ -480,27 +483,34 @@ uses `-machine virt,secure=off,virtualization=off,gic-version=3`. Without
 
 The Distributor control sequence is:
 
-1. Read `GICD_CTLR`.
-2. Clear `EnableGrp1NS` (bit 1), set `ARE_NS` (bit 4), write back.
-3. `DSB ISH`, then poll `GICD_CTLR.RWP` (bit 31) until it reads 0.
-4. Read `GICD_CTLR`, require `ARE_NS == 1`.
-5. Set `EnableGrp1NS`, write back.
-6. `DSB ISH`, then poll `RWP` until 0.
-7. Read `GICD_CTLR`, require `EnableGrp1NS == 1`.
+1. Read `GICD_CTLR`; require `DS == 1` (single Security state).
+2. Clear `EnableGrp0` (bit 0) and `EnableGrp1NS` (bit 1), write back.
+3. `DSB SY`, then poll `GICD_CTLR.RWP` (bit 31) until it reads 0.
+4. Read `GICD_CTLR`, require both Group enables to read 0.
+5. Set `ARE_NS` (bit 4), write back.
+6. `DSB SY`, then poll `RWP` until 0.
+7. Read `GICD_CTLR`, require `ARE_NS == 1`.
+8. Set `EnableGrp1NS`, write back.
+9. `DSB SY`, then poll `RWP` until 0.
+10. Read `GICD_CTLR`, require `EnableGrp1NS == 1`.
 
-Clearing `EnableGrp1NS` before changing `ARE_NS` follows the architectural
-constraint that changing `ARE_NS` from 0 to 1 is UNPREDICTABLE unless
-`EnableGrp1NS == 0` (IHI 0069G §12.9.4). The QEMU value printed by the runner
-is `0x0000_0052`: `DS == 1`, `ARE_NS == 1`, `EnableGrp1NS == 1`. A
-two-security-state implementation would print `0x0000_0012` because the `DS`
-bit would be clear; the code preserves `DS` and only requires the `ARE_NS`
-and `EnableGrp1NS` bits it sets.
+With `DS == 1`, bits 0 and 1 are the Group 0 and Group 1 enables; both are
+disabled before `ARE_NS` is changed. Clearing the Group enables first follows
+the architectural constraint that changing `ARE_NS` from 0 to 1 is
+UNPREDICTABLE unless the Group 1 Non-secure enable is 0 (IHI 0069G §12.9.4);
+this implementation is stricter and disables both groups before touching
+affinity routing. The QEMU value printed by the runner is `0x0000_0052`:
+`DS == 1`, `ARE_NS == 1`, `EnableGrp1NS == 1`, `EnableGrp0 == 0`. The code
+does not infer `DS` from a two-security-state layout; it reads the bit and
+fails with `not-single-security-state` when it is clear.
 
 `RWP` is read-only and indicates that a previous write to the Group enables,
 the ARE bits, or `GICD_ICENABLER<n>` is still propagating (IHI 0069G
-§12.9.4). The stage waits after each `GICD_CTLR` write and fails with
-`distributor-rwp-timeout` rather than proceeding with a partially visible
-configuration.
+§12.9.4). The stage waits after each of the three `GICD_CTLR` writes and fails
+with `distributor-rwp-timeout` rather than proceeding with a partially visible
+configuration. `DSB SY` is used because the GIC MMIO pages are mapped as
+Device-nGnRE, which is non-shareable; a system-wide `DSB` is the conservative
+completion barrier.
 
 ### Matching and waking the boot redistributor
 
@@ -510,12 +520,13 @@ from `MPIDR_EL1` (`Aff3.Aff2.Aff1.Aff0`). Scanning stops after the frame whose
 `GICR_TYPER.Last` bit (bit 4) is set. If no frame matches, the stage fails
 with `no-redistributor`; it never assumes frame zero.
 
-The matching frame is woken by clearing `GICR_WAKER.ProcessorSleep` (bit 1)
-and polling `GICR_WAKER.ChildrenAsleep` (bit 2) until it reads 0, as required
-by the GICv3 software overview §5.2.1 and IHI 0069G §12.11.40. The poll is
-bounded and fails with `redistributor-wake-timeout`. This wake happens before
-the CPU interface is configured, which the software overview requires to
-avoid UNPREDICTABLE behavior.
+The matching frame is woken by clearing `GICR_WAKER.ProcessorSleep` (bit 1),
+executing `DSB SY`, and polling `GICR_WAKER.ChildrenAsleep` (bit 2) until it
+reads 0, as required by the GICv3 software overview §5.2.1 and IHI 0069G
+§12.11.40. The poll is bounded and fails with
+`redistributor-wake-timeout`. This wake happens before the CPU interface is
+configured, which the software overview requires to avoid UNPREDICTABLE
+behavior.
 
 ### SGI/PPI Group-1 defaults
 
@@ -542,21 +553,31 @@ The CPU interface is enabled in this order:
 
 | Register | Value | Verification |
 | --- | --- | --- |
-| `ICC_SRE_EL1` | `SRE = 1`, other bits preserved | read back `SRE == 1` |
+| `ICC_SRE_EL1` | `SRE = 1`, `DIB = 1`, `DFB = 1`, other bits preserved | read back `SRE == 1`, `DIB == 1`, `DFB == 1` |
 | `ICC_PMR_EL1` | `0xF0` | read back and print |
 | `ICC_BPR1_EL1` | `0` | read back and print |
 | `ICC_CTLR_EL1` | `EOImode = 1`, other bits preserved | read back `EOImode == 1` |
 | `ICC_IGRPEN1_EL1` | `Enable = 1` | read back `Enable == 1` |
 
 `ICC_SRE_EL1.SRE` must be 1 before the other `ICC_*` system registers are
-usable (IHI 0069G §12.1.7, §12.2.22). `ICC_PMR_EL1` sets the priority mask;
-`0xF0` allows the priority-`0xA0` self-SGI. `ICC_BPR1_EL1` is written 0; QEMU
-implements five priority bits and reads back the architectural minimum `3`, so
-the runner asserts the observed `3` while the code's requested value remains
-0. `ICC_CTLR_EL1.EOImode = 1` separates priority drop from deactivation
-(DAI 0492 §6.4, IHI 0069G §12.2.6). `ICC_IGRPEN1_EL1` enables Group 1
-signaling for the current Security state (DAI 0492 §5.2.2, IHI 0069G
-§12.2.16).
+usable (IHI 0069G §12.1.7, §12.2.22). `DIB` disables IRQ bypass and `DFB`
+disables FIQ bypass (IHI 0069G §3.2, §12.2.22). Disabling IRQ bypass is
+required before enabling Group 1 signaling: the architecture states that
+`ICC_IGRPEN1_EL1.Enable` must be 0 when `ICC_SRE_ELx.DIB == 0`, otherwise the
+behavior is UNPREDICTABLE. The stage therefore sets `SRE`, `DIB`, and `DFB`,
+then reads the register back and requires all three before it programs
+`ICC_PMR_EL1`, `ICC_BPR1_EL1`, `ICC_CTLR_EL1`, or `ICC_IGRPEN1_EL1`. The
+QEMU `secure=off` single-security-state/no-EL2 configuration makes these
+fields writable at EL1; a system where they are read-only aliases would fail
+deterministically with `sre-bypass-not-disabled`.
+
+`ICC_PMR_EL1` sets the priority mask; `0xF0` allows the priority-`0xA0`
+self-SGI. `ICC_BPR1_EL1` is written 0; QEMU implements five priority bits and
+reads back the architectural minimum `3`, so the runner asserts the observed
+`3` while the code's requested value remains 0. `ICC_CTLR_EL1.EOImode = 1`
+separates priority drop from deactivation (DAI 0492 §6.4, IHI 0069G
+§12.2.6). `ICC_IGRPEN1_EL1` enables Group 1 signaling for the current
+Security state (DAI 0492 §5.2.2, IHI 0069G §12.2.16).
 
 ### Required ordering and barriers
 
@@ -574,11 +595,19 @@ The implementation therefore uses:
 
 - `ISB` after `ICC_SRE_EL1`, `ICC_PMR_EL1`, `ICC_BPR1_EL1`, and
   `ICC_CTLR_EL1` writes.
-- `ISB; DSB ISH; ISB` after enabling `ICC_IGRPEN1_EL1`.
-- `ISB; DSB ISH; ISB` after writing `ICC_SGI1R_EL1`.
-- `ISB; DSB ISH; ISB` after `ICC_EOIR1_EL1` and `ICC_DIR_EL1`.
-- `DSB ISH` after `GICD_CTLR` writes and after the redistributor
-  configuration writes, before reading back or polling.
+- `ISB; DSB SY; ISB` after enabling `ICC_IGRPEN1_EL1`.
+- `ISB; DSB SY; ISB` after writing `ICC_SGI1R_EL1`.
+- `ISB; DSB SY; ISB` after `ICC_EOIR1_EL1` and `ICC_DIR_EL1`.
+- `DSB SY` after `GICD_CTLR` writes, after the redistributor configuration
+  writes, and after clearing `GICR_WAKER.ProcessorSleep`, before reading back
+  or polling.
+
+The GIC MMIO pages are Device-nGnRE, which is non-shareable. A system-wide
+`DSB SY` is therefore the conservative completion barrier for the
+Distributor, Redistributor, and wake sequencing. `ISB` is retained only where
+the architecture requires context synchronization for system-register writes
+(`ICC_SRE_EL1`, `ICC_PMR_EL1`, `ICC_BPR1_EL1`, `ICC_CTLR_EL1`,
+`ICC_IGRPEN1_EL1`, `ICC_SGI1R_EL1`, `ICC_EOIR1_EL1`, `ICC_DIR_EL1`).
 
 ### Self-SGI encoding
 
@@ -661,9 +690,10 @@ summaries:
   architecture version 3 and version 4*, IHI 0069G (ID011821),
   <https://developer.arm.com/documentation/ihi0069>:
   §2.2 and Table 2-1 (INTID partitioning); §2.2.1 Special INTIDs; §2.3
-  Affinity routing; §4.1 Interrupt lifecycle; §4.4 SGIs; §4.6 Interrupt
-  grouping; §4.7 Enabling the distribution of interrupts; §4.8 Interrupt
-  prioritization; §11.1 Power management; §12.1.6 Observability of the
+  Affinity routing; §3.2 Interrupt bypass support (`DIB`/`DFB`); §4.1
+  Interrupt lifecycle; §4.4 SGIs; §4.6 Interrupt grouping; §4.7 Enabling the
+  distribution of interrupts; §4.8 Interrupt prioritization; §11.1 Power
+  management; §12.1.6 Observability of the
   effects of accesses to the GIC registers; §12.1.7 GIC System register
   access; §12.2.5 `ICC_BPR1_EL1`; §12.2.6 `ICC_CTLR_EL1`; §12.2.8
   `ICC_DIR_EL1`; §12.2.10 `ICC_EOIR1_EL1`; §12.2.14 `ICC_IAR1_EL1`;
@@ -726,8 +756,9 @@ kernel/scripts/run-aarch64-virt-smoke.sh
 The smoke runner also asserts the post-MMU marker, the exact MAIR/TCR values,
 `SCTLR_EL1.M/C/I`, a PL011 write followed by a PL011 read, the 2 KiB-aligned
 vector-table base and all 16 slot offsets, the GICv3 DTB windows, the matched
-redistributor affinity, `GICD_CTLR` `ARE_NS`/`EnableGrp1NS`, the CPU-interface
-`SRE`/`PMR`/`BPR1`/`EOImode`/`IGRPEN1` state, the reserved self-SGI ID, the
+redistributor affinity, `GICD_CTLR` `DS`/`ARE_NS`/`EnableGrp1NS`, the
+CPU-interface `SRE`/`DIB`/`DFB`/`PMR`/`BPR1`/`EOImode`/`IGRPEN1` state, the
+reserved self-SGI ID, the
 IRQ handler's `IAR1`/`EOIR1`/`DIR` values, the IRQ return, the BRK64
 `ESR_EL1` syndrome, `ELR_EL1`, the seeded `FAR_EL1`, and the clean exception
 halt. It runs QEMU with `-machine virt,secure=off,virtualization=off,gic-version=3`
