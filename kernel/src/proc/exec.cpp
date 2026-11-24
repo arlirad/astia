@@ -34,7 +34,7 @@ namespace astia::proc {
         struct image_map {
             mm::address_space* map;
             u64                next_base;
-            mapped_segment     segs[elf::max_segments]{};
+            mapped_segment     segs[elf::loader::max_segments]{};
             u32                count = 0;
         };
 
@@ -48,7 +48,7 @@ namespace astia::proc {
 
         void unmap_run(mm::address_space& map, u64 virt, u64 pages) {
             for (u64 page = 0; page < pages; ++page) {
-                (void) map.unmap(virt + page * elf::page_size);
+                (void) map.unmap(virt + page * elf::loader::page_size);
             }
         }
 
@@ -87,23 +87,25 @@ namespace astia::proc {
                 base += delta;
             }
             if (base < user_image_base || base + size >= user_address_limit ||
-                image.count >= elf::max_segments) {
+                image.count >= elf::loader::max_segments) {
                 return nullptr;
             }
 
             // One contiguous frame run per segment: the VMA that files
             // this range adopts it as a single phys_region — the unit
             // fork's reference counting and CoW splits work in.
-            const u64 pages  = (size + elf::page_size - 1) / elf::page_size;
+            const u64 pages =
+                (size + elf::loader::page_size - 1) / elf::loader::page_size;
             const u64 frames = mm::kernel_frames().alloc(pages, mm::frame_flags::zeroed);
             if (frames == mm::frame_allocator::invalid_frame) {
                 return nullptr;
             }
             for (u64 page = 0; page < pages; ++page) {
-                if (!image.map->map_4k(
-                        base + page * elf::page_size, frames + page * elf::page_size,
-                        mm::mapping_flags::present | mm::mapping_flags::writable |
-                            mm::mapping_flags::user)) {
+                if (!image.map->map_4k(base + page * elf::loader::page_size,
+                                       frames + page * elf::loader::page_size,
+                                       mm::mapping_flags::present |
+                                           mm::mapping_flags::writable |
+                                           mm::mapping_flags::user)) {
                     unmap_run(*image.map, base, page);
                     mm::kernel_frames().release(frames, pages);
                     return nullptr;
@@ -111,7 +113,7 @@ namespace astia::proc {
             }
             image.segs[image.count] = mapped_segment{base, frames, pages, true, true};
             ++image.count;
-            image.next_base = base + size + elf::page_size;
+            image.next_base = base + size + elf::loader::page_size;
             return reinterpret_cast<void*>(base);
         }
 
@@ -120,8 +122,9 @@ namespace astia::proc {
             for (u32 i = 0; i < image.count; ++i) {
                 const auto& seg = image.segs[i];
                 if (address < seg.virt ||
-                    address - seg.virt > seg.pages * elf::page_size ||
-                    source.size() > seg.pages * elf::page_size - (address - seg.virt))
+                    address - seg.virt > seg.pages * elf::loader::page_size ||
+                    source.size() >
+                        seg.pages * elf::loader::page_size - (address - seg.virt))
                     continue;
                 auto* destination =
                     static_cast<u8*>(mm::kernel_frames().to_virt(seg.frames));
@@ -136,7 +139,7 @@ namespace astia::proc {
                                 u8*& destination) {
             for (u32 i = 0; i < image.count; ++i) {
                 const auto& seg  = image.segs[i];
-                const u64   span = seg.pages * elf::page_size;
+                const u64   span = seg.pages * elf::loader::page_size;
                 if (address < seg.virt || address - seg.virt > span ||
                     length > span - (address - seg.virt))
                     continue;
@@ -152,7 +155,7 @@ namespace astia::proc {
             for (u32 i = 0; i < image.count; ++i) {
                 auto& segment = image.segs[i];
                 if (segment.used && segment.virt == reinterpret_cast<u64>(address) &&
-                    segment.pages * elf::page_size == size) {
+                    segment.pages * elf::loader::page_size == size) {
                     unmap_run(*image.map, segment.virt, segment.pages);
                     segment.mapped = false;
                     mm::kernel_frames().release(segment.frames, segment.pages);
@@ -186,7 +189,7 @@ namespace astia::proc {
         // this preserves the loader's established mapping contract and
         // lets fork/CoW account for it as one physical region.  The
         // page-granular permission split is a later mprotect/exec slice.
-        map_protection segment_prot(const elf::image& image, u64 base) {
+        map_protection segment_prot(const elf::loader::image& image, u64 base) {
             (void) image;
             (void) base;
             return map_protection::read | map_protection::write | map_protection::exec;
@@ -205,21 +208,22 @@ namespace astia::proc {
         // frames come as one contiguous run so the block can be filed
         // as a single VMA (fork shares it copy-on-write); frames_out
         // hands the run back for that adoption.
-        bool tls_layout(const elf::image& image, u64& tls_span, u64& pages) {
+        bool tls_layout(const elf::loader::image& image, u64& tls_span, u64& pages) {
             const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
             if (image.tls_filesz > image.tls_memsz || !is_power_of_two(align) ||
                 !checked_align_up(image.tls_memsz, align, tls_span) ||
                 tls_span > ~u64{0} - user_tls_tcb_headroom ||
-                tls_span + user_tls_tcb_headroom > ~u64{0} - (elf::page_size - 1))
+                tls_span + user_tls_tcb_headroom > ~u64{0} - (elf::loader::page_size - 1))
                 return false;
-            const u64 total = tls_span + user_tls_tcb_headroom + elf::page_size - 1;
-            pages           = total / elf::page_size;
+            const u64 total =
+                tls_span + user_tls_tcb_headroom + elf::loader::page_size - 1;
+            pages = total / elf::loader::page_size;
             return pages != 0;
         }
 
         bool map_tls_template(mm::address_space& map, span<const u8> bytes,
-                              const elf::image& image, u64& tp_out, u64& frames_out,
-                              u64& pages_out) {
+                              const elf::loader::image& image, u64& tp_out,
+                              u64& frames_out, u64& pages_out) {
             u64 tls_span = 0;
             u64 pages    = 0;
             if (!tls_layout(image, tls_span, pages))
@@ -234,8 +238,8 @@ namespace astia::proc {
                 return false;
             }
             for (u64 page = 0; page < pages; ++page) {
-                if (!map.map_4k(user_tls_base + page * elf::page_size,
-                                frames + page * elf::page_size,
+                if (!map.map_4k(user_tls_base + page * elf::loader::page_size,
+                                frames + page * elf::loader::page_size,
                                 mm::mapping_flags::present | mm::mapping_flags::writable |
                                     mm::mapping_flags::user)) {
                     unmap_run(map, user_tls_base, page);
@@ -263,7 +267,7 @@ namespace astia::proc {
             image_map*         image;
             mm::address_space* map;
         } transaction{this, &image, &map};
-        detail::rollback_mapping_entry entries[elf::max_segments]{};
+        detail::rollback_mapping_entry entries[elf::loader::max_segments]{};
         for (u32 i = 0; i < image.count; ++i) {
             auto& segment = image.segs[i];
             entries[i]    = {segment.virt,    static_cast<usize>(segment.pages),
@@ -301,13 +305,13 @@ namespace astia::proc {
         if (!map.valid()) {
             return false;
         }
-        image_map image_state{&map, user_image_base};
-        elf::env  environment{};
+        image_map        image_state{&map, user_image_base};
+        elf::loader::env environment{};
         environment.ctx   = &image_state;
         environment.map   = map_user;
         environment.unmap = unmap_user;
         environment.copy  = copy_image;
-        elf::image image{};
+        elf::loader::image image{};
 
         // The ELF implementation copies segment bytes through the virtual
         // addresses returned by map_fn, so the child map must be active while
@@ -320,7 +324,7 @@ namespace astia::proc {
         const mm::address_space* caller_map =
             caller == nullptr ? nullptr : caller->address_space();
         map.activate();
-        const bool loaded = elf::load_executable(bytes, environment, image);
+        const bool loaded = elf::loader::load_executable(bytes, environment, image);
         if (caller_map != nullptr) {
             caller_map->activate();
         }
@@ -424,7 +428,7 @@ namespace astia::proc {
             for (u32 i = 0; i < context->map.count; ++i) {
                 auto& segment = context->map.segs[i];
                 if (segment.used && segment.virt == reinterpret_cast<u64>(address) &&
-                    segment.pages * elf::page_size == size) {
+                    segment.pages * elf::loader::page_size == size) {
                     unmap_run(*context->map.map, segment.virt, segment.pages);
                     mm::kernel_frames().release(segment.frames, segment.pages);
                     segment.used = false;
@@ -439,11 +443,11 @@ namespace astia::proc {
                             fixed);
         }
 
-        core::task<bool> map_tls_file_async(mm::address_space&       map,
-                                            mm::shptr<fs::open_file> file,
-                                            core::cltoken token, const elf::image& image,
-                                            u64& tp_out, u64& frames_out,
-                                            u64& pages_out) {
+        core::task<bool> map_tls_file_async(mm::address_space&        map,
+                                            mm::shptr<fs::open_file>  file,
+                                            core::cltoken             token,
+                                            const elf::loader::image& image, u64& tp_out,
+                                            u64& frames_out, u64& pages_out) {
             u64 tls_span = 0;
             u64 pages    = 0;
             if (!tls_layout(image, tls_span, pages))
@@ -452,8 +456,8 @@ namespace astia::proc {
             if (frames == mm::frame_allocator::invalid_frame)
                 co_return false;
             for (u64 page = 0; page < pages; ++page) {
-                if (!map.map_4k(user_tls_base + page * elf::page_size,
-                                frames + page * elf::page_size,
+                if (!map.map_4k(user_tls_base + page * elf::loader::page_size,
+                                frames + page * elf::loader::page_size,
                                 mm::mapping_flags::present | mm::mapping_flags::writable |
                                     mm::mapping_flags::user)) {
                     unmap_run(map, user_tls_base, page);
@@ -490,15 +494,16 @@ namespace astia::proc {
             co_return false;
 
         stream_context stream{{&map, user_image_base}, file, _cancellation_root.token()};
-        elf::async_env environment{&stream,           map_user_stream, nullptr,
-                                   read_stream_async, copy_image,      unmap_user_stream};
+        elf::loader::async_env environment{&stream,    map_user_stream,
+                                           nullptr,    read_stream_async,
+                                           copy_image, unmap_user_stream};
         environment.read_to = read_stream_to_async;
-        auto loaded         = co_await elf::load_executable_stream(environment, length);
+        auto loaded = co_await elf::loader::load_executable_stream(environment, length);
         if (!loaded) {
             cleanup_pending(stream.map, map);
             co_return false;
         }
-        elf::image image = loaded.value;
+        elf::loader::image image = loaded.value;
 
         _address_space = static_cast<mm::address_space&&>(map);
         if (!_address_space.attached()) {

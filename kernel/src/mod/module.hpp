@@ -31,21 +31,21 @@ namespace astia::mod {
 
         static constexpr usize max_exit_handlers = 64;
 
-        const char* name;      ///< Module name (for diagnostics).
-        void*       base;      ///< Load address of the image allocation.
-        usize       size;      ///< Bytes allocated for the image.
-        int (*entry)();        ///< Resolved module_main().
-        bool          running; ///< True once entry() has been called.
-        bool          initialized;
-        elf::init_fn  init_array[elf::max_init_array_entries];
-        usize         init_count;
-        elf::init_fn  fini_array[elf::max_init_array_entries];
-        usize         fini_count;
-        void*         loader_context;
-        elf::unmap_fn loader_unmap;
-        exit_handler  exit_handlers[max_exit_handlers];
-        usize         exit_count   = 0;
-        void*         dso_identity = nullptr;
+        const char* name;              ///< Module name (for diagnostics).
+        void*       base;              ///< Load address of the image allocation.
+        usize       size;              ///< Bytes allocated for the image.
+        int (*entry)();                ///< Resolved module_main().
+        bool                  running; ///< True once entry() has been called.
+        bool                  initialized;
+        elf::loader::init_fn  init_array[elf::loader::max_init_array_entries];
+        usize                 init_count;
+        elf::loader::init_fn  fini_array[elf::loader::max_init_array_entries];
+        usize                 fini_count;
+        void*                 loader_context;
+        elf::loader::unmap_fn loader_unmap;
+        exit_handler          exit_handlers[max_exit_handlers];
+        usize                 exit_count   = 0;
+        void*                 dso_identity = nullptr;
     };
 
     /// Upper bound on simultaneously loaded modules. Fixed capacity keeps the
@@ -60,8 +60,8 @@ namespace astia::mod {
     ///
     /// `image` need not stay valid after the call: section contents are copied
     /// into frame-allocator memory.
-    const loaded_module*        load_module(span<const u8> image);
-    const loaded_module*        load_module(span<const u8> image, const elf::env& env);
+    const loaded_module* load_module(span<const u8> image);
+    const loaded_module* load_module(span<const u8> image, const elf::loader::env& env);
     inline const loaded_module* load_module(const void* image, usize size) {
         return load_module(span<const u8>(static_cast<const u8*>(image), size));
     }
