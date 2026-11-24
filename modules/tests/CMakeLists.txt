@@ -74,6 +74,8 @@ if(ASTIA_BUILD_TESTS)
     add_test(NAME astia_arch_context_module_build
              COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
                      --target astia_arch_context_module)
+    set_tests_properties(astia_arch_context_module_build
+            PROPERTIES RESOURCE_LOCK astia-build-tree)
     astia_add_test_label(astia_arch_context_module_build
             "module;abi;deterministic")
 endif()

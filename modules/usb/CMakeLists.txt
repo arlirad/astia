@@ -104,6 +104,7 @@ if(ASTIA_BUILD_TESTS)
     set_tests_properties(usb_module_prepare PROPERTIES
             LABELS "build;module;usb;xhci;deterministic"
             FIXTURES_SETUP usb-module-artifacts
+            RESOURCE_LOCK astia-build-tree
             TIMEOUT 300)
     astia_add_test_label(usb_module_prepare "sanitizer-host-support")
     add_test(NAME usb_xhci_stop_quarantine_policy

@@ -750,5 +750,20 @@ if(ASTIA_BUILD_TESTS)
                 PROPERTIES ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}")
     endif()
 
+    # CTest build steps share one CMake binary tree; serialize them so a
+    # parallel CTest run cannot invoke Ninja concurrently.
+    set(_astia_build_tree_tests
+            astia_libc_cross
+            astia_ncurses_cross
+            astia_ncurses_abi
+            astia_qemu_prepare
+            astia_module_host_prepare)
+    foreach(_astia_build_test IN LISTS _astia_build_tree_tests)
+        if(TEST ${_astia_build_test})
+            set_tests_properties(${_astia_build_test}
+                    PROPERTIES RESOURCE_LOCK astia-build-tree)
+        endif()
+    endforeach()
+
     astia_append_test_label("repository")
 endif()
