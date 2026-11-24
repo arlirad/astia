@@ -7,12 +7,12 @@ namespace astia::io::aio::operations {
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
                astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
-            auto object = file_for(sqe.fd);
-            if (!object)
+            auto handle = file_for(sqe.fd);
+            if (!handle)
                 co_return -EBADF;
-            if (!object->mode().is_regular())
+            if (!handle->mode().is_regular())
                 co_return -EINVAL;
-            co_return static_cast<i32>(object->sync());
+            co_return static_cast<i32>(handle->sync());
         }
     };
 

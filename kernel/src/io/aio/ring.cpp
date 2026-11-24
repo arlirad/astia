@@ -94,7 +94,7 @@ namespace astia::io::aio::ring {
     void parked_cleanup::release() {
         for (u32 i = 0; i < parked_slot_count; ++i) {
             entries[i].release();
-            objects[i] = mm::shptr<fs::open_file>{};
+            handles[i] = mm::shptr<fs::open_file>{};
         }
     }
 
@@ -182,7 +182,7 @@ namespace astia::io::aio::ring {
                 continue;
             clear_waiter_hint(slot, i);
             cleanup.entries[i] = static_cast<mm::iovec&&>(op.entries);
-            cleanup.objects[i] = static_cast<mm::shptr<fs::open_file>&&>(op.object);
+            cleanup.handles[i] = static_cast<mm::shptr<fs::open_file>&&>(op.handle);
             op.clear();
         }
     }

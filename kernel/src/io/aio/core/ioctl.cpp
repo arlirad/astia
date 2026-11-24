@@ -67,8 +67,8 @@ namespace astia::io::aio::operations {
             const auto argument = memory::user_ptr<u8>(sqe.address).validate(expected);
             if (sqe.length != expected || !argument)
                 co_return -EFAULT;
-            mm::shptr<fs::open_file> object = file_for(sqe.fd);
-            if (!object)
+            mm::shptr<fs::open_file> handle = file_for(sqe.fd);
+            if (!handle)
                 co_return -EBADF;
             astia::atomic_thread_fence(astia::memory_order::seq_cst);
             alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
@@ -76,9 +76,9 @@ namespace astia::io::aio::operations {
                 co_return -EFAULT;
             void* kernel_arg =
                 expected == 0 ? nullptr : static_cast<void*>(ioctl_storage);
-            long rc = object->ioctl(sqe.offset, kernel_arg, expected);
+            long rc = handle->ioctl(sqe.offset, kernel_arg, expected);
             if (rc >= 0 && sqe.offset == TIOCSCTTY)
-                rc = proc::acquire_controlling_terminal(object);
+                rc = proc::acquire_controlling_terminal(handle);
             if (rc >= 0 && output &&
                 !memory::copy_out(argument.value.bytes(expected), ioctl_storage))
                 co_return -EFAULT;

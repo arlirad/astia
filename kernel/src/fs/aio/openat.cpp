@@ -50,10 +50,10 @@ namespace astia::io::aio::operations {
                                       fs::permission_bits::read))
                     co_return -EACCES;
             }
-            mm::shptr<fs::open_file> object = existing_mode.is_directory()
+            mm::shptr<fs::open_file> handle = existing_mode.is_directory()
                                                   ? fs::open_directory(resolved)
                                                   : fs::open(resolved, sqe.op_flags);
-            if (!object)
+            if (!handle)
                 co_return -ENOENT;
             if ((sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 && !existing_mode.exists()) {
                 auto requested = mapper<fs::file_permissions>::from(
@@ -69,7 +69,7 @@ namespace astia::io::aio::operations {
                 co_return -ESRCH;
             for (i32 i = 0; i < static_cast<i32>(proc::max_process_fds); ++i) {
                 if (!current->descriptor(fd_t{i}) &&
-                    current->set_descriptor(fd_t{i}, object,
+                    current->set_descriptor(fd_t{i}, handle,
                                             (sqe.op_flags & ASTIA_AIO_O_CLOEXEC) != 0
                                                 ? static_cast<u32>(ASTIA_FD_CLOEXEC)
                                                 : 0u))

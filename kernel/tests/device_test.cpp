@@ -380,27 +380,27 @@ ASTIA_TEST(aio_completed_parked_operation_releases_owner_once) {
 }
 
 ASTIA_TEST(open_file_keeps_synchronous_dispatch_fast_path) {
-    auto                 object = astia::mm::shptr<astia::fs::file>(new dispatch_file{});
-    astia::fs::open_file handle(object, astia::fs::open_file_status_flags::readwrite);
+    auto                 parent = astia::mm::shptr<astia::fs::file>(new dispatch_file{});
+    astia::fs::open_file handle(parent, astia::fs::open_file_status_flags::readwrite);
     astia::u8            read_buffer[4]{};
     const astia::u8      write_buffer[2]{};
 
     ASTIA_CHECK(handle.read(read_buffer, sizeof read_buffer, 0) == sizeof read_buffer);
     ASTIA_CHECK(handle.write(write_buffer, sizeof write_buffer, 0) ==
                 sizeof write_buffer);
-    auto* file = static_cast<dispatch_file*>(object.get());
+    auto* file = static_cast<dispatch_file*>(parent.get());
     ASTIA_CHECK(file->reads == 1);
     ASTIA_CHECK(file->writes == 1);
     ASTIA_CHECK(file->submits == 0);
 }
 
 ASTIA_TEST(open_file_falls_back_to_submit_only_file) {
-    auto object = astia::mm::shptr<astia::fs::file>(new submit_only_file{});
-    astia::fs::open_file handle(object, astia::fs::open_file_status_flags::readwrite);
+    auto parent = astia::mm::shptr<astia::fs::file>(new submit_only_file{});
+    astia::fs::open_file handle(parent, astia::fs::open_file_status_flags::readwrite);
     astia::u8            buffer[3]{};
 
     ASTIA_CHECK(handle.read(buffer, sizeof buffer, 0) == sizeof buffer);
-    auto* submitter = static_cast<submit_only_file*>(object.get());
+    auto* submitter = static_cast<submit_only_file*>(parent.get());
     ASTIA_CHECK(submitter->calls == 1);
     ASTIA_CHECK(submitter->stable);
     ASTIA_CHECK(submitter->direction == astia::io::direction::input);

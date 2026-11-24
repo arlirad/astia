@@ -7,8 +7,8 @@ namespace astia::io::aio::operations {
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
                astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
-            auto object = file_for(sqe.fd);
-            if (!object)
+            auto handle = file_for(sqe.fd);
+            if (!handle)
                 co_return -EBADF;
             const auto address = memory::user_ptr<astia_sockaddr>(sqe.address).validate();
             if (!address)
@@ -25,8 +25,8 @@ namespace astia::io::aio::operations {
                 co_return static_cast<i32>(path_rc);
             if (!socket_node_writable(proc::current_process(), canonical))
                 co_return -EACCES;
-            const auto* socket = object->node()->unix_socket_capability();
-            long rc = socket == nullptr ? -EOPNOTSUPP : socket->connect(*object, a);
+            const auto* socket = handle->parent()->unix_socket_capability();
+            long rc = socket == nullptr ? -EOPNOTSUPP : socket->connect(*handle, a);
             co_return static_cast<i32>(rc);
         }
     };

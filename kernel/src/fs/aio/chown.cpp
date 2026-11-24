@@ -18,16 +18,16 @@ namespace astia::io::aio::operations {
                 auto mapped_fd = mapper<fd_t>::from(sqe.fd);
                 if (!mapped_fd.has_value)
                     co_return -EBADF;
-                auto object = current->descriptor(mapped_fd.value);
-                if (!object)
+                auto handle = current->descriptor(mapped_fd.value);
+                if (!handle)
                     co_return -EBADF;
                 if (current->euid() != 0 &&
-                    (current->euid() != static_cast<u32>(object->node()->uid()) ||
-                     owner.value != object->node()->uid() ||
+                    (current->euid() != static_cast<u32>(handle->parent()->uid()) ||
+                     owner.value != handle->parent()->uid() ||
                      !current->in_group(group.value)))
                     co_return -EPERM;
                 co_return static_cast<i32>(
-                    object->node()->chown(owner.value, group.value));
+                    handle->parent()->chown(owner.value, group.value));
             }
             char path[256];
             if (!memory::copy_in_string(span<char>(path, sizeof path),

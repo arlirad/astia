@@ -198,13 +198,13 @@ namespace astia::io::aio::dispatch {
                     return io_outcome::completed;
                 }
                 if (op.socket_accept) {
-                    const auto* socket = op.object->node()->unix_socket_capability();
+                    const auto* socket = op.handle->parent()->unix_socket_capability();
                     n                  = socket == nullptr
                                              ? -EOPNOTSUPP
-                                             : socket->accept(*op.object, op.operation->request());
+                                             : socket->accept(*op.handle, op.operation->request());
                 }
                 else {
-                    n = op.object->submit(op.operation->request());
+                    n = op.handle->submit(op.operation->request());
                 }
                 if (op.control) {
                     if (n == 0 && !op.operation->request().complete()) {
@@ -258,7 +258,7 @@ namespace astia::io::aio::dispatch {
                                                 static_cast<u32>(op.entries.chunk()),
                                                 op.operation->request().offset());
                 op.operation->request().wake_handler_set(wake_request,
-                                                         op.object->node().get());
+                                                         op.handle->parent().get());
                 op.operation->request().updates_position(updates_position);
                 if (has_append_length)
                     op.operation->request().append_length(append_length);
@@ -270,11 +270,11 @@ namespace astia::io::aio::dispatch {
                                        long& result) {
             if (op.recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
-                const auto*    socket = op.object->node()->unix_socket_capability();
+                const auto*    socket = op.handle->parent()->unix_socket_capability();
                 const auto     destination =
                     memory::user_ptr<astia_sockaddr>(op.recvfrom_address_user)
                         .validate_for(owner);
-                if (socket == nullptr || !socket->recvfrom_address(*op.object, address) ||
+                if (socket == nullptr || !socket->recvfrom_address(*op.handle, address) ||
                     !destination ||
                     !memory::copy_out_for(owner, destination.value.bytes(), &address))
                     result = -EFAULT;
@@ -312,7 +312,7 @@ namespace astia::io::aio::dispatch {
         /// every entry is pinned for the flight.  Returns whether the SQE was
         /// consumed.
         bool submit_request(ring_slot& slot, astia_rings* ring, const astia_sqe& s,
-                            const mm::shptr<fs::open_file>& object,
+                            const mm::shptr<fs::open_file>& handle,
                             const span<u8>* entries, u32 count,
                             ::astia::io::direction direction, bool control = false,
                             bool socket_accept = false, core::cltoken token = {}) {
@@ -337,7 +337,7 @@ namespace astia::io::aio::dispatch {
             p->done                  = false;
             p->resuming              = false;
             p->fd                    = s.fd;
-            p->object                = object;
+            p->handle                = handle;
             p->moved                 = 0;
             p->control               = control;
             p->signal_interruptible  = false;
@@ -408,7 +408,7 @@ namespace astia::io::aio::dispatch {
             p->generation = issue_request_generation();
             p->operation->request().generation(p->generation);
             p->operation->request().wake_handler_set(wake_request,
-                                                     p->object->node().get());
+                                                     p->handle->parent().get());
             p->operation->request().append_length(static_cast<u32>(p->entries.bytes()));
             p->operation->request().updates_position(
                 (s.op_flags & ASTIA_AIO_POSITIONED) == 0);
@@ -419,7 +419,7 @@ namespace astia::io::aio::dispatch {
             const auto outcome    = pump(*p, result);
             if (outcome == io_outcome::parked) {
                 arm_request_timeout(*p);
-                publish_waiter_hint(slot, park_index, p->object->node().get());
+                publish_waiter_hint(slot, park_index, p->handle->parent().get());
                 if (ready_generation() != generation)
                     p->device_ready = true;
                 return true; // parked: a device resume completes it
@@ -473,7 +473,7 @@ namespace astia::io::aio::dispatch {
                 return;
             }
             if (op.readiness) {
-                const u32 ready = op.object ? op.object->poll(op.poll_events)
+                const u32 ready = op.handle ? op.handle->poll(op.poll_events)
                                             : static_cast<u32>(POLLNVAL);
                 if (ready == 0) {
                     op.resuming = false;
@@ -551,14 +551,14 @@ namespace astia::io::aio::dispatch {
             if (token.canceled())
                 return ring::cq_post_guarded(ring, s.user_data, -ECANCELED);
             dispatch_context         context{slot, ring, s, proc::current_process()};
-            mm::shptr<fs::open_file> object = file_for(context.current, s.fd);
-            if (!object) {
+            mm::shptr<fs::open_file> handle = file_for(context.current, s.fd);
+            if (!handle) {
                 return context.complete(-EBADF);
             }
-            const u32 access = object->flags() & fs::open_file_access_mask;
+            const u32 access = handle->flags() & fs::open_file_access_mask;
             if ((direction == ::astia::io::direction::output && access == 0 &&
-                 (object->flags() & fs::pipe_write_endpoint_flag) == 0 &&
-                 object->mode().is_regular()) ||
+                 (handle->flags() & fs::pipe_write_endpoint_flag) == 0 &&
+                 handle->mode().is_regular()) ||
                 (direction == ::astia::io::direction::input &&
                  access == ASTIA_AIO_O_WRONLY))
                 return context.complete(-EBADF);
@@ -621,7 +621,7 @@ namespace astia::io::aio::dispatch {
             if (total == 0) {
                 return context.complete(0);
             }
-            return submit_request(context.slot, context.ring, s, object, ranges, count,
+            return submit_request(context.slot, context.ring, s, handle, ranges, count,
                                   direction, false, false, token);
         }
 
@@ -646,11 +646,11 @@ namespace astia::io::aio::dispatch {
 
     bool submit_socket_request(ring::ring_slot& slot, astia_rings* ring,
                                const astia_sqe&                sqe,
-                               const mm::shptr<fs::open_file>& object,
+                               const mm::shptr<fs::open_file>& handle,
                                const span<u8>* entries, u32 count,
                                ::astia::io::direction direction, bool control,
                                bool socket_accept, core::cltoken token) {
-        return detail::submit_request(slot, ring, sqe, object, entries, count, direction,
+        return detail::submit_request(slot, ring, sqe, handle, entries, count, direction,
                                       control, socket_accept, token);
     }
 

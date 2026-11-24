@@ -1,7 +1,8 @@
 #pragma once
 
-#include "filesystem.hpp"
 #include <astia/core/spinlock.hpp>
+
+#include "filesystem.hpp"
 
 namespace astia::fs {
 
@@ -14,18 +15,18 @@ namespace astia::fs {
         file_mode            node_mode(const char* path) const override;
         uid_t                node_uid(const char* path) const override;
         gid_t                node_gid(const char* path) const override;
-        long register_file(const char* path, const mm::shptr<file>& object) override;
-        long unregister_file(const char* path, const mm::shptr<file>& object) override;
+        long register_file(const char* path, const mm::shptr<file>& entry) override;
+        long unregister_file(const char* path, const mm::shptr<file>& entry) override;
 
         private:
         struct entry {
             bool            used;
             char            path[path_max];
-            mm::shptr<file> object;
+            mm::shptr<file> target;
         };
 
         entry _entries[devfs_max_entries]{};
-        // Protects entry publication and lookup; object methods run after
+        // Protects entry publication and lookup; file methods run after
         // lookup with a retained reference and without this lock held.
         mutable core::spinlock _namespace_lock;
     };

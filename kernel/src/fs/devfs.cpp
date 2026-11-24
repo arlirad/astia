@@ -1,9 +1,10 @@
 #include "devfs.hpp"
 
-#include "../dev/chr/tty/pty.hpp"
-#include "../proc/proc.hpp"
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
+
+#include "../dev/chr/tty/pty.hpp"
+#include "../proc/proc.hpp"
 
 namespace astia::fs {
 
@@ -29,9 +30,9 @@ namespace astia::fs {
         }
     }
 
-    long devfs_mount::register_file(const char* path, const mm::shptr<file>& object) {
+    long devfs_mount::register_file(const char* path, const mm::shptr<file>& entry) {
         core::spinlock_guard guard(_namespace_lock);
-        if (!object || path == nullptr || path[0] != '/')
+        if (!entry || path == nullptr || path[0] != '/')
             return -EINVAL;
         for (u32 i = 0; i < devfs_max_entries; ++i) {
             if (_entries[i].used && equal(_entries[i].path, path))
@@ -42,23 +43,23 @@ namespace astia::fs {
                 if (!copy_path(_entries[i].path, path))
                     return -ENAMETOOLONG;
                 _entries[i].used   = true;
-                _entries[i].object = object;
+                _entries[i].target = entry;
                 return 0;
             }
         }
         return -ENFILE;
     }
 
-    long devfs_mount::unregister_file(const char* path, const mm::shptr<file>& object) {
+    long devfs_mount::unregister_file(const char* path, const mm::shptr<file>& entry) {
         core::spinlock_guard guard(_namespace_lock);
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
         for (u32 i = 0; i < devfs_max_entries; ++i) {
             if (!_entries[i].used || !equal(_entries[i].path, path))
                 continue;
-            if (object && _entries[i].object.get() != object.get())
+            if (entry && _entries[i].target.get() != entry.get())
                 return -ENOENT;
-            _entries[i].object  = {};
+            _entries[i].target  = {};
             _entries[i].path[0] = '\0';
             _entries[i].used    = false;
             return 0;
@@ -80,17 +81,17 @@ namespace astia::fs {
                 result->set_status_flags(flags);
             return result;
         }
-        mm::shptr<file> object;
+        mm::shptr<file> target;
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < devfs_max_entries; ++i)
                 if (_entries[i].used && equal(_entries[i].path, path)) {
-                    object = _entries[i].object;
+                    target = _entries[i].target;
                     break;
                 }
         }
-        if (object) {
-            const file_mode mode = object->mode();
+        if (target) {
+            const file_mode mode = target->mode();
             // OPENAT uses bit 0 for write-only and bit 1 for read/write.
             if ((flags & ASTIA_AIO_O_RDWR) == ASTIA_AIO_O_RDWR &&
                 (!mode.other_allows(permission_bits::read) ||
@@ -103,7 +104,7 @@ namespace astia::fs {
             if ((flags & ASTIA_AIO_O_ACCMODE) == ASTIA_AIO_O_RDONLY &&
                 !mode.other_allows(permission_bits::read))
                 return {};
-            return mm::share<open_file>(object, flags);
+            return mm::share<open_file>(target, flags);
         }
         return {};
     }
@@ -131,17 +132,17 @@ namespace astia::fs {
             return file_mode(file_type::directory, default_directory_permissions);
         if (dev::pty_node_exists(path) || equal(path, "/ptmx"))
             return file_mode(file_type::character, default_device_permissions);
-        mm::shptr<file> object;
+        mm::shptr<file> target;
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < devfs_max_entries; ++i)
                 if (_entries[i].used && equal(_entries[i].path, path)) {
-                    object = _entries[i].object;
+                    target = _entries[i].target;
                     break;
                 }
         }
-        if (object)
-            return object->mode();
+        if (target)
+            return target->mode();
         return {};
     }
 

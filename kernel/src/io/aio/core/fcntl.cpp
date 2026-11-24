@@ -50,8 +50,8 @@ namespace astia::io::aio::operations {
                 co_return static_cast<i32>(result);
             }
             case ASTIA_F_SETFL: {
-                auto object = current->descriptor(mapped.value);
-                object->set_status_flags(
+                auto handle = current->descriptor(mapped.value);
+                handle->set_status_flags(
                     (argument & ASTIA_O_APPEND
                          ? static_cast<u32>(fs::open_file_status_flags::append)
                          : 0u) |

@@ -1,9 +1,10 @@
 #include "pipe.hpp"
 
-#include "../sys/aio.hpp"
 #include <astia/api/errno.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
+
+#include "../sys/aio.hpp"
 
 namespace astia::fs {
     namespace {
@@ -124,11 +125,11 @@ namespace astia::fs {
     }
 
     optional<pipe_endpoints> create_pipe() {
-        mm::shptr<pipe_file> object(new pipe_file{});
-        if (!object)
+        mm::shptr<pipe_file> file(new pipe_file{});
+        if (!file)
             return error_t::enomem;
-        auto read_end  = mm::share<open_file>(object, pipe_read_endpoint_flag);
-        auto write_end = mm::share<open_file>(object, pipe_write_endpoint_flag);
+        auto read_end  = mm::share<open_file>(file, pipe_read_endpoint_flag);
+        auto write_end = mm::share<open_file>(file, pipe_write_endpoint_flag);
         if (read_end && write_end)
             return pipe_endpoints{static_cast<mm::shptr<open_file>&&>(read_end),
                                   static_cast<mm::shptr<open_file>&&>(write_end)};

@@ -43,13 +43,13 @@ namespace astia::io::aio::operations {
             if (!request.supported())
                 co_return -EAFNOSUPPORT;
             proc::process*           current = proc::current_process();
-            mm::shptr<fs::open_file> object;
-            long rc = fs::create_unix_socket(object, static_cast<u32>(request.type));
+            mm::shptr<fs::open_file> handle;
+            long rc = fs::create_unix_socket(handle, static_cast<u32>(request.type));
             if (rc < 0 || !current)
                 co_return (i32)(rc < 0 ? rc : -ESRCH);
             for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
                 if (!current->descriptor(fd_t{fd}) &&
-                    current->set_descriptor(fd_t{fd}, object))
+                    current->set_descriptor(fd_t{fd}, handle))
                     co_return fd;
             co_return -EMFILE;
         }

@@ -15,10 +15,10 @@ namespace astia::proc::syscalls {
                 return -EBADF;
             if (raw_whence < 0 || raw_whence > 2)
                 return -EINVAL;
-            auto object = owner->descriptor(fd_t{static_cast<i32>(raw_fd)});
-            if (!object)
+            auto handle = owner->descriptor(fd_t{static_cast<i32>(raw_fd)});
+            if (!handle)
                 return -EBADF;
-            return object->seek(offset, static_cast<i32>(raw_whence));
+            return handle->seek(offset, static_cast<i32>(raw_whence));
         }
     };
 

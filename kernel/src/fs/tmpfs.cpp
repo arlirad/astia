@@ -52,8 +52,8 @@ namespace astia::fs {
             return path[n] == '/';
         }
 
-        mm::phys_region* tmpfs_mapping(const file* object) {
-            return const_cast<tmpfs_file*>(static_cast<const tmpfs_file*>(object))
+        mm::phys_region* tmpfs_mapping(const file* parent) {
+            return const_cast<tmpfs_file*>(static_cast<const tmpfs_file*>(parent))
                 ->memory_region();
         }
 
@@ -221,7 +221,7 @@ namespace astia::fs {
                    are available.  Do not accidentally re-apply owner bits here. */
                 if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0)
                     return {};
-                existing = _entries[i].object;
+                existing = _entries[i].target;
                 break;
             }
         }
@@ -242,8 +242,8 @@ namespace astia::fs {
         while (end > 1 && parent[end - 1] != '/')
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
-        auto object                   = mm::shptr<tmpfs_file>(new tmpfs_file{});
-        if (!object || dispatch_mapping(object.get()) == nullptr)
+        auto file                     = mm::shptr<tmpfs_file>(new tmpfs_file{});
+        if (!file || dispatch_mapping(file.get()) == nullptr)
             return {};
         {
             core::spinlock_guard guard(_namespace_lock);
@@ -254,7 +254,7 @@ namespace astia::fs {
                     if (_entries[i].directory ||
                         ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0))
                         return {};
-                    existing = _entries[i].object;
+                    existing = _entries[i].target;
                     break;
                 }
             }
@@ -270,14 +270,14 @@ namespace astia::fs {
                     _entries[i].directory = false;
                     _entries[i].mode =
                         file_mode(file_type::regular, default_file_permissions);
-                    _entries[i].object = object;
+                    _entries[i].target = file;
                     published          = true;
                     break;
                 }
             }
         }
         if (published)
-            return mm::share<open_file>(object, flags);
+            return mm::share<open_file>(file, flags);
         if (existing) {
             if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0)
                 existing->truncate(0);
@@ -309,12 +309,12 @@ namespace astia::fs {
             if (!access_allowed(_entries[i].mode, _entries[i].uid, _entries[i].gid, euid,
                                 egid, want, privileged))
                 return -EACCES;
-            result = mm::share<open_file>(_entries[i].object, flags);
+            result = mm::share<open_file>(_entries[i].target, flags);
             if (!result)
                 return -ENOMEM;
             result->set_path(path);
             if ((flags & oflag_trunc) != 0 && access != 0)
-                return _entries[i].object->truncate(0);
+                return _entries[i].target->truncate(0);
             return 0;
         }
         if ((flags & oflag_creat) == 0)
@@ -322,10 +322,10 @@ namespace astia::fs {
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (_entries[i].used)
                 continue;
-            auto object = mm::shptr<tmpfs_file>(new tmpfs_file{tmpfs_max_pages, mode});
-            if (!object)
+            auto file = mm::shptr<tmpfs_file>(new tmpfs_file{tmpfs_max_pages, mode});
+            if (!file)
                 return -ENOMEM;
-            object->chown(uid, gid);
+            file->chown(uid, gid);
             if (!copy_path(_entries[i].path, path))
                 return -ENAMETOOLONG;
             _entries[i].used      = true;
@@ -333,8 +333,8 @@ namespace astia::fs {
             _entries[i].mode      = mode;
             _entries[i].uid       = uid;
             _entries[i].gid       = gid;
-            _entries[i].object    = object;
-            result                = mm::share<open_file>(object, flags);
+            _entries[i].target    = file;
+            result                = mm::share<open_file>(file, flags);
             if (!result) {
                 _entries[i] = entry{};
                 return -ENOMEM;
@@ -348,7 +348,7 @@ namespace astia::fs {
     long tmpfs_mount::unlink_shared(const char* path) {
         if (path == nullptr || path[0] != '/' || path[1] == '\0')
             return -EINVAL;
-        mm::shptr<tmpfs_file> object;
+        mm::shptr<tmpfs_file> file;
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < tmpfs_max_entries; ++i) {
@@ -356,14 +356,14 @@ namespace astia::fs {
                     continue;
                 if (_entries[i].directory)
                     return -EISDIR;
-                object      = _entries[i].object;
+                file        = _entries[i].target;
                 _entries[i] = entry{};
                 break;
             }
         }
-        if (!object)
+        if (!file)
             return -ENOENT;
-        object->drop_link();
+        file->drop_link();
         return 0;
     }
 
@@ -375,9 +375,9 @@ namespace astia::fs {
         // semantics rather than looking like an invalid tmpfs pathname.
         if (equal(path, "/"))
             return -EEXIST;
-        auto object = mm::shptr<tmpfs_file>(new tmpfs_file{
+        auto file = mm::shptr<tmpfs_file>(new tmpfs_file{
             0, file_mode(file_type::directory, mode.permissions().chmod_mask())});
-        if (!object)
+        if (!file)
             return -ENOMEM;
         core::spinlock_guard guard(_namespace_lock);
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
@@ -401,7 +401,7 @@ namespace astia::fs {
                 _entries[i].directory = true;
                 _entries[i].mode =
                     file_mode(file_type::directory, mode.permissions().chmod_mask());
-                _entries[i].object = object;
+                _entries[i].target = file;
                 return 0;
             }
         }
@@ -426,11 +426,11 @@ namespace astia::fs {
                 return -ENAMETOOLONG;
             ++n;
         }
-        auto object = mm::shptr<tmpfs_file>(new tmpfs_file{
+        auto file = mm::shptr<tmpfs_file>(new tmpfs_file{
             1, file_mode(file_type::symlink, default_symlink_permissions)});
-        if (!object)
+        if (!file)
             return -ENOMEM;
-        if (dispatch_write(object.get(), target, n, 0) != (long) n)
+        if (dispatch_write(file.get(), target, n, 0) != (long) n)
             return -ENOSPC;
         {
             core::spinlock_guard guard(_namespace_lock);
@@ -446,7 +446,7 @@ namespace astia::fs {
                     _entries[i].directory = false;
                     _entries[i].mode =
                         file_mode(file_type::symlink, default_symlink_permissions);
-                    _entries[i].object = object;
+                    _entries[i].target = file;
                     return 0;
                 }
         }
@@ -455,19 +455,19 @@ namespace astia::fs {
     long tmpfs_mount::readlink(const char* path, char* buffer, u32 capacity) const {
         if (!buffer || capacity == 0)
             return -EINVAL;
-        mm::shptr<tmpfs_file> object;
+        mm::shptr<tmpfs_file> file;
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < tmpfs_max_entries; ++i)
                 if (_entries[i].used && equal(_entries[i].path, path)) {
                     if (!_entries[i].mode.is_symlink())
                         return -EINVAL;
-                    object = _entries[i].object;
+                    file = _entries[i].target;
                     break;
                 }
         }
-        if (object)
-            return dispatch_read(object.get(), buffer, capacity, 0);
+        if (file)
+            return dispatch_read(file.get(), buffer, capacity, 0);
         return -ENOENT;
     }
 
@@ -563,7 +563,7 @@ namespace astia::fs {
             return -EINVAL;
         if (equal(path, "/"))
             return -EEXIST;
-        mm::shptr<tmpfs_file> object;
+        mm::shptr<tmpfs_file> file;
         bool                  found = false;
         {
             core::spinlock_guard guard(_namespace_lock);
@@ -577,7 +577,7 @@ namespace astia::fs {
                         if (_entries[j].used && parent_of(path, _entries[j].path))
                             return -ENOTEMPTY;
                 }
-                object      = _entries[i].object;
+                file        = _entries[i].target;
                 _entries[i] = entry{};
                 found       = true;
                 break;
@@ -585,8 +585,8 @@ namespace astia::fs {
         }
         if (!found)
             return -ENOENT;
-        if (object)
-            object->drop_link();
+        if (file)
+            file->drop_link();
         return 0;
     }
 
@@ -640,8 +640,8 @@ namespace astia::fs {
                     if (_entries[i].used && parent_of(new_path, _entries[i].path))
                         return -ENOTEMPTY;
             }
-            if (_entries[target].object)
-                _entries[target].object->drop_link();
+            if (_entries[target].target)
+                _entries[target].target->drop_link();
             _entries[target] = entry{};
         }
         const u32 old_len = [&] {
@@ -730,9 +730,9 @@ namespace astia::fs {
                                     _entries[source].uid,
                                     _entries[source].gid,
                                     {},
-                                    _entries[source].object};
+                                    _entries[source].target};
                 copy_path(_entries[i].path, new_path);
-                _entries[source].object->add_link();
+                _entries[source].target->add_link();
                 return 0;
             }
         return -ENOSPC;
@@ -765,7 +765,7 @@ namespace astia::fs {
             return file_mode(file_type::directory, readonly_directory_permissions);
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (_entries[i].used && equal(_entries[i].path, path))
-                return _entries[i].object ? _entries[i].object->mode() : _entries[i].mode;
+                return _entries[i].target ? _entries[i].target->mode() : _entries[i].mode;
         return {};
     }
     uid_t tmpfs_mount::node_uid(const char* path) const {
@@ -792,8 +792,8 @@ namespace astia::fs {
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (_entries[i].used && equal(_entries[i].path, path)) {
                 _entries[i].mode = _entries[i].mode.chmod(permissions);
-                if (_entries[i].object)
-                    _entries[i].object->set_mode(_entries[i].mode);
+                if (_entries[i].target)
+                    _entries[i].target->set_mode(_entries[i].mode);
                 return 0;
             }
         }
@@ -807,8 +807,8 @@ namespace astia::fs {
             if (_entries[i].used && equal(_entries[i].path, path)) {
                 _entries[i].uid = uid;
                 _entries[i].gid = gid;
-                if (_entries[i].object)
-                    (void) _entries[i].object->chown(uid, gid);
+                if (_entries[i].target)
+                    (void) _entries[i].target->chown(uid, gid);
                 return 0;
             }
         return -ENOENT;

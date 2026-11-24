@@ -24,7 +24,7 @@ namespace astia::io::aio::operations {
                 co_return -EINVAL;
             }
 
-            mm::shptr<fs::open_file> object;
+            mm::shptr<fs::open_file> handle;
             if (sqe.address != 0) {
                 char path[256];
                 if (!memory::copy_in_string(span<char>(path, sizeof path),
@@ -60,7 +60,7 @@ namespace astia::io::aio::operations {
                     link->gid   = static_cast<u32>(fs::node_gid(resolved));
                     co_return 0;
                 }
-                object = fs::open_path(resolved);
+                handle = fs::open_path(resolved);
                 if (type == fs::directory_dir) {
                     __builtin_memset(reinterpret_cast<void*>(out.value.get()), 0,
                                      sizeof(astia_stat));
@@ -73,7 +73,7 @@ namespace astia::io::aio::operations {
                     directory->gid   = static_cast<u32>(fs::node_gid(resolved));
                     co_return 0;
                 }
-                if (!object) {
+                if (!handle) {
                     char          child[256]{};
                     fs::file_type child_type = fs::directory_unknown;
                     if (fs::read_directory(resolved, 0, child, sizeof child,
@@ -91,13 +91,13 @@ namespace astia::io::aio::operations {
                 }
             }
             else {
-                object = file_for(sqe.fd);
-                if (!object) {
+                handle = file_for(sqe.fd);
+                if (!handle) {
                     co_return -EBADF;
                 }
             }
 
-            const long size = object->size();
+            const long size = handle->size();
             if (size < 0) {
                 co_return static_cast<i32>(size);
             }
@@ -107,15 +107,15 @@ namespace astia::io::aio::operations {
             auto* stat_out = reinterpret_cast<astia_stat*>(out.value.get());
             __builtin_memset(stat_out, 0, sizeof *stat_out);
             stat_out->dev        = 1;
-            stat_out->ino        = object->node()->inode();
-            stat_out->nlink      = object->node()->nlink();
+            stat_out->ino        = handle->parent()->inode();
+            stat_out->nlink      = handle->parent()->nlink();
             stat_out->size       = static_cast<u64>(size);
             stat_out->blocks     = (static_cast<u64>(size) + 511u) / 512u;
-            stat_out->mode       = mapper<fs::file_mode>::to(object->mode());
-            stat_out->uid        = static_cast<u32>(object->node()->uid());
-            stat_out->gid        = static_cast<u32>(object->node()->gid());
-            stat_out->mtime_sec  = object->mtime_sec();
-            stat_out->mtime_nsec = object->mtime_nsec();
+            stat_out->mode       = mapper<fs::file_mode>::to(handle->mode());
+            stat_out->uid        = static_cast<u32>(handle->parent()->uid());
+            stat_out->gid        = static_cast<u32>(handle->parent()->gid());
+            stat_out->mtime_sec  = handle->mtime_sec();
+            stat_out->mtime_nsec = handle->mtime_nsec();
             co_return 0;
         }
     };

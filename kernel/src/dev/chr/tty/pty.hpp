@@ -1,8 +1,9 @@
 #pragma once
 
-#include "../tty.hpp"
 #include <astia/fs.hpp>
 #include <astia/mm/shptr.hpp>
+
+#include "../tty.hpp"
 
 namespace astia::dev {
 
@@ -67,6 +68,6 @@ namespace astia::dev {
     bool                     pty_node_exists(const char* path);
     bool                     pty_node_is_directory(const char* path);
     bool                     pty_node_index(const char* path, u32* index);
-    void                     pty_release_slot(u32 index, pty* object);
+    void                     pty_release_slot(u32 index, pty* instance);
 
 } // namespace astia::dev

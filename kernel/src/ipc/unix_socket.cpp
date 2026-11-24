@@ -1,14 +1,15 @@
 #include "unix_socket.hpp"
 
-#include "../fs/unix_pathname.hpp"
-#include "../proc/process.hpp"
-#include "../sys/aio.hpp"
-#include "proc.hpp"
 #include <astia/api/errno.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
 #include <astia/resource_limits.hpp>
 #include <astia/span.hpp>
+
+#include "../fs/unix_pathname.hpp"
+#include "../proc/process.hpp"
+#include "../sys/aio.hpp"
+#include "proc.hpp"
 
 namespace astia::fs {
     namespace {
@@ -480,17 +481,17 @@ namespace astia::fs {
             u32                    _opens{1};
         };
 
-        long unix_read(file* object, void* buffer, u32 length, u64 offset) {
-            return static_cast<unix_file*>(object)->read(buffer, length, offset);
+        long unix_read(file* parent, void* buffer, u32 length, u64 offset) {
+            return static_cast<unix_file*>(parent)->read(buffer, length, offset);
         }
-        long unix_write(file* object, const void* buffer, u32 length, u64 offset) {
-            return static_cast<unix_file*>(object)->write(buffer, length, offset);
+        long unix_write(file* parent, const void* buffer, u32 length, u64 offset) {
+            return static_cast<unix_file*>(parent)->write(buffer, length, offset);
         }
-        long unix_submit(file* object, io::request& request) {
-            return static_cast<unix_file*>(object)->submit(request);
+        long unix_submit(file* parent, io::request& request) {
+            return static_cast<unix_file*>(parent)->submit(request);
         }
-        u32 unix_poll(const file* object, u32 events, u32 flags) {
-            return const_cast<unix_file*>(static_cast<const unix_file*>(object))
+        u32 unix_poll(const file* parent, u32 events, u32 flags) {
+            return const_cast<unix_file*>(static_cast<const unix_file*>(parent))
                 ->poll(events, flags);
         }
 
@@ -558,7 +559,7 @@ namespace astia::fs {
     }
     namespace {
         long socket_bind(open_file& o, const astia_sockaddr& a) {
-            auto* f = static_cast<unix_file*>(o.node().get());
+            auto* f = static_cast<unix_file*>(o.parent().get());
             char  n[path_max];
             if (!f || !path(a, n))
                 return -EINVAL;
@@ -566,7 +567,7 @@ namespace astia::fs {
             auto* current = proc::current_process();
             if (!current)
                 return -ESRCH;
-            mm::shptr<file> node = o.node();
+            mm::shptr<file> node = o.parent();
             long            rc   = register_unix_path(n, node, uid_t{current->euid()},
                                                       gid_t{current->egid()},
                                                       astia::span<char>(canonical, sizeof canonical));
@@ -577,7 +578,7 @@ namespace astia::fs {
             return 0;
         }
         long socket_listen(open_file& o, u32 b) {
-            auto* f = static_cast<unix_file*>(o.node().get());
+            auto* f = static_cast<unix_file*>(o.parent().get());
             if (!f || f->kind() != unix_file::state::fresh)
                 return -EINVAL;
             f->make_listener(b > socket_backlog_capacity ? socket_backlog_capacity
@@ -586,11 +587,11 @@ namespace astia::fs {
             return 0;
         }
         long socket_connect(open_file& o, const astia_sockaddr& a) {
-            auto* c = static_cast<unix_file*>(o.node().get());
+            auto* c = static_cast<unix_file*>(o.parent().get());
             char  n[path_max];
             if (!c || !path(a, n))
                 return -EINVAL;
-            mm::shptr<unix_file> c_owner(o.node());
+            mm::shptr<unix_file> c_owner(o.parent());
             mm::shptr<file>      endpoint;
             if (lookup_unix_path(n, endpoint) < 0)
                 return -ECONNREFUSED;
@@ -617,7 +618,7 @@ namespace astia::fs {
             return 0;
         }
         long socket_accept(open_file& o, io::request& r) {
-            auto* l = static_cast<unix_file*>(o.node().get());
+            auto* l = static_cast<unix_file*>(o.parent().get());
             if (!l || l->kind() != unix_file::state::listener)
                 return -EINVAL;
             return l->submit(r);
@@ -654,11 +655,11 @@ namespace astia::fs {
     }
     namespace {
         long socket_shutdown(open_file& o, u32 how) {
-            auto* f = static_cast<unix_file*>(o.node().get());
+            auto* f = static_cast<unix_file*>(o.parent().get());
             return f ? f->shutdown(how) : -EBADF;
         }
         long socket_getsockopt(open_file& o, u32 level, u32 name, u32* value) {
-            auto* f = static_cast<unix_file*>(o.node().get());
+            auto* f = static_cast<unix_file*>(o.parent().get());
             if (!f || value == nullptr ||
                 (f->kind() != unix_file::state::connected &&
                  f->kind() != unix_file::state::dgram))
@@ -669,7 +670,7 @@ namespace astia::fs {
             return 0;
         }
         long socket_sendto(open_file& o, const astia_sockaddr* a) {
-            auto* f = static_cast<unix_file*>(o.node().get());
+            auto* f = static_cast<unix_file*>(o.parent().get());
             if (!f || f->kind() != unix_file::state::dgram)
                 return -EOPNOTSUPP;
             char n[path_max];
@@ -685,14 +686,14 @@ namespace astia::fs {
             return 0;
         }
         long socket_recvfrom(open_file& o) {
-            auto* f = static_cast<unix_file*>(o.node().get());
+            auto* f = static_cast<unix_file*>(o.parent().get());
             if (!f || f->kind() != unix_file::state::dgram)
                 return -EOPNOTSUPP;
             f->set_dgram_address();
             return 0;
         }
         bool socket_recvfrom_address(open_file& o, astia_sockaddr& out) {
-            auto* f = static_cast<unix_file*>(o.node().get());
+            auto* f = static_cast<unix_file*>(o.parent().get());
             if (!f || f->kind() != unix_file::state::dgram)
                 return false;
             return f->take_dgram_address(out);

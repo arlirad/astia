@@ -140,10 +140,9 @@ namespace astia::fs {
             return {};
         for (u32 i = 0; i < initrd_max_entries; ++i) {
             if (_entries[i].used && equal(_entries[i].path, path)) {
-                mm::shptr<initrd_file> object =
+                mm::shptr<initrd_file> file =
                     mm::shptr<initrd_file>(new initrd_file(_entries[i].data));
-                return object ? mm::share<open_file>(object, flags)
-                              : mm::shptr<open_file>{};
+                return file ? mm::share<open_file>(file, flags) : mm::shptr<open_file>{};
             }
         }
         return {};

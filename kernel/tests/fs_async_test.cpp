@@ -13,6 +13,7 @@ namespace {
         synchronous_zero,
         synchronous_short,
         synchronous_error,
+        synchronous_length,
         parked_zero,
         parked_completion_first,
     };
@@ -42,6 +43,13 @@ namespace astia::fs {
 
     open_file::~open_file() = default;
 
+    long open_file::reserve_append(u32, u64* offset) {
+        if (offset == nullptr)
+            return -EINVAL;
+        *offset = 0;
+        return 0;
+    }
+
     long open_file::submit(io::request& request) {
         last_direction = request.direction();
         if (submit_mode_state == submit_mode::synchronous_zero) {
@@ -55,6 +63,10 @@ namespace astia::fs {
         }
         if (submit_mode_state == submit_mode::synchronous_error)
             return -EIO;
+        if (submit_mode_state == submit_mode::synchronous_length) {
+            ++synchronous_submits;
+            return static_cast<long>(request.length());
+        }
         parked_completion = request.completion();
         parked_request    = &request;
         return 0;
@@ -214,6 +226,40 @@ ASTIA_TEST(fs_async_active_cancel_releases_device_reference_once) {
             request->acknowledge();
         request->end_device();
     }
+}
+
+ASTIA_TEST(fs_async_readv_walks_every_buffer) {
+    astia::fs::open_file    file({}, astia::fs::open_file_status_flags::none);
+    astia::u8               first[2]{};
+    astia::u8               second[3]{};
+    const astia::fs::buffer buffers[2]{{first, sizeof first}, {second, sizeof second}};
+    submit_mode_state   = submit_mode::synchronous_length;
+    synchronous_submits = 0;
+
+    auto task = file.readv(astia::span<const astia::fs::buffer>(buffers, 2),
+                           astia::fs::offset_current);
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(task.value() != nullptr && *task.value() == 5);
+    ASTIA_CHECK(synchronous_submits == 2);
+}
+
+ASTIA_TEST(fs_async_writev_walks_every_buffer) {
+    astia::fs::open_file    file({}, astia::fs::open_file_status_flags::none);
+    astia::u8               first[4]{};
+    astia::u8               second[1]{};
+    const astia::fs::buffer buffers[2]{{first, sizeof first}, {second, sizeof second}};
+    submit_mode_state   = submit_mode::synchronous_length;
+    synchronous_submits = 0;
+
+    auto task = file.writev(astia::span<const astia::fs::buffer>(buffers, 2),
+                            astia::fs::offset_current);
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(task.value() != nullptr && *task.value() == 5);
+    ASTIA_CHECK(synchronous_submits == 2);
 }
 
 ASTIA_TEST(fs_async_refuses_a_canceled_token_before_submit) {

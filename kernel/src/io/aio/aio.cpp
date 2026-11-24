@@ -89,12 +89,12 @@ namespace astia::io::aio {
 
     void io_device_ready(i32 fd) {
         proc::process* current        = proc::current_process();
-        auto           current_object = current == nullptr ? mm::shptr<fs::open_file>{}
+        auto           current_handle = current == nullptr ? mm::shptr<fs::open_file>{}
                                                            : current->descriptor(fd_t{fd});
-        if (!current_object) {
+        if (!current_handle) {
             return;
         }
-        io_device_ready_context(current_object->node().get());
+        io_device_ready_context(current_handle->parent().get());
     }
 
     void io_device_ready_context(const io_device* dev) {
@@ -121,7 +121,7 @@ namespace astia::io::aio {
                 pool_guard.release_lock();
                 parked_op& op = slot.park[p];
                 if (op.used && op.type == parked_op::kind::operation && !op.done &&
-                    op.object && op.object->node().get() == dev &&
+                    op.handle && op.handle->parent().get() == dev &&
                     op.operation->request().user_data() != excluded_user_data)
                     op.device_ready = true;
             }
