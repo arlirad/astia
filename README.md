@@ -2,7 +2,7 @@
 <!-- Copyright (c) 2026 Arlirad -->
 
 <p align="center">
-  <img src="img/banner.svg" alt="Astia banner" width="320px">
+  <img src="img/banner.png" alt="Astia banner" width="320px">
 </p>
 
 > A small, freestanding operating-system project for learning, experimentation,
