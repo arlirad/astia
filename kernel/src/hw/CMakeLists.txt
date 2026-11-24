@@ -1,6 +1,7 @@
 add_library(hw STATIC
-        ../hw_pci.cpp
-        ../dev/mmio.cpp
+        driver.cpp
+        mmio.cpp
+        pci.cpp
 )
 
 target_include_directories(hw PUBLIC

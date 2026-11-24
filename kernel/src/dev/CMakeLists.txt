@@ -3,7 +3,6 @@ add_library(dev STATIC
         blk/blkdev.cpp
         device_file.cpp
         console.cpp
-        driver.cpp
         chr/tty.cpp
         chr/tty/pty.cpp
         chr/tty/pty_vfs.cpp
