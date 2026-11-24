@@ -872,23 +872,23 @@ namespace astia::proc {
         }
     }
 
-    i32 process::msync(u64 addr, usize len, u32 flags) {
+    core::task<i32> process::msync_async(u64 addr, usize len, u32 flags) {
         const u64 page_bytes = mm::phys_region::frame_size;
         const u32 modes      = flags & (MS_SYNC | MS_ASYNC);
         if ((flags & ~(MS_SYNC | MS_ASYNC | MS_INVALIDATE)) != 0 ||
             (modes != MS_SYNC && modes != MS_ASYNC)) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         if (len == 0 || (addr % page_bytes) != 0 || len > ~u64{0} - mm::page_mask) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         const u64 pages = (static_cast<u64>(len) + mm::page_mask) / page_bytes;
         if (pages == 0 || pages > (u64{1} << 20) || pages > ~u64{0} / page_bytes) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         const u64 last = addr + pages * page_bytes;
         if (last < addr || last > user_address_limit) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
 
         struct sync_request {
@@ -942,13 +942,13 @@ namespace astia::proc {
                 result = collect(nullptr, 0, needed);
             }
             if (result < 0)
-                return result;
+                co_return result;
             if (needed != 0) {
                 if (needed > ~usize{0} / sizeof(sync_request))
-                    return -ENOMEM;
+                    co_return -ENOMEM;
                 auto storage = mm::heap::alloc(needed * sizeof(sync_request));
                 if (!storage)
-                    return -ENOMEM;
+                    co_return -ENOMEM;
                 requests = reinterpret_cast<sync_request*>(storage.value);
                 for (usize i = 0; i < needed; ++i)
                     ::new (requests + i) sync_request{};
@@ -963,7 +963,7 @@ namespace astia::proc {
                     requests[i].~sync_request();
                 if (requests != nullptr)
                     mm::heap::free(requests);
-                return result;
+                co_return result;
             }
             if (actual == needed) {
                 request_count = needed;
@@ -978,10 +978,19 @@ namespace astia::proc {
 
         i32 result = 0;
         for (usize i = 0; i < request_count; ++i) {
-            const long synced = requests[i].file->sync_mapping(
-                requests[i].mapping, requests[i].offset, requests[i].length, flags);
-            if (synced < 0) {
-                result = static_cast<i32>(synced);
+            auto contract = requests[i].file->parent()->as_mappable();
+            if (!contract) {
+                result = -ENODEV;
+                break;
+            }
+            auto synced = co_await contract->sync_mapping(
+                requests[i].mapping, requests[i].offset, requests[i].length, flags, {});
+            if (!synced) {
+                result = static_cast<i32>(error_errno(synced.error));
+                break;
+            }
+            if (synced.value < 0) {
+                result = static_cast<i32>(synced.value);
                 break;
             }
         }
@@ -989,7 +998,17 @@ namespace astia::proc {
             requests[i].~sync_request();
         if (requests != nullptr)
             mm::heap::free(requests);
-        return result;
+        co_return result;
+    }
+
+    i32 process::msync(u64 addr, usize len, u32 flags) {
+        auto task = msync_async(addr, len, flags);
+        task.resume();
+        if (!task.done())
+            return -EAGAIN;
+        if (task.failed())
+            return static_cast<i32>(error_errno(task.error()));
+        return *task.value();
     }
 
     bool process::register_mapping(u64 base, usize pages, map_protection prot,
