@@ -15,7 +15,7 @@ describe('DocsMarkdownRenderer', () => {
         '',
         '[testing](docs/ctest.md)',
         '',
-        '![banner](img/banner.svg "Logo")',
+        '![banner](img/banner.png "Logo")',
       ].join('\n'),
       'README.md',
     );
@@ -25,7 +25,7 @@ describe('DocsMarkdownRenderer', () => {
       'href="https://github.com/arlirad/astia/blob/main/docs/ctest.md"',
     );
     expect(html).toContain(
-      'src="https://raw.githubusercontent.com/arlirad/astia/main/img/banner.svg"',
+      'src="https://raw.githubusercontent.com/arlirad/astia/main/img/banner.png"',
     );
     expect(html).toContain('alt="banner"');
     expect(html).toContain('title="Logo"');

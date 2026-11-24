@@ -42,6 +42,9 @@ void* calloc(size_t nmemb, size_t size);
 void* realloc(void* ptr, size_t size);
 int   posix_memalign(void** memptr, size_t alignment, size_t size);
 
+/* filesystem */
+char* realpath(const char* path, char* resolved_path);
+
 /* program */
 ASTIA_NORETURN void abort(void);
 int                 atexit(void (*function)(void));

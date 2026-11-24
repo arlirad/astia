@@ -46,6 +46,7 @@ set(ASTIA_LIBC_SOURCES
   src/pwd.c
   src/path.c
   src/poll.c
+  src/realpath.c
   src/select.c
   src/semaphore.c
   src/prctl.c
