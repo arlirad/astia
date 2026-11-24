@@ -1,5 +1,6 @@
 if (ARCH STREQUAL "aarch64")
     add_library(arch_aarch64 OBJECT
+            exception.S
             start.S
             page_map.cpp
     )

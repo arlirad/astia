@@ -37,7 +37,11 @@ The stage does exactly this:
 7. Build a bounded, static identity-map page-table arena from the typed
    handoff, install it in `TTBR0_EL1`, and enable stage 1 translation.
 8. Print the post-MMU marker, MAIR/TCR/SCTLR state, and a PL011 write/read
-   marker, then halt through PSCI `SYSTEM_OFF`.
+   marker.
+9. Install the 2 KiB-aligned EL1 vector table in `VBAR_EL1`.
+10. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
+    exception through the C++ fatal reporter, and halt through PSCI
+    `SYSTEM_OFF`.
 
 Explicit non-goals: scheduler, full virtual-memory management, user address
 spaces, cache maintenance policy, GIC/IRQ, timers, modules, userspace, SMP,
@@ -274,6 +278,145 @@ DDI 0487 M.c, <https://developer.arm.com/documentation/ddi0487/mc>. QEMU
 bare-metal images, all other device addresses from the DTB,
 <https://www.qemu.org/docs/master/system/arm/virt.html>.
 
+## Synchronous exception entry (BRK64)
+
+This milestone adds the first production AArch64 exception path. It is a
+fatal diagnostic path only: there is no exception return, recovery, IRQ/FIQ,
+or SError handling.
+
+### Vector table layout and VBAR_EL1
+
+The table is the architectural 16-slot AArch64 layout: four exception sources
+(synchronous, IRQ, FIQ, SError) in four groups (current EL with `SP_EL0`,
+current EL with `SP_ELx`, lower EL using AArch64, lower EL using AArch32).
+Each slot is 128 bytes, so the table is 2 KiB. `VBAR_EL1.VBA` occupies bits
+`[63:11]` and bits `[10:0]` are RES0, so the table must be 2 KiB aligned.
+The table is placed in `.vectors`, `KEEP`-retained in the executable `.text`
+segment, and is therefore inside the identity-mapped executable image range.
+
+The kernel runs at EL1h (`PSTATE.SP = 1`, `SP_EL1` selected). On exception
+entry the PE selects the target Exception level's stack pointer and sets
+`PSTATE.SP = 1`, so a synchronous exception from the kernel enters the
+current-EL-with-`SP_ELx` synchronous slot at offset `0x200`. The implementation
+provides that slot plus deterministic fatal stubs for the other 15 slots.
+
+Offsets implemented (all 16 symbols are exported and checked by the smoke
+runner):
+
+| Offset | Slot |
+| --- | --- |
+| `0x000` | current EL with `SP_EL0`, synchronous |
+| `0x080` | current EL with `SP_EL0`, IRQ |
+| `0x100` | current EL with `SP_EL0`, FIQ |
+| `0x180` | current EL with `SP_EL0`, SError |
+| `0x200` | current EL with `SP_ELx`, synchronous (implemented) |
+| `0x280` | current EL with `SP_ELx`, IRQ |
+| `0x300` | current EL with `SP_ELx`, FIQ |
+| `0x380` | current EL with `SP_ELx`, SError |
+| `0x400` | lower EL using AArch64, synchronous |
+| `0x480` | lower EL using AArch64, IRQ |
+| `0x500` | lower EL using AArch64, FIQ |
+| `0x580` | lower EL using AArch64, SError |
+| `0x600` | lower EL using AArch32, synchronous |
+| `0x680` | lower EL using AArch32, IRQ |
+| `0x700` | lower EL using AArch32, FIQ |
+| `0x780` | lower EL using AArch32, SError |
+
+### Fixed exception frame
+
+Every slot saves the same fixed frame on `SP_EL1` before calling the C++
+reporter. The frame size is 288 bytes (`0x120`), a multiple of 16, so the
+call keeps the AAPCS64 stack alignment. `SP_EL1` itself is not otherwise
+modified: the frame is built below the interrupted stack.
+
+| Offset | Contents |
+| --- | --- |
+| `0x000`-`0x0f0` | `x0`-`x30`, two registers per 16-byte pair |
+| `0x0f8` | `ELR_EL1` |
+| `0x100` | `SPSR_EL1` |
+| `0x108` | `ESR_EL1` |
+| `0x110` | `FAR_EL1` |
+| `0x118` | reserved/padding |
+| `0x120` | frame size |
+
+The PE preserves `ELR_EL1`, `SPSR_EL1`, and (for synchronous exceptions)
+`ESR_EL1`; software must preserve the general-purpose registers. The C++
+reporter receives a pointer to this frame and the vector index.
+
+### BRK64 diagnostics and FAR_EL1
+
+After the MMU is enabled and the PL011 read/write marker is printed, the stage
+installs `VBAR_EL1` and executes `brk #0x1234` from a labelled probe. The
+Breakpoint Instruction exception is synchronous. For an A64 `BRK`:
+
+- `ESR_EL1.EC = 0x3C`.
+- `ESR_EL1.IL = 1`.
+- `ESR_EL1.ISS[15:0]` is the zero-extended 16-bit immediate (`0x1234`).
+- `ELR_EL1` is the address of the `BRK` instruction, not the following
+  instruction.
+
+The reporter prints the vector name, `ESR_EL1` with decoded EC/IL/ISS,
+`ELR_EL1`, `FAR_EL1`, and `SPSR_EL1`, then halts through PSCI `SYSTEM_OFF`.
+It uses the platform-owned PL011 base; the FDT parser accepts a console
+candidate only when its base equals that trusted value, so the early and fatal
+paths always target the same UART. The runner asserts the vector slot, the
+`EXCEPTION SYNC` marker, the exact BRK64 syndrome `0xF2001234` (`EC=0x3C`,
+`IL=1`, `ISS=0x1234`), the BRK immediate, `ELR_EL1` equal to the probe symbol,
+and the clean `EXCEPTION HALT` marker.
+
+`FAR_EL1` is architecturally updated only for Instruction Abort, Data Abort,
+PC alignment fault, and Watchpoint exceptions. For all other exceptions,
+including `BRK`, `FAR_EL1` is UNKNOWN. The stage therefore seeds `FAR_EL1`
+with `0x5a5a5a5a5a5a5a5a` immediately before the probe. The reporter must
+print that exact value, which proves the frame saves and reports `FAR_EL1`
+without claiming a fault address that the architecture does not provide.
+
+### No exception return
+
+The reporter is `[[noreturn]]` and calls the existing PSCI `SYSTEM_OFF`. No
+`ERET` is executed. `ERET` restores `PSTATE` from `SPSR_EL1` and branches to
+`ELR_EL1`; recovery would additionally require legal-return validation and a
+real handler policy. Both are out of scope for this fatal diagnostic stage.
+The other 15 vector slots use the same fixed frame and reporter with their
+vector index and therefore halt deterministically rather than falling through
+or returning.
+
+### Specification provenance (exceptions)
+
+The implementation was written against the complete Arm DDI 0487 M.c sections
+and the Arm Learn the Architecture exception-model guide, not summaries:
+
+- D1.2.2.1 stack pointer register selection (RCNNQX, ICSFMY: the target
+  Exception level's stack pointer is selected on exception entry).
+- D1.4.1.5 preferred exception return address (RQYCWH: a synchronous exception
+  other than an exception-generating instruction returns to the generating
+  instruction; RDPLYN writes it to `ELR_ELx`).
+- D1.4.1.6 exception vectors (RBRCKV `VBAR_ELx`, RPJKRC fixed offsets,
+  IYCTHH/IQLHPV vector categorization, RRYXCL offset tables including
+  `0x000`/`0x200` synchronous and `0x180`/`0x380` SError).
+- D1.4.2 exception entry (RDQXFW: `SPSR_ELx`, `ELR_ELx`, `ESR_ELx`, and the
+  vector branch; RWTXBY: `PSTATE.SP = 1`).
+- D1.4.2.1 synchronous exception entry (RZTSSH: `FAR_ELx` is captured only for
+  Instruction Abort, Data Abort, PC alignment, and Watchpoint; for all other
+  exceptions `FAR_ELx` is UNKNOWN).
+- D1.4.4.1 legal exception returns and D1.4.4.2 illegal exception returns;
+  C6.2.157 `ERET` restores `PSTATE` from `SPSR_ELx` and branches to
+  `ELR_ELx`.
+- D2.1.3 Breakpoint Instruction exceptions; D2.7.3.1 table D2-7 (`EC=0x3C`,
+  `IL=1`, `ISS[15:0]` = immediate, `ISS[24:16]` RES0); D2.7.3.2 preferred
+  return address is the address of the breakpoint instruction.
+- D24.2.44 `ESR_EL1` (`EC[31:26]`, `IL[25]`, `ISS[24:0]`); D24.2.47
+  `FAR_EL1`; D24.2.213 `VBAR_EL1` (`VBA[63:11]`, bits `[10:0]` RES0);
+  C5.2.5 `ELR_EL1`; C5.2.21 `SPSR_EL1`.
+- Arm Learn the Architecture, *Exception model* (ARM062-1010708621-27,
+  version 1.0): section 5.2 "Taking an exception" (PE preserves `ELR`/`SPSR`,
+  software preserves general-purpose registers), section 5.5 "Returning from
+  an exception" (`ERET` restores `PSTATE` from `SPSR` and PC from `ELR`),
+  section 5.6 "Exception stacks" (the target Exception level's `SP_ELx` is
+  selected), and section 6 "The vector tables" (vector base and fixed
+  offsets).
+  <https://developer.arm.com/-/media/Arm%20Developer%20Community/PDF/Learn%20the%20Architecture/Exception%20model.pdf>
+
 ## Verification
 
 ```sh
@@ -290,6 +433,11 @@ cmake --build kernel/build-tests --target astia_aarch64_page_map_test
 ctest --test-dir kernel/build-tests -R '^astia_aarch64_page_map_test$' \
   --output-on-failure
 
+# Focused AArch64 exception frame/vector layout test (host)
+cmake --build kernel/build-tests --target astia_aarch64_exception_frame_test
+ctest --test-dir kernel/build-tests -R '^astia_aarch64_exception_frame_test$' \
+  --output-on-failure
+
 # x86 page-map regression (device is a documented no-op)
 cmake --build kernel/build-tests --target astia_page_map_test
 ctest --test-dir kernel/build-tests -R '^astia_page_map_test$' \
@@ -300,11 +448,14 @@ kernel/scripts/run-aarch64-virt-smoke.sh
 ```
 
 The smoke runner also asserts the post-MMU marker, the exact MAIR/TCR values,
-`SCTLR_EL1.M/C/I`, and a PL011 write followed by a PL011 read.
+`SCTLR_EL1.M/C/I`, a PL011 write followed by a PL011 read, the 2 KiB-aligned
+vector-table base and all 16 slot offsets, the BRK64 `ESR_EL1` syndrome,
+`ELR_EL1`, the seeded `FAR_EL1`, and the clean exception halt.
 
 Kernel CI (`.github/workflows/kernel-ci.yml`) runs the focused host parser
 test, the production AArch64 QEMU smoke, and the existing x86 build/test
-pipeline.
+pipeline. The full host CTest suite includes the exception frame/vector layout
+test.
 
 ## Provenance
 
@@ -323,6 +474,11 @@ lift must be recorded here with the exact source and rework.
 
 - No full kernel boot, user address spaces, virtual-memory allocator, GIC/IRQ,
   timer, modules, userspace, SMP, initrd, or ACPI.
+- The exception path is fatal diagnostics only. It has no recovery, no
+  `ERET`, no IRQ/FIQ/SError dispatch, and no user fault handling; the 15
+  non-synchronous-current-EL slots are deterministic fatal stubs.
+- `FAR_EL1` is architecturally UNKNOWN for BRK64; the probe seeds it so the
+  runner can verify frame capture, not a fault address.
 - The identity map is deliberately static and bounded. It is not a frame
   allocator, cannot be reused for process address spaces, and does not
   implement break-before-make or cache maintenance for later table updates.
