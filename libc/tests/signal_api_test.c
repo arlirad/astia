@@ -4,19 +4,19 @@
 #include <signal.h>
 #include <stdio.h>
 
-static int                fails;
-static int                observed_signal;
-static struct sigaction   observed_action;
-static int                observed_how;
-static sigset_t            observed_set;
-static sigset_t            suspend_mask;
+static int              fails;
+static int              observed_signal;
+static struct sigaction observed_action;
+static int              observed_how;
+static sigset_t         observed_set;
+static sigset_t         suspend_mask;
 
-#define CHECK(condition)                                                   \
-    do {                                                                    \
-        if (!(condition)) {                                                 \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);    \
-            ++fails;                                                        \
-        }                                                                   \
+#define CHECK(condition)                                                \
+    do {                                                                \
+        if (!(condition)) {                                             \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
+            ++fails;                                                    \
+        }                                                               \
     } while (0)
 
 long __astia_process_sigaction(int signal, const astia_sigaction_t* action,
@@ -25,7 +25,7 @@ long __astia_process_sigaction(int signal, const astia_sigaction_t* action,
     if (action != NULL)
         observed_action = *(const struct sigaction*) action;
     if (old_action != NULL)
-        *(struct sigaction*) old_action = (struct sigaction) {SIG_DFL, 0, 0, 0};
+        *(struct sigaction*) old_action = (struct sigaction){SIG_DFL, 0, 0, 0};
     return 0;
 }
 
@@ -43,7 +43,7 @@ long __astia_process_sigsuspend(const unsigned int* mask) {
 }
 
 int main(void) {
-    sigset_t old;
+    sigset_t         old;
     struct sigaction restart_action = {0};
 
     CHECK(sigignore(SIGUSR1) == 0);
@@ -76,8 +76,20 @@ int main(void) {
     CHECK(sighold(0) == -1 && errno == EINVAL);
     errno = 0;
     CHECK(sigrelse(NSIG) == -1 && errno == EINVAL);
-    errno = 0;
-    CHECK(sighold(16) == -1 && errno == EINVAL);
+
+    CHECK(SIGAIO == 16);
+    CHECK(SIGIO == 29);
+    CHECK(SIGPOLL == SIGIO);
+    CHECK(NSIG == 32);
+
+    CHECK(sigaction(SIGAIO, &restart_action, NULL) == 0);
+    CHECK(observed_signal == SIGAIO);
+    CHECK(sighold(SIGAIO) == 0);
+    CHECK(observed_how == SIG_BLOCK);
+    CHECK(observed_set == (1u << SIGAIO));
+    CHECK(sigrelse(SIGAIO) == 0);
+    CHECK(observed_how == SIG_UNBLOCK);
+    CHECK(observed_set == (1u << SIGAIO));
 
     errno = 0;
     CHECK(sigpause(SIGUSR1) == -1 && errno == EINTR);

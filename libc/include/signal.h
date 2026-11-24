@@ -32,9 +32,9 @@ struct sigaction {
         sighandler_t        sa_handler;
         sigaction_handler_t sa_sigaction;
     };
-    sigset_t     sa_mask;
-    int          sa_flags;
-    uintptr_t    sa_restorer;
+    sigset_t  sa_mask;
+    int       sa_flags;
+    uintptr_t sa_restorer;
 };
 
 #define SIG_DFL ((sighandler_t) 0)
@@ -71,6 +71,7 @@ struct sigaction {
 #define SIGPIPE 13
 #define SIGALRM 14
 #define SIGTERM 15
+#define SIGAIO 16
 #define SIGCHLD 17
 #define SIGCONT 18
 #define SIGSTOP 19
@@ -85,7 +86,6 @@ struct sigaction {
 #define SIGWINCH 28
 #define SIGIO 29
 #define SIGPOLL SIGIO
-#define SIGAIO SIGIO
 #define SIGPWR 30
 #define SIGSYS 31
 #define NSIG 32
