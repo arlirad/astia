@@ -24,6 +24,7 @@ long __astia_process_geteuid(void);
 long __astia_process_getgid(void);
 long __astia_process_getegid(void);
 long __astia_process_getgroups(int count, unsigned int* groups);
+long __astia_process_setgroups(int count, const unsigned int* groups);
 long __astia_process_alarm(unsigned int seconds);
 long __astia_process_getpgrp(void);
 long __astia_process_getpgid(int pid);
