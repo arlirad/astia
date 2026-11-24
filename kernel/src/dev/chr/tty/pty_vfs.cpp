@@ -1,8 +1,8 @@
-#include "pty.hpp"
-
-#include "../../../sys/aio.hpp"
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
+
+#include "../../../sys/aio.hpp"
+#include "pty.hpp"
 
 namespace astia::dev {
     namespace {
@@ -48,8 +48,12 @@ namespace astia::dev {
                 return fs::file_mode(fs::file_type::character,
                                      fs::default_device_permissions);
             }
-            void duplicate(u32 flags) override { owner_->duplicate(flags); }
-            void close(u32 flags) override { owner_->close(flags); }
+            void duplicate(u32 flags) override {
+                owner_->duplicate(flags);
+            }
+            void close(u32 flags) override {
+                owner_->close(flags);
+            }
 
             private:
             mm::shptr<pty> owner_;
@@ -72,7 +76,9 @@ namespace astia::dev {
             long submit(io::request& request) override {
                 return owner_->master_submit(request);
             }
-            u32 poll(u32 events, u32) override { return owner_->master_poll(events); }
+            u32 poll(u32 events, u32) override {
+                return owner_->master_poll(events);
+            }
             long ioctl(u64 request, void* argp, usize size) override {
                 return owner_->master_ioctl(request, argp, size);
             }
@@ -91,12 +97,12 @@ namespace astia::dev {
 
             private:
             mm::shptr<pty> owner_;
-            u32 refs_ = 1;
+            u32            refs_ = 1;
         };
 
         struct pty_slot {
-            bool                     reserved = false;
-            mm::shptr<pty>           object;
+            bool                      reserved = false;
+            mm::shptr<pty>            instance;
             mm::shptr<pty_slave_file> slave_file;
         };
 
@@ -104,11 +110,11 @@ namespace astia::dev {
         core::spinlock slots_lock;
     }
 
-    void pty_release_slot(u32 index, pty* object) {
+    void pty_release_slot(u32 index, pty* instance) {
         core::spinlock_guard guard(slots_lock);
-        if (index < max_ptys && slots[index].object.get() == object) {
+        if (index < max_ptys && slots[index].instance.get() == instance) {
             slots[index].slave_file = {};
-            slots[index].object = {};
+            slots[index].instance   = {};
         }
     }
 
@@ -117,36 +123,36 @@ namespace astia::dev {
         {
             core::spinlock_guard guard(slots_lock);
             for (u32 i = 0; i < max_ptys; ++i) {
-                if (!slots[i].reserved && !slots[i].object) {
+                if (!slots[i].reserved && !slots[i].instance) {
                     slots[i].reserved = true;
-                    index = i;
+                    index             = i;
                     break;
                 }
             }
         }
         if (index == max_ptys)
             return {};
-        auto object = mm::share<pty>(index);
-        auto slave_file = object ? mm::share<pty_slave_file>(object)
-                                 : mm::shptr<pty_slave_file>{};
-        if (!object || !slave_file) {
+        auto instance = mm::share<pty>(index);
+        auto slave_file =
+            instance ? mm::share<pty_slave_file>(instance) : mm::shptr<pty_slave_file>{};
+        if (!instance || !slave_file) {
             core::spinlock_guard guard(slots_lock);
             slots[index].reserved = false;
             return {};
         }
         {
             core::spinlock_guard guard(slots_lock);
-            slots[index].object = object;
+            slots[index].instance   = instance;
             slots[index].slave_file = slave_file;
-            slots[index].reserved = false;
+            slots[index].reserved   = false;
         }
-        object->bind_slave(slave_file.get());
-        auto master = mm::share<pty_master_file>(object);
+        instance->bind_slave(slave_file.get());
+        auto master = mm::share<pty_master_file>(instance);
         if (!master) {
-            object->master_close();
+            instance->master_close();
             return {};
         }
-        object->bind_master(master.get());
+        instance->bind_master(master.get());
         auto result = mm::share<fs::open_file>(master, flags);
         if (!result)
             master->close(0);
@@ -157,29 +163,31 @@ namespace astia::dev {
         u32 index;
         if (!parse_index(path, &index) || index >= max_ptys)
             return {};
-        mm::shptr<pty> object;
+        mm::shptr<pty>            instance;
         mm::shptr<pty_slave_file> slave_file;
         {
             core::spinlock_guard guard(slots_lock);
-            object = slots[index].object;
+            instance   = slots[index].instance;
             slave_file = slots[index].slave_file;
         }
-        if (!object || !slave_file || !object->open_slave())
+        if (!instance || !slave_file || !instance->open_slave())
             return {};
         auto result = mm::share<fs::open_file>(slave_file, flags);
         if (!result)
-            object->close(0);
+            instance->close(0);
         return result;
     }
 
-    bool pty_node_index(const char* path, u32* index) { return parse_index(path, index); }
+    bool pty_node_index(const char* path, u32* index) {
+        return parse_index(path, index);
+    }
 
     bool pty_node_exists(const char* path) {
         u32 index;
         if (!parse_index(path, &index) || index >= max_ptys)
             return false;
         core::spinlock_guard guard(slots_lock);
-        return static_cast<bool>(slots[index].object);
+        return static_cast<bool>(slots[index].instance);
     }
 
     bool pty_node_is_directory(const char* path) {

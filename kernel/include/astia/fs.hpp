@@ -229,8 +229,9 @@ namespace astia::fs {
     /// The ring speaks `submit()`: one entry point for both directions,
     /// with the response code carrying the park protocol (<astia/io.hpp>).
     /// The base implementation just forwards to read()/write(), so a
-    /// synchronous node — every file in the tree today — needs nothing;
-    /// a node that must wait for hardware overrides submit() and parks.
+    /// synchronous file object — every file in the tree today — needs
+    /// nothing; an object that must wait for hardware overrides submit()
+    /// and parks.
     class file {
         public:
         virtual ~file() = default;
@@ -270,10 +271,10 @@ namespace astia::fs {
 
     // Kernel-internal capability dispatch.  These are deliberately separate
     // from the userspace ABI: callers pass an already-resolved file object.
-    long dispatch_read(file* object, void* buffer, u32 length, u64 offset);
-    long dispatch_write(file* object, const void* buffer, u32 length, u64 offset);
-    long dispatch_ioctl(file* object, u64 request, void* argp, usize size);
-    mm::phys_region* dispatch_mapping(const file* object);
+    long dispatch_read(file* parent, void* buffer, u32 length, u64 offset);
+    long dispatch_write(file* parent, const void* buffer, u32 length, u64 offset);
+    long dispatch_ioctl(file* parent, u64 request, void* argp, usize size);
+    mm::phys_region* dispatch_mapping(const file* parent);
 
     /// One kernel-visible buffer in an async vector operation.
     struct buffer {
@@ -286,20 +287,20 @@ namespace astia::fs {
     /// underlying file/device object remains shared by all opens.
     class open_file {
         public:
-        open_file(const mm::shptr<file>& object, u32 flags)
-            : _object(object), _flags(open_file_status_from_aio(flags)) {}
-        open_file(const mm::shptr<file>& object, open_file_status_flags flags)
-            : _object(object), _flags(static_cast<u32>(flags)) {}
+        open_file(const mm::shptr<file>& parent, u32 flags)
+            : _parent(parent), _flags(open_file_status_from_aio(flags)) {}
+        open_file(const mm::shptr<file>& parent, open_file_status_flags flags)
+            : _parent(parent), _flags(static_cast<u32>(flags)) {}
         /* Each descriptor copy owns a lifetime hook.  The backing file is
            shared, but every fd must release one pipe endpoint on close. */
         open_file(const open_file& other)
-            : _object(other._object), _position(other._position),
+            : _parent(other._parent), _position(other._position),
               _position_state(other.position_state()), _flags(other._flags),
               _mode(other._mode), _has_path(other._has_path), _mount(nullptr) {
             for (u32 i = 0; i < path_max; ++i)
                 _path[i] = other._path[i];
-            if (_object)
-                _object->duplicate(_flags);
+            if (_parent)
+                _parent->duplicate(_flags);
             if (other._mount)
                 attach_mount(other._mount);
         }
@@ -311,12 +312,12 @@ namespace astia::fs {
         ~open_file();
 
         /// Synchronous kernel-internal compatibility adapters. They submit
-        /// through the same request path and return -EAGAIN if the node parks;
+        /// through the same request path and return -EAGAIN if the file parks;
         /// callers that may wait use read()/write() below instead.
         long read(void* buf, u32 len, u64 offset = offset_current);
         long write(const void* buf, u32 len, u64 offset = offset_current);
         /// Async vector I/O.  Resolves offset_current/append once, walks the
-        /// buffer list through the node's device-facing submit, and advances
+        /// buffer list through the file's device-facing submit, and advances
         /// the shared position by the bytes moved.
         core::task<i64> readv(span<const buffer> buffers, u64 offset = offset_current,
                               core::cltoken token = {});
@@ -335,11 +336,11 @@ namespace astia::fs {
         long acquire_controlling_terminal(i32 group);
         long size() const;
         u32  block_size() const {
-            return _object ? _object->block_size() : 0;
+            return _parent ? _parent->block_size() : 0;
         }
         long truncate(u64 length);
         long sync() {
-            return !_object ? -EBADF : _object->sync();
+            return !_parent ? -EBADF : _parent->sync();
         }
         long chmod(file_permissions permissions);
         long sync_mapping(mm::phys_region* mapping, u64 offset, u64 length, u32 flags);
@@ -354,7 +355,7 @@ namespace astia::fs {
             return _mount;
         }
         mm::shptr<file> parent() const {
-            return _object;
+            return _parent;
         }
         u64 mtime_sec() const;
         u64 mtime_nsec() const;
@@ -388,7 +389,7 @@ namespace astia::fs {
         }
         long reserve_append(u32 length, u64* offset);
 
-        mm::shptr<file>                    _object;
+        mm::shptr<file>                    _parent;
         u64                                _position = 0;
         mutable mm::shptr<shared_position> _position_state;
         u32                                _flags;
@@ -402,18 +403,19 @@ namespace astia::fs {
     /// stay at one address until terminal completion or cancellation ack.
     class io_packet {
         public:
-        io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
-                  io::direction direction, mm::uptr<core::completion<i64>> completion)
-            : file_(file),
+        io_packet(const mm::shptr<open_file>& handle, void* buffer, u32 length,
+                  u64 offset, io::direction direction,
+                  mm::uptr<core::completion<i64>> completion)
+            : handle_(handle),
               operation_(new io::operation(
                   buffer, length, offset, direction,
                   static_cast<mm::uptr<core::completion<i64>>&&>(completion))) {
             if (operation_)
                 operation_->heap_owned(true);
         }
-        io_packet(const mm::shptr<open_file>& file, void* buffer, u32 length, u64 offset,
-                  io::direction direction)
-            : file_(file),
+        io_packet(const mm::shptr<open_file>& handle, void* buffer, u32 length,
+                  u64 offset, io::direction direction)
+            : handle_(handle),
               operation_(new io::operation(buffer, length, offset, direction)) {
             if (operation_)
                 operation_->heap_owned(true);
@@ -428,10 +430,11 @@ namespace astia::fs {
         io_packet& operator=(const io_packet&) = delete;
 
         explicit operator bool() const {
-            return static_cast<bool>(file_) && operation_ != nullptr;
+            return static_cast<bool>(handle_) && operation_ != nullptr;
         }
         long submit() {
-            return file_ && operation_ ? file_->submit(operation_->request()) : -EBADF;
+            return handle_ && operation_ ? handle_->submit(operation_->request())
+                                         : -EBADF;
         }
         io::request& request() {
             return operation_->request();
@@ -442,25 +445,25 @@ namespace astia::fs {
         core::completion<i64>* completion() const {
             return request().completion();
         }
-        const mm::shptr<open_file>& file() const {
-            return file_;
+        const mm::shptr<open_file>& handle() const {
+            return handle_;
         }
 
         private:
-        mm::shptr<open_file> file_;
+        mm::shptr<open_file> handle_;
         io::operation*       operation_ = nullptr;
     };
 
     /// Async VFS I/O.  The optional token makes a transfer abandonable: a
     /// cancelled or stale token refuses the submission and discards a result
     /// that arrives after cancellation.
-    core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer, u32 length,
+    core::task<i64> submit(const mm::shptr<open_file>& handle, void* buffer, u32 length,
                            u64 offset, io::direction direction, core::cltoken token = {});
-    core::task<i64> read(const mm::shptr<open_file>& file, span<u8> buffer,
+    core::task<i64> read(const mm::shptr<open_file>& handle, span<u8> buffer,
                          u64 offset = offset_current, core::cltoken token = {});
-    core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer,
+    core::task<i64> write(const mm::shptr<open_file>& handle, span<const u8> buffer,
                           u64 offset = offset_current, core::cltoken token = {});
-    core::task<i64> read_exact(const mm::shptr<open_file>& file, span<u8> buffer,
+    core::task<i64> read_exact(const mm::shptr<open_file>& handle, span<u8> buffer,
                                u64 offset = offset_current, core::cltoken token = {});
 
     /// Reset the fixed VFS tables.  Called by the `fs` init step before
@@ -470,8 +473,8 @@ namespace astia::fs {
     /// Register one exact path as a device node.  Path traversal and
     /// directories are intentionally deferred; the first useful VFS
     /// shape is enough for /dev/tts0 and future block nodes.
-    long register_device(const char* path, const mm::shptr<file>& object);
-    long unregister_device(const char* path, const mm::shptr<file>& object = {});
+    long register_device(const char* path, const mm::shptr<file>& entry);
+    long unregister_device(const char* path, const mm::shptr<file>& entry = {});
 
     /// Resolve a path through the mounted filesystem namespace.
     mm::shptr<open_file> open_path(const char* path, u32 flags = 0);

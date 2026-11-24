@@ -10,9 +10,8 @@ namespace astia::fs {
         public:
         virtual ~mount() = default;
         virtual mm::shptr<open_file> open(const char* path, u32 flags);
-        virtual long register_file(const char* path, const mm::shptr<file>& object);
-        virtual long unregister_file(const char*            path,
-                                     const mm::shptr<file>& object = {});
+        virtual long register_file(const char* path, const mm::shptr<file>& entry);
+        virtual long unregister_file(const char* path, const mm::shptr<file>& entry = {});
         virtual long read_directory(const char* path, u64 index, char* name, u32 capacity,
                                     file_type* type);
         virtual long mkdir(const char* path, file_mode mode);

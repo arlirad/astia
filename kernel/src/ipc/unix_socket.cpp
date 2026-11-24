@@ -481,17 +481,17 @@ namespace astia::fs {
             u32                    _opens{1};
         };
 
-        long unix_read(file* object, void* buffer, u32 length, u64 offset) {
-            return static_cast<unix_file*>(object)->read(buffer, length, offset);
+        long unix_read(file* parent, void* buffer, u32 length, u64 offset) {
+            return static_cast<unix_file*>(parent)->read(buffer, length, offset);
         }
-        long unix_write(file* object, const void* buffer, u32 length, u64 offset) {
-            return static_cast<unix_file*>(object)->write(buffer, length, offset);
+        long unix_write(file* parent, const void* buffer, u32 length, u64 offset) {
+            return static_cast<unix_file*>(parent)->write(buffer, length, offset);
         }
-        long unix_submit(file* object, io::request& request) {
-            return static_cast<unix_file*>(object)->submit(request);
+        long unix_submit(file* parent, io::request& request) {
+            return static_cast<unix_file*>(parent)->submit(request);
         }
-        u32 unix_poll(const file* object, u32 events, u32 flags) {
-            return const_cast<unix_file*>(static_cast<const unix_file*>(object))
+        u32 unix_poll(const file* parent, u32 events, u32 flags) {
+            return const_cast<unix_file*>(static_cast<const unix_file*>(parent))
                 ->poll(events, flags);
         }
 

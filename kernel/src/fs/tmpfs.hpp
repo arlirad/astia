@@ -1,8 +1,9 @@
 #pragma once
 
-#include "filesystem.hpp"
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/phys_region.hpp>
+
+#include "filesystem.hpp"
 
 namespace astia::fs {
 
@@ -126,7 +127,7 @@ namespace astia::fs {
             uid_t                 uid{};
             gid_t                 gid{};
             char                  path[path_max]{};
-            mm::shptr<tmpfs_file> object;
+            mm::shptr<tmpfs_file> target;
         };
         entry _entries[tmpfs_max_entries]{};
         // Namespace lock protects entry publication and path identity.

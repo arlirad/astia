@@ -553,43 +553,43 @@ namespace astia::fs {
     open_file::~open_file() {}
 
     file_mode open_file::mode() const {
-        return _object ? _object->mode() : _mode;
+        return _parent ? _parent->mode() : _mode;
     }
 
     u32 open_file::poll(u32 events) const {
-        return _object ? _object->poll(events, 0) : 0;
+        return _parent ? _parent->poll(events, 0) : 0;
     }
 
     long open_file::submit(io::request& request) {
-        return _object ? _object->submit(request) : -EBADF;
+        return _parent ? _parent->submit(request) : -EBADF;
     }
 
     long open_file::size() const {
-        return _object ? _object->size() : -EBADF;
+        return _parent ? _parent->size() : -EBADF;
     }
 
     long open_file::truncate(u64 length) {
-        return _object ? _object->truncate(length) : -EBADF;
+        return _parent ? _parent->truncate(length) : -EBADF;
     }
 
     long open_file::ioctl(u64 request, void* argument, usize size) {
-        return _object ? _object->ioctl(request, argument, size) : -EBADF;
+        return _parent ? _parent->ioctl(request, argument, size) : -EBADF;
     }
 
     long open_file::acquire_controlling_terminal(i32 group) {
-        return _object ? _object->acquire_controlling_terminal(group) : -EBADF;
+        return _parent ? _parent->acquire_controlling_terminal(group) : -EBADF;
     }
 
     u64 open_file::mtime_sec() const {
-        return _object ? _object->mtime_sec() : 0;
+        return _parent ? _parent->mtime_sec() : 0;
     }
 
     u64 open_file::mtime_nsec() const {
-        return _object ? _object->mtime_nsec() : 0;
+        return _parent ? _parent->mtime_nsec() : 0;
     }
 
     long open_file::chmod(file_permissions permissions) {
-        return _object ? _object->chmod(permissions) : -EBADF;
+        return _parent ? _parent->chmod(permissions) : -EBADF;
     }
 
     mm::shptr<open_file> open(const char*, u32) {

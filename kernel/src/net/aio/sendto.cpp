@@ -8,8 +8,8 @@ namespace astia::io::aio::operations {
                                              [[maybe_unused]] astia_rings*     ring,
                                              astia_sqe                         sqe,
                                              core::cltoken token) noexcept {
-            mm::shptr<fs::open_file> object = file_for(sqe.fd);
-            if (!object)
+            mm::shptr<fs::open_file> handle = file_for(sqe.fd);
+            if (!handle)
                 co_return -EBADF;
             const auto address = memory::user_ptr<astia_sockaddr>(sqe.offset).validate();
             if (!memory::user_span_ok_for(span<u8>::bytes(sqe.address, sqe.length)) ||
@@ -29,12 +29,12 @@ namespace astia::io::aio::operations {
                 co_return static_cast<i32>(path_rc);
             if (!socket_node_writable(proc::current_process(), canonical))
                 co_return -EACCES;
-            const auto* socket = object->parent()->unix_socket_capability();
-            long rc = socket == nullptr ? -EOPNOTSUPP : socket->sendto(*object, &a);
+            const auto* socket = handle->parent()->unix_socket_capability();
+            long rc = socket == nullptr ? -EOPNOTSUPP : socket->sendto(*handle, &a);
             if (rc < 0)
                 co_return static_cast<i32>(rc);
             span<u8> range = span<u8>::bytes(sqe.address, sqe.length);
-            co_return submit_socket_request(slot, ring, sqe, object, &range, 1,
+            co_return submit_socket_request(slot, ring, sqe, handle, &range, 1,
                                             ::astia::io::direction::output, false, false,
                                             token)
                 ? aio_result::pending

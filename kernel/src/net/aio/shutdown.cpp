@@ -7,13 +7,13 @@ namespace astia::io::aio::operations {
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
                astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
-            auto object = file_for(sqe.fd);
-            if (!object)
+            auto handle = file_for(sqe.fd);
+            if (!handle)
                 co_return -EBADF;
-            const auto* socket = object->parent()->unix_socket_capability();
+            const auto* socket = handle->parent()->unix_socket_capability();
             co_return static_cast<i32>(socket == nullptr
                                            ? -EOPNOTSUPP
-                                           : socket->shutdown(*object, sqe.op_flags));
+                                           : socket->shutdown(*handle, sqe.op_flags));
         }
     };
 

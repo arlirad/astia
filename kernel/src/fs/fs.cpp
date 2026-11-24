@@ -308,15 +308,15 @@ namespace astia::fs {
         return {};
     }
 
-    long mount::register_file(const char* path, const mm::shptr<file>& object) {
+    long mount::register_file(const char* path, const mm::shptr<file>& entry) {
         (void) path;
-        (void) object;
+        (void) entry;
         return -ENOSYS;
     }
 
-    long mount::unregister_file(const char* path, const mm::shptr<file>& object) {
+    long mount::unregister_file(const char* path, const mm::shptr<file>& entry) {
         (void) path;
-        (void) object;
+        (void) entry;
         return -ENOSYS;
     }
 
@@ -663,20 +663,20 @@ namespace astia::fs {
             owner->release_open();
     }
 
-    long register_device(const char* path, const mm::shptr<file>& object) {
+    long register_device(const char* path, const mm::shptr<file>& entry) {
         mount_operation operation(path);
         if (!operation)
             return -ENOENT;
         return operation.instance()->register_file(
-            relative_path(*operation.entry(), path), object);
+            relative_path(*operation.entry(), path), entry);
     }
 
-    long unregister_device(const char* path, const mm::shptr<file>& object) {
+    long unregister_device(const char* path, const mm::shptr<file>& entry) {
         mount_operation operation(path);
         if (!operation)
             return -ENOENT;
         return operation.instance()->unregister_file(
-            relative_path(*operation.entry(), path), object);
+            relative_path(*operation.entry(), path), entry);
     }
 
     mm::shptr<open_file> open_path(const char* path, u32 flags) {
@@ -946,11 +946,11 @@ namespace astia::fs {
         mount_operation operation(path);
         if (!operation)
             return -ENOENT;
-        auto object =
+        auto handle =
             operation.instance()->open(relative_path(*operation.entry(), path), 0);
-        if (!object)
+        if (!handle)
             return -ENOENT;
-        return object->parent()->touch(sec, nsec);
+        return handle->parent()->touch(sec, nsec);
     }
 
     // The remaining file/open-file implementation stays in this TU.
@@ -1033,26 +1033,26 @@ namespace astia::fs {
     void file::close(u32) {}
 
     namespace {
-        long legacy_read(file* object, void* buffer, u32 length, u64 offset) {
-            return object->read(buffer, length, offset);
+        long legacy_read(file* parent, void* buffer, u32 length, u64 offset) {
+            return parent->read(buffer, length, offset);
         }
-        long legacy_write(file* object, const void* buffer, u32 length, u64 offset) {
-            return object->write(buffer, length, offset);
+        long legacy_write(file* parent, const void* buffer, u32 length, u64 offset) {
+            return parent->write(buffer, length, offset);
         }
-        long legacy_submit(file* object, io::request& request) {
-            return object->submit(request);
+        long legacy_submit(file* parent, io::request& request) {
+            return parent->submit(request);
         }
-        u32 legacy_poll(const file* object, u32 events, u32 flags) {
-            return const_cast<file*>(object)->poll(events, flags);
+        u32 legacy_poll(const file* parent, u32 events, u32 flags) {
+            return const_cast<file*>(parent)->poll(events, flags);
         }
-        long legacy_ioctl(file* object, u64 request, void* argp, usize size) {
-            return object->ioctl(request, argp, size);
+        long legacy_ioctl(file* parent, u64 request, void* argp, usize size) {
+            return parent->ioctl(request, argp, size);
         }
-        long legacy_size(const file* object) {
-            return object->size();
+        long legacy_size(const file* parent) {
+            return parent->size();
         }
-        mm::phys_region* legacy_mapping(const file* object) {
-            return const_cast<file*>(object)->memory_region();
+        mm::phys_region* legacy_mapping(const file* parent) {
+            return const_cast<file*>(parent)->memory_region();
         }
 
         const file_read_capability    legacy_read_capability{legacy_read};
@@ -1063,54 +1063,54 @@ namespace astia::fs {
         const file_size_capability    legacy_size_capability{legacy_size};
         const file_mapping_capability legacy_mapping_capability{legacy_mapping};
 
-        long dispatch_submit(file* object, io::request& request) {
+        long dispatch_submit(file* parent, io::request& request) {
             const auto* capability = static_cast<const file_submit_capability*>(
-                object->capability(file_capability::submit));
-            return capability != nullptr ? capability->submit(object, request)
-                                         : object->submit(request);
+                parent->capability(file_capability::submit));
+            return capability != nullptr ? capability->submit(parent, request)
+                                         : parent->submit(request);
         }
 
-        u32 dispatch_poll(const file* object, u32 events, u32 flags) {
+        u32 dispatch_poll(const file* parent, u32 events, u32 flags) {
             const auto* capability = static_cast<const file_poll_capability*>(
-                object->capability(file_capability::poll));
-            return capability != nullptr ? capability->poll(object, events, flags)
-                                         : const_cast<file*>(object)->poll(events, flags);
+                parent->capability(file_capability::poll));
+            return capability != nullptr ? capability->poll(parent, events, flags)
+                                         : const_cast<file*>(parent)->poll(events, flags);
         }
 
-        long dispatch_size(const file* object) {
+        long dispatch_size(const file* parent) {
             const auto* capability = static_cast<const file_size_capability*>(
-                object->capability(file_capability::size));
-            return capability != nullptr ? capability->size(object) : object->size();
+                parent->capability(file_capability::size));
+            return capability != nullptr ? capability->size(parent) : parent->size();
         }
 
     }
 
-    long dispatch_read(file* object, void* buffer, u32 length, u64 offset) {
+    long dispatch_read(file* parent, void* buffer, u32 length, u64 offset) {
         const auto* capability = static_cast<const file_read_capability*>(
-            object->capability(file_capability::read));
-        return capability != nullptr ? capability->read(object, buffer, length, offset)
-                                     : object->read(buffer, length, offset);
+            parent->capability(file_capability::read));
+        return capability != nullptr ? capability->read(parent, buffer, length, offset)
+                                     : parent->read(buffer, length, offset);
     }
 
-    long dispatch_write(file* object, const void* buffer, u32 length, u64 offset) {
+    long dispatch_write(file* parent, const void* buffer, u32 length, u64 offset) {
         const auto* capability = static_cast<const file_write_capability*>(
-            object->capability(file_capability::write));
-        return capability != nullptr ? capability->write(object, buffer, length, offset)
-                                     : object->write(buffer, length, offset);
+            parent->capability(file_capability::write));
+        return capability != nullptr ? capability->write(parent, buffer, length, offset)
+                                     : parent->write(buffer, length, offset);
     }
 
-    long dispatch_ioctl(file* object, u64 request, void* argp, usize size) {
+    long dispatch_ioctl(file* parent, u64 request, void* argp, usize size) {
         const auto* capability = static_cast<const file_ioctl_capability*>(
-            object->capability(file_capability::ioctl));
-        return capability != nullptr ? capability->ioctl(object, request, argp, size)
-                                     : object->ioctl(request, argp, size);
+            parent->capability(file_capability::ioctl));
+        return capability != nullptr ? capability->ioctl(parent, request, argp, size)
+                                     : parent->ioctl(request, argp, size);
     }
 
-    mm::phys_region* dispatch_mapping(const file* object) {
+    mm::phys_region* dispatch_mapping(const file* parent) {
         const auto* capability = static_cast<const file_mapping_capability*>(
-            object->capability(file_capability::mapping));
-        return capability != nullptr ? capability->mapping(object)
-                                     : const_cast<file*>(object)->memory_region();
+            parent->capability(file_capability::mapping));
+        return capability != nullptr ? capability->mapping(parent)
+                                     : const_cast<file*>(parent)->memory_region();
     }
 
     const void* file::capability(file_capability kind) const {
@@ -1140,8 +1140,8 @@ namespace astia::fs {
     open_file::~open_file() {
         if (_mount)
             _mount->release_open();
-        if (_object)
-            _object->close(_flags);
+        if (_parent)
+            _parent->close(_flags);
     }
 
     void open_file::attach_mount(mount* owner) {
@@ -1155,11 +1155,11 @@ namespace astia::fs {
     }
 
     long open_file::read(void* buf, u32 len, u64 offset) {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
         const bool current = offset == offset_current;
         const u64  actual  = current ? current_position() : offset;
-        long       result  = dispatch_read(_object.get(), buf, len, actual);
+        long       result  = dispatch_read(_parent.get(), buf, len, actual);
         if (result == -ENOSYS) {
             io_packet packet(mm::shptr<open_file>::borrowed(this), buf, len, actual,
                              io::direction::input);
@@ -1178,9 +1178,9 @@ namespace astia::fs {
     }
 
     long open_file::seek(i64 offset, i32 whence) {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
-        const file_mode mode = _object->mode();
+        const file_mode mode = _parent->mode();
         if (!mode.is_regular() && !mode.is_directory())
             return -ESPIPE;
 
@@ -1214,13 +1214,13 @@ namespace astia::fs {
     }
 
     long open_file::reserve_append(u32 length, u64* offset) {
-        if (!_object || offset == nullptr)
+        if (!_parent || offset == nullptr)
             return -EBADF;
         auto state = position_state();
         if (!state)
             return -ENOMEM;
         core::spinlock_guard guard(state->append_lock);
-        const long           size = dispatch_size(_object.get());
+        const long           size = dispatch_size(_parent.get());
         if (size < 0)
             return size;
         u64 base = static_cast<u64>(size);
@@ -1238,7 +1238,7 @@ namespace astia::fs {
     }
 
     long open_file::write(const void* buf, u32 len, u64 offset) {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
         const bool current = offset == offset_current;
         u64        actual  = current ? current_position() : offset;
@@ -1247,7 +1247,7 @@ namespace astia::fs {
             if (reserved < 0)
                 return reserved;
         }
-        long result = dispatch_write(_object.get(), buf, len, actual);
+        long result = dispatch_write(_parent.get(), buf, len, actual);
         if (result == -ENOSYS) {
             io_packet packet(mm::shptr<open_file>::borrowed(this), const_cast<void*>(buf),
                              len, actual, io::direction::output);
@@ -1266,7 +1266,7 @@ namespace astia::fs {
         return result;
     }
     long open_file::submit(io::request& request) {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
         // Resolve the offset once, at submission, and write it back into
         // the request: every resume of a parked operation must land on the
@@ -1283,55 +1283,55 @@ namespace astia::fs {
             request.append_reserved(true);
         }
         request.offset(actual);
-        const long result = dispatch_submit(_object.get(), request);
+        const long result = dispatch_submit(_parent.get(), request);
         if (result > 0 && (current || request.updates_position()))
             set_position(actual + static_cast<u64>(result));
         return result;
     }
     u32 open_file::poll(u32 events) const {
-        if (!_object)
+        if (!_parent)
             return static_cast<u32>(POLLNVAL);
-        return dispatch_poll(_object.get(), events, _flags);
+        return dispatch_poll(_parent.get(), events, _flags);
     }
     long open_file::ioctl(u64 request, void* argp, usize size) {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
-        return dispatch_ioctl(_object.get(), request, argp, size);
+        return dispatch_ioctl(_parent.get(), request, argp, size);
     }
 
     long open_file::acquire_controlling_terminal(i32 group) {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
-        return _object->acquire_controlling_terminal(group);
+        return _parent->acquire_controlling_terminal(group);
     }
 
     long open_file::size() const {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
-        return dispatch_size(_object.get());
+        return dispatch_size(_parent.get());
     }
     long open_file::truncate(u64 length) {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
-        return _object->truncate(length);
+        return _parent->truncate(length);
     }
     long open_file::chmod(file_permissions permissions) {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
-        return _object->chmod(permissions);
+        return _parent->chmod(permissions);
     }
     long open_file::sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
                                  u32 flags) {
-        if (!_object)
+        if (!_parent)
             return -EBADF;
-        return _object->sync_mapping(mapping, offset, length, flags);
+        return _parent->sync_mapping(mapping, offset, length, flags);
     }
     mm::phys_region* open_file::mapping() const {
-        return _object ? dispatch_mapping(_object.get()) : nullptr;
+        return _parent ? dispatch_mapping(_parent.get()) : nullptr;
     }
 
     file_mode open_file::mode() const {
-        return !_object ? _mode : _object->mode();
+        return !_parent ? _mode : _parent->mode();
     }
     void open_file::set_path(const char* path) {
         if (path == nullptr)
@@ -1343,10 +1343,10 @@ namespace astia::fs {
         _has_path = true;
     }
     u64 open_file::mtime_sec() const {
-        return !_object ? 0 : _object->mtime_sec();
+        return !_parent ? 0 : _parent->mtime_sec();
     }
     u64 open_file::mtime_nsec() const {
-        return !_object ? 0 : _object->mtime_nsec();
+        return !_parent ? 0 : _parent->mtime_nsec();
     }
 
 } // namespace astia::fs

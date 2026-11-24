@@ -95,11 +95,11 @@ namespace astia::io::aio::operations {
             const u32 descriptor_flags = sqe.op_flags & ASTIA_EFD_CLOEXEC
                                              ? static_cast<u32>(ASTIA_FD_CLOEXEC)
                                              : 0u;
-            auto      object           = mm::share<fs::open_file>(
+            auto      handle           = mm::share<fs::open_file>(
                 event, static_cast<fs::open_file_status_flags>(status_flags));
             for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
                 if (!current->descriptor(fd_t{fd}) &&
-                    current->set_descriptor(fd_t{fd}, object, descriptor_flags))
+                    current->set_descriptor(fd_t{fd}, handle, descriptor_flags))
                     co_return fd;
             co_return -EMFILE;
         }

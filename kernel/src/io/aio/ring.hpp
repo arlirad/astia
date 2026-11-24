@@ -91,7 +91,7 @@ namespace astia::io::aio::ring {
         u64                      pending_user_data     = 0;
         i32                      pending_result        = 0;
         i32                      fd;
-        mm::shptr<fs::open_file> object;
+        mm::shptr<fs::open_file> handle;
         mm::iovec                entries;
         ::astia::io::operation*  operation = nullptr;
         core::cltoken            token{};
@@ -127,7 +127,7 @@ namespace astia::io::aio::ring {
             pending_user_data     = 0;
             pending_result        = 0;
             fd                    = 0;
-            object                = {};
+            handle                = {};
             token                 = {};
             generation            = 0;
             moved                 = 0;
@@ -136,7 +136,7 @@ namespace astia::io::aio::ring {
 
     struct parked_cleanup {
         mm::iovec                entries[parked_slot_count];
-        mm::shptr<fs::open_file> objects[parked_slot_count];
+        mm::shptr<fs::open_file> handles[parked_slot_count];
 
         void release();
     };

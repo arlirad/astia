@@ -7,7 +7,7 @@ namespace astia::fs {
         /// Submit one concrete stretch to the node behind the open file.  The
         /// request offset is already resolved, so the open-file position is
         /// advanced once by readv()/writev() when the whole vector is done.
-        core::task<i64> submit_segment(const mm::shptr<open_file>& file,
+        core::task<i64> submit_segment(const mm::shptr<open_file>& handle,
                                        const buffer& entry, u64 offset,
                                        io::direction direction, core::cltoken token) {
             if (token.canceled())
@@ -16,7 +16,7 @@ namespace astia::fs {
                 mm::uptr<core::completion<i64>>(new core::completion<i64>());
             if (!completion)
                 co_return error_t::enomem;
-            io_packet packet(file, entry.data, static_cast<u32>(entry.length), offset,
+            io_packet packet(handle, entry.data, static_cast<u32>(entry.length), offset,
                              direction,
                              static_cast<mm::uptr<core::completion<i64>>&&>(completion));
             if (!packet)
@@ -141,40 +141,41 @@ namespace astia::fs {
         co_return total;
     }
 
-    core::task<i64> submit(const mm::shptr<open_file>& file, void* buffer_ptr, u32 length,
-                           u64 offset, io::direction direction, core::cltoken token) {
-        if (!file)
+    core::task<i64> submit(const mm::shptr<open_file>& handle, void* buffer_ptr,
+                           u32 length, u64 offset, io::direction direction,
+                           core::cltoken token) {
+        if (!handle)
             co_return error_t::ebadf;
         buffer entry{buffer_ptr, length};
         auto   result =
             direction == io::direction::input
-                  ? co_await file->readv(span<const buffer>(&entry, 1), offset, token)
-                  : co_await file->writev(span<const buffer>(&entry, 1), offset, token);
+                  ? co_await handle->readv(span<const buffer>(&entry, 1), offset, token)
+                  : co_await handle->writev(span<const buffer>(&entry, 1), offset, token);
         if (!result)
             co_return result.error;
         co_return result.value;
     }
 
-    core::task<i64> read(const mm::shptr<open_file>& file, span<u8> buffer, u64 offset,
+    core::task<i64> read(const mm::shptr<open_file>& handle, span<u8> buffer, u64 offset,
                          core::cltoken token) {
         if (buffer.size() > static_cast<usize>(~u32{0}))
             return core::task<i64>(error_t::erange);
-        return submit(file, buffer.data(), static_cast<u32>(buffer.size()), offset,
+        return submit(handle, buffer.data(), static_cast<u32>(buffer.size()), offset,
                       io::direction::input, token);
     }
 
-    core::task<i64> write(const mm::shptr<open_file>& file, span<const u8> buffer,
+    core::task<i64> write(const mm::shptr<open_file>& handle, span<const u8> buffer,
                           u64 offset, core::cltoken token) {
         if (buffer.size() > static_cast<usize>(~u32{0}))
             return core::task<i64>(error_t::erange);
-        return submit(file, const_cast<u8*>(buffer.data()),
+        return submit(handle, const_cast<u8*>(buffer.data()),
                       static_cast<u32>(buffer.size()), offset, io::direction::output,
                       token);
     }
 
-    core::task<i64> read_exact(const mm::shptr<open_file>& file, span<u8> buffer,
+    core::task<i64> read_exact(const mm::shptr<open_file>& handle, span<u8> buffer,
                                u64 offset, core::cltoken token) {
-        auto result = co_await read(file, buffer, offset, token);
+        auto result = co_await read(handle, buffer, offset, token);
         if (!result)
             co_return result.error;
         if (result.value != static_cast<i64>(buffer.size()))

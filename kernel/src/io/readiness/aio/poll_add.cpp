@@ -7,11 +7,11 @@ namespace astia::io::aio::operations {
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
                astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
-            const mm::shptr<fs::open_file> object = dispatch::file_for(sqe.fd);
-            if (!object)
+            const mm::shptr<fs::open_file> handle = dispatch::file_for(sqe.fd);
+            if (!handle)
                 co_return POLLNVAL;
             const u64 generation = ready_generation();
-            const u32 ready      = object->poll(sqe.aux);
+            const u32 ready      = handle->poll(sqe.aux);
             if (ready != 0)
                 co_return static_cast<i32>(ready);
             parked_op* p          = nullptr;
@@ -34,7 +34,7 @@ namespace astia::io::aio::operations {
             p->poll_events          = sqe.aux;
             p->token                = {};
             p->fd                   = sqe.fd;
-            p->object               = object;
+            p->handle               = handle;
             p->operation = new ::astia::io::operation(nullptr, 0, 0, sqe.user_data,
                                                       ::astia::io::direction::input);
             if (p->operation == nullptr) {
@@ -49,7 +49,7 @@ namespace astia::io::aio::operations {
                 co_return aio_result::pending;
             }
             p->operation->heap_owned(true);
-            publish_waiter_hint(slot, park_index, object->parent().get());
+            publish_waiter_hint(slot, park_index, handle->parent().get());
             if (ready_generation() != generation)
                 dispatch::resume_parked(proc::current_process(), ring, *p);
             co_return aio_result::pending;

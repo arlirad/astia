@@ -217,8 +217,8 @@ namespace astia::fs {
         if (node.type() != ext4::node_type::regular &&
             node.type() != ext4::node_type::directory)
             return {};
-        auto object = mm::share<ext4_file>(this, node);
-        return object ? mm::share<open_file>(object, flags) : mm::shptr<open_file>{};
+        auto file = mm::share<ext4_file>(this, node);
+        return file ? mm::share<open_file>(file, flags) : mm::shptr<open_file>{};
     }
 
     bool ext4_mount::read_file(const ext4::inode& node, void* buffer, u32 length,

@@ -11,7 +11,7 @@ namespace astia::io::aio::dispatch {
     bool parent_writable(proc::process* current, const char* path);
     bool submit_socket_request(ring::ring_slot& slot, astia_rings* ring,
                                const astia_sqe&                sqe,
-                               const mm::shptr<fs::open_file>& object,
+                               const mm::shptr<fs::open_file>& handle,
                                const span<u8>* entries, u32 count,
                                ::astia::io::direction direction, bool control = false,
                                bool socket_accept = false, core::cltoken token = {});

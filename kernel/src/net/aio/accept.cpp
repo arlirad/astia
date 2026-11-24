@@ -8,12 +8,12 @@ namespace astia::io::aio::operations {
                                              [[maybe_unused]] astia_rings*     ring,
                                              astia_sqe                         sqe,
                                              core::cltoken token) noexcept {
-            auto object = file_for(sqe.fd);
-            if (!object)
+            auto handle = file_for(sqe.fd);
+            if (!handle)
                 co_return -EBADF;
-            if (object->parent()->unix_socket_capability() == nullptr)
+            if (handle->parent()->unix_socket_capability() == nullptr)
                 co_return -EOPNOTSUPP;
-            co_return dispatch::submit_socket_request(slot, ring, sqe, object, nullptr, 0,
+            co_return dispatch::submit_socket_request(slot, ring, sqe, handle, nullptr, 0,
                                                       ::astia::io::direction::input, true,
                                                       true, token)
                 ? aio_result::pending
