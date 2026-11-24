@@ -7,18 +7,35 @@ namespace astia::fs {
 
     class ext4_mount;
 
-    class ext4_file final : public file {
+    class ext4_file final : public file,
+                            public readable,
+                            public writable,
+                            public truncatable,
+                            public syncable {
         public:
         ext4_file(ext4_mount* owner, const ext4::inode& node)
             : _owner(owner), _node(node) {}
 
-        long read(void* buffer, u32 length, u64 offset) override;
-        long write(const void*, u32, u64) override {
-            return -EROFS;
+        optional<readable&> as_readable() override {
+            return *this;
         }
-        long      size() const override;
-        file_mode mode() const override;
-        uid_t     uid() const override {
+        optional<writable&> as_writable() override {
+            return *this;
+        }
+        optional<truncatable&> as_truncatable() override {
+            return *this;
+        }
+        optional<syncable&> as_syncable() override {
+            return *this;
+        }
+
+        core::task<i64> readv(span<const buffer> buffers, u64 offset,
+                              core::cltoken token) override;
+        core::task<i64> writev(span<const buffer> buffers, u64 offset,
+                               core::cltoken token) override;
+        long            size() const override;
+        file_mode       mode() const override;
+        uid_t           uid() const override {
             return uid_t(_node.uid);
         }
         gid_t gid() const override {
@@ -30,11 +47,11 @@ namespace astia::fs {
         u32 nlink() const override {
             return _node.links;
         }
-        long truncate(u64) override {
-            return -EROFS;
+        core::task<i64> truncate(u64, core::cltoken) override {
+            co_return -EROFS;
         }
-        long sync() override {
-            return -EROFS;
+        core::task<i64> sync(core::cltoken) override {
+            co_return -EROFS;
         }
         long chmod(file_permissions) override {
             return -EROFS;
@@ -45,15 +62,17 @@ namespace astia::fs {
         long touch(u64, u64) override {
             return -EROFS;
         }
-        long sync_mapping(mm::phys_region*, u64, u64, u32) override {
-            return -EROFS;
-        }
 
         const ext4::inode& on_disk_inode() const {
             return _node;
         }
 
         private:
+        long read_ready(void* buffer, u32 length, u64 offset) override;
+        long write_ready(const void*, u32, u64) override {
+            return -EROFS;
+        }
+
         ext4_mount* _owner;
         ext4::inode _node;
     };

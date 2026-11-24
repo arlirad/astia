@@ -365,9 +365,6 @@ namespace astia::fs {
     u32 file::nlink() const {
         return 1;
     }
-    u32 file::poll(u32 events, u32) {
-        return events & (POLLIN | POLLOUT);
-    }
     long mount::chmod(const char*, file_permissions) {
         return -ENOSYS;
     }
@@ -954,18 +951,6 @@ namespace astia::fs {
     }
 
     // The remaining file/open-file implementation stays in this TU.
-    long file::read(void* buf, u32 len, u64 offset) {
-        (void) buf;
-        (void) len;
-        (void) offset;
-        return -ENOSYS;
-    }
-    long file::write(const void* buf, u32 len, u64 offset) {
-        (void) buf;
-        (void) len;
-        (void) offset;
-        return -ENOSYS;
-    }
     long file::submit(io::request& request) {
         // Synchronous default: a node that finishes inline answers with
         // whatever its read()/write() returns.  A 0 from it here is not the
@@ -976,20 +961,13 @@ namespace astia::fs {
         // ready" overrides submit(), parks, and resumes by stage instead.
         const long result =
             request.direction() == io::direction::input
-                ? read(request.buffer(), request.length(), request.offset())
-                : write(request.buffer(), request.length(), request.offset());
+                ? read_ready(request.buffer(), request.length(), request.offset())
+                : write_ready(request.buffer(), request.length(), request.offset());
         if (result == 0) {
             request.complete(true);
         }
         return result;
     }
-    long file::ioctl(u64 request, void* argp, usize size) {
-        (void) request;
-        (void) argp;
-        (void) size;
-        return -ENOTTY;
-    }
-
     long file::acquire_controlling_terminal(i32) {
         return -ENOTTY;
     }
@@ -999,18 +977,6 @@ namespace astia::fs {
     }
     u32 file::block_size() const {
         return 0;
-    }
-
-    long file::truncate(u64) {
-        return -EINVAL;
-    }
-
-    long file::sync() {
-        return -EINVAL;
-    }
-
-    long file::sync_mapping(mm::phys_region*, u64, u64, u32) {
-        return -ENOSYS;
     }
 
     file_mode file::mode() const {
@@ -1026,152 +992,47 @@ namespace astia::fs {
         return -EROFS;
     }
 
-    mm::phys_region* file::memory_region() {
-        return nullptr;
-    }
     void file::duplicate(u32) {}
     void file::close(u32) {}
-
-    namespace {
-        long legacy_read(file* parent, void* buffer, u32 length, u64 offset) {
-            return parent->read(buffer, length, offset);
-        }
-        long legacy_write(file* parent, const void* buffer, u32 length, u64 offset) {
-            return parent->write(buffer, length, offset);
-        }
-        long legacy_submit(file* parent, io::request& request) {
-            return parent->submit(request);
-        }
-        u32 legacy_poll(const file* parent, u32 events, u32 flags) {
-            return const_cast<file*>(parent)->poll(events, flags);
-        }
-        long legacy_ioctl(file* parent, u64 request, void* argp, usize size) {
-            return parent->ioctl(request, argp, size);
-        }
-        long legacy_size(const file* parent) {
-            return parent->size();
-        }
-        mm::phys_region* legacy_mapping(const file* parent) {
-            return const_cast<file*>(parent)->memory_region();
-        }
-
-        const file_read_capability    legacy_read_capability{legacy_read};
-        const file_write_capability   legacy_write_capability{legacy_write};
-        const file_submit_capability  legacy_submit_capability{legacy_submit};
-        const file_poll_capability    legacy_poll_capability{legacy_poll};
-        const file_ioctl_capability   legacy_ioctl_capability{legacy_ioctl};
-        const file_size_capability    legacy_size_capability{legacy_size};
-        const file_mapping_capability legacy_mapping_capability{legacy_mapping};
-
-        long dispatch_submit(file* parent, io::request& request) {
-            const auto* capability = static_cast<const file_submit_capability*>(
-                parent->capability(file_capability::submit));
-            return capability != nullptr ? capability->submit(parent, request)
-                                         : parent->submit(request);
-        }
-
-        u32 dispatch_poll(const file* parent, u32 events, u32 flags) {
-            const auto* capability = static_cast<const file_poll_capability*>(
-                parent->capability(file_capability::poll));
-            return capability != nullptr ? capability->poll(parent, events, flags)
-                                         : const_cast<file*>(parent)->poll(events, flags);
-        }
-
-        long dispatch_size(const file* parent) {
-            const auto* capability = static_cast<const file_size_capability*>(
-                parent->capability(file_capability::size));
-            return capability != nullptr ? capability->size(parent) : parent->size();
-        }
-
-    }
-
-    long dispatch_read(file* parent, void* buffer, u32 length, u64 offset) {
-        const auto* capability = static_cast<const file_read_capability*>(
-            parent->capability(file_capability::read));
-        return capability != nullptr ? capability->read(parent, buffer, length, offset)
-                                     : parent->read(buffer, length, offset);
-    }
-
-    long dispatch_write(file* parent, const void* buffer, u32 length, u64 offset) {
-        const auto* capability = static_cast<const file_write_capability*>(
-            parent->capability(file_capability::write));
-        return capability != nullptr ? capability->write(parent, buffer, length, offset)
-                                     : parent->write(buffer, length, offset);
-    }
-
-    long dispatch_ioctl(file* parent, u64 request, void* argp, usize size) {
-        const auto* capability = static_cast<const file_ioctl_capability*>(
-            parent->capability(file_capability::ioctl));
-        return capability != nullptr ? capability->ioctl(parent, request, argp, size)
-                                     : parent->ioctl(request, argp, size);
-    }
-
-    mm::phys_region* dispatch_mapping(const file* parent) {
-        const auto* capability = static_cast<const file_mapping_capability*>(
-            parent->capability(file_capability::mapping));
-        return capability != nullptr ? capability->mapping(parent)
-                                     : const_cast<file*>(parent)->memory_region();
-    }
-
-    const void* file::capability(file_capability kind) const {
-        switch (kind) {
-        case file_capability::read:
-            return &legacy_read_capability;
-        case file_capability::write:
-            return &legacy_write_capability;
-        case file_capability::submit:
-            return &legacy_submit_capability;
-        case file_capability::poll:
-            return &legacy_poll_capability;
-        case file_capability::ioctl:
-            return &legacy_ioctl_capability;
-        case file_capability::size:
-            return &legacy_size_capability;
-        case file_capability::mapping:
-            return &legacy_mapping_capability;
-        }
-        return nullptr;
-    }
 
     const unix_socket_operations* file::unix_socket_capability() const {
         return nullptr;
     }
 
     open_file::~open_file() {
-        if (_mount)
-            _mount->release_open();
         if (_parent)
             _parent->close(_flags);
     }
 
+    namespace {
+        void release_mount_reference(void* value) {
+            static_cast<mount*>(value)->release_open();
+        }
+    } // namespace
+
     void open_file::attach_mount(mount* owner) {
-        if (_mount == owner)
+        if (_mount.get() == owner)
             return;
-        if (_mount)
-            _mount->release_open();
-        _mount = owner;
-        if (_mount)
-            _mount->retain_open();
+        _mount = {};
+        if (owner == nullptr)
+            return;
+        owner->retain_open();
+        _mount = mm::shptr<mount>::adopt(owner, release_mount_reference);
     }
 
     long open_file::read(void* buf, u32 len, u64 offset) {
         if (!_parent)
             return -EBADF;
-        const bool current = offset == offset_current;
-        const u64  actual  = current ? current_position() : offset;
-        long       result  = dispatch_read(_parent.get(), buf, len, actual);
-        if (result == -ENOSYS) {
-            io_packet packet(mm::shptr<open_file>::borrowed(this), buf, len, actual,
-                             io::direction::input);
-            if (!packet)
-                return -ENOMEM;
-            if (!packet.request().park_device())
-                return -EAGAIN;
-            result = packet.submit();
-            if (result == 0 && !packet.request().complete())
-                return -EAGAIN;
-            packet.request().acknowledge();
-        }
+        const bool    current = offset == offset_current;
+        const u64     actual  = current ? current_position() : offset;
+        io::operation operation(buf, len, actual, io::direction::input);
+        io::request&  request = operation.request();
+        if (!request.park_device())
+            return -EAGAIN;
+        long result = submit(request);
+        if (result == 0 && !request.complete())
+            return -EAGAIN;
+        request.acknowledge();
         if (result > 0 && current)
             set_position(actual + static_cast<u64>(result));
         return result;
@@ -1220,7 +1081,7 @@ namespace astia::fs {
         if (!state)
             return -ENOMEM;
         core::spinlock_guard guard(state->append_lock);
-        const long           size = dispatch_size(_parent.get());
+        const long           size = _parent->size();
         if (size < 0)
             return size;
         u64 base = static_cast<u64>(size);
@@ -1247,19 +1108,15 @@ namespace astia::fs {
             if (reserved < 0)
                 return reserved;
         }
-        long result = dispatch_write(_parent.get(), buf, len, actual);
-        if (result == -ENOSYS) {
-            io_packet packet(mm::shptr<open_file>::borrowed(this), const_cast<void*>(buf),
-                             len, actual, io::direction::output);
-            if (!packet)
-                return -ENOMEM;
-            if (!packet.request().park_device())
-                return -EAGAIN;
-            result = packet.submit();
-            if (result == 0 && !packet.request().complete())
-                return -EAGAIN;
-            packet.request().acknowledge();
-        }
+        io::operation operation(const_cast<void*>(buf), len, actual,
+                                io::direction::output);
+        io::request&  request = operation.request();
+        if (!request.park_device())
+            return -EAGAIN;
+        long result = submit(request);
+        if (result == 0 && !request.complete())
+            return -EAGAIN;
+        request.acknowledge();
         if (result > 0 &&
             (current || (_flags & static_cast<u32>(open_file_status_flags::append)) != 0))
             set_position(actual + static_cast<u64>(result));
@@ -1283,7 +1140,7 @@ namespace astia::fs {
             request.append_reserved(true);
         }
         request.offset(actual);
-        const long result = dispatch_submit(_parent.get(), request);
+        const long result = _parent->submit(request);
         if (result > 0 && (current || request.updates_position()))
             set_position(actual + static_cast<u64>(result));
         return result;
@@ -1291,12 +1148,24 @@ namespace astia::fs {
     u32 open_file::poll(u32 events) const {
         if (!_parent)
             return static_cast<u32>(POLLNVAL);
-        return dispatch_poll(_parent.get(), events, _flags);
+        auto contract = _parent->as_pollable();
+        if (contract)
+            return contract->poll(events, _flags);
+        u32 ready = 0;
+        if (_parent->as_readable())
+            ready |= POLLIN;
+        if (_parent->as_writable())
+            ready |= POLLOUT;
+        return ready & events;
     }
     long open_file::ioctl(u64 request, void* argp, usize size) {
         if (!_parent)
             return -EBADF;
-        return dispatch_ioctl(_parent.get(), request, argp, size);
+        auto contract = _parent->as_ioctlable();
+        if (!contract)
+            return -ENOTTY;
+        auto result = detail::await_now(contract->ioctl(request, argp, size, {}));
+        return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
 
     long open_file::acquire_controlling_terminal(i32 group) {
@@ -1308,12 +1177,16 @@ namespace astia::fs {
     long open_file::size() const {
         if (!_parent)
             return -EBADF;
-        return dispatch_size(_parent.get());
+        return _parent->size();
     }
     long open_file::truncate(u64 length) {
         if (!_parent)
             return -EBADF;
-        return _parent->truncate(length);
+        auto contract = _parent->as_truncatable();
+        if (!contract)
+            return -EINVAL;
+        auto result = detail::await_now(contract->truncate(length, {}));
+        return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
     long open_file::chmod(file_permissions permissions) {
         if (!_parent)
@@ -1324,10 +1197,18 @@ namespace astia::fs {
                                  u32 flags) {
         if (!_parent)
             return -EBADF;
-        return _parent->sync_mapping(mapping, offset, length, flags);
+        auto contract = _parent->as_mappable();
+        if (!contract)
+            return -ENOSYS;
+        auto result =
+            detail::await_now(contract->sync_mapping(mapping, offset, length, flags, {}));
+        return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
     mm::phys_region* open_file::mapping() const {
-        return _parent ? dispatch_mapping(_parent.get()) : nullptr;
+        if (!_parent)
+            return nullptr;
+        auto contract = _parent->as_mappable();
+        return contract ? contract->memory_region() : nullptr;
     }
 
     file_mode open_file::mode() const {

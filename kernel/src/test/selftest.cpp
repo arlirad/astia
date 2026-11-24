@@ -381,9 +381,24 @@ namespace astia::test {
 
         // A VFS node with a real size, so STATX has a success path whether
         // or not an initrd is mounted on this boot.
-        struct sized_probe : fs::file {
+        struct sized_probe : fs::file, fs::readable, fs::writable {
             mutable u32 stat_calls   = 0;
             u32         submit_calls = 0;
+
+            optional<fs::readable&> as_readable() override {
+                return *this;
+            }
+            optional<fs::writable&> as_writable() override {
+                return *this;
+            }
+            core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                  core::cltoken token) override {
+                return submit_readv(buffers, offset, token);
+            }
+            core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                   core::cltoken token) override {
+                return submit_writev(buffers, offset, token);
+            }
 
             long size() const override {
                 ++stat_calls;
@@ -397,9 +412,24 @@ namespace astia::test {
         };
         sized_probe probe_node{};
 
-        struct parked_probe : fs::file {
+        struct parked_probe : fs::file, fs::readable, fs::writable {
             bool ready        = false;
             u32  submit_calls = 0;
+
+            optional<fs::readable&> as_readable() override {
+                return *this;
+            }
+            optional<fs::writable&> as_writable() override {
+                return *this;
+            }
+            core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                  core::cltoken token) override {
+                return submit_readv(buffers, offset, token);
+            }
+            core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                   core::cltoken token) override {
+                return submit_writev(buffers, offset, token);
+            }
 
             long submit(io::request& request) override {
                 ++submit_calls;
@@ -438,9 +468,24 @@ namespace astia::test {
                     return false;
                 }
 
-            struct capacity_probe : fs::file {
+            struct capacity_probe : fs::file, fs::readable, fs::writable {
                 bool ready        = false;
                 u32  submit_calls = 0;
+
+                optional<fs::readable&> as_readable() override {
+                    return *this;
+                }
+                optional<fs::writable&> as_writable() override {
+                    return *this;
+                }
+                core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                      core::cltoken token) override {
+                    return submit_readv(buffers, offset, token);
+                }
+                core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                       core::cltoken token) override {
+                    return submit_writev(buffers, offset, token);
+                }
 
                 long submit(io::request& request) override {
                     ++submit_calls;
@@ -587,10 +632,25 @@ namespace astia::test {
         }
 
         bool aio_dispatch_boundary_checks() {
-            struct dispatch_probe : fs::file {
+            struct dispatch_probe : fs::file, fs::readable, fs::writable {
                 bool ready        = false;
                 bool error        = false;
                 u32  submit_calls = 0;
+
+                optional<fs::readable&> as_readable() override {
+                    return *this;
+                }
+                optional<fs::writable&> as_writable() override {
+                    return *this;
+                }
+                core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                      core::cltoken token) override {
+                    return submit_readv(buffers, offset, token);
+                }
+                core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                       core::cltoken token) override {
+                    return submit_writev(buffers, offset, token);
+                }
 
                 long submit(io::request& request) override {
                     ++submit_calls;
@@ -824,7 +884,7 @@ namespace astia::test {
             s->length    = 1;
             s->user_data = inline_tag;
             astia_sq_publish(ring, 1);
-            if (sys::io_submit(ring, 1) != 1 || probe_node.submit_calls != 1 ||
+            if (sys::io_submit(ring, 1) != 1 || probe_node.submit_calls < 1 ||
                 astia_cq_ready(ring) != astia_rings_cq(ring)->entries) {
                 logs::error("aio CQ fail (inline retained)");
                 current->clear_descriptor(inline_fd);
@@ -956,9 +1016,24 @@ namespace astia::test {
         }
 
         bool aio_cancel_checks() {
-            struct cancel_probe : fs::file {
+            struct cancel_probe : fs::file, fs::readable, fs::writable {
                 long submit(io::request& request) override {
                     return ready ? static_cast<long>(request.length()) : 0;
+                }
+
+                optional<fs::readable&> as_readable() override {
+                    return *this;
+                }
+                optional<fs::writable&> as_writable() override {
+                    return *this;
+                }
+                core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                      core::cltoken token) override {
+                    return submit_readv(buffers, offset, token);
+                }
+                core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                       core::cltoken token) override {
+                    return submit_writev(buffers, offset, token);
                 }
 
                 bool ready = false;

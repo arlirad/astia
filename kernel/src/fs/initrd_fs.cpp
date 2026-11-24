@@ -6,11 +6,27 @@
 namespace astia::fs {
 
     namespace {
-        class initrd_file final : public file {
+        class initrd_file final : public file, public readable, public writable {
             public:
             explicit initrd_file(astia::span<const u8> data) : _data(data) {}
 
-            long read(void* buffer, u32 length, u64 offset) override {
+            optional<readable&> as_readable() override {
+                return *this;
+            }
+            optional<writable&> as_writable() override {
+                return *this;
+            }
+
+            core::task<i64> readv(span<const buffer> buffers, u64 offset,
+                                  core::cltoken token) override {
+                return submit_readv(buffers, offset, token);
+            }
+            core::task<i64> writev(span<const buffer> buffers, u64 offset,
+                                   core::cltoken token) override {
+                return submit_writev(buffers, offset, token);
+            }
+
+            long read_ready(void* buffer, u32 length, u64 offset) override {
                 if (buffer == nullptr && length != 0)
                     return -EFAULT;
                 if (offset >= _data.size())
@@ -24,7 +40,7 @@ namespace astia::fs {
                 return static_cast<long>(count);
             }
 
-            long write(const void*, u32, u64) override {
+            long write_ready(const void*, u32, u64) override {
                 return -EROFS;
             }
             long size() const override {

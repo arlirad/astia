@@ -6,16 +6,38 @@ namespace astia::io::aio::operations {
 
     namespace {
 
-        class eventfd_file final : public fs::file {
+        class eventfd_file final : public fs::file,
+                                   public fs::readable,
+                                   public fs::writable,
+                                   public fs::pollable {
             public:
             eventfd_file(u64 value, bool nonblock) : _value(value), _nonblock(nonblock) {}
+
+            optional<fs::readable&> as_readable() override {
+                return *this;
+            }
+            optional<fs::writable&> as_writable() override {
+                return *this;
+            }
+            optional<fs::pollable&> as_pollable() override {
+                return *this;
+            }
 
             fs::file_mode mode() const override {
                 return fs::file_mode(fs::file_type::character,
                                      fs::default_device_permissions);
             }
 
-            long read(void* buffer, u32 length, u64) override {
+            core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                  core::cltoken token) override {
+                return submit_readv(buffers, offset, token);
+            }
+            core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                   core::cltoken token) override {
+                return submit_writev(buffers, offset, token);
+            }
+
+            long read_ready(void* buffer, u32 length, u64) override {
                 if (buffer == nullptr || length != sizeof(u64))
                     return -EINVAL;
                 u64 value = _value.exchange(0, astia::memory_order::acq_rel);
@@ -26,7 +48,7 @@ namespace astia::io::aio::operations {
                 return sizeof(u64);
             }
 
-            long write(const void* buffer, u32 length, u64) override {
+            long write_ready(const void* buffer, u32 length, u64) override {
                 if (buffer == nullptr || length != sizeof(u64))
                     return -EINVAL;
                 u64 add = *static_cast<const u64*>(buffer);
@@ -57,9 +79,10 @@ namespace astia::io::aio::operations {
             long submit(::astia::io::request& request) override {
                 if (request.length() != sizeof(u64))
                     return -EINVAL;
-                const long result = request.direction() == ::astia::io::direction::input
-                                        ? read(request.buffer(), request.length(), 0)
-                                        : write(request.buffer(), request.length(), 0);
+                const long result =
+                    request.direction() == ::astia::io::direction::input
+                        ? read_ready(request.buffer(), request.length(), 0)
+                        : write_ready(request.buffer(), request.length(), 0);
                 if (result == 0 && _nonblock)
                     return -EAGAIN;
                 if (result == 0)

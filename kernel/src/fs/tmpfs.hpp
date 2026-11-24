@@ -10,21 +10,43 @@ namespace astia::fs {
     inline constexpr u32   tmpfs_max_entries = 32;
     inline constexpr usize tmpfs_max_pages   = 16;
 
-    class tmpfs_file final : public file {
+    class tmpfs_file final : public file,
+                             public readable,
+                             public writable,
+                             public mappable,
+                             public truncatable,
+                             public syncable {
         public:
         explicit tmpfs_file(usize     pages = tmpfs_max_pages,
                             file_mode mode  = file_mode(file_type::regular,
                                                         default_file_permissions));
         ~tmpfs_file();
 
-        long        read(void* buffer, u32 length, u64 offset) override;
-        long        write(const void* buffer, u32 length, u64 offset) override;
-        long        sync() override;
-        long        sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
-                                 u32 flags) override;
-        long        size() const override;
-        const void* capability(file_capability kind) const override;
-        u64         inode() const override {
+        optional<readable&> as_readable() override {
+            return *this;
+        }
+        optional<writable&> as_writable() override {
+            return *this;
+        }
+        optional<mappable&> as_mappable() override {
+            return *this;
+        }
+        optional<truncatable&> as_truncatable() override {
+            return *this;
+        }
+        optional<syncable&> as_syncable() override {
+            return *this;
+        }
+
+        core::task<i64> readv(span<const buffer> buffers, u64 offset,
+                              core::cltoken token) override;
+        core::task<i64> writev(span<const buffer> buffers, u64 offset,
+                               core::cltoken token) override;
+        core::task<i64> sync(core::cltoken token) override;
+        core::task<i64> sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
+                                     u32 flags, core::cltoken token) override;
+        long            size() const override;
+        u64             inode() const override {
             core::spinlock_guard guard(_lock);
             return _inode;
         }
@@ -80,9 +102,15 @@ namespace astia::fs {
         mm::phys_region* memory_region() override {
             return _storage;
         }
-        long truncate(u64 length) override;
+        core::task<i64> truncate(u64 length, core::cltoken token) override;
 
         private:
+        friend class tmpfs_mount;
+
+        long read_ready(void* buffer, u32 length, u64 offset) override;
+        long write_ready(const void* buffer, u32 length, u64 offset) override;
+        long truncate_ready(u64 length);
+
         mm::phys_region* _storage = nullptr;
         u64              _size    = 0;
         file_mode        _mode = file_mode(file_type::regular, default_file_permissions);
