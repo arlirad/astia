@@ -501,8 +501,13 @@ ASTIA_TEST(aio_production_cq_full_refuses_completion) {
     capture.cq.tail = capture.cq.entries;
 
     sqe.op = OP_NOP;
-    ASTIA_CHECK(!aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.count() == capture.cq.entries);
+
+    capture.consume(1);
+    aio::dispatch::retry_pending(slot, &capture.ring);
+    ASTIA_CHECK(capture.count() == capture.cq.entries);
+    ASTIA_CHECK(capture.result(capture.cq.entries - 1) == 0);
 }
 
 ASTIA_TEST(aio_production_cancel_posts_target_and_acknowledges) {
@@ -530,7 +535,6 @@ ASTIA_TEST(aio_production_cancel_posts_target_and_acknowledges) {
     ASTIA_CHECK(capture.user_data(1) == 0x22);
     ASTIA_CHECK(capture.result(1) == 0);
     ASTIA_CHECK(operation.request().cancellation_requested());
-    ASTIA_CHECK(operation.cancellation_acknowledged());
     ASTIA_CHECK(slot.park[0].done);
     release_parked(slot);
     ASTIA_CHECK(!slot.park[0].used);

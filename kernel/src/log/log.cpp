@@ -1,7 +1,8 @@
-#include "proc.hpp"
 #include <astia/api/syscalls.h>
 #include <astia/arch/interrupts.hpp>
 #include <astia/log.hpp>
+
+#include "proc.hpp"
 
 namespace astia::log::detail {
 
@@ -89,7 +90,11 @@ namespace astia::log::detail {
             current == nullptr
                           ? mm::shptr<fs::open_file>{}
                           : current->descriptor(fd_t{severity == level::info ? STDOUT : STDERR});
-        if (!stream) {
+        if (!stream || (severity == level::info && stream->parent() &&
+                        stream->parent()->mode().is_regular())) {
+            // A process can redirect stdout to a regular file (tests and
+            // pipelines).  Kernel diagnostics must not be injected into that
+            // payload; fall back to the serial log instead.
             buffer(severity, c);
             return;
         }

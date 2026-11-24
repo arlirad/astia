@@ -342,6 +342,12 @@ namespace astia::io::aio {
 
 } // namespace astia::io::aio
 
+namespace astia::sys {
+
+    void io_device_ready_context(const ::astia::io::aio::io_device*) {}
+
+} // namespace astia::sys
+
 namespace astia::arch {
 
     u64 timer_ticks() {
@@ -382,6 +388,54 @@ namespace astia::mm::heap {
 } // namespace astia::mm::heap
 
 namespace astia::mm {
+
+    iovec::iovec(iovec&& other) noexcept {
+        for (usize i = 0; i < other._count; ++i) {
+            _segments[i].base   = other._segments[i].base;
+            _segments[i].offset = other._segments[i].offset;
+            _segments[i].length = other._segments[i].length;
+        }
+        _count           = other._count;
+        _total           = other._total;
+        _index           = other._index;
+        _offset          = other._offset;
+        _remaining       = other._remaining;
+        other._count     = 0;
+        other._total     = 0;
+        other._index     = 0;
+        other._offset    = 0;
+        other._remaining = 0;
+    }
+
+    iovec& iovec::operator=(iovec&& other) noexcept {
+        if (this != &other) {
+            release();
+            for (usize i = 0; i < other._count; ++i) {
+                _segments[i].base   = other._segments[i].base;
+                _segments[i].offset = other._segments[i].offset;
+                _segments[i].length = other._segments[i].length;
+            }
+            _count           = other._count;
+            _total           = other._total;
+            _index           = other._index;
+            _offset          = other._offset;
+            _remaining       = other._remaining;
+            other._count     = 0;
+            other._total     = 0;
+            other._index     = 0;
+            other._offset    = 0;
+            other._remaining = 0;
+        }
+        return *this;
+    }
+
+    void iovec::release() {
+        _count     = 0;
+        _total     = 0;
+        _index     = 0;
+        _offset    = 0;
+        _remaining = 0;
+    }
 
     usize iovec::bytes() const {
         return _total;
@@ -552,6 +606,13 @@ namespace astia::fs {
 
     open_file::~open_file() {}
 
+    long open_file::reserve_append(u32, u64* offset) {
+        if (offset == nullptr)
+            return -EINVAL;
+        *offset = 0;
+        return 0;
+    }
+
     file_mode open_file::mode() const {
         return _parent ? _parent->mode() : _mode;
     }
@@ -706,3 +767,17 @@ namespace astia::fs {
     }
 
 } // namespace astia::fs
+
+namespace astia::io::aio::ring {
+
+    bool park_detached_cqe(ring_slot& slot, u64 user_data, i32 result) {
+        for (u32 i = 0; i < kernel_ring_max_entries; ++i) {
+            if (slot.pending_detached[i].used)
+                continue;
+            slot.pending_detached[i] = {user_data, result, true};
+            return true;
+        }
+        return false;
+    }
+
+} // namespace astia::io::aio::ring

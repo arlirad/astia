@@ -10,6 +10,7 @@
 #include <astia/memory.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/share.hpp>
+#include <astia/mm/uptr.hpp>
 
 #include "../../proc/proc.hpp"
 #include "aio.hpp"
@@ -94,6 +95,7 @@ namespace astia::io::aio::ring {
         mm::shptr<fs::open_file> handle;
         mm::iovec                entries;
         ::astia::io::operation*  operation = nullptr;
+        mm::uptr<core::clsource> cancel;
         core::cltoken            token{};
         u64                      generation = 0;
         usize                    moved      = 0;
@@ -102,6 +104,7 @@ namespace astia::io::aio::ring {
             if (operation != nullptr)
                 operation->release_owner();
             operation             = nullptr;
+            cancel                = {};
             used                  = false;
             type                  = kind::operation;
             done                  = false;
@@ -151,14 +154,20 @@ namespace astia::io::aio::ring {
         u32                      waiters;
         atomic<u32>              detached_ops;
         runner::detached_state*  detached_head;
-        bool                     detached_reclaim;
-        atomic<bool>             reclaiming;
-        bool                     notify_pending;
-        u32                      notify_signaled;
-        u32                      pool_index;
-        bool                     kernel_buffers;
-        parked_op                park[parked_slot_count];
-        parked_cleanup           cleanup;
+        struct pending_detached_cqe {
+            u64  user_data;
+            i32  result;
+            bool used;
+        };
+        pending_detached_cqe pending_detached[aio::kernel_ring_max_entries];
+        bool                 detached_reclaim;
+        atomic<bool>         reclaiming;
+        bool                 notify_pending;
+        u32                  notify_signaled;
+        u32                  pool_index;
+        bool                 kernel_buffers;
+        parked_op            park[parked_slot_count];
+        parked_cleanup       cleanup;
         alignas(mm::page_size) u8 map[mapping_pages * mm::page_size];
     };
 
@@ -175,6 +184,7 @@ namespace astia::io::aio::ring {
     void detach_parked(ring_slot& slot, parked_cleanup& cleanup,
                        bool completed_only = false);
     void clear_slot(ring_slot& slot, parked_cleanup& cleanup);
+    bool park_detached_cqe(ring_slot& slot, u64 user_data, i32 result);
     void reap_completed(ring_slot& slot, parked_cleanup& cleanup);
 
     bool cq_post(astia_rings* ring, u64 user_data, i32 result);

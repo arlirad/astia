@@ -3,14 +3,20 @@
 namespace astia::io::aio::operations {
 
     struct write : handler<write, opcode::write> {
-        static core::task<aio_result> invoke([[maybe_unused]] ring::ring_slot& slot,
-                                             [[maybe_unused]] astia_rings*     ring,
-                                             astia_sqe                         sqe,
+        static core::task<aio_result> invoke(ring::ring_slot& slot, astia_rings* ring,
+                                             astia_sqe     sqe,
                                              core::cltoken token) noexcept {
-            co_return submit_io(slot, ring, sqe, ::astia::io::direction::output, false,
-                                token)
-                ? aio_result::pending
-                : aio_result::retry;
+            auto io = dispatch::prepare_file_io(slot, ring, sqe,
+                                                ::astia::io::direction::output, false);
+            if (!io)
+                co_return io.error;
+            if (io.value.bytes == 0)
+                co_return 0;
+            auto result =
+                co_await io.value.handle->writev(io.value.view(), sqe.offset, token);
+            if (!result)
+                co_return result.error;
+            co_return static_cast<i64>(result.value);
         }
     };
 

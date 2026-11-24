@@ -2,6 +2,6 @@
 
 namespace astia::sys {
 
-    void io_device_ready_deferred_context(const fs::file*) {}
+    void io_device_ready_context(const fs::file*) {}
 
 }
