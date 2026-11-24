@@ -3,6 +3,7 @@
 #include <astia/hw/driver.hpp>
 #include <astia/hw/pci.hpp>
 
+// Hardware-layer implementation.
 namespace astia::hw {
 
     const pci_device_info* pci_device_info::get(const hw::device_info& value) {

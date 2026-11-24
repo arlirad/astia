@@ -1,5 +1,6 @@
 #include <astia/dev/driver.hpp>
 
+// Hardware-layer implementation.
 namespace astia::hw {
 
     bool driver_registry::register_driver(driver& value) {
