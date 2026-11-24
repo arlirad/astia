@@ -600,8 +600,8 @@ astia_add_host_test(astia_elf_test
         ${_fixture_dyn_cpp}
         ${_fixture_exec_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/exec_loader.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/reloc_loader.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/loader/exec.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/loader/reloc.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         support/resume_queue_host.cpp
 )
@@ -686,8 +686,8 @@ astia_add_host_test(astia_module_lifecycle_test
          ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
          module_cxxabi_host_test.cpp
          ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/exec_loader.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/reloc_loader.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/loader/exec.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/loader/reloc.cpp
 )
 target_compile_options(astia_module_lifecycle_test PRIVATE
         -ffunction-sections -fdata-sections)

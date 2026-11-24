@@ -7,7 +7,7 @@
 
 #include <astia/strings.hpp>
 
-#include "elf_internal.hpp"
+#include "loader/internal.hpp"
 
 namespace astia::elf::loader {
 

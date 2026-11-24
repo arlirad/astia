@@ -1,4 +1,4 @@
-#include "elf_internal.hpp"
+#include "internal.hpp"
 
 #include <new>
 
