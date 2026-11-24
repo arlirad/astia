@@ -22,15 +22,34 @@ namespace astia::dev {
             return true;
         }
 
-        class pty_slave_file final : public fs::file {
+        class pty_slave_file final : public fs::file,
+                                     public fs::readable,
+                                     public fs::writable,
+                                     public fs::pollable,
+                                     public fs::ioctlable {
             public:
             explicit pty_slave_file(const mm::shptr<pty>& owner) : owner_(owner) {}
 
-            long read(void* buffer, u32 length, u64 offset) override {
-                return owner_->read(buffer, length, offset);
+            optional<fs::readable&> as_readable() override {
+                return *this;
             }
-            long write(const void* buffer, u32 length, u64 offset) override {
-                return owner_->write(buffer, length, offset);
+            optional<fs::writable&> as_writable() override {
+                return *this;
+            }
+            optional<fs::pollable&> as_pollable() override {
+                return *this;
+            }
+            optional<fs::ioctlable&> as_ioctlable() override {
+                return *this;
+            }
+
+            core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                  core::cltoken token) override {
+                return submit_readv(buffers, offset, token);
+            }
+            core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                   core::cltoken token) override {
+                return submit_writev(buffers, offset, token);
             }
             long submit(io::request& request) override {
                 return owner_->submit(request);
@@ -38,8 +57,9 @@ namespace astia::dev {
             u32 poll(u32 events, u32 flags) override {
                 return owner_->poll(events, flags);
             }
-            long ioctl(u64 request, void* argp, usize size) override {
-                return owner_->ioctl(request, argp, size);
+            core::task<i64> ioctl(u64 request, void* argp, usize size,
+                                  core::cltoken) override {
+                co_return owner_->ioctl(request, argp, size);
             }
             long acquire_controlling_terminal(i32 group) override {
                 return owner_->acquire_controlling_terminal(group);
@@ -59,7 +79,11 @@ namespace astia::dev {
             mm::shptr<pty> owner_;
         };
 
-        class pty_master_file final : public fs::file {
+        class pty_master_file final : public fs::file,
+                                      public fs::readable,
+                                      public fs::writable,
+                                      public fs::pollable,
+                                      public fs::ioctlable {
             public:
             explicit pty_master_file(const mm::shptr<pty>& owner) : owner_(owner) {}
             ~pty_master_file() override {
@@ -67,11 +91,26 @@ namespace astia::dev {
                     owner_->master_close();
             }
 
-            long read(void* buffer, u32 length, u64) override {
-                return owner_->master_read(buffer, length);
+            optional<fs::readable&> as_readable() override {
+                return *this;
             }
-            long write(const void* buffer, u32 length, u64) override {
-                return owner_->master_write(buffer, length);
+            optional<fs::writable&> as_writable() override {
+                return *this;
+            }
+            optional<fs::pollable&> as_pollable() override {
+                return *this;
+            }
+            optional<fs::ioctlable&> as_ioctlable() override {
+                return *this;
+            }
+
+            core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                  core::cltoken token) override {
+                return submit_readv(buffers, offset, token);
+            }
+            core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                   core::cltoken token) override {
+                return submit_writev(buffers, offset, token);
             }
             long submit(io::request& request) override {
                 return owner_->master_submit(request);
@@ -79,8 +118,9 @@ namespace astia::dev {
             u32 poll(u32 events, u32) override {
                 return owner_->master_poll(events);
             }
-            long ioctl(u64 request, void* argp, usize size) override {
-                return owner_->master_ioctl(request, argp, size);
+            core::task<i64> ioctl(u64 request, void* argp, usize size,
+                                  core::cltoken) override {
+                co_return owner_->master_ioctl(request, argp, size);
             }
             fs::file_mode mode() const override {
                 return fs::file_mode(fs::file_type::character,

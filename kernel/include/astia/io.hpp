@@ -49,7 +49,6 @@ extern "C" void __tsan_release(void const*);
 // block layer) blocks a *thread*, never the device.
 
 namespace astia::fs {
-    class io_packet;
 }
 
 namespace astia::io {

@@ -3,20 +3,8 @@
 
 namespace astia::fs {
 
-    long file::read(void*, u32, u64) {
-        return -ENOSYS;
-    }
-    long file::write(const void*, u32, u64) {
-        return -ENOSYS;
-    }
     long file::submit(io::request&) {
         return -ENOSYS;
-    }
-    u32 file::poll(u32 events, u32) {
-        return events & (POLLIN | POLLOUT);
-    }
-    long file::ioctl(u64, void*, usize) {
-        return -ENOTTY;
     }
     long file::acquire_controlling_terminal(i32) {
         return -ENOTTY;
@@ -26,15 +14,6 @@ namespace astia::fs {
     }
     u32 file::block_size() const {
         return 0;
-    }
-    long file::truncate(u64) {
-        return -EINVAL;
-    }
-    long file::sync() {
-        return -EINVAL;
-    }
-    long file::sync_mapping(mm::phys_region*, u64, u64, u32) {
-        return -ENOSYS;
     }
     u64 file::inode() const {
         return 0;
@@ -66,14 +45,8 @@ namespace astia::fs {
     long file::touch(u64, u64) {
         return -EROFS;
     }
-    mm::phys_region* file::memory_region() {
-        return nullptr;
-    }
-    void        file::duplicate(u32) {}
-    void        file::close(u32) {}
-    const void* file::capability(file_capability) const {
-        return nullptr;
-    }
+    void                          file::duplicate(u32) {}
+    void                          file::close(u32) {}
     const unix_socket_operations* file::unix_socket_capability() const {
         return nullptr;
     }

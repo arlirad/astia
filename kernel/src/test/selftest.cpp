@@ -438,9 +438,24 @@ namespace astia::test {
                     return false;
                 }
 
-            struct capacity_probe : fs::file {
+            struct capacity_probe : fs::file, fs::readable, fs::writable {
                 bool ready        = false;
                 u32  submit_calls = 0;
+
+                optional<fs::readable&> as_readable() override {
+                    return *this;
+                }
+                optional<fs::writable&> as_writable() override {
+                    return *this;
+                }
+                core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                      core::cltoken token) override {
+                    return submit_readv(buffers, offset, token);
+                }
+                core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                       core::cltoken token) override {
+                    return submit_writev(buffers, offset, token);
+                }
 
                 long submit(io::request& request) override {
                     ++submit_calls;
@@ -587,10 +602,25 @@ namespace astia::test {
         }
 
         bool aio_dispatch_boundary_checks() {
-            struct dispatch_probe : fs::file {
+            struct dispatch_probe : fs::file, fs::readable, fs::writable {
                 bool ready        = false;
                 bool error        = false;
                 u32  submit_calls = 0;
+
+                optional<fs::readable&> as_readable() override {
+                    return *this;
+                }
+                optional<fs::writable&> as_writable() override {
+                    return *this;
+                }
+                core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                                      core::cltoken token) override {
+                    return submit_readv(buffers, offset, token);
+                }
+                core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                                       core::cltoken token) override {
+                    return submit_writev(buffers, offset, token);
+                }
 
                 long submit(io::request& request) override {
                     ++submit_calls;

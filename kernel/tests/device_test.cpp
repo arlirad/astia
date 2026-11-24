@@ -36,23 +36,32 @@ namespace {
         astia::io::direction direction = astia::io::direction::input;
     };
 
-    class dispatch_file final : public astia::fs::file {
+    class dispatch_file final : public astia::fs::file,
+                                public astia::fs::readable,
+                                public astia::fs::writable {
         public:
-        long read(void*, astia::u32 length, astia::u64) override {
-            ++reads;
-            return static_cast<long>(length);
+        astia::optional<astia::fs::readable&> as_readable() override {
+            return *this;
         }
-        long write(const void*, astia::u32 length, astia::u64) override {
-            ++writes;
-            return static_cast<long>(length);
-        }
-        long submit(astia::io::request&) override {
-            ++submits;
-            return -EIO;
+        astia::optional<astia::fs::writable&> as_writable() override {
+            return *this;
         }
 
-        int reads   = 0;
-        int writes  = 0;
+        astia::core::task<astia::i64>
+        readv(astia::span<const astia::fs::buffer> buffers, astia::u64 offset,
+              astia::core::cltoken token) override {
+            return submit_readv(buffers, offset, token);
+        }
+        astia::core::task<astia::i64>
+        writev(astia::span<const astia::fs::buffer> buffers, astia::u64 offset,
+               astia::core::cltoken token) override {
+            return submit_writev(buffers, offset, token);
+        }
+        long submit(astia::io::request& request) override {
+            ++submits;
+            return static_cast<long>(request.length());
+        }
+
         int submits = 0;
     };
 
@@ -180,10 +189,12 @@ ASTIA_TEST(device_file_services_a_parked_completion) {
 ASTIA_TEST(device_file_detach_rejects_new_operations) {
     test_device             device("detachable");
     astia::dev::device_file file(&device);
+    auto parent = astia::mm::shptr<astia::fs::file>::borrowed(&file);
+    astia::fs::open_file handle(parent, astia::fs::open_file_status_flags::readwrite);
     char                    buffer[1]{};
-    ASTIA_CHECK(file.read(buffer, sizeof buffer, 0) == 0);
+    ASTIA_CHECK(handle.read(buffer, sizeof buffer, 0) == 0);
     file.detach();
-    ASTIA_CHECK(file.read(buffer, sizeof buffer, 0) == -ENODEV);
+    ASTIA_CHECK(handle.read(buffer, sizeof buffer, 0) == -ENODEV);
     ASTIA_CHECK(file.poll(POLLIN, 0) == POLLNVAL);
 }
 
@@ -291,7 +302,19 @@ ASTIA_TEST(aio_completed_parked_operation_releases_owner_once) {
     operation.release_owner();
 }
 
-ASTIA_TEST(open_file_keeps_synchronous_dispatch_fast_path) {
+ASTIA_TEST(file_reports_only_the_contracts_it_implements) {
+    dispatch_file    dispatch;
+    submit_only_file submit_only;
+
+    ASTIA_CHECK(dispatch.as_readable());
+    ASTIA_CHECK(dispatch.as_writable());
+    ASTIA_CHECK(!dispatch.as_pollable());
+    ASTIA_CHECK(!submit_only.as_readable());
+    ASTIA_CHECK(!submit_only.as_writable());
+    ASTIA_CHECK(!submit_only.as_pollable());
+}
+
+ASTIA_TEST(open_file_read_and_write_use_the_submit_engine) {
     auto                 parent = astia::mm::shptr<astia::fs::file>(new dispatch_file{});
     astia::fs::open_file handle(parent, astia::fs::open_file_status_flags::readwrite);
     astia::u8            read_buffer[4]{};
@@ -301,9 +324,7 @@ ASTIA_TEST(open_file_keeps_synchronous_dispatch_fast_path) {
     ASTIA_CHECK(handle.write(write_buffer, sizeof write_buffer, 0) ==
                 sizeof write_buffer);
     auto* file = static_cast<dispatch_file*>(parent.get());
-    ASTIA_CHECK(file->reads == 1);
-    ASTIA_CHECK(file->writes == 1);
-    ASTIA_CHECK(file->submits == 0);
+    ASTIA_CHECK(file->submits == 2);
 }
 
 ASTIA_TEST(open_file_falls_back_to_submit_only_file) {

@@ -96,7 +96,17 @@ namespace astia::fs {
         }
     }
 
-    long ext4_file::read(void* buffer, u32 length, u64 offset) {
+    core::task<i64> ext4_file::readv(span<const buffer> buffers, u64 offset,
+                                  core::cltoken token) {
+    return submit_readv(buffers, offset, token);
+}
+
+core::task<i64> ext4_file::writev(span<const buffer> buffers, u64 offset,
+                                  core::cltoken token) {
+    return submit_writev(buffers, offset, token);
+}
+
+long ext4_file::read_ready(void* buffer, u32 length, u64 offset) {
         if (_node.type() != ext4::node_type::regular)
             return -EISDIR;
         if (offset >= _node.size)

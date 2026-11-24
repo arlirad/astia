@@ -39,4 +39,30 @@ namespace astia {
         }
     };
 
+    /// Reference form for capability queries: engaged means "this object
+    /// provides the contract", and the referent stays owned by the file.
+    /// A reference can never be null, so there is no separate null state.
+    template <typename T>
+    struct optional<T&> {
+        bool    has_value = false;
+        error_t error     = error_t::enone;
+        T*      pointer   = nullptr;
+
+        optional() = default;
+
+        optional(T& value) : has_value(true), pointer(&value) {}
+        optional(error_t e) : error(e) {}
+
+        explicit operator bool() const {
+            return has_value;
+        }
+
+        T& operator*() const {
+            return *pointer;
+        }
+        T* operator->() const {
+            return pointer;
+        }
+    };
+
 } // namespace astia

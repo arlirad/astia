@@ -10,15 +10,37 @@ namespace astia::fs {
     namespace {
         constexpr u32 pipe_capacity_bytes = 4096;
 
-        class pipe_file final : public file {
+        class pipe_file final : public file,
+                                public readable,
+                                public writable,
+                                public pollable {
             public:
             pipe_file() : _readers(1), _writers(1) {}
+
+            optional<readable&> as_readable() override {
+                return *this;
+            }
+            optional<writable&> as_writable() override {
+                return *this;
+            }
+            optional<pollable&> as_pollable() override {
+                return *this;
+            }
 
             file_mode mode() const override {
                 return file_mode(file_type::fifo, default_file_permissions);
             }
 
-            long read(void* buffer, u32 length, u64) override {
+            core::task<i64> readv(span<const buffer> buffers, u64 offset,
+                                  core::cltoken token) override {
+                return submit_readv(buffers, offset, token);
+            }
+            core::task<i64> writev(span<const buffer> buffers, u64 offset,
+                                   core::cltoken token) override {
+                return submit_writev(buffers, offset, token);
+            }
+
+            long read_ready(void* buffer, u32 length, u64) override {
                 if (buffer == nullptr && length != 0)
                     return -EFAULT;
                 u32 count = 0;
@@ -42,7 +64,7 @@ namespace astia::fs {
                 return count;
             }
 
-            long write(const void* buffer, u32 length, u64) override {
+            long write_ready(const void* buffer, u32 length, u64) override {
                 if (buffer == nullptr && length != 0)
                     return -EFAULT;
                 if (__atomic_load_n(&_readers, __ATOMIC_ACQUIRE) == 0)
@@ -100,9 +122,10 @@ namespace astia::fs {
             }
 
             long submit(io::request& request) override {
-                const long result = request.direction() == io::direction::input
-                                        ? read(request.buffer(), request.length(), 0)
-                                        : write(request.buffer(), request.length(), 0);
+                const long result =
+                    request.direction() == io::direction::input
+                        ? read_ready(request.buffer(), request.length(), 0)
+                        : write_ready(request.buffer(), request.length(), 0);
                 if (result == 0 && request.length() == 0)
                     request.complete(true);
                 else if (result == 0 && request.direction() == io::direction::input &&

@@ -9,9 +9,43 @@ namespace aio_test {
 
     using namespace astia;
 
-    class fake_file final : public fs::file {
+    class fake_file final : public fs::file,
+                            public fs::readable,
+                            public fs::writable,
+                            public fs::pollable,
+                            public fs::ioctlable,
+                            public fs::truncatable,
+                            public fs::syncable {
         public:
         explicit fake_file(fs::file_type type = fs::file_type::regular) : type_(type) {}
+
+        optional<fs::readable&> as_readable() override {
+            return *this;
+        }
+        optional<fs::writable&> as_writable() override {
+            return *this;
+        }
+        optional<fs::pollable&> as_pollable() override {
+            return *this;
+        }
+        optional<fs::ioctlable&> as_ioctlable() override {
+            return *this;
+        }
+        optional<fs::truncatable&> as_truncatable() override {
+            return *this;
+        }
+        optional<fs::syncable&> as_syncable() override {
+            return *this;
+        }
+
+        core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
+                              core::cltoken token) override {
+            return submit_readv(buffers, offset, token);
+        }
+        core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
+                               core::cltoken token) override {
+            return submit_writev(buffers, offset, token);
+        }
 
         long submit(::astia::io::request& request) override {
             if (submit_result < 0)
@@ -39,42 +73,26 @@ namespace aio_test {
             return size_value;
         }
 
-        long truncate(u64 length) override {
-            if (truncate_result < 0)
-                return truncate_result;
-            size_value = static_cast<long>(length);
-            return truncate_result;
+        core::task<i64> truncate(u64 length, core::cltoken) override {
+            if (truncate_result >= 0)
+                size_value = static_cast<long>(length);
+            co_return truncate_result;
         }
 
-        long sync() override {
-            return sync_result;
+        core::task<i64> sync(core::cltoken) override {
+            co_return sync_result;
         }
 
-        long ioctl(u64, void*, usize) override {
-            return ioctl_result;
+        core::task<i64> ioctl(u64, void*, usize, core::cltoken) override {
+            co_return ioctl_result;
         }
 
         long chmod(fs::file_permissions) override {
             return 0;
         }
 
-        long read(void* buffer, u32 length, u64) override {
-            (void) buffer;
-            if (read_result < 0)
-                return read_result;
-            return static_cast<long>(length);
-        }
-
-        long write(const void*, u32 length, u64) override {
-            if (write_result < 0)
-                return write_result;
-            return static_cast<long>(length);
-        }
-
         fs::file_type type_           = fs::file_type::regular;
         long          submit_result   = 0;
-        long          read_result     = 0;
-        long          write_result    = 0;
         long          size_value      = 0;
         long          truncate_result = 0;
         long          sync_result     = 0;

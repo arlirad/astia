@@ -39,17 +39,40 @@ namespace astia::fs {
             core::spinlock lock;
         };
         class unix_file;
-        class unix_file final : public file {
+        class unix_file final : public file,
+                                public readable,
+                                public writable,
+                                public pollable {
             public:
             enum class state : u8 { fresh, listener, connected, dgram };
             unix_file() = default;
+
+            optional<readable&> as_readable() override {
+                return *this;
+            }
+            optional<writable&> as_writable() override {
+                return *this;
+            }
+            optional<pollable&> as_pollable() override {
+                return *this;
+            }
+
             file_mode mode() const override {
                 return file_mode(file_type::socket, file_permissions(0777));
             }
             long size() const override {
                 return 0;
             }
-            long read(void* b, u32 n, u64) override {
+            core::task<i64> readv(span<const buffer> buffers, u64 offset,
+                                  core::cltoken token) override {
+                return submit_readv(buffers, offset, token);
+            }
+            core::task<i64> writev(span<const buffer> buffers, u64 offset,
+                                   core::cltoken token) override {
+                return submit_writev(buffers, offset, token);
+            }
+
+            long read_ready(void* b, u32 n, u64) override {
                 state              kind;
                 mm::shptr<channel> channel;
                 u32                side;
@@ -87,7 +110,7 @@ namespace astia::fs {
                 sys::io_device_ready_context(this);
                 return count;
             }
-            long write(const void* b, u32 n, u64) override {
+            long write_ready(const void* b, u32 n, u64) override {
                 state                kind;
                 mm::shptr<channel>   channel;
                 mm::shptr<unix_file> peer_owner;
@@ -229,9 +252,9 @@ namespace astia::fs {
                     }
                     return -EMFILE;
                 }
-                long n           = r.direction() == io::direction::input
-                                       ? read(r.buffer(), r.length(), 0)
-                                       : write(r.buffer(), r.length(), 0);
+                long n = r.direction() == io::direction::input
+                             ? read_ready(r.buffer(), r.length(), 0)
+                             : write_ready(r.buffer(), r.length(), 0);
                 bool peer_closed = false;
                 if (channel) {
                     core::spinlock_guard channel_guard(channel->lock);
@@ -244,7 +267,6 @@ namespace astia::fs {
                     r.stage(1);
                 return n;
             }
-            const void*                   capability(file_capability kind) const override;
             const unix_socket_operations* unix_socket_capability() const override;
             void                          duplicate(u32) override {
                 __atomic_fetch_add(&_opens, 1u, __ATOMIC_ACQ_REL);
@@ -481,25 +503,6 @@ namespace astia::fs {
             u32                    _opens{1};
         };
 
-        long unix_read(file* parent, void* buffer, u32 length, u64 offset) {
-            return static_cast<unix_file*>(parent)->read(buffer, length, offset);
-        }
-        long unix_write(file* parent, const void* buffer, u32 length, u64 offset) {
-            return static_cast<unix_file*>(parent)->write(buffer, length, offset);
-        }
-        long unix_submit(file* parent, io::request& request) {
-            return static_cast<unix_file*>(parent)->submit(request);
-        }
-        u32 unix_poll(const file* parent, u32 events, u32 flags) {
-            return const_cast<unix_file*>(static_cast<const unix_file*>(parent))
-                ->poll(events, flags);
-        }
-
-        const file_read_capability   unix_read_capability{unix_read};
-        const file_write_capability  unix_write_capability{unix_write};
-        const file_submit_capability unix_submit_capability{unix_submit};
-        const file_poll_capability   unix_poll_capability{unix_poll};
-
         long socket_bind(open_file& o, const astia_sockaddr& a);
         long socket_listen(open_file& o, u32 b);
         long socket_accept(open_file& o, io::request& r);
@@ -514,21 +517,6 @@ namespace astia::fs {
             socket_bind,    socket_listen,   socket_accept,
             socket_connect, socket_shutdown, socket_getsockopt,
             socket_sendto,  socket_recvfrom, socket_recvfrom_address};
-
-        const void* unix_file::capability(file_capability kind) const {
-            switch (kind) {
-            case file_capability::read:
-                return &unix_read_capability;
-            case file_capability::write:
-                return &unix_write_capability;
-            case file_capability::submit:
-                return &unix_submit_capability;
-            case file_capability::poll:
-                return &unix_poll_capability;
-            default:
-                return file::capability(kind);
-            }
-        }
 
         const unix_socket_operations* unix_file::unix_socket_capability() const {
             return &socket_operations;
