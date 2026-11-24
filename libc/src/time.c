@@ -1,9 +1,10 @@
 #include "time_port.h"
+#include <sys/time.h>
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
 #include <time.h>
 
 /* Days from 1970-01-01.  The era decomposition keeps negative timestamps
@@ -251,6 +252,38 @@ static size_t append_text(char* dst, size_t cap, size_t at, const char* text) {
     return at + i;
 }
 
+static size_t append_number(char* dst, size_t cap, size_t at, const char* format,
+                            long long number) {
+    char text[32];
+
+    (void) snprintf(text, sizeof text, format, number);
+    return append_text(dst, cap, at, text);
+}
+
+static size_t append_embedded(char* dst, size_t cap, size_t at, const char* format,
+                              const struct tm* value) {
+    char   text[64];
+    size_t length = strftime(text, sizeof text, format, value);
+
+    if (length == 0 || length >= sizeof text)
+        return SIZE_MAX;
+    return append_text(dst, cap, at, text);
+}
+
+static int is_leap_year(int64_t year) {
+    return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+}
+
+static int64_t iso_weeks_in_year(int64_t year, int jan1_weekday) {
+    if (jan1_weekday == 4 || (jan1_weekday == 3 && is_leap_year(year)))
+        return 53;
+    return 52;
+}
+
+static int64_t century_of(int64_t year) {
+    return year >= 0 ? year / 100 : -((99 - year) / 100);
+}
+
 size_t strftime(char* dst, size_t cap, const char* format, const struct tm* value) {
     static const char* const weekdays[]      = {"Sun", "Mon", "Tue", "Wed",
                                                 "Thu", "Fri", "Sat"};
@@ -261,16 +294,41 @@ size_t strftime(char* dst, size_t cap, const char* format, const struct tm* valu
     static const char* const months_long[] = {
         "January", "February", "March",     "April",   "May",      "June",
         "July",    "August",   "September", "October", "November", "December"};
-    size_t at = 0;
-    size_t i;
+    int64_t year;
+    int64_t iso_wday;
+    int64_t jan1_wday;
+    int64_t iso_year;
+    int64_t week;
+    int64_t hour;
+    int64_t hour12;
+    size_t  at = 0;
+    size_t  i;
 
     if (dst == NULL || value == NULL || cap == 0 || format == NULL)
         return 0;
     if (value->tm_wday < 0 || value->tm_wday > 6 || value->tm_mon < 0 ||
         value->tm_mon > 11)
         return 0;
+    year      = (int64_t) value->tm_year + 1900;
+    iso_wday  = value->tm_wday == 0 ? 7 : value->tm_wday;
+    jan1_wday = ((iso_wday - 1 - (int64_t) value->tm_yday) % 7 + 7) % 7 + 1;
+    iso_year  = year;
+    week      = ((int64_t) value->tm_yday - iso_wday + 11) / 7;
+    if (week < 1) {
+        int64_t previous_length = is_leap_year(year - 1) ? 366 : 365;
+        int64_t previous_jan1   = ((jan1_wday - 1 - previous_length) % 7 + 7) % 7 + 1;
+        iso_year                = year - 1;
+        week += iso_weeks_in_year(iso_year, (int) previous_jan1);
+    }
+    else if (week > iso_weeks_in_year(year, (int) jan1_wday)) {
+        iso_year = year + 1;
+        week     = 1;
+    }
+    hour   = value->tm_hour;
+    hour12 = hour % 12;
+    if (hour12 == 0)
+        hour12 = 12;
     for (i = 0; format[i] != '\0'; i++) {
-        char text[32];
         if (format[i] != '%') {
             if (at + 1 < cap)
                 dst[at] = format[i];
@@ -280,7 +338,6 @@ size_t strftime(char* dst, size_t cap, const char* format, const struct tm* valu
         i++;
         if (format[i] == '\0')
             break;
-        text[0] = '\0';
         switch (format[i]) {
         case 'a':
             at = append_text(dst, cap, at, weekdays[value->tm_wday]);
@@ -295,43 +352,110 @@ size_t strftime(char* dst, size_t cap, const char* format, const struct tm* valu
         case 'B':
             at = append_text(dst, cap, at, months_long[value->tm_mon]);
             break;
-        case 'Y':
-            (void) snprintf(text, sizeof text, "%04d", value->tm_year + 1900);
-            at = append_text(dst, cap, at, text);
+        case 'C':
+            at = append_number(dst, cap, at, "%02lld", (long long) century_of(year));
             break;
-        case 'm':
-            (void) snprintf(text, sizeof text, "%02d", value->tm_mon + 1);
-            at = append_text(dst, cap, at, text);
+        case 'c':
+            at = append_embedded(dst, cap, at, "%a %b %e %H:%M:%S %Y", value);
             break;
         case 'd':
-            (void) snprintf(text, sizeof text, "%02d", value->tm_mday);
-            at = append_text(dst, cap, at, text);
+            at = append_number(dst, cap, at, "%02lld", (long long) value->tm_mday);
+            break;
+        case 'D':
+        case 'x':
+            at = append_embedded(dst, cap, at, "%m/%d/%y", value);
+            break;
+        case 'e':
+            at = append_number(dst, cap, at, "%2lld", (long long) value->tm_mday);
+            break;
+        case 'F':
+            at = append_embedded(dst, cap, at, "%Y-%m-%d", value);
+            break;
+        case 'g':
+            at = append_number(dst, cap, at, "%02lld",
+                               (long long) ((iso_year % 100 + 100) % 100));
+            break;
+        case 'G':
+            at = append_number(dst, cap, at, "%04lld", (long long) iso_year);
             break;
         case 'H':
-            (void) snprintf(text, sizeof text, "%02d", value->tm_hour);
-            at = append_text(dst, cap, at, text);
+            at = append_number(dst, cap, at, "%02lld", (long long) hour);
             break;
-        case 'M':
-            (void) snprintf(text, sizeof text, "%02d", value->tm_min);
-            at = append_text(dst, cap, at, text);
-            break;
-        case 'S':
-            (void) snprintf(text, sizeof text, "%02d", value->tm_sec);
-            at = append_text(dst, cap, at, text);
+        case 'I':
+            at = append_number(dst, cap, at, "%02lld", (long long) hour12);
             break;
         case 'j':
-            (void) snprintf(text, sizeof text, "%03d", value->tm_yday + 1);
-            at = append_text(dst, cap, at, text);
+            at = append_number(dst, cap, at, "%03lld", (long long) value->tm_yday + 1);
             break;
-        case 'w':
-            (void) snprintf(text, sizeof text, "%d", value->tm_wday);
-            at = append_text(dst, cap, at, text);
+        case 'k':
+            at = append_number(dst, cap, at, "%2lld", (long long) hour);
+            break;
+        case 'l':
+            at = append_number(dst, cap, at, "%2lld", (long long) hour12);
+            break;
+        case 'm':
+            at = append_number(dst, cap, at, "%02lld", (long long) value->tm_mon + 1);
+            break;
+        case 'M':
+            at = append_number(dst, cap, at, "%02lld", (long long) value->tm_min);
             break;
         case 'n':
             at = append_text(dst, cap, at, "\n");
             break;
+        case 'p':
+            at = append_text(dst, cap, at, value->tm_hour < 12 ? "AM" : "PM");
+            break;
+        case 'P':
+            at = append_text(dst, cap, at, value->tm_hour < 12 ? "am" : "pm");
+            break;
+        case 'r':
+            at = append_embedded(dst, cap, at, "%I:%M:%S %p", value);
+            break;
+        case 'R':
+            at = append_embedded(dst, cap, at, "%H:%M", value);
+            break;
+        case 's': {
+            struct tm utc = *value;
+
+            if (value->tm_year > INT_MAX - 1900)
+                return 0;
+            at = append_number(dst, cap, at, "%lld", (long long) mktime(&utc));
+            break;
+        }
+        case 'S':
+            at = append_number(dst, cap, at, "%02lld", (long long) value->tm_sec);
+            break;
         case 't':
             at = append_text(dst, cap, at, "\t");
+            break;
+        case 'T':
+        case 'X':
+            at = append_embedded(dst, cap, at, "%H:%M:%S", value);
+            break;
+        case 'u':
+            at = append_number(dst, cap, at, "%lld", (long long) iso_wday);
+            break;
+        case 'U':
+            at = append_number(dst, cap, at, "%02lld",
+                               ((long long) value->tm_yday + 7 - value->tm_wday) / 7);
+            break;
+        case 'V':
+            at = append_number(dst, cap, at, "%02lld", (long long) week);
+            break;
+        case 'w':
+            at = append_number(dst, cap, at, "%lld", (long long) value->tm_wday);
+            break;
+        case 'W':
+            at = append_number(
+                dst, cap, at, "%02lld",
+                ((long long) value->tm_yday + 7 - (value->tm_wday + 6) % 7) / 7);
+            break;
+        case 'y':
+            at = append_number(dst, cap, at, "%02lld",
+                               (long long) ((year % 100 + 100) % 100));
+            break;
+        case 'Y':
+            at = append_number(dst, cap, at, "%04lld", (long long) year);
             break;
         case '%':
             at = append_text(dst, cap, at, "%");
@@ -339,6 +463,8 @@ size_t strftime(char* dst, size_t cap, const char* format, const struct tm* valu
         default:
             return 0;
         }
+        if (at == SIZE_MAX)
+            return 0;
     }
     if (at >= cap)
         return 0;
