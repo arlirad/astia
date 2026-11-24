@@ -395,7 +395,10 @@ namespace astia::io {
         bool                            _cancellation_retain          = false;
         bool                            _cancel_acknowledged          = false;
 
+        request* _queue_next = nullptr;
+
         friend class operation;
+        friend class request_queue;
     };
 
     class operation {

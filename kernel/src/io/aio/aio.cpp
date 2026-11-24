@@ -2,7 +2,9 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/atomic.hpp>
+#include <astia/core/spinlock.hpp>
 
 #include "dispatch.hpp"
 #include "memory.hpp"
@@ -12,6 +14,37 @@ namespace astia::io::aio {
 
     namespace {
         user_memory_adapter g_user_memory{};
+        constexpr u32       max_ready_files = 64;
+        core::spinlock      g_ready_lock;
+        const io_device*    g_ready_files[max_ready_files]{};
+        u32                 g_ready_count = 0;
+
+        void note_ready_file(const io_device* dev) {
+            if (dev == nullptr || const_cast<io_device*>(dev)->pending().empty())
+                return;
+            arch::interrupt_spinlock_guard guard(g_ready_lock);
+            for (u32 i = 0; i < g_ready_count; ++i)
+                if (g_ready_files[i] == dev)
+                    return;
+            if (g_ready_count < max_ready_files)
+                g_ready_files[g_ready_count++] = dev;
+        }
+
+        void service_ready_files() {
+            const io_device* ready[max_ready_files]{};
+            u32              count = 0;
+            {
+                arch::interrupt_spinlock_guard guard(g_ready_lock);
+                count = g_ready_count;
+                for (u32 i = 0; i < count; ++i)
+                    ready[i] = g_ready_files[i];
+                g_ready_count = 0;
+            }
+            for (u32 i = 0; i < count; ++i) {
+                if (ready[i] != nullptr)
+                    const_cast<io_device*>(ready[i])->service_ready();
+            }
+        }
     }
 
     void set_user_memory_adapter(const user_memory_adapter& adapter) {
@@ -126,6 +159,7 @@ namespace astia::io::aio {
                     op.device_ready = true;
             }
         }
+        note_ready_file(dev);
         if (::astia::arch::cpu::in_interrupt())
             ::astia::arch::cpu::request_local_reschedule();
     }
@@ -163,6 +197,7 @@ namespace astia::io::aio {
 
     void io_process_deferred_ready() {
         reclaim_detached_slots();
+        service_ready_files();
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 ring_guard pool_guard(g_ring_pool_lock);

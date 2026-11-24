@@ -1,5 +1,7 @@
 #pragma once
 
+#include <astia/optional.hpp>
+
 #include "ring.hpp"
 
 namespace astia::io::aio::dispatch {
@@ -18,7 +20,33 @@ namespace astia::io::aio::dispatch {
     bool submit_io(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe,
                    ::astia::io::direction direction, bool vectored,
                    core::cltoken token = {});
-    bool publish_pending(astia_rings* ring, ring::parked_op& op);
+    /// AIO-side preparation for file-owned I/O: resolve the descriptor,
+    /// validate the user vector and pin it into kernel windows.  The handler
+    /// then calls open_file::readv/writev itself.
+    struct pinned_io {
+        mm::shptr<fs::open_file> handle;
+        mm::iovec                entries;
+        fs::buffer               buffers[mm::iovec::max_segments]{};
+        u32                      buffered = 0;
+        usize                    bytes    = 0;
+
+        pinned_io()                            = default;
+        pinned_io(pinned_io&&)                 = default;
+        pinned_io& operator=(pinned_io&&)      = default;
+        pinned_io(const pinned_io&)            = delete;
+        pinned_io& operator=(const pinned_io&) = delete;
+        ~pinned_io() {
+            entries.release();
+        }
+        span<const fs::buffer> view() const {
+            return span<const fs::buffer>(buffers, buffered);
+        }
+    };
+
+    optional<pinned_io> prepare_file_io(ring::ring_slot& slot, astia_rings* ring,
+                                        const astia_sqe&       sqe,
+                                        ::astia::io::direction direction, bool vectored);
+    bool                publish_pending(astia_rings* ring, ring::parked_op& op);
 
     bool dispatch_one(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
     void retry_pending(ring::ring_slot& slot, astia_rings* ring);

@@ -3,6 +3,7 @@
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/dev/blk/blkdev.hpp>
+#include <astia/mapping.hpp>
 
 namespace astia::dev {
 

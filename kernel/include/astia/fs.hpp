@@ -7,6 +7,7 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
 #include <astia/io.hpp>
+#include <astia/io/request_queue.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/share.hpp>
 #include <astia/mm/shptr.hpp>
@@ -221,6 +222,8 @@ namespace astia::fs {
     inline constexpr file_type directory_lnk     = file_type::symlink;
     inline constexpr file_type directory_sock    = file_type::socket;
 
+    struct buffer;
+
     /// The polymorphic object behind a filesystem node.  Device classes
     /// derive from this interface; the kernel passes these objects
     /// directly, while only the userspace ABI layer translates handles
@@ -235,16 +238,29 @@ namespace astia::fs {
     class file {
         public:
         virtual ~file() = default;
-        virtual long      read(void* buf, u32 len, u64 offset);
-        virtual long      write(const void* buf, u32 len, u64 offset);
-        virtual long      submit(io::request& request);
-        virtual u32       poll(u32 events, u32 flags);
-        virtual long      ioctl(u64 request, void* argp, usize size);
-        virtual long      acquire_controlling_terminal(i32 group);
-        virtual long      size() const;
-        virtual u32       block_size() const;
-        virtual long      truncate(u64 length);
-        virtual long      sync();
+        virtual long read(void* buf, u32 len, u64 offset);
+        virtual long write(const void* buf, u32 len, u64 offset);
+        virtual long submit(io::request& request);
+        /// A device reported readiness.  The file/device services its own
+        /// pending queue here (task context); ring-owned operations are
+        /// untouched and are handled by the AIO engine.
+        virtual void service_ready() {
+            _pending.service();
+        }
+        /// Async vector I/O.  The file object builds the device-facing
+        /// requests and awaits their completion; the open-file layer only
+        /// resolves the per-open offset/append before calling this.
+        virtual core::task<i64> readv(span<const buffer> buffers, u64 offset,
+                                      core::cltoken token);
+        virtual core::task<i64> writev(span<const buffer> buffers, u64 offset,
+                                       core::cltoken token);
+        virtual u32             poll(u32 events, u32 flags);
+        virtual long            ioctl(u64 request, void* argp, usize size);
+        virtual long            acquire_controlling_terminal(i32 group);
+        virtual long            size() const;
+        virtual u32             block_size() const;
+        virtual long            truncate(u64 length);
+        virtual long            sync();
         virtual long      sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
                                        u32 flags);
         virtual u64       inode() const;
@@ -267,6 +283,13 @@ namespace astia::fs {
         /// Kernel-internal typed hook for protocol-specific file operations.
         /// This is deliberately separate from the generic file capabilities.
         virtual const unix_socket_operations* unix_socket_capability() const;
+
+        io::request_queue& pending() {
+            return _pending;
+        }
+
+        private:
+        io::request_queue _pending{*this};
     };
 
     // Kernel-internal capability dispatch.  These are deliberately separate

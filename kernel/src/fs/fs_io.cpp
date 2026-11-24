@@ -4,57 +4,23 @@
 namespace astia::fs {
 
     namespace {
-        /// Submit one concrete stretch to the node behind the open file.  The
-        /// request offset is already resolved, so the open-file position is
-        /// advanced once by readv()/writev() when the whole vector is done.
-        core::task<i64> submit_segment(const mm::shptr<open_file>& handle,
-                                       const buffer& entry, u64 offset,
-                                       io::direction direction, core::cltoken token) {
-            if (token.canceled())
-                co_return error_t::ecanceled;
-            auto completion =
-                mm::uptr<core::completion<i64>>(new core::completion<i64>());
-            if (!completion)
-                co_return error_t::enomem;
-            io_packet packet(handle, entry.data, static_cast<u32>(entry.length), offset,
-                             direction,
-                             static_cast<mm::uptr<core::completion<i64>>&&>(completion));
-            if (!packet)
-                co_return error_t::enomem;
-            packet.request().updates_position(false);
-            core::completion<i64>* pending_completion = packet.completion();
-            if (!packet.request().park_device())
-                co_return error_t::eagain;
-            const long submitted = packet.submit();
-            if (submitted < 0) {
-                packet.request().acknowledge();
-                co_return error_from_errno(-submitted);
+        struct pending_operation {
+            io::operation* operation = nullptr;
+            file*          node      = nullptr;
+
+            pending_operation(io::operation* value, file* owner)
+                : operation(value), node(owner) {}
+            pending_operation(const pending_operation&)            = delete;
+            pending_operation& operator=(const pending_operation&) = delete;
+
+            ~pending_operation() {
+                if (operation == nullptr)
+                    return;
+                if (node != nullptr)
+                    node->pending().cancel(operation->request());
+                operation->release_owner();
             }
-            if (submitted > 0) {
-                packet.request().acknowledge();
-                if (token.canceled())
-                    co_return error_t::ecanceled;
-                co_return static_cast<i64>(submitted);
-            }
-            if (packet.request().complete()) {
-                packet.request().acknowledge();
-                if (token.canceled())
-                    co_return error_t::ecanceled;
-                co_return 0;
-            }
-            auto result = co_await *pending_completion;
-            // The completion means the backend has quiesced its use of the
-            // buffer.  A completion-first backend may still leave the
-            // request in its active state; acknowledge it before the packet
-            // releases its owner reference so the request/frame lifetime
-            // extends through the terminal device transition.
-            packet.request().acknowledge();
-            if (token.canceled())
-                co_return error_t::ecanceled;
-            if (!result)
-                co_return result.error;
-            co_return result.value;
-        }
+        };
 
         bool buffer_bytes(span<const buffer> buffers, u64& total) {
             total = 0;
@@ -68,7 +34,99 @@ namespace astia::fs {
             }
             return true;
         }
+
+        /// Build one device-facing request per buffer and submit it to the
+        /// node.  A parked request is owned by the device-side pending queue;
+        /// its completion resumes this coroutine when the device has data.
+        core::task<i64> submit_vector(file* node, span<const buffer> buffers, u64 offset,
+                                      io::direction direction, core::cltoken token) {
+            i64 total = 0;
+            for (usize i = 0; i < buffers.size(); ++i) {
+                const buffer& entry = buffers[i];
+                if (entry.length == 0)
+                    continue;
+                if (token.canceled()) {
+                    if (total != 0)
+                        co_return total;
+                    co_return error_t::ecanceled;
+                }
+
+                auto completion =
+                    mm::uptr<core::completion<i64>>(new core::completion<i64>());
+                if (!completion) {
+                    if (total != 0)
+                        co_return total;
+                    co_return error_t::enomem;
+                }
+                auto* operation = new io::operation(
+                    entry.data, static_cast<u32>(entry.length), offset + total, 0,
+                    direction,
+                    static_cast<mm::uptr<core::completion<i64>>&&>(completion));
+                if (operation == nullptr) {
+                    if (total != 0)
+                        co_return total;
+                    co_return error_t::enomem;
+                }
+                operation->heap_owned(true);
+                pending_operation pending(operation, node);
+
+                auto& request = operation->request();
+                if (!request.park_device()) {
+                    if (total != 0)
+                        co_return total;
+                    co_return error_t::eagain;
+                }
+                if (!request.begin_device()) {
+                    if (total != 0)
+                        co_return total;
+                    co_return error_t::eagain;
+                }
+
+                long submitted = node->submit(request);
+                if (submitted == 0 && !request.complete()) {
+                    request.end_device();
+                    node->pending().park(request);
+                    auto result = co_await *request.completion();
+                    request.acknowledge();
+                    if (!result) {
+                        if (total != 0)
+                            co_return total;
+                        co_return result.error;
+                    }
+                    submitted = static_cast<long>(result.value);
+                }
+                else {
+                    request.acknowledge();
+                    request.end_device();
+                }
+
+                if (submitted < 0) {
+                    if (total != 0)
+                        co_return total;
+                    co_return error_from_errno(-submitted);
+                }
+                if (token.canceled()) {
+                    if (total != 0)
+                        co_return total;
+                    co_return error_t::ecanceled;
+                }
+                total += submitted;
+                if (submitted < static_cast<long>(entry.length))
+                    break;
+            }
+            co_return total;
+        }
     } // namespace
+
+    core::task<i64> file::readv(span<const buffer> buffers, u64 offset,
+                                core::cltoken token) {
+        return submit_vector(this, buffers, offset, io::direction::input, token);
+    }
+
+    core::task<i64> file::writev(span<const buffer> buffers, u64 offset,
+                                 core::cltoken token) {
+        return submit_vector(this, buffers, offset, io::direction::output, token);
+    }
 
     core::task<i64> open_file::readv(span<const buffer> buffers, u64 offset,
                                      core::cltoken token) {
@@ -77,29 +135,16 @@ namespace astia::fs {
             co_return error_t::erange;
         if (sized == 0)
             co_return i64{0};
+        if (!_parent)
+            co_return error_t::ebadf;
         const bool current = offset == offset_current;
         const u64  actual  = current ? current_position() : offset;
-        i64        total   = 0;
-        const auto self    = mm::shptr<open_file>::borrowed(this);
-        for (usize i = 0; i < buffers.size(); ++i) {
-            const buffer& entry = buffers[i];
-            if (entry.length == 0)
-                continue;
-            auto result =
-                co_await submit_segment(self, entry, actual + static_cast<u64>(total),
-                                        io::direction::input, token);
-            if (!result) {
-                if (total != 0)
-                    co_return total;
-                co_return result.error;
-            }
-            total += result.value;
-            if (result.value < static_cast<i64>(entry.length))
-                break;
-        }
-        if (total > 0 && current)
-            set_position(actual + static_cast<u64>(total));
-        co_return total;
+        auto       result  = co_await _parent->readv(buffers, actual, token);
+        if (!result)
+            co_return result.error;
+        if (result.value > 0 && current)
+            set_position(actual + static_cast<u64>(result.value));
+        co_return result.value;
     }
 
     core::task<i64> open_file::writev(span<const buffer> buffers, u64 offset,
@@ -109,6 +154,8 @@ namespace astia::fs {
             co_return error_t::erange;
         if (sized == 0)
             co_return i64{0};
+        if (!_parent)
+            co_return error_t::ebadf;
         const bool current = offset == offset_current;
         const bool append =
             (_flags & static_cast<u32>(open_file_status_flags::append)) != 0;
@@ -118,27 +165,12 @@ namespace astia::fs {
             if (reserved < 0)
                 co_return error_from_errno(-reserved);
         }
-        i64        total = 0;
-        const auto self  = mm::shptr<open_file>::borrowed(this);
-        for (usize i = 0; i < buffers.size(); ++i) {
-            const buffer& entry = buffers[i];
-            if (entry.length == 0)
-                continue;
-            auto result =
-                co_await submit_segment(self, entry, actual + static_cast<u64>(total),
-                                        io::direction::output, token);
-            if (!result) {
-                if (total != 0)
-                    co_return total;
-                co_return result.error;
-            }
-            total += result.value;
-            if (result.value < static_cast<i64>(entry.length))
-                break;
-        }
-        if (total > 0 && (current || append))
-            set_position(actual + static_cast<u64>(total));
-        co_return total;
+        auto result = co_await _parent->writev(buffers, actual, token);
+        if (!result)
+            co_return result.error;
+        if (result.value > 0 && (current || append))
+            set_position(actual + static_cast<u64>(result.value));
+        co_return result.value;
     }
 
     core::task<i64> submit(const mm::shptr<open_file>& handle, void* buffer_ptr,

@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/core/resume_queue.hpp>
 #include <astia/dev/device.hpp>
 #include <astia/dev/device_file.hpp>
 
@@ -114,6 +115,27 @@ namespace {
         }
     };
 
+    class queue_device final : public astia::dev::device {
+        public:
+        queue_device() : device("queue", astia::dev::dv_mqueue) {}
+
+        long read(void*, astia::u32, astia::u64) override {
+            return -EIO;
+        }
+        long write(const void*, astia::u32, astia::u64) override {
+            return -EIO;
+        }
+        long submit(astia::io::request& request) override {
+            if (!ready)
+                return 0;
+            if (request.buffer() != nullptr)
+                __builtin_memset(request.buffer(), 0x5a, request.length());
+            return static_cast<long>(request.length());
+        }
+
+        bool ready = false;
+    };
+
     class blocking_device final : public astia::dev::device {
         public:
         blocking_device() : device("blocking", astia::dev::dv_sync) {}
@@ -155,6 +177,27 @@ ASTIA_TEST(device_span_adapters_reject_u32_overflow) {
     ASTIA_CHECK(device.read(astia::span<astia::u8>(nullptr, oversized), 0) == -EINVAL);
     ASTIA_CHECK(device.write(astia::span<const astia::u8>(nullptr, oversized), 0) ==
                 -EINVAL);
+}
+
+ASTIA_TEST(device_file_services_a_parked_completion) {
+    queue_device                  device;
+    astia::dev::device_file       file(&device);
+    astia::u8                     buffer[4]{};
+    const astia::fs::buffer       entry{buffer, sizeof buffer};
+    astia::core::task<astia::i64> task = file.readv(
+        astia::span<const astia::fs::buffer>(&entry, 1), 0, astia::core::cltoken{});
+
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(!task.done());
+    ASTIA_CHECK(!file.pending().empty());
+
+    device.ready = true;
+    file.service_ready();
+    astia::core::drain_resumes();
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(task.value() != nullptr && *task.value() == 4);
+    ASTIA_CHECK(buffer[0] == 0x5a);
 }
 
 ASTIA_TEST(device_file_detach_rejects_new_operations) {

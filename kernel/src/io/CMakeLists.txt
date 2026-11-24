@@ -9,6 +9,7 @@ add_library(io STATIC
         aio/registry.cpp
         aio/runner.cpp
         aio/ring.cpp
+        request_queue.cpp
         ${ASTIA_IO_AIO_CORE_HANDLER_SOURCES}
         ${ASTIA_IO_READINESS_HANDLER_SOURCES}
 )
