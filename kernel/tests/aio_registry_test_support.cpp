@@ -761,3 +761,17 @@ namespace astia::fs {
     }
 
 } // namespace astia::fs
+
+namespace astia::io::aio::ring {
+
+    bool park_detached_cqe(ring_slot& slot, u64 user_data, i32 result) {
+        for (u32 i = 0; i < kernel_ring_max_entries; ++i) {
+            if (slot.pending_detached[i].used)
+                continue;
+            slot.pending_detached[i] = {user_data, result, true};
+            return true;
+        }
+        return false;
+    }
+
+} // namespace astia::io::aio::ring

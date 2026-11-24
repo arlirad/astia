@@ -323,11 +323,16 @@ namespace astia::io {
         core::cltoken cancellation_token() const {
             return _cancel_token;
         }
+        void external_token(core::cltoken token) {
+            _external_token = token;
+        }
         bool cancellation_requested() const {
-            return _cancel_token.canceled();
+            return _cancel_token.canceled() || _external_token.canceled();
         }
         core::cancel_reason cancellation_reason() const {
-            return _cancel_token.reason();
+            const core::cancel_reason external = _external_token.reason();
+            return external != core::cancel_reason::none ? external
+                                                         : _cancel_token.reason();
         }
         bool cancel_device(bool                retain = false,
                            core::cancel_reason reason = core::cancel_reason::request) {
@@ -386,6 +391,7 @@ namespace astia::io {
         mm::uptr<core::completion<i64>> _completion;
         core::clsource*                 _cancel_source = nullptr;
         core::cltoken                   _cancel_token;
+        core::cltoken                   _external_token;
         cancellation_handler*           _cancellation_handler         = nullptr;
         cancellation_observer*          _cancellation_observer        = nullptr;
         legacy_cancellation_handler     _legacy_cancellation_handler  = nullptr;
@@ -459,16 +465,20 @@ namespace astia::io {
             _request._operation = this;
         }
         operation(void* buffer, u32 length, u64 offset, direction direction,
-                  mm::uptr<core::completion<i64>> completion = {})
+                  mm::uptr<core::completion<i64>> completion = {},
+                  core::cltoken                   token      = {})
             : _request(_cancel_source, buffer, length, offset, 0, direction) {
             _request._operation = this;
+            _request.external_token(token);
             _request.completion(
                 static_cast<mm::uptr<core::completion<i64>>&&>(completion));
         }
         operation(void* buffer, u32 length, u64 offset, u64 user_data,
-                  direction direction, mm::uptr<core::completion<i64>> completion = {})
+                  direction direction, mm::uptr<core::completion<i64>> completion = {},
+                  core::cltoken token = {})
             : _request(_cancel_source, buffer, length, offset, user_data, direction) {
             _request._operation = this;
+            _request.external_token(token);
             _request.completion(
                 static_cast<mm::uptr<core::completion<i64>>&&>(completion));
         }

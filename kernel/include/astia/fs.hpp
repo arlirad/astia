@@ -428,11 +428,11 @@ namespace astia::fs {
         public:
         io_packet(const mm::shptr<open_file>& handle, void* buffer, u32 length,
                   u64 offset, io::direction direction,
-                  mm::uptr<core::completion<i64>> completion)
+                  mm::uptr<core::completion<i64>> completion, core::cltoken token = {})
             : handle_(handle),
               operation_(new io::operation(
                   buffer, length, offset, direction,
-                  static_cast<mm::uptr<core::completion<i64>>&&>(completion))) {
+                  static_cast<mm::uptr<core::completion<i64>>&&>(completion), token)) {
             if (operation_)
                 operation_->heap_owned(true);
         }

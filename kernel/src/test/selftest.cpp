@@ -718,21 +718,22 @@ namespace astia::test {
             sqe->offset    = 0xc0de87;
             sqe->user_data = 0xc0de88;
             astia_sq_publish(ring, 1);
-            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 2)
+            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 1)
+                return fail();
+            cqe = astia_cq_peek(ring);
+            if (cqe == nullptr || cqe->user_data != 0xc0de88 || cqe->result != 0)
+                return fail();
+            astia_cq_consume(ring, 1);
+            node.ready = true;
+            sys::io_device_ready_context(&node);
+            sys::io_process_deferred_ready();
+            if (astia_cq_ready(ring) != 1)
                 return fail();
             cqe = astia_cq_peek(ring);
             if (cqe == nullptr || cqe->user_data != 0xc0de87 || cqe->result != -ECANCELED)
                 return fail();
             astia_cq_consume(ring, 1);
-            cqe = astia_cq_peek(ring);
-            if (cqe == nullptr || cqe->user_data != 0xc0de88 || cqe->result != 0)
-                return fail();
-            astia_cq_consume(ring, 1);
             if (sys::io_submit(ring, 0) != 0)
-                return fail();
-            node.ready = true;
-            sys::io_device_ready_context(&node);
-            if (astia_cq_ready(ring) != 0)
                 return fail();
 
             current->clear_descriptor(fd);
@@ -1003,22 +1004,21 @@ namespace astia::test {
             sqe->offset    = target_tag;
             sqe->user_data = cancel_tag;
             astia_sq_publish(ring, 1);
-            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 2)
+            if (sys::io_submit(ring, 1) != 1 || astia_cq_ready(ring) != 1)
                 return fail();
             astia_cqe* first = astia_cq_peek(ring);
-            if (first == nullptr || first->user_data != target_tag ||
-                first->result != -ECANCELED)
-                return fail();
-            astia_cq_consume(ring, 1);
-            astia_cqe* second = astia_cq_peek(ring);
-            if (second == nullptr || second->user_data != cancel_tag ||
-                second->result != 0)
+            if (first == nullptr || first->user_data != cancel_tag || first->result != 0)
                 return fail();
             astia_cq_consume(ring, 1);
             node.ready = true;
             sys::io_device_ready_context(&node);
-            if (sys::io_submit(ring, 0) != 0 || astia_cq_ready(ring) != 0)
+            if (sys::io_submit(ring, 0) != 0 || astia_cq_ready(ring) != 1)
                 return fail();
+            astia_cqe* second = astia_cq_peek(ring);
+            if (second == nullptr || second->user_data != target_tag ||
+                second->result != -ECANCELED)
+                return fail();
+            astia_cq_consume(ring, 1);
             current->clear_descriptor(fd);
             file = {};
             if (sys::io_destroy(ring) != 0)

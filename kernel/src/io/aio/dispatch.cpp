@@ -296,6 +296,14 @@ namespace astia::io::aio::dispatch {
         }
 
         void retry_pending(ring_slot& slot, astia_rings* ring) {
+            for (u32 i = 0; i < kernel_ring_max_entries; ++i) {
+                auto& pending = slot.pending_detached[i];
+                if (!pending.used)
+                    continue;
+                if (!cq_post(ring, pending.user_data, pending.result))
+                    break;
+                pending = {};
+            }
             for (u32 i = 0; i < parked_operation_slots; ++i) {
                 parked_op& op = slot.park[i];
                 if (op.used && op.pending_cqe && !publish_pending(ring, op))

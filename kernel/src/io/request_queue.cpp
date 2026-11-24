@@ -6,6 +6,9 @@ namespace astia::io {
 
     bool request_queue::park(request& request) {
         core::spinlock_guard guard(_lock);
+        if (_count >= max_pending)
+            return false;
+        ++_count;
         request._queue_next = nullptr;
         if (_tail == nullptr)
             _head = &request;
@@ -30,6 +33,8 @@ namespace astia::io {
             if (_tail == entry)
                 _tail = previous;
             entry->_queue_next = nullptr;
+            if (_count != 0)
+                --_count;
             return;
         }
     }
@@ -38,13 +43,13 @@ namespace astia::io {
         if (request.cancellation_requested()) {
             request.acknowledge();
             if (request.completion() != nullptr)
-                request.completion()->fail_deferred(error_t::ecanceled);
+                request.completion()->fail(error_t::ecanceled);
             return true;
         }
         if (!request.begin_device()) {
             if (request.complete()) {
                 if (request.completion() != nullptr)
-                    request.completion()->complete_deferred(0);
+                    request.completion()->complete(0);
                 return true;
             }
             return false;
@@ -60,16 +65,21 @@ namespace astia::io {
         request.end_device();
         if (request.completion() != nullptr) {
             if (result < 0)
-                request.completion()->fail_deferred(error_from_errno(-result));
+                request.completion()->fail(error_from_errno(-result));
             else
-                request.completion()->complete_deferred(result);
+                request.completion()->complete(result);
         }
         return true;
     }
 
     bool request_queue::empty() {
         core::spinlock_guard guard(_lock);
-        return _head == nullptr;
+        return _count == 0;
+    }
+
+    bool request_queue::full() {
+        core::spinlock_guard guard(_lock);
+        return _count >= max_pending;
     }
 
     void request_queue::service() {
@@ -84,6 +94,7 @@ namespace astia::io {
                 if (_head == nullptr)
                     _tail = nullptr;
                 entry->_queue_next = nullptr;
+                --_count;
             }
 
             if (drive(*entry))
@@ -95,6 +106,7 @@ namespace astia::io {
             else
                 _tail->_queue_next = entry;
             _tail = entry;
+            ++_count;
         }
     }
 

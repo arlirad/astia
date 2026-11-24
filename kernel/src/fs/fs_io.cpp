@@ -50,6 +50,11 @@ namespace astia::fs {
                         co_return total;
                     co_return error_t::ecanceled;
                 }
+                if (node->pending().full()) {
+                    if (total != 0)
+                        co_return total;
+                    co_return error_t::ebusy;
+                }
 
                 auto completion =
                     mm::uptr<core::completion<i64>>(new core::completion<i64>());
@@ -60,8 +65,8 @@ namespace astia::fs {
                 }
                 auto* operation = new io::operation(
                     entry.data, static_cast<u32>(entry.length), offset + total, 0,
-                    direction,
-                    static_cast<mm::uptr<core::completion<i64>>&&>(completion));
+                    direction, static_cast<mm::uptr<core::completion<i64>>&&>(completion),
+                    token);
                 if (operation == nullptr) {
                     if (total != 0)
                         co_return total;
@@ -85,7 +90,12 @@ namespace astia::fs {
                 long submitted = node->submit(request);
                 if (submitted == 0 && !request.complete()) {
                     request.end_device();
-                    node->pending().park(request);
+                    if (!node->pending().park(request)) {
+                        request.acknowledge();
+                        if (total != 0)
+                            co_return total;
+                        co_return error_t::ebusy;
+                    }
                     auto result = co_await *request.completion();
                     request.acknowledge();
                     if (!result) {

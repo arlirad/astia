@@ -501,8 +501,13 @@ ASTIA_TEST(aio_production_cq_full_refuses_completion) {
     capture.cq.tail = capture.cq.entries;
 
     sqe.op = OP_NOP;
-    ASTIA_CHECK(!aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.count() == capture.cq.entries);
+
+    capture.consume(1);
+    aio::dispatch::retry_pending(slot, &capture.ring);
+    ASTIA_CHECK(capture.count() == capture.cq.entries);
+    ASTIA_CHECK(capture.result(capture.cq.entries - 1) == 0);
 }
 
 ASTIA_TEST(aio_production_cancel_posts_target_and_acknowledges) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/api/aio.h>
 #include <astia/core/spinlock.hpp>
 #include <astia/io.hpp>
 
@@ -18,17 +19,21 @@ namespace astia::io {
         request_queue(const request_queue&)            = delete;
         request_queue& operator=(const request_queue&) = delete;
 
+        static constexpr u32 max_pending = ASTIA_AIO_MAX_PARKED_OPERATIONS;
+
         bool park(request& request);
         void cancel(request& request);
         void service();
         bool empty();
+        bool full();
 
         private:
         bool drive(request& request);
 
         fs::file&      _owner;
-        request*       _head = nullptr;
-        request*       _tail = nullptr;
+        request*       _head  = nullptr;
+        request*       _tail  = nullptr;
+        u32            _count = 0;
         core::spinlock _lock;
     };
 

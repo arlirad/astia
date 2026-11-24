@@ -67,6 +67,10 @@ namespace astia::io::aio::runner {
                     unlink(*slot_ptr, state.get());
                     if (result.kind() == aio_result::state::complete)
                         consumed = ring::cq_post(ring, sqe.user_data, result.value());
+                    if (!consumed && result.kind() == aio_result::state::complete) {
+                        consumed = ring::park_detached_cqe(*slot_ptr, sqe.user_data,
+                                                           result.value());
+                    }
                     slot_ptr->detached_ops.fetch_sub(1, astia::memory_order::acq_rel);
                 }
                 state->consumed.store(consumed &&
