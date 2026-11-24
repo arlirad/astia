@@ -28,15 +28,6 @@ namespace astia::proc::syscalls {
         }
     }
 
-    /// sigaction - get or change a signal disposition.
-    ///
-    /// Synopsis:
-    ///     long sigaction(int signal, const action *next, action *old);
-    ///
-    /// Errors:
-    ///     -EFAULT: An action pointer or signal restorer is inaccessible.
-    ///     -EINVAL: The signal is invalid or cannot be caught.
-    ///     -ESRCH: There is no current process.
     struct sigaction : sys::syscall_handler<sigaction, sys::syscall_id::sigaction,
                                             sys::syscall_mode::sync> {
         static i64 invoke(i32 value, sys::user_ptr<struct astia_sigaction> next_ptr,

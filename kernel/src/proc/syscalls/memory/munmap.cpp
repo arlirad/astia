@@ -19,21 +19,6 @@
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
 
-    /// munmap - Remove a mapped virtual range.
-    ///
-    /// Synopsis:
-    ///     long munmap(void *addr, long length);
-    ///
-    /// Description:
-    ///     Removes mappings overlapping a positive-length virtual range. The
-    ///     address space may split a mapping when only part is removed.
-    ///
-    /// Return Value:
-    ///     Returns zero on success or a negative errno.
-    ///
-    /// Errors:
-    ///     -EINVAL: The length is not positive or the range is invalid.
-    ///     -ESRCH: There is no current process.
     struct munmap
         : sys::syscall_handler<munmap, sys::syscall_id::munmap, sys::syscall_mode::sync> {
         static i64 invoke(u64 addr, i64 len) {

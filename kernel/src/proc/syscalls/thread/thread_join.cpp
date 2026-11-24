@@ -18,22 +18,6 @@
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
 
-    /// thread_join - Wait for and reap a user thread.
-    ///
-    /// Synopsis:
-    ///     long thread_join(uint32_t tid, void **result);
-    ///
-    /// Description:
-    ///     Waits for tid to terminate and optionally copies its result pointer
-    ///     to result. Only one joiner is allowed.
-    ///
-    /// Return Value:
-    ///     Returns zero after reaping the thread or a negative errno.
-    ///
-    /// Errors:
-    ///     -EFAULT: The result pointer is not writable userspace memory.
-    ///     -EINVAL: The thread is detached, already joined, or is the caller.
-    ///     -ESRCH: The thread does not exist.
     struct thread_join : sys::syscall_handler<thread_join, sys::syscall_id::thread_join,
                                               sys::syscall_mode::sync> {
         static i64 invoke(u32 tid, sys::user_ptr<void*> output) {

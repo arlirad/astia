@@ -14,13 +14,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// sigreturn - restore a saved signal execution context.
-    ///
-    /// Synopsis:
-    ///     long sigreturn(const signal_context *context);
-    ///
-    /// Errors:
-    ///     -EFAULT: The saved context or its registers are invalid.
     struct sigreturn : sys::syscall_handler<sigreturn, sys::syscall_id::sigreturn,
                                             sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_trap trap, sys::user_ptr<u8> context) {

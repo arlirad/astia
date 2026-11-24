@@ -6,13 +6,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// getpgid - Return a process group identifier.
-    ///
-    /// Synopsis:
-    ///     long getpgid(int pid);
-    ///
-    /// Return Value:
-    ///     Returns the process group identifier or a negative errno.
     struct getpgid : sys::syscall_handler<getpgid, sys::syscall_id::getpgid,
                                           sys::syscall_mode::sync> {
         static i64 invoke(i64 raw_target) {

@@ -19,7 +19,7 @@ describe('Application routes', () => {
   beforeEach(async () => {
     const fetchSpy = jasmine.createSpy('fetch').and.callFake((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith('/docs/aio.7.md')) {
+      if (url.endsWith('/docs/7/aio.md')) {
         return Promise.resolve(
           new Response('# Asynchronous I/O\n\n## DESCRIPTION\n\nRuntime content.', {
             status: 200,
@@ -83,6 +83,20 @@ describe('Application routes', () => {
       'Asynchronous I/O',
     );
     expect(element.textContent).not.toContain('\u2014');
+  });
+
+  it('resolves the new section-7 alias to the stable route page', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/documentation/docs-7-aio', DocumentationPage);
+    harness.detectChanges();
+    const element = harness.routeNativeElement as HTMLElement;
+
+    expect(element.querySelector('.docs-page-title')?.textContent).toContain(
+      'Asynchronous I/O',
+    );
+    expect(element.querySelector('.docs-source')?.getAttribute('href')).toContain(
+      'docs/7/aio.md',
+    );
   });
 
   it('renders a deep-linked section-2 syscall page', async () => {

@@ -12,23 +12,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// uname - Read the system identity.
-    ///
-    /// Synopsis:
-    ///     long astia_uname(astia_utsname *output);
-    ///
-    /// Description:
-    ///     Copies the kernel's system identification into output. The five
-    ///     fields are fixed 65-byte arrays; every byte after a field's
-    ///     terminating NUL is zero.
-    ///
-    /// Return Value:
-    ///     Returns zero on success or a negative errno.
-    ///
-    /// Errors:
-    ///     -EFAULT: output is null or not writable userspace memory.
-    ///     -ENOSYS: The selected architecture has no machine identity.
-    ///     -ESRCH: There is no current process.
     struct uname
         : sys::syscall_handler<uname, sys::syscall_id::uname, sys::syscall_mode::sync> {
         static_assert(sizeof(astia_utsname) == 325);

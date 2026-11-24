@@ -8,11 +8,6 @@
 
 namespace astia::fs::syscalls {
 
-    /// unmount - root-only teardown of a native VFS mount.
-    ///
-    /// The target is copied from userspace before authorization and lookup.
-    /// The root mount, a mount with open descriptions, and a mount containing
-    /// another mount return -EBUSY.  This only changes the in-memory namespace.
     struct unmount : sys::syscall_handler<unmount, sys::syscall_id::unmount,
                                           sys::syscall_mode::sync> {
         static i64 invoke(sys::user_ptr<char> target) {

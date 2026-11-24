@@ -15,6 +15,14 @@ import { DOCS_MARKDOWN_RENDERER } from '../docs/docs-markdown';
 import type { DocPage, DocsLoadStatus } from '../docs/docs.model';
 import { DOCS_SOURCE, DocsNotFoundError } from '../docs/docs.repository';
 
+const pagesBySlug = new Map<string, DocPage>();
+for (const page of DOC_PAGES) {
+  pagesBySlug.set(page.slug, page);
+  for (const alias of page.aliases ?? []) {
+    pagesBySlug.set(alias, page);
+  }
+}
+
 @Component({
   selector: 'app-documentation-page',
   imports: [DocsBrowser],
@@ -31,7 +39,6 @@ export class DocumentationPage {
   private readonly router = inject(Router);
   private readonly source = inject(DOCS_SOURCE);
   private readonly markdownRenderer = inject(DOCS_MARKDOWN_RENDERER);
-  private readonly pagesBySlug = new Map(DOC_PAGES.map((page) => [page.slug, page]));
   private readonly content = signal<string | null>(null);
   private readonly routeSlug = toSignal(
     this.route.paramMap.pipe(map((params) => params.get('slug'))),
@@ -41,7 +48,7 @@ export class DocumentationPage {
 
   protected readonly selectedPage = computed(() => {
     const slug = this.routeSlug();
-    return slug ? (this.pagesBySlug.get(slug) ?? null) : null;
+    return slug ? (pagesBySlug.get(slug) ?? null) : null;
   });
   protected readonly selectedSlug = computed(() => this.selectedPage()?.slug ?? null);
   protected readonly sourceUrl = computed(() => {
@@ -57,7 +64,7 @@ export class DocumentationPage {
   constructor() {
     effect(() => {
       const slug = this.routeSlug();
-      if (slug && !this.pagesBySlug.has(slug)) {
+      if (slug && !pagesBySlug.has(slug)) {
         void this.router.navigate(['/documentation'], { replaceUrl: true });
       }
     });

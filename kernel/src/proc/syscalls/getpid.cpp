@@ -6,13 +6,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// getpid - return the calling process ID.
-    ///
-    /// Synopsis:
-    ///     long getpid(void);
-    ///
-    /// Return Value:
-    ///     The calling process ID.
     struct getpid
         : sys::syscall_handler<getpid, sys::syscall_id::getpid, sys::syscall_mode::sync> {
         static i64 invoke() {

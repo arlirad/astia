@@ -7,16 +7,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// chdir - change the caller's working directory.
-    ///
-    /// Synopsis:
-    ///     long chdir(const char *path);
-    ///
-    /// Errors:
-    ///     -EFAULT: The path pointer is inaccessible.
-    ///     -ENOTDIR: The path does not identify a directory.
-    ///     -ENOENT: The directory does not exist.
-    ///     -ESRCH: There is no current process.
     struct chdir
         : sys::syscall_handler<chdir, sys::syscall_id::chdir, sys::syscall_mode::sync> {
         static i64 invoke(sys::user_ptr<char> path) {

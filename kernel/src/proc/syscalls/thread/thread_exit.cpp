@@ -18,17 +18,6 @@
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
 
-    /// thread_exit - Terminate the calling user thread.
-    ///
-    /// Synopsis:
-    ///     long thread_exit(long result);
-    ///
-    /// Description:
-    ///     Terminates the calling thread and records result for a joining
-    ///     thread. A process becomes waitable after its last thread exits.
-    ///
-    /// Return Value:
-    ///     Does not return.
     struct thread_exit : sys::syscall_handler<thread_exit, sys::syscall_id::thread_exit,
                                               sys::syscall_mode::sync> {
         static i64 invoke(i64 result) {
