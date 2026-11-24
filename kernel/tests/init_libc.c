@@ -1306,6 +1306,112 @@ int main(int argc, char** argv) {
             return 75;
     }
 
+    {
+        sigset_t         tty_signals;
+        sigset_t         saved_mask;
+        struct sigaction saved_ttou;
+        const pid_t      parent_group = getpgrp();
+        int              status       = 0;
+        pid_t            child;
+
+        if (sigemptyset(&tty_signals) != 0 || sigaddset(&tty_signals, SIGTTOU) != 0 ||
+            sigaddset(&tty_signals, SIGTTIN) != 0 ||
+            sigprocmask(SIG_BLOCK, &tty_signals, &saved_mask) != 0)
+            return 193;
+        if (tcsetpgrp(0, parent_group) != 0)
+            return 193;
+        if (sigprocmask(SIG_SETMASK, &saved_mask, NULL) != 0)
+            return 193;
+
+        child = fork();
+        if (child < 0)
+            return 194;
+        if (child == 0) {
+            struct termios   original;
+            struct termios   with_tostop;
+            struct sigaction ignored = {0};
+            char             byte;
+            if (setpgid(0, 0) != 0)
+                _Exit(1);
+            if (sigprocmask(SIG_BLOCK, &tty_signals, NULL) != 0)
+                _Exit(2);
+            if (tcgetpgrp(0) == getpgrp())
+                _Exit(3);
+            if (tcsetpgrp(0, getpgrp()) != 0)
+                _Exit(4);
+            if (tcgetpgrp(0) != getpgrp())
+                _Exit(5);
+            if (tcgetattr(0, &original) != 0)
+                _Exit(6);
+            with_tostop = original;
+            with_tostop.c_lflag |= TOSTOP;
+            if (tcsetattr(0, TCSANOW, &with_tostop) != 0)
+                _Exit(7);
+            if (tcsetpgrp(0, parent_group) != 0)
+                _Exit(8);
+            errno = 0;
+            if (read(0, &byte, 1) != -1 || errno != EIO)
+                _Exit(9);
+            errno = 0;
+            if (write(0, "x", 1) != -1 || errno != EIO)
+                _Exit(10);
+            if (tcsetpgrp(0, getpgrp()) != 0)
+                _Exit(11);
+            if (tcgetpgrp(0) != getpgrp())
+                _Exit(12);
+            if (tcsetattr(0, TCSANOW, &original) != 0)
+                _Exit(13);
+            if (tcsetpgrp(0, parent_group) != 0)
+                _Exit(14);
+            ignored.sa_handler = SIG_IGN;
+            if (sigemptyset(&ignored.sa_mask) != 0 ||
+                sigaction(SIGTTOU, &ignored, &saved_ttou) != 0)
+                _Exit(15);
+            if (sigprocmask(SIG_UNBLOCK, &tty_signals, NULL) != 0)
+                _Exit(16);
+            if (tcsetpgrp(0, getpgrp()) != 0)
+                _Exit(17);
+            if (tcgetpgrp(0) != getpgrp())
+                _Exit(18);
+            if (tcsetpgrp(0, parent_group) != 0)
+                _Exit(19);
+            _Exit(0);
+        }
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 195;
+        if (tcgetpgrp(0) != parent_group)
+            return 196;
+        errno = 0;
+        if (tcsetpgrp(0, 0x7fffffff) != -1 || errno != EPERM)
+            return 197;
+
+        int sync_pipe[2];
+        if (pipe(sync_pipe) != 0)
+            return 198;
+        child = fork();
+        if (child < 0)
+            return 198;
+        if (child == 0) {
+            char sent = 'x';
+            if (close(sync_pipe[0]) != 0 || setsid() != getpid() ||
+                write(sync_pipe[1], &sent, 1) != 1)
+                _Exit(20);
+            for (;;)
+                asm volatile("" ::: "memory");
+        }
+        char received;
+        if (close(sync_pipe[1]) != 0 || read(sync_pipe[0], &received, 1) != 1 ||
+            received != 'x')
+            return 199;
+        errno = 0;
+        if (tcsetpgrp(0, child) != -1 || errno != EPERM)
+            return 199;
+        if (kill(child, SIGKILL) != 0 || waitpid(child, &status, 0) != child)
+            return 199;
+        if (close(sync_pipe[0]) != 0)
+            return 199;
+    }
+
     /* A login/session boundary is real kernel state, not a shell convention:
        a forked session leader detaches, cannot open /tty, then acquires the
        inherited UART explicitly and becomes its foreground group. */
