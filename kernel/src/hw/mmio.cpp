@@ -10,6 +10,7 @@
 #include <astia/memory.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
+// Hardware-layer implementation.
 namespace astia::hw {
 
     namespace {
