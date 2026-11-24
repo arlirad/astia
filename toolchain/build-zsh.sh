@@ -93,7 +93,7 @@ toolchain_revision=$(
 cat > "$build/config.site" <<'EOF'
 # Astia supplies the freestanding libc/kernel ABI.  These answers prevent
 # configure's cross-build probes from selecting host-only implementations.
-ac_cv_func_lstat=no
+ac_cv_func_lstat=yes
 ac_cv_func_wait3=no
 ac_cv_func_waitpid=yes
 ac_cv_func_sigsuspend=yes
@@ -110,6 +110,13 @@ config_key=$(printf '%s\n' "$zsh_build_source" "$source_revision" \
     sha256sum | awk '{print $1}')
 if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     [ "$(cat "$build/.astia-config-key")" != "$config_key" ]; then
+    {
+        if [ -f "$build/config.modules" ]; then
+            grep -v '^name=zsh/stat ' "$build/config.modules" || true
+        fi
+        printf '%s\n' 'name=zsh/stat modfile=Src/Modules/stat.mdd link=static load=no'
+    } > "$build/config.modules.tmp"
+    mv "$build/config.modules.tmp" "$build/config.modules"
     CONFIG_SITE="$build/config.site" \
         "$config_compat_dir/source/configure" \
     --host=x86_64-unknown-elf \

@@ -1,8 +1,12 @@
 #include <sys/wait.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
+
+#define ZSH_LSTAT_TARGET "/tmp/zsh-lstat-target"
+#define ZSH_LSTAT_LINK "/tmp/zsh-lstat-link"
 
 static int run_zsh(const char* command) {
     char* argv[] = {"/bin/zsh", "-f", "-c", (char*) command, NULL};
@@ -15,7 +19,41 @@ static int run_zsh(const char* command) {
     return status == 0 ? 0 : 120 + WEXITSTATUS(status);
 }
 
+static void check_zsh(int* result, int code, const char* command) {
+    if (*result == 0 && run_zsh(command) != 0)
+        *result = code;
+}
+
+static int create_link_fixture(void) {
+    int fd;
+    int result;
+
+    (void) unlink(ZSH_LSTAT_LINK);
+    (void) unlink(ZSH_LSTAT_TARGET);
+    fd = open(ZSH_LSTAT_TARGET, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0)
+        return -1;
+    result = write(fd, "lstat\n", 6) == 6 ? 0 : -1;
+    if (close(fd) != 0)
+        result = -1;
+    if (result != 0)
+        return -1;
+    return symlink(ZSH_LSTAT_TARGET, ZSH_LSTAT_LINK);
+}
+
+static int remove_link_fixture(void) {
+    int result = 0;
+
+    if (unlink(ZSH_LSTAT_LINK) != 0)
+        result = 1;
+    if (unlink(ZSH_LSTAT_TARGET) != 0)
+        result = 1;
+    return result;
+}
+
 int main(void) {
+    int result = 0;
+
     if (setenv("ASTIA_INHERITED", "parent", 1) != 0 || setenv("PATH", "/bin", 1) != 0)
         return 9;
     if (run_zsh("test \"$ASTIA_INHERITED\" = parent") != 0)
@@ -50,5 +88,19 @@ int main(void) {
     if (run_zsh("zmodload zsh/datetime && "
                 "[ \"$(strftime -r '%Y-%m-%d' '2026-11-23')\" = '1795392000' ]") != 0)
         return 31;
-    return 0;
+
+    if (create_link_fixture() != 0) {
+        (void) remove_link_fixture();
+        return 32;
+    }
+    check_zsh(&result, 33,
+              "[[ -L " ZSH_LSTAT_LINK " ]] && "
+              "[[ ! -L " ZSH_LSTAT_TARGET " ]]");
+    check_zsh(&result, 34,
+              "zmodload zsh/stat && "
+              "zstat -L -A st " ZSH_LSTAT_LINK " && "
+              "(( (st[3] & 8#170000) == 8#120000 ))");
+    if (remove_link_fixture() != 0 && result == 0)
+        result = 35;
+    return result;
 }
