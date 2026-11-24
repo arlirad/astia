@@ -32,19 +32,20 @@ namespace astia::proc::syscalls {
     }
 
     struct shm_open : sys::syscall_handler<shm_open, sys::syscall_id::shm_open,
-                                           sys::syscall_mode::sync> {
-        static i64 invoke(sys::user_ptr<char> address, int flags, unsigned int mode) {
+                                           sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::user_ptr<char> address, int flags,
+                                      unsigned int mode) {
             auto* owner = current_process();
             if (owner == nullptr)
-                return -ESRCH;
+                co_return -ESRCH;
             char name[fs::path_max]{};
             i64  rc = detail::copy_shared_memory_name(address, name);
             if (rc < 0)
-                return rc;
+                co_return rc;
             u32 wire = 0;
             rc       = native_flags(flags, wire);
             if (rc < 0)
-                return rc;
+                co_return rc;
             const auto permissions = fs::file_permissions(
                 static_cast<u16>(mode & fs::file_permissions_mask & ~owner->umask()));
             mm::shptr<fs::open_file> handle;
@@ -53,13 +54,13 @@ namespace astia::proc::syscalls {
                 uid_t{owner->uid()}, gid_t{owner->gid()}, uid_t{owner->euid()},
                 gid_t{owner->egid()}, owner->euid() == 0, handle);
             if (rc < 0)
-                return rc;
+                co_return rc;
             for (i32 fd = 0; fd < static_cast<i32>(max_process_fds); ++fd) {
                 if (!owner->descriptor(fd_t{fd}) &&
                     owner->set_descriptor(fd_t{fd}, handle, ASTIA_FD_CLOEXEC))
-                    return fd;
+                    co_return fd;
             }
-            return -EMFILE;
+            co_return -EMFILE;
         }
     };
 
