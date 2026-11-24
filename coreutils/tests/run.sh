@@ -32,6 +32,10 @@ rm -rf "$out"
 mkdir -p "$out/bin" "$out/root/bin" "$out/root/sbin"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$crt0" COREUTILS_BUILD="$out" \
     "$root/coreutils/build.sh"
+mkdir -p "$out/host"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
+    "$root/coreutils/tests/ls_layout_test.c" -o "$out/host/ls_layout_test"
+"$out/host/ls_layout_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 common="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
