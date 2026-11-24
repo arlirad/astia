@@ -106,7 +106,7 @@ static long kick_sleep(astia_rings* ring, uint64_t tag, long* rc_out) {
             *rc_out = 0;
             return result;
         }
-        if (astia_sigwait(&signal_set, &signal) < 0)
+        if (astia_sigwait(&signal_set, &signal) < 0 || signal != ASTIA_SIGAIO)
             break;
     }
     *rc_out = -1;
