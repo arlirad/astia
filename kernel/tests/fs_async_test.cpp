@@ -125,8 +125,10 @@ ASTIA_TEST(fs_async_awaits_parked_zero_completion) {
     ASTIA_CHECK(!task.done());
     ASTIA_CHECK(parked_completion != nullptr);
     ASTIA_CHECK(parked_request != nullptr);
-    parked_request->acknowledge();
-    ASTIA_CHECK(parked_completion->complete(17));
+    if (parked_request != nullptr && parked_completion != nullptr) {
+        parked_request->acknowledge();
+        ASTIA_CHECK(parked_completion->complete(17));
+    }
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(!task.failed());
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 17);
@@ -147,8 +149,10 @@ ASTIA_TEST(fs_async_write_uses_submit_park_and_wake) {
     ASTIA_CHECK(last_direction == astia::io::direction::output);
     ASTIA_CHECK(parked_completion != nullptr);
     ASTIA_CHECK(parked_request != nullptr);
-    parked_request->acknowledge();
-    ASTIA_CHECK(parked_completion->complete(2));
+    if (parked_request != nullptr && parked_completion != nullptr) {
+        parked_request->acknowledge();
+        ASTIA_CHECK(parked_completion->complete(2));
+    }
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(!task.failed());
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 2);
@@ -222,9 +226,12 @@ ASTIA_TEST(fs_async_completion_first_keeps_parked_request_stable) {
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
     ASTIA_CHECK(parked_request != nullptr);
-    ASTIA_CHECK(parked_request->begin_device());
-    buffer[0] = 0xa5;
-    ASTIA_CHECK(parked_completion->complete(4));
+    ASTIA_CHECK(parked_completion != nullptr);
+    if (parked_request != nullptr && parked_completion != nullptr) {
+        ASTIA_CHECK(parked_request->begin_device());
+        buffer[0] = 0xa5;
+        ASTIA_CHECK(parked_completion->complete(4));
+    }
     ASTIA_CHECK(task.done());
     parked_request->end_device();
     ASTIA_CHECK(!task.failed());
@@ -245,16 +252,18 @@ ASTIA_TEST(fs_async_active_cancel_releases_device_reference_once) {
         ASTIA_CHECK(task.resume());
         ASTIA_CHECK(parked_request != nullptr);
         auto* request = parked_request;
-        ASTIA_CHECK(request->begin_device());
-        task.reset();
-        ASTIA_CHECK(request->cancellation_requested());
-        if ((cycle & 1) != 0) {
-            request->acknowledge();
-            request->end_device();
-        }
-        else {
-            request->end_device();
-            request->acknowledge();
+        if (request != nullptr) {
+            ASTIA_CHECK(request->begin_device());
+            task.reset();
+            ASTIA_CHECK(request->cancellation_requested());
+            if ((cycle & 1) != 0) {
+                request->acknowledge();
+                request->end_device();
+            }
+            else {
+                request->end_device();
+                request->acknowledge();
+            }
         }
     }
 }
