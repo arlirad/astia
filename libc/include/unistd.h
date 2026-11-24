@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/api/wait.h>
+
 #include <sys/types.h>
 
 /*
