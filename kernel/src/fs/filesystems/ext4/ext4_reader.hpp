@@ -2,7 +2,7 @@
 
 #include <astia/common.hpp>
 
-namespace astia::ext4 {
+namespace astia::fs::filesystems::ext4 {
 
     using read_at_fn = bool (*)(void* context, u64 offset, void* buffer, usize length);
 
@@ -125,4 +125,4 @@ namespace astia::ext4 {
         u8         _extent_block[4096]{};
     };
 
-} // namespace astia::ext4
+} // namespace astia::fs::filesystems::ext4

@@ -2,7 +2,7 @@
 
 #include <astia/core/endian.hpp>
 
-namespace astia::ext4 {
+namespace astia::fs::filesystems::ext4 {
 
     namespace {
 
@@ -653,4 +653,4 @@ namespace astia::ext4 {
         return true;
     }
 
-} // namespace astia::ext4
+} // namespace astia::fs::filesystems::ext4

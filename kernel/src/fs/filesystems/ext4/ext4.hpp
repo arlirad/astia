@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../filesystem.hpp"
+#include "../../filesystem.hpp"
 #include "ext4_reader.hpp"
 
-namespace astia::fs {
+namespace astia::fs::filesystems {
 
     class ext4_mount;
 
@@ -147,4 +147,4 @@ namespace astia::fs {
 
     ext4_filesystem& ext4_type();
 
-} // namespace astia::fs
+} // namespace astia::fs::filesystems

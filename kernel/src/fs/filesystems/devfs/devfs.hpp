@@ -2,9 +2,9 @@
 
 #include <astia/core/spinlock.hpp>
 
-#include "filesystem.hpp"
+#include "../../filesystem.hpp"
 
-namespace astia::fs {
+namespace astia::fs::filesystems {
 
     inline constexpr u32 devfs_max_entries = 32;
 
@@ -48,4 +48,4 @@ namespace astia::fs {
         devfs_mount* _instance = nullptr;
     };
 
-} // namespace astia::fs
+} // namespace astia::fs::filesystems
