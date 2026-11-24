@@ -5,6 +5,7 @@
 #include "process_port.h"
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -42,6 +43,24 @@ int getlogin_r(char* name, unsigned long name_size) {
     if (length + 1 > name_size)
         return ERANGE;
     memcpy(name, account->pw_name, length + 1);
+    return 0;
+}
+
+int gethostname(char* name, size_t namelen) {
+    struct utsname uts;
+    size_t         length;
+
+    if (name == NULL || namelen == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (uname(&uts) < 0)
+        return -1;
+    length = strnlen(uts.nodename, sizeof uts.nodename);
+    if (length >= namelen)
+        length = namelen - 1;
+    memcpy(name, uts.nodename, length);
+    name[length] = '\0';
     return 0;
 }
 

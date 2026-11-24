@@ -27,6 +27,7 @@ char*         ttyname(int fd);
 int           ttyname_r(int fd, char* buffer, size_t buffer_size);
 char*         getlogin(void);
 int           getlogin_r(char* name, unsigned long name_size);
+int           gethostname(char* name, size_t namelen);
 
 /* Create a process from the executable at `path` with the given
  * NULL-terminated argv/envp (a null vector means empty).  Returns the
