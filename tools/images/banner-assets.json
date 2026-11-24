@@ -1,0 +1,25 @@
+{
+  "assets": [
+    {
+      "path": "img/banner.png",
+      "pixels_sha256": "5249c2d9a6aba76ba986bad9f79d8907cc3a80a25a8b264a2909fef712079d8d",
+      "sha256": "5fb69141fde6473801572110a731ef125d77e2b1e4bb012d7ff2e2d6e23d6af5"
+    },
+    {
+      "path": "frontend/public/img/banner.png",
+      "pixels_sha256": "5249c2d9a6aba76ba986bad9f79d8907cc3a80a25a8b264a2909fef712079d8d",
+      "sha256": "5fb69141fde6473801572110a731ef125d77e2b1e4bb012d7ff2e2d6e23d6af5"
+    }
+  ],
+  "canvas": {
+    "dpi": 96,
+    "height": 1024,
+    "pixels_per_meter": 3780,
+    "width": 3072
+  },
+  "png": {
+    "bit_depth": 8,
+    "color_type": 6,
+    "interlace": 0
+  }
+}

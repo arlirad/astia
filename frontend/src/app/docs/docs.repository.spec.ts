@@ -183,8 +183,8 @@ describe('GitHubDocsSource', () => {
   it('resolves images to raw repository URLs and rejects unsafe sources', () => {
     const source = new GitHubDocsSource(DEFAULT_DOCS_REPOSITORY_CONFIG);
 
-    expect(source.resolveImage('img/banner.svg', 'README.md')).toBe(
-      'https://raw.githubusercontent.com/arlirad/astia/main/img/banner.svg',
+    expect(source.resolveImage('img/banner.png', 'README.md')).toBe(
+      'https://raw.githubusercontent.com/arlirad/astia/main/img/banner.png',
     );
     expect(source.resolveImage('https://example.com/banner.png', 'README.md')).toBe(
       'https://example.com/banner.png',
