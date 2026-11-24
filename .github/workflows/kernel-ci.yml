@@ -94,16 +94,19 @@ jobs:
       - name: Build kernel and test artifacts
         run: |
           set -o pipefail
-          cmake --build build-tests --parallel 2 2>&1 | tee build-tests/build.log
+          cmake --build build-tests --parallel 4 2>&1 | tee build-tests/build.log
 
       - name: Run enabled CTest suite
         run: |
           set -o pipefail
+          # Two jobs overlap one QEMU test with host-only tests; VM-launching
+          # tests hold RESOURCE_LOCK astia-qemu, boot tests are RUN_SERIAL,
+          # and build-step tests hold RESOURCE_LOCK astia-build-tree.
           ctest --test-dir build-tests \
             --output-on-failure \
             --output-log build-tests/ctest.log \
             --test-timeout 120 \
-            --parallel 1 \
+            --parallel 2 \
             2>&1 | tee build-tests/ctest-run.log
 
       - name: Run focused AArch64 FDT parser test
