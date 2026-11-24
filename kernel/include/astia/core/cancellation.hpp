@@ -36,31 +36,23 @@ namespace astia::core {
         friend class clsource;
 
         public:
-        cltoken() = default;
+        /// Attaches to a source that is never cancelled or reset.
+        cltoken();
 
-        bool attached() const {
-            return _source != nullptr;
-        }
         const clsource* source() const {
             return _source;
         }
         u64 generation() const {
             return _generation;
         }
+        /// True when the source epoch has been reset.
         bool stale() const;
         bool valid() const {
-            return attached() && !stale();
+            return !stale();
         }
-        bool cancellation_requested() const;
-        bool requested() const {
-            return cancellation_requested();
-        }
-        bool canceled() const {
-            return cancellation_requested();
-        }
-        bool cancelled() const {
-            return cancellation_requested();
-        }
+        /// True when the token can no longer authorize work: its source was
+        /// cancelled or reset to a new epoch.
+        bool          canceled() const;
         cancel_reason reason() const;
     };
 
@@ -140,14 +132,20 @@ namespace astia::core {
         }
     };
 
+    /// Source for default-constructed tokens.  It is never cancelled or
+    /// reset, so a default token is valid and authorizes work.
+    inline constinit clsource unrestricted_source;
+
+    inline cltoken::cltoken()
+        : _source(&unrestricted_source), _generation(unrestricted_source.generation()) {}
+
     inline bool cltoken::stale() const {
-        return _source == nullptr || !_source->_current(_generation) ||
-               !_source->_chain_current();
+        return !_source->_current(_generation) || !_source->_chain_current();
     }
 
-    inline bool cltoken::cancellation_requested() const {
+    inline bool cltoken::canceled() const {
         if (stale())
-            return false;
+            return true;
         for (const clsource* source = _source; source != nullptr;
              source                 = source->_parent) {
             if (source->_requested())

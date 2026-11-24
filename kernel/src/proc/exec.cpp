@@ -41,6 +41,7 @@ namespace astia::proc {
         struct stream_context {
             image_map                map;
             mm::shptr<fs::open_file> file;
+            core::cltoken            token;
 
             ~stream_context();
         };
@@ -394,7 +395,8 @@ namespace astia::proc {
             auto* context = static_cast<stream_context*>(opaque);
             if (context == nullptr || !context->file)
                 co_return error_t::ebadf;
-            auto result = co_await fs::read_exact(context->file, destination, offset);
+            auto result = co_await fs::read_exact(context->file, destination, offset,
+                                                  context->token);
             if (!result)
                 co_return result.error;
             co_return result.value;
@@ -408,8 +410,8 @@ namespace astia::proc {
             u8* destination = nullptr;
             if (!stream_destination(context->map, address, length, destination))
                 co_return error_t::efault;
-            auto result = co_await fs::read_exact(context->file,
-                                                  span<u8>(destination, length), offset);
+            auto result = co_await fs::read_exact(
+                context->file, span<u8>(destination, length), offset, context->token);
             if (!result)
                 co_return result.error;
             co_return result.value;
@@ -439,8 +441,9 @@ namespace astia::proc {
 
         core::task<bool> map_tls_file_async(mm::address_space&       map,
                                             mm::shptr<fs::open_file> file,
-                                            const elf::image& image, u64& tp_out,
-                                            u64& frames_out, u64& pages_out) {
+                                            core::cltoken token, const elf::image& image,
+                                            u64& tp_out, u64& frames_out,
+                                            u64& pages_out) {
             u64 tls_span = 0;
             u64 pages    = 0;
             if (!tls_layout(image, tls_span, pages))
@@ -463,7 +466,7 @@ namespace astia::proc {
                 auto  read        = co_await fs::read_exact(
                     file,
                     astia::span<u8>(destination, static_cast<usize>(image.tls_filesz)),
-                    image.tls_offset);
+                    image.tls_offset, token);
                 if (!read) {
                     unmap_run(map, user_tls_base, pages);
                     mm::kernel_frames().release(frames, pages);
@@ -487,7 +490,7 @@ namespace astia::proc {
         if (!map.valid())
             co_return false;
 
-        stream_context stream{{&map, user_image_base}, file};
+        stream_context stream{{&map, user_image_base}, file, _cancellation_root.token()};
         elf::async_env environment{&stream,           map_user_stream, nullptr,
                                    read_stream_async, copy_image,      unmap_user_stream};
         environment.read_to = read_stream_to_async;
@@ -521,7 +524,8 @@ namespace astia::proc {
         }
         if (image.tls_memsz != 0) {
             u64  tls_frames = 0, tls_pages = 0, tp = 0;
-            auto tls = co_await map_tls_file_async(_address_space, file, image, tp,
+            auto tls = co_await map_tls_file_async(_address_space, file,
+                                                   _cancellation_root.token(), image, tp,
                                                    tls_frames, tls_pages);
             if (!tls || !tls.value) {
                 rollback_tls_failure(&stream.map, _address_space);

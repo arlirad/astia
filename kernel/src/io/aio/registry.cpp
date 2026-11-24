@@ -64,7 +64,7 @@ namespace astia::io::aio::registry {
         if (!state)
             return false;
         const core::cltoken token = runner::token(state.get());
-        if (token.cancellation_requested())
+        if (token.canceled())
             return ring::cq_post_guarded(ring, sqe.user_data, -ECANCELED);
         return runner::launch(entry->invoke(slot, ring, sqe, token),
                               static_cast<mm::shptr<runner::detached_state>&&>(state),
