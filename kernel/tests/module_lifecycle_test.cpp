@@ -106,16 +106,18 @@ namespace {
         return entry();
     }
 
-    ASTIA_NO_SANITIZE_FUNCTION void invoke_initializer(astia::elf::init_fn initializer) {
+    ASTIA_NO_SANITIZE_FUNCTION void
+    invoke_initializer(astia::elf::loader::init_fn initializer) {
         initializer();
     }
 
-    ASTIA_NO_SANITIZE_FUNCTION void invoke_finalizer(astia::elf::init_fn finalizer) {
+    ASTIA_NO_SANITIZE_FUNCTION void
+    invoke_finalizer(astia::elf::loader::init_fn finalizer) {
         finalizer();
     }
 
-    astia::elf::env environment(loader_state& state) {
-        astia::elf::env env{};
+    astia::elf::loader::env environment(loader_state& state) {
+        astia::elf::loader::env env{};
         env.ctx     = &state;
         env.map     = map_image;
         env.unmap   = unmap_image;
@@ -135,11 +137,11 @@ namespace astia::mod::host_test {
         return ::invoke_entry(entry);
     }
 
-    void invoke_initializer(elf::init_fn initializer) {
+    void invoke_initializer(elf::loader::init_fn initializer) {
         ::invoke_initializer(initializer);
     }
 
-    void invoke_finalizer(elf::init_fn finalizer) {
+    void invoke_finalizer(elf::loader::init_fn finalizer) {
         ::invoke_finalizer(finalizer);
     }
 
@@ -149,7 +151,7 @@ ASTIA_TEST(module_lifecycle_runs_loaded_image_and_unloads_after_exit) {
     loader_state state{};
     observation  observation{};
     active_observation                      = &observation;
-    const astia::elf::env            env    = environment(state);
+    const astia::elf::loader::env    env    = environment(state);
     const astia::usize               before = astia::mod::count();
     const astia::mod::loaded_module* module = astia::mod::load_module(
         blob(module_lifecycle_blob, module_lifecycle_blob_len), env);
@@ -194,7 +196,7 @@ ASTIA_TEST(module_lifecycle_runs_atexit_handlers_before_fini) {
     loader_state state{};
     observation  observation{};
     active_observation                      = &observation;
-    const astia::elf::env            env    = environment(state);
+    const astia::elf::loader::env    env    = environment(state);
     const astia::mod::loaded_module* module = astia::mod::load_module(
         blob(module_lifecycle_atexit_blob, module_lifecycle_atexit_blob_len), env);
 
@@ -221,7 +223,7 @@ ASTIA_TEST(module_lifecycle_enforces_atexit_capacity) {
     loader_state state{};
     observation  observation{};
     active_observation                      = &observation;
-    const astia::elf::env            env    = environment(state);
+    const astia::elf::loader::env    env    = environment(state);
     const astia::mod::loaded_module* module = astia::mod::load_module(
         blob(module_lifecycle_limit_blob, module_lifecycle_limit_blob_len), env);
 
@@ -244,7 +246,7 @@ ASTIA_TEST(module_lifecycle_filters_external_dso_finalize) {
     loader_state state{};
     observation  observation{};
     active_observation                      = &observation;
-    const astia::elf::env            env    = environment(state);
+    const astia::elf::loader::env    env    = environment(state);
     const astia::mod::loaded_module* module = astia::mod::load_module(
         blob(module_lifecycle_dso_blob, module_lifecycle_dso_blob_len), env);
 
@@ -276,7 +278,7 @@ ASTIA_TEST(module_lifecycle_filters_external_dso_finalize) {
 
 ASTIA_TEST(module_lifecycle_allows_optional_exit_array) {
     loader_state                     state{};
-    const astia::elf::env            env    = environment(state);
+    const astia::elf::loader::env    env    = environment(state);
     const astia::mod::loaded_module* module = astia::mod::load_module(
         blob(module_lifecycle_no_fini_blob, module_lifecycle_no_fini_blob_len), env);
 
@@ -296,7 +298,7 @@ ASTIA_TEST(module_lifecycle_sorts_compiler_priority_sections) {
     loader_state state{};
     observation  observation{};
     active_observation                      = &observation;
-    const astia::elf::env            env    = environment(state);
+    const astia::elf::loader::env    env    = environment(state);
     const astia::mod::loaded_module* module = astia::mod::load_module(
         blob(module_lifecycle_priority_blob, module_lifecycle_priority_blob_len), env);
 
@@ -328,9 +330,9 @@ ASTIA_TEST(module_lifecycle_sorts_compiler_priority_sections) {
 
 ASTIA_TEST(module_lifecycle_rolls_back_failed_load) {
     loader_state state{};
-    state.resolve_enabled        = false;
-    const astia::elf::env env    = environment(state);
-    const astia::usize    before = astia::mod::count();
+    state.resolve_enabled                = false;
+    const astia::elf::loader::env env    = environment(state);
+    const astia::usize            before = astia::mod::count();
 
     ASTIA_CHECK(
         astia::mod::load_module(blob(module_lifecycle_blob, module_lifecycle_blob_len),

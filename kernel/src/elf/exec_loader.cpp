@@ -2,7 +2,7 @@
 
 #include <new>
 
-namespace astia::elf {
+namespace astia::elf::loader {
 
     using namespace detail;
 
@@ -749,4 +749,4 @@ namespace astia::elf {
         co_return result;
     }
 
-} // namespace astia::elf
+} // namespace astia::elf::loader
