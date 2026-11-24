@@ -561,7 +561,7 @@ if(ASTIA_BUILD_TESTS)
                 NVME_CASE=polling
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
     set_tests_properties(astia_nvme_msix astia_nvme_polling
-            PROPERTIES RESOURCE_LOCK astia-qemu)
+            PROPERTIES RESOURCE_LOCK "astia-qemu;astia-build-tree")
 
     astia_register_script_test(astia_virtio_blk_read_write
             "virtio;qemu;read-write;deterministic"
@@ -582,7 +582,7 @@ if(ASTIA_BUILD_TESTS)
                 VIRTIO_BLK_READONLY=1
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
     set_tests_properties(astia_virtio_blk_read_write astia_virtio_blk_read_only
-            PROPERTIES RESOURCE_LOCK astia-qemu)
+            PROPERTIES RESOURCE_LOCK "astia-qemu;astia-build-tree")
 
     astia_register_script_test(astia_usb_xhci_qemu
             "usb;xhci;qemu;deterministic"
@@ -593,7 +593,7 @@ if(ASTIA_BUILD_TESTS)
                 ASTIA_USB_BUILD=${CMAKE_BINARY_DIR}/usb-state
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
     set_tests_properties(astia_usb_xhci_qemu PROPERTIES
-            RESOURCE_LOCK astia-qemu SKIP_RETURN_CODE 77)
+            RESOURCE_LOCK "astia-qemu;astia-build-tree" SKIP_RETURN_CODE 77)
 
     set(_astia_zsh_env)
     list(APPEND _astia_zsh_env ZSH_SOURCE=${ASTIA_ZSH_SOURCE})
@@ -745,10 +745,11 @@ if(ASTIA_BUILD_TESTS)
         set_tests_properties(usb_xhci_qemu_enumeration
                 PROPERTIES ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}")
     endif()
-    if(TEST rtl8139_qemu_module_load)
-        set_tests_properties(rtl8139_qemu_module_load
-                PROPERTIES ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}")
-    endif()
+    file(WRITE "${CMAKE_BINARY_DIR}/rtl8139-build-tree-lock.cmake"
+            [=[set_tests_properties(rtl8139_qemu_module_load
+                    PROPERTIES RESOURCE_LOCK "astia-build-tree")]=])
+    set_property(DIRECTORY pkg APPEND PROPERTY TEST_INCLUDE_FILES
+            "${CMAKE_BINARY_DIR}/rtl8139-build-tree-lock.cmake")
 
     # CTest build steps share one CMake binary tree; serialize them so a
     # parallel CTest run cannot invoke Ninja concurrently.

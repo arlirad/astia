@@ -120,7 +120,7 @@ if(ASTIA_BUILD_TESTS)
             LABELS "module;usb;xhci;qemu;deterministic"
             ENVIRONMENT "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR}"
             FIXTURES_REQUIRED astia-qemu-artifacts
-            RESOURCE_LOCK astia-qemu)
+            RESOURCE_LOCK "astia-qemu;astia-build-tree")
     add_test(NAME usb_xhci_qemu_rollback
             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu.sh)
     set_tests_properties(usb_xhci_qemu_rollback PROPERTIES
@@ -128,7 +128,7 @@ if(ASTIA_BUILD_TESTS)
             ENVIRONMENT
             "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR};ASTIA_USB_ROLLBACK_TEST=1;ASTIA_USB_MODULE=${CMAKE_CURRENT_BINARY_DIR}/usb-failure.o;ASTIA_USB_MODULE_TARGET=usb_failure_module"
             FIXTURES_REQUIRED astia-qemu-artifacts
-            RESOURCE_LOCK astia-qemu)
+            RESOURCE_LOCK "astia-qemu;astia-build-tree")
 endif()
 
 add_custom_target(usb_qemu_capability_smoke
