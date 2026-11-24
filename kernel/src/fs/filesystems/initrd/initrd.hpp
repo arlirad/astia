@@ -1,10 +1,12 @@
 #pragma once
 
-#include "filesystem.hpp"
-#include "initrd.hpp"
 #include <astia/span.hpp>
 
-namespace astia::fs {
+#include "../../filesystem.hpp"
+
+#include <initrd.hpp>
+
+namespace astia::fs::filesystems {
 
     inline constexpr u32 initrd_max_entries = 64;
 
@@ -49,4 +51,4 @@ namespace astia::fs {
 
     initrd_filesystem& initrd_type();
 
-} // namespace astia::fs
+} // namespace astia::fs::filesystems

@@ -14,7 +14,7 @@ PROMPT = b"ASTIA_READY> "
 EXPECTED_STATUS = 1
 TIMEOUT = 60.0
 KERNEL_PROC_LINE = re.compile(rb"^\[\s*[0-9]+\.[0-9]+[^\r\n]*\]\s+proc:")
-TTY_ERROR_MARKERS = (b"bad tcgets", b"unknown error")
+TTY_ERROR_MARKERS = (b"bad tcgets", b"unknown error", b"can't set tty pgrp")
 ANSI_CSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
@@ -128,6 +128,22 @@ def run_command(serial, command, expected):
         )
 
 
+def run_nested_init(serial):
+    serial.send(b"cd sbin; ./init\n")
+    response = serial.read_until(PROMPT, time.monotonic() + TIMEOUT)
+    for marker in TTY_ERROR_MARKERS:
+        if marker in response:
+            raise HarnessError("nested init terminal error %r: %r" % (marker, response))
+    run_command(serial, "echo AFTER_INIT", "AFTER_INIT\n")
+    serial.send(b"exit\n")
+    response = serial.read_until(PROMPT, time.monotonic() + TIMEOUT)
+    for marker in TTY_ERROR_MARKERS:
+        if marker in response:
+            raise HarnessError(
+                "nested init exit terminal error %r: %r" % (marker, response))
+    run_command(serial, "cd /; echo OUTER_AFTER_INIT", "OUTER_AFTER_INIT\n")
+
+
 def run_nano(serial, filename):
     command = "nano" + (" " + filename if filename else "")
     serial.send(command.encode() + b"\n")
@@ -174,6 +190,7 @@ def main():
             run_command(serial, "echo PIPE_OK | cat", "PIPE_OK\n")
             run_command(serial, "echo REDIRECT_OK >/tmp/zsh-output; cat /tmp/zsh-output",
                         "REDIRECT_OK\n")
+            run_nested_init(serial)
             if args.nano:
                 if args.nano_iterations < 1:
                     raise HarnessError("--nano-iterations must be positive")

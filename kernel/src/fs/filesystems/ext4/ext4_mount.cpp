@@ -1,8 +1,8 @@
-#include "ext4.hpp"
-
 #include <astia/api/errno.h>
 
-namespace astia::fs {
+#include "ext4.hpp"
+
+namespace astia::fs::filesystems {
 
     namespace {
         bool equal(const char* lhs, const char* rhs) {
@@ -94,38 +94,6 @@ namespace astia::fs {
             context.result = 1;
             return false;
         }
-    }
-
-    core::task<i64> ext4_file::readv(span<const buffer> buffers, u64 offset,
-                                     core::cltoken token) {
-        return submit_readv(buffers, offset, token);
-    }
-
-    core::task<i64> ext4_file::writev(span<const buffer> buffers, u64 offset,
-                                      core::cltoken token) {
-        return submit_writev(buffers, offset, token);
-    }
-
-    long ext4_file::read_ready(void* buffer, u32 length, u64 offset) {
-        if (_node.type() != ext4::node_type::regular)
-            return -EISDIR;
-        if (offset >= _node.size)
-            return 0;
-        const u64 available = _node.size - offset;
-        const u32 count     = available < length ? static_cast<u32>(available) : length;
-        if (count == 0)
-            return 0;
-        return _owner->read_file(_node, buffer, count, offset) ? count : -EIO;
-    }
-
-    long ext4_file::size() const {
-        return _node.size > static_cast<u64>(~i64{0} >> 1)
-                   ? -EOVERFLOW
-                   : static_cast<long>(_node.size);
-    }
-
-    file_mode ext4_file::mode() const {
-        return ext4_mount::vfs_mode(_node);
     }
 
     bool ext4_mount::read_source(void* context, u64 offset, void* buffer, usize length) {
@@ -311,4 +279,4 @@ namespace astia::fs {
         return type;
     }
 
-} // namespace astia::fs
+} // namespace astia::fs::filesystems

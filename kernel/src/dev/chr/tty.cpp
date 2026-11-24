@@ -165,6 +165,9 @@ namespace astia::dev {
             timeout_read ? read_available(request.buffer(), request.length(),
                                           request.offset(), true)
                          : read(request.buffer(), request.length(), request.offset());
+        if (count < 0) {
+            return count;
+        }
         if (count > 0) {
             return count;
         }

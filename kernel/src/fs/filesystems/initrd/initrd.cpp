@@ -1,9 +1,9 @@
-#include "initrd_fs.hpp"
+#include "initrd.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
 
-namespace astia::fs {
+namespace astia::fs::filesystems {
 
     namespace {
         class initrd_file final : public file, public readable, public writable {
@@ -281,4 +281,4 @@ namespace astia::fs {
         return type;
     }
 
-} // namespace astia::fs
+} // namespace astia::fs::filesystems
